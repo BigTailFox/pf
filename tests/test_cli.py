@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from pf.cli import CliContext, create_app
+from pf.cli import CliContext, build_context, create_app
+from pf.errors import ConfigurationError
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -300,3 +301,95 @@ def test_minimize_does_not_apply_when_search_report_is_incomplete(
 
     assert exit_code == 2
     assert stdout.getvalue() == "search completed (1 reports)\n"
+
+
+def test_minimize_applies_after_a_complete_search(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SearchWorkflow:
+        def __init__(self) -> None:
+            self.request: SearchRequest | None = None
+
+        def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]:
+            self.request = request
+            return ()
+
+    class ApplyWorkflow:
+        def __init__(self) -> None:
+            self.request: ApplyRequest | None = None
+
+        def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
+            self.request = request
+            return (
+                ProjectEditResult(
+                    changed=False,
+                    pyproject_path="pyproject.toml",
+                    recovery_log_path=".pf/apply-recovery.json",
+                ),
+            )
+
+    monkeypatch.chdir(tmp_path)
+    stdout = StringIO()
+    search = SearchWorkflow()
+    apply = ApplyWorkflow()
+    context = CliContext(
+        check_workflow=NeverCheck(),
+        search_workflow=search,
+        apply_workflow=apply,
+        presenter=TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+        ),
+    )
+
+    exit_code = create_app(context)(
+        ["minimize", "demo"],
+        exit_on_error=False,
+        result_action="return_value",
+    )
+
+    expected_root = tmp_path.as_posix()
+    assert exit_code == 0
+    assert search.request == SearchRequest(root=expected_root, package="demo")
+    assert apply.request == ApplyRequest(root=expected_root, package="demo")
+    assert stdout.getvalue() == (
+        "search completed (0 reports)\napply completed (0 changed)\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    (
+        ("search",),
+        ("apply",),
+        ("minimize",),
+        ("explain",),
+        ("merge", "--output", "merged.json"),
+    ),
+)
+def test_commands_reject_an_unassembled_workflow(argv: tuple[str, ...]) -> None:
+    context = CliContext(
+        check_workflow=NeverCheck(),
+        presenter=TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+        ),
+    )
+
+    with pytest.raises(ConfigurationError, match="workflow.*not assembled"):
+        create_app(context)(
+            list(argv),
+            exit_on_error=False,
+            result_action="return_value",
+        )
+
+
+def test_default_context_assembles_every_v1_workflow() -> None:
+    context = build_context()
+
+    assert context.check_workflow is not None
+    assert context.search_workflow is not None
+    assert context.apply_workflow is not None
+    assert context.explain_workflow is not None
+    assert context.merge_workflow is not None

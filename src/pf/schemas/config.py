@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import StrictInt, field_validator, model_validator
 
 from pf.schemas.base import FrozenSchema
 
@@ -27,7 +27,7 @@ class EffectiveConfig(FrozenSchema):
     test_command: tuple[str, ...] = ()
     test_failure_exit_codes: tuple[int, ...] = (1,)
     command_cwd: Literal["package", "root"] = "package"
-    jobs: Literal["auto"] | int = "auto"
+    jobs: Literal["auto"] | StrictInt = "auto"
     resolve_timeout: int | None = 600
     ty_timeout: int | None = 600
     test_timeout: int | None = 1800
@@ -64,7 +64,7 @@ class CheckRequest(FrozenSchema):
 class SearchRequest(FrozenSchema):
     root: str
     package: str | None = None
-    jobs: Literal["auto"] | int = "auto"
+    jobs: Literal["auto"] | StrictInt = "auto"
     max_duration_seconds: float | None = None
 
     @model_validator(mode="after")

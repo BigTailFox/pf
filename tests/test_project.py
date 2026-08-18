@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pf.errors import ConfigurationError
-from pf.project import ProjectLoader
+from pf.project import ProjectLoader, host_target, marker_platform
 from pf.schemas.project import SourceIdentity
 
 
@@ -400,3 +400,328 @@ test-command = ["pytest"]
     assert package.cells[0].active_declaration_ids == (
         package.declarations[0].declaration_id,
     )
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    (
+        (
+            "x86_64-unknown-linux-musl",
+            {"sys_platform": "linux", "platform_machine": "x86_64"},
+        ),
+        (
+            "aarch64-apple-darwin",
+            {"sys_platform": "darwin", "platform_machine": "arm64"},
+        ),
+        (
+            "x86_64-pc-windows-msvc",
+            {"sys_platform": "win32", "platform_machine": "AMD64"},
+        ),
+        (
+            "aarch64-pc-windows-msvc",
+            {"sys_platform": "win32", "platform_machine": "ARM64"},
+        ),
+    ),
+)
+def test_marker_platform_exposes_pep_508_runtime_values(
+    target: str,
+    expected: dict[str, str],
+) -> None:
+    assert marker_platform(target) == expected
+
+
+def test_marker_platform_rejects_unknown_target_families() -> None:
+    with pytest.raises(ConfigurationError, match="unsupported target platform"):
+        marker_platform("wasm32-unknown-unknown")
+
+
+@pytest.mark.parametrize(
+    ("sys_platform", "machine", "libc", "expected"),
+    (
+        ("linux", "AMD64", ("musl", "1.2"), "x86_64-unknown-linux-musl"),
+        ("darwin", "arm64", ("", ""), "aarch64-apple-darwin"),
+        ("win32", "AMD64", ("", ""), "x86_64-pc-windows-msvc"),
+    ),
+)
+def test_host_target_normalizes_supported_runtime_platforms(
+    monkeypatch: pytest.MonkeyPatch,
+    sys_platform: str,
+    machine: str,
+    libc: tuple[str, str],
+    expected: str,
+) -> None:
+    monkeypatch.setattr("sys.platform", sys_platform)
+    monkeypatch.setattr("platform.machine", lambda: machine)
+    monkeypatch.setattr("platform.libc_ver", lambda: libc)
+
+    assert host_target() == expected
+
+
+def test_host_target_rejects_an_unsupported_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("sys.platform", "emscripten")
+    monkeypatch.setattr("platform.machine", lambda: "wasm32")
+    with pytest.raises(ConfigurationError, match="unsupported host platform"):
+        host_target()
+
+
+def write_basic_project(tmp_path: Path, configuration: str, *, project: str = "") -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna"]
+{project}
+
+{configuration}
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    ("configuration", "message"),
+    (
+        ('[tool.uv]\nindex = ["bad"]', "invalid uv index declaration"),
+        ('[[tool.uv.index]]\nname = "missing-url"', "requires name and url"),
+        (
+            '[[tool.uv.index]]\nname = "flat"\nurl = "https://example.test"\nformat = "flat"',
+            "unsupported uv index format",
+        ),
+        (
+            '[[tool.uv.index]]\nname = "same"\nurl = "https://one.test/simple"\n'
+            '[[tool.uv.index]]\nname = "same"\nurl = "https://two.test/simple"',
+            "ambiguous uv index",
+        ),
+        (
+            '[[tool.uv.index]]\nname = "first"\nurl = "https://one.test/simple"',
+            "unscoped first-index",
+        ),
+        (
+            '[[tool.uv.index]]\nname = "one"\nurl = "https://one.test/simple"\ndefault = true\n'
+            '[[tool.uv.index]]\nname = "two"\nurl = "https://two.test/simple"\ndefault = true',
+            "multiple default uv indexes",
+        ),
+        (
+            '[tool.uv.sources]\nidna = [{ workspace = true }]',
+            "multiple uv sources",
+        ),
+        ('[tool.uv.sources]\nidna = "bad"', "invalid uv source"),
+        ('[tool.uv.sources]\nidna = { path = "../outside" }', "escapes snapshot root"),
+        ('[tool.uv.sources]\nidna = { git = "https://example.test/repo", rev = "main" }', "exact commit"),
+        ('[tool.uv.sources]\nidna = { url = "https://example.test/idna.whl" }', "integrity information"),
+        ('[tool.uv.sources]\nidna = { index = "missing" }', "unknown uv index"),
+        ('[tool.uv.sources]\nidna = { editable = true }', "unsupported uv source"),
+        (
+            '[tool.uv.sources]\nidna = { url = "relative.whl", hash = "sha256:abc" }',
+            "source URL must be absolute",
+        ),
+    ),
+)
+def test_project_loader_rejects_ambiguous_uv_source_configuration(
+    tmp_path: Path,
+    configuration: str,
+    message: str,
+) -> None:
+    write_basic_project(tmp_path, configuration)
+
+    with pytest.raises(ConfigurationError, match=message):
+        ProjectLoader().load(root=tmp_path, package_selection=None)
+
+
+@pytest.mark.parametrize(
+    ("project", "message"),
+    (
+        ('dynamic = ["dependencies"]', "dynamic project.dependencies"),
+        ('requires-python = "not valid"', "invalid project.requires-python"),
+        ('requires-python = ">=3.11"', "configured Python 3.10 violates"),
+    ),
+)
+def test_project_loader_rejects_unsupported_project_metadata(
+    tmp_path: Path,
+    project: str,
+    message: str,
+) -> None:
+    write_basic_project(tmp_path, "", project=project)
+
+    with pytest.raises(ConfigurationError, match=message):
+        ProjectLoader().load(root=tmp_path, package_selection=None)
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    (
+        "not [valid",
+        "demo @ http://example.test/demo.whl",
+        "demo @ https://user:secret@example.test/demo.whl#sha256=abc",
+    ),
+)
+def test_project_loader_rejects_invalid_dependency_declarations(
+    tmp_path: Path,
+    dependency: str,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = [{dependency!r}]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError):
+        ProjectLoader().load(root=tmp_path, package_selection=None)
+
+
+def test_project_loader_requires_an_available_python_minor(tmp_path: Path) -> None:
+    class Pythons:
+        def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]:
+            return ("3.10",)
+
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+requires-python = ">=3.12"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="no available stable CPython"):
+        ProjectLoader(pythons=Pythons()).load(root=tmp_path, package_selection=None)
+
+
+def test_project_loader_rejects_unknown_package_selection(tmp_path: Path) -> None:
+    write_basic_project(tmp_path, "")
+
+    with pytest.raises(ConfigurationError, match="unknown package selection"):
+        ProjectLoader().load(root=tmp_path, package_selection="other")
+
+
+@pytest.mark.parametrize(
+    ("surface", "message"),
+    (
+        ('extra-surfaces = [["gpu"]]', "include the base surface"),
+        (
+            'extra-surfaces = [[], ["missing"]]',
+            "unknown extra in extra-surfaces",
+        ),
+    ),
+)
+def test_project_loader_rejects_invalid_explicit_extra_surfaces(
+    tmp_path: Path,
+    surface: str,
+    message: str,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "demo"
+version = "0.1.0"
+
+[project.optional-dependencies]
+gpu = ["gpu-lib"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+{surface}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match=message):
+        ProjectLoader().load(root=tmp_path, package_selection=None)
+
+
+@pytest.mark.parametrize(
+    ("extras", "expected"),
+    (
+        ("none", [()]),
+        ("all", [(), ("a",), ("b",), ("a", "b")]),
+    ),
+)
+def test_project_loader_builds_none_and_all_extra_surfaces(
+    tmp_path: Path,
+    extras: str,
+    expected: list[tuple[str, ...]],
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "demo"
+version = "0.1.0"
+
+[project.optional-dependencies]
+a = ["a-lib"]
+b = ["b-lib"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+extras = "{extras}"
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+
+    assert [cell.extra_surface for cell in package.cells] == expected
+
+
+@pytest.mark.parametrize(
+    ("groups", "message"),
+    (
+        (
+            'test = [{ include-group = "loop" }]\nloop = [{ include-group = "test" }]',
+            "dependency group include cycle",
+        ),
+        ('test = [{ unsupported = "value" }]', "unsupported dependency group item"),
+    ),
+)
+def test_project_loader_rejects_invalid_dependency_group_expansion(
+    tmp_path: Path,
+    groups: str,
+    message: str,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "demo"
+version = "0.1.0"
+
+[dependency-groups]
+{groups}
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match=message):
+        ProjectLoader().load(root=tmp_path, package_selection=None)

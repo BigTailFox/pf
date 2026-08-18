@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pf.config import ConfigLoader
+from pf.config import ConfigLoader, parse_jobs, parse_max_duration
 from pf.errors import ConfigurationError
 
 
@@ -171,3 +171,78 @@ release-granularity = "major"
         match="current-major search-space requires minor or patch granularity",
     ):
         ConfigLoader().load(root=tmp_path, package=tmp_path)
+
+
+def test_cli_config_parsers_accept_explicit_none_and_reject_invalid_jobs() -> None:
+    assert parse_jobs("auto") == "auto"
+    assert parse_jobs("3") == 3
+    assert parse_max_duration(None) is None
+    assert parse_max_duration("none") is None
+    assert parse_max_duration("2h") == 7200
+    with pytest.raises(ConfigurationError, match="jobs must be"):
+        parse_jobs("0")
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    (
+        (
+            'extras = "each"\nextra-surfaces = [["gpu"]]',
+            "extras and extra-surfaces are mutually exclusive",
+        ),
+        (
+            'search-space = "current-minor"\nrelease-granularity = "minor"',
+            "current-minor search-space requires patch granularity",
+        ),
+        ('test-command = ["uv", "run", "pytest"]', "cannot start with 'uv run'"),
+        ('jobs = true', "valid integer"),
+        ('resolve-timeout = 10', "resolve-timeout must be a duration"),
+        ('resolve-timeout = "zero"', "invalid resolve-timeout"),
+        ('search-space = "future"', "invalid search-space"),
+        ('search-space = ["not [valid"]', "invalid search-space entry"),
+        (
+            'search-space = ["demo[extra]>=1"]',
+            "must contain only a name and specifier",
+        ),
+        (
+            'search-space = ["Demo>=1", "demo<3"]',
+            "duplicate search-space dependency",
+        ),
+    ),
+)
+def test_config_rejects_each_ambiguous_policy_form(
+    tmp_path: Path,
+    body: str,
+    message: str,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "demo"\nversion = "0.1.0"\n\n[tool.pf]\n{body}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match=message):
+        ConfigLoader().load(root=tmp_path, package=tmp_path)
+
+
+def test_config_normalizes_explicit_extra_surfaces(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.pf]
+extra-surfaces = [["gpu", "fast"], ["fast", "gpu"], []]
+unmanaged-deps = ["Requests", "requests"]
+test-timeout = "1s"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(root=tmp_path, package=tmp_path)
+
+    assert config.extras is None
+    assert config.extra_surfaces == ((), ("fast", "gpu"))
+    assert config.unmanaged_deps == ("requests",)
+    assert config.test_timeout == 1

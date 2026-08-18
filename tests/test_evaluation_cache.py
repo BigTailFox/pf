@@ -6,10 +6,12 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     StaticPassEvaluation,
+    StaticFailEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
     TyPass,
+    TyFail,
 )
 from pf.schemas.project import Cell, Proposal
 
@@ -64,3 +66,42 @@ def test_cache_separates_static_and_full_and_detects_conflicting_full_results() 
     assert conflict.status == "NONDETERMINISTIC"
     assert conflict.observed_statuses == ("PASS", "TEST_FAIL")
     assert cache.get_full("proposal-1") == passed
+
+
+def test_cache_reuses_identical_evidence_and_detects_static_conflicts() -> None:
+    proposal = Proposal(
+        proposal_id="proposal-1",
+        snapshot_digest="snapshot",
+        cell=Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        ),
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    passed = StaticPassEvaluation(proposal=proposal, ty=TyPass(process=process()))
+    failed = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyFail(process=process(exit_code=1)),
+    )
+    cache = EvaluationCache()
+
+    assert cache.record_static(passed) == passed
+    assert cache.record_static(passed) == passed
+    conflict = cache.record_static(failed)
+
+    assert isinstance(conflict, CacheConflict)
+    assert conflict.observed_statuses == ("STATIC_PASS", "STATIC_FAIL")
+
+    static = passed
+    full = PassEvaluation(
+        proposal=proposal,
+        static=static,
+        test=TestPass(process=process()),
+    )
+    assert cache.record_full(full) == full
+    assert cache.record_full(full) == full

@@ -11,12 +11,21 @@ from pf.report import ReportStore
 from pf.schemas.project import SourceSnapshotIdentity
 from pf.schemas.report import (
     CellFailure,
+    FloorProjection,
     GeneratorIdentity,
     IncompleteReportResult,
     PackageFloorReportV1,
     PackageIdentity,
+    ProjectionEvidence,
 )
-from pf.schemas.project import Cell
+from pf.schemas.project import (
+    AvailableArtifact,
+    Candidate,
+    CandidateSnapshot,
+    Cell,
+    RequirementDeclaration,
+    SourceIdentity,
+)
 
 
 def incomplete_report() -> PackageFloorReportV1:
@@ -99,3 +108,240 @@ def test_report_merge_is_deterministic_and_rejects_conflicting_cells() -> None:
     conflict = report_for(cells[1], "SOURCE_ERROR")
     with pytest.raises(ConfigurationError, match="conflicting result for cell"):
         store.merge((first, conflict))
+
+
+def test_report_store_rejects_missing_malformed_and_invalid_reports(
+    tmp_path: Path,
+) -> None:
+    store = ReportStore()
+    missing = tmp_path / "missing.json"
+    with pytest.raises(ConfigurationError, match="cannot read report"):
+        store.read(missing)
+
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text("not-json", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="invalid report JSON"):
+        store.read(malformed)
+
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text('{"schema_version":1}', encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="invalid v1 report"):
+        store.read(invalid)
+
+
+def test_report_update_replaces_local_cells_and_retains_other_hosts() -> None:
+    cells = (
+        Cell(
+            package="demo",
+            target="aarch64-apple-darwin",
+            python_minor="3.10",
+            extra_surface=(),
+        ),
+        Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        ),
+    )
+
+    def make_report(results: tuple[CellFailure, ...]) -> PackageFloorReportV1:
+        return PackageFloorReportV1(
+            generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
+            package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
+            source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+            policy_identity="policy",
+            requirement_declarations=(),
+            candidate_snapshots=(),
+            target_cells=cells,
+            cell_results=results,
+            projection_evidence=(),
+            result=IncompleteReportResult(reasons=("TIMEOUT",)),
+        )
+
+    existing = make_report(
+        tuple(
+            CellFailure(status="TIMEOUT", cell=cell, phase="old") for cell in cells
+        )
+    )
+    replacement = make_report(
+        (
+            CellFailure(
+                status="TOOL_ERROR",
+                cell=cells[1],
+                phase="new",
+            ),
+        )
+    )
+
+    updated = ReportStore().update(existing, replacement)
+    failures = tuple(
+        result
+        for result in updated.cell_results
+        if isinstance(result, CellFailure)
+    )
+
+    assert len(failures) == len(updated.cell_results)
+    assert [(result.cell.target, result.phase) for result in failures] == [
+        ("aarch64-apple-darwin", "old"),
+        ("x86_64-unknown-linux-gnu", "new"),
+    ]
+
+
+def test_report_update_is_a_noop_when_replacement_has_no_cells() -> None:
+    existing = incomplete_report()
+    replacement = incomplete_report()
+
+    assert ReportStore().update(existing, replacement) is existing
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        (
+            "generator",
+            GeneratorIdentity(name="other", version="0.1.0", algorithm="v1"),
+            "generator",
+        ),
+        (
+            "package",
+            PackageIdentity(name="other", pyproject_path="pyproject.toml"),
+            "package",
+        ),
+        (
+            "source_snapshot",
+            SourceSnapshotIdentity(digest="other", entries=()),
+            "source snapshot",
+        ),
+        ("policy_identity", "other", "policy"),
+        (
+            "requirement_declarations",
+            (
+                RequirementDeclaration(
+                    declaration_id="demo",
+                    package="demo",
+                    location="base",
+                    name="demo",
+                    source=SourceIdentity(kind="registry"),
+                    pyproject_path="pyproject.toml",
+                    raw="demo",
+                    kind="searchable",
+                    managed=False,
+                ),
+            ),
+            "declarations",
+        ),
+        (
+            "target_cells",
+            (
+                Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.10",
+                    extra_surface=(),
+                ),
+            ),
+            "target cell coverage",
+        ),
+    ),
+)
+def test_report_merge_and_update_reject_generation_drift(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    original = incomplete_report()
+    changed = original.model_copy(update={field: value})
+    store = ReportStore()
+
+    with pytest.raises(ConfigurationError, match=message):
+        store.merge((original, changed))
+    with pytest.raises(ConfigurationError, match=message):
+        store.update(original, changed)
+
+
+def test_report_merge_rejects_conflicting_candidate_and_projection_evidence() -> None:
+    store = ReportStore()
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+        active_declaration_ids=("demo",),
+    )
+    artifact = AvailableArtifact(
+        filename="demo.whl",
+        kind="wheel",
+        content_hash="sha256:abc",
+    )
+
+    def candidate(digest: str) -> CandidateSnapshot:
+        return CandidateSnapshot(
+            dependency="demo",
+            cell=cell,
+            policy_identity="policy",
+            source=SourceIdentity(kind="registry"),
+            candidates=(Candidate(version="1.0", series_key="1", artifact=artifact),),
+            series_representatives=(("1", "1.0"),),
+            digest=digest,
+        )
+
+    declaration = RequirementDeclaration(
+        declaration_id="demo",
+        package="demo",
+        location="base",
+        name="demo",
+        source=SourceIdentity(kind="registry"),
+        pyproject_path="pyproject.toml",
+        raw="demo",
+        kind="searchable",
+        managed=True,
+    )
+
+    def evidence_report(
+        snapshot: CandidateSnapshot,
+        floor: str,
+    ) -> PackageFloorReportV1:
+        return PackageFloorReportV1(
+            generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
+            package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
+            source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+            policy_identity="policy",
+            requirement_declarations=(declaration,),
+            candidate_snapshots=(snapshot,),
+            target_cells=(cell,),
+            cell_results=(),
+            projection_evidence=(
+                ProjectionEvidence(
+                    declaration_id="demo",
+                    floors=(FloorProjection(cell=cell, version=floor),),
+                    projected_requirements=(),
+                    representable=False,
+                ),
+            ),
+            result=IncompleteReportResult(reasons=("MISSING_CELL",)),
+        )
+
+    first = evidence_report(candidate("first"), "1.0")
+    with pytest.raises(ConfigurationError, match="conflicting candidate snapshot"):
+        store.merge((first, evidence_report(candidate("second"), "1.0")))
+    with pytest.raises(ConfigurationError, match="conflicting projection"):
+        store.merge((first, evidence_report(candidate("first"), "2.0")))
+
+
+def test_report_merge_rejects_unknown_projection_declarations() -> None:
+    report = incomplete_report().model_copy(
+        update={
+            "projection_evidence": (
+                ProjectionEvidence(
+                    declaration_id="unknown",
+                    floors=(),
+                    projected_requirements=(),
+                    representable=False,
+                ),
+            )
+        }
+    )
+
+    with pytest.raises(ConfigurationError, match="unknown projection declaration"):
+        ReportStore().merge((report,))
