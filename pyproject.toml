@@ -22,6 +22,7 @@ dev = [
     "pytest>=9.1",
     "pytest-benchmark>=5.2",
     "pytest-cov>=7.1",
+    "pytest-env>=1.2",
     "pytest-testmon>=2.2",
 ]
 
@@ -31,3 +32,27 @@ pf = "pf.cli:main"
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]
 build-backend = "uv_build"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+addopts = ["--testmon"]
+cache_dir = "tests/.cache/pytest"
+required_plugins = [
+    "pytest-cov>=7.1",
+    "pytest-env>=1.2",
+    "pytest-testmon>=2.2",
+]
+
+[tool.pytest_env]
+TESTMON_DATAFILE = "tests/.cache/testmon/.testmondata"
+
+[tool.coverage.run]
+branch = true
+data_file = "tests/.cache/cov/.coverage"
+
+[tool.coverage.html]
+directory = "tests/.cache/cov/html"
