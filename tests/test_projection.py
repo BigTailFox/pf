@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from packaging.requirements import Requirement
+from pydantic import ValidationError
+import pytest
+
+from pf.project import ProjectLoader
+from pf.report import PackageReportBuilder, ReportStore
+from pf.schemas.evaluation import (
+    PassEvaluation,
+    ProcessResult,
+    StaticPassEvaluation,
+    TestPass,
+    TyPass,
+)
+from pf.schemas.project import Cell, Proposal, VersionPin
+from pf.schemas.report import CellSuccess, CoordinateBoundary, CoordinateSuccess
+from pf.schemas.report import PackageFloorReportV1
+from pf.snapshot import SnapshotBuilder
+
+
+def successful_process() -> ProcessResult:
+    return ProcessResult(
+        exit_code=0,
+        signal=None,
+        duration_seconds=0.1,
+        stdout_summary="",
+        stderr_summary="",
+        stdout_tail="",
+        stderr_tail="",
+    )
+
+
+def passing_evaluation(cell: Cell, version: str) -> PassEvaluation:
+    proposal = Proposal(
+        proposal_id=f"idna={version}",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(VersionPin(name="idna", version=version),),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    return PassEvaluation(
+        proposal=proposal,
+        static=StaticPassEvaluation(
+            proposal=proposal,
+            ty=TyPass(process=successful_process()),
+        ),
+        test=TestPass(process=successful_process()),
+    )
+
+
+def successful_cell(cell: Cell, floor: str) -> CellSuccess:
+    vector = (VersionPin(name="idna", version=floor),)
+    search = CoordinateSuccess(
+        vector=vector,
+        observations=(),
+        boundaries=(CoordinateBoundary(dependency="idna", floor=floor),),
+        sweeps=1,
+    )
+    return CellSuccess(
+        cell=cell,
+        baseline=passing_evaluation(cell, "3.11"),
+        candidate_snapshots=(),
+        static_search=search,
+        final_vector=vector,
+        final_evaluation=passing_evaluation(cell, floor),
+    )
+
+
+def test_report_builder_projects_exact_floor_and_preserves_constraints(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna>2,!=2.5,<4; python_version >= '3.10'"]
+
+[dependency-groups]
+test = ["pytest"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(tmp_path)
+    report = PackageReportBuilder().build(
+        package=package,
+        source_snapshot=snapshot.identity,
+        cell_results=(successful_cell(package.cells[0], "3.0"),),
+    )
+
+    assert report.result.status == "complete"
+    projected = Requirement(report.projection_evidence[0].projected_requirements[0])
+    assert str(projected.specifier) == "!=2.5,<4,>=3.0"
+    assert str(projected.marker) == 'python_version >= "3.10"'
+
+    incomplete_coverage = report.model_dump(mode="python")
+    incomplete_coverage["target_cells"] = (
+        *report.target_cells,
+        Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        ),
+    )
+    with pytest.raises(ValidationError, match="complete report requires exact cell coverage"):
+        PackageFloorReportV1.model_validate(incomplete_coverage)
+
+
+def test_report_builder_represents_different_python_floors_with_markers(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna<4"]
+
+[dependency-groups]
+test = ["pytest"]
+
+[tool.pf]
+python = ["3.10", "3.11"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(tmp_path)
+    floors = {"3.10": "2.0", "3.11": "3.0"}
+
+    report = PackageReportBuilder().build(
+        package=package,
+        source_snapshot=snapshot.identity,
+        cell_results=tuple(
+            successful_cell(cell, floors[cell.python_minor]) for cell in package.cells
+        ),
+    )
+
+    assert report.result.status == "complete"
+    projected = tuple(
+        Requirement(raw)
+        for raw in report.projection_evidence[0].projected_requirements
+    )
+    assert {str(requirement.specifier) for requirement in projected} == {
+        "<4,>=2.0",
+        "<4,>=3.0",
+    }
+    assert {str(requirement.marker) for requirement in projected} == {
+        'python_version == "3.10"',
+        'python_version == "3.11"',
+    }
+
+
+def test_merge_recomputes_projection_after_partial_host_reports_cover_all_cells(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna<4"]
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+python = ["3.10", "3.11"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(tmp_path)
+    builder = PackageReportBuilder()
+    first = builder.build(
+        package=package,
+        source_snapshot=snapshot.identity,
+        cell_results=(successful_cell(package.cells[0], "2.0"),),
+    )
+    second = builder.build(
+        package=package,
+        source_snapshot=snapshot.identity,
+        cell_results=(successful_cell(package.cells[1], "3.0"),),
+    )
+
+    merged = ReportStore().merge((first, second))
+
+    assert merged.result.status == "complete"
+    assert merged.projection_evidence[0].representable is True
+    assert len(merged.projection_evidence[0].projected_requirements) == 2
