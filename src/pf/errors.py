@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from enum import IntEnum
+
+
+class ExitCode(IntEnum):
+    SUCCESS = 0
+    COMPATIBILITY_FAILED = 1
+    NO_APPLICABLE_FLOOR = 2
+    INVALID_INPUT = 3
+    INDETERMINATE = 4
+
+
+class PfError(Exception):
+    """Base class for expected PF failures rendered at the CLI seam."""
+
+    category = "pf"
+    exit_code = ExitCode.INDETERMINATE
+
+
+class CompatibilityError(PfError):
+    category = "compatibility"
+    exit_code = ExitCode.COMPATIBILITY_FAILED
+
+
+class NoApplicableFloorError(PfError):
+    category = "no-applicable-floor"
+    exit_code = ExitCode.NO_APPLICABLE_FLOOR
+
+
+class ConfigurationError(PfError):
+    category = "configuration"
+    exit_code = ExitCode.INVALID_INPUT
+
+
+class InfrastructureError(PfError):
+    category = "infrastructure"
+    exit_code = ExitCode.INDETERMINATE
