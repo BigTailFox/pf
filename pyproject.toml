@@ -56,3 +56,6 @@ data_file = "tests/.cache/cov/.coverage"
 
 [tool.coverage.html]
 directory = "tests/.cache/cov/html"
+
+[tool.coverage.report]
+fail_under = 90
