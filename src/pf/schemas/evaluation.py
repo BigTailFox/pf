@@ -261,6 +261,10 @@ class StatusEvent(FrozenSchema):
     total: int | None = None
 
 
+class CellMatrixEvent(FrozenSchema):
+    cells: tuple[Cell, ...]
+
+
 class ProcessEvent(FrozenSchema):
     process_id: int
     argv: tuple[str, ...]
@@ -268,4 +272,4 @@ class ProcessEvent(FrozenSchema):
     duration_seconds: float | None = None
 
 
-ActivityEvent = ProgressEvent | StatusEvent | ProcessEvent
+ActivityEvent = ProgressEvent | StatusEvent | CellMatrixEvent | ProcessEvent

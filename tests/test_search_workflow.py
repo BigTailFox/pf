@@ -6,7 +6,7 @@ from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
 from pf.scheduling import Scheduler
 from pf.schemas.config import SearchRequest
-from pf.schemas.evaluation import ProgressEvent
+from pf.schemas.evaluation import CellMatrixEvent, ProgressEvent
 from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.report import CellFailure
 from pf.snapshot import SnapshotBuilder
@@ -90,6 +90,11 @@ test-command = ["pytest"]
         if isinstance(event, ProgressEvent) and event.phase != "start"
     ]
     assert len(completions) == 2
+    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
+    assert [(cell.python_minor, cell.target) for cell in matrix.cells] == [
+        ("3.10", "x86_64-unknown-linux-gnu"),
+        ("3.11", "x86_64-unknown-linux-gnu"),
+    ]
     assert store.read(tmp_path / "package-floor.json") == output[0]
 
     repeated = workflow.run(
@@ -136,6 +141,7 @@ test-command = ["python", "-c", "pass"]
         encoding="utf-8",
     )
     coordinator = FailedSearch()
+    events = Events()
     workflow = SearchCommandWorkflow(
         projects=ProjectLoader(),
         snapshots=SnapshotBuilder(),
@@ -143,7 +149,7 @@ test-command = ["python", "-c", "pass"]
         scheduler=Scheduler(),
         reports=ReportStore(),
         report_builder=PackageReportBuilder(),
-        events=Events(),
+        events=events,
         host_target="x86_64-unknown-linux-gnu",
     )
 
@@ -152,5 +158,7 @@ test-command = ["python", "-c", "pass"]
     assert [cell.target for cell in coordinator.cells] == [
         "x86_64-unknown-linux-gnu"
     ]
+    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
+    assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
     assert reports[0].result.status == "incomplete"
     assert "MISSING_CELL" in reports[0].result.reasons

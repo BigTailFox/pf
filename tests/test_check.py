@@ -15,6 +15,7 @@ from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.schemas.config import CheckRequest
 from pf.schemas.evaluation import (
+    CellMatrixEvent,
     CheckIndeterminate,
     CheckPass,
     CheckResult,
@@ -424,6 +425,7 @@ def test_check_workflow_returns_the_aggregate_or_first_failure(
         snapshots=SnapshotBuilder(),
         checker=cast(CompatibilityChecker, Checker()),
         events=events,
+        host_target="x86_64-unknown-linux-gnu",
     ).run(CheckRequest(root=tmp_path.as_posix()))
 
     assert result.status == ("INDETERMINATE" if indeterminate else "PASS")
@@ -432,3 +434,61 @@ def test_check_workflow_returns_the_aggregate_or_first_failure(
         for event in events.items
         if isinstance(event, StatusEvent)
     ] == ["loading project", "building snapshot", "checking declarations"]
+    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
+    assert [cell.python_minor for cell in matrix.cells] == ["3.10"]
+    assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
+
+
+def test_check_workflow_emits_every_feasible_host_cell(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+optional-dependencies = {cuda = ["idna"]}
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+python = ["3.10", "3.11"]
+platform = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+extras = "each"
+test-command = ["python", "-c", "pass"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class Checker:
+        def check(
+            self,
+            *,
+            package: PackagePlan,
+            snapshot: SourceSnapshot,
+        ) -> CheckPass:
+            return CheckPass(evaluations=())
+
+    class Events:
+        def __init__(self) -> None:
+            self.items: list[object] = []
+
+        def consume(self, event: object) -> None:
+            self.items.append(event)
+
+    events = Events()
+    CheckCommandWorkflow(
+        projects=ProjectLoader(),
+        snapshots=SnapshotBuilder(),
+        checker=cast(CompatibilityChecker, Checker()),
+        events=events,
+        host_target="x86_64-unknown-linux-gnu",
+    ).run(CheckRequest(root=tmp_path.as_posix()))
+
+    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
+    assert [(cell.python_minor, cell.target, cell.extra_surface) for cell in matrix.cells] == [
+        ("3.10", "x86_64-unknown-linux-gnu", ()),
+        ("3.10", "x86_64-unknown-linux-gnu", ("cuda",)),
+        ("3.11", "x86_64-unknown-linux-gnu", ()),
+        ("3.11", "x86_64-unknown-linux-gnu", ("cuda",)),
+    ]

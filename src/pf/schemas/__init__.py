@@ -12,6 +12,7 @@ from pf.schemas.config import (
 from pf.schemas.evaluation import (
     ActivityEvent,
     CacheConflict,
+    CellMatrixEvent,
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
@@ -91,6 +92,7 @@ __all__ = [
     "CandidateSnapshot",
     "CacheConflict",
     "Cell",
+    "CellMatrixEvent",
     "CheckCompatibilityFailure",
     "CheckIndeterminate",
     "CheckPass",

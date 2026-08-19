@@ -7,6 +7,7 @@ from typing import Literal, Protocol
 from pf.environment import PreparedEnvironment
 from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
+    CellMatrixEvent,
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
@@ -34,6 +35,17 @@ from pf.schemas.report import CellResult, PackageFloorReportV1, ProjectEditResul
 from pf.project import ProjectLoader, host_target as current_host_target
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
+
+
+def selected_host_cells(
+    packages: tuple[PackagePlan, ...], host_target: str
+) -> tuple[Cell, ...]:
+    return tuple(
+        cell
+        for package in packages
+        for cell in package.cells
+        if cell.target == host_target
+    )
 
 
 class CheckEnvironmentOperations(Protocol):
@@ -168,11 +180,13 @@ class CheckCommandWorkflow:
         snapshots: SnapshotBuilder,
         checker: CompatibilityChecker,
         events: ProgressConsumer | None = None,
+        host_target: str | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
         self._checker = checker
         self._events = events
+        self._host_target = host_target or current_host_target()
 
     def run(self, request: CheckRequest) -> CheckResult:
         root = Path(request.root)
@@ -186,6 +200,11 @@ class CheckCommandWorkflow:
         evaluations: list[PassEvaluation] = []
         try:
             self._emit(StatusEvent(message="checking declarations"))
+            self._emit(
+                CellMatrixEvent(
+                    cells=selected_host_cells(project.packages, self._host_target)
+                )
+            )
             for package in project.packages:
                 result = self._checker.check(package=package, snapshot=snapshot)
                 if result.status != "PASS":
@@ -195,7 +214,7 @@ class CheckCommandWorkflow:
         finally:
             snapshot.close()
 
-    def _emit(self, event: StatusEvent) -> None:
+    def _emit(self, event: StatusEvent | CellMatrixEvent) -> None:
         if self._events is not None:
             self._events.consume(event)
 
@@ -253,6 +272,9 @@ class SearchCommandWorkflow:
                 for package in project.packages
                 for cell in package.cells
                 if cell.target == self._host_target
+            )
+            self._events.consume(
+                CellMatrixEvent(cells=tuple(task.cell for task in tasks))
             )
             results = self._scheduler.run(
                 tasks,

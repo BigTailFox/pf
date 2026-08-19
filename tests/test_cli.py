@@ -109,7 +109,7 @@ def test_check_command_builds_a_request_and_renders_the_workflow_result(
     assert workflow.request is not None
     assert workflow.request.package == "demo"
     assert workflow.request.root == tmp_path.as_posix()
-    assert stdout.getvalue() == "check passed (0 cells)\n"
+    assert stdout.getvalue() == "✓ check passed (0 cells)\n"
     assert stderr.getvalue() == ""
 
 

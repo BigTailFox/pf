@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import StringIO
 
 import pytest
@@ -7,6 +8,7 @@ from rich.console import Console
 
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.schemas.evaluation import (
+    CellMatrixEvent,
     CheckCompatibilityFailure,
     CheckIndeterminate,
     ProcessEvent,
@@ -24,7 +26,13 @@ from pf.schemas.report import (
     PackageIdentity,
     ProjectionEvidence,
 )
-from pf.terminal import TerminalPresenter
+from pf.terminal import PF_THEME, TerminalPresenter
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def visible(text: str) -> str:
+    return _ANSI.sub("", text)
 
 
 def process_result(
@@ -98,7 +106,7 @@ def test_configuration_error_uses_stderr_without_terminal_escape_codes() -> None
 
     assert exit_code == 3
     assert stdout.getvalue() == ""
-    assert stderr.getvalue() == "configuration: unknown key: surprise\n"
+    assert stderr.getvalue() == "✗ configuration: unknown key: surprise\n"
     assert "\x1b[" not in stderr.getvalue()
 
 
@@ -115,7 +123,7 @@ def test_infrastructure_error_prints_the_captured_detail() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "infrastructure: uv could not list available Python versions\n"
+        "✗ infrastructure: uv could not list available Python versions\n"
         "uv: failed to execute 'uv python list'\n"
     )
 
@@ -150,19 +158,59 @@ def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty() -> None:
     plain_presenter.consume(first)
     tty_presenter.consume(first)
     tty_presenter.consume(last)
+    tty_presenter.close()
 
     assert plain.getvalue() == (
-        "[1/2] demo 3.10 x86_64-unknown-linux-gnu SUCCESS\n"
+        "✓ [3.10][x86_64-unknown-linux-gnu][none] SUCCESS\n"
     )
-    assert "[1/2] demo 3.10 x86_64-unknown-linux-gnu SUCCESS" not in terminal.getvalue()
-    tty_presenter.close()
+    assert "✓ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00 SUCCESS" in terminal.getvalue()
+    assert "✓ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00 SUCCESS" in visible(
+        terminal.getvalue()
+    )
+
+
+def test_cell_matrix_summary_lists_count_and_axes() -> None:
+    terminal, stdout, stderr = presenter()
+
+    terminal.consume(
+        CellMatrixEvent(
+            cells=(
+                Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.12",
+                    extra_surface=("cuda",),
+                ),
+                Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.10",
+                    extra_surface=(),
+                ),
+                Cell(
+                    package="demo",
+                    target="aarch64-apple-darwin",
+                    python_minor="3.12",
+                    extra_surface=("arrow", "cuda"),
+                ),
+            )
+        )
+    )
+
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "selected 3 cells\n"
+        "python: 3.10, 3.12\n"
+        "platform: aarch64-apple-darwin, x86_64-unknown-linux-gnu\n"
+        "extra surfaces: none, cuda, arrow+cuda\n"
+    )
 
 
 def tty_task_table(terminal: TerminalPresenter) -> str:
     assert terminal._progress is not None
     rendered = StringIO()
     Console(file=rendered, force_terminal=True, color_system=None, width=120).print(
-        terminal._progress.make_tasks_table(terminal._progress.tasks)
+        terminal._progress.make_tasks_table(terminal._ordered_tasks())
     )
     return rendered.getvalue()
 
@@ -188,7 +236,7 @@ def test_tty_progress_spins_when_total_is_unknown() -> None:
 
     table = tty_task_table(terminal)
     assert "searching cells" in table
-    assert "uv pip install" in table
+    assert "uv pip install" not in table
     assert "0/?" not in table
     assert "━" not in table
     terminal.close()
@@ -220,9 +268,95 @@ def test_tty_progress_shows_a_bar_when_total_is_known() -> None:
     table = tty_task_table(terminal)
     assert "1/3" in table
     assert "━" in table
-    assert "⠋" not in table
+    assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
     assert "0/?" not in table
     terminal.close()
+
+
+def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
+    cell_a = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    cell_b = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=("cuda",),
+    )
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=stderr, force_terminal=True),
+    )
+
+    terminal.consume(StatusEvent(message="searching cells"))
+    terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
+    table = tty_task_table(terminal)
+    assert "0/2" in table
+    assert "searching cells" in table
+    assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
+    assert "[3.11][x86_64-unknown-linux-gnu][cuda]" in table
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="start",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_b,
+            phase="start",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+    terminal.consume(
+        ProcessEvent(
+            process_id=1,
+            argv=("uv", "pip", "install"),
+            state="started",
+        )
+    )
+    table = tty_task_table(terminal)
+    assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
+    assert "[3.11][x86_64-unknown-linux-gnu][cuda]" in table
+    assert "uv pip install" not in table
+    assert "⠋" in table
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_b,
+            phase="complete",
+            completed=1,
+            total=2,
+            message="SUCCESS",
+        )
+    )
+    table = tty_task_table(terminal)
+    assert table.index("[3.11][x86_64-unknown-linux-gnu][cuda]") < table.index(
+        "[3.10][x86_64-unknown-linux-gnu][none]"
+    )
+    assert "SUCCESS" in table
+    assert "0:00:00" in table
+    assert "━" in table
+    assert "1/2" in table
+
+    terminal.close()
+    output = visible(stderr.getvalue())
+    assert "✓ [3.11][x86_64-unknown-linux-gnu][cuda]" in output
+    assert "SUCCESS" in output
+    assert "0:00:00" in output
 
 
 def test_tty_status_with_total_shows_a_bar() -> None:
@@ -275,6 +409,97 @@ def test_status_and_process_activity_are_stable_lines_off_tty() -> None:
     )
 
 
+def test_tty_status_stages_spin_then_complete_in_past_tense() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=terminal, force_terminal=True),
+    )
+
+    presenter.consume(StatusEvent(message="loading project"))
+    table = tty_task_table(presenter)
+    assert "loading project" in table
+    assert "⠋" in table
+    assert "━" not in table
+    assert terminal.getvalue() == ""
+
+    presenter.consume(StatusEvent(message="building snapshot"))
+    assert "✓ loaded project\n" in visible(terminal.getvalue())
+    assert "loading project\n" not in visible(terminal.getvalue())
+    table = tty_task_table(presenter)
+    assert "building snapshot" in table
+    assert "⠋" in table
+
+    presenter.consume(StatusEvent(message="searching cells"))
+    assert "✓ built snapshot\n" in visible(terminal.getvalue())
+    table = tty_task_table(presenter)
+    assert "searching cells" in table
+    assert "⠋" in table
+
+    presenter.close()
+    output = visible(terminal.getvalue())
+    assert "✓ loaded project\n" in output
+    assert "✓ built snapshot\n" in output
+    assert "✓ searched cells\n" in output
+    assert "loading project\n" not in output
+    assert "building snapshot\n" not in output
+    assert "searching cells\n" not in output
+
+
+def test_tty_keeps_completed_steps_without_clearing_them() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=terminal, force_terminal=True),
+    )
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+    presenter.consume(StatusEvent(message="loading project"))
+    presenter.consume(StatusEvent(message="building snapshot"))
+    presenter.consume(StatusEvent(message="searching cells"))
+    presenter.consume(
+        ProcessEvent(
+            process_id=1,
+            argv=("uv", "pip", "install"),
+            state="started",
+        )
+    )
+    presenter.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=2,
+            message="SUCCESS",
+        )
+    )
+
+    output = visible(terminal.getvalue())
+    assert "✓ loaded project\n" in output
+    assert "✓ built snapshot\n" in output
+    assert "searching cells\n" not in output
+    table = tty_task_table(presenter)
+    assert "searching cells" in table
+    assert "1/2" in table
+    assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
+    assert "SUCCESS" in table
+    assert "uv pip install" not in table
+
+    presenter.close()
+    output = visible(terminal.getvalue())
+    assert "✓ loaded project\n" in output
+    assert "✓ built snapshot\n" in output
+    assert "✓ searched cells\n" in output
+    assert "✓ [3.10][x86_64-unknown-linux-gnu][none]" in output
+    assert "SUCCESS" in output
+
+
 def test_status_and_process_activity_are_dynamic_on_tty() -> None:
     terminal = StringIO()
     tty_presenter = TerminalPresenter(
@@ -290,6 +515,10 @@ def test_status_and_process_activity_are_dynamic_on_tty() -> None:
             state="started",
         )
     )
+    table = tty_task_table(tty_presenter)
+    assert "demo checking declarations" in table
+    assert "⠋" in table
+    assert "uv pip install" not in table
     tty_presenter.consume(
         ProcessEvent(
             process_id=1,
@@ -308,10 +537,131 @@ def test_status_and_process_activity_are_dynamic_on_tty() -> None:
     )
     tty_presenter.close()
 
-    output = terminal.getvalue()
-    assert "checking declarations\n" not in output
+    output = visible(terminal.getvalue())
+    assert "✓ demo checked declarations\n" in output
     assert "running: uv pip install\n" not in output
     assert "done (1.2s): uv pip install\n" not in output
+
+
+def test_tty_completed_status_checkmark_is_green() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(
+            file=StringIO(),
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+        stderr=Console(
+            file=terminal,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+
+    presenter.consume(StatusEvent(message="loading project"))
+    presenter.consume(StatusEvent(message="building snapshot"))
+
+    output = terminal.getvalue()
+    assert "✓ loaded project" in visible(output)
+    check_at = output.index("✓")
+    assert "\x1b[32m" in output[: check_at + 1]
+
+
+def test_tty_failed_progress_uses_a_red_cross() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(
+            file=StringIO(),
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+        stderr=Console(
+            file=terminal,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+    presenter.consume(StatusEvent(message="checking declarations"))
+    presenter.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="STATIC_FAIL",
+        )
+    )
+
+    output = terminal.getvalue()
+    plain = visible(output)
+    assert "✗ [3.10][x86_64-unknown-linux-gnu][none]" in plain
+    assert "STATIC_FAIL" in plain
+    assert "✗ checked declarations\n" in plain
+    assert "✓ checked declarations" not in plain
+    cross_at = output.index("✗")
+    assert "31" in output[: cross_at + 1]
+
+
+def test_tty_warning_progress_uses_a_warning_icon() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(
+            file=StringIO(),
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+        stderr=Console(
+            file=terminal,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+    presenter.consume(StatusEvent(message="searching cells"))
+    presenter.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="NO_PASS_IN_SEARCH_SPACE",
+        )
+    )
+
+    output = terminal.getvalue()
+    plain = visible(output)
+    assert "⚠ [3.10][x86_64-unknown-linux-gnu][none]" in plain
+    assert "NO_PASS_IN_SEARCH_SPACE" in plain
+    assert "⚠ searched cells\n" in plain
+    warn_at = output.index("⚠")
+    assert "33" in output[: warn_at + 1]
 
 
 @pytest.mark.parametrize(
@@ -320,7 +670,7 @@ def test_status_and_process_activity_are_dynamic_on_tty() -> None:
         (
             CheckCompatibilityFailure(evaluations=()),
             1,
-            "current declarations are incompatible",
+            "✗ check failed: current declarations are incompatible",
         ),
         (
             CheckIndeterminate(
@@ -335,7 +685,7 @@ def test_status_and_process_activity_are_dynamic_on_tty() -> None:
                 )
             ),
             4,
-            "check indeterminate: TIMEOUT",
+            "✗ check indeterminate: TIMEOUT",
         ),
     ),
 )
@@ -374,7 +724,7 @@ def test_check_indeterminate_prints_the_process_diagnostic() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "check indeterminate: UNRESOLVABLE (install-harness)\n"
+        "✗ check indeterminate: UNRESOLVABLE (install-harness)\n"
         "No solution found when resolving dependencies:\n"
         "because tomli==2.0.0\n"
     )
@@ -399,10 +749,13 @@ def test_search_reasons_determine_the_exit_code(
 
     assert exit_code == expected_exit
     assert stdout.getvalue() == "search completed (1 reports)\n"
-    if reasons == ("TIMEOUT",):
-        assert stderr.getvalue() == "TIMEOUT\n"
-    else:
-        assert stderr.getvalue() == ""
+    expected_stderr = {
+        (): "",
+        ("BASELINE_FAILED",): "✗ BASELINE_FAILED\n",
+        ("TIMEOUT",): "✗ TIMEOUT\n",
+        ("NO_PASS_IN_SEARCH_SPACE",): "⚠ NO_PASS_IN_SEARCH_SPACE\n",
+    }
+    assert stderr.getvalue() == expected_stderr[reasons]
 
 
 def test_search_infra_failure_prints_cell_and_process_diagnostic() -> None:
@@ -436,7 +789,7 @@ def test_search_infra_failure_prints_cell_and_process_diagnostic() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "UNRESOLVABLE (baseline-prepare): demo 3.10 x86_64-unknown-linux-gnu (install-harness)\n"
+        "✗ UNRESOLVABLE (baseline-prepare): demo 3.10 x86_64-unknown-linux-gnu (install-harness)\n"
         "No solution found when resolving dependencies\n"
     )
 
@@ -466,7 +819,7 @@ def test_search_infra_failure_prints_message_detail_without_a_process() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "SOURCE_ERROR (candidate-discovery): demo 3.10 x86_64-unknown-linux-gnu\n"
+        "✗ SOURCE_ERROR (candidate-discovery): demo 3.10 x86_64-unknown-linux-gnu\n"
         "index unavailable\n"
     )
 
