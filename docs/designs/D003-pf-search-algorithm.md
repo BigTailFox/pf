@@ -3,8 +3,9 @@
 - **状态：** 草案
 - **产品契约：** [D001](D001-pf.md)
 - **实现设计：** [D002](D002-pf-implementation.md)
+- **ty 增量静态检查：** [D004](D004-pf-ty-enhancement.md)
 
-本文定义 PF v1 的下界搜索。算法只处理一个 package/cell；跨 cell 并行和结果投影由外层模块负责。
+本文定义 PF v1 的下界搜索。算法只处理一个 package/cell；跨 cell 并行和结果投影由外层模块负责。`ty` 如何从原始诊断变成 `STATIC_PASS` / `STATIC_FAIL` 以 D004 为准。
 
 ## 1. 结果承诺
 
@@ -75,7 +76,8 @@ V = {
 
 ### 2.5 核心向量
 
-- `B`：当前声明按最高允许版本解析并完整通过的 baseline；
+- `B` / `V_hi`：当前声明按最高允许版本解析的 baseline 向量；
+- `S_hi`：`V_hi` 上一次 `ty` 运行冻结的规范化诊断集合；
 - `V_static`：StaticEvaluator 搜索得到的静态通过不动点；
 - `V_final`：FullEvaluator 搜索得到的完整通过不动点。
 
@@ -85,13 +87,14 @@ V = {
 
 搜索始终维护以下不变量：
 
-1. `B` 已由 FullEvaluator 直接验证为 `PASS`。
+1. `B` 已由 FullEvaluator 直接验证为 `PASS`。`B` 的静态部分相对自捕获的 `S_hi` 通过；完整测试必须单独通过。
 2. CandidateSnapshot 在搜索期间不可变化。
 3. 每次提交后的当前向量都被当前阶段的 Evaluator 直接验证为通过。
-4. 只有 `PASS`、`STATIC_FAIL` 和 `TEST_FAIL` 可以建立边界。
+4. 只有 `PASS`、`STATIC_FAIL` 和 `TEST_FAIL` 可以建立边界。`STATIC_FAIL` 表示相对 `S_hi` 的增量诊断，不是 `ty` 退出码。
 5. 每次提交至少严格降低一个坐标，永不主动升高。
 6. 每轮扫描全部受管依赖；启发式不能排除依赖。
 7. 结果相互矛盾时停止，不用猜测恢复单调性。
+8. 同一 cell 的全部静态/完整评估共享冻结的 `S_hi`。
 
 这些不变量使搜索可终止、可缓存，并保证最终向量至少具有直接通过证据。
 
@@ -101,10 +104,11 @@ V = {
 
 单个 cell 依次执行：
 
-1. 解析当前声明，得到 baseline Proposal 和精确向量 `B`；
-2. 完整验证 `B`；
-3. 以 `B` 为 search-space 锚点查询 index；
-4. 生成并冻结 CandidateSnapshot。
+1. 解析当前声明，得到 baseline Proposal 和精确向量 `B = V_hi`；
+2. 在 `B` 上运行 `ty`，冻结 `S_hi`，并得到 `STATIC_PASS(B)`；
+3. 完整验证 `B` 的测试；
+4. 以 `B` 为 search-space 锚点查询 index；
+5. 生成并冻结 CandidateSnapshot。
 
 Baseline 失败时不会建立搜索候选，也不会尝试旧版本恢复。
 
@@ -159,18 +163,21 @@ CandidateBuilder 规范化并排序所有样本，保存系列到精确代表版
 ### 5.1 StaticEvaluator
 
 ```text
-Proposal
+Proposal + S_hi
   ↓ resolve/install
   ↓ ty
+  ↓ increment vs S_hi
 STATIC_PASS | STATIC_FAIL | 非证据状态
 ```
+
+`STATIC_PASS` 表示 `diagnostics(Proposal) − S_hi` 为空。`ty` 退出码 `1` 且无新诊断身份仍是静态通过。
 
 `STATIC_PASS` 环境保留到本次 search 结束，可以被相同 Proposal 的 FullEvaluator 晋升一次。
 
 ### 5.2 FullEvaluator
 
 ```text
-Proposal
+Proposal + S_hi
   ↓ STATIC_PASS cache?
   ├── no  → StaticEvaluator
   └── yes
@@ -178,7 +185,7 @@ Proposal
 PASS | STATIC_FAIL | TEST_FAIL | 非证据状态
 ```
 
-FullEvaluator 不运行测试子集。`STATIC_FAIL` 会短路测试，但仍是完整兼容性判据的失败结果。
+FullEvaluator 不运行测试子集。`STATIC_FAIL` 会短路测试，但仍是完整兼容性判据的失败结果。它表示相对 `S_hi` 的增量，不是项目既有 typing 错误。
 
 ### 5.3 非证据状态
 
@@ -198,7 +205,7 @@ TIMEOUT
 
 ### 5.4 缓存与环境
 
-缓存 key 使用完整 Proposal 和 Evaluator 策略，不只使用受管版本向量。
+缓存 key 使用完整 Proposal、Evaluator 策略和本 cell 冻结的 `S_hi` digest，不只使用受管版本向量。
 
 同一个精确 Proposal 的完整测试只执行一次。测试后的环境视为污染，不再作为干净环境复用。
 
@@ -206,19 +213,20 @@ TIMEOUT
 
 ## 6. Baseline
 
-Baseline 使用当前源码快照、当前声明和正常最高版本解析策略。
+Baseline 使用当前源码快照、当前声明和正常最高版本解析策略，记为 `B = V_hi`。
 
-它不读取 workspace lock、操作者 `.venv` 或既有安装状态。
+它不读取 workspace lock、操作者 `.venv` 或既有安装状态。捕获 `S_hi` 的 `ty` 运行就是 `B` 的静态评估，不再重跑。
 
 ```text
-FullEvaluator(B)
-  ├── PASS         → 继续
-  ├── STATIC_FAIL  → BASELINE_FAILED
+capture S_hi from ty(B)
+FullEvaluator(B, S_hi)
+  ├── PASS         → 继续；S_hi 冻结供本 cell 后续 probe 使用
+  ├── STATIC_FAIL  → 实现错误：自比较增量必须为空
   ├── TEST_FAIL    → BASELINE_FAILED
   └── 其他状态      → INDETERMINATE
 ```
 
-`BASELINE_FAILED` 表示仓库在当前声明的正常环境中不能通过。PF 立即停止，不承担版本恢复职责。
+`BASELINE_FAILED` 表示仓库在当前声明的正常最高版本环境中不能通过完整测试。项目既有 `ty` 诊断不是 baseline 失败。无法捕获 `S_hi` 时按非证据状态停止。PF 立即停止，不承担版本恢复职责。
 
 ## 7. 一维定界
 
@@ -367,7 +375,7 @@ H = Σ 每个坐标从起始位置最多可下降的样本数
 
 ## 9. 阶段一：静态定界
 
-Baseline 的完整通过蕴含静态通过，因此可以作为 StaticEvaluator 的起点。
+Baseline 的完整通过蕴含增量静态通过，因此可以作为 StaticEvaluator 的起点。`S_hi` 在进入本阶段前已经冻结。
 
 ```text
 V_static = minimize_coordinates(
@@ -393,7 +401,7 @@ FullEvaluator(V_static)
 
 若结果为 `PASS`，立即返回 `V_static`。
 
-这是安全的 fast path：`V_static` 已静态坐标最小，而完整兼容性要求先静态通过；因此任何单坐标更低的完整通过版本都必须先违反静态不动点。
+这是安全的 fast path：`V_static` 已按相对 `S_hi` 的增量静态坐标最小，而完整兼容性要求先静态通过；因此任何单坐标更低的完整通过版本都必须先违反静态不动点。
 
 正常 fast path 只需要两次完整测试：
 
@@ -423,7 +431,7 @@ V_final = minimize_coordinates(
 每个动态候选都需要完整兼容性判据：
 
 - 已有 `STATIC_PASS` 缓存时直接运行完整测试；
-- 未命中时先按需运行 `ty`；
+- 未命中时先按需运行相对 `S_hi` 的 `ty` 增量检查；
 - 静态通过后运行完整 `test-command`；
 - 不使用 partial tests。
 
@@ -436,10 +444,12 @@ V_final = minimize_coordinates(
 ```text
 SNAPSHOT
   ↓
-RESOLVE BASELINE
+RESOLVE V_hi / B
+  ↓
+CAPTURE S_hi
   ↓
 FULL EVALUATE B
-  ├── compatibility fail → BASELINE_FAILED
+  ├── TEST_FAIL          → BASELINE_FAILED
   ├── non-evidence       → INDETERMINATE
   └── PASS
         ↓
@@ -465,7 +475,7 @@ FULL EVALUATE V_static
 
 成功的 dependency/cell 必须记录：
 
-- baseline Proposal 和完整 `PASS`；
+- baseline Proposal、`S_hi` 和完整 `PASS`；
 - 冻结 CandidateSnapshot；
 - 静态和动态 probe 轨迹；
 - 每个 floor 的精确版本；

@@ -3,8 +3,9 @@
 - **状态：** 草案
 - **产品契约：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
+- **ty 增量静态检查：** [D004](D004-pf-ty-enhancement.md)
 
-本文定义 PF v1 的代码结构、模块接口、Schema、外部工具适配、终端交互和测试策略。用户可见行为以 D001 为准，搜索不变量和 probe 顺序以 D003 为准；本文只决定这些契约如何实现。
+本文定义 PF v1 的代码结构、模块接口、Schema、外部工具适配、终端交互和测试策略。用户可见行为以 D001 为准，搜索不变量和 probe 顺序以 D003 为准，`ty` 增量比较以 D004 为准；本文只决定这些契约如何实现。
 
 ## 1. 设计原则
 
@@ -163,8 +164,9 @@ class FrozenSchema(BaseModel):
 
 - `ProcessSpec`：完整 argv、cwd、环境增量、timeout、进程组和脱敏策略身份。
 - `ProcessResult`：退出码或 signal、耗时、脱敏 stdout/stderr 摘要、有界尾部和 timeout 标志。
-- `StaticPass`、`StaticFail` 和各非证据结果组成的 `StaticEvaluation` discriminator union。
+- `StaticPass`、`StaticFail` 和各非证据结果组成的 `StaticEvaluation` discriminator union。`TyCheck` 保存原始进程结果与规范化诊断；静态通过/失败由相对 `S_hi` 的增量决定，不能从 `ty` 退出码直接构造。
 - `PassEvaluation`、`StaticFailEvaluation`、`TestFailEvaluation` 和各非证据结果组成的 `Evaluation` discriminator union。
+- `TyDiagnostic` 与 cell 级 `S_hi` digest；`STATIC_FAIL` 必须携带非空增量。
 - `ProgressEvent`：package、cell、阶段、已完成/总任务和不含 secret 的短消息。
 
 状态 union 必须让非法组合无法构造。例如 `PASS` 必须包含 static 与完整测试证据，`STATIC_FAIL` 不能包含伪造的测试结果，`TIMEOUT` 必须记录超时阶段。业务代码使用模式匹配处理具体结果，不把状态折叠为 `bool`。
@@ -172,7 +174,7 @@ class FrozenSchema(BaseModel):
 `schemas/report.py` 包含：
 
 - `ProbeObservation`、`CoordinateBoundary` 和 `DependencyFloor`；
-- 成功、失败和不完整三类 `CellResult` discriminator union；
+- 成功、失败和不完整三类 `CellResult` discriminator union；成功 cell 必须包含冻结的 `S_hi`；
 - `ProjectionEvidence`，记录 declaration 到各 cell floor 的可表示投影；
 - `CompleteReportResult` 与 `IncompleteReportResult`；
 - 顶层 `PackageFloorReportV1`。
@@ -285,7 +287,7 @@ Cyclopts 负责用法错误和命令返回值的基础退出行为。PF 领域�
 
 | 命令 | 顶层模块 | 写入范围 |
 | --- | --- | --- |
-| `check` | `CompatibilityChecker` + `FullEvaluator` | 只写临时环境和诊断 |
+| `check` | `CompatibilityChecker` + `S_hi` 捕获 + `FullEvaluator` | 只写临时环境和诊断 |
 | `search` | `SearchCoordinator` + `ReportStore` | `package-floor.json` 和 `.pf` 临时状态 |
 | `apply` | `ReportStore` + `ProjectEditor` | 授权的 `pyproject.toml` 与恢复日志 |
 | `minimize` | handler 顺序调用 search、确认成功、再 apply | 与前两者相同，不另写一套逻辑 |
@@ -390,9 +392,9 @@ CandidateBuilder 不读取 Evaluation，不决定 probe 顺序，也不因为构
 search(package_plan, cell, deadline) -> CellResult
 ```
 
-它内部完成 baseline、候选冻结、静态坐标搜索、联合测试 fast path、必要时的动态坐标搜索和 `FloorResult` 组装。调用方看不到一串可被错误重排的步骤。
+它内部完成 `V_hi`/`S_hi` 捕获、baseline 完整测试、候选冻结、静态坐标搜索、联合测试 fast path、必要时的动态坐标搜索和 `FloorResult` 组装。调用方看不到一串可被错误重排的步骤。后续 probe 必须携带本次冻结的 `S_hi`。
 
-`CompatibilityChecker` 复用 Proposal 构建与 `FullEvaluator` 验证当前声明，但不建立候选或进入坐标搜索。它与 SearchCoordinator 共享具名的 Proposal builder；不得复制 baseline 解析逻辑。
+`CompatibilityChecker` 先按最高版本策略捕获该 cell 的 `S_hi`，再复用 Proposal 构建与携带 `S_hi` 的 `FullEvaluator` 验证 `lowest-direct` 声明。它不建立候选或进入坐标搜索。`S_hi` 捕获、增量比较与 SearchCoordinator 共用 `StaticEvaluator`；不得复制 baseline 解析或诊断差规则。
 
 ### 9.2 CoordinateSearch
 
@@ -441,7 +443,7 @@ ProcessRunner 不知道 `uv`、`ty` 或测试退出码语义。`UvAdapter`、`Ty
 
 `UvAdapter` 是所有 uv 命令构造和输出解析的唯一所有者，覆盖：解释器定位、候选查询、baseline resolve、精确 Proposal resolve/install、图冻结和构件身份。业务模块不得拼接 `uv pip` argv。
 
-`TyAdapter` 只负责运行 `ty`、规范诊断摘要并区分正常不兼容与工具错误。它不创建环境，也不决定是否继续测试。
+`TyAdapter` 只负责运行 `ty`、固定机器可读输出、解析并规范化诊断，以及区分可比较的 `TyCheck` 与工具错误。它不创建环境，不保存 `S_hi`，也不决定是否继续测试。退出码 `1` 不是 `STATIC_FAIL`。
 
 `TestAdapter` 只运行完整 `test-command` argv，应用配置的 cwd、timeout 和 `test-failure-exit-codes`。v1 不提供 test selector、failure parser 或 partial test seam。
 
@@ -451,9 +453,9 @@ ProcessRunner 不知道 `uv`、`ty` 或测试退出码语义。`UvAdapter`、`Ty
 
 `EnvironmentFactory` 根据完整 Proposal 创建或定位隔离环境。
 
-`StaticEvaluator` 执行 resolve/install 和 `TyAdapter`，返回 `STATIC_PASS`、`STATIC_FAIL` 或非证据状态。
+`StaticEvaluator` 接收已安装环境和该 cell 冻结的 `S_hi`。它调用 `TyAdapter`，计算诊断增量，返回 `STATIC_PASS`、`STATIC_FAIL` 或非证据状态。捕获 `S_hi` 的那次 `TyCheck` 同时作为 `V_hi` 的静态通过证据，不再重跑。
 
-`FullEvaluator` 先查 static cache。精确 Proposal 未检查时调用 StaticEvaluator；静态通过后再调用 TestAdapter。
+`FullEvaluator` 先查 static cache。精确 Proposal 未检查时调用带同一 `S_hi` 的 StaticEvaluator；静态通过后再调用 TestAdapter。
 
 状态只能由最靠近事实的 adapter 分类。向上传递时保持原状态和证据，不折叠成布尔值，不用 catch-all `except Exception` 转换为版本失败。未预期的程序错误保留 traceback，属于 PF bug；已知外部失败转换为具名非证据状态。
 
@@ -496,7 +498,7 @@ PF 使用显式解释器和底层 `uv pip`。它不调用 `uv sync`、`uv run`�
 
 ```text
 CREATED
-  ↓ ty 通过
+  ↓ 相对 S_hi 静态通过
 STATIC_CLEAN
   ↓ 完整测试
 TESTED
@@ -532,7 +534,7 @@ TESTED
 
 ```text
 PASS
-STATIC_FAIL
+STATIC_FAIL   # 相对 S_hi 的增量诊断，不是 ty 退出码
 TEST_FAIL
 ```
 
@@ -548,7 +550,7 @@ TOOL_ERROR
 TIMEOUT
 ```
 
-Adapter 完成 Evaluation 状态分类，CoordinateSearch 只接收分类后的结果。
+`TyAdapter` 把进程结果分类为可比较的 `TyCheck` 或非证据状态。`StaticEvaluator` 完成相对 `S_hi` 的静态兼容性分类。`TestAdapter` 完成测试分类。CoordinateSearch 只接收分类后的结果。
 
 非证据状态终止当前 cell，不能推进边界。状态从底层向上传递时不得折叠成布尔值。
 
@@ -578,7 +580,7 @@ SearchCoordinator 还拥有 `BASELINE_FAILED`、`NON_MONOTONIC`、`NO_PASS_IN_SE
 - 完整 Proposal 与解析图；
 - 来源、构件 hash 和 distribution 策略；
 - 解释器、ABI 和平台；
-- `ty`、测试命令、测试依赖和工具版本；
+- `ty`、ty 诊断增量策略、测试命令、测试依赖和工具版本；
 - cwd、退出码策略和阶段 timeout。
 
 StaticEvaluation 与 Evaluation 分开存储。`STATIC_PASS` 可以被 FullEvaluator 复用，但不能当作完整 `PASS`。
@@ -656,7 +658,8 @@ CoordinateSearch 是 `search.py` 的内部 seam，可以有集中算法测试，
 ### 18.4 Adapter 与端到端测试
 
 - `SubprocessRunner` 测进程组、signal、timeout、输出上限和脱敏；
-- Uv/Ty/Test adapter 使用 recording ProcessRunner 断言完整 argv、cwd、env 和状态分类；
+- Uv/Ty/Test adapter 使用 recording ProcessRunner 断言完整 argv、cwd、env 和状态分类；TyAdapter 覆盖 concise 解析、截断/非法输出为 `TOOL_ERROR`，以及退出码不直接等于静态评估状态；
+- `StaticEvaluator` 覆盖相对 `S_hi` 的空增量通过、新增身份失败、消失诊断仍通过，以及 check 与 search 共用同一比较；
 - 最小本地包端到端覆盖 `check -> search -> explain -> apply`；
 - CLI 端到端必须直接运行安装后的 `pf` 命令，不能只调用 Python 函数；
 - 需要网络、多个解释器或真实 index 的测试显式标记，不把环境缺失误报为功能回归。
