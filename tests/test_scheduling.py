@@ -55,18 +55,14 @@ def test_scheduler_limits_concurrency_and_returns_canonical_cell_order() -> None
 
     assert maximum_active == 2
     assert [result.cell.python_minor for result in results] == ["3.10", "3.11", "3.12"]
-    starts = [
-        event
-        for event in events.items
-        if isinstance(event, ProgressEvent) and event.phase == "start"
+    progress = [
+        event for event in events.items if isinstance(event, ProgressEvent)
     ]
-    completions = [
-        event
-        for event in events.items
-        if isinstance(event, ProgressEvent) and event.phase != "start"
-    ]
-    assert len(starts) == 3
+    starts = [event for event in progress if event.phase == "start"]
+    completions = [event for event in progress if event.phase != "start"]
+    assert [event.cell.python_minor for event in starts] == ["3.12", "3.10", "3.11"]
     assert len(completions) == 3
+    assert all(event.phase == "start" for event in progress[:3])
 
 
 def test_scheduler_stops_starting_cells_after_total_deadline() -> None:

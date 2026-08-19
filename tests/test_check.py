@@ -531,3 +531,6 @@ test-command = ["python", "-c", "pass"]
     assert maximum_active == 2
     assert sorted(seen) == ["3.10", "3.11"]
     assert result.status == "INDETERMINATE"
+    progress = [event for event in events.items if isinstance(event, ProgressEvent)]
+    assert [event.phase for event in progress[:2]] == ["start", "start"]
+    assert sorted(event.cell.python_minor for event in progress[:2]) == ["3.10", "3.11"]

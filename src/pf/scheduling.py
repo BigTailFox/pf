@@ -50,6 +50,17 @@ class Scheduler:
         running: dict[Future[T], ScheduledCellTask[T]] = {}
         completed_items: list[tuple[Cell, T]] = []
         completed = 0
+        for task in tasks:
+            events.consume(
+                ProgressEvent(
+                    package=task.cell.package,
+                    cell=task.cell,
+                    phase="start",
+                    completed=0,
+                    total=len(tasks),
+                    message="running",
+                )
+            )
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             self._fill(
@@ -58,9 +69,6 @@ class Scheduler:
                 pending,
                 worker_count,
                 deadline,
-                events=events,
-                completed=completed,
-                total=len(tasks),
             )
             while running:
                 done, _ = wait(tuple(running), return_when=FIRST_COMPLETED)
@@ -89,9 +97,6 @@ class Scheduler:
                     pending,
                     worker_count,
                     deadline,
-                    events=events,
-                    completed=completed,
-                    total=len(tasks),
                 )
 
         for task in pending:
@@ -129,10 +134,6 @@ class Scheduler:
         pending: Iterator[ScheduledCellTask[T]],
         worker_count: int,
         deadline: float | None,
-        *,
-        events: ProgressConsumer,
-        completed: int,
-        total: int,
     ) -> None:
         while len(running) < worker_count:
             if deadline is not None and time.monotonic() >= deadline:
@@ -142,16 +143,6 @@ class Scheduler:
             except StopIteration:
                 return
             running[executor.submit(task.run)] = task
-            events.consume(
-                ProgressEvent(
-                    package=task.cell.package,
-                    cell=task.cell,
-                    phase="start",
-                    completed=completed,
-                    total=total,
-                    message="running",
-                )
-            )
 
     @staticmethod
     def _worker_count(jobs: int | str) -> int:
