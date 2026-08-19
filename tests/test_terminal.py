@@ -6,7 +6,7 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from pf.errors import ConfigurationError, InfrastructureError
+from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.schemas.evaluation import (
     CellMatrixEvent,
     CheckCompatibilityFailure,
@@ -128,6 +128,44 @@ def test_infrastructure_error_prints_the_captured_detail() -> None:
     )
 
 
+def test_render_error_does_not_claim_in_progress_apply_succeeded() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=terminal, force_terminal=True),
+    )
+
+    presenter.consume(StatusEvent(message="applying floors"))
+    exit_code = presenter.render_error(
+        NoApplicableFloorError("cannot apply an incomplete floor report")
+    )
+
+    output = visible(terminal.getvalue())
+    assert "applied floors" not in output
+    assert "✓" not in output
+    assert exit_code == 2
+    assert "✗ no-applicable-floor: cannot apply an incomplete floor report" in output
+
+
+def test_render_error_keeps_completed_steps_and_drops_in_progress() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=terminal, force_terminal=True),
+    )
+
+    presenter.consume(StatusEvent(message="loading project"))
+    presenter.consume(StatusEvent(message="building snapshot"))
+    presenter.render_error(
+        ConfigurationError("project source snapshot has drifted since search")
+    )
+
+    output = visible(terminal.getvalue())
+    assert "✓ loaded project\n" in output
+    assert "built snapshot" not in output
+    assert "✗ configuration: project source snapshot has drifted since search" in output
+
+
 def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty() -> None:
     cell = Cell(
         package="demo",
@@ -160,12 +198,77 @@ def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty() -> None:
     tty_presenter.consume(last)
     tty_presenter.close()
 
-    assert plain.getvalue() == (
-        "✓ [3.10][x86_64-unknown-linux-gnu][none] SUCCESS\n"
-    )
-    assert "✓ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00 SUCCESS" in terminal.getvalue()
-    assert "✓ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00 SUCCESS" in visible(
+    assert plain.getvalue() == "✓ [3.10][x86_64-unknown-linux-gnu][none]\n"
+    assert "✓ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00\n" in visible(
         terminal.getvalue()
+    )
+    assert "SUCCESS" not in visible(terminal.getvalue())
+
+
+def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    terminal, stdout, stderr = presenter()
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="static check",
+            completed=0,
+            total=1,
+            message="running",
+        )
+    )
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="STATIC_FAIL",
+            detail="error: Unresolved import 'missing'",
+        )
+    )
+
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "✗ [3.10][x86_64-unknown-linux-gnu][none]\n"
+        "  STATIC_FAIL: error: Unresolved import 'missing'\n"
+    )
+
+
+def test_completed_cell_log_indents_multiline_diagnostics() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.12",
+        extra_surface=(),
+    )
+    terminal, stdout, stderr = presenter()
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="BUILD_UNAVAILABLE",
+            detail="Failed to build `numpy==1.24.0`\nBecause cmake is missing",
+        )
+    )
+
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "✗ [3.12][x86_64-unknown-linux-gnu][none]\n"
+        "  BUILD_UNAVAILABLE: Failed to build `numpy==1.24.0`\n"
+        "  Because cmake is missing\n"
     )
 
 
@@ -199,10 +302,10 @@ def test_cell_matrix_summary_lists_count_and_axes() -> None:
 
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "selected 3 cells\n"
-        "python: 3.10, 3.12\n"
-        "platform: aarch64-apple-darwin, x86_64-unknown-linux-gnu\n"
-        "extra surfaces: none, cuda, arrow+cuda\n"
+        "✓ selected 3 cells\n"
+        "  python: 3.10, 3.12\n"
+        "  platform: aarch64-apple-darwin, x86_64-unknown-linux-gnu\n"
+        "  extra surfaces: none, cuda, arrow+cuda\n"
     )
 
 
@@ -294,6 +397,11 @@ def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
 
     terminal.consume(StatusEvent(message="searching cells"))
     terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
+    output = visible(stderr.getvalue())
+    assert "✓ selected 2 cells\n" in output
+    assert "  python: 3.10, 3.11\n" in output
+    assert "  platform: x86_64-unknown-linux-gnu\n" in output
+    assert "  extra surfaces: none, cuda\n" in output
     table = tty_task_table(terminal)
     assert "0/2" in table
     assert "searching cells" in table
@@ -347,7 +455,7 @@ def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
     assert table.index("[3.11][x86_64-unknown-linux-gnu][cuda]") < table.index(
         "[3.10][x86_64-unknown-linux-gnu][none]"
     )
-    assert "SUCCESS" in table
+    assert "SUCCESS" not in table
     assert "0:00:00" in table
     assert "━" in table
     assert "1/2" in table
@@ -355,8 +463,220 @@ def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
     terminal.close()
     output = visible(stderr.getvalue())
     assert "✓ [3.11][x86_64-unknown-linux-gnu][cuda]" in output
-    assert "SUCCESS" in output
+    assert "SUCCESS" not in output
     assert "0:00:00" in output
+
+
+def test_tty_running_cell_shows_dim_stage_under_the_title() -> None:
+    cell_a = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    cell_b = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(
+            file=StringIO(),
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+        stderr=Console(
+            file=stderr,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+
+    terminal.consume(StatusEvent(message="searching cells"))
+    terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="start",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+    table = tty_task_table(terminal)
+    assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
+    assert "start" not in table
+    assert "installing dependencies" not in table
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="installing dependencies",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+    table = tty_task_table(terminal)
+    title_at = table.index("[3.10][x86_64-unknown-linux-gnu][none]")
+    stage_at = table.index("installing dependencies")
+    assert title_at < stage_at
+    assert "0/2" in table
+
+    colored = StringIO()
+    assert terminal._progress is not None
+    Console(
+        file=colored,
+        force_terminal=True,
+        no_color=False,
+        color_system="standard",
+        theme=PF_THEME,
+        width=120,
+    ).print(terminal._progress.make_tasks_table(terminal._ordered_tasks()))
+    output = colored.getvalue()
+    dim_at = output.index("installing dependencies")
+    assert "\x1b[2m" in output[: dim_at + 1]
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="complete",
+            completed=1,
+            total=2,
+            message="SUCCESS",
+        )
+    )
+    table = tty_task_table(terminal)
+    assert "installing dependencies" not in table
+    assert "SUCCESS" not in table
+    terminal.close()
+    frozen = visible(stderr.getvalue())
+    assert "✓ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00\n" in frozen
+    assert "SUCCESS" not in frozen
+
+
+def test_tty_search_and_cell_rows_use_the_same_indent_as_other_stages() -> None:
+    cell_a = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    cell_b = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=stderr, force_terminal=True),
+    )
+
+    terminal.consume(StatusEvent(message="searching cells"))
+    terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="installing dependencies",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+
+    frozen = visible(stderr.getvalue()).splitlines()
+    assert frozen[0] == "✓ selected 2 cells"
+    assert frozen[1] == "  python: 3.10, 3.11"
+    table_lines = [
+        line.rstrip() for line in tty_task_table(terminal).splitlines() if line.strip()
+    ]
+    search_line = next(line for line in table_lines if "searching cells" in line)
+    running_line = next(
+        line
+        for line in table_lines
+        if "[3.10][x86_64-unknown-linux-gnu][none]" in line
+    )
+    stage_line = next(line for line in table_lines if "installing dependencies" in line)
+    pending_line = next(
+        line
+        for line in table_lines
+        if "[3.11][x86_64-unknown-linux-gnu][none]" in line
+    )
+    assert search_line[1] == " "
+    assert not search_line.startswith("  searching")
+    assert running_line[1] == " "
+    assert stage_line.startswith("  installing dependencies")
+    assert not stage_line.startswith("   installing")
+    assert pending_line.startswith("  [3.11][x86_64-unknown-linux-gnu][none]")
+    terminal.close()
+
+
+def test_tty_failure_details_wait_until_all_cells_finish() -> None:
+    cell_a = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    cell_b = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=stderr, force_terminal=True),
+    )
+
+    terminal.consume(StatusEvent(message="checking declarations"))
+    terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="complete",
+            completed=1,
+            total=2,
+            message="STATIC_FAIL",
+            detail="error: Unresolved import 'missing'",
+        )
+    )
+    table = tty_task_table(terminal)
+    assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
+    assert "[3.11][x86_64-unknown-linux-gnu][none]" in table
+    assert "STATIC_FAIL" not in table
+    assert "Unresolved import" not in table
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_b,
+            phase="complete",
+            completed=2,
+            total=2,
+            message="SUCCESS",
+        )
+    )
+    frozen = visible(stderr.getvalue())
+    assert (
+        "✗ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00\n"
+        "  STATIC_FAIL: error: Unresolved import 'missing'\n"
+        "✓ [3.11][x86_64-unknown-linux-gnu][none] 0:00:00\n"
+    ) in frozen
 
 
 def test_tty_status_with_total_shows_a_bar() -> None:
@@ -368,7 +688,6 @@ def test_tty_status_with_total_shows_a_bar() -> None:
     assert "applying floors" in table
     assert "1/2" in table
     assert "━" in table
-    assert "⠋" not in table
     terminal.close()
 
 
@@ -488,7 +807,7 @@ def test_tty_keeps_completed_steps_without_clearing_them() -> None:
     assert "searching cells" in table
     assert "1/2" in table
     assert "[3.10][x86_64-unknown-linux-gnu][none]" in table
-    assert "SUCCESS" in table
+    assert "SUCCESS" not in table
     assert "uv pip install" not in table
 
     presenter.close()
@@ -497,7 +816,7 @@ def test_tty_keeps_completed_steps_without_clearing_them() -> None:
     assert "✓ built snapshot\n" in output
     assert "✓ searched cells\n" in output
     assert "✓ [3.10][x86_64-unknown-linux-gnu][none]" in output
-    assert "SUCCESS" in output
+    assert "SUCCESS" not in output
 
 
 def test_status_and_process_activity_are_dynamic_on_tty() -> None:
@@ -569,6 +888,95 @@ def test_tty_completed_status_checkmark_is_green() -> None:
     assert "✓ loaded project" in visible(output)
     check_at = output.index("✓")
     assert "\x1b[32m" in output[: check_at + 1]
+
+
+def test_tty_matrix_axis_lines_are_dim() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(
+            file=terminal,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+    presenter.consume(
+        CellMatrixEvent(
+            cells=(
+                Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.10",
+                    extra_surface=(),
+                ),
+            )
+        )
+    )
+
+    output = terminal.getvalue()
+    python_at = output.index("python:")
+    assert "\x1b[2m" in output[: python_at + 1]
+    assert visible(output) == (
+        "✓ selected 1 cell\n"
+        "  python: 3.10\n"
+        "  platform: x86_64-unknown-linux-gnu\n"
+        "  extra surfaces: none\n"
+    )
+
+
+def test_tty_completed_cell_log_keeps_dim_status_and_diagnostic() -> None:
+    terminal = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(
+            file=terminal,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+    presenter.consume(StatusEvent(message="checking declarations"))
+    presenter.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="static check",
+            completed=0,
+            total=1,
+            message="running",
+        )
+    )
+    presenter.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="STATIC_FAIL",
+            detail="error: Unresolved import 'missing'",
+        )
+    )
+
+    output = terminal.getvalue()
+    plain = visible(output)
+    assert (
+        "✗ [3.10][x86_64-unknown-linux-gnu][none] 0:00:00\n"
+        "  STATIC_FAIL: error: Unresolved import 'missing'\n"
+    ) in plain
+    reason_at = output.rindex("STATIC_FAIL")
+    assert "31" in output[: reason_at + 1]
+    assert "\x1b[2m" in output[reason_at:]
 
 
 def test_tty_failed_progress_uses_a_red_cross() -> None:

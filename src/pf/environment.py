@@ -11,11 +11,33 @@ from pf.schemas.evaluation import (
     GraphOutcome,
     InterpreterOutcome,
     InterpreterSuccess,
+    ProgressEvent,
     ToolFailure,
     ToolOutcome,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal, VersionPin
 from pf.snapshot import SourceSnapshot
+
+
+class StageConsumer(Protocol):
+    def consume(self, event: ProgressEvent) -> None: ...
+
+
+def emit_cell_stage(
+    events: StageConsumer | None, cell: Cell, stage: str
+) -> None:
+    if events is None:
+        return
+    events.consume(
+        ProgressEvent(
+            package=cell.package,
+            cell=cell,
+            phase=stage,
+            completed=0,
+            total=1,
+            message="running",
+        )
+    )
 
 
 class UvOperations(Protocol):
@@ -97,8 +119,11 @@ class PreparedEnvironment:
 class EnvironmentFactory:
     """Create an isolated writable source tree and environment for one Proposal."""
 
-    def __init__(self, uv: UvOperations) -> None:
+    def __init__(
+        self, uv: UvOperations, *, events: StageConsumer | None = None
+    ) -> None:
         self._uv = uv
+        self._events = events
 
     def prepare(
         self,
@@ -116,6 +141,7 @@ class EnvironmentFactory:
         try:
             snapshot.materialize(proposal_root)
             package_root = proposal_root / Path(package.pyproject_path).parent
+            emit_cell_stage(self._events, cell, "preparing environment")
             create = self._uv.create_environment(
                 environment=environment_root,
                 python_minor=cell.python_minor,
@@ -149,6 +175,7 @@ class EnvironmentFactory:
             requirements = tuple(
                 f"{pin.name}=={pin.version}" for pin in managed_vector or ()
             )
+            emit_cell_stage(self._events, cell, "installing dependencies")
             install = self._uv.install_editable(
                 interpreter=interpreter,
                 package=package_root,
@@ -197,6 +224,7 @@ class EnvironmentFactory:
                     ),
                     encoding="utf-8",
                 )
+                emit_cell_stage(self._events, cell, "installing harness")
                 harness = self._uv.install_requirements(
                     interpreter=interpreter,
                     requirements=package.test_requirements,

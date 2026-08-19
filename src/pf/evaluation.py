@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Protocol
 
-from pf.environment import PreparedEnvironment
+from pf.environment import PreparedEnvironment, StageConsumer, emit_cell_stage
 from pf.schemas.evaluation import (
     CacheConflict,
     EnvironmentVariable,
@@ -97,8 +97,11 @@ class TestOperations(Protocol):
 class StaticEvaluator:
     """Evaluate resolve/install-complete Proposal source with ty."""
 
-    def __init__(self, ty: TyOperations) -> None:
+    def __init__(
+        self, ty: TyOperations, *, events: StageConsumer | None = None
+    ) -> None:
         self._ty = ty
+        self._events = events
 
     def evaluate(
         self,
@@ -106,6 +109,7 @@ class StaticEvaluator:
         *,
         package: PackagePlan,
     ) -> StaticEvaluation:
+        emit_cell_stage(self._events, prepared.proposal.cell, "static check")
         outcome = self._ty.check(
             interpreter=prepared.interpreter,
             package=prepared.package_root,
@@ -135,9 +139,16 @@ class StaticEvaluator:
 class FullEvaluator:
     """Promote a static-clean Proposal through the complete test command once."""
 
-    def __init__(self, *, static: StaticEvaluator, tests: TestOperations) -> None:
+    def __init__(
+        self,
+        *,
+        static: StaticEvaluator,
+        tests: TestOperations,
+        events: StageConsumer | None = None,
+    ) -> None:
         self._static = static
         self._tests = tests
+        self._events = events
 
     def evaluate(
         self,
@@ -149,6 +160,7 @@ class FullEvaluator:
         static = static_result or self._static.evaluate(prepared, package=package)
         if not isinstance(static, StaticPassEvaluation):
             return static
+        emit_cell_stage(self._events, prepared.proposal.cell, "dynamic tests")
         cwd = (
             prepared.proposal_root
             if package.config.command_cwd == "root"

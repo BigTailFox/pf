@@ -7,7 +7,14 @@ import os
 import time
 from typing import Generic, Protocol, TypeVar
 
-from pf.schemas.evaluation import ActivityEvent, ProgressEvent
+from pf.schemas.evaluation import (
+    ActivityEvent,
+    IndeterminateEvaluation,
+    ProgressEvent,
+    StaticFailEvaluation,
+    TestFailEvaluation,
+    ToolFailure,
+)
 from pf.schemas.project import Cell
 from pf.schemas.report import CellFailure
 
@@ -89,6 +96,7 @@ class Scheduler:
                             completed=completed,
                             total=len(tasks),
                             message=result.status,
+                            detail=_outcome_diagnostic(result),
                         )
                     )
                 self._fill(
@@ -116,6 +124,7 @@ class Scheduler:
                     completed=completed,
                     total=len(tasks),
                     message="TIMEOUT",
+                    detail=_outcome_diagnostic(timeout),
                 )
             )
 
@@ -155,3 +164,23 @@ class Scheduler:
     @staticmethod
     def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
         return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
+
+
+def _outcome_diagnostic(result: object) -> str:
+    if isinstance(result, ToolFailure):
+        return result.process.diagnostic()
+    if isinstance(result, StaticFailEvaluation):
+        return result.ty.process.diagnostic()
+    if isinstance(result, TestFailEvaluation):
+        return result.test.process.diagnostic()
+    if isinstance(result, IndeterminateEvaluation):
+        return result.failure.process.diagnostic()
+    if isinstance(result, CellFailure):
+        if result.failure is not None:
+            return result.failure.process.diagnostic()
+        if result.baseline is not None:
+            nested = _outcome_diagnostic(result.baseline)
+            if nested:
+                return nested
+        return result.detail or ""
+    return ""

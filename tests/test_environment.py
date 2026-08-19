@@ -8,6 +8,7 @@ from pf.schemas.evaluation import (
     GraphSuccess,
     InterpreterSuccess,
     ProcessResult,
+    ProgressEvent,
     ToolFailure,
     ToolSuccess,
 )
@@ -150,3 +151,52 @@ test-command = ["pytest"]
     assert isinstance(result, ToolFailure)
     assert result.status == "HARNESS_ERROR"
     assert result.stage == "install-harness"
+
+
+def test_environment_reports_prepare_stages(tmp_path: Path) -> None:
+    class Events:
+        def __init__(self) -> None:
+            self.phases: list[str] = []
+
+        def consume(self, event: ProgressEvent) -> None:
+            self.phases.append(event.phase)
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna"]
+
+[dependency-groups]
+test = ["pytest"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+    events = Events()
+
+    prepared = EnvironmentFactory(SuccessfulUv(), events=events).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(prepared, PreparedEnvironment)
+    assert events.phases == [
+        "preparing environment",
+        "installing dependencies",
+        "installing harness",
+    ]
+    prepared.close()
+    snapshot.close()

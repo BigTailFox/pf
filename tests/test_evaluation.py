@@ -11,6 +11,7 @@ from pf.schemas.evaluation import (
     GraphSuccess,
     InterpreterSuccess,
     ProcessResult,
+    ProgressEvent,
     TestOutcome,
     TestFail,
     TestPass,
@@ -227,3 +228,52 @@ test-command = ["pytest"]
     result = StaticEvaluator(FailingTool()).evaluate(prepared, package=package)
 
     assert result.status == "TOOL_ERROR"
+
+
+def test_evaluators_report_static_and_dynamic_stages(tmp_path: Path) -> None:
+    class Events:
+        def __init__(self) -> None:
+            self.phases: list[str] = []
+
+        def consume(self, event: ProgressEvent) -> None:
+            self.phases.append(event.phase)
+
+    class Tests:
+        def run(self, **kwargs: object) -> TestOutcome:
+            return TestPass(process=process_result())
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-m", "unittest"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    prepared = EnvironmentFactory(PreparedUv()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=SnapshotBuilder().build(root),
+        resolution="highest",
+    )
+    assert isinstance(prepared, PreparedEnvironment)
+    events = Events()
+
+    result = FullEvaluator(
+        static=StaticEvaluator(PassingTy(), events=events),
+        tests=Tests(),
+        events=events,
+    ).evaluate(prepared, package=package)
+
+    assert result.status == "PASS"
+    assert events.phases == ["static check", "dynamic tests"]
+    prepared.close()

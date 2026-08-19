@@ -5,7 +5,7 @@ from threading import Lock
 import time
 
 from pf.scheduling import ScheduledCellTask, Scheduler
-from pf.schemas.evaluation import ProgressEvent
+from pf.schemas.evaluation import ProgressEvent, ProcessResult, ToolFailure
 from pf.schemas.project import Cell
 from pf.schemas.report import CellFailure
 
@@ -101,3 +101,48 @@ def test_scheduler_stops_starting_cells_after_total_deadline() -> None:
         for event in events.items
         if isinstance(event, ProgressEvent)
     ].count("scheduler-deadline") == 1
+    deadline = next(
+        event
+        for event in events.items
+        if isinstance(event, ProgressEvent) and event.phase == "scheduler-deadline"
+    )
+    assert deadline.detail == "scheduling stopped at the total deadline"
+
+
+def test_scheduler_copies_process_diagnostic_onto_completion_progress() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+    def run() -> ToolFailure:
+        return ToolFailure(
+            status="BUILD_UNAVAILABLE",
+            stage="install",
+            process=ProcessResult(
+                exit_code=1,
+                signal=None,
+                duration_seconds=0.1,
+                stdout_summary="",
+                stderr_summary="Because numpy==1.24.0 depends on wheel",
+                stdout_tail="",
+                stderr_tail="Because numpy==1.24.0 depends on wheel",
+            ),
+        )
+
+    events = Events()
+    Scheduler().run(
+        (ScheduledCellTask(cell=cell, run=run),),
+        jobs=1,
+        max_duration_seconds=None,
+        events=events,
+    )
+    completion = next(
+        event
+        for event in events.items
+        if isinstance(event, ProgressEvent) and event.message != "running"
+    )
+    assert completion.message == "BUILD_UNAVAILABLE"
+    assert completion.detail == "Because numpy==1.24.0 depends on wheel"

@@ -219,9 +219,9 @@ def build_context() -> CliContext:
     presenter = TerminalPresenter()
     runner = SubprocessRunner(listener=presenter)
     uv = UvAdapter(runner)
-    environments = EnvironmentFactory(uv)
-    static = StaticEvaluator(TyAdapter(runner))
-    full = FullEvaluator(static=static, tests=TestAdapter(runner))
+    environments = EnvironmentFactory(uv, events=presenter)
+    static = StaticEvaluator(TyAdapter(runner), events=presenter)
+    full = FullEvaluator(static=static, tests=TestAdapter(runner), events=presenter)
     checker = CompatibilityChecker(
         environments=environments,
         evaluator=full,

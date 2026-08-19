@@ -9,7 +9,7 @@ import pytest
 from rich.console import Console
 
 from pf.cli import CliContext, build_context, create_app
-from pf.errors import ConfigurationError
+from pf.errors import ConfigurationError, NoApplicableFloorError, PfError
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -17,7 +17,7 @@ from pf.schemas.config import (
     ReportRequest,
     SearchRequest,
 )
-from pf.schemas.evaluation import CheckPass
+from pf.schemas.evaluation import CheckPass, StatusEvent
 from pf.schemas.project import SourceSnapshotIdentity
 from pf.schemas.report import (
     GeneratorIdentity,
@@ -319,6 +319,47 @@ def test_apply_command_uses_report_only_workflow(
     assert exit_code == 0
     assert workflow.request == ApplyRequest(root=tmp_path.as_posix(), package="demo")
     assert stdout.getvalue() == "apply completed (1 changed)\n"
+
+
+def test_apply_failure_does_not_claim_floors_were_applied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    stdout = StringIO()
+    stderr = StringIO()
+    presenter = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=True),
+        stderr=Console(file=stderr, force_terminal=True),
+    )
+
+    class ApplyWorkflow:
+        def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
+            presenter.consume(StatusEvent(message="applying floors"))
+            raise NoApplicableFloorError("cannot apply an incomplete floor report")
+
+    context = CliContext(
+        check_workflow=NeverCheck(),
+        apply_workflow=ApplyWorkflow(),
+        presenter=presenter,
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        try:
+            create_app(context)(
+                ["apply"],
+                exit_on_error=False,
+                result_action="return_value",
+            )
+        except PfError as error:
+            raise SystemExit(context.presenter.render_error(error)) from error
+        finally:
+            context.presenter.close()
+
+    assert caught.value.code == 2
+    assert stdout.getvalue() == ""
+    assert "applied floors" not in stderr.getvalue()
+    assert "no-applicable-floor: cannot apply an incomplete floor report" in stderr.getvalue()
 
 
 def test_minimize_does_not_apply_when_search_report_is_incomplete(

@@ -3,9 +3,10 @@ from __future__ import annotations
 import sys
 from datetime import timedelta
 from threading import Lock
-from typing import Callable, Literal
+from typing import Callable, Iterable, Literal
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -17,6 +18,7 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
@@ -71,6 +73,7 @@ _ICONS = {
     "failure": "✗",
     "warning": "⚠",
 }
+_ICON_WIDTH = 2
 
 _SUCCESS_STATUSES = frozenset({"SUCCESS", "PASS"})
 _WARNING_STATUSES = frozenset(
@@ -139,6 +142,14 @@ def _matrix_summary_lines(cells: tuple[Cell, ...]) -> tuple[str, ...]:
     )
 
 
+def _two_char_icon(text: Text) -> Text:
+    if text.cell_len >= _ICON_WIDTH:
+        return text
+    padded = text.copy()
+    padded.pad_right(_ICON_WIDTH - text.cell_len)
+    return padded
+
+
 class _IconColumn(ProgressColumn):
     """Spinner while running; outcome icon when a cell is finished."""
 
@@ -148,18 +159,28 @@ class _IconColumn(ProgressColumn):
 
     def render(self, task: Task) -> object:
         role = task.fields.get("role")
-        if role == "overall":
-            if task.total is None:
-                return self._spinner.render(task)
-            return Text()
+        if role == "cell-stage" or (role == "cell" and not task.started):
+            return Text(" " * _ICON_WIDTH)
         if role == "cell" and task.finished:
             kind = task.fields.get("kind")
             if kind in _ICONS:
-                return Text(f"{_ICONS[kind]} ", style=kind)
-            return Text()
-        if role == "cell" and not task.started:
-            return Text("  ")
-        return self._spinner.render(task)
+                return _two_char_icon(Text(_ICONS[kind], style=kind))
+            return Text(" " * _ICON_WIDTH)
+        rendered = self._spinner.render(task)
+        if isinstance(rendered, Text):
+            return _two_char_icon(rendered)
+        return Text(" " * _ICON_WIDTH)
+
+
+class _TaskDescriptionColumn(TextColumn):
+    def __init__(self) -> None:
+        super().__init__("{task.description}", markup=False)
+
+    def render(self, task: Task) -> Text:
+        rendered = super().render(task)
+        if task.fields.get("role") == "cell-stage":
+            rendered.stylize("dim")
+        return rendered
 
 
 class _OverallBarColumn(ProgressColumn):
@@ -169,33 +190,27 @@ class _OverallBarColumn(ProgressColumn):
 
     def render(self, task: Task) -> object:
         if task.fields.get("role") == "overall" and task.total is not None:
-            return self._bar.render(task)
+            return Padding(self._bar.render(task), (0, 0, 0, 1))
         return Text()
 
 
 class _OverallCountColumn(MofNCompleteColumn):
     def render(self, task: Task) -> Text:
         if task.fields.get("role") == "overall" and task.total is not None:
-            return super().render(task)
+            rendered = super().render(task)
+            rendered.pad_left(1)
+            return rendered
         return Text()
 
 
 class _DimElapsedColumn(TimeElapsedColumn):
     def render(self, task: Task) -> Text:
-        if task.elapsed is None:
+        if task.fields.get("role") == "cell-stage" or task.elapsed is None:
             return Text()
         rendered = super().render(task)
         rendered.stylize("dim")
+        rendered.pad_left(1)
         return rendered
-
-
-class _CellStatusColumn(ProgressColumn):
-    def render(self, task: Task) -> Text:
-        status = task.fields.get("status")
-        if task.fields.get("role") != "cell" or not status:
-            return Text()
-        kind = task.fields.get("kind")
-        return Text(str(status), style=kind or "")
 
 
 class _OrderedProgress(Progress):
@@ -207,6 +222,11 @@ class _OrderedProgress(Progress):
         tasks = self._task_order()
         if tasks:
             yield self.make_tasks_table(tasks)
+
+    def make_tasks_table(self, tasks: Iterable[Task]) -> Table:
+        table = super().make_tasks_table(tasks)
+        table.padding = (0, 0)
+        return table
 
 
 def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
@@ -226,17 +246,42 @@ def _format_elapsed(seconds: float | None) -> str:
     return str(timedelta(seconds=max(0, int(seconds))))
 
 
-def _cell_finished_line(
+def _styled_reason_lines(
+    status: str, diagnostic: str, kind: OutcomeKind
+) -> tuple[Text, ...]:
+    text = diagnostic.strip()
+    if not text:
+        return (Text.assemble(("  ",), (status, kind)),)
+    first, *rest = text.splitlines()
+    return (
+        Text.assemble(("  ",), (status, kind), (f": {first}", "dim")),
+        *(Text(f"  {line}", style="dim") for line in rest),
+    )
+
+
+def _cell_finished_block(
     *,
     title: str,
     status: str,
+    kind: OutcomeKind,
+    elapsed: float | None = None,
+    detail: str = "",
+) -> tuple[Text, ...]:
+    heading = _cell_finished_line(title=title, kind=kind, elapsed=elapsed)
+    if kind == "success":
+        return (heading,)
+    return (heading, *_styled_reason_lines(status, detail, kind))
+
+
+def _cell_finished_line(
+    *,
+    title: str,
     kind: OutcomeKind,
     elapsed: float | None = None,
 ) -> Text:
     parts: list[str | tuple[str, str]] = [(f"{_ICONS[kind]} ", kind), title]
     if elapsed is not None:
         parts.extend([" ", (_format_elapsed(elapsed), "dim")])
-    parts.extend([" ", (status, kind)])
     return Text.assemble(*parts)
 
 
@@ -255,13 +300,14 @@ class TerminalPresenter:
         self._progress: Progress | None = None
         self._overall_task: TaskID | None = None
         self._cell_tasks: dict[tuple[str, str, str, tuple[str, ...]], TaskID] = {}
+        self._cell_stage_tasks: dict[tuple[str, str, str, tuple[str, ...]], TaskID] = {}
         self._completed_cell_keys: list[tuple[str, str, str, tuple[str, ...]]] = []
-        self._frozen_cell_lines: list[Text] = []
+        self._frozen_cell_blocks: list[tuple[Text, ...]] = []
         self._pending_status: StatusEvent | None = None
         self._pending_outcome: OutcomeKind | None = None
 
     def render_error(self, error: PfError) -> int:
-        self.close()
+        self.close(abandon_pending=True)
         self.stderr.print(
             Text.assemble(
                 (f"{_ICONS['failure']} ", "failure"),
@@ -326,8 +372,11 @@ class TerminalPresenter:
             else:
                 self._consume_progress(event)
 
-    def close(self) -> None:
+    def close(self, *, abandon_pending: bool = False) -> None:
         with self._lock:
+            if abandon_pending:
+                self._pending_status = None
+                self._pending_outcome = None
             self._finish_progress()
 
     def _print_tool_failure(self, heading: str, failure: ToolFailure) -> None:
@@ -391,8 +440,12 @@ class TerminalPresenter:
         )
 
     def _consume_matrix(self, event: CellMatrixEvent) -> None:
-        for line in _matrix_summary_lines(event.cells):
-            self._print_step(line)
+        heading, *details = _matrix_summary_lines(event.cells)
+        self._print_step(
+            Text.assemble((f"{_ICONS['success']} ", "success"), heading)
+        )
+        for line in details:
+            self._print_step(Text(f"  {line}", style="dim"))
         if not self.stderr.is_terminal:
             return
         description = (
@@ -424,11 +477,21 @@ class TerminalPresenter:
     def _consume_progress(self, event: ProgressEvent) -> None:
         title = _cell_title(event.cell)
         kind = _outcome_kind(event.message)
+        if kind is None and event.phase != "start":
+            if not self.stderr.is_terminal:
+                return
+            self._ensure_cell_task(event.cell, start=True)
+            self._set_cell_stage(event.cell, event.phase)
+            return
         if not self.stderr.is_terminal:
             if kind is not None:
-                self.stderr.print(
-                    _cell_finished_line(title=title, status=event.message, kind=kind)
-                )
+                for line in _cell_finished_block(
+                    title=title,
+                    status=event.message,
+                    kind=kind,
+                    detail=event.detail,
+                ):
+                    self.stderr.print(line)
             return
         self._ensure_overall(
             description=(
@@ -445,12 +508,12 @@ class TerminalPresenter:
         if kind is None:
             self._progress.update(task_id, description=title)
         else:
+            self._set_cell_stage(event.cell, "")
             self._progress.update(
                 task_id,
                 description=title,
                 total=1,
                 completed=1,
-                status=event.message,
                 kind=kind,
             )
             self._progress.stop_task(task_id)
@@ -458,18 +521,19 @@ class TerminalPresenter:
                 (task.elapsed for task in self._progress.tasks if task.id == task_id),
                 None,
             )
-            line = _cell_finished_line(
+            block = _cell_finished_block(
                 title=title,
                 status=event.message,
                 kind=kind,
                 elapsed=elapsed,
+                detail=event.detail,
             )
             if key in self._completed_cell_keys:
                 index = self._completed_cell_keys.index(key)
-                self._frozen_cell_lines[index] = line
+                self._frozen_cell_blocks[index] = block
             else:
                 self._completed_cell_keys.append(key)
-                self._frozen_cell_lines.append(line)
+                self._frozen_cell_blocks.append(block)
         self._pending_outcome = _escalate_outcome(self._pending_outcome, kind)
         if event.completed >= event.total and kind is not None:
             self._finish_progress()
@@ -479,11 +543,10 @@ class TerminalPresenter:
             return
         self._progress = _OrderedProgress(
             _IconColumn(),
-            TextColumn("{task.description}", markup=False),
+            _TaskDescriptionColumn(),
             _OverallBarColumn(),
             _OverallCountColumn(),
             _DimElapsedColumn(),
-            _CellStatusColumn(),
             order=self._ordered_tasks,
             console=self.stderr,
             transient=True,
@@ -532,6 +595,12 @@ class TerminalPresenter:
                 start=start,
             )
             self._cell_tasks[key] = task_id
+            self._cell_stage_tasks[key] = self._progress.add_task(
+                "",
+                total=None,
+                role="cell-stage",
+                start=False,
+            )
             return task_id
         if start:
             self._progress.start_task(task_id)
@@ -549,11 +618,33 @@ class TerminalPresenter:
             task_id = self._cell_tasks.get(key)
             if task_id is not None and task_id in by_id:
                 ordered.append(by_id[task_id])
+                ordered.extend(self._stage_tasks_for(key, by_id))
                 seen.add(key)
         for key, task_id in self._cell_tasks.items():
             if key not in seen and task_id in by_id:
                 ordered.append(by_id[task_id])
+                ordered.extend(self._stage_tasks_for(key, by_id))
         return ordered
+
+    def _stage_tasks_for(
+        self,
+        key: tuple[str, str, str, tuple[str, ...]],
+        by_id: dict[TaskID, Task],
+    ) -> list[Task]:
+        stage_id = self._cell_stage_tasks.get(key)
+        if stage_id is None or stage_id not in by_id:
+            return []
+        stage = by_id[stage_id]
+        if not stage.description:
+            return []
+        return [stage]
+
+    def _set_cell_stage(self, cell: Cell, stage: str) -> None:
+        if self._progress is None:
+            return
+        stage_id = self._cell_stage_tasks.get(_cell_key(cell))
+        if stage_id is not None:
+            self._progress.update(stage_id, description=stage)
 
     def _status_description(self, event: StatusEvent) -> str:
         if event.package:
@@ -599,8 +690,9 @@ class TerminalPresenter:
     def _finish_progress(self) -> None:
         if self._progress is None:
             return
-        for line in self._frozen_cell_lines:
-            self._print_step(line)
+        for block in self._frozen_cell_blocks:
+            for line in block:
+                self._print_step(line)
         if self._pending_status is not None:
             self._print_step(
                 self._completed_status_line(
@@ -613,8 +705,9 @@ class TerminalPresenter:
         self._progress = None
         self._overall_task = None
         self._cell_tasks.clear()
+        self._cell_stage_tasks.clear()
         self._completed_cell_keys.clear()
-        self._frozen_cell_lines.clear()
+        self._frozen_cell_blocks.clear()
 
     def render_explain(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
         self.close()

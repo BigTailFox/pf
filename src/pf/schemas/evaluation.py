@@ -252,6 +252,7 @@ class ProgressEvent(FrozenSchema):
     completed: int
     total: int
     message: str
+    detail: str = ""
 
 
 class StatusEvent(FrozenSchema):
