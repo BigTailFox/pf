@@ -15,7 +15,6 @@ from pf.schemas.evaluation import (
     Evaluation,
     IndeterminateEvaluation,
     PassEvaluation,
-    ProgressEvent,
     StaticFailEvaluation,
     StatusEvent,
     TestFailEvaluation,
@@ -68,106 +67,57 @@ class CheckEvaluationOperations(Protocol):
     ) -> Evaluation: ...
 
 
+class CheckCellOperations(Protocol):
+    def check(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> Evaluation | ToolFailure: ...
+
+
 class CompatibilityChecker:
-    """Validate current declarations for every configured cell without searching."""
+    """Validate current declarations for one cell without searching."""
 
     def __init__(
         self,
         *,
         environments: CheckEnvironmentOperations,
         evaluator: CheckEvaluationOperations,
-        events: ProgressConsumer | None = None,
-        host_target: str | None = None,
     ) -> None:
         self._environments = environments
         self._evaluator = evaluator
-        self._events = events
-        self._host_target = host_target or current_host_target()
 
     def check(
         self,
         *,
         package: PackagePlan,
+        cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> CheckResult:
-        if not package.config.test_command:
-            raise ConfigurationError("test-command is required for check")
-        if not package.test_group_present:
-            raise ConfigurationError(
-                f"test dependency group is required: {package.config.test_group}"
-            )
-        local_cells = tuple(
-            cell for cell in package.cells if cell.target == self._host_target
+    ) -> Evaluation | ToolFailure:
+        require_check_contract(package)
+        prepared = self._environments.prepare(
+            package=package,
+            cell=cell,
+            snapshot=snapshot,
+            resolution="lowest-direct",
         )
-        if not local_cells:
-            raise ConfigurationError(
-                f"no configured cell matches host target: {self._host_target}"
-            )
-        evaluations: list[PassEvaluation] = []
-        total = len(local_cells)
-        for index, cell in enumerate(local_cells, start=1):
-            self._emit(
-                ProgressEvent(
-                    package=package.name,
-                    cell=cell,
-                    phase="check",
-                    completed=index - 1,
-                    total=total,
-                    message="running",
-                )
-            )
-            prepared = self._environments.prepare(
-                package=package,
-                cell=cell,
-                snapshot=snapshot,
-                resolution="lowest-direct",
-            )
-            if not isinstance(prepared, PreparedEnvironment):
-                self._emit(
-                    ProgressEvent(
-                        package=package.name,
-                        cell=cell,
-                        phase="check",
-                        completed=index,
-                        total=total,
-                        message=prepared.status,
-                    )
-                )
-                return CheckIndeterminate(
-                    evaluations=tuple(evaluations),
-                    failure=prepared,
-                )
-            try:
-                evaluation = self._evaluator.evaluate(prepared, package=package)
-            finally:
-                prepared.close()
-            self._emit(
-                ProgressEvent(
-                    package=package.name,
-                    cell=cell,
-                    phase="check",
-                    completed=index,
-                    total=total,
-                    message=evaluation.status,
-                )
-            )
-            if isinstance(evaluation, PassEvaluation):
-                evaluations.append(evaluation)
-                continue
-            if isinstance(evaluation, (StaticFailEvaluation, TestFailEvaluation)):
-                return CheckCompatibilityFailure(
-                    evaluations=(*evaluations, evaluation)
-                )
-            if isinstance(evaluation, IndeterminateEvaluation):
-                return CheckIndeterminate(
-                    evaluations=tuple(evaluations),
-                    failure=evaluation.failure,
-                )
-        return CheckPass(evaluations=tuple(evaluations))
+        if not isinstance(prepared, PreparedEnvironment):
+            return prepared
+        try:
+            return self._evaluator.evaluate(prepared, package=package)
+        finally:
+            prepared.close()
 
-    def _emit(self, event: ProgressEvent) -> None:
-        if self._events is not None:
-            self._events.consume(event)
+
+def require_check_contract(package: PackagePlan) -> None:
+    if not package.config.test_command:
+        raise ConfigurationError("test-command is required for check")
+    if not package.test_group_present:
+        raise ConfigurationError(
+            f"test dependency group is required: {package.config.test_group}"
+        )
 
 
 class CheckCommandWorkflow:
@@ -178,13 +128,15 @@ class CheckCommandWorkflow:
         *,
         projects: ProjectLoader,
         snapshots: SnapshotBuilder,
-        checker: CompatibilityChecker,
-        events: ProgressConsumer | None = None,
+        checker: CheckCellOperations,
+        scheduler: Scheduler,
+        events: ProgressConsumer,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
         self._checker = checker
+        self._scheduler = scheduler
         self._events = events
         self._host_target = host_target or current_host_target()
 
@@ -197,26 +149,85 @@ class CheckCommandWorkflow:
         )
         self._emit(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(root)
-        evaluations: list[PassEvaluation] = []
         try:
             self._emit(StatusEvent(message="checking declarations"))
-            self._emit(
-                CellMatrixEvent(
-                    cells=selected_host_cells(project.packages, self._host_target)
-                )
-            )
+            cells = selected_host_cells(project.packages, self._host_target)
+            self._emit(CellMatrixEvent(cells=cells))
             for package in project.packages:
-                result = self._checker.check(package=package, snapshot=snapshot)
-                if result.status != "PASS":
-                    return result
-                evaluations.extend(result.evaluations)
-            return CheckPass(evaluations=tuple(evaluations))
+                require_check_contract(package)
+            if not cells:
+                raise ConfigurationError(
+                    f"no configured cell matches host target: {self._host_target}"
+                )
+            package_by_name = {package.name: package for package in project.packages}
+            outcomes = self._scheduler.run(
+                tuple(
+                    ScheduledCellTask(
+                        cell=cell,
+                        run=self._cell_task(
+                            package_by_name[cell.package],
+                            cell,
+                            snapshot,
+                        ),
+                    )
+                    for cell in cells
+                ),
+                jobs=request.jobs,
+                max_duration_seconds=None,
+                events=self._events,
+            )
+            return self._aggregate(outcomes)
         finally:
             snapshot.close()
 
+    def _cell_task(
+        self,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> Callable[[], Evaluation | ToolFailure]:
+        def run() -> Evaluation | ToolFailure:
+            return self._checker.check(
+                package=package,
+                cell=cell,
+                snapshot=snapshot,
+            )
+
+        return run
+
+    @staticmethod
+    def _aggregate(
+        outcomes: tuple[Evaluation | ToolFailure, ...],
+    ) -> CheckResult:
+        evaluations: list[Evaluation] = []
+        infra: list[ToolFailure] = []
+        for outcome in outcomes:
+            if isinstance(outcome, ToolFailure):
+                infra.append(outcome)
+                continue
+            evaluations.append(outcome)
+            if isinstance(outcome, IndeterminateEvaluation):
+                infra.append(outcome.failure)
+        if any(
+            isinstance(item, (StaticFailEvaluation, TestFailEvaluation))
+            for item in evaluations
+        ):
+            return CheckCompatibilityFailure(evaluations=tuple(evaluations))
+        if infra:
+            return CheckIndeterminate(
+                evaluations=tuple(
+                    item for item in evaluations if isinstance(item, PassEvaluation)
+                ),
+                failure=infra[0],
+            )
+        return CheckPass(
+            evaluations=tuple(
+                item for item in evaluations if isinstance(item, PassEvaluation)
+            )
+        )
+
     def _emit(self, event: StatusEvent | CellMatrixEvent) -> None:
-        if self._events is not None:
-            self._events.consume(event)
+        self._events.consume(event)
 
 
 class CellSearchOperations(Protocol):

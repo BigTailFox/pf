@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from pf.schemas.base import FrozenSchema
-from pf.schemas.config import EffectiveConfig, MergeRequest, SearchRequest
+from pf.schemas.config import EffectiveConfig, MergeRequest, CheckRequest, SearchRequest
 from pf.schemas.evaluation import ProcessResult, ProcessSpec
 from pf.schemas.project import (
     AvailableArtifact,
@@ -59,6 +59,20 @@ def test_search_request_rejects_invalid_scheduling(
 ) -> None:
     with pytest.raises(ValidationError):
         SearchRequest.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"root": ".", "jobs": True},
+        {"root": ".", "jobs": 0},
+    ),
+)
+def test_check_request_rejects_invalid_scheduling(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        CheckRequest.model_validate(payload)
 
 
 def test_merge_request_requires_an_input_report() -> None:

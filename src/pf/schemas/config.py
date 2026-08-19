@@ -59,6 +59,15 @@ class EffectiveConfig(FrozenSchema):
 class CheckRequest(FrozenSchema):
     root: str
     package: str | None = None
+    jobs: Literal["auto"] | StrictInt = "auto"
+
+    @model_validator(mode="after")
+    def validate_scheduling(self) -> "CheckRequest":
+        if isinstance(self.jobs, bool) or (
+            isinstance(self.jobs, int) and self.jobs <= 0
+        ):
+            raise ValueError("jobs must be 'auto' or a positive integer")
+        return self
 
 
 class SearchRequest(FrozenSchema):

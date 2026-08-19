@@ -75,6 +75,57 @@ def test_search_help_documents_scheduling_options_and_defaults() -> None:
     assert "--max-duration" in result.stdout
 
 
+def test_check_help_documents_jobs() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "check", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--jobs" in result.stdout
+    assert "auto" in result.stdout
+
+
+def test_check_command_normalizes_jobs_before_workflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CheckWorkflow:
+        def __init__(self) -> None:
+            self.request: CheckRequest | None = None
+
+        def run(self, request: CheckRequest) -> CheckPass:
+            self.request = request
+            return CheckPass(evaluations=())
+
+    monkeypatch.chdir(tmp_path)
+    stdout = StringIO()
+    stderr = StringIO()
+    workflow = CheckWorkflow()
+    context = CliContext(
+        check_workflow=workflow,
+        presenter=TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        ),
+    )
+
+    exit_code = create_app(context)(
+        ["check", "demo", "--jobs", "2"],
+        exit_on_error=False,
+        result_action="return_value",
+    )
+
+    assert exit_code == 0
+    assert workflow.request == CheckRequest(
+        root=tmp_path.as_posix(),
+        package="demo",
+        jobs=2,
+    )
+
+
 def test_check_command_builds_a_request_and_renders_the_workflow_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -109,6 +160,7 @@ def test_check_command_builds_a_request_and_renders_the_workflow_result(
     assert workflow.request is not None
     assert workflow.request.package == "demo"
     assert workflow.request.root == tmp_path.as_posix()
+    assert workflow.request.jobs == "auto"
     assert stdout.getvalue() == "✓ check passed (0 cells)\n"
     assert stderr.getvalue() == ""
 

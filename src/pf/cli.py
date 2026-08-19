@@ -79,15 +79,25 @@ def create_app(context: CliContext) -> App:
     )
 
     @app.command
-    def check(package: str | None = None) -> int:
+    def check(
+        package: str | None = None,
+        *,
+        jobs: str = "auto",
+    ) -> int:
         """Verify the package's current dependency declarations.
 
         Parameters
         ----------
         package
             Package name or path to verify.
+        jobs
+            Global worker limit: ``auto`` or a positive integer.
         """
-        request = CheckRequest(root=Path.cwd().as_posix(), package=package)
+        request = CheckRequest(
+            root=Path.cwd().as_posix(),
+            package=package,
+            jobs=parse_jobs(jobs),
+        )
         result = context.check_workflow.run(request)
         return context.presenter.render_check(result)
 
@@ -215,16 +225,17 @@ def build_context() -> CliContext:
     checker = CompatibilityChecker(
         environments=environments,
         evaluator=full,
-        events=presenter,
     )
     projects = ProjectLoader(pythons=uv)
     snapshots = SnapshotBuilder(runner)
     reports = ReportStore()
+    scheduler = Scheduler()
     return CliContext(
         check_workflow=CheckCommandWorkflow(
             projects=projects,
             snapshots=snapshots,
             checker=checker,
+            scheduler=scheduler,
             events=presenter,
         ),
         presenter=presenter,
@@ -237,7 +248,7 @@ def build_context() -> CliContext:
                 static=static,
                 full=full,
             ),
-            scheduler=Scheduler(),
+            scheduler=scheduler,
             reports=reports,
             report_builder=PackageReportBuilder(),
             events=presenter,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock
 import tempfile
+import time
 from typing import Literal, cast
 
 import pytest
@@ -16,13 +18,12 @@ from pf.project import ProjectLoader
 from pf.schemas.config import CheckRequest
 from pf.schemas.evaluation import (
     CellMatrixEvent,
-    CheckIndeterminate,
-    CheckPass,
-    CheckResult,
     Evaluation,
+    PassEvaluation,
     ProcessResult,
     ProgressEvent,
     StatusEvent,
+    TestPass,
     ToolFailure,
 )
 from pf.schemas.evaluation import (
@@ -38,7 +39,58 @@ from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.errors import ConfigurationError
+from pf.scheduling import Scheduler
 from pf.workflow import CheckCommandWorkflow, CompatibilityChecker
+
+
+class Events:
+    def __init__(self) -> None:
+        self.items: list[object] = []
+
+    def consume(self, event: object) -> None:
+        self.items.append(event)
+
+
+def tool_failure() -> ToolFailure:
+    return ToolFailure(
+        status="TOOL_ERROR",
+        stage="prepare",
+        process=ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0,
+            stdout_summary="",
+            stderr_summary="failure",
+            stdout_tail="",
+            stderr_tail="failure",
+        ),
+    )
+
+
+def passing_check(cell: Cell) -> PassEvaluation:
+    process = ProcessResult(
+        exit_code=0,
+        signal=None,
+        duration_seconds=0,
+        stdout_summary="",
+        stderr_summary="",
+        stdout_tail="",
+        stderr_tail="",
+    )
+    proposal = Proposal(
+        proposal_id="proposal",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    return PassEvaluation(
+        proposal=proposal,
+        static=StaticPassEvaluation(proposal=proposal, ty=TyPass(process=process)),
+        test=TestPass(process=process),
+    )
 
 
 def test_check_passes_a_minimal_local_package(tmp_path: Path) -> None:
@@ -81,10 +133,13 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     project = ProjectLoader().load(root=package_root, package_selection=None)
     snapshot = SnapshotBuilder(runner).build(package_root)
 
-    result = checker.check(package=project.packages[0], snapshot=snapshot)
+    result = checker.check(
+        package=project.packages[0],
+        cell=project.packages[0].cells[0],
+        snapshot=snapshot,
+    )
 
     assert result.status == "PASS", result
-    assert len(result.evaluations) == 1
 
 
 def test_check_only_evaluates_cells_for_the_exact_host_target(tmp_path: Path) -> None:
@@ -105,108 +160,53 @@ test-command = ["python", "-c", "pass"]
         + "\n",
         encoding="utf-8",
     )
-    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-    snapshot = SnapshotBuilder().build(tmp_path)
+    seen: list[str] = []
 
-    class Environments:
-        def __init__(self) -> None:
-            self.targets: list[str] = []
-
-        def prepare(
+    class Checker:
+        def check(
             self,
             *,
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-            resolution: Literal["highest", "lowest-direct"],
-        ) -> PreparedEnvironment | ToolFailure:
-            self.targets.append(cell.target)
-            return ToolFailure(
-                status="TOOL_ERROR",
-                stage="prepare",
-                process=ProcessResult(
-                    exit_code=None,
-                    signal=None,
-                    duration_seconds=0,
-                    stdout_summary="",
-                    stderr_summary="failure",
-                    stdout_tail="",
-                    stderr_tail="failure",
-                    start_error="failure",
-                ),
-            )
+        ) -> ToolFailure:
+            seen.append(cell.target)
+            return tool_failure()
 
-    class Evaluator:
-        def evaluate(
-            self,
-            prepared: PreparedEnvironment,
-            *,
-            package: PackagePlan,
-        ) -> Evaluation:
-            raise AssertionError("failed prepare must short-circuit evaluation")
-
-    environments = Environments()
-    checker = CompatibilityChecker(
-        environments=environments,
-        evaluator=Evaluator(),
+    CheckCommandWorkflow(
+        projects=ProjectLoader(),
+        snapshots=SnapshotBuilder(),
+        checker=cast(CompatibilityChecker, Checker()),
+        scheduler=Scheduler(),
+        events=Events(),
         host_target="x86_64-unknown-linux-gnu",
-    )
+    ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
-    checker.check(package=package, snapshot=snapshot)
-
-    assert environments.targets == ["x86_64-unknown-linux-gnu"]
+    assert seen == ["x86_64-unknown-linux-gnu"]
 
 
 def test_check_reports_progress_for_each_host_cell(tmp_path: Path) -> None:
-    package, snapshot = write_check_project(tmp_path)
+    write_check_project(tmp_path)
 
-    class Environments:
-        def prepare(
+    class Checker:
+        def check(
             self,
             *,
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-            resolution: Literal["highest", "lowest-direct"],
         ) -> ToolFailure:
-            return ToolFailure(
-                status="TOOL_ERROR",
-                stage="prepare",
-                process=ProcessResult(
-                    exit_code=None,
-                    signal=None,
-                    duration_seconds=0,
-                    stdout_summary="",
-                    stderr_summary="failure",
-                    stdout_tail="",
-                    stderr_tail="failure",
-                    start_error="failure",
-                ),
-            )
-
-    class Evaluator:
-        def evaluate(
-            self,
-            prepared: PreparedEnvironment,
-            *,
-            package: PackagePlan,
-        ) -> Evaluation:
-            raise AssertionError("failed prepare must short-circuit evaluation")
-
-    class Events:
-        def __init__(self) -> None:
-            self.items: list[object] = []
-
-        def consume(self, event: object) -> None:
-            self.items.append(event)
+            return tool_failure()
 
     events = Events()
-    CompatibilityChecker(
-        environments=Environments(),
-        evaluator=Evaluator(),
+    CheckCommandWorkflow(
+        projects=ProjectLoader(),
+        snapshots=SnapshotBuilder(),
+        checker=cast(CompatibilityChecker, Checker()),
+        scheduler=Scheduler(),
         events=events,
         host_target="x86_64-unknown-linux-gnu",
-    ).check(package=package, snapshot=snapshot)
+    ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
     progress = [event for event in events.items if isinstance(event, ProgressEvent)]
     assert [(event.message, event.completed, event.total) for event in progress] == [
@@ -257,52 +257,40 @@ def test_check_rejects_an_incomplete_execution_contract(
     host: str,
     message: str,
 ) -> None:
-    package, snapshot = write_check_project(
+    write_check_project(
         tmp_path,
         test_command=test_command,
         test_group=test_group,
     )
 
-    class NeverEnvironments:
-        def prepare(
+    class NeverChecker:
+        def check(
             self,
             *,
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-            resolution: Literal["highest", "lowest-direct"],
-        ) -> PreparedEnvironment | ToolFailure:
-            raise AssertionError("invalid configuration must fail before preparation")
-
-    class NeverEvaluator:
-        def evaluate(
-            self,
-            prepared: PreparedEnvironment,
-            *,
-            package: PackagePlan,
         ) -> Evaluation:
             raise AssertionError("invalid configuration must fail before evaluation")
 
     with pytest.raises(ConfigurationError, match=message):
-        CompatibilityChecker(
-            environments=NeverEnvironments(),
-            evaluator=NeverEvaluator(),
+        CheckCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder(),
+            checker=cast(CompatibilityChecker, NeverChecker()),
+            scheduler=Scheduler(),
+            events=Events(),
             host_target=host,
-        ).check(package=package, snapshot=snapshot)
+        ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
 
 @pytest.mark.parametrize(
-    ("evaluation_status", "expected"),
-    (
-        ("STATIC_FAIL", "COMPATIBILITY_FAILED"),
-        ("TEST_FAIL", "COMPATIBILITY_FAILED"),
-        ("TOOL_ERROR", "INDETERMINATE"),
-    ),
+    "evaluation_status",
+    ("STATIC_FAIL", "TEST_FAIL", "TOOL_ERROR"),
 )
 def test_check_preserves_compatibility_and_indeterminate_outcomes(
     tmp_path: Path,
     evaluation_status: str,
-    expected: str,
 ) -> None:
     package, snapshot = write_check_project(tmp_path)
 
@@ -375,10 +363,9 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
     result = CompatibilityChecker(
         environments=Environments(),
         evaluator=Evaluator(),
-        host_target="x86_64-unknown-linux-gnu",
-    ).check(package=package, snapshot=snapshot)
+    ).check(package=package, cell=package.cells[0], snapshot=snapshot)
 
-    assert result.status == expected
+    assert result.status == evaluation_status
 
 
 @pytest.mark.parametrize("indeterminate", (False, True))
@@ -387,46 +374,28 @@ def test_check_workflow_returns_the_aggregate_or_first_failure(
     indeterminate: bool,
 ) -> None:
     write_check_project(tmp_path)
-    failure = ToolFailure(
-        status="TOOL_ERROR",
-        stage="prepare",
-        process=ProcessResult(
-            exit_code=1,
-            signal=None,
-            duration_seconds=0,
-            stdout_summary="",
-            stderr_summary="failure",
-            stdout_tail="",
-            stderr_tail="failure",
-        ),
-    )
 
     class Checker:
         def check(
             self,
             *,
             package: PackagePlan,
+            cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> CheckResult:
+        ) -> PassEvaluation | ToolFailure:
             if indeterminate:
-                return CheckIndeterminate(failure=failure)
-            return CheckPass(evaluations=())
-
-    class Events:
-        def __init__(self) -> None:
-            self.items: list[object] = []
-
-        def consume(self, event: object) -> None:
-            self.items.append(event)
+                return tool_failure()
+            return passing_check(cell)
 
     events = Events()
     result = CheckCommandWorkflow(
         projects=ProjectLoader(),
         snapshots=SnapshotBuilder(),
         checker=cast(CompatibilityChecker, Checker()),
+        scheduler=Scheduler(),
         events=events,
         host_target="x86_64-unknown-linux-gnu",
-    ).run(CheckRequest(root=tmp_path.as_posix()))
+    ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
     assert result.status == ("INDETERMINATE" if indeterminate else "PASS")
     assert [
@@ -465,9 +434,82 @@ test-command = ["python", "-c", "pass"]
             self,
             *,
             package: PackagePlan,
+            cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> CheckPass:
-            return CheckPass(evaluations=())
+        ) -> ToolFailure:
+            return tool_failure()
+
+    events = Events()
+    CheckCommandWorkflow(
+        projects=ProjectLoader(),
+        snapshots=SnapshotBuilder(),
+        checker=cast(CompatibilityChecker, Checker()),
+        scheduler=Scheduler(),
+        events=events,
+        host_target="x86_64-unknown-linux-gnu",
+    ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
+
+    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
+    assert [(cell.python_minor, cell.target, cell.extra_surface) for cell in matrix.cells] == [
+        ("3.10", "x86_64-unknown-linux-gnu", ()),
+        ("3.10", "x86_64-unknown-linux-gnu", ("cuda",)),
+        ("3.11", "x86_64-unknown-linux-gnu", ()),
+        ("3.11", "x86_64-unknown-linux-gnu", ("cuda",)),
+    ]
+
+
+def test_check_workflow_runs_host_cells_in_parallel(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+python = ["3.10", "3.11"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    lock = Lock()
+    active = 0
+    maximum_active = 0
+    seen: list[str] = []
+
+    class Checker:
+        def check(
+            self,
+            *,
+            package: PackagePlan,
+            cell: Cell,
+            snapshot: SourceSnapshot,
+        ) -> ToolFailure:
+            nonlocal active, maximum_active
+            with lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+                seen.append(cell.python_minor)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            return ToolFailure(
+                status="TOOL_ERROR",
+                stage="prepare",
+                process=ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0,
+                    stdout_summary="",
+                    stderr_summary="failure",
+                    stdout_tail="",
+                    stderr_tail="failure",
+                ),
+            )
 
     class Events:
         def __init__(self) -> None:
@@ -477,18 +519,15 @@ test-command = ["python", "-c", "pass"]
             self.items.append(event)
 
     events = Events()
-    CheckCommandWorkflow(
+    result = CheckCommandWorkflow(
         projects=ProjectLoader(),
         snapshots=SnapshotBuilder(),
         checker=cast(CompatibilityChecker, Checker()),
+        scheduler=Scheduler(),
         events=events,
         host_target="x86_64-unknown-linux-gnu",
-    ).run(CheckRequest(root=tmp_path.as_posix()))
+    ).run(CheckRequest(root=tmp_path.as_posix(), jobs=2))
 
-    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
-    assert [(cell.python_minor, cell.target, cell.extra_surface) for cell in matrix.cells] == [
-        ("3.10", "x86_64-unknown-linux-gnu", ()),
-        ("3.10", "x86_64-unknown-linux-gnu", ("cuda",)),
-        ("3.11", "x86_64-unknown-linux-gnu", ()),
-        ("3.11", "x86_64-unknown-linux-gnu", ("cuda",)),
-    ]
+    assert maximum_active == 2
+    assert sorted(seen) == ["3.10", "3.11"]
+    assert result.status == "INDETERMINATE"

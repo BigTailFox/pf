@@ -5,21 +5,28 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 import os
 import time
-from typing import Protocol
+from typing import Generic, Protocol, TypeVar
 
 from pf.schemas.evaluation import ActivityEvent, ProgressEvent
 from pf.schemas.project import Cell
-from pf.schemas.report import CellFailure, CellResult
+from pf.schemas.report import CellFailure
 
 
 class ProgressConsumer(Protocol):
     def consume(self, event: ActivityEvent) -> None: ...
 
 
+class HasStatus(Protocol):
+    status: str
+
+
+T = TypeVar("T", bound=HasStatus)
+
+
 @dataclass(frozen=True)
-class ScheduledCellTask:
+class ScheduledCellTask(Generic[T]):
     cell: Cell
-    run: Callable[[], CellResult]
+    run: Callable[[], T]
 
 
 class Scheduler:
@@ -27,12 +34,12 @@ class Scheduler:
 
     def run(
         self,
-        tasks: tuple[ScheduledCellTask, ...],
+        tasks: tuple[ScheduledCellTask[T], ...],
         *,
         jobs: int | str,
         max_duration_seconds: float | None,
         events: ProgressConsumer,
-    ) -> tuple[CellResult, ...]:
+    ) -> tuple[T, ...]:
         worker_count = self._worker_count(jobs)
         deadline = (
             time.monotonic() + max_duration_seconds
@@ -40,8 +47,8 @@ class Scheduler:
             else None
         )
         pending = iter(tasks)
-        running: dict[Future[CellResult], ScheduledCellTask] = {}
-        results: list[CellResult] = []
+        running: dict[Future[T], ScheduledCellTask[T]] = {}
+        completed_items: list[tuple[Cell, T]] = []
         completed = 0
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -60,7 +67,7 @@ class Scheduler:
                 for future in done:
                     task = running.pop(future)
                     result = future.result()
-                    results.append(result)
+                    completed_items.append((task.cell, result))
                     completed += 1
                     events.consume(
                         ProgressEvent(
@@ -88,13 +95,13 @@ class Scheduler:
                 )
 
         for task in pending:
-            result = CellFailure(
+            timeout = CellFailure(
                 status="TIMEOUT",
                 cell=task.cell,
                 phase="scheduler-deadline",
                 detail="scheduling stopped at the total deadline",
             )
-            results.append(result)
+            completed_items.append((task.cell, timeout))  # type: ignore[arg-type]
             completed += 1
             events.consume(
                 ProgressEvent(
@@ -107,13 +114,19 @@ class Scheduler:
                 )
             )
 
-        return tuple(sorted(results, key=lambda result: self._cell_key(result.cell)))
+        return tuple(
+            result
+            for _, result in sorted(
+                completed_items,
+                key=lambda item: self._cell_key(item[0]),
+            )
+        )
 
     @staticmethod
     def _fill(
         executor: ThreadPoolExecutor,
-        running: dict[Future[CellResult], ScheduledCellTask],
-        pending: Iterator[ScheduledCellTask],
+        running: dict[Future[T], ScheduledCellTask[T]],
+        pending: Iterator[ScheduledCellTask[T]],
         worker_count: int,
         deadline: float | None,
         *,
