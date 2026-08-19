@@ -71,6 +71,7 @@ def test_merge_request_requires_an_input_report() -> None:
     (
         {"argv": (), "cwd": ".", "timeout_seconds": None},
         {"argv": ("python",), "cwd": ".", "timeout_seconds": 0},
+        {"argv": ("python",), "cwd": ".", "timeout_seconds": None, "summary_limit": 0},
     ),
 )
 def test_process_spec_rejects_an_unexecutable_contract(

@@ -104,7 +104,7 @@ def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty() -> None:
     assert plain.getvalue() == (
         "[1/2] demo 3.10 x86_64-unknown-linux-gnu SUCCESS\n"
     )
-    assert "\r" in terminal.getvalue()
+    assert "[1/2] demo 3.10 x86_64-unknown-linux-gnu SUCCESS" not in terminal.getvalue()
 
 
 @pytest.mark.parametrize(

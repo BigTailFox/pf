@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "liulihao", email = "liulihao.leo@bytedance.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10, <3.13"
 dependencies = [
     "cyclopts>=4.0",
     "packaging>=25.0",
@@ -25,6 +25,7 @@ dev = [
     "pytest-env>=1.2",
     "pytest-testmon>=2.2",
 ]
+test = [{ include-group = "dev" }]
 
 [project.scripts]
 pf = "pf.cli:main"
@@ -59,3 +60,6 @@ directory = "tests/.cache/cov/html"
 
 [tool.coverage.report]
 fail_under = 90
+
+[tool.pf]
+test-command = ["pytest", "--no-testmon"]

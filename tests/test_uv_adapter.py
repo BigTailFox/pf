@@ -7,6 +7,7 @@ from urllib.error import URLError
 
 import pytest
 
+from pf.adapters.process import SubprocessRunner
 from pf.adapters.uv import UvAdapter
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
@@ -193,6 +194,16 @@ def test_uv_adapter_lists_only_default_stable_cpython_minors(tmp_path: Path) -> 
         "--output-format",
         "json",
     )
+    assert runner.spec.summary_limit == 16 * 1024 * 1024
+
+
+def test_uv_adapter_lists_real_cpython_inventory_beyond_default_summary(
+    tmp_path: Path,
+) -> None:
+    minors = UvAdapter(SubprocessRunner()).available_cpython_minors(root=tmp_path)
+
+    assert minors
+    assert all(minor.startswith("3.") for minor in minors)
 
 
 def test_uv_adapter_owns_environment_and_harness_install_argv(tmp_path: Path) -> None:

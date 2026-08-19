@@ -20,6 +20,7 @@ class ProcessSpec(FrozenSchema):
     timeout_seconds: int | None
     start_new_session: bool = True
     redaction_policy_identity: str = "pf-default-v1"
+    summary_limit: int | None = None
 
     @model_validator(mode="after")
     def validate_process_spec(self) -> "ProcessSpec":
@@ -27,6 +28,8 @@ class ProcessSpec(FrozenSchema):
             raise ValueError("process argv cannot be empty")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("process timeout must be positive or None")
+        if self.summary_limit is not None and self.summary_limit <= 0:
+            raise ValueError("summary limit must be positive or None")
         return self
 
 

@@ -42,6 +42,8 @@ from pf.schemas.project import (
     SourceIdentity,
 )
 
+_JSON_SUMMARY_LIMIT = 16 * 1024 * 1024
+
 
 class UvAdapter:
     """Own every uv argv and classify uv process facts into PF outcomes."""
@@ -55,6 +57,7 @@ class UvAdapter:
                 argv=("uv", "python", "list", "--output-format", "json"),
                 cwd=root.as_posix(),
                 timeout_seconds=30,
+                summary_limit=_JSON_SUMMARY_LIMIT,
             )
         )
         outcome = self._classify(process, stage="python-list")
@@ -220,6 +223,7 @@ class UvAdapter:
                 argv=(interpreter.as_posix(), "-c", script),
                 cwd=cwd.as_posix(),
                 timeout_seconds=timeout_seconds,
+                summary_limit=_JSON_SUMMARY_LIMIT,
             )
         )
         failure = self._classify(process, stage="inspect")
@@ -277,14 +281,14 @@ class UvAdapter:
         try:
             with urlopen(request, timeout=30) as response:
                 length = response.headers.get("Content-Length")
-                if length is not None and int(length) > 16 * 1024 * 1024:
+                if length is not None and int(length) > _JSON_SUMMARY_LIMIT:
                     raise InfrastructureError("registry candidate response is too large")
-                payload = response.read(16 * 1024 * 1024 + 1)
+                payload = response.read(_JSON_SUMMARY_LIMIT + 1)
         except (HTTPError, URLError, TimeoutError, OSError) as error:
             raise InfrastructureError(
                 f"registry candidate query failed for: {dependency}"
             ) from error
-        if len(payload) > 16 * 1024 * 1024:
+        if len(payload) > _JSON_SUMMARY_LIMIT:
             raise InfrastructureError("registry candidate response is too large")
         try:
             document = json.loads(payload)

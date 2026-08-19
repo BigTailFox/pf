@@ -87,8 +87,19 @@ class SubprocessRunner:
                 self._terminate(process, spec.start_new_session)
                 process.communicate()
 
-            stdout_summary, stdout_tail, stdout_truncated = self._capture(stdout_file)
-            stderr_summary, stderr_tail, stderr_truncated = self._capture(stderr_file)
+            summary_limit = (
+                spec.summary_limit
+                if spec.summary_limit is not None
+                else self._summary_limit
+            )
+            stdout_summary, stdout_tail, stdout_truncated = self._capture(
+                stdout_file,
+                summary_limit=summary_limit,
+            )
+            stderr_summary, stderr_tail, stderr_truncated = self._capture(
+                stderr_file,
+                summary_limit=summary_limit,
+            )
         return_code = process.returncode
         exit_code = return_code if return_code >= 0 else None
         process_signal = -return_code if return_code < 0 else None
@@ -105,19 +116,24 @@ class SubprocessRunner:
             timed_out=timed_out,
         )
 
-    def _capture(self, stream: BinaryIO) -> tuple[str, str, bool]:
+    def _capture(
+        self,
+        stream: BinaryIO,
+        *,
+        summary_limit: int,
+    ) -> tuple[str, str, bool]:
         stream.flush()
         stream.seek(0, os.SEEK_END)
         size = stream.tell()
         stream.seek(0)
-        summary_bytes = stream.read(self._summary_limit)
+        summary_bytes = stream.read(summary_limit)
         stream.seek(max(0, size - self._tail_limit))
         tail_bytes = stream.read(self._tail_limit)
         summary = self._redactor.redact(
             summary_bytes.decode("utf-8", errors="replace")
         )
         tail = self._redactor.redact(tail_bytes.decode("utf-8", errors="replace"))
-        return summary, tail, size > self._summary_limit
+        return summary, tail, size > summary_limit
 
     def _terminate(self, process: subprocess.Popen[bytes], process_group: bool) -> None:
         try:

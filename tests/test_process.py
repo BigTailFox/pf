@@ -96,3 +96,20 @@ def test_subprocess_runner_bounds_summary_and_keeps_the_tail(tmp_path: Path) -> 
     assert result.stdout_summary == "abcd"
     assert result.stdout_tail == "fghij"
     assert result.stdout_truncated is True
+
+
+def test_subprocess_runner_honors_a_larger_process_spec_summary_limit(
+    tmp_path: Path,
+) -> None:
+    payload = "abcdefghij"
+    result = SubprocessRunner(summary_limit=4, tail_limit=5).run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "print('abcdefghij', end='')"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+            summary_limit=32,
+        )
+    )
+
+    assert result.stdout_summary == payload
+    assert result.stdout_truncated is False
