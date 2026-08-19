@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Union
 from pydantic import Field, model_validator
 
 from pf.schemas.base import FrozenSchema
-from pf.schemas.evaluation import Evaluation, PassEvaluation
+from pf.schemas.evaluation import Evaluation, PassEvaluation, ToolFailure
 from pf.schemas.project import (
     CandidateSnapshot,
     Cell,
@@ -110,6 +110,8 @@ class CellFailure(FrozenSchema):
     baseline: Evaluation | None = None
     candidate_snapshots: tuple[CandidateSnapshot, ...] = ()
     coordinate_failure: CoordinateFailure | None = None
+    failure: ToolFailure | None = None
+    detail: str | None = None
 
 
 CellResult = Annotated[

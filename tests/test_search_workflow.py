@@ -6,6 +6,7 @@ from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
 from pf.scheduling import Scheduler
 from pf.schemas.config import SearchRequest
+from pf.schemas.evaluation import ProgressEvent
 from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.report import CellFailure
 from pf.snapshot import SnapshotBuilder
@@ -83,7 +84,12 @@ test-command = ["pytest"]
 
     assert output[0].result.status == "incomplete"
     assert output[0].result.reasons == ("TIMEOUT", "UNREPRESENTABLE_PROJECTION")
-    assert len(events.items) == 2
+    completions = [
+        event
+        for event in events.items
+        if isinstance(event, ProgressEvent) and event.phase != "start"
+    ]
+    assert len(completions) == 2
     assert store.read(tmp_path / "package-floor.json") == output[0]
 
     repeated = workflow.run(

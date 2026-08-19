@@ -17,6 +17,10 @@ class PfError(Exception):
     category = "pf"
     exit_code = ExitCode.INDETERMINATE
 
+    def __init__(self, message: str = "", *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail
+
 
 class CompatibilityError(PfError):
     category = "compatibility"

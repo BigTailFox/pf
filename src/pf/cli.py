@@ -206,21 +206,26 @@ def create_app(context: CliContext) -> App:
 
 
 def build_context() -> CliContext:
-    runner = SubprocessRunner()
+    presenter = TerminalPresenter()
+    runner = SubprocessRunner(listener=presenter)
     uv = UvAdapter(runner)
     environments = EnvironmentFactory(uv)
     static = StaticEvaluator(TyAdapter(runner))
     full = FullEvaluator(static=static, tests=TestAdapter(runner))
-    checker = CompatibilityChecker(environments=environments, evaluator=full)
+    checker = CompatibilityChecker(
+        environments=environments,
+        evaluator=full,
+        events=presenter,
+    )
     projects = ProjectLoader(pythons=uv)
     snapshots = SnapshotBuilder(runner)
-    presenter = TerminalPresenter()
     reports = ReportStore()
     return CliContext(
         check_workflow=CheckCommandWorkflow(
             projects=projects,
             snapshots=snapshots,
             checker=checker,
+            events=presenter,
         ),
         presenter=presenter,
         search_workflow=SearchCommandWorkflow(
@@ -246,6 +251,7 @@ def build_context() -> CliContext:
             projects=projects,
             reports=reports,
             editor=ProjectEditor(snapshots=snapshots),
+            events=presenter,
         ),
     )
 
@@ -256,3 +262,5 @@ def main() -> None:
         create_app(context)()
     except PfError as error:
         raise SystemExit(context.presenter.render_error(error)) from error
+    finally:
+        context.presenter.close()

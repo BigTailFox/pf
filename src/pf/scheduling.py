@@ -7,13 +7,13 @@ import os
 import time
 from typing import Protocol
 
-from pf.schemas.evaluation import ProgressEvent
+from pf.schemas.evaluation import ActivityEvent, ProgressEvent
 from pf.schemas.project import Cell
 from pf.schemas.report import CellFailure, CellResult
 
 
 class ProgressConsumer(Protocol):
-    def consume(self, event: ProgressEvent) -> None: ...
+    def consume(self, event: ActivityEvent) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,16 @@ class Scheduler:
         completed = 0
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            self._fill(executor, running, pending, worker_count, deadline)
+            self._fill(
+                executor,
+                running,
+                pending,
+                worker_count,
+                deadline,
+                events=events,
+                completed=completed,
+                total=len(tasks),
+            )
             while running:
                 done, _ = wait(tuple(running), return_when=FIRST_COMPLETED)
                 for future in done:
@@ -67,13 +76,23 @@ class Scheduler:
                             message=result.status,
                         )
                     )
-                self._fill(executor, running, pending, worker_count, deadline)
+                self._fill(
+                    executor,
+                    running,
+                    pending,
+                    worker_count,
+                    deadline,
+                    events=events,
+                    completed=completed,
+                    total=len(tasks),
+                )
 
         for task in pending:
             result = CellFailure(
                 status="TIMEOUT",
                 cell=task.cell,
                 phase="scheduler-deadline",
+                detail="scheduling stopped at the total deadline",
             )
             results.append(result)
             completed += 1
@@ -97,6 +116,10 @@ class Scheduler:
         pending: Iterator[ScheduledCellTask],
         worker_count: int,
         deadline: float | None,
+        *,
+        events: ProgressConsumer,
+        completed: int,
+        total: int,
     ) -> None:
         while len(running) < worker_count:
             if deadline is not None and time.monotonic() >= deadline:
@@ -106,6 +129,16 @@ class Scheduler:
             except StopIteration:
                 return
             running[executor.submit(task.run)] = task
+            events.consume(
+                ProgressEvent(
+                    package=task.cell.package,
+                    cell=task.cell,
+                    phase="start",
+                    completed=completed,
+                    total=total,
+                    message="running",
+                )
+            )
 
     @staticmethod
     def _worker_count(jobs: int | str) -> int:

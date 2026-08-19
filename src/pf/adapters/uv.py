@@ -62,7 +62,10 @@ class UvAdapter:
         )
         outcome = self._classify(process, stage="python-list")
         if isinstance(outcome, ToolFailure) or process.stdout_truncated:
-            raise InfrastructureError("uv could not list available Python versions")
+            raise InfrastructureError(
+                "uv could not list available Python versions",
+                detail=process.diagnostic() or None,
+            )
         try:
             records = json.loads(process.stdout_summary)
             minors = {
@@ -74,9 +77,15 @@ class UvAdapter:
                 and not version.is_devrelease
             }
         except (KeyError, TypeError, InvalidVersion, json.JSONDecodeError) as error:
-            raise InfrastructureError("uv returned invalid Python inventory JSON") from error
+            raise InfrastructureError(
+                "uv returned invalid Python inventory JSON",
+                detail=str(error),
+            ) from error
         if not minors:
-            raise InfrastructureError("uv reported no stable CPython versions")
+            raise InfrastructureError(
+                "uv reported no stable CPython versions",
+                detail=process.diagnostic() or None,
+            )
         return tuple(sorted(minors, key=Version))
 
     def inspect_interpreter(
@@ -286,7 +295,8 @@ class UvAdapter:
                 payload = response.read(_JSON_SUMMARY_LIMIT + 1)
         except (HTTPError, URLError, TimeoutError, OSError) as error:
             raise InfrastructureError(
-                f"registry candidate query failed for: {dependency}"
+                f"registry candidate query failed for: {dependency}",
+                detail=str(error),
             ) from error
         if len(payload) > _JSON_SUMMARY_LIMIT:
             raise InfrastructureError("registry candidate response is too large")
@@ -294,7 +304,10 @@ class UvAdapter:
             document = json.loads(payload)
             files = document["files"]
         except (KeyError, TypeError, json.JSONDecodeError) as error:
-            raise InfrastructureError("registry returned invalid Simple JSON") from error
+            raise InfrastructureError(
+                "registry returned invalid Simple JSON",
+                detail=str(error),
+            ) from error
 
         grouped: dict[Version, list[tuple[AvailableArtifact, bool]]] = {}
         target_python = Version(f"{cell.python_minor}.0")

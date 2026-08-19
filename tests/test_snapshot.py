@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
+import pytest
+
+from pf.errors import InfrastructureError
+from pf.schemas.evaluation import ProcessResult, ProcessSpec
 from pf.snapshot import SnapshotBuilder
 
 
@@ -75,3 +79,28 @@ def test_git_snapshot_uses_tracked_and_unignored_worktree_manifest(tmp_path: Pat
     destination = tmp_path / "proposal"
     snapshot.materialize(destination)
     assert (destination / "tracked.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_git_snapshot_failure_includes_process_diagnostic(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / ".git").mkdir()
+    (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    class Runner:
+        def run(self, spec: ProcessSpec) -> ProcessResult:
+            return ProcessResult(
+                exit_code=128,
+                signal=None,
+                duration_seconds=0.1,
+                stdout_summary="",
+                stderr_summary="fatal: not a git repository",
+                stdout_tail="",
+                stderr_tail="fatal: not a git repository",
+            )
+
+    with pytest.raises(InfrastructureError) as caught:
+        SnapshotBuilder(Runner()).build(root)
+
+    assert str(caught.value) == "git could not enumerate the source snapshot"
+    assert caught.value.detail == "fatal: not a git repository"

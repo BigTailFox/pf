@@ -14,6 +14,7 @@ from pf.schemas.evaluation import (
     TestFail,
     TestFailEvaluation,
     TestPass,
+    ToolFailure,
     TyPass,
 )
 from pf.schemas.project import (
@@ -284,3 +285,59 @@ def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
     assert isinstance(result, CellFailure)
     assert result.status == "SOURCE_ERROR"
     assert result.phase == "candidate-discovery"
+    assert result.detail == "index unavailable"
+
+
+def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    failure = ToolFailure(
+        status="UNRESOLVABLE",
+        stage="install-harness",
+        process=ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+            stdout_summary="",
+            stderr_summary="No solution found",
+            stdout_tail="",
+            stderr_tail="No solution found",
+        ),
+    )
+
+    class UnresolvableEnvironments:
+        def prepare(self, **kwargs: Any) -> ToolFailure:
+            return failure
+
+    class NeverEvaluate:
+        def evaluate(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("prepare failure must not evaluate")
+
+    result = SearchCoordinator(
+        environments=UnresolvableEnvironments(),
+        candidates=FrozenCandidates(),
+        static=NeverEvaluate(),
+        full=NeverEvaluate(),
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert isinstance(result, CellFailure)
+    assert result.status == "UNRESOLVABLE"
+    assert result.phase == "baseline-prepare"
+    assert result.failure == failure

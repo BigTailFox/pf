@@ -55,6 +55,25 @@ class ProcessResult(FrozenSchema):
             raise ValueError("process result must have exactly one terminal fact")
         return self
 
+    def diagnostic(self) -> str:
+        parts: list[str] = []
+        if self.start_error:
+            parts.append(self.start_error)
+        text = self.stderr_summary.strip() or self.stdout_summary.strip()
+        if not text:
+            text = self.stderr_tail.strip() or self.stdout_tail.strip()
+        if text and text not in parts:
+            parts.append(text)
+        if parts:
+            return "\n".join(parts)
+        if self.timed_out:
+            return "process timed out"
+        if self.signal is not None:
+            return f"terminated by signal {self.signal}"
+        if self.exit_code is not None:
+            return f"exit code {self.exit_code}"
+        return ""
+
 
 class ToolSuccess(FrozenSchema):
     status: Literal["SUCCESS"] = "SUCCESS"
@@ -233,3 +252,20 @@ class ProgressEvent(FrozenSchema):
     completed: int
     total: int
     message: str
+
+
+class StatusEvent(FrozenSchema):
+    message: str
+    package: str | None = None
+    completed: int = 0
+    total: int | None = None
+
+
+class ProcessEvent(FrozenSchema):
+    process_id: int
+    argv: tuple[str, ...]
+    state: Literal["started", "finished"]
+    duration_seconds: float | None = None
+
+
+ActivityEvent = ProgressEvent | StatusEvent | ProcessEvent

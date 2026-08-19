@@ -8,6 +8,7 @@ from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
 from pf.report import ReportStore
 from pf.schemas.config import ApplyRequest, MergeRequest, ReportRequest
+from pf.schemas.evaluation import StatusEvent
 from pf.schemas.project import SourceSnapshotIdentity
 from pf.schemas.report import (
     GeneratorIdentity,
@@ -87,13 +88,27 @@ def test_apply_workflow_validates_reports_then_edits_all_packages(
                 ),
             )
 
+    class Events:
+        def __init__(self) -> None:
+            self.items: list[object] = []
+
+        def consume(self, event: object) -> None:
+            self.items.append(event)
+
+    events = Events()
     edits = ApplyCommandWorkflow(
         projects=ProjectLoader(),
         reports=store,
         editor=Editor(),
+        events=events,
     ).run(ApplyRequest(root=tmp_path.as_posix()))
 
     assert edits[0].changed is False
+    status = [
+        event for event in events.items if isinstance(event, StatusEvent)
+    ]
+    assert [event.message for event in status] == ["applying floors"]
+    assert status[0].total == 1
 
 
 def test_apply_workflow_rejects_report_for_another_package(tmp_path: Path) -> None:

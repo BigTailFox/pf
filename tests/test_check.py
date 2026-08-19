@@ -20,6 +20,8 @@ from pf.schemas.evaluation import (
     CheckResult,
     Evaluation,
     ProcessResult,
+    ProgressEvent,
+    StatusEvent,
     ToolFailure,
 )
 from pf.schemas.evaluation import (
@@ -152,6 +154,64 @@ test-command = ["python", "-c", "pass"]
     checker.check(package=package, snapshot=snapshot)
 
     assert environments.targets == ["x86_64-unknown-linux-gnu"]
+
+
+def test_check_reports_progress_for_each_host_cell(tmp_path: Path) -> None:
+    package, snapshot = write_check_project(tmp_path)
+
+    class Environments:
+        def prepare(
+            self,
+            *,
+            package: PackagePlan,
+            cell: Cell,
+            snapshot: SourceSnapshot,
+            resolution: Literal["highest", "lowest-direct"],
+        ) -> ToolFailure:
+            return ToolFailure(
+                status="TOOL_ERROR",
+                stage="prepare",
+                process=ProcessResult(
+                    exit_code=None,
+                    signal=None,
+                    duration_seconds=0,
+                    stdout_summary="",
+                    stderr_summary="failure",
+                    stdout_tail="",
+                    stderr_tail="failure",
+                    start_error="failure",
+                ),
+            )
+
+    class Evaluator:
+        def evaluate(
+            self,
+            prepared: PreparedEnvironment,
+            *,
+            package: PackagePlan,
+        ) -> Evaluation:
+            raise AssertionError("failed prepare must short-circuit evaluation")
+
+    class Events:
+        def __init__(self) -> None:
+            self.items: list[object] = []
+
+        def consume(self, event: object) -> None:
+            self.items.append(event)
+
+    events = Events()
+    CompatibilityChecker(
+        environments=Environments(),
+        evaluator=Evaluator(),
+        events=events,
+        host_target="x86_64-unknown-linux-gnu",
+    ).check(package=package, snapshot=snapshot)
+
+    progress = [event for event in events.items if isinstance(event, ProgressEvent)]
+    assert [(event.message, event.completed, event.total) for event in progress] == [
+        ("running", 0, 1),
+        ("TOOL_ERROR", 1, 1),
+    ]
 
 
 def write_check_project(
@@ -351,10 +411,24 @@ def test_check_workflow_returns_the_aggregate_or_first_failure(
                 return CheckIndeterminate(failure=failure)
             return CheckPass(evaluations=())
 
+    class Events:
+        def __init__(self) -> None:
+            self.items: list[object] = []
+
+        def consume(self, event: object) -> None:
+            self.items.append(event)
+
+    events = Events()
     result = CheckCommandWorkflow(
         projects=ProjectLoader(),
         snapshots=SnapshotBuilder(),
         checker=cast(CompatibilityChecker, Checker()),
+        events=events,
     ).run(CheckRequest(root=tmp_path.as_posix()))
 
     assert result.status == ("INDETERMINATE" if indeterminate else "PASS")
+    assert [
+        event.message
+        for event in events.items
+        if isinstance(event, StatusEvent)
+    ] == ["loading project", "building snapshot", "checking declarations"]

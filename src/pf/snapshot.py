@@ -242,7 +242,10 @@ class SnapshotBuilder:
             or result.signal is not None
             or result.exit_code != 0
         ):
-            raise InfrastructureError("git could not enumerate the source snapshot")
+            raise InfrastructureError(
+                "git could not enumerate the source snapshot",
+                detail=result.diagnostic() or None,
+            )
         if result.stdout_truncated:
             raise InfrastructureError("git source manifest exceeded the capture limit")
         paths = frozenset(path for path in result.stdout_summary.split("\0") if path)

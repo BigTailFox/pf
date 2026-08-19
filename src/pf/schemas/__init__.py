@@ -10,6 +10,7 @@ from pf.schemas.config import (
     SearchRequest,
 )
 from pf.schemas.evaluation import (
+    ActivityEvent,
     CacheConflict,
     CheckCompatibilityFailure,
     CheckIndeterminate,
@@ -23,12 +24,14 @@ from pf.schemas.evaluation import (
     InterpreterSuccess,
     IndeterminateEvaluation,
     PassEvaluation,
+    ProcessEvent,
     ProcessResult,
     ProcessSpec,
     ProgressEvent,
     StaticEvaluation,
     StaticFailEvaluation,
     StaticPassEvaluation,
+    StatusEvent,
     TestFail,
     TestOutcome,
     TestPass,
@@ -80,6 +83,7 @@ from pf.schemas.report import (
 )
 
 __all__ = [
+    "ActivityEvent",
     "ApplyRequest",
     "AvailableArtifact",
     "AvailableCandidate",
@@ -119,6 +123,7 @@ __all__ = [
     "PassEvaluation",
     "Proposal",
     "ProjectPlan",
+    "ProcessEvent",
     "ProcessResult",
     "ProcessSpec",
     "ProgressEvent",
@@ -137,6 +142,7 @@ __all__ = [
     "StaticEvaluation",
     "StaticFailEvaluation",
     "StaticPassEvaluation",
+    "StatusEvent",
     "SearchRequest",
     "TestFail",
     "TestOutcome",

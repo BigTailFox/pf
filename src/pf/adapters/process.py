@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+from itertools import count
 import os
 import re
+import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
-from typing import BinaryIO
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
-from pf.schemas.evaluation import ProcessResult, ProcessSpec
+from pf.schemas.evaluation import ProcessEvent, ProcessResult, ProcessSpec
 
 
 class ProcessRunner(Protocol):
     def run(self, spec: ProcessSpec) -> ProcessResult: ...
+
+
+class ProcessListener(Protocol):
+    def consume(self, event: ProcessEvent) -> None: ...
 
 
 class SecretRedactor:
@@ -42,19 +48,28 @@ class SubprocessRunner:
         self,
         *,
         redactor: SecretRedactor | None = None,
+        listener: ProcessListener | None = None,
         summary_limit: int = 4_096,
         tail_limit: int = 16_384,
         terminate_grace_seconds: float = 1.0,
     ) -> None:
         self._redactor = redactor or SecretRedactor()
+        self._listener = listener
+        self._process_ids = count(1)
         self._summary_limit = summary_limit
         self._tail_limit = tail_limit
         self._terminate_grace_seconds = terminate_grace_seconds
 
     def run(self, spec: ProcessSpec) -> ProcessResult:
         started = time.monotonic()
+        process_id = next(self._process_ids)
+        argv = tuple(self._redactor.redact(argument) for argument in spec.argv)
+        self._emit(ProcessEvent(process_id=process_id, argv=argv, state="started"))
         environment = os.environ.copy()
         environment.update({item.name: item.value for item in spec.environment})
+        size = self._terminal_size()
+        environment["COLUMNS"] = str(size.columns)
+        environment["LINES"] = str(size.lines)
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
             try:
                 process = subprocess.Popen(
@@ -68,7 +83,7 @@ class SubprocessRunner:
                     start_new_session=spec.start_new_session,
                 )
             except OSError as error:
-                return ProcessResult(
+                result = ProcessResult(
                     exit_code=None,
                     signal=None,
                     duration_seconds=time.monotonic() - started,
@@ -78,6 +93,15 @@ class SubprocessRunner:
                     stderr_tail="",
                     start_error=self._redactor.redact(str(error)),
                 )
+                self._emit(
+                    ProcessEvent(
+                        process_id=process_id,
+                        argv=argv,
+                        state="finished",
+                        duration_seconds=result.duration_seconds,
+                    )
+                )
+                return result
 
             timed_out = False
             try:
@@ -103,7 +127,7 @@ class SubprocessRunner:
         return_code = process.returncode
         exit_code = return_code if return_code >= 0 else None
         process_signal = -return_code if return_code < 0 else None
-        return ProcessResult(
+        result = ProcessResult(
             exit_code=exit_code,
             signal=process_signal,
             duration_seconds=time.monotonic() - started,
@@ -115,6 +139,28 @@ class SubprocessRunner:
             stderr_truncated=stderr_truncated,
             timed_out=timed_out,
         )
+        self._emit(
+            ProcessEvent(
+                process_id=process_id,
+                argv=argv,
+                state="finished",
+                duration_seconds=result.duration_seconds,
+            )
+        )
+        return result
+
+    def _emit(self, event: ProcessEvent) -> None:
+        if self._listener is not None:
+            self._listener.consume(event)
+
+    @staticmethod
+    def _terminal_size() -> os.terminal_size:
+        for stream in (sys.stderr, sys.stdout):
+            try:
+                return os.get_terminal_size(stream.fileno())
+            except (AttributeError, ValueError, OSError):
+                continue
+        return shutil.get_terminal_size()
 
     def _capture(
         self,

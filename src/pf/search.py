@@ -589,6 +589,7 @@ class SearchCoordinator:
                 status=baseline_environment.status,
                 cell=cell,
                 phase="baseline-prepare",
+                failure=baseline_environment,
             )
         try:
             baseline_evaluation = self._full.evaluate(
@@ -618,12 +619,13 @@ class SearchCoordinator:
                 cell=cell,
                 baseline=baseline_evaluation.proposal.managed_vector,
             )
-        except InfrastructureError:
+        except InfrastructureError as error:
             return CellFailure(
                 status="SOURCE_ERROR",
                 cell=cell,
                 phase="candidate-discovery",
                 baseline=baseline_evaluation,
+                detail=str(error),
             )
         except NoApplicableFloorError:
             return CellFailure(
@@ -677,14 +679,17 @@ class SearchCoordinator:
                     if fast_evidence.status in {"PASS", "STATIC_FAIL"}
                     else fast_evidence.status
                 )
-                return CellFailure.model_validate(
-                    {
-                        "status": failure_status,
-                        "cell": cell,
-                        "phase": "static-fast-path",
-                        "baseline": baseline_evaluation,
-                        "candidate_snapshots": candidate_snapshots,
-                    }
+                return CellFailure(
+                    status=failure_status,
+                    cell=cell,
+                    phase="static-fast-path",
+                    baseline=baseline_evaluation,
+                    candidate_snapshots=candidate_snapshots,
+                    failure=(
+                        fast_evaluation.failure
+                        if isinstance(fast_evaluation, IndeterminateEvaluation)
+                        else None
+                    ),
                 )
             dynamic_search = CoordinateSearch(
                 small_threshold=self._coordinate_threshold

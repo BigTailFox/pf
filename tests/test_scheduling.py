@@ -5,6 +5,7 @@ from threading import Lock
 import time
 
 from pf.scheduling import ScheduledCellTask, Scheduler
+from pf.schemas.evaluation import ProgressEvent
 from pf.schemas.project import Cell
 from pf.schemas.report import CellFailure
 
@@ -54,7 +55,18 @@ def test_scheduler_limits_concurrency_and_returns_canonical_cell_order() -> None
 
     assert maximum_active == 2
     assert [result.cell.python_minor for result in results] == ["3.10", "3.11", "3.12"]
-    assert len(events.items) == 3
+    starts = [
+        event
+        for event in events.items
+        if isinstance(event, ProgressEvent) and event.phase == "start"
+    ]
+    completions = [
+        event
+        for event in events.items
+        if isinstance(event, ProgressEvent) and event.phase != "start"
+    ]
+    assert len(starts) == 3
+    assert len(completions) == 3
 
 
 def test_scheduler_stops_starting_cells_after_total_deadline() -> None:
@@ -87,4 +99,9 @@ def test_scheduler_stops_starting_cells_after_total_deadline() -> None:
     assert results[1].status == "TIMEOUT"
     assert isinstance(results[1], CellFailure)
     assert results[1].phase == "scheduler-deadline"
-    assert len(events.items) == 2
+    assert results[1].detail == "scheduling stopped at the total deadline"
+    assert [
+        event.phase
+        for event in events.items
+        if isinstance(event, ProgressEvent)
+    ].count("scheduler-deadline") == 1

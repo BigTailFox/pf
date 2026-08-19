@@ -14,7 +14,9 @@ from pf.schemas.evaluation import (
     Evaluation,
     IndeterminateEvaluation,
     PassEvaluation,
+    ProgressEvent,
     StaticFailEvaluation,
+    StatusEvent,
     TestFailEvaluation,
     ToolFailure,
 )
@@ -62,10 +64,12 @@ class CompatibilityChecker:
         *,
         environments: CheckEnvironmentOperations,
         evaluator: CheckEvaluationOperations,
+        events: ProgressConsumer | None = None,
         host_target: str | None = None,
     ) -> None:
         self._environments = environments
         self._evaluator = evaluator
+        self._events = events
         self._host_target = host_target or current_host_target()
 
     def check(
@@ -88,7 +92,18 @@ class CompatibilityChecker:
                 f"no configured cell matches host target: {self._host_target}"
             )
         evaluations: list[PassEvaluation] = []
-        for cell in local_cells:
+        total = len(local_cells)
+        for index, cell in enumerate(local_cells, start=1):
+            self._emit(
+                ProgressEvent(
+                    package=package.name,
+                    cell=cell,
+                    phase="check",
+                    completed=index - 1,
+                    total=total,
+                    message="running",
+                )
+            )
             prepared = self._environments.prepare(
                 package=package,
                 cell=cell,
@@ -96,6 +111,16 @@ class CompatibilityChecker:
                 resolution="lowest-direct",
             )
             if not isinstance(prepared, PreparedEnvironment):
+                self._emit(
+                    ProgressEvent(
+                        package=package.name,
+                        cell=cell,
+                        phase="check",
+                        completed=index,
+                        total=total,
+                        message=prepared.status,
+                    )
+                )
                 return CheckIndeterminate(
                     evaluations=tuple(evaluations),
                     failure=prepared,
@@ -104,6 +129,16 @@ class CompatibilityChecker:
                 evaluation = self._evaluator.evaluate(prepared, package=package)
             finally:
                 prepared.close()
+            self._emit(
+                ProgressEvent(
+                    package=package.name,
+                    cell=cell,
+                    phase="check",
+                    completed=index,
+                    total=total,
+                    message=evaluation.status,
+                )
+            )
             if isinstance(evaluation, PassEvaluation):
                 evaluations.append(evaluation)
                 continue
@@ -118,6 +153,10 @@ class CompatibilityChecker:
                 )
         return CheckPass(evaluations=tuple(evaluations))
 
+    def _emit(self, event: ProgressEvent) -> None:
+        if self._events is not None:
+            self._events.consume(event)
+
 
 class CheckCommandWorkflow:
     """Load, snapshot, and check every package selected by one CLI request."""
@@ -128,20 +167,25 @@ class CheckCommandWorkflow:
         projects: ProjectLoader,
         snapshots: SnapshotBuilder,
         checker: CompatibilityChecker,
+        events: ProgressConsumer | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
         self._checker = checker
+        self._events = events
 
     def run(self, request: CheckRequest) -> CheckResult:
         root = Path(request.root)
+        self._emit(StatusEvent(message="loading project"))
         project = self._projects.load(
             root=root,
             package_selection=request.package,
         )
+        self._emit(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(root)
         evaluations: list[PassEvaluation] = []
         try:
+            self._emit(StatusEvent(message="checking declarations"))
             for package in project.packages:
                 result = self._checker.check(package=package, snapshot=snapshot)
                 if result.status != "PASS":
@@ -150,6 +194,10 @@ class CheckCommandWorkflow:
             return CheckPass(evaluations=tuple(evaluations))
         finally:
             snapshot.close()
+
+    def _emit(self, event: StatusEvent) -> None:
+        if self._events is not None:
+            self._events.consume(event)
 
 
 class CellSearchOperations(Protocol):
@@ -188,12 +236,15 @@ class SearchCommandWorkflow:
 
     def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]:
         root = Path(request.root)
+        self._events.consume(StatusEvent(message="loading project"))
         project = self._projects.load(
             root=root,
             package_selection=request.package,
         )
+        self._events.consume(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(root)
         try:
+            self._events.consume(StatusEvent(message="searching cells"))
             tasks = tuple(
                 ScheduledCellTask(
                     cell=cell,
@@ -317,10 +368,12 @@ class ApplyCommandWorkflow:
         projects: ProjectLoader,
         reports: ReportStore,
         editor: ProjectEditOperations,
+        events: ProgressConsumer | None = None,
     ) -> None:
         self._projects = projects
         self._reports = reports
         self._editor = editor
+        self._events = events
 
     def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
         root = Path(request.root)
@@ -328,6 +381,13 @@ class ApplyCommandWorkflow:
             root=root,
             package_selection=request.package,
         )
+        if self._events is not None:
+            self._events.consume(
+                StatusEvent(
+                    message="applying floors",
+                    total=len(project.packages) or None,
+                )
+            )
         reports = []
         for package in project.packages:
             report_path = (

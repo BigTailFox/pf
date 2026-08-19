@@ -301,6 +301,18 @@ def test_uv_python_inventory_rejects_unusable_evidence(
         UvAdapter(Runner()).available_cpython_minors(root=tmp_path)
 
 
+def test_uv_python_inventory_failure_includes_process_diagnostic(tmp_path: Path) -> None:
+    class Runner:
+        def run(self, spec: ProcessSpec) -> ProcessResult:
+            return process_result(exit_code=1, stderr="uv: python list failed")
+
+    with pytest.raises(InfrastructureError) as caught:
+        UvAdapter(Runner()).available_cpython_minors(root=tmp_path)
+
+    assert str(caught.value) == "uv could not list available Python versions"
+    assert caught.value.detail == "uv: python list failed"
+
+
 def test_uv_adapter_inspects_interpreter_identity(tmp_path: Path) -> None:
     class Runner:
         def run(self, spec: ProcessSpec) -> ProcessResult:
@@ -476,12 +488,14 @@ def test_candidate_query_rejects_non_registry_and_invalid_responses(
         "pf.adapters.uv.urlopen",
         lambda request, timeout: (_ for _ in ()).throw(URLError("offline")),
     )
-    with pytest.raises(InfrastructureError):
+    with pytest.raises(InfrastructureError) as caught:
         adapter.query(
             dependency="demo",
             source=SourceIdentity(kind="registry", locator=None),
             cell=cell,
         )
+    assert str(caught.value) == "registry candidate query failed for: demo"
+    assert caught.value.detail == "<urlopen error offline>"
 
     class InvalidResponse(BytesIO):
         headers = {}
