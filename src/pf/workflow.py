@@ -343,28 +343,17 @@ class SearchCommandWorkflow:
                     / "package-floor.json"
                 )
                 if report_path.is_file():
-                    existing = self._reports.read(report_path)
-                    if self._same_report_generation(existing, report):
+                    existing = self._reports.read_if_same_generation(
+                        report_path,
+                        report,
+                    )
+                    if existing is not None:
                         report = self._reports.update(existing, report)
                 self._reports.write(report_path, report)
                 reports.append(report)
             return tuple(reports)
         finally:
             snapshot.close()
-
-    @staticmethod
-    def _same_report_generation(
-        left: PackageFloorReportV1,
-        right: PackageFloorReportV1,
-    ) -> bool:
-        return (
-            left.generator == right.generator
-            and left.package == right.package
-            and left.source_snapshot == right.source_snapshot
-            and left.policy_identity == right.policy_identity
-            and left.requirement_declarations == right.requirement_declarations
-            and left.target_cells == right.target_cells
-        )
 
     def _cell_task(
         self,

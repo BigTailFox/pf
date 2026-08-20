@@ -280,6 +280,15 @@ class PackageReportBuilder:
 class ReportStore:
     """Own canonical, versioned, atomic package-floor report persistence."""
 
+    _GENERATION_FIELDS = (
+        ("generator", "generator"),
+        ("package", "package"),
+        ("source_snapshot", "source snapshot"),
+        ("policy_identity", "policy"),
+        ("requirement_declarations", "declarations"),
+        ("target_cells", "target cell coverage"),
+    )
+
     def write(self, path: Path, report: PackageFloorReportV1) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         document = report.model_dump(mode="json", exclude_none=False)
@@ -309,6 +318,25 @@ class ReportStore:
             temporary_path.unlink(missing_ok=True)
 
     def read(self, path: Path) -> PackageFloorReportV1:
+        return self._validate_v1(self._read_document(path))
+
+    def read_if_same_generation(
+        self,
+        path: Path,
+        replacement: PackageFloorReportV1,
+    ) -> PackageFloorReportV1 | None:
+        """Read an update source only when its generation matches the replacement."""
+        document = self._read_document(path)
+        replacement_document = replacement.model_dump(mode="json", exclude_none=False)
+        if any(
+            document.get(field) != replacement_document[field]
+            for field, _ in self._GENERATION_FIELDS
+        ):
+            return None
+        return self._validate_v1(document)
+
+    @staticmethod
+    def _read_document(path: Path) -> dict[str, object]:
         try:
             content = path.read_bytes()
         except OSError as error:
@@ -324,6 +352,10 @@ class ReportStore:
             raise ConfigurationError(
                 f"unsupported report schema_version: {schema_version}"
             )
+        return document
+
+    @staticmethod
+    def _validate_v1(document: dict[str, object]) -> PackageFloorReportV1:
         try:
             return PackageFloorReportV1.model_validate(document)
         except ValidationError as error:
@@ -518,25 +550,14 @@ class ReportStore:
         )
         return self.merge((retained, replacement))
 
-    @staticmethod
+    @classmethod
     def _validate_generation(
+        cls,
         left: PackageFloorReportV1,
         right: PackageFloorReportV1,
     ) -> None:
-        comparisons = (
-            (left.generator, right.generator, "generator"),
-            (left.package, right.package, "package"),
-            (left.source_snapshot, right.source_snapshot, "source snapshot"),
-            (left.policy_identity, right.policy_identity, "policy"),
-            (
-                left.requirement_declarations,
-                right.requirement_declarations,
-                "declarations",
-            ),
-            (left.target_cells, right.target_cells, "target cell coverage"),
-        )
-        for left_value, right_value, label in comparisons:
-            if left_value != right_value:
+        for field, label in cls._GENERATION_FIELDS:
+            if getattr(left, field) != getattr(right, field):
                 raise ConfigurationError(f"report {label} identity mismatch")
 
     @staticmethod
