@@ -1,7 +1,8 @@
 # P003 — `smoke` 与 CLI 可诊断性实施记录
 
-- **状态：** 实施中
+- **状态：** 已完成
 - **开始日期：** 2026-08-20
+- **完成日期：** 2026-08-20
 - **性质：** 非规范性实施记录
 - **设计来源：** [D001](../docs/designs/D001-pf.md)、[D002](../docs/designs/D002-pf-implementation.md)、[D004](../docs/designs/D004-pf-ty-enhancement.md)
 - **起始提交：** `a1ac10225c5d68dedbb9d75e5635bbe9d97cd3a6`
@@ -19,7 +20,7 @@
 | 005 | install/harness/static/dynamic 失败只输出单行摘要和日志路径 | `tests/test_terminal.py` | 已完成 |
 | 006 | 每个外部进程写入脱敏、有界、私有且不进入报告 JSON 的 `.pf/logs/<run-id>/` 详细日志 | `tests/test_process.py`、`tests/test_schemas.py` | 已完成 |
 | 007 | TTY 日志路径使用 OSC 8 本地文件链接，非 TTY 保留普通相对路径 | `tests/test_terminal.py` | 已完成 |
-| 008 | 全量门禁、wheel 安装 smoke 与 Standards/Spec 双轴 review | 全套 tests、`ty check`、`uv build` | 进行中 |
+| 008 | 全量门禁、wheel 安装 smoke 与 Standards/Spec 双轴 review | 全套 tests、`ty check`、`uv build` | 已完成 |
 
 每个切片遵循一个公开行为测试 RED、最小实现 GREEN、再重构的顺序。外部进程通过 `ProcessRunner` seam 测试；日志文件使用真实临时项目，不建立通用 filesystem adapter。
 
@@ -50,16 +51,22 @@
 
 ### 008：门禁
 
-进行中的本地证据：
+最终本地证据：
 
 ```text
 uv run --no-sync pytest --no-testmon --cov=pf --cov-report=term-missing -q
-  -> 348 passed, 90.48% branch coverage
+  -> 362 passed, 90.42% branch coverage
 uv run --no-sync ty check src tests
   -> All checks passed
+uv build
+  -> sdist 与 wheel 构建成功
+uv lock --check --no-config --default-index https://pypi.org/simple
+  -> lock 检查通过
+installed wheel: pf smoke
+  -> highest fresh install；1 条 ty 诊断为 warning；完整测试通过；exit 0
 ```
 
-最终数字、build/lock/diff 门禁、双轴 review 与提交在本切片完成后更新。
+`git diff --check` 通过。以设计提交 `8bda99b` 为固定点的 Standards/Spec 双轴 review 最终均无剩余 finding。实现与复审修正提交为 `4b43599`、`ed29cbd`。
 
 第一次 Standards/Spec 双轴 review 发现并以回归测试修正：
 
