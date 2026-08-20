@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import Counter
+import hashlib
+import json
 from typing import Annotated, ClassVar, Literal, Union
 
 from pydantic import Field, model_validator
@@ -101,6 +104,83 @@ ToolOutcome = Annotated[
 ]
 
 
+class TyDiagnostic(FrozenSchema):
+    identity: str
+    origin: Literal["snapshot", "external"]
+    path: str
+    line: int | None
+    column: int | None
+    code: str
+    severity: str
+    message: str
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "TyDiagnostic":
+        if not self.path.strip() or not self.code.strip():
+            raise ValueError("ty diagnostic path and code must be non-empty")
+        if not self.severity.strip() or not self.message.strip():
+            raise ValueError("ty diagnostic severity and message must be non-empty")
+        if self.origin == "snapshot":
+            if self.line is None or self.line <= 0:
+                raise ValueError("snapshot ty diagnostic requires a positive line")
+            if self.column is not None and self.column <= 0:
+                raise ValueError("snapshot ty diagnostic column must be positive")
+            parts = (self.origin, self.path, str(self.line))
+            if self.column is not None:
+                parts += (str(self.column),)
+            expected = "|".join((*parts, self.code))
+        else:
+            if self.line is not None or self.column is not None:
+                raise ValueError("external ty diagnostic cannot retain line or column")
+            expected = "|".join((self.origin, self.path, self.code))
+        if self.identity != expected:
+            raise ValueError("ty diagnostic identity does not match normalized fields")
+        return self
+
+
+def ty_diagnostic_digest(diagnostics: tuple[TyDiagnostic, ...]) -> str:
+    identities = [item.identity for item in diagnostics]
+    canonical = json.dumps(identities, separators=(",", ":")).encode()
+    return hashlib.sha256(
+        b"pf:ty-diagnostic-baseline:increment-v1\0" + canonical
+    ).hexdigest()
+
+
+class TyCheck(FrozenSchema):
+    status: Literal["SUCCESS"] = "SUCCESS"
+    process: ProcessResult
+    diagnostics: tuple[TyDiagnostic, ...]
+
+    @model_validator(mode="after")
+    def validate_diagnostic_order(self) -> "TyCheck":
+        if (
+            self.process.exit_code not in {0, 1}
+            or self.process.timed_out
+            or self.process.stdout_truncated
+        ):
+            raise ValueError("TyCheck requires complete output from successful exit 0 or 1")
+        identities = tuple(item.identity for item in self.diagnostics)
+        if identities != tuple(sorted(identities)):
+            raise ValueError("ty diagnostics must be sorted by stable identity")
+        return self
+
+
+class StaticBaseline(FrozenSchema):
+    proposal: "Proposal"
+    ty: TyCheck
+    digest: str
+
+    @model_validator(mode="after")
+    def validate_baseline(self) -> "StaticBaseline":
+        if self.digest != ty_diagnostic_digest(self.ty.diagnostics):
+            raise ValueError("static baseline digest does not match its diagnostics")
+        return self
+
+    @property
+    def diagnostics(self) -> tuple[TyDiagnostic, ...]:
+        return self.ty.diagnostics
+
+
 class InterpreterSuccess(FrozenSchema):
     status: Literal["SUCCESS"] = "SUCCESS"
     process: ProcessResult
@@ -109,22 +189,6 @@ class InterpreterSuccess(FrozenSchema):
 
 InterpreterOutcome = Annotated[
     Union[InterpreterSuccess, ToolFailure],
-    Field(discriminator="status"),
-]
-
-
-class TyPass(FrozenSchema):
-    status: Literal["STATIC_PASS"] = "STATIC_PASS"
-    process: ProcessResult
-
-
-class TyFail(FrozenSchema):
-    status: Literal["STATIC_FAIL"] = "STATIC_FAIL"
-    process: ProcessResult
-
-
-TyOutcome = Annotated[
-    Union[TyPass, TyFail, ToolFailure],
     Field(discriminator="status"),
 ]
 
@@ -162,13 +226,52 @@ GraphOutcome = Annotated[
 class StaticPassEvaluation(FrozenSchema):
     status: Literal["STATIC_PASS"] = "STATIC_PASS"
     proposal: "Proposal"
-    ty: TyPass
+    ty: TyCheck
+    baseline_digest: str
+    incremental: tuple[TyDiagnostic, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_static_pass(self) -> "StaticPassEvaluation":
+        if not self.baseline_digest:
+            raise ValueError("static evaluation baseline digest cannot be empty")
+        if self.incremental:
+            raise ValueError("STATIC_PASS requires an empty diagnostic increment")
+        return self
 
 
 class StaticFailEvaluation(FrozenSchema):
     status: Literal["STATIC_FAIL"] = "STATIC_FAIL"
     proposal: "Proposal"
-    ty: TyFail
+    ty: TyCheck
+    baseline_digest: str
+    incremental: tuple[TyDiagnostic, ...]
+
+    @model_validator(mode="after")
+    def validate_static_fail(self) -> "StaticFailEvaluation":
+        if not self.baseline_digest:
+            raise ValueError("static evaluation baseline digest cannot be empty")
+        if not self.incremental:
+            raise ValueError("STATIC_FAIL requires a non-empty diagnostic increment")
+        raw = Counter(item.identity for item in self.ty.diagnostics)
+        increment = Counter(item.identity for item in self.incremental)
+        if increment - raw:
+            raise ValueError("static increment must be a sub-multiset of ty diagnostics")
+        return self
+
+
+class StaticBaselineCapture(FrozenSchema):
+    baseline: StaticBaseline
+    static: StaticPassEvaluation
+
+    @model_validator(mode="after")
+    def validate_capture(self) -> "StaticBaselineCapture":
+        if self.baseline.proposal != self.static.proposal:
+            raise ValueError("static capture proposal must match its baseline")
+        if self.baseline.ty != self.static.ty:
+            raise ValueError("static capture must reuse the baseline TyCheck")
+        if self.baseline.digest != self.static.baseline_digest:
+            raise ValueError("static capture baseline digest must match evaluation")
+        return self
 
 
 class PassEvaluation(FrozenSchema):

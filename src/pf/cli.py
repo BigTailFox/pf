@@ -224,7 +224,8 @@ def build_context() -> CliContext:
     full = FullEvaluator(static=static, tests=TestAdapter(runner), events=presenter)
     checker = CompatibilityChecker(
         environments=environments,
-        evaluator=full,
+        static=static,
+        full=full,
     )
     projects = ProjectLoader(pythons=uv)
     snapshots = SnapshotBuilder(runner)

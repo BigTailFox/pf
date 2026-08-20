@@ -12,9 +12,11 @@ from pf.report import PackageReportBuilder
 from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
+    StaticBaseline,
     StaticPassEvaluation,
     TestPass,
-    TyPass,
+    TyCheck,
+    ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, Proposal, VersionPin
 from pf.schemas.report import (
@@ -38,10 +40,15 @@ def process() -> ProcessResult:
     )
 
 
-def evaluation(cell: Cell, version: str) -> PassEvaluation:
+def evaluation(
+    cell: Cell,
+    version: str,
+    *,
+    snapshot_digest: str,
+) -> PassEvaluation:
     proposal = Proposal(
         proposal_id=f"idna={version}",
-        snapshot_digest="snapshot",
+        snapshot_digest=snapshot_digest,
         cell=cell,
         managed_vector=(VersionPin(name="idna", version=version),),
         fixed_declaration_ids=(),
@@ -52,7 +59,9 @@ def evaluation(cell: Cell, version: str) -> PassEvaluation:
         proposal=proposal,
         static=StaticPassEvaluation(
             proposal=proposal,
-            ty=TyPass(process=process()),
+            ty=TyCheck(process=process(), diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+            incremental=(),
         ),
         test=TestPass(process=process()),
     )
@@ -93,13 +102,27 @@ test-command = ["pytest"]
         boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
         sweeps=1,
     )
+    baseline_evaluation = evaluation(
+        cell,
+        "3.11",
+        snapshot_digest=snapshot.identity.digest,
+    )
     result = CellSuccess(
         cell=cell,
-        baseline=evaluation(cell, "3.11"),
+        static_baseline=StaticBaseline(
+            proposal=baseline_evaluation.proposal,
+            ty=baseline_evaluation.static.ty,
+            digest=ty_diagnostic_digest(baseline_evaluation.static.ty.diagnostics),
+        ),
+        baseline=baseline_evaluation,
         candidate_snapshots=(),
         static_search=search,
         final_vector=vector,
-        final_evaluation=evaluation(cell, "3.0"),
+        final_evaluation=evaluation(
+            cell,
+            "3.0",
+            snapshot_digest=snapshot.identity.digest,
+        ),
     )
     report = PackageReportBuilder().build(
         package=package,
@@ -181,6 +204,11 @@ dependencies = ["idna<4"]
             boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
             sweeps=1,
         )
+        baseline_evaluation = evaluation(
+            cell,
+            "3.11",
+            snapshot_digest=snapshot.identity.digest,
+        )
         reports.append(
             PackageReportBuilder().build(
                 package=package,
@@ -188,11 +216,22 @@ dependencies = ["idna<4"]
                 cell_results=(
                     CellSuccess(
                         cell=cell,
-                        baseline=evaluation(cell, "3.11"),
+                        static_baseline=StaticBaseline(
+                            proposal=baseline_evaluation.proposal,
+                            ty=baseline_evaluation.static.ty,
+                            digest=ty_diagnostic_digest(
+                                baseline_evaluation.static.ty.diagnostics
+                            ),
+                        ),
+                        baseline=baseline_evaluation,
                         candidate_snapshots=(),
                         static_search=coordinate,
                         final_vector=vector,
-                        final_evaluation=evaluation(cell, "3.0"),
+                        final_evaluation=evaluation(
+                            cell,
+                            "3.0",
+                            snapshot_digest=snapshot.identity.digest,
+                        ),
                     ),
                 ),
             )

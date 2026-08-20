@@ -5,7 +5,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 import os
 import time
-from typing import Generic, Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar, cast
 
 from pf.schemas.evaluation import (
     ActivityEvent,
@@ -114,7 +114,7 @@ class Scheduler:
                 phase="scheduler-deadline",
                 detail="scheduling stopped at the total deadline",
             )
-            completed_items.append((task.cell, timeout))  # type: ignore[arg-type]
+            completed_items.append((task.cell, cast(T, timeout)))
             completed += 1
             events.consume(
                 ProgressEvent(

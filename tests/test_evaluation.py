@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -9,18 +10,23 @@ from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     GraphSuccess,
+    IndeterminateEvaluation,
     InterpreterSuccess,
     ProcessResult,
     ProgressEvent,
+    StaticBaseline,
+    StaticBaselineCapture,
+    StaticFailEvaluation,
     TestOutcome,
     TestFail,
     TestPass,
     ToolFailure,
     ToolSuccess,
-    TyFail,
-    TyPass,
+    TyCheck,
+    TyDiagnostic,
+    ty_diagnostic_digest,
 )
-from pf.schemas.project import InterpreterIdentity, ResolvedNode
+from pf.schemas.project import Cell, InterpreterIdentity, Proposal, ResolvedNode
 from pf.snapshot import SnapshotBuilder
 
 
@@ -34,6 +40,144 @@ def process_result(*, exit_code: int = 0) -> ProcessResult:
         stdout_tail="",
         stderr_tail="",
     )
+
+
+def diagnostic(identity: str, *, message: str = "message") -> TyDiagnostic:
+    _, path, line, column, code = identity.split("|")
+    return TyDiagnostic(
+        identity=identity,
+        origin="snapshot",
+        path=path,
+        line=int(line),
+        column=int(column),
+        code=code,
+        severity="major",
+        message=message,
+    )
+
+
+def prepared_for_static(tmp_path: Path, proposal_id: str) -> PreparedEnvironment:
+    temporary = tempfile.TemporaryDirectory(prefix=f"pf-{proposal_id}-", dir=tmp_path)
+    root = Path(temporary.name)
+    source = root / "source"
+    environment = root / "environment"
+    source.mkdir()
+    return PreparedEnvironment(
+        proposal=Proposal(
+            proposal_id=proposal_id,
+            snapshot_digest="snapshot",
+            cell=Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor="3.10",
+                extra_surface=(),
+            ),
+            managed_vector=(),
+            fixed_declaration_ids=(),
+            resolved_graph=(),
+            policy_identity="policy",
+        ),
+        proposal_root=source,
+        package_root=source,
+        environment_root=environment,
+        interpreter=environment / "bin" / "python",
+        temporary_directory=temporary,
+    )
+
+
+def empty_baseline(prepared: PreparedEnvironment) -> StaticBaseline:
+    check = TyCheck(process=process_result(), diagnostics=())
+    return StaticBaseline(
+        proposal=prepared.proposal,
+        ty=check,
+        digest=ty_diagnostic_digest(check.diagnostics),
+    )
+
+
+@pytest.mark.parametrize("scope", ("cell", "snapshot", "policy"))
+def test_static_evaluator_rejects_a_baseline_from_another_scope(
+    tmp_path: Path,
+    scope: str,
+) -> None:
+    prepared = prepared_for_static(tmp_path, "candidate")
+    changes: dict[str, object]
+    if scope == "cell":
+        changes = {
+            "cell": prepared.proposal.cell.model_copy(
+                update={"python_minor": "3.11"}
+            )
+        }
+    elif scope == "snapshot":
+        changes = {"snapshot_digest": "other-snapshot"}
+    else:
+        changes = {"policy_identity": "other-policy"}
+    check = TyCheck(process=process_result(), diagnostics=())
+    baseline = StaticBaseline(
+        proposal=prepared.proposal.model_copy(update=changes),
+        ty=check,
+        digest=ty_diagnostic_digest(check.diagnostics),
+    )
+
+    class Ty:
+        def check(self, **kwargs: object) -> TyCheck:
+            raise AssertionError("a mismatched baseline must fail before ty runs")
+
+    with pytest.raises(ValueError, match="cell, snapshot, and policy"):
+        StaticEvaluator(Ty()).evaluate(
+            prepared,
+            package=ProjectLoader()
+            .load(root=Path.cwd(), package_selection=None)
+            .packages[0],
+            baseline=baseline,
+        )
+
+
+def test_static_evaluator_uses_multiset_subtraction_against_a_frozen_baseline(
+    tmp_path: Path,
+) -> None:
+    repeated = diagnostic("snapshot|demo.py|1|2|invalid-type", message="baseline")
+    shifted = diagnostic("snapshot|demo.py|5|6|unresolved-reference")
+    checks = iter(
+        (
+            TyCheck(
+                process=process_result(exit_code=1),
+                diagnostics=(repeated, repeated, shifted),
+            ),
+            TyCheck(
+                process=process_result(exit_code=0),
+                diagnostics=(
+                    repeated.model_copy(update={"message": "candidate wording"}),
+                    shifted,
+                    shifted.model_copy(update={"message": "extra occurrence"}),
+                ),
+            ),
+        )
+    )
+
+    class Ty:
+        def check(self, **kwargs: object) -> TyCheck:
+            return next(checks)
+
+    baseline_environment = prepared_for_static(tmp_path, "baseline")
+    candidate_environment = prepared_for_static(tmp_path, "candidate")
+    package = ProjectLoader().load(root=Path.cwd(), package_selection=None).packages[0]
+    evaluator = StaticEvaluator(Ty())
+
+    capture = evaluator.capture(baseline_environment, package=package)
+    assert isinstance(capture, StaticBaselineCapture)
+    result = evaluator.evaluate(
+        candidate_environment,
+        package=package,
+        baseline=capture.baseline,
+    )
+
+    assert capture.static.status == "STATIC_PASS"
+    assert capture.static.incremental == ()
+    assert capture.static.ty is capture.baseline.ty
+    assert capture.static.baseline_digest == capture.baseline.digest
+    assert isinstance(result, StaticFailEvaluation)
+    assert [item.identity for item in result.incremental] == [shifted.identity]
+    assert result.baseline_digest == capture.baseline.digest
 
 
 class PreparedUv:
@@ -64,8 +208,11 @@ class PreparedUv:
 
 
 class FailingTy:
-    def check(self, **kwargs: object) -> TyFail:
-        return TyFail(process=process_result(exit_code=1))
+    def check(self, **kwargs: object) -> TyCheck:
+        return TyCheck(
+            process=process_result(exit_code=1),
+            diagnostics=(diagnostic("snapshot|demo.py|1|2|invalid-type"),),
+        )
 
 
 class ExplodingTests:
@@ -103,16 +250,22 @@ test-command = ["python", "-m", "unittest"]
         static=StaticEvaluator(FailingTy()),
         tests=ExplodingTests(),
     )
+    baseline_check = TyCheck(process=process_result(exit_code=1), diagnostics=())
+    baseline = StaticBaseline(
+        proposal=prepared.proposal,
+        ty=baseline_check,
+        digest=ty_diagnostic_digest(baseline_check.diagnostics),
+    )
 
-    result = evaluator.evaluate(prepared, package=package)
+    result = evaluator.evaluate(prepared, package=package, baseline=baseline)
 
     assert result.status == "STATIC_FAIL"
     assert prepared.tested is False
 
 
 class PassingTy:
-    def check(self, **kwargs: object) -> TyPass:
-        return TyPass(process=process_result())
+    def check(self, **kwargs: object) -> TyCheck:
+        return TyCheck(process=process_result(), diagnostics=())
 
 
 @pytest.mark.parametrize(
@@ -184,7 +337,7 @@ test-command = ["pytest"]
     result = FullEvaluator(
         static=StaticEvaluator(PassingTy()),
         tests=tests,
-    ).evaluate(prepared, package=package)
+    ).evaluate(prepared, package=package, baseline=empty_baseline(prepared))
 
     assert result.status == expected
     assert prepared.tested is True
@@ -225,8 +378,17 @@ test-command = ["pytest"]
                 process=process_result(exit_code=2),
             )
 
-    result = StaticEvaluator(FailingTool()).evaluate(prepared, package=package)
+    evaluator = StaticEvaluator(FailingTool())
+    evaluated = evaluator.evaluate(
+        prepared,
+        package=package,
+        baseline=empty_baseline(prepared),
+    )
+    result = evaluator.capture(prepared, package=package)
 
+    assert isinstance(evaluated, IndeterminateEvaluation)
+    assert evaluated.status == "TOOL_ERROR"
+    assert isinstance(result, IndeterminateEvaluation)
     assert result.status == "TOOL_ERROR"
 
 
@@ -268,12 +430,20 @@ test-command = ["python", "-m", "unittest"]
     assert isinstance(prepared, PreparedEnvironment)
     events = Events()
 
+    static = StaticEvaluator(PassingTy(), events=events)
+    capture = static.capture(prepared, package=package)
+    assert isinstance(capture, StaticBaselineCapture)
     result = FullEvaluator(
-        static=StaticEvaluator(PassingTy(), events=events),
+        static=static,
         tests=Tests(),
         events=events,
-    ).evaluate(prepared, package=package)
+    ).evaluate(
+        prepared,
+        package=package,
+        baseline=capture.baseline,
+        static_result=capture.static,
+    )
 
     assert result.status == "PASS"
-    assert events.phases == ["static check", "dynamic tests"]
+    assert events.phases == ["capturing static baseline", "dynamic tests"]
     prepared.close()

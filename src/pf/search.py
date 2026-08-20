@@ -14,6 +14,8 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
+    StaticBaseline,
+    StaticBaselineCapture,
     StaticEvaluation,
     StaticFailEvaluation,
     StaticPassEvaluation,
@@ -361,11 +363,19 @@ class CandidateOperations(Protocol):
 
 
 class StaticOperations(Protocol):
+    def capture(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+    ) -> StaticBaselineCapture | IndeterminateEvaluation: ...
+
     def evaluate(
         self,
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
     ) -> StaticEvaluation: ...
 
 
@@ -375,6 +385,7 @@ class FullOperations(Protocol):
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
     ) -> Evaluation: ...
 
@@ -406,6 +417,7 @@ class _ProposalRunner:
         cell: Cell,
         snapshot: SourceSnapshot,
         baseline: PassEvaluation,
+        static_baseline: StaticBaseline,
     ) -> None:
         self._environments = environments
         self._static = static
@@ -413,6 +425,7 @@ class _ProposalRunner:
         self._package = package
         self._cell = cell
         self._snapshot = snapshot
+        self._static_baseline = static_baseline
         self._cache = EvaluationCache()
         self._prepared: dict[tuple[tuple[str, str], ...], PreparedEnvironment] = {}
         self._evaluations: dict[tuple[tuple[str, str], ...], Evaluation] = {}
@@ -434,7 +447,11 @@ class _ProposalRunner:
             )
         cached = self._cache.get_static(prepared.proposal.proposal_id)
         if cached is None:
-            result = self._static.evaluate(prepared, package=self._package)
+            result = self._static.evaluate(
+                prepared,
+                package=self._package,
+                baseline=self._static_baseline,
+            )
             stored = self._cache.record_static(result)
             if isinstance(stored, CacheConflict):
                 prepared.close()
@@ -466,6 +483,7 @@ class _ProposalRunner:
         result = self._full.evaluate(
             prepared,
             package=self._package,
+            baseline=self._static_baseline,
             static_result=static,
         )
         stored = self._cache.record_full(result)
@@ -522,13 +540,24 @@ class _ProposalRunner:
             status = "PASS"
         else:
             status = result.status
-        return ProbeEvidence(status=status, proposal_id=result.proposal.proposal_id)
+        return ProbeEvidence(
+            status=status,
+            proposal_id=result.proposal.proposal_id,
+            static=result,
+        )
 
     @staticmethod
     def _full_evidence(result: Evaluation) -> ProbeEvidence:
+        if isinstance(result, (PassEvaluation, TestFailEvaluation)):
+            static: StaticEvaluation | None = result.static
+        elif isinstance(result, StaticFailEvaluation):
+            static = result
+        else:
+            static = None
         return ProbeEvidence(
             status=result.status,
             proposal_id=result.proposal.proposal_id,
+            static=static,
         )
 
     @staticmethod
@@ -592,9 +621,20 @@ class SearchCoordinator:
                 failure=baseline_environment,
             )
         try:
+            capture = self._static.capture(baseline_environment, package=package)
+            if isinstance(capture, IndeterminateEvaluation):
+                return CellFailure(
+                    status=capture.status,
+                    cell=cell,
+                    phase="baseline-static-capture",
+                    baseline=capture,
+                    failure=capture.failure,
+                )
             baseline_evaluation = self._full.evaluate(
                 baseline_environment,
                 package=package,
+                baseline=capture.baseline,
+                static_result=capture.static,
             )
         finally:
             baseline_environment.close()
@@ -611,6 +651,7 @@ class SearchCoordinator:
                 status=status,
                 cell=cell,
                 phase="baseline-evaluation",
+                static_baseline=capture.baseline,
                 baseline=baseline_evaluation,
             )
         try:
@@ -624,6 +665,7 @@ class SearchCoordinator:
                 status="SOURCE_ERROR",
                 cell=cell,
                 phase="candidate-discovery",
+                static_baseline=capture.baseline,
                 baseline=baseline_evaluation,
                 detail=str(error),
             )
@@ -632,6 +674,7 @@ class SearchCoordinator:
                 status="NO_PASS_IN_SEARCH_SPACE",
                 cell=cell,
                 phase="candidate-discovery",
+                static_baseline=capture.baseline,
                 baseline=baseline_evaluation,
             )
         runner = _ProposalRunner(
@@ -642,6 +685,7 @@ class SearchCoordinator:
             cell=cell,
             snapshot=snapshot,
             baseline=baseline_evaluation,
+            static_baseline=capture.baseline,
         )
         try:
             static_search = CoordinateSearch(
@@ -656,6 +700,7 @@ class SearchCoordinator:
                     status=static_search.status,
                     cell=cell,
                     phase="static-search",
+                    static_baseline=capture.baseline,
                     baseline=baseline_evaluation,
                     candidate_snapshots=candidate_snapshots,
                     coordinate_failure=static_search,
@@ -667,6 +712,7 @@ class SearchCoordinator:
             ):
                 return CellSuccess(
                     cell=cell,
+                    static_baseline=capture.baseline,
                     baseline=baseline_evaluation,
                     candidate_snapshots=candidate_snapshots,
                     static_search=static_search,
@@ -674,15 +720,12 @@ class SearchCoordinator:
                     final_evaluation=fast_evaluation,
                 )
             if fast_evidence.status != "TEST_FAIL":
-                failure_status = (
-                    "NONDETERMINISTIC"
-                    if fast_evidence.status in {"PASS", "STATIC_FAIL"}
-                    else fast_evidence.status
-                )
+                failure_status = self._fast_path_failure_status(fast_evidence.status)
                 return CellFailure(
                     status=failure_status,
                     cell=cell,
                     phase="static-fast-path",
+                    static_baseline=capture.baseline,
                     baseline=baseline_evaluation,
                     candidate_snapshots=candidate_snapshots,
                     failure=(
@@ -704,6 +747,7 @@ class SearchCoordinator:
                     status=dynamic_search.status,
                     cell=cell,
                     phase="dynamic-search",
+                    static_baseline=capture.baseline,
                     baseline=baseline_evaluation,
                     candidate_snapshots=candidate_snapshots,
                     coordinate_failure=dynamic_search,
@@ -714,11 +758,13 @@ class SearchCoordinator:
                     status="NONDETERMINISTIC",
                     cell=cell,
                     phase="dynamic-final",
+                    static_baseline=capture.baseline,
                     baseline=baseline_evaluation,
                     candidate_snapshots=candidate_snapshots,
                 )
             return CellSuccess(
                 cell=cell,
+                static_baseline=capture.baseline,
                 baseline=baseline_evaluation,
                 candidate_snapshots=candidate_snapshots,
                 static_search=static_search,
@@ -728,3 +774,34 @@ class SearchCoordinator:
             )
         finally:
             runner.close()
+
+    @staticmethod
+    def _fast_path_failure_status(
+        status: str,
+    ) -> Literal[
+        "NONDETERMINISTIC",
+        "UNAVAILABLE",
+        "BUILD_UNAVAILABLE",
+        "UNRESOLVABLE",
+        "HARNESS_ERROR",
+        "SOURCE_ERROR",
+        "TOOL_ERROR",
+        "TIMEOUT",
+    ]:
+        match status:
+            case "UNAVAILABLE":
+                return "UNAVAILABLE"
+            case "BUILD_UNAVAILABLE":
+                return "BUILD_UNAVAILABLE"
+            case "UNRESOLVABLE":
+                return "UNRESOLVABLE"
+            case "HARNESS_ERROR":
+                return "HARNESS_ERROR"
+            case "SOURCE_ERROR":
+                return "SOURCE_ERROR"
+            case "TOOL_ERROR":
+                return "TOOL_ERROR"
+            case "TIMEOUT":
+                return "TIMEOUT"
+            case _:
+                return "NONDETERMINISTIC"

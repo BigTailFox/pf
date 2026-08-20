@@ -15,6 +15,9 @@ from pf.schemas.evaluation import (
     Evaluation,
     IndeterminateEvaluation,
     PassEvaluation,
+    StaticBaseline,
+    StaticBaselineCapture,
+    StaticEvaluation,
     StaticFailEvaluation,
     StatusEvent,
     TestFailEvaluation,
@@ -58,12 +61,23 @@ class CheckEnvironmentOperations(Protocol):
     ) -> PreparedEnvironment | ToolFailure: ...
 
 
-class CheckEvaluationOperations(Protocol):
+class CheckStaticOperations(Protocol):
+    def capture(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+    ) -> StaticBaselineCapture | IndeterminateEvaluation: ...
+
+
+class CheckFullOperations(Protocol):
     def evaluate(
         self,
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
+        static_result: StaticEvaluation | None = None,
     ) -> Evaluation: ...
 
 
@@ -84,10 +98,12 @@ class CompatibilityChecker:
         self,
         *,
         environments: CheckEnvironmentOperations,
-        evaluator: CheckEvaluationOperations,
+        static: CheckStaticOperations,
+        full: CheckFullOperations,
     ) -> None:
         self._environments = environments
-        self._evaluator = evaluator
+        self._static = static
+        self._full = full
 
     def check(
         self,
@@ -97,6 +113,20 @@ class CompatibilityChecker:
         snapshot: SourceSnapshot,
     ) -> Evaluation | ToolFailure:
         require_check_contract(package)
+        highest = self._environments.prepare(
+            package=package,
+            cell=cell,
+            snapshot=snapshot,
+            resolution="highest",
+        )
+        if not isinstance(highest, PreparedEnvironment):
+            return highest
+        try:
+            capture = self._static.capture(highest, package=package)
+        finally:
+            highest.close()
+        if isinstance(capture, IndeterminateEvaluation):
+            return capture
         prepared = self._environments.prepare(
             package=package,
             cell=cell,
@@ -106,7 +136,11 @@ class CompatibilityChecker:
         if not isinstance(prepared, PreparedEnvironment):
             return prepared
         try:
-            return self._evaluator.evaluate(prepared, package=package)
+            return self._full.evaluate(
+                prepared,
+                package=package,
+                baseline=capture.baseline,
+            )
         finally:
             prepared.close()
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from pf.environment import PreparedEnvironment
 from pf.errors import InfrastructureError
@@ -10,12 +10,17 @@ from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
+    StaticBaseline,
+    StaticBaselineCapture,
+    StaticFailEvaluation,
     StaticPassEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
     ToolFailure,
-    TyPass,
+    TyCheck,
+    TyDiagnostic,
+    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -78,15 +83,65 @@ class ProposalFactory:
 
 
 class StaticPasses:
+    def __init__(self) -> None:
+        self.captures = 0
+        self.baseline_digests: list[str] = []
+
+    @staticmethod
+    def diagnostic() -> TyDiagnostic:
+        return TyDiagnostic(
+            identity="snapshot|source.py|1|1|existing-error",
+            origin="snapshot",
+            path="source.py",
+            line=1,
+            column=1,
+            code="existing-error",
+            severity="major",
+            message="existing project error",
+        )
+
+    def capture(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+    ) -> StaticBaselineCapture:
+        self.captures += 1
+        check = TyCheck(
+            process=successful_process().model_copy(update={"exit_code": 1}),
+            diagnostics=(self.diagnostic(),),
+        )
+        baseline = StaticBaseline(
+            proposal=prepared.proposal,
+            ty=check,
+            digest=ty_diagnostic_digest(check.diagnostics),
+        )
+        return StaticBaselineCapture(
+            baseline=baseline,
+            static=StaticPassEvaluation(
+                proposal=prepared.proposal,
+                ty=check,
+                baseline_digest=baseline.digest,
+                incremental=(),
+            ),
+        )
+
     def evaluate(
         self,
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
-    ) -> StaticPassEvaluation:
+        baseline: StaticBaseline,
+    ) -> StaticPassEvaluation | StaticFailEvaluation:
+        self.baseline_digests.append(baseline.digest)
         return StaticPassEvaluation(
             proposal=prepared.proposal,
-            ty=TyPass(process=successful_process()),
+            ty=TyCheck(
+                process=successful_process().model_copy(update={"exit_code": 1}),
+                diagnostics=(self.diagnostic(),),
+            ),
+            baseline_digest=baseline.digest,
+            incremental=(),
         )
 
 
@@ -99,13 +154,16 @@ class FullPasses:
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
         static_result: object | None = None,
-    ) -> PassEvaluation | TestFailEvaluation:
+    ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation:
         static = (
             static_result
             if isinstance(static_result, StaticPassEvaluation)
-            else self.static.evaluate(prepared, package=package)
+            else self.static.evaluate(prepared, package=package, baseline=baseline)
         )
+        if isinstance(static, StaticFailEvaluation):
+            return static
         prepared.mark_tested()
         return PassEvaluation(
             proposal=prepared.proposal,
@@ -123,13 +181,16 @@ class FullThreshold:
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
         static_result: object | None = None,
-    ) -> PassEvaluation | TestFailEvaluation:
+    ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation:
         static = (
             static_result
             if isinstance(static_result, StaticPassEvaluation)
-            else self.static.evaluate(prepared, package=package)
+            else self.static.evaluate(prepared, package=package, baseline=baseline)
         )
+        if isinstance(static, StaticFailEvaluation):
+            return static
         prepared.mark_tested()
         if int(prepared.proposal.managed_vector[0].version) >= 2:
             return PassEvaluation(
@@ -209,6 +270,88 @@ def test_search_coordinator_returns_static_fast_path_with_full_evidence(
     assert result.final_vector == (VersionPin(name="a", version="1"),)
     assert result.dynamic_search is None
     assert result.final_evaluation.status == "PASS"
+    assert result.static_baseline.proposal == result.baseline.proposal
+    assert len(result.static_baseline.diagnostics) == 1
+    assert result.static_baseline.digest == ty_diagnostic_digest(
+        result.static_baseline.diagnostics
+    )
+    assert static.captures == 1
+    assert set(static.baseline_digests) == {
+        ty_diagnostic_digest(result.static_baseline.diagnostics)
+    }
+
+
+def test_search_report_evidence_keeps_static_fail_incremental_diagnostics(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+
+    class StaticThreshold(StaticPasses):
+        def evaluate(
+            self,
+            prepared: PreparedEnvironment,
+            *,
+            package: PackagePlan,
+            baseline: StaticBaseline,
+        ) -> StaticPassEvaluation | StaticFailEvaluation:
+            if prepared.proposal.managed_vector[0].version != "1":
+                return super().evaluate(
+                    prepared,
+                    package=package,
+                    baseline=baseline,
+                )
+            increment = TyDiagnostic(
+                identity="snapshot|source.py|2|1|dependency-regression",
+                origin="snapshot",
+                path="source.py",
+                line=2,
+                column=1,
+                code="dependency-regression",
+                severity="major",
+                message="dependency API is unavailable",
+            )
+            return StaticFailEvaluation(
+                proposal=prepared.proposal,
+                ty=TyCheck(
+                    process=successful_process().model_copy(update={"exit_code": 1}),
+                    diagnostics=(*baseline.diagnostics, increment),
+                ),
+                baseline_digest=baseline.digest,
+                incremental=(increment,),
+            )
+
+    static = StaticThreshold()
+    result = SearchCoordinator(
+        environments=ProposalFactory(),
+        candidates=FrozenCandidates(),
+        static=static,
+        full=FullPasses(static),
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert isinstance(result, CellSuccess)
+    failure = next(
+        observation.evidence
+        for observation in result.static_search.observations
+        if observation.evidence.status == "STATIC_FAIL"
+    )
+    assert isinstance(failure.static, StaticFailEvaluation)
+    assert failure.static.incremental[0].code == "dependency-regression"
 
 
 def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failure(
@@ -327,7 +470,10 @@ def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
             return failure
 
     class NeverEvaluate:
-        def evaluate(self, *args: object, **kwargs: object) -> None:
+        def capture(self, *args: object, **kwargs: object) -> NoReturn:
+            raise AssertionError("prepare failure must not evaluate")
+
+        def evaluate(self, *args: object, **kwargs: object) -> NoReturn:
             raise AssertionError("prepare failure must not evaluate")
 
     result = SearchCoordinator(

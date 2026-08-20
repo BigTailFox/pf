@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import os
 from pathlib import Path
 from typing import Protocol
@@ -11,6 +12,8 @@ from pf.schemas.evaluation import (
     Evaluation,
     IndeterminateEvaluation,
     PassEvaluation,
+    StaticBaseline,
+    StaticBaselineCapture,
     StaticEvaluation,
     StaticFailEvaluation,
     StaticPassEvaluation,
@@ -19,9 +22,9 @@ from pf.schemas.evaluation import (
     TestOutcome,
     TestPass,
     ToolFailure,
-    TyFail,
-    TyOutcome,
-    TyPass,
+    TyCheck,
+    TyDiagnostic,
+    ty_diagnostic_digest,
 )
 from pf.schemas.project import PackagePlan
 
@@ -79,7 +82,8 @@ class TyOperations(Protocol):
         target: str,
         args: tuple[str, ...],
         timeout_seconds: int | None,
-    ) -> TyOutcome: ...
+        snapshot_root: Path | None = None,
+    ) -> TyCheck | ToolFailure: ...
 
 
 class TestOperations(Protocol):
@@ -95,7 +99,7 @@ class TestOperations(Protocol):
 
 
 class StaticEvaluator:
-    """Evaluate resolve/install-complete Proposal source with ty."""
+    """Freeze one cell baseline and compare Proposal diagnostics against it."""
 
     def __init__(
         self, ty: TyOperations, *, events: StageConsumer | None = None
@@ -108,33 +112,97 @@ class StaticEvaluator:
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
     ) -> StaticEvaluation:
+        if (
+            baseline.proposal.cell != prepared.proposal.cell
+            or baseline.proposal.snapshot_digest
+            != prepared.proposal.snapshot_digest
+            or baseline.proposal.policy_identity != prepared.proposal.policy_identity
+        ):
+            raise ValueError(
+                "static baseline must match proposal cell, snapshot, and policy"
+            )
         emit_cell_stage(self._events, prepared.proposal.cell, "static check")
-        outcome = self._ty.check(
+        outcome = self._check(prepared, package=package)
+        if isinstance(outcome, ToolFailure):
+            return IndeterminateEvaluation(
+                status=outcome.status,
+                proposal=prepared.proposal,
+                failure=outcome,
+            )
+        incremental = self._increment(outcome, baseline)
+        if not incremental:
+            return StaticPassEvaluation(
+                proposal=prepared.proposal,
+                ty=outcome,
+                baseline_digest=baseline.digest,
+                incremental=(),
+            )
+        return StaticFailEvaluation(
+            proposal=prepared.proposal,
+            ty=outcome,
+            baseline_digest=baseline.digest,
+            incremental=incremental,
+        )
+
+    def capture(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+    ) -> StaticBaselineCapture | IndeterminateEvaluation:
+        emit_cell_stage(self._events, prepared.proposal.cell, "capturing static baseline")
+        outcome = self._check(prepared, package=package)
+        if isinstance(outcome, ToolFailure):
+            return IndeterminateEvaluation(
+                status=outcome.status,
+                proposal=prepared.proposal,
+                failure=outcome,
+            )
+        digest = ty_diagnostic_digest(outcome.diagnostics)
+        baseline = StaticBaseline(
+            proposal=prepared.proposal,
+            ty=outcome,
+            digest=digest,
+        )
+        static = StaticPassEvaluation(
+            proposal=prepared.proposal,
+            ty=outcome,
+            baseline_digest=digest,
+            incremental=(),
+        )
+        return StaticBaselineCapture(baseline=baseline, static=static)
+
+    def _check(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+    ) -> TyCheck | ToolFailure:
+        return self._ty.check(
             interpreter=prepared.interpreter,
             package=prepared.package_root,
             python_minor=prepared.proposal.cell.python_minor,
             target=prepared.proposal.cell.target,
             args=package.config.ty_args,
             timeout_seconds=package.config.ty_timeout,
-        )
-        if isinstance(outcome, TyPass):
-            return StaticPassEvaluation(
-                proposal=prepared.proposal,
-                ty=outcome,
-            )
-        if isinstance(outcome, TyFail):
-            return StaticFailEvaluation(
-                proposal=prepared.proposal,
-                ty=outcome,
-            )
-        assert isinstance(outcome, ToolFailure)
-        return IndeterminateEvaluation(
-            status=outcome.status,
-            proposal=prepared.proposal,
-            failure=outcome,
+            snapshot_root=prepared.proposal_root,
         )
 
+    @staticmethod
+    def _increment(
+        check: TyCheck,
+        baseline: StaticBaseline,
+    ) -> tuple[TyDiagnostic, ...]:
+        remaining = Counter(item.identity for item in baseline.diagnostics)
+        incremental = []
+        for diagnostic in check.diagnostics:
+            if remaining[diagnostic.identity] > 0:
+                remaining[diagnostic.identity] -= 1
+            else:
+                incremental.append(diagnostic)
+        return tuple(incremental)
 
 class FullEvaluator:
     """Promote a static-clean Proposal through the complete test command once."""
@@ -155,9 +223,14 @@ class FullEvaluator:
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
+        baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
     ) -> Evaluation:
-        static = static_result or self._static.evaluate(prepared, package=package)
+        static = static_result or self._static.evaluate(
+            prepared,
+            package=package,
+            baseline=baseline,
+        )
         if not isinstance(static, StaticPassEvaluation):
             return static
         emit_cell_stage(self._events, prepared.proposal.cell, "dynamic tests")

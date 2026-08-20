@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from datetime import timedelta
 from threading import Lock
-from typing import Callable, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
 from rich.console import Console
 from rich.padding import Padding
@@ -30,11 +30,20 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     ProcessEvent,
     ProgressEvent,
+    StaticFailEvaluation,
     StatusEvent,
     ToolFailure,
 )
 from pf.schemas.project import Cell
-from pf.schemas.report import CellFailure, PackageFloorReportV1, ProjectEditResult
+from pf.schemas.report import (
+    CellFailure,
+    CellSuccess,
+    PackageFloorReportV1,
+    ProjectEditResult,
+)
+
+if TYPE_CHECKING:
+    from rich.console import RenderableType
 
 
 PF_THEME = Theme(
@@ -157,7 +166,7 @@ class _IconColumn(ProgressColumn):
         super().__init__()
         self._spinner = SpinnerColumn()
 
-    def render(self, task: Task) -> object:
+    def render(self, task: Task) -> RenderableType:
         role = task.fields.get("role")
         if role == "cell-stage" or (role == "cell" and not task.started):
             return Text(" " * _ICON_WIDTH)
@@ -188,7 +197,7 @@ class _OverallBarColumn(ProgressColumn):
         super().__init__()
         self._bar = BarColumn(bar_width=20)
 
-    def render(self, task: Task) -> object:
+    def render(self, task: Task) -> RenderableType:
         if task.fields.get("role") == "overall" and task.total is not None:
             return Padding(self._bar.render(task), (0, 0, 0, 1))
         return Text()
@@ -214,9 +223,14 @@ class _DimElapsedColumn(TimeElapsedColumn):
 
 
 class _OrderedProgress(Progress):
-    def __init__(self, *columns: object, order: Callable[[], list[Task]], **kwargs: object) -> None:
+    def __init__(
+        self,
+        *columns: str | ProgressColumn,
+        order: Callable[[], list[Task]],
+        **kwargs: Any,
+    ) -> None:
         self._task_order = order
-        super().__init__(*columns, **kwargs)  # type: ignore[arg-type]
+        super().__init__(*columns, **kwargs)
 
     def get_renderables(self):
         tasks = self._task_order()
@@ -251,10 +265,10 @@ def _styled_reason_lines(
 ) -> tuple[Text, ...]:
     text = diagnostic.strip()
     if not text:
-        return (Text.assemble(("  ",), (status, kind)),)
+        return (Text.assemble("  ", (status, kind)),)
     first, *rest = text.splitlines()
     return (
-        Text.assemble(("  ",), (status, kind), (f": {first}", "dim")),
+        Text.assemble("  ", (status, kind), (f": {first}", "dim")),
         *(Text(f"  {line}", style="dim") for line in rest),
     )
 
@@ -554,7 +568,9 @@ class TerminalPresenter:
             redirect_stdout=False,
             redirect_stderr=False,
         )
-        self._progress.start()
+        stream_isatty = getattr(self.stderr.file, "isatty", None)
+        if callable(stream_isatty) and stream_isatty():
+            self._progress.start()
 
     def _ensure_overall(
         self,
@@ -573,14 +589,15 @@ class TerminalPresenter:
                 role="overall",
             )
             return
-        updates: dict[str, object] = {}
-        if description is not None:
-            updates["description"] = description
         if total is not None:
-            updates["total"] = total
-            updates["completed"] = completed
-        if updates:
-            self._progress.update(self._overall_task, **updates)
+            self._progress.update(
+                self._overall_task,
+                description=description,
+                total=total,
+                completed=completed,
+            )
+        elif description is not None:
+            self._progress.update(self._overall_task, description=description)
 
     def _ensure_cell_task(self, cell: Cell, *, start: bool) -> TaskID:
         self._ensure_progress()
@@ -718,12 +735,49 @@ class TerminalPresenter:
             self.stdout.print(f"{report.package.name}: {report.result.status}")
             if report.result.status == "incomplete":
                 self.stdout.print(f"  reasons: {', '.join(report.result.reasons)}")
+            self._render_static_diagnostics(report)
             for projection in report.projection_evidence:
                 requirements = ", ".join(projection.projected_requirements) or "none"
                 self.stdout.print(
                     f"  {projection.declaration_id}: {requirements}"
                 )
         return 0
+
+    def _render_static_diagnostics(self, report: PackageFloorReportV1) -> None:
+        for result in report.cell_results:
+            baseline = result.static_baseline
+            if baseline is None:
+                continue
+            count = len(baseline.diagnostics)
+            noun = "diagnostic" if count == 1 else "diagnostics"
+            self.stdout.print(
+                Text(f"  {_cell_title(result.cell)} ty baseline: {count} {noun}")
+            )
+            if isinstance(result, CellSuccess):
+                searches = (
+                    result.static_search,
+                    *((result.dynamic_search,) if result.dynamic_search is not None else ()),
+                )
+            elif result.coordinate_failure is not None:
+                searches = (result.coordinate_failure,)
+            else:
+                searches = ()
+            seen_proposals: set[str] = set()
+            for search in searches:
+                for observation in search.observations:
+                    evidence = observation.evidence
+                    static = evidence.static
+                    if not isinstance(static, StaticFailEvaluation):
+                        continue
+                    if evidence.proposal_id in seen_proposals:
+                        continue
+                    seen_proposals.add(evidence.proposal_id)
+                    for diagnostic in static.incremental:
+                        self.stdout.print(
+                            Text(
+                                f"    + {diagnostic.identity}: {diagnostic.message}"
+                            )
+                        )
 
     def render_merge(self, report: PackageFloorReportV1, output: str) -> int:
         self.close()

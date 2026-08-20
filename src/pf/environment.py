@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 from typing import Literal, Protocol
 
+from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
     GraphOutcome,
     InterpreterOutcome,
@@ -260,14 +261,7 @@ class EnvironmentFactory:
             actual_vector = tuple(
                 VersionPin(name=name, version=installed[name]) for name in managed_names
             )
-            policy_json = json.dumps(
-                package.config.model_dump(mode="json"),
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            policy_identity = hashlib.sha256(
-                f"pf:policy:v1\0{policy_json}".encode()
-            ).hexdigest()
+            policy_identity = evaluation_policy_identity(package.config)
             proposal_data = {
                 "snapshot_digest": snapshot.identity.digest,
                 "cell": cell.model_dump(mode="json"),

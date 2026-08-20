@@ -14,17 +14,25 @@ from pf.schemas.evaluation import (
     ProcessEvent,
     ProcessResult,
     ProgressEvent,
+    StaticBaseline,
+    StaticFailEvaluation,
     StatusEvent,
     ToolFailure,
+    TyCheck,
+    TyDiagnostic,
+    ty_diagnostic_digest,
 )
-from pf.schemas.project import Cell, SourceSnapshotIdentity
+from pf.schemas.project import Cell, Proposal, SourceSnapshotIdentity
 from pf.schemas.report import (
     CellFailure,
+    CoordinateFailure,
     GeneratorIdentity,
     IncompleteReportResult,
     PackageFloorReportV1,
     PackageIdentity,
     ProjectionEvidence,
+    ProbeEvidence,
+    ProbeObservation,
 )
 from pf.terminal import PF_THEME, TerminalPresenter
 
@@ -1157,7 +1165,7 @@ def test_search_reasons_determine_the_exit_code(
 
     assert exit_code == expected_exit
     assert stdout.getvalue() == "search completed (1 reports)\n"
-    expected_stderr = {
+    expected_stderr: dict[tuple[str, ...], str] = {
         (): "",
         ("BASELINE_FAILED",): "✗ BASELINE_FAILED\n",
         ("TIMEOUT",): "✗ TIMEOUT\n",
@@ -1260,4 +1268,91 @@ def test_explain_renders_incomplete_reasons_and_projection_requirements() -> Non
         "  reasons: MISSING_CELL\n"
         "  demo:dependencies:foo: foo>=1\n"
         "  demo:dependencies:bar: none\n"
+    )
+
+
+def test_explain_distinguishes_baseline_diagnostics_from_static_increments() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="candidate",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    existing = TyDiagnostic(
+        identity="snapshot|demo.py|1|1|existing-error",
+        origin="snapshot",
+        path="demo.py",
+        line=1,
+        column=1,
+        code="existing-error",
+        severity="major",
+        message="existing project error",
+    )
+    increment = TyDiagnostic(
+        identity="snapshot|demo.py|2|1|dependency-regression",
+        origin="snapshot",
+        path="demo.py",
+        line=2,
+        column=1,
+        code="dependency-regression",
+        severity="major",
+        message="dependency API is unavailable",
+    )
+    process = process_result(stdout="[]")
+    baseline = StaticBaseline(
+        proposal=proposal,
+        ty=TyCheck(process=process, diagnostics=(existing,)),
+        digest=ty_diagnostic_digest((existing,)),
+    )
+    static = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyCheck(process=process, diagnostics=(existing, increment)),
+        baseline_digest=baseline.digest,
+        incremental=(increment,),
+    )
+    failure = CellFailure(
+        status="NO_PASS_IN_SEARCH_SPACE",
+        cell=cell,
+        phase="static-search",
+        static_baseline=baseline,
+        coordinate_failure=CoordinateFailure(
+            status="NO_PASS_IN_SEARCH_SPACE",
+            observations=(
+                ProbeObservation(
+                    dependency="demo-dep",
+                    candidate_version="1",
+                    vector=(),
+                    evidence=ProbeEvidence(
+                        status="STATIC_FAIL",
+                        proposal_id=proposal.proposal_id,
+                        static=static,
+                    ),
+                ),
+            ),
+        ),
+    )
+    report = incomplete_report(
+        "NO_PASS_IN_SEARCH_SPACE",
+        cell_results=(failure,),
+    )
+    terminal, stdout, _ = presenter()
+
+    exit_code = terminal.render_explain((report,))
+
+    assert exit_code == 0
+    assert stdout.getvalue() == (
+        "demo: incomplete\n"
+        "  reasons: NO_PASS_IN_SEARCH_SPACE\n"
+        "  [3.10][x86_64-unknown-linux-gnu][none] ty baseline: 1 diagnostic\n"
+        "    + snapshot|demo.py|2|1|dependency-regression: "
+        "dependency API is unavailable\n"
     )

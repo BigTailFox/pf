@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+from importlib.metadata import version as distribution_version
+import json
 from pathlib import Path
 
 from pf.environment import EnvironmentFactory, PreparedEnvironment
+from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
+from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     GraphSuccess,
     InterpreterSuccess,
@@ -58,6 +63,13 @@ class SuccessfulUv:
         return ToolSuccess(stage="install-harness", process=successful_process())
 
 
+def test_evaluation_policy_identity_ignores_scheduler_concurrency() -> None:
+    automatic = EffectiveConfig(jobs="auto")
+    serial = EffectiveConfig(jobs=1)
+
+    assert evaluation_policy_identity(automatic) == evaluation_policy_identity(serial)
+
+
 def test_environment_factory_materializes_an_isolated_proposal(tmp_path: Path) -> None:
     root = tmp_path / "project"
     root.mkdir()
@@ -94,6 +106,25 @@ test-command = ["python", "-m", "unittest"]
         version="3.10.18",
         abi="cpython-310-x86_64-linux-gnu",
     )
+    policy_document = {
+        "config": package.config.model_dump(mode="json", exclude={"jobs"}),
+        "tool_versions": {"ty": distribution_version("ty")},
+        "ty_diagnostic_policy": {
+            "comparison": "multiset-subtraction",
+            "identity_rule": (
+                "snapshot-path-line-column-code+external-path-code"
+            ),
+            "output_format": "gitlab",
+            "policy": "increment-v1",
+        },
+    }
+    expected_policy = hashlib.sha256(
+        (
+            "pf:policy:v1\0"
+            + json.dumps(policy_document, sort_keys=True, separators=(",", ":"))
+        ).encode()
+    ).hexdigest()
+    assert prepared.proposal.policy_identity == expected_policy
     source = prepared.proposal_root / "pyproject.toml"
     assert source.is_file()
     source.write_text("changed\n", encoding="utf-8")

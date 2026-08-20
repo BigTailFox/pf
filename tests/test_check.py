@@ -22,18 +22,22 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     ProgressEvent,
+    StaticBaseline,
+    StaticBaselineCapture,
     StatusEvent,
     TestPass,
     ToolFailure,
+    TyCheck,
+    TyDiagnostic,
+    ty_diagnostic_digest,
 )
 from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     StaticFailEvaluation,
     StaticPassEvaluation,
+    StaticEvaluation,
     TestFail,
     TestFailEvaluation,
-    TyFail,
-    TyPass,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.snapshot import SnapshotBuilder
@@ -88,9 +92,125 @@ def passing_check(cell: Cell) -> PassEvaluation:
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(proposal=proposal, ty=TyPass(process=process)),
+        static=StaticPassEvaluation(
+            proposal=proposal,
+            ty=TyCheck(process=process, diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+            incremental=(),
+        ),
         test=TestPass(process=process),
     )
+
+
+def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
+    tmp_path: Path,
+) -> None:
+    package, snapshot = write_check_project(tmp_path)
+    resolutions: list[str] = []
+    prepared: dict[str, PreparedEnvironment] = {}
+
+    class Environments:
+        def prepare(
+            self,
+            *,
+            package: PackagePlan,
+            cell: Cell,
+            snapshot: SourceSnapshot,
+            resolution: Literal["highest", "lowest-direct"],
+        ) -> PreparedEnvironment:
+            resolutions.append(resolution)
+            temporary = tempfile.TemporaryDirectory(prefix=f"pf-check-{resolution}-")
+            root = Path(temporary.name)
+            source = root / "source"
+            environment = root / "environment"
+            source.mkdir()
+            value = PreparedEnvironment(
+                proposal=Proposal(
+                    proposal_id=resolution,
+                    snapshot_digest=snapshot.identity.digest,
+                    cell=cell,
+                    managed_vector=(),
+                    fixed_declaration_ids=(),
+                    resolved_graph=(),
+                    policy_identity="policy",
+                ),
+                proposal_root=source,
+                package_root=source,
+                environment_root=environment,
+                interpreter=environment / "bin" / "python",
+                temporary_directory=temporary,
+            )
+            prepared[resolution] = value
+            return value
+
+    process = ProcessResult(
+        exit_code=1,
+        signal=None,
+        duration_seconds=0.1,
+        stdout_summary="[]",
+        stderr_summary="",
+        stdout_tail="[]",
+        stderr_tail="",
+    )
+
+    class Static:
+        def capture(
+            self,
+            prepared: PreparedEnvironment,
+            *,
+            package: PackagePlan,
+        ) -> StaticBaselineCapture:
+            check = TyCheck(process=process, diagnostics=())
+            baseline = StaticBaseline(
+                proposal=prepared.proposal,
+                ty=check,
+                digest=ty_diagnostic_digest(check.diagnostics),
+            )
+            return StaticBaselineCapture(
+                baseline=baseline,
+                static=StaticPassEvaluation(
+                    proposal=prepared.proposal,
+                    ty=check,
+                    baseline_digest=baseline.digest,
+                    incremental=(),
+                ),
+            )
+
+    class Full:
+        def evaluate(
+            self,
+            prepared: PreparedEnvironment,
+            *,
+            package: PackagePlan,
+            baseline: StaticBaseline,
+            static_result: StaticEvaluation | None = None,
+        ) -> PassEvaluation:
+            assert prepared.proposal.proposal_id == "lowest-direct"
+            assert baseline.proposal.proposal_id == "highest"
+            assert static_result is None
+            prepared.mark_tested()
+            static = StaticPassEvaluation(
+                proposal=prepared.proposal,
+                ty=TyCheck(process=process, diagnostics=()),
+                baseline_digest=baseline.digest,
+                incremental=(),
+            )
+            return PassEvaluation(
+                proposal=prepared.proposal,
+                static=static,
+                test=TestPass(process=process.model_copy(update={"exit_code": 0})),
+            )
+
+    result = CompatibilityChecker(
+        environments=Environments(),
+        static=Static(),
+        full=Full(),
+    ).check(package=package, cell=package.cells[0], snapshot=snapshot)
+
+    assert result.status == "PASS"
+    assert resolutions == ["highest", "lowest-direct"]
+    assert prepared["highest"].tested is False
+    assert prepared["lowest-direct"].tested is True
 
 
 def test_check_passes_a_minimal_local_package(tmp_path: Path) -> None:
@@ -123,10 +243,12 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     )
     runner = SubprocessRunner()
     uv = UvAdapter(runner)
+    static = StaticEvaluator(TyAdapter(runner))
     checker = CompatibilityChecker(
         environments=EnvironmentFactory(uv),
-        evaluator=FullEvaluator(
-            static=StaticEvaluator(TyAdapter(runner)),
+        static=static,
+        full=FullEvaluator(
+            static=static,
             tests=TestAdapter(runner),
         ),
     )
@@ -322,12 +444,46 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
                 temporary_directory=directory,
             )
 
-    class Evaluator:
+    class Static:
+        def capture(
+            self,
+            prepared: PreparedEnvironment,
+            *,
+            package: PackagePlan,
+        ) -> StaticBaselineCapture:
+            process = ProcessResult(
+                exit_code=1,
+                signal=None,
+                duration_seconds=0,
+                stdout_summary="[]",
+                stderr_summary="",
+                stdout_tail="[]",
+                stderr_tail="",
+            )
+            check = TyCheck(process=process, diagnostics=())
+            baseline = StaticBaseline(
+                proposal=prepared.proposal,
+                ty=check,
+                digest=ty_diagnostic_digest(check.diagnostics),
+            )
+            return StaticBaselineCapture(
+                baseline=baseline,
+                static=StaticPassEvaluation(
+                    proposal=prepared.proposal,
+                    ty=check,
+                    baseline_digest=baseline.digest,
+                    incremental=(),
+                ),
+            )
+
+    class Full:
         def evaluate(
             self,
             prepared: PreparedEnvironment,
             *,
             package: PackagePlan,
+            baseline: StaticBaseline,
+            static_result: object | None = None,
         ) -> Evaluation:
             process = ProcessResult(
                 exit_code=1,
@@ -339,14 +495,32 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
                 stderr_tail="",
             )
             if evaluation_status == "STATIC_FAIL":
+                increment = TyDiagnostic(
+                    identity="snapshot|demo.py|1|1|invalid-type",
+                    origin="snapshot",
+                    path="demo.py",
+                    line=1,
+                    column=1,
+                    code="invalid-type",
+                    severity="major",
+                    message="invalid type",
+                )
+                check = TyCheck(process=process, diagnostics=(increment,))
                 return StaticFailEvaluation(
                     proposal=prepared.proposal,
-                    ty=TyFail(process=process),
+                    ty=check,
+                    baseline_digest=baseline.digest,
+                    incremental=(increment,),
                 )
             if evaluation_status == "TEST_FAIL":
                 static = StaticPassEvaluation(
                     proposal=prepared.proposal,
-                    ty=TyPass(process=process.model_copy(update={"exit_code": 0})),
+                    ty=TyCheck(
+                        process=process.model_copy(update={"exit_code": 0}),
+                        diagnostics=(),
+                    ),
+                    baseline_digest=baseline.digest,
+                    incremental=(),
                 )
                 return TestFailEvaluation(
                     proposal=prepared.proposal,
@@ -362,7 +536,8 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
 
     result = CompatibilityChecker(
         environments=Environments(),
-        evaluator=Evaluator(),
+        static=Static(),
+        full=Full(),
     ).check(package=package, cell=package.cells[0], snapshot=snapshot)
 
     assert result.status == evaluation_status

@@ -11,9 +11,11 @@ from pf.report import PackageReportBuilder, ReportStore
 from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
+    StaticBaseline,
     StaticPassEvaluation,
     TestPass,
-    TyPass,
+    TyCheck,
+    ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, Proposal, VersionPin
 from pf.schemas.report import CellSuccess, CoordinateBoundary, CoordinateSuccess
@@ -33,10 +35,15 @@ def successful_process() -> ProcessResult:
     )
 
 
-def passing_evaluation(cell: Cell, version: str) -> PassEvaluation:
+def passing_evaluation(
+    cell: Cell,
+    version: str,
+    *,
+    snapshot_digest: str,
+) -> PassEvaluation:
     proposal = Proposal(
         proposal_id=f"idna={version}",
-        snapshot_digest="snapshot",
+        snapshot_digest=snapshot_digest,
         cell=cell,
         managed_vector=(VersionPin(name="idna", version=version),),
         fixed_declaration_ids=(),
@@ -47,13 +54,20 @@ def passing_evaluation(cell: Cell, version: str) -> PassEvaluation:
         proposal=proposal,
         static=StaticPassEvaluation(
             proposal=proposal,
-            ty=TyPass(process=successful_process()),
+            ty=TyCheck(process=successful_process(), diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+            incremental=(),
         ),
         test=TestPass(process=successful_process()),
     )
 
 
-def successful_cell(cell: Cell, floor: str) -> CellSuccess:
+def successful_cell(
+    cell: Cell,
+    floor: str,
+    *,
+    snapshot_digest: str,
+) -> CellSuccess:
     vector = (VersionPin(name="idna", version=floor),)
     search = CoordinateSuccess(
         vector=vector,
@@ -61,13 +75,27 @@ def successful_cell(cell: Cell, floor: str) -> CellSuccess:
         boundaries=(CoordinateBoundary(dependency="idna", floor=floor),),
         sweeps=1,
     )
+    baseline = passing_evaluation(
+        cell,
+        "3.11",
+        snapshot_digest=snapshot_digest,
+    )
     return CellSuccess(
         cell=cell,
-        baseline=passing_evaluation(cell, "3.11"),
+        static_baseline=StaticBaseline(
+            proposal=baseline.proposal,
+            ty=baseline.static.ty,
+            digest=ty_diagnostic_digest(baseline.static.ty.diagnostics),
+        ),
+        baseline=baseline,
         candidate_snapshots=(),
         static_search=search,
         final_vector=vector,
-        final_evaluation=passing_evaluation(cell, floor),
+        final_evaluation=passing_evaluation(
+            cell,
+            floor,
+            snapshot_digest=snapshot_digest,
+        ),
     )
 
 
@@ -97,7 +125,13 @@ test-command = ["pytest"]
     report = PackageReportBuilder().build(
         package=package,
         source_snapshot=snapshot.identity,
-        cell_results=(successful_cell(package.cells[0], "3.0"),),
+        cell_results=(
+            successful_cell(
+                package.cells[0],
+                "3.0",
+                snapshot_digest=snapshot.identity.digest,
+            ),
+        ),
     )
 
     assert report.result.status == "complete"
@@ -148,7 +182,12 @@ test-command = ["pytest"]
         package=package,
         source_snapshot=snapshot.identity,
         cell_results=tuple(
-            successful_cell(cell, floors[cell.python_minor]) for cell in package.cells
+            successful_cell(
+                cell,
+                floors[cell.python_minor],
+                snapshot_digest=snapshot.identity.digest,
+            )
+            for cell in package.cells
         ),
     )
 
@@ -194,12 +233,24 @@ test-command = ["python", "-c", "pass"]
     first = builder.build(
         package=package,
         source_snapshot=snapshot.identity,
-        cell_results=(successful_cell(package.cells[0], "2.0"),),
+        cell_results=(
+            successful_cell(
+                package.cells[0],
+                "2.0",
+                snapshot_digest=snapshot.identity.digest,
+            ),
+        ),
     )
     second = builder.build(
         package=package,
         source_snapshot=snapshot.identity,
-        cell_results=(successful_cell(package.cells[1], "3.0"),),
+        cell_results=(
+            successful_cell(
+                package.cells[1],
+                "3.0",
+                snapshot_digest=snapshot.identity.digest,
+            ),
+        ),
     )
 
     merged = ReportStore().merge((first, second))

@@ -10,8 +10,8 @@ from pf.schemas.evaluation import (
     TestFail,
     TestFailEvaluation,
     TestPass,
-    TyPass,
-    TyFail,
+    TyCheck,
+    TyDiagnostic,
 )
 from pf.schemas.project import Cell, Proposal
 
@@ -25,6 +25,23 @@ def process(exit_code: int = 0) -> ProcessResult:
         stderr_summary="",
         stdout_tail="",
         stderr_tail="",
+    )
+
+
+def check(exit_code: int = 0) -> TyCheck:
+    return TyCheck(process=process(exit_code), diagnostics=())
+
+
+def diagnostic() -> TyDiagnostic:
+    return TyDiagnostic(
+        identity="snapshot|demo.py|1|1|invalid-type",
+        origin="snapshot",
+        path="demo.py",
+        line=1,
+        column=1,
+        code="invalid-type",
+        severity="major",
+        message="invalid type",
     )
 
 
@@ -43,7 +60,12 @@ def test_cache_separates_static_and_full_and_detects_conflicting_full_results() 
         resolved_graph=(),
         policy_identity="policy",
     )
-    static = StaticPassEvaluation(proposal=proposal, ty=TyPass(process=process()))
+    static = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check(),
+        baseline_digest="baseline",
+        incremental=(),
+    )
     passed = PassEvaluation(
         proposal=proposal,
         static=static,
@@ -83,10 +105,18 @@ def test_cache_reuses_identical_evidence_and_detects_static_conflicts() -> None:
         resolved_graph=(),
         policy_identity="policy",
     )
-    passed = StaticPassEvaluation(proposal=proposal, ty=TyPass(process=process()))
+    passed = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check(),
+        baseline_digest="baseline",
+        incremental=(),
+    )
+    increment = diagnostic()
     failed = StaticFailEvaluation(
         proposal=proposal,
-        ty=TyFail(process=process(exit_code=1)),
+        ty=TyCheck(process=process(exit_code=1), diagnostics=(increment,)),
+        baseline_digest="baseline",
+        incremental=(increment,),
     )
     cache = EvaluationCache()
 

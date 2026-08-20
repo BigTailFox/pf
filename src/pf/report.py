@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from pf.errors import ConfigurationError
 from pf import __version__
+from pf.policy import evaluation_policy_identity
 from pf.project import marker_platform
 from pf.schemas.project import (
     CandidateSnapshot,
@@ -267,14 +268,7 @@ class PackageReportBuilder:
                 return result.final_evaluation.proposal.policy_identity
             if result.baseline is not None:
                 return result.baseline.proposal.policy_identity
-        policy_json = json.dumps(
-            package.config.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        import hashlib
-
-        return hashlib.sha256(f"pf:policy:v1\0{policy_json}".encode()).hexdigest()
+        return evaluation_policy_identity(package.config)
 
     @staticmethod
     def _cell_key(cell: Cell) -> str:
