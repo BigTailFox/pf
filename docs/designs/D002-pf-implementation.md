@@ -140,7 +140,7 @@ Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解�
 
 - `ProcessSpec` / `ProcessResult` 与外部工具结果；
 - D004 定义的 `TyDiagnostic`、`TyCheck`、`StaticBaseline` 与 static/full Evaluation union；
-- `CheckResult`、`SmokeResult`、`CacheConflict`；
+- `CheckResult`、`HighestVersionVerification`、`SmokeResult`、`CacheConflict`；
 - `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`。
 
 详细日志引用不进入 `ProcessResult` 或其他公共 Schema。`RunLogStore` 只在当前进程内按 `ProcessResult` 对象 identity 维护引用；报告序列化/重新读取后没有本地引用。日志丢失不能改变已经记录的 Evaluation 证据。
@@ -321,7 +321,7 @@ record(process_id, redacted_spec, redacted_result) -> absolute_log_path
 reference_for(process_result) -> absolute_log_path | None
 ```
 
-store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，使用项目相对展示路径、随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名。`reference_for` 使用当前进程内对象 identity，不修改 Schema，也不尝试用可能碰撞的内容 hash 关联日志。写日志失败是基础设施错误，不能静默继续产生一个违反 CLI 可诊断性契约的 Evaluation。
+store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，使用项目相对展示路径、随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 使用当前进程内对象 identity，不修改 Schema，也不尝试用可能碰撞的内容 hash 关联日志。写日志失败是基础设施错误，不能静默继续产生一个违反 CLI 可诊断性契约的 Evaluation。
 
 ### 10.2 UvAdapter、TyAdapter、TestAdapter
 

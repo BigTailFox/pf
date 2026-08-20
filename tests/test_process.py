@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import stat
 import sys
 
 import pytest
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
+from pf.errors import InfrastructureError
+from pf.runlog import RunLogStore
 from pf.schemas.evaluation import EnvironmentVariable, ProcessEvent, ProcessSpec
 
 
@@ -30,6 +33,71 @@ def test_subprocess_runner_captures_and_redacts_external_output(tmp_path: Path) 
     assert result.stdout_tail == "token=***\n"
     assert result.stderr_tail == "problem\n"
     assert "top-secret" not in result.model_dump_json()
+
+
+def test_subprocess_runner_records_redacted_bounded_process_logs(
+    tmp_path: Path,
+) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="test-run")
+    runner = SubprocessRunner(
+        redactor=SecretRedactor(("top-secret",)),
+        logs=logs,
+        summary_limit=32,
+        tail_limit=12,
+    )
+    result = runner.run(
+        ProcessSpec(
+            argv=(
+                sys.executable,
+                "-c",
+                "print('token=top-secret'); print('x' * 100)",
+            ),
+            cwd=tmp_path.as_posix(),
+            environment=(EnvironmentVariable(name="DEMO_TOKEN", value="top-secret"),),
+            timeout_seconds=5,
+        )
+    )
+
+    log_path = logs.reference_for(result)
+
+    assert log_path == tmp_path / ".pf/logs/test-run/process-0001.log"
+    assert log_path is not None
+    detail = log_path.read_text(encoding="utf-8")
+    assert "DEMO_TOKEN" in detail
+    assert "top-secret" not in detail
+    assert "stdout_truncated: true" in detail
+    assert "token=***" in detail
+    assert (tmp_path / ".pf/logs/test-run/run.log").is_file()
+    assert stat.S_IMODE(log_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(log_path.parent.stat().st_mode) == 0o700
+    assert ".pf/logs" not in result.model_dump_json()
+
+
+def test_run_log_store_refuses_a_symlinked_pf_directory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / ".pf").symlink_to(outside, target_is_directory=True)
+    logs = RunLogStore(root=tmp_path, run_id="unsafe-run")
+    result = SubprocessRunner().run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    with pytest.raises(InfrastructureError, match="could not write PF process log"):
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=(sys.executable, "-c", "pass"),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=5,
+            ),
+            result,
+        )
+
+    assert not (outside / "logs").exists()
 
 
 def test_subprocess_runner_reports_a_redacted_start_error(tmp_path: Path) -> None:

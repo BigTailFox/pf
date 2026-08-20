@@ -2,21 +2,33 @@ from __future__ import annotations
 
 import re
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from rich.console import Console
 
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
+from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
     CellMatrixEvent,
     CheckCompatibilityFailure,
     CheckIndeterminate,
+    CheckPass,
+    PassEvaluation,
     ProcessEvent,
     ProcessResult,
+    ProcessSpec,
     ProgressEvent,
+    SmokePass,
+    SmokeIndeterminate,
+    SmokeTestFailure,
     StaticBaseline,
     StaticFailEvaluation,
+    StaticPassEvaluation,
     StatusEvent,
+    TestFail,
+    TestFailEvaluation,
+    TestPass,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
@@ -251,7 +263,7 @@ def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
     )
 
 
-def test_completed_cell_log_indents_multiline_diagnostics() -> None:
+def test_completed_cell_log_collapses_multiline_diagnostics_to_a_summary() -> None:
     cell = Cell(
         package="demo",
         target="x86_64-unknown-linux-gnu",
@@ -275,8 +287,7 @@ def test_completed_cell_log_indents_multiline_diagnostics() -> None:
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
         "✗ [3.12][x86_64-unknown-linux-gnu][none]\n"
-        "  BUILD_UNAVAILABLE: Failed to build `numpy==1.24.0`\n"
-        "  Because cmake is missing\n"
+        "  BUILD_UNAVAILABLE: Failed to build `numpy==1.24.0` Because cmake is missing\n"
     )
 
 
@@ -699,7 +710,7 @@ def test_tty_status_with_total_shows_a_bar() -> None:
     terminal.close()
 
 
-def test_status_and_process_activity_are_stable_lines_off_tty() -> None:
+def test_non_tty_hides_process_activity_behind_run_logs() -> None:
     terminal, stdout, stderr = presenter()
 
     terminal.consume(StatusEvent(message="loading project"))
@@ -728,12 +739,7 @@ def test_status_and_process_activity_are_stable_lines_off_tty() -> None:
     )
 
     assert stdout.getvalue() == ""
-    assert stderr.getvalue() == (
-        "loading project\n"
-        "running: uv python list --output-format json\n"
-        "done (0.4s): uv python list --output-format json\n"
-        "done (?): mystery\n"
-    )
+    assert stderr.getvalue() == "loading project\n"
 
 
 def test_tty_status_stages_spin_then_complete_in_past_tense() -> None:
@@ -1119,20 +1125,40 @@ def test_check_failures_have_stable_exit_codes(
     assert message in stderr.getvalue()
 
 
-def test_check_indeterminate_prints_the_process_diagnostic() -> None:
-    terminal, stdout, stderr = presenter()
+def test_check_indeterminate_prints_a_short_reason_and_log_link(
+    tmp_path: Path,
+) -> None:
+    stdout = StringIO()
+    stderr = StringIO()
+    logs = RunLogStore(root=tmp_path, run_id="test-run")
+    process = process_result(
+        stderr=(
+            "No solution found when resolving dependencies:\n"
+            "because tomli==2.0.0"
+        ),
+    )
+    logs.record(
+        1,
+        ProcessSpec(
+            argv=("uv", "pip", "install"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=10,
+        ),
+        process,
+    )
+    terminal = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        logs=logs,
+        root=tmp_path,
+    )
 
     exit_code = terminal.render_check(
         CheckIndeterminate(
             failure=ToolFailure(
                 status="UNRESOLVABLE",
                 stage="install-harness",
-                process=process_result(
-                    stderr=(
-                        "No solution found when resolving dependencies:\n"
-                        "because tomli==2.0.0"
-                    ),
-                ),
+                process=process,
             )
         )
     )
@@ -1140,9 +1166,334 @@ def test_check_indeterminate_prints_the_process_diagnostic() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ check indeterminate: UNRESOLVABLE (install-harness)\n"
-        "No solution found when resolving dependencies:\n"
-        "because tomli==2.0.0\n"
+        "✗ check indeterminate: UNRESOLVABLE (harness)\n"
+        "  No solution found when resolving dependencies: because tomli==2.0.0\n"
+        "  details: .pf/logs/test-run/process-0001.log\n"
+    )
+
+
+def test_tty_process_log_path_is_a_local_file_hyperlink(tmp_path: Path) -> None:
+    stdout = StringIO()
+    stderr = StringIO()
+    logs = RunLogStore(root=tmp_path, run_id="linked-run")
+    process = process_result(stderr="test process failed")
+    path = logs.record(
+        1,
+        ProcessSpec(
+            argv=("pytest",),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=10,
+        ),
+        process,
+    )
+    terminal = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=True, color_system="truecolor"),
+        stderr=Console(file=stderr, force_terminal=True, color_system="truecolor"),
+        logs=logs,
+        root=tmp_path,
+    )
+
+    terminal.render_check(
+        CheckIndeterminate(
+            failure=ToolFailure(
+                status="TOOL_ERROR",
+                stage="test",
+                process=process,
+            )
+        )
+    )
+
+    assert "\x1b]8;" in stderr.getvalue()
+    assert path.resolve().as_uri() in stderr.getvalue()
+    assert ".pf/logs/linked-run/process-0001.log" in visible(stderr.getvalue())
+
+
+def test_smoke_test_failure_prints_dynamic_summary_and_log_link(
+    tmp_path: Path,
+) -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="highest",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    ty_process = process_result(exit_code=0, stdout="[]")
+    check = TyCheck(process=ty_process, diagnostics=())
+    static = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check,
+        baseline_digest=ty_diagnostic_digest(()),
+    )
+    test_process = process_result(stderr="1 failed\n2 passed")
+    logs = RunLogStore(root=tmp_path, run_id="smoke-run")
+    logs.record(
+        2,
+        ProcessSpec(
+            argv=("pytest",),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=10,
+        ),
+        test_process,
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        logs=logs,
+        root=tmp_path,
+    )
+
+    exit_code = terminal.render_smoke(
+        SmokeTestFailure(
+            evaluations=(
+                TestFailEvaluation(
+                    proposal=proposal,
+                    static=static,
+                    test=TestFail(process=test_process),
+                ),
+            )
+        )
+    )
+
+    assert exit_code == 1
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "✗ demo [3.11][x86_64-unknown-linux-gnu][none] tests failed (dynamic)\n"
+        "  1 failed 2 passed\n"
+        "  details: .pf/logs/smoke-run/process-0002.log\n"
+        "✗ smoke failed: tests failed\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("adapter_stage", "user_stage"),
+    (
+        ("install", "install"),
+        ("install-harness", "harness"),
+        ("ty", "static"),
+        ("test", "dynamic"),
+    ),
+)
+def test_smoke_tool_failures_use_stable_user_stage_names(
+    adapter_stage: str,
+    user_stage: str,
+) -> None:
+    terminal, stdout, stderr = presenter()
+
+    exit_code = terminal.render_smoke(
+        SmokeIndeterminate(
+            failure=ToolFailure(
+                status="TOOL_ERROR",
+                stage=adapter_stage,
+                process=process_result(stderr="tool failed"),
+            )
+        )
+    )
+
+    assert exit_code == 4
+    assert stdout.getvalue() == ""
+    assert f"smoke indeterminate: TOOL_ERROR ({user_stage})" in stderr.getvalue()
+
+
+def test_smoke_ty_diagnostics_are_warnings_with_one_line_summaries(
+    tmp_path: Path,
+) -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="highest",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    diagnostic = TyDiagnostic(
+        identity="snapshot|src/demo.py|4|7|invalid-type",
+        origin="snapshot",
+        path="src/demo.py",
+        line=4,
+        column=7,
+        code="invalid-type",
+        severity="major",
+        message="Expected str,\n  found int",
+    )
+    process = process_result(exit_code=1, stdout="[]")
+    logs = RunLogStore(root=tmp_path, run_id="ty-run")
+    logs.record(
+        3,
+        ProcessSpec(
+            argv=("ty", "check"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=10,
+        ),
+        process,
+    )
+    check = TyCheck(process=process, diagnostics=(diagnostic,))
+    static = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check,
+        baseline_digest=ty_diagnostic_digest(check.diagnostics),
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        logs=logs,
+        root=tmp_path,
+    )
+
+    exit_code = terminal.render_smoke(
+        SmokePass(
+            evaluations=(
+                PassEvaluation(
+                    proposal=proposal,
+                    static=static,
+                    test=TestPass(
+                        process=process.model_copy(update={"exit_code": 0})
+                    ),
+                ),
+            )
+        )
+    )
+
+    assert exit_code == 0
+    assert stdout.getvalue() == "✓ smoke passed (1 cells)\n"
+    assert stderr.getvalue() == (
+        "⚠ demo [3.10][x86_64-unknown-linux-gnu][none] ty: 1 diagnostic\n"
+        "  src/demo.py:4:7 [invalid-type] Expected str, found int\n"
+        "  details: .pf/logs/ty-run/process-0003.log\n"
+    )
+
+
+def test_check_reuses_ty_warning_summaries() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="lowest",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    diagnostic = TyDiagnostic(
+        identity="external|site-packages/demo.pyi|invalid-return-type",
+        origin="external",
+        path="site-packages/demo.pyi",
+        line=None,
+        column=None,
+        code="invalid-return-type",
+        severity="major",
+        message="Returned int instead of str",
+    )
+    process = process_result(exit_code=1, stdout="[]")
+    check = TyCheck(process=process, diagnostics=(diagnostic,))
+    static = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check,
+        baseline_digest=ty_diagnostic_digest(check.diagnostics),
+    )
+    terminal, stdout, stderr = presenter()
+
+    exit_code = terminal.render_check(
+        CheckPass(
+            evaluations=(
+                PassEvaluation(
+                    proposal=proposal,
+                    static=static,
+                    test=TestPass(
+                        process=process.model_copy(update={"exit_code": 0})
+                    ),
+                ),
+            )
+        )
+    )
+
+    assert exit_code == 0
+    assert stdout.getvalue() == "✓ check passed (1 cells)\n"
+    assert stderr.getvalue() == (
+        "⚠ demo [3.11][x86_64-unknown-linux-gnu][none] ty: 1 diagnostic\n"
+        "  site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
+    )
+
+
+def test_check_static_failure_summarizes_only_incremental_diagnostics() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="lowest",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    existing = TyDiagnostic(
+        identity="snapshot|demo.py|1|1|existing",
+        origin="snapshot",
+        path="demo.py",
+        line=1,
+        column=1,
+        code="existing",
+        severity="major",
+        message="existing diagnostic",
+    )
+    increment = TyDiagnostic(
+        identity="snapshot|demo.py|9|2|dependency-regression",
+        origin="snapshot",
+        path="demo.py",
+        line=9,
+        column=2,
+        code="dependency-regression",
+        severity="major",
+        message="new dependency regression",
+    )
+    process = process_result(exit_code=1, stdout="[]")
+    static = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyCheck(process=process, diagnostics=(existing, increment)),
+        baseline_digest=ty_diagnostic_digest((existing,)),
+        incremental=(increment,),
+    )
+    terminal, stdout, stderr = presenter()
+
+    exit_code = terminal.render_check(
+        CheckCompatibilityFailure(evaluations=(static,))
+    )
+
+    assert exit_code == 1
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "✗ demo [3.11][x86_64-unknown-linux-gnu][none] ty: 1 new diagnostic\n"
+        "  demo.py:9:2 [dependency-regression] new dependency regression\n"
+        "✗ check failed: current declarations are incompatible\n"
     )
 
 
@@ -1174,7 +1525,7 @@ def test_search_reasons_determine_the_exit_code(
     assert stderr.getvalue() == expected_stderr[reasons]
 
 
-def test_search_infra_failure_prints_cell_and_process_diagnostic() -> None:
+def test_search_infra_failure_prints_cell_and_process_summary() -> None:
     cell = Cell(
         package="demo",
         target="x86_64-unknown-linux-gnu",
@@ -1205,8 +1556,8 @@ def test_search_infra_failure_prints_cell_and_process_diagnostic() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "✗ UNRESOLVABLE (baseline-prepare): demo 3.10 x86_64-unknown-linux-gnu (install-harness)\n"
-        "No solution found when resolving dependencies\n"
+        "✗ UNRESOLVABLE (baseline-prepare): demo 3.10 x86_64-unknown-linux-gnu (harness)\n"
+        "  No solution found when resolving dependencies\n"
     )
 
 
@@ -1236,7 +1587,77 @@ def test_search_infra_failure_prints_message_detail_without_a_process() -> None:
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
         "✗ SOURCE_ERROR (candidate-discovery): demo 3.10 x86_64-unknown-linux-gnu\n"
-        "index unavailable\n"
+        "  index unavailable\n"
+    )
+
+
+def test_search_reuses_highest_baseline_ty_warning_summaries() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="highest",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    diagnostic = TyDiagnostic(
+        identity="snapshot|demo.py|3|unresolved-reference",
+        origin="snapshot",
+        path="demo.py",
+        line=3,
+        column=None,
+        code="unresolved-reference",
+        severity="major",
+        message="Name is not defined",
+    )
+    process = process_result(exit_code=1, stdout="[]")
+    check = TyCheck(process=process, diagnostics=(diagnostic,))
+    baseline = StaticBaseline(
+        proposal=proposal,
+        ty=check,
+        digest=ty_diagnostic_digest(check.diagnostics),
+    )
+    static = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check,
+        baseline_digest=baseline.digest,
+    )
+    test_process = process_result(stderr="1 failed, 2 passed")
+    report = incomplete_report(
+        "BASELINE_FAILED",
+        cell_results=(
+            CellFailure(
+                status="BASELINE_FAILED",
+                cell=cell,
+                phase="baseline-evaluation",
+                static_baseline=baseline,
+                baseline=TestFailEvaluation(
+                    proposal=proposal,
+                    static=static,
+                    test=TestFail(process=test_process),
+                ),
+            ),
+        ),
+    )
+    terminal, stdout, stderr = presenter()
+
+    exit_code = terminal.render_search((report,))
+
+    assert exit_code == 1
+    assert stdout.getvalue() == "search completed (1 reports)\n"
+    assert stderr.getvalue() == (
+        "⚠ demo [3.10][x86_64-unknown-linux-gnu][none] ty: 1 diagnostic\n"
+        "  demo.py:3 [unresolved-reference] Name is not defined\n"
+        "✗ demo [3.10][x86_64-unknown-linux-gnu][none] tests failed (dynamic)\n"
+        "  1 failed, 2 passed\n"
+        "✗ BASELINE_FAILED\n"
     )
 
 
@@ -1353,6 +1774,5 @@ def test_explain_distinguishes_baseline_diagnostics_from_static_increments() -> 
         "demo: incomplete\n"
         "  reasons: NO_PASS_IN_SEARCH_SPACE\n"
         "  [3.10][x86_64-unknown-linux-gnu][none] ty baseline: 1 diagnostic\n"
-        "    + snapshot|demo.py|2|1|dependency-regression: "
-        "dependency API is unavailable\n"
+        "    + demo.py:2:1 [dependency-regression] dependency API is unavailable\n"
     )

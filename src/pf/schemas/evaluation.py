@@ -347,6 +347,59 @@ CheckResult = Annotated[
 ]
 
 
+class HighestVersionVerification(FrozenSchema):
+    baseline: StaticBaseline
+    evaluation: Evaluation
+
+    @model_validator(mode="after")
+    def validate_highest_evaluation(self) -> "HighestVersionVerification":
+        if isinstance(self.evaluation, StaticFailEvaluation):
+            raise ValueError("highest-version capture cannot produce STATIC_FAIL")
+        if self.evaluation.proposal != self.baseline.proposal:
+            raise ValueError("highest-version evaluation must match its baseline")
+        if isinstance(self.evaluation, (PassEvaluation, TestFailEvaluation)):
+            if self.evaluation.static.ty != self.baseline.ty:
+                raise ValueError(
+                    "highest-version full evaluation must reuse the captured TyCheck"
+                )
+            if self.evaluation.static.baseline_digest != self.baseline.digest:
+                raise ValueError(
+                    "highest-version full evaluation must reuse the baseline digest"
+                )
+        return self
+
+
+class SmokePass(FrozenSchema):
+    status: Literal["PASS"] = "PASS"
+    evaluations: tuple[PassEvaluation, ...]
+
+
+class SmokeTestFailure(FrozenSchema):
+    status: Literal["TEST_FAILED"] = "TEST_FAILED"
+    evaluations: tuple[Evaluation, ...]
+
+    @model_validator(mode="after")
+    def validate_test_failure(self) -> "SmokeTestFailure":
+        if not any(
+            isinstance(evaluation, TestFailEvaluation)
+            for evaluation in self.evaluations
+        ):
+            raise ValueError("smoke TEST_FAILED requires a failed test evaluation")
+        return self
+
+
+class SmokeIndeterminate(FrozenSchema):
+    status: Literal["INDETERMINATE"] = "INDETERMINATE"
+    evaluations: tuple[PassEvaluation, ...] = ()
+    failure: ToolFailure
+
+
+SmokeResult = Annotated[
+    Union[SmokePass, SmokeTestFailure, SmokeIndeterminate],
+    Field(discriminator="status"),
+]
+
+
 class CacheConflict(FrozenSchema):
     status: Literal["NONDETERMINISTIC"] = "NONDETERMINISTIC"
     proposal_id: str

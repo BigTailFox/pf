@@ -4,11 +4,19 @@ import pytest
 from pydantic import ValidationError
 
 from pf.schemas.base import FrozenSchema
-from pf.schemas.config import EffectiveConfig, MergeRequest, CheckRequest, SearchRequest
+from pf.schemas.config import (
+    CheckRequest,
+    EffectiveConfig,
+    MergeRequest,
+    SearchRequest,
+    SmokeRequest,
+)
 from pf.schemas.evaluation import (
+    HighestVersionVerification,
     PassEvaluation,
     ProcessResult,
     ProcessSpec,
+    SmokeTestFailure,
     StaticBaseline,
     StaticBaselineCapture,
     StaticFailEvaluation,
@@ -99,6 +107,12 @@ def test_check_request_rejects_invalid_scheduling(
 ) -> None:
     with pytest.raises(ValidationError):
         CheckRequest.model_validate(payload)
+
+
+@pytest.mark.parametrize("jobs", (True, 0))
+def test_smoke_request_rejects_invalid_scheduling(jobs: bool | int) -> None:
+    with pytest.raises(ValidationError):
+        SmokeRequest(root=".", jobs=jobs)
 
 
 def test_merge_request_requires_an_input_report() -> None:
@@ -432,6 +446,33 @@ def _baseline_evidence() -> tuple[StaticBaseline, PassEvaluation]:
         test=TestPass(process=_successful_process()),
     )
     return baseline, passed
+
+
+def test_highest_version_and_smoke_results_enforce_their_evidence() -> None:
+    baseline, passed = _baseline_evidence()
+
+    assert HighestVersionVerification(
+        baseline=baseline,
+        evaluation=passed,
+    ).evaluation is passed
+
+    increment = _diagnostic()
+    static_failure = StaticFailEvaluation(
+        proposal=baseline.proposal,
+        ty=TyCheck(
+            process=_successful_process(exit_code=1),
+            diagnostics=(increment,),
+        ),
+        baseline_digest=baseline.digest,
+        incremental=(increment,),
+    )
+    with pytest.raises(ValidationError, match="cannot produce STATIC_FAIL"):
+        HighestVersionVerification(
+            baseline=baseline,
+            evaluation=static_failure,
+        )
+    with pytest.raises(ValidationError, match="requires a failed test"):
+        SmokeTestFailure(evaluations=())
 
 
 def test_cell_failure_rejects_probe_evidence_from_another_static_baseline() -> None:

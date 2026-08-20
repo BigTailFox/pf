@@ -5,9 +5,10 @@ from typing import Literal, NoReturn, Protocol
 
 from packaging.version import Version
 
+from pf.baseline import HighestVersionVerification, HighestVersionVerifier
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.environment import PreparedEnvironment
-from pf.evaluation import EvaluationCache
+from pf.evaluation import EvaluationCache, require_full_evaluation_contract
 from pf.schemas.evaluation import (
     CacheConflict,
     Evaluation,
@@ -387,6 +388,16 @@ class FullOperations(Protocol):
     ) -> Evaluation: ...
 
 
+class HighestOperations(Protocol):
+    def verify(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> HighestVersionVerification | ToolFailure | IndeterminateEvaluation: ...
+
+
 class _StaticVectorEvaluator:
     def __init__(self, runner: "_ProposalRunner") -> None:
         self._runner = runner
@@ -603,12 +614,18 @@ class SearchCoordinator:
         candidates: CandidateOperations,
         static: StaticOperations,
         full: FullOperations,
+        highest: HighestOperations | None = None,
         coordinate_search: CoordinateSearch | None = None,
     ) -> None:
         self._environments = environments
         self._candidates = candidates
         self._static = static
         self._full = full
+        self._highest = highest or HighestVersionVerifier(
+            environments=environments,
+            static=static,
+            full=full,
+        )
         self._coordinate_threshold = (
             coordinate_search.small_threshold if coordinate_search is not None else 8
         )
@@ -620,39 +637,28 @@ class SearchCoordinator:
         cell: Cell,
         snapshot: SourceSnapshot,
     ) -> CellResult:
-        if not package.config.test_command or not package.test_group_present:
-            raise ConfigurationError("search requires test-command and test-group")
-        baseline_environment = self._environments.prepare(
+        require_full_evaluation_contract(package, "search")
+        capture = self._highest.verify(
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
         )
-        if isinstance(baseline_environment, ToolFailure):
+        if isinstance(capture, ToolFailure):
             return CellFailure(
-                status=baseline_environment.status,
+                status=capture.status,
                 cell=cell,
                 phase="baseline-prepare",
-                failure=baseline_environment,
+                failure=capture,
             )
-        try:
-            capture = self._static.capture(baseline_environment, package=package)
-            if isinstance(capture, IndeterminateEvaluation):
-                return CellFailure(
-                    status=capture.status,
-                    cell=cell,
-                    phase="baseline-static-capture",
-                    baseline=capture,
-                    failure=capture.failure,
-                )
-            baseline_evaluation = self._full.evaluate(
-                baseline_environment,
-                package=package,
-                baseline=capture.baseline,
-                static_result=capture.static,
+        if isinstance(capture, IndeterminateEvaluation):
+            return CellFailure(
+                status=capture.status,
+                cell=cell,
+                phase="baseline-static-capture",
+                baseline=capture,
+                failure=capture.failure,
             )
-        finally:
-            baseline_environment.close()
+        baseline_evaluation = capture.evaluation
         if not isinstance(baseline_evaluation, PassEvaluation):
             status = (
                 "BASELINE_FAILED"

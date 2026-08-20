@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sys
 from datetime import timedelta
+from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Protocol
 
 from rich.console import Console
 from rich.padding import Padding
@@ -28,11 +29,17 @@ from pf.schemas.evaluation import (
     CellMatrixEvent,
     CheckResult,
     IndeterminateEvaluation,
+    PassEvaluation,
     ProcessEvent,
+    ProcessResult,
     ProgressEvent,
+    SmokeResult,
     StaticFailEvaluation,
     StatusEvent,
     ToolFailure,
+    TestFailEvaluation,
+    TyCheck,
+    TyDiagnostic,
 )
 from pf.schemas.project import Cell
 from pf.schemas.report import (
@@ -74,6 +81,7 @@ _COMPLETED_STATUS = {
     "building snapshot": "built snapshot",
     "searching cells": "searched cells",
     "checking declarations": "checked declarations",
+    "smoke testing": "smoke tested",
     "applying floors": "applied floors",
 }
 
@@ -83,6 +91,17 @@ _ICONS = {
     "warning": "⚠",
 }
 _ICON_WIDTH = 2
+_SUMMARY_WIDTH = 240
+
+_USER_STAGES = {
+    "create-environment": "install",
+    "inspect-interpreter": "install",
+    "install": "install",
+    "inspect": "install",
+    "install-harness": "harness",
+    "ty": "static",
+    "test": "dynamic",
+}
 
 _SUCCESS_STATUSES = frozenset({"SUCCESS", "PASS"})
 _WARNING_STATUSES = frozenset(
@@ -98,6 +117,10 @@ _IN_PROGRESS_STATUSES = frozenset({"running"})
 _OUTCOME_RANK = {"success": 0, "warning": 1, "failure": 2}
 
 OutcomeKind = Literal["success", "failure", "warning"]
+
+
+class ProcessLogReferences(Protocol):
+    def reference_for(self, result: ProcessResult) -> Path | None: ...
 
 
 def _outcome_kind(status: str) -> OutcomeKind | None:
@@ -254,6 +277,25 @@ def _cell_title(cell: Cell) -> str:
     )
 
 
+def _single_line_summary(value: str) -> str:
+    summary = " ".join(value.split())
+    if len(summary) <= _SUMMARY_WIDTH:
+        return summary
+    return f"{summary[: _SUMMARY_WIDTH - 3]}..."
+
+
+def _ty_diagnostic_summary(diagnostic: TyDiagnostic) -> str:
+    location = diagnostic.path
+    if diagnostic.line is not None:
+        location += f":{diagnostic.line}"
+    if diagnostic.column is not None:
+        location += f":{diagnostic.column}"
+    return (
+        f"{location} [{diagnostic.code}] "
+        f"{_single_line_summary(diagnostic.message)}"
+    )
+
+
 def _format_elapsed(seconds: float | None) -> str:
     if seconds is None:
         return "0:00:00"
@@ -263,14 +305,10 @@ def _format_elapsed(seconds: float | None) -> str:
 def _styled_reason_lines(
     status: str, diagnostic: str, kind: OutcomeKind
 ) -> tuple[Text, ...]:
-    text = diagnostic.strip()
+    text = _single_line_summary(diagnostic)
     if not text:
         return (Text.assemble("  ", (status, kind)),)
-    first, *rest = text.splitlines()
-    return (
-        Text.assemble("  ", (status, kind), (f": {first}", "dim")),
-        *(Text(f"  {line}", style="dim") for line in rest),
-    )
+    return (Text.assemble("  ", (status, kind), (f": {text}", "dim")),)
 
 
 def _cell_finished_block(
@@ -307,9 +345,13 @@ class TerminalPresenter:
         *,
         stdout: Console | None = None,
         stderr: Console | None = None,
+        logs: ProcessLogReferences | None = None,
+        root: Path | None = None,
     ) -> None:
         self.stdout = stdout or Console(file=sys.stdout, theme=PF_THEME)
         self.stderr = stderr or Console(file=sys.stderr, theme=PF_THEME)
+        self._logs = logs
+        self._root = (root or Path.cwd()).resolve()
         self._lock = Lock()
         self._progress: Progress | None = None
         self._overall_task: TaskID | None = None
@@ -331,11 +373,16 @@ class TerminalPresenter:
             soft_wrap=True,
         )
         if error.detail:
-            self.stderr.print(error.detail, soft_wrap=True)
+            self.stderr.print(
+                Text(_single_line_summary(error.detail)),
+                soft_wrap=True,
+            )
         return int(error.exit_code)
 
     def render_check(self, result: CheckResult) -> int:
         self.close()
+        self._render_evaluation_ty_summaries(result.evaluations)
+        self._render_evaluation_process_failures(result.evaluations)
         if result.status == "PASS":
             self._print_outcome(
                 "success",
@@ -355,9 +402,108 @@ class TerminalPresenter:
         )
         return 4
 
+    def render_smoke(self, result: SmokeResult) -> int:
+        self.close()
+        self._render_evaluation_ty_summaries(result.evaluations)
+        self._render_evaluation_process_failures(result.evaluations)
+        if result.status == "PASS":
+            self._print_outcome(
+                "success",
+                f"smoke passed ({len(result.evaluations)} cells)",
+                console=self.stdout,
+            )
+            return 0
+        if result.status == "TEST_FAILED":
+            self._print_outcome("failure", "smoke failed: tests failed")
+            return 1
+        self._print_tool_failure(
+            f"smoke indeterminate: {result.failure.status}",
+            result.failure,
+        )
+        return 4
+
+    def _render_evaluation_ty_summaries(
+        self,
+        evaluations: tuple[object, ...],
+    ) -> None:
+        for evaluation in evaluations:
+            if isinstance(evaluation, StaticFailEvaluation):
+                self._print_ty_diagnostics(
+                    evaluation.proposal.cell,
+                    evaluation.incremental,
+                    kind="failure",
+                    qualifier="new ",
+                )
+                self._print_log_reference(evaluation.ty.process)
+                continue
+            if not isinstance(evaluation, (PassEvaluation, TestFailEvaluation)):
+                continue
+            self._print_ty_warning(
+                evaluation.proposal.cell,
+                evaluation.static.ty,
+            )
+
+    def _render_evaluation_process_failures(
+        self,
+        evaluations: tuple[object, ...],
+    ) -> None:
+        for evaluation in evaluations:
+            if not isinstance(evaluation, TestFailEvaluation):
+                continue
+            cell = evaluation.proposal.cell
+            self._print_outcome(
+                "failure",
+                f"{cell.package} {_cell_title(cell)} tests failed (dynamic)",
+            )
+            self._print_process_detail(evaluation.test.process)
+
+    def _print_ty_warning(self, cell: Cell, check: TyCheck) -> None:
+        self._print_ty_diagnostics(
+            cell,
+            check.diagnostics,
+            kind="warning",
+        )
+        if check.diagnostics:
+            self._print_log_reference(check.process)
+
+    def _print_ty_diagnostics(
+        self,
+        cell: Cell,
+        diagnostics: tuple[TyDiagnostic, ...],
+        *,
+        kind: OutcomeKind,
+        qualifier: str = "",
+    ) -> None:
+        if not diagnostics:
+            return
+        count = len(diagnostics)
+        noun = "diagnostic" if count == 1 else "diagnostics"
+        self.stderr.print(
+            Text.assemble(
+                (f"{_ICONS[kind]} ", kind),
+                (
+                    f"{cell.package} {_cell_title(cell)} ty: "
+                    f"{count} {qualifier}{noun}"
+                ),
+            )
+        )
+        for diagnostic in diagnostics:
+            self.stderr.print(Text(f"  {_ty_diagnostic_summary(diagnostic)}"))
+
     def render_search(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
         self.close()
         self.stdout.print(f"search completed ({len(reports)} reports)")
+        for report in reports:
+            for result in report.cell_results:
+                if result.static_baseline is not None:
+                    self._print_ty_warning(
+                        result.cell,
+                        result.static_baseline.ty,
+                    )
+                if isinstance(result, CellFailure) and isinstance(
+                    result.baseline, TestFailEvaluation
+                ):
+                    self._render_evaluation_process_failures((result.baseline,))
         reasons = {
             reason
             for report in reports
@@ -394,10 +540,29 @@ class TerminalPresenter:
             self._finish_progress()
 
     def _print_tool_failure(self, heading: str, failure: ToolFailure) -> None:
-        self._print_outcome("failure", f"{heading} ({failure.stage})")
-        detail = failure.process.diagnostic()
+        stage = _USER_STAGES.get(failure.stage, failure.stage)
+        self._print_outcome("failure", f"{heading} ({stage})")
+        self._print_process_detail(failure.process)
+
+    def _print_process_detail(self, process: ProcessResult) -> None:
+        detail = _single_line_summary(process.diagnostic())
         if detail:
-            self.stderr.print(detail, soft_wrap=True)
+            self.stderr.print(Text(f"  {detail}"), soft_wrap=True)
+        self._print_log_reference(process)
+
+    def _print_log_reference(self, process: ProcessResult) -> None:
+        if self._logs is None:
+            return
+        path = self._logs.reference_for(process)
+        if path is None:
+            return
+        resolved = path.resolve()
+        try:
+            displayed = resolved.relative_to(self._root).as_posix()
+        except ValueError:
+            displayed = resolved.as_posix()
+        link = Text(displayed, style=f"link {resolved.as_uri()}")
+        self.stderr.print(Text.assemble("  details: ", link))
 
     def _print_search_infra(self, report: PackageFloorReportV1) -> None:
         if report.result.status != "incomplete":
@@ -423,7 +588,10 @@ class TerminalPresenter:
             else:
                 self._print_outcome("failure", heading)
                 if result.detail:
-                    self.stderr.print(result.detail, soft_wrap=True)
+                    self.stderr.print(
+                        Text(f"  {_single_line_summary(result.detail)}"),
+                        soft_wrap=True,
+                    )
             printed = True
         if printed:
             return
@@ -476,17 +644,7 @@ class TerminalPresenter:
             self._ensure_cell_task(cell, start=False)
 
     def _consume_process(self, event: ProcessEvent) -> None:
-        command = " ".join(event.argv)
-        if not self.stderr.is_terminal:
-            if event.state == "started":
-                self.stderr.print(f"running: {command}")
-                return
-            duration = (
-                f"{event.duration_seconds:.1f}s"
-                if event.duration_seconds is not None
-                else "?"
-            )
-            self.stderr.print(f"done ({duration}): {command}")
+        return
 
     def _consume_progress(self, event: ProgressEvent) -> None:
         title = _cell_title(event.cell)
@@ -774,9 +932,7 @@ class TerminalPresenter:
                     seen_proposals.add(evidence.proposal_id)
                     for diagnostic in static.incremental:
                         self.stdout.print(
-                            Text(
-                                f"    + {diagnostic.identity}: {diagnostic.message}"
-                            )
+                            Text(f"    + {_ty_diagnostic_summary(diagnostic)}")
                         )
 
     def render_merge(self, report: PackageFloorReportV1, output: str) -> int:

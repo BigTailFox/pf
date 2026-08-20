@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from pf.environment import PreparedEnvironment, StageConsumer, emit_cell_stage
+from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     CacheConflict,
     EnvironmentVariable,
@@ -27,6 +28,15 @@ from pf.schemas.evaluation import (
     ty_diagnostic_digest,
 )
 from pf.schemas.project import PackagePlan
+
+
+def require_full_evaluation_contract(package: PackagePlan, command: str) -> None:
+    if not package.config.test_command:
+        raise ConfigurationError(f"test-command is required for {command}")
+    if not package.test_group_present:
+        raise ConfigurationError(
+            f"test dependency group is required: {package.config.test_group}"
+        )
 
 
 class EvaluationCache:

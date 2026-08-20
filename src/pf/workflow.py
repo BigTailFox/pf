@@ -4,8 +4,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol
 
+from pf.baseline import HighestVersionVerification
 from pf.environment import PreparedEnvironment
 from pf.errors import ConfigurationError
+from pf.evaluation import require_full_evaluation_contract
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
     CellMatrixEvent,
@@ -16,6 +18,10 @@ from pf.schemas.evaluation import (
     Evaluation,
     IndeterminateEvaluation,
     PassEvaluation,
+    SmokeIndeterminate,
+    SmokePass,
+    SmokeResult,
+    SmokeTestFailure,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
@@ -33,6 +39,7 @@ from pf.schemas.config import (
     MergeRequest,
     ReportRequest,
     SearchRequest,
+    SmokeRequest,
 )
 from pf.schemas.report import CellResult, PackageFloorReportV1, ProjectEditResult
 from pf.project import ProjectLoader, host_target as current_host_target
@@ -113,7 +120,7 @@ class CompatibilityChecker:
         cell: Cell,
         snapshot: SourceSnapshot,
     ) -> Evaluation | ToolFailure:
-        require_check_contract(package)
+        require_full_evaluation_contract(package, "check")
         highest = self._environments.prepare(
             package=package,
             cell=cell,
@@ -144,15 +151,6 @@ class CompatibilityChecker:
             )
         finally:
             prepared.close()
-
-
-def require_check_contract(package: PackagePlan) -> None:
-    if not package.config.test_command:
-        raise ConfigurationError("test-command is required for check")
-    if not package.test_group_present:
-        raise ConfigurationError(
-            f"test dependency group is required: {package.config.test_group}"
-        )
 
 
 class CheckCommandWorkflow:
@@ -189,7 +187,7 @@ class CheckCommandWorkflow:
             cells = selected_host_cells(project.packages, self._host_target)
             self._emit(CellMatrixEvent(cells=cells))
             for package in project.packages:
-                require_check_contract(package)
+                require_full_evaluation_contract(package, "check")
             if not cells:
                 raise ConfigurationError(
                     f"no configured cell matches host target: {self._host_target}"
@@ -256,6 +254,128 @@ class CheckCommandWorkflow:
                 failure=infra[0],
             )
         return CheckPass(
+            evaluations=tuple(
+                item for item in evaluations if isinstance(item, PassEvaluation)
+            )
+        )
+
+    def _emit(self, event: StatusEvent | CellMatrixEvent) -> None:
+        self._events.consume(event)
+
+
+class SmokeCellOperations(Protocol):
+    def verify(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> HighestVersionVerification | ToolFailure | IndeterminateEvaluation: ...
+
+
+class SmokeCommandWorkflow:
+    """Load, snapshot, and verify highest resolutions for selected host cells."""
+
+    def __init__(
+        self,
+        *,
+        projects: ProjectLoader,
+        snapshots: SnapshotBuilder,
+        verifier: SmokeCellOperations,
+        scheduler: Scheduler,
+        events: ProgressConsumer,
+        host_target: str | None = None,
+    ) -> None:
+        self._projects = projects
+        self._snapshots = snapshots
+        self._verifier = verifier
+        self._scheduler = scheduler
+        self._events = events
+        self._host_target = host_target or current_host_target()
+
+    def run(self, request: SmokeRequest) -> SmokeResult:
+        root = Path(request.root)
+        self._emit(StatusEvent(message="loading project"))
+        project = self._projects.load(
+            root=root,
+            package_selection=request.package,
+        )
+        self._emit(StatusEvent(message="building snapshot"))
+        snapshot = self._snapshots.build(root)
+        try:
+            self._emit(StatusEvent(message="smoke testing"))
+            cells = selected_host_cells(project.packages, self._host_target)
+            self._emit(CellMatrixEvent(cells=cells))
+            for package in project.packages:
+                require_full_evaluation_contract(package, "smoke")
+            if not cells:
+                raise ConfigurationError(
+                    f"no configured cell matches host target: {self._host_target}"
+                )
+            package_by_name = {package.name: package for package in project.packages}
+            outcomes = self._scheduler.run(
+                tuple(
+                    ScheduledCellTask(
+                        cell=cell,
+                        run=self._cell_task(
+                            package_by_name[cell.package],
+                            cell,
+                            snapshot,
+                        ),
+                    )
+                    for cell in cells
+                ),
+                jobs=request.jobs,
+                max_duration_seconds=None,
+                events=self._events,
+            )
+            return self._aggregate(outcomes)
+        finally:
+            snapshot.close()
+
+    def _cell_task(
+        self,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> Callable[[], Evaluation | ToolFailure]:
+        def run() -> Evaluation | ToolFailure:
+            result = self._verifier.verify(
+                package=package,
+                cell=cell,
+                snapshot=snapshot,
+            )
+            if isinstance(result, HighestVersionVerification):
+                return result.evaluation
+            return result
+
+        return run
+
+    @staticmethod
+    def _aggregate(
+        outcomes: tuple[Evaluation | ToolFailure, ...],
+    ) -> SmokeResult:
+        evaluations: list[Evaluation] = []
+        infra: list[ToolFailure] = []
+        for outcome in outcomes:
+            if isinstance(outcome, ToolFailure):
+                infra.append(outcome)
+                continue
+            evaluations.append(outcome)
+            if isinstance(outcome, IndeterminateEvaluation):
+                infra.append(outcome.failure)
+        if any(isinstance(item, TestFailEvaluation) for item in evaluations):
+            return SmokeTestFailure(evaluations=tuple(evaluations))
+        if any(isinstance(item, StaticFailEvaluation) for item in evaluations):
+            raise ValueError("highest-version capture cannot produce STATIC_FAIL")
+        if infra:
+            return SmokeIndeterminate(
+                evaluations=tuple(
+                    item for item in evaluations if isinstance(item, PassEvaluation)
+                ),
+                failure=infra[0],
+            )
+        return SmokePass(
             evaluations=tuple(
                 item for item in evaluations if isinstance(item, PassEvaluation)
             )

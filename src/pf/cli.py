@@ -10,6 +10,7 @@ from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import TestAdapter
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import UvAdapter
+from pf.baseline import HighestVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.config import parse_jobs, parse_max_duration
 from pf.environment import EnvironmentFactory
@@ -18,6 +19,7 @@ from pf.errors import ConfigurationError, PfError
 from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
+from pf.runlog import RunLogStore
 from pf.scheduling import Scheduler
 from pf.schemas.config import (
     ApplyRequest,
@@ -25,8 +27,9 @@ from pf.schemas.config import (
     MergeRequest,
     ReportRequest,
     SearchRequest,
+    SmokeRequest,
 )
-from pf.schemas.evaluation import CheckResult
+from pf.schemas.evaluation import CheckResult, SmokeResult
 from pf.schemas.report import PackageFloorReportV1, ProjectEditResult
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
@@ -38,6 +41,7 @@ from pf.workflow import (
     ExplainCommandWorkflow,
     MergeCommandWorkflow,
     SearchCommandWorkflow,
+    SmokeCommandWorkflow,
 )
 
 
@@ -47,6 +51,10 @@ class CheckWorkflow(Protocol):
 
 class SearchWorkflow(Protocol):
     def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]: ...
+
+
+class SmokeWorkflow(Protocol):
+    def run(self, request: SmokeRequest) -> SmokeResult: ...
 
 
 class ExplainWorkflow(Protocol):
@@ -65,6 +73,7 @@ class ApplyWorkflow(Protocol):
 class CliContext:
     check_workflow: CheckWorkflow
     presenter: TerminalPresenter
+    smoke_workflow: SmokeWorkflow | None = None
     search_workflow: SearchWorkflow | None = None
     explain_workflow: ExplainWorkflow | None = None
     merge_workflow: MergeWorkflow | None = None
@@ -100,6 +109,30 @@ def create_app(context: CliContext) -> App:
         )
         result = context.check_workflow.run(request)
         return context.presenter.render_check(result)
+
+    @app.command
+    def smoke(
+        package: str | None = None,
+        *,
+        jobs: str = "auto",
+    ) -> int:
+        """Verify a highest-resolution fresh install with ty and full tests.
+
+        Parameters
+        ----------
+        package
+            Package name or path to verify.
+        jobs
+            Global worker limit: ``auto`` or a positive integer.
+        """
+        if context.smoke_workflow is None:
+            raise ConfigurationError("smoke workflow is not assembled")
+        request = SmokeRequest(
+            root=Path.cwd().as_posix(),
+            package=package,
+            jobs=parse_jobs(jobs),
+        )
+        return context.presenter.render_smoke(context.smoke_workflow.run(request))
 
     @app.command
     def search(
@@ -216,13 +249,20 @@ def create_app(context: CliContext) -> App:
 
 
 def build_context() -> CliContext:
-    presenter = TerminalPresenter()
-    runner = SubprocessRunner(listener=presenter)
+    root = Path.cwd()
+    logs = RunLogStore(root=root)
+    presenter = TerminalPresenter(logs=logs, root=root)
+    runner = SubprocessRunner(listener=presenter, logs=logs)
     uv = UvAdapter(runner)
     environments = EnvironmentFactory(uv, events=presenter)
     static = StaticEvaluator(TyAdapter(runner), events=presenter)
     full = FullEvaluator(static=static, tests=TestAdapter(runner), events=presenter)
     checker = CompatibilityChecker(
+        environments=environments,
+        static=static,
+        full=full,
+    )
+    highest = HighestVersionVerifier(
         environments=environments,
         static=static,
         full=full,
@@ -240,6 +280,13 @@ def build_context() -> CliContext:
             events=presenter,
         ),
         presenter=presenter,
+        smoke_workflow=SmokeCommandWorkflow(
+            projects=projects,
+            snapshots=snapshots,
+            verifier=highest,
+            scheduler=scheduler,
+            events=presenter,
+        ),
         search_workflow=SearchCommandWorkflow(
             projects=projects,
             snapshots=snapshots,
@@ -248,6 +295,7 @@ def build_context() -> CliContext:
                 candidates=CandidateBuilder(uv),
                 static=static,
                 full=full,
+                highest=highest,
             ),
             scheduler=scheduler,
             reports=reports,

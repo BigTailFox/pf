@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 from typing import Any, NoReturn, cast
 
+from pf.baseline import HighestVersionVerification
 from pf.environment import PreparedEnvironment
 from pf.errors import InfrastructureError
 from pf.schemas.config import EffectiveConfig
@@ -279,6 +280,65 @@ def test_search_coordinator_returns_static_fast_path_with_full_evidence(
     assert set(static.baseline_digests) == {
         ty_diagnostic_digest(result.static_baseline.diagnostics)
     }
+
+
+def test_search_coordinator_consumes_shared_highest_version_verification(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    static = StaticPasses()
+    prepared = ProposalFactory().prepare(
+        package=package,
+        cell=cell,
+        snapshot=snapshot,
+        resolution="highest",
+    )
+    capture = static.capture(prepared, package=package)
+    baseline_evaluation = FullPasses(static).evaluate(
+        prepared,
+        package=package,
+        baseline=capture.baseline,
+        static_result=capture.static,
+    )
+    assert isinstance(baseline_evaluation, PassEvaluation)
+
+    class Highest:
+        def verify(self, **kwargs: object) -> HighestVersionVerification:
+            return HighestVersionVerification(
+                baseline=capture.baseline,
+                evaluation=baseline_evaluation,
+            )
+
+    class CandidateOnlyEnvironments(ProposalFactory):
+        def prepare(self, **kwargs: Any) -> PreparedEnvironment:
+            assert kwargs.get("managed_vector") is not None
+            return super().prepare(**kwargs)
+
+    result = SearchCoordinator(
+        environments=CandidateOnlyEnvironments(),
+        candidates=FrozenCandidates(),
+        static=static,
+        full=FullPasses(static),
+        highest=Highest(),
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert isinstance(result, CellSuccess)
 
 
 def test_search_report_evidence_keeps_static_fail_incremental_diagnostics(

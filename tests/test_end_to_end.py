@@ -5,12 +5,12 @@ import subprocess
 import sys
 
 
-def test_installed_module_cli_completes_check_search_explain_apply(
+def test_installed_module_cli_completes_smoke_check_search_explain_apply(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "src" / "demo").mkdir(parents=True)
     (tmp_path / "src" / "demo" / "__init__.py").write_text(
-        "VALUE = 1\n",
+        "VALUE: str = 1\n",
         encoding="utf-8",
     )
     (tmp_path / "pyproject.toml").write_text(
@@ -36,7 +36,8 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         encoding="utf-8",
     )
 
-    for command in ("check", "search", "explain", "apply"):
+    results = {}
+    for command in ("smoke", "check", "search", "explain", "apply"):
         result = subprocess.run(
             [sys.executable, "-m", "pf", command],
             cwd=tmp_path,
@@ -50,8 +51,17 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             result.stdout,
             result.stderr,
         )
+        results[command] = result
 
+    assert "ty: 1 diagnostic" in results["smoke"].stderr
+    assert "details: .pf/logs/" in results["smoke"].stderr
     assert (tmp_path / "package-floor.json").is_file()
+    process_logs = tuple((tmp_path / ".pf/logs").glob("*/process-*.log"))
+    assert process_logs
+    assert any(
+        "ty\", \"check" in path.read_text(encoding="utf-8")
+        for path in process_logs
+    )
     assert "demo: complete" in subprocess.run(
         [sys.executable, "-m", "pf", "explain"],
         cwd=tmp_path,
@@ -59,3 +69,48 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         capture_output=True,
         text=True,
     ).stdout
+
+
+def test_smoke_returns_compatibility_failure_when_full_tests_fail(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "src" / "demo").mkdir(parents=True)
+    (tmp_path / "src" / "demo" / "__init__.py").write_text(
+        "VALUE = 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "raise SystemExit('smoke test failed')"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "smoke"],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert "tests failed (dynamic)" in result.stderr
+    assert "smoke test failed" in result.stderr
+    assert "details: .pf/logs/" in result.stderr

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from itertools import count
 import os
+from pathlib import Path
 import re
 import shutil
 import signal
@@ -11,7 +12,12 @@ import tempfile
 import time
 from typing import BinaryIO, Protocol
 
-from pf.schemas.evaluation import ProcessEvent, ProcessResult, ProcessSpec
+from pf.schemas.evaluation import (
+    EnvironmentVariable,
+    ProcessEvent,
+    ProcessResult,
+    ProcessSpec,
+)
 
 
 class ProcessRunner(Protocol):
@@ -20,6 +26,15 @@ class ProcessRunner(Protocol):
 
 class ProcessListener(Protocol):
     def consume(self, event: ProcessEvent) -> None: ...
+
+
+class ProcessLogRecorder(Protocol):
+    def record(
+        self,
+        process_id: int,
+        spec: ProcessSpec,
+        result: ProcessResult,
+    ) -> Path: ...
 
 
 class SecretRedactor:
@@ -49,12 +64,14 @@ class SubprocessRunner:
         *,
         redactor: SecretRedactor | None = None,
         listener: ProcessListener | None = None,
+        logs: ProcessLogRecorder | None = None,
         summary_limit: int = 4_096,
         tail_limit: int = 16_384,
         terminate_grace_seconds: float = 1.0,
     ) -> None:
         self._redactor = redactor or SecretRedactor()
         self._listener = listener
+        self._logs = logs
         self._process_ids = count(1)
         self._summary_limit = summary_limit
         self._tail_limit = tail_limit
@@ -93,6 +110,7 @@ class SubprocessRunner:
                     stderr_tail="",
                     start_error=self._redactor.redact(str(error)),
                 )
+                self._record(process_id, spec, result, argv)
                 self._emit(
                     ProcessEvent(
                         process_id=process_id,
@@ -139,6 +157,7 @@ class SubprocessRunner:
             stderr_truncated=stderr_truncated,
             timed_out=timed_out,
         )
+        self._record(process_id, spec, result, argv)
         self._emit(
             ProcessEvent(
                 process_id=process_id,
@@ -148,6 +167,27 @@ class SubprocessRunner:
             )
         )
         return result
+
+    def _record(
+        self,
+        process_id: int,
+        spec: ProcessSpec,
+        result: ProcessResult,
+        argv: tuple[str, ...],
+    ) -> None:
+        if self._logs is None:
+            return
+        redacted_spec = spec.model_copy(
+            update={
+                "argv": argv,
+                "cwd": self._redactor.redact(spec.cwd),
+                "environment": tuple(
+                    EnvironmentVariable(name=item.name, value="***")
+                    for item in spec.environment
+                ),
+            }
+        )
+        self._logs.record(process_id, redacted_spec, result)
 
     def _emit(self, event: ProcessEvent) -> None:
         if self._listener is not None:

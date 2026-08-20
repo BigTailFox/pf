@@ -16,8 +16,9 @@ from pf.schemas.config import (
     MergeRequest,
     ReportRequest,
     SearchRequest,
+    SmokeRequest,
 )
-from pf.schemas.evaluation import CheckPass, StatusEvent
+from pf.schemas.evaluation import CheckPass, SmokePass, StatusEvent
 from pf.schemas.project import SourceSnapshotIdentity
 from pf.schemas.report import (
     GeneratorIdentity,
@@ -57,7 +58,15 @@ def test_module_help_lists_every_v1_command() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    for command in ("check", "search", "apply", "minimize", "explain", "merge"):
+    for command in (
+        "check",
+        "smoke",
+        "search",
+        "apply",
+        "minimize",
+        "explain",
+        "merge",
+    ):
         assert command in result.stdout
 
 
@@ -75,9 +84,10 @@ def test_search_help_documents_scheduling_options_and_defaults() -> None:
     assert "--max-duration" in result.stdout
 
 
-def test_check_help_documents_jobs() -> None:
+@pytest.mark.parametrize("command", ("check", "smoke"))
+def test_verification_help_documents_jobs(command: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "pf", "check", "--help"],
+        [sys.executable, "-m", "pf", command, "--help"],
         check=False,
         capture_output=True,
         text=True,
@@ -162,6 +172,47 @@ def test_check_command_builds_a_request_and_renders_the_workflow_result(
     assert workflow.request.root == tmp_path.as_posix()
     assert workflow.request.jobs == "auto"
     assert stdout.getvalue() == "✓ check passed (0 cells)\n"
+    assert stderr.getvalue() == ""
+
+
+def test_smoke_command_builds_a_request_and_renders_the_workflow_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SmokeWorkflow:
+        def __init__(self) -> None:
+            self.request: SmokeRequest | None = None
+
+        def run(self, request: SmokeRequest) -> SmokePass:
+            self.request = request
+            return SmokePass(evaluations=())
+
+    monkeypatch.chdir(tmp_path)
+    stdout = StringIO()
+    stderr = StringIO()
+    workflow = SmokeWorkflow()
+    context = CliContext(
+        check_workflow=NeverCheck(),
+        smoke_workflow=workflow,
+        presenter=TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        ),
+    )
+
+    exit_code = create_app(context)(
+        ["smoke", "demo", "--jobs", "2"],
+        exit_on_error=False,
+        result_action="return_value",
+    )
+
+    assert exit_code == 0
+    assert workflow.request == SmokeRequest(
+        root=tmp_path.as_posix(),
+        package="demo",
+        jobs=2,
+    )
+    assert stdout.getvalue() == "✓ smoke passed (0 cells)\n"
     assert stderr.getvalue() == ""
 
 
@@ -454,6 +505,7 @@ def test_minimize_applies_after_a_complete_search(
 @pytest.mark.parametrize(
     "argv",
     (
+        ("smoke",),
         ("search",),
         ("apply",),
         ("minimize",),
@@ -482,6 +534,7 @@ def test_default_context_assembles_every_v1_workflow() -> None:
     context = build_context()
 
     assert context.check_workflow is not None
+    assert context.smoke_workflow is not None
     assert context.search_workflow is not None
     assert context.apply_workflow is not None
     assert context.explain_workflow is not None
