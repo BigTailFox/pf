@@ -100,6 +100,175 @@ def test_run_log_store_refuses_a_symlinked_pf_directory(tmp_path: Path) -> None:
     assert not (outside / "logs").exists()
 
 
+def test_run_log_store_refuses_a_replaced_run_directory(tmp_path: Path) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="stable-run")
+    result = SubprocessRunner().run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+    spec = ProcessSpec(
+        argv=(sys.executable, "-c", "pass"),
+        cwd=tmp_path.as_posix(),
+        timeout_seconds=5,
+    )
+    logs.record(1, spec, result)
+    run_root = tmp_path / ".pf/logs/stable-run"
+    run_root.rename(tmp_path / ".pf/logs/original-run")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    run_root.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(InfrastructureError, match="could not write PF process log"):
+        logs.record(2, spec, result)
+
+    assert not (outside / "process-0002.log").exists()
+
+
+def test_run_log_store_bounds_process_metadata(tmp_path: Path) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="bounded-run")
+    result = SubprocessRunner().run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    path = logs.record(
+        1,
+        ProcessSpec(
+            argv=("tool", "x" * 200_000),
+            cwd="/project/" + "y" * 200_000,
+            environment=(EnvironmentVariable(name="Z" * 200_000, value="***"),),
+            timeout_seconds=5,
+        ),
+        result,
+    )
+
+    detail = path.read_text(encoding="utf-8")
+    assert path.stat().st_size < 100_000
+    assert "[truncated by RunLogStore]" in detail
+
+
+def test_run_log_store_uses_a_platform_guard_without_dir_fd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        RunLogStore,
+        "_supports_secure_dir_fd",
+        staticmethod(lambda: False),
+    )
+    monkeypatch.setattr(
+        RunLogStore,
+        "_supports_windows_guard",
+        staticmethod(lambda: True),
+    )
+
+    class FakeWindowsRunDirectory:
+        def __init__(self, run_root: Path) -> None:
+            self.run_root = run_root
+            opened = run_root.stat()
+            self.identity = opened.st_dev, opened.st_ino
+
+        @classmethod
+        def create(
+            cls,
+            *,
+            root: Path,
+            run_id: str,
+        ) -> "FakeWindowsRunDirectory":
+            run_root = root / ".pf/logs" / run_id
+            run_root.mkdir(mode=0o700, parents=True)
+            return cls(run_root)
+
+        def assert_intact(self) -> None:
+            linked = self.run_root.lstat()
+            if self.run_root.is_symlink() or (
+                linked.st_dev,
+                linked.st_ino,
+            ) != self.identity:
+                raise OSError("PF run log directory identity changed")
+
+    monkeypatch.setattr(
+        "pf.runlog.WindowsRunDirectory",
+        FakeWindowsRunDirectory,
+    )
+    logs = RunLogStore(root=tmp_path, run_id="portable-run")
+    result = SubprocessRunner().run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    path = logs.record(
+        1,
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        ),
+        result,
+    )
+
+    assert path.is_file()
+    assert logs.reference_for(result) == path
+
+    run_root = path.parent
+    run_root.rename(tmp_path / ".pf/logs/portable-original")
+    outside = tmp_path / "portable-outside"
+    outside.mkdir()
+    run_root.symlink_to(outside, target_is_directory=True)
+    second_spec = ProcessSpec(
+        argv=(sys.executable, "-c", "pass"),
+        cwd=tmp_path.as_posix(),
+        timeout_seconds=5,
+    )
+    with pytest.raises(InfrastructureError, match="could not write PF process log"):
+        logs.record(2, second_spec, result)
+    assert not (outside / "process-0002.log").exists()
+
+
+def test_run_log_store_fails_closed_without_a_secure_platform_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        RunLogStore,
+        "_supports_secure_dir_fd",
+        staticmethod(lambda: False),
+    )
+    monkeypatch.setattr(
+        RunLogStore,
+        "_supports_windows_guard",
+        staticmethod(lambda: False),
+    )
+    logs = RunLogStore(root=tmp_path, run_id="unsupported-run")
+    result = SubprocessRunner().run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    with pytest.raises(InfrastructureError, match="could not write PF process log"):
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=(sys.executable, "-c", "pass"),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=5,
+            ),
+            result,
+        )
+
+
 def test_subprocess_runner_reports_a_redacted_start_error(tmp_path: Path) -> None:
     result = SubprocessRunner(
         redactor=SecretRedactor(("missing-secret",)),

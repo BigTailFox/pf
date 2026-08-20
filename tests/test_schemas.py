@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from pf.schemas.base import FrozenSchema
 from pf.schemas.config import (
@@ -16,6 +16,8 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     ProcessSpec,
+    SearchDiagnosticEvent,
+    SearchStaticDiagnosticEvent,
     SmokeTestFailure,
     StaticBaseline,
     StaticBaselineCapture,
@@ -550,6 +552,45 @@ def test_probe_rejects_status_that_contradicts_structured_static_evidence() -> N
             proposal_id=proposal.proposal_id,
             static=failed,
         )
+
+
+def test_search_diagnostic_event_round_trips_through_its_kind_discriminator() -> None:
+    diagnostic = _diagnostic()
+    proposal = _proposal("candidate")
+    static = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyCheck(
+            process=_successful_process(exit_code=1),
+            diagnostics=(diagnostic,),
+        ),
+        baseline_digest="baseline",
+        incremental=(diagnostic,),
+    )
+    event = SearchStaticDiagnosticEvent(cell=proposal.cell, outcome=static)
+
+    decoded = TypeAdapter(SearchDiagnosticEvent).validate_json(
+        event.model_dump_json()
+    )
+
+    assert decoded == event
+
+
+def test_search_diagnostic_event_rejects_a_mismatched_cell() -> None:
+    diagnostic = _diagnostic()
+    proposal = _proposal("candidate")
+    static = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyCheck(
+            process=_successful_process(exit_code=1),
+            diagnostics=(diagnostic,),
+        ),
+        baseline_digest="baseline",
+        incremental=(diagnostic,),
+    )
+    wrong_cell = proposal.cell.model_copy(update={"package": "other"})
+
+    with pytest.raises(ValidationError, match="must match its proposal cell"):
+        SearchStaticDiagnosticEvent(cell=wrong_cell, outcome=static)
 
 
 @pytest.mark.parametrize("mismatch", ("proposal", "ty"))

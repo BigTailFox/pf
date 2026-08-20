@@ -33,6 +33,11 @@ from pf.schemas.evaluation import (
     ProcessEvent,
     ProcessResult,
     ProgressEvent,
+    SearchDynamicDiagnosticEvent,
+    SearchDiagnosticEvent,
+    SearchIndeterminateDiagnosticEvent,
+    SearchStaticDiagnosticEvent,
+    SearchToolDiagnosticEvent,
     SmokeResult,
     StaticFailEvaluation,
     StatusEvent,
@@ -361,6 +366,7 @@ class TerminalPresenter:
         self._frozen_cell_blocks: list[tuple[Text, ...]] = []
         self._pending_status: StatusEvent | None = None
         self._pending_outcome: OutcomeKind | None = None
+        self._search_diagnostics: list[SearchDiagnosticEvent] = []
 
     def render_error(self, error: PfError) -> int:
         self.close(abandon_pending=True)
@@ -504,14 +510,20 @@ class TerminalPresenter:
                     result.baseline, TestFailEvaluation
                 ):
                     self._render_evaluation_process_failures((result.baseline,))
+        diagnostics = self._take_search_diagnostics()
+        self._render_search_diagnostics(diagnostics)
         reasons = {
             reason
             for report in reports
             if report.result.status == "incomplete"
             for reason in report.result.reasons
         }
+        diagnosed: set[tuple[Cell, str]] = set()
+        for event in diagnostics:
+            if isinstance(event.outcome, (ToolFailure, IndeterminateEvaluation)):
+                diagnosed.add((event.cell, event.outcome.status))
         for report in reports:
-            self._print_search_infra(report)
+            self._print_search_infra(report, diagnosed=diagnosed)
         self._print_search_outcome(reasons)
         if not reasons:
             return 0
@@ -527,6 +539,16 @@ class TerminalPresenter:
                 self._consume_status(event)
             elif isinstance(event, ProcessEvent):
                 self._consume_process(event)
+            elif isinstance(
+                event,
+                (
+                    SearchStaticDiagnosticEvent,
+                    SearchDynamicDiagnosticEvent,
+                    SearchIndeterminateDiagnosticEvent,
+                    SearchToolDiagnosticEvent,
+                ),
+            ):
+                self._search_diagnostics.append(event)
             elif isinstance(event, CellMatrixEvent):
                 self._consume_matrix(event)
             else:
@@ -564,7 +586,70 @@ class TerminalPresenter:
         link = Text(displayed, style=f"link {resolved.as_uri()}")
         self.stderr.print(Text.assemble("  details: ", link))
 
-    def _print_search_infra(self, report: PackageFloorReportV1) -> None:
+    def _render_search_diagnostics(
+        self,
+        diagnostics: tuple[SearchDiagnosticEvent, ...],
+    ) -> None:
+        for event in diagnostics:
+            outcome = event.outcome
+            if isinstance(outcome, StaticFailEvaluation):
+                self._print_ty_diagnostics(
+                    event.cell,
+                    outcome.incremental,
+                    kind="failure",
+                    qualifier="new ",
+                )
+                self._print_log_reference(outcome.ty.process)
+            elif isinstance(outcome, TestFailEvaluation):
+                self._render_evaluation_process_failures((outcome,))
+            elif isinstance(outcome, IndeterminateEvaluation):
+                self._print_tool_failure(
+                    (
+                        f"{event.cell.package} {_cell_title(event.cell)} "
+                        f"candidate {outcome.status}"
+                    ),
+                    outcome.failure,
+                )
+            else:
+                self._print_tool_failure(
+                    (
+                        f"{event.cell.package} {_cell_title(event.cell)} "
+                        f"candidate {outcome.status}"
+                    ),
+                    outcome,
+                )
+
+    def _take_search_diagnostics(self) -> tuple[SearchDiagnosticEvent, ...]:
+        with self._lock:
+            diagnostics = tuple(
+                sorted(self._search_diagnostics, key=self._search_diagnostic_key)
+            )
+            self._search_diagnostics.clear()
+            return diagnostics
+
+    @staticmethod
+    def _search_diagnostic_key(
+        event: SearchDiagnosticEvent,
+    ) -> tuple[object, ...]:
+        outcome = event.outcome
+        if isinstance(outcome, ToolFailure):
+            identity = (outcome.stage, outcome.process.diagnostic())
+        elif isinstance(outcome, IndeterminateEvaluation):
+            identity = (
+                outcome.proposal.proposal_id,
+                outcome.failure.stage,
+                outcome.failure.process.diagnostic(),
+            )
+        else:
+            identity = (outcome.proposal.proposal_id,)
+        return (*_cell_key(event.cell), outcome.status, *identity)
+
+    def _print_search_infra(
+        self,
+        report: PackageFloorReportV1,
+        *,
+        diagnosed: set[tuple[Cell, str]],
+    ) -> None:
         if report.result.status != "incomplete":
             return
         printed = False
@@ -573,6 +658,9 @@ class TerminalPresenter:
                 not isinstance(result, CellFailure)
                 or result.status not in _INFRA_REASONS
             ):
+                continue
+            if (result.cell, result.status) in diagnosed:
+                printed = True
                 continue
             heading = (
                 f"{result.status} ({result.phase}): {result.cell.package} "

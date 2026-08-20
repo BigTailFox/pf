@@ -5,13 +5,14 @@ from typing import Literal, NoReturn, Protocol
 
 from packaging.version import Version
 
-from pf.baseline import HighestVersionVerification, HighestVersionVerifier
+from pf.baseline import HighestVersionVerifier
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.environment import PreparedEnvironment
 from pf.evaluation import EvaluationCache, require_full_evaluation_contract
 from pf.schemas.evaluation import (
     CacheConflict,
     Evaluation,
+    HighestVersionVerification,
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
@@ -20,6 +21,11 @@ from pf.schemas.evaluation import (
     StaticEvaluation,
     StaticFailEvaluation,
     StaticPassEvaluation,
+    SearchDynamicDiagnosticEvent,
+    SearchDiagnosticEvent,
+    SearchIndeterminateDiagnosticEvent,
+    SearchStaticDiagnosticEvent,
+    SearchToolDiagnosticEvent,
     TestFailEvaluation,
     ToolFailure,
 )
@@ -398,6 +404,10 @@ class HighestOperations(Protocol):
     ) -> HighestVersionVerification | ToolFailure | IndeterminateEvaluation: ...
 
 
+class SearchDiagnosticConsumer(Protocol):
+    def consume(self, event: SearchDiagnosticEvent) -> None: ...
+
+
 class _StaticVectorEvaluator:
     def __init__(self, runner: "_ProposalRunner") -> None:
         self._runner = runner
@@ -426,6 +436,7 @@ class _ProposalRunner:
         snapshot: SourceSnapshot,
         baseline: PassEvaluation,
         static_baseline: StaticBaseline,
+        diagnostics: SearchDiagnosticConsumer | None = None,
     ) -> None:
         self._environments = environments
         self._static = static
@@ -434,6 +445,8 @@ class _ProposalRunner:
         self._cell = cell
         self._snapshot = snapshot
         self._static_baseline = static_baseline
+        self._diagnostics = diagnostics
+        self._emitted_diagnostics: set[int] = set()
         self._cache = EvaluationCache()
         self._prepared: dict[tuple[tuple[str, str], ...], PreparedEnvironment] = {}
         self._evaluations: dict[tuple[tuple[str, str], ...], Evaluation] = {}
@@ -455,6 +468,7 @@ class _ProposalRunner:
             return ProbeEvidence(status="PASS", proposal_id=full.proposal.proposal_id)
         prepared = self._prepare(vector)
         if isinstance(prepared, ToolFailure):
+            self._emit_diagnostic(prepared)
             return ProbeEvidence(
                 status=prepared.status,
                 proposal_id=f"prepare:{prepared.status}",
@@ -482,6 +496,7 @@ class _ProposalRunner:
                 )
         else:
             result = cached
+        self._emit_diagnostic(result)
         evidence = self._static_evidence(result)
         if not isinstance(result, StaticPassEvaluation):
             prepared.close()
@@ -495,6 +510,7 @@ class _ProposalRunner:
             return self._full_evidence(existing)
         prepared = self._prepare(vector)
         if isinstance(prepared, ToolFailure):
+            self._emit_diagnostic(prepared)
             return ProbeEvidence(
                 status=prepared.status,
                 proposal_id=f"prepare:{prepared.status}",
@@ -520,6 +536,7 @@ class _ProposalRunner:
             )
         else:
             self._evaluations[key] = stored
+            self._emit_diagnostic(stored)
             evidence = self._full_evidence(stored)
         prepared.close()
         self._prepared.pop(key, None)
@@ -532,6 +549,46 @@ class _ProposalRunner:
         for prepared in self._prepared.values():
             prepared.close()
         self._prepared.clear()
+
+    def _emit_diagnostic(
+        self,
+        outcome: StaticEvaluation | Evaluation | ToolFailure,
+    ) -> None:
+        if not isinstance(
+            outcome,
+            (
+                StaticFailEvaluation,
+                TestFailEvaluation,
+                IndeterminateEvaluation,
+                ToolFailure,
+            ),
+        ):
+            return
+        identity = id(outcome)
+        if self._diagnostics is None or identity in self._emitted_diagnostics:
+            return
+        self._emitted_diagnostics.add(identity)
+        if isinstance(outcome, StaticFailEvaluation):
+            event: SearchDiagnosticEvent = SearchStaticDiagnosticEvent(
+                cell=self._cell,
+                outcome=outcome,
+            )
+        elif isinstance(outcome, TestFailEvaluation):
+            event = SearchDynamicDiagnosticEvent(
+                cell=self._cell,
+                outcome=outcome,
+            )
+        elif isinstance(outcome, IndeterminateEvaluation):
+            event = SearchIndeterminateDiagnosticEvent(
+                cell=self._cell,
+                outcome=outcome,
+            )
+        else:
+            event = SearchToolDiagnosticEvent(
+                cell=self._cell,
+                outcome=outcome,
+            )
+        self._diagnostics.consume(event)
 
     def _prepare(
         self,
@@ -616,6 +673,7 @@ class SearchCoordinator:
         full: FullOperations,
         highest: HighestOperations | None = None,
         coordinate_search: CoordinateSearch | None = None,
+        diagnostics: SearchDiagnosticConsumer | None = None,
     ) -> None:
         self._environments = environments
         self._candidates = candidates
@@ -626,6 +684,7 @@ class SearchCoordinator:
             static=static,
             full=full,
         )
+        self._diagnostics = diagnostics
         self._coordinate_threshold = (
             coordinate_search.small_threshold if coordinate_search is not None else 8
         )
@@ -707,6 +766,7 @@ class SearchCoordinator:
             snapshot=snapshot,
             baseline=baseline_evaluation,
             static_baseline=capture.baseline,
+            diagnostics=self._diagnostics,
         )
         try:
             static_search = CoordinateSearch(

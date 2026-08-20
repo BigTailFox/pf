@@ -60,3 +60,12 @@ uv run --no-sync ty check src tests
 ```
 
 最终数字、build/lock/diff 门禁、双轴 review 与提交在本切片完成后更新。
+
+第一次 Standards/Spec 双轴 review 发现并以回归测试修正：
+
+- search candidate 的 static/dynamic/install/harness 失败通过运行期强类型事件进入统一摘要，不扩展报告 Schema；
+- 进程日志的 argv、cwd、环境变量名和输出片段全部增加独立硬上限；
+- run directory 写入改用逐级 `dir_fd`、禁止跟随 symlink 和 inode identity，初始化后路径替换也 fail closed；
+- `HighestVersionVerification` 的跨模块导入统一回到 `pf.schemas.evaluation` 所有者。
+
+复审继续发现并修正两个边界问题：`SearchDiagnosticEvent` 拆为 `kind` 判别 variants，并拒绝 event cell 与 Proposal cell 不一致；Windows 日志写入先解析项目实际承载卷并要求其支持 persistent ACLs，再使用拒绝 reparse point 且不共享 write/delete 的原生 directory handles，并在创建 run directory 的同一个 `CreateDirectoryW` 调用中设置 owner/SYSTEM protected inheritable DACL，不再使用有 TOCTOU 窗口的 portable path fallback。

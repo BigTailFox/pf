@@ -50,6 +50,7 @@ src/pf/
 ├── project.py           # ProjectLoader、声明/cell/source/test group 规划
 ├── snapshot.py          # SnapshotBuilder 与 SourceSnapshot 生命周期
 ├── runlog.py            # RunLogStore 与脱敏的有界进程详细日志
+├── windows_runlog.py    # Windows reparse-safe directory handle 与私有 DACL
 ├── candidates.py        # CandidateBuilder
 ├── environment.py       # EnvironmentFactory 与 PreparedEnvironment
 ├── evaluation.py        # StaticEvaluator、FullEvaluator、EvaluationCache
@@ -322,6 +323,10 @@ reference_for(process_result) -> absolute_log_path | None
 ```
 
 store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，使用项目相对展示路径、随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 使用当前进程内对象 identity，不修改 Schema，也不尝试用可能碰撞的内容 hash 关联日志。写日志失败是基础设施错误，不能静默继续产生一个违反 CLI 可诊断性契约的 Evaluation。
+
+所有元数据字段与 stdout/stderr 片段在 store 边界再次施加硬上限。在支持 `dir_fd` 的平台，目录创建和替换通过逐级 directory fd、禁止跟随 symlink 的打开方式以及 run directory inode identity 完成；初始化后的目录被替换也必须 fail closed。Windows 先用 `GetVolumePathNameW` 解析项目实际承载卷（包括嵌套挂载点），并要求该卷声明 `FILE_PERSISTENT_ACLS`，再使用原生 directory handle 打开每一级目录：拒绝 reparse point、只共享 read 而拒绝后续 write/delete handle，并保持 guard 到运行结束；run directory 在 `CreateDirectoryW` 时通过 `SECURITY_ATTRIBUTES` 原子安装仅 owner 与 SYSTEM 可访问且对子文件继承的 protected DACL。其他无法提供等价安全原语的平台以已分类基础设施错误停止，不能退回有 TOCTOU 窗口的路径检查。
+
+candidate probe 的失败不为日志引用扩展报告 Schema。`SearchCoordinator` 只在当前运行中发出以 `kind` 判别的强类型 `SearchDiagnosticEvent` variants，其中分别保留 `StaticFailEvaluation`、`TestFailEvaluation`、`IndeterminateEvaluation` 或 `ToolFailure`；含 Proposal 的 variant 必须验证事件 cell 与 `proposal.cell` 一致。Presenter 在 `render_search` 时规范排序并生成与 check/smoke 相同的阶段摘要和运行期日志链接。报告仍保存 D003 规定的搜索证据，运行日志路径和事件不持久化。
 
 ### 10.2 UvAdapter、TyAdapter、TestAdapter
 

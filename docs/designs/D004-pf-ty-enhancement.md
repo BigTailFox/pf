@@ -231,7 +231,7 @@ prepare lowest-direct V_check
 
 Schema validator 双向检查分类和结构：static pass 必须空 increment，static fail 必须非空且是当前 TyCheck 的子多重集，baseline capture 必须复用同一个 TyCheck。缺失或跨 scope 的证据不能读成有效 Schema 1 报告。
 
-`check`、`smoke`、`search` 和 `explain` 复用同一个 `TyDiagnostic` 短摘要格式。它们分别展示与命令有关的 baseline/current 诊断或 candidate 新增诊断，不能把 baseline 既有错误描述成本次不兼容原因。
+`check`、`smoke`、`search` 和 `explain` 复用同一个 `TyDiagnostic` 短摘要格式。它们分别展示与命令有关的 baseline/current 诊断或 candidate 新增诊断，不能把 baseline 既有错误描述成本次不兼容原因。`search` 的 candidate 新增诊断通过运行期强类型事件交给 Presenter；该展示事件及本地日志引用不进入报告 Schema 或证据 identity。
 
 完整 `TyCheck` 继续保留 severity 和 message，因此 identity 命中但 message 改变仍可在报告中离线分析；这不改变 `STATIC_PASS` / `STATIC_FAIL`。
 

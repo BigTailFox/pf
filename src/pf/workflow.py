@@ -4,7 +4,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pf.baseline import HighestVersionVerification
 from pf.environment import PreparedEnvironment
 from pf.errors import ConfigurationError
 from pf.evaluation import require_full_evaluation_contract
@@ -16,6 +15,7 @@ from pf.schemas.evaluation import (
     CheckPass,
     CheckResult,
     Evaluation,
+    HighestVersionVerification,
     IndeterminateEvaluation,
     PassEvaluation,
     SmokeIndeterminate,

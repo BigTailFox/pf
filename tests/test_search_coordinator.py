@@ -4,13 +4,17 @@ from pathlib import Path
 import tempfile
 from typing import Any, NoReturn, cast
 
-from pf.baseline import HighestVersionVerification
 from pf.environment import PreparedEnvironment
 from pf.errors import InfrastructureError
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
+    HighestVersionVerification,
     PassEvaluation,
     ProcessResult,
+    SearchDiagnosticEvent,
+    SearchDynamicDiagnosticEvent,
+    SearchStaticDiagnosticEvent,
+    SearchToolDiagnosticEvent,
     StaticBaseline,
     StaticBaselineCapture,
     StaticFailEvaluation,
@@ -34,8 +38,8 @@ from pf.schemas.project import (
     SourcePlan,
     VersionPin,
 )
-from pf.search import SearchCoordinator
 from pf.schemas.report import CellFailure, CellSuccess
+from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
 
 
@@ -49,6 +53,14 @@ def successful_process() -> ProcessResult:
         stdout_tail="",
         stderr_tail="",
     )
+
+
+class RecordingDiagnostics:
+    def __init__(self) -> None:
+        self.events: list[SearchDiagnosticEvent] = []
+
+    def consume(self, event: SearchDiagnosticEvent) -> None:
+        self.events.append(event)
 
 
 class ProposalFactory:
@@ -397,11 +409,13 @@ def test_search_report_evidence_keeps_static_fail_incremental_diagnostics(
             )
 
     static = StaticThreshold()
+    diagnostics = RecordingDiagnostics()
     result = SearchCoordinator(
         environments=ProposalFactory(),
         candidates=FrozenCandidates(),
         static=static,
         full=FullPasses(static),
+        diagnostics=diagnostics,
     ).search(package=package, cell=cell, snapshot=snapshot)
 
     assert isinstance(result, CellSuccess)
@@ -412,6 +426,10 @@ def test_search_report_evidence_keeps_static_fail_incremental_diagnostics(
     )
     assert isinstance(failure.static, StaticFailEvaluation)
     assert failure.static.incremental[0].code == "dependency-regression"
+    assert any(
+        isinstance(event, SearchStaticDiagnosticEvent)
+        for event in diagnostics.events
+    )
 
 
 def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failure(
@@ -435,11 +453,13 @@ def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failur
         test_group_present=True,
     )
     static = StaticPasses()
+    diagnostics = RecordingDiagnostics()
     coordinator = SearchCoordinator(
         environments=ProposalFactory(),
         candidates=FrozenCandidates(),
         static=static,
         full=FullThreshold(static),
+        diagnostics=diagnostics,
     )
 
     result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
@@ -449,6 +469,10 @@ def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failur
     assert result.final_vector == (VersionPin(name="a", version="2"),)
     assert result.dynamic_search is not None
     assert result.dynamic_search.boundaries[0].predecessor == "1"
+    assert any(
+        isinstance(event, SearchDynamicDiagnosticEvent)
+        for event in diagnostics.events
+    )
 
 
 def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
@@ -547,3 +571,75 @@ def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
     assert result.status == "UNRESOLVABLE"
     assert result.phase == "baseline-prepare"
     assert result.failure == failure
+
+
+def test_search_coordinator_emits_candidate_prepare_failure_diagnostic(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    static = StaticPasses()
+    prepared = ProposalFactory().prepare(
+        package=package,
+        cell=cell,
+        snapshot=snapshot,
+        resolution="highest",
+    )
+    capture = static.capture(prepared, package=package)
+    baseline = FullPasses(static).evaluate(
+        prepared,
+        package=package,
+        baseline=capture.baseline,
+        static_result=capture.static,
+    )
+    assert isinstance(baseline, PassEvaluation)
+    failure = ToolFailure(
+        status="UNRESOLVABLE",
+        stage="install",
+        process=successful_process().model_copy(
+            update={"exit_code": 1, "stderr_summary": "No solution found"}
+        ),
+    )
+
+    class Highest:
+        def verify(self, **kwargs: object) -> HighestVersionVerification:
+            return HighestVersionVerification(
+                baseline=capture.baseline,
+                evaluation=baseline,
+            )
+
+    class CandidateFailure:
+        def prepare(self, **kwargs: Any) -> ToolFailure:
+            assert kwargs.get("managed_vector") is not None
+            return failure
+
+    recorder = RecordingDiagnostics()
+    result = SearchCoordinator(
+        environments=CandidateFailure(),
+        candidates=FrozenCandidates(),
+        static=static,
+        full=FullPasses(static),
+        highest=Highest(),
+        diagnostics=recorder,
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert isinstance(result, CellFailure)
+    assert result.status == "UNRESOLVABLE"
+    assert recorder.events == [
+        SearchToolDiagnosticEvent(cell=cell, outcome=failure)
+    ]

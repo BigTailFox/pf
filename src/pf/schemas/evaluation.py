@@ -434,4 +434,65 @@ class ProcessEvent(FrozenSchema):
     duration_seconds: float | None = None
 
 
-ActivityEvent = ProgressEvent | StatusEvent | CellMatrixEvent | ProcessEvent
+def _require_search_diagnostic_cell(cell: Cell, proposal: "Proposal") -> None:
+    if proposal.cell != cell:
+        raise ValueError("search diagnostic event must match its proposal cell")
+
+
+class SearchStaticDiagnosticEvent(FrozenSchema):
+    kind: Literal["static"] = "static"
+    cell: Cell
+    outcome: StaticFailEvaluation
+
+    @model_validator(mode="after")
+    def validate_cell(self) -> "SearchStaticDiagnosticEvent":
+        _require_search_diagnostic_cell(self.cell, self.outcome.proposal)
+        return self
+
+
+class SearchDynamicDiagnosticEvent(FrozenSchema):
+    kind: Literal["dynamic"] = "dynamic"
+    cell: Cell
+    outcome: TestFailEvaluation
+
+    @model_validator(mode="after")
+    def validate_cell(self) -> "SearchDynamicDiagnosticEvent":
+        _require_search_diagnostic_cell(self.cell, self.outcome.proposal)
+        return self
+
+
+class SearchIndeterminateDiagnosticEvent(FrozenSchema):
+    kind: Literal["indeterminate"] = "indeterminate"
+    cell: Cell
+    outcome: IndeterminateEvaluation
+
+    @model_validator(mode="after")
+    def validate_cell(self) -> "SearchIndeterminateDiagnosticEvent":
+        _require_search_diagnostic_cell(self.cell, self.outcome.proposal)
+        return self
+
+
+class SearchToolDiagnosticEvent(FrozenSchema):
+    kind: Literal["tool"] = "tool"
+    cell: Cell
+    outcome: ToolFailure
+
+
+SearchDiagnosticEvent = Annotated[
+    Union[
+        SearchStaticDiagnosticEvent,
+        SearchDynamicDiagnosticEvent,
+        SearchIndeterminateDiagnosticEvent,
+        SearchToolDiagnosticEvent,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+ActivityEvent = (
+    ProgressEvent
+    | StatusEvent
+    | CellMatrixEvent
+    | ProcessEvent
+    | SearchDiagnosticEvent
+)

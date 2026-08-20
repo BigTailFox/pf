@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pf.baseline import HighestVersionVerification
 from pf.project import ProjectLoader
 from pf.schemas.config import SmokeRequest
 from pf.schemas.evaluation import (
+    HighestVersionVerification,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,

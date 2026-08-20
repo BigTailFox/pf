@@ -4,10 +4,11 @@ from pathlib import Path
 import tempfile
 from typing import Literal
 
-from pf.baseline import HighestVersionVerification, HighestVersionVerifier
+from pf.baseline import HighestVersionVerifier
 from pf.environment import PreparedEnvironment
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
+    HighestVersionVerification,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,

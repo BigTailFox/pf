@@ -78,6 +78,7 @@ class CliContext:
     explain_workflow: ExplainWorkflow | None = None
     merge_workflow: MergeWorkflow | None = None
     apply_workflow: ApplyWorkflow | None = None
+    run_logs: RunLogStore | None = None
 
 
 def create_app(context: CliContext) -> App:
@@ -296,6 +297,7 @@ def build_context() -> CliContext:
                 static=static,
                 full=full,
                 highest=highest,
+                diagnostics=presenter,
             ),
             scheduler=scheduler,
             reports=reports,
@@ -313,6 +315,7 @@ def build_context() -> CliContext:
             editor=ProjectEditor(snapshots=snapshots),
             events=presenter,
         ),
+        run_logs=logs,
     )
 
 
@@ -324,3 +327,5 @@ def main() -> None:
         raise SystemExit(context.presenter.render_error(error)) from error
     finally:
         context.presenter.close()
+        if context.run_logs is not None:
+            context.run_logs.close()

@@ -19,6 +19,9 @@ from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
     ProgressEvent,
+    SearchDynamicDiagnosticEvent,
+    SearchStaticDiagnosticEvent,
+    SearchToolDiagnosticEvent,
     SmokePass,
     SmokeIndeterminate,
     SmokeTestFailure,
@@ -1273,6 +1276,97 @@ def test_smoke_test_failure_prints_dynamic_summary_and_log_link(
         "  details: .pf/logs/smoke-run/process-0002.log\n"
         "✗ smoke failed: tests failed\n"
     )
+
+
+def test_search_candidate_diagnostics_use_stage_summaries_and_log_links(
+    tmp_path: Path,
+) -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    proposal = Proposal(
+        proposal_id="candidate",
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    static_process = process_result(exit_code=1, stdout="[]")
+    increment = TyDiagnostic(
+        identity="snapshot|demo.py|4|2|bad-argument-type",
+        origin="snapshot",
+        path="demo.py",
+        line=4,
+        column=2,
+        code="bad-argument-type",
+        severity="error",
+        message="argument has the wrong type",
+    )
+    static = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyCheck(process=static_process, diagnostics=(increment,)),
+        baseline_digest=ty_diagnostic_digest(()),
+        incremental=(increment,),
+    )
+    static_pass = StaticPassEvaluation(
+        proposal=proposal,
+        ty=TyCheck(process=static_process, diagnostics=()),
+        baseline_digest=ty_diagnostic_digest(()),
+    )
+    dynamic_process = process_result(stderr="1 failed\n2 passed")
+    dynamic = TestFailEvaluation(
+        proposal=proposal,
+        static=static_pass,
+        test=TestFail(process=dynamic_process),
+    )
+    install_process = process_result(stderr="No solution found\nconflicting pins")
+    install = ToolFailure(
+        status="UNRESOLVABLE",
+        stage="install-harness",
+        process=install_process,
+    )
+    logs = RunLogStore(root=tmp_path, run_id="search-run")
+    for process_id, process in enumerate(
+        (static_process, dynamic_process, install_process), start=1
+    ):
+        logs.record(
+            process_id,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=10,
+            ),
+            process,
+        )
+    stdout = StringIO()
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        logs=logs,
+        root=tmp_path,
+    )
+    terminal.consume(SearchStaticDiagnosticEvent(cell=cell, outcome=static))
+    terminal.consume(SearchDynamicDiagnosticEvent(cell=cell, outcome=dynamic))
+    terminal.consume(SearchToolDiagnosticEvent(cell=cell, outcome=install))
+
+    exit_code = terminal.render_search(
+        (incomplete_report("NO_PASS_IN_SEARCH_SPACE"),)
+    )
+
+    output = stderr.getvalue()
+    assert exit_code == 2
+    assert "ty: 1 new diagnostic" in output
+    assert "demo.py:4:2 [bad-argument-type] argument has the wrong type" in output
+    assert "tests failed (dynamic)" in output
+    assert "candidate UNRESOLVABLE (harness)" in output
+    assert "No solution found conflicting pins" in output
+    assert output.count("details: .pf/logs/search-run/") == 3
 
 
 @pytest.mark.parametrize(
