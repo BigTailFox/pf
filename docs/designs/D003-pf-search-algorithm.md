@@ -58,7 +58,7 @@ FAIL* PASS*
 5. 提交只严格降低一个坐标，算法不主动升高。
 6. 每个 sweep 按规范依赖顺序覆盖全部坐标。
 7. static、fast path 和 dynamic 阶段共享本 cell 的同一静态基线。
-8. 同一精确 Proposal 的相同 Evaluator 结果在本次 search 内缓存。
+8. 同一精确 Proposal 在 D002 定义的相同 Evaluation context 中复用 Evaluator 结果。
 9. 同切片观测冲突时立即停止，不猜测或跳过 hole。
 
 ## 3. SearchCoordinator 状态机
@@ -135,13 +135,26 @@ Static 阶段不传 hint，因此从最早候选开始。Dynamic 阶段把 `V_st
 
 若 hint 是兼容性失败，以已知通过的 `current[d]` 作为高端，并在 `[hint, current[d]]` 中定位第一个通过样本。
 
-当 current 位于显式搜索空间之外时，它可以用于定界，但不能作为空间内 floor。最终返回点不在冻结候选中即为 `NO_PASS_IN_SEARCH_SPACE`。
+令本切片内不高于 current 的冻结候选为：
+
+```text
+C_valid = [c0, ..., c(n-1)]
+```
+
+当 current 在 `C_valid` 中时，高端是对应的真实候选索引。当 current 位于显式搜索空间之外时，算法使用索引 `n` 的虚拟 PASS sentinel：
+
+```text
+Q(i) = P(ci)       for 0 <= i < n
+Q(n) = P(current)  = PASS
+```
+
+sentinel 只保存“空间外 current 已知通过”这一边界事实，不加入 CandidateSnapshot、不能被 probe，也永远不能作为 floor 返回。定位结束时若 `high_index == n`，说明搜索空间内没有已知 PASS，结果为 `NO_PASS_IN_SEARCH_SPACE`。
 
 ### 5.4 线性与二分
 
-已知区间满足 `low = FAIL`、`high = PASS`。
+已知索引区间满足 `low = FAIL`、`high = PASS`；`low` 始终是真实候选，`high` 可以是真实候选或 §5.3 的虚拟索引 `n`。
 
-当两端索引距离不超过 `small_threshold` 时，从 `low` 的后继开始升序线性 probe，返回首个 `PASS`。现行默认 `small_threshold = 8`。
+当两端索引距离不超过 `small_threshold` 时，从 `low` 的后继开始升序线性 probe 所有真实候选，返回首个 `PASS`。若只剩虚拟 high 而没有真实 PASS，返回 `NO_PASS_IN_SEARCH_SPACE`。现行默认 `small_threshold = 8`。
 
 更大区间使用确定的 lower-bound 二分：
 
@@ -151,10 +164,12 @@ while high_index - low_index > 1:
     PASS(middle) -> high_index = middle
     FAIL(middle) -> low_index = middle
 
-return points[high_index]
+if high_index == n:
+    return NO_PASS_IN_SEARCH_SPACE
+return C_valid[high_index]
 ```
 
-非证据状态在 probe 时已经终止，不能被当成二分失败侧。
+当 high 是 sentinel 时，循环计算出的 middle 仍严格小于 `n`，所以只 probe 真实候选。非证据状态在 probe 时已经终止，不能被当成二分失败侧。
 
 ### 5.5 返回边界
 

@@ -132,6 +132,8 @@ Schema validator 只验证本记录的结构和纯不变量。需要 I/O 或多�
 
 稳定 declaration ID 覆盖 `pyproject.toml` 路径、base/optional 位置、extra、规范化名称、requested extras、marker 与来源 identity，不包含数组下标、行号或会被 apply 改写的 specifier。
 
+Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解析图、解释器和 Evaluation 策略 identity。策略 identity 已包含影响 `ty` 执行、诊断判定和完整测试的有效配置，因此 cache key 不再重复拼接这些 policy 字段。
+
 `schemas/evaluation.py`：
 
 - `ProcessSpec` / `ProcessResult` 与外部工具结果；
@@ -229,7 +231,7 @@ prepare(package, cell, snapshot, resolution, managed_vector=None)
 
 它创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。
 
-不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal 已有的静态证据。
+不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
 ### 8.3 Evaluator
 
@@ -248,7 +250,23 @@ evaluate(prepared, package, baseline, static_result=None) -> Evaluation
 
 静态比较的完整规则由 D004 定义。`FullEvaluator` 只在 `StaticPassEvaluation` 后运行完整 `TestAdapter`，并保留原始 static/test 机械证据。
 
-`EvaluationCache` 在一次 search 内按 Proposal ID 分离记录 static/full 结果，复用相同证据并检测冲突。公共报告不是 cache。
+本设计把单 cell 当前使用的 Evaluation context 定义为：
+
+```text
+EvaluationContext = (cell, frozen StaticBaseline S_hi, effective policies)
+```
+
+它是 `SearchCoordinator` / `_ProposalRunner` 绑定 evaluator 的内部概念，不增加公共 Pydantic Schema 或透传类。Evaluator 仍通过现有 `baseline` 参数接收 context 中的冻结静态基线；static、fast path 和 dynamic 必须共享同一个 context。
+
+`TyCheck` 是 Proposal 的原始工具事实；`StaticEvaluation` 是 `TyCheck` 相对 `S_hi` 得到的兼容性证据。现行代码不单独缓存 `TyCheck`。若把三层身份写成概念 key：
+
+```text
+TyCheckKey          = proposal_id
+StaticEvaluationKey = (proposal_id, s_hi_digest)
+FullEvaluationKey   = (proposal_id, s_hi_digest)
+```
+
+Full 所需 test policy 和 static 所需 diagnostic policy 已在 `proposal_id` 的策略 identity 中。`EvaluationCache` 的 get/record interface 因此显式接收 `baseline_digest`，在一次 search 内按二元 key 分离 static/full 结果、复用相同证据并检测同 context 冲突。公共报告不是 cache。
 
 ## 9. 搜索与调度
 
@@ -292,7 +310,7 @@ run(ProcessSpec) -> ProcessResult
 
 ### 11.1 PackageReportBuilder 与 ReportStore
 
-`PackageReportBuilder.build(package, source_snapshot, cell_results)` 从 cell 证据生成投影与 complete/incomplete 授权。跨 cell marker 投影只在此实现。
+`PackageReportBuilder.build(package, source_snapshot, cell_results)` 从 cell 证据生成投影与 complete/incomplete 授权。`project(declaration, target_cells, active_cells, floors)` 在此唯一实现 D001 的 cell-set 等价校验；投影的产品正确性契约不在本文复制。
 
 `ReportStore` 唯一拥有：
 
@@ -310,7 +328,7 @@ apply(report, root) -> ProjectEditResult
 apply_many(reports, root) -> tuple[ProjectEditResult, ...]
 ```
 
-它只消费 complete 报告，重新计算每条投影并验证源码快照。workspace 批量 apply 先统一验证快照，再逐包编辑。
+它只消费 complete 报告，重新计算每条投影并验证源码快照。`ApplyCommandWorkflow` 在进入编辑器前还要求报告策略 identity 等于当前有效策略，使诊断或测试策略升级后的旧报告不能 apply。workspace 批量 apply 先统一验证快照，再逐包编辑。
 
 写入用 `tomlkit` 保留格式，之后重新解析项目。恢复日志状态为：
 

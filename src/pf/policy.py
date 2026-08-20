@@ -9,9 +9,9 @@ from pf.schemas.config import EffectiveConfig
 
 TY_DIAGNOSTIC_POLICY = {
     "comparison": "multiset-subtraction",
-    "identity_rule": "snapshot-path-line-column-code+external-path-code",
+    "identity_rule": ("snapshot-path-line-column-code+external-namespace-path-code"),
     "output_format": "gitlab",
-    "policy": "increment-v1",
+    "policy": "increment-v2",
 }
 
 

@@ -52,7 +52,8 @@ class ProcessResult(FrozenSchema):
     @model_validator(mode="after")
     def validate_process_result(self) -> "ProcessResult":
         facts = sum(
-            value is not None for value in (self.exit_code, self.signal, self.start_error)
+            value is not None
+            for value in (self.exit_code, self.signal, self.start_error)
         )
         if facts != 1:
             raise ValueError("process result must have exactly one terminal fact")
@@ -142,7 +143,7 @@ def ty_diagnostic_digest(diagnostics: tuple[TyDiagnostic, ...]) -> str:
     identities = [item.identity for item in diagnostics]
     canonical = json.dumps(identities, separators=(",", ":")).encode()
     return hashlib.sha256(
-        b"pf:ty-diagnostic-baseline:increment-v1\0" + canonical
+        b"pf:ty-diagnostic-baseline:increment-v2\0" + canonical
     ).hexdigest()
 
 
@@ -158,7 +159,9 @@ class TyCheck(FrozenSchema):
             or self.process.timed_out
             or self.process.stdout_truncated
         ):
-            raise ValueError("TyCheck requires complete output from successful exit 0 or 1")
+            raise ValueError(
+                "TyCheck requires complete output from successful exit 0 or 1"
+            )
         identities = tuple(item.identity for item in self.diagnostics)
         if identities != tuple(sorted(identities)):
             raise ValueError("ty diagnostics must be sorted by stable identity")
@@ -255,7 +258,9 @@ class StaticFailEvaluation(FrozenSchema):
         raw = Counter(item.identity for item in self.ty.diagnostics)
         increment = Counter(item.identity for item in self.incremental)
         if increment - raw:
-            raise ValueError("static increment must be a sub-multiset of ty diagnostics")
+            raise ValueError(
+                "static increment must be a sub-multiset of ty diagnostics"
+            )
         return self
 
 

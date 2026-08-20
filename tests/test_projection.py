@@ -17,8 +17,19 @@ from pf.schemas.evaluation import (
     TyCheck,
     ty_diagnostic_digest,
 )
-from pf.schemas.project import Cell, Proposal, VersionPin
-from pf.schemas.report import CellSuccess, CoordinateBoundary, CoordinateSuccess
+from pf.schemas.project import (
+    Cell,
+    Proposal,
+    RequirementDeclaration,
+    SourceIdentity,
+    VersionPin,
+)
+from pf.schemas.report import (
+    CellSuccess,
+    CoordinateBoundary,
+    CoordinateSuccess,
+    FloorProjection,
+)
 from pf.schemas.report import PackageFloorReportV1
 from pf.snapshot import SnapshotBuilder
 
@@ -149,7 +160,9 @@ test-command = ["pytest"]
             extra_surface=(),
         ),
     )
-    with pytest.raises(ValidationError, match="complete report requires exact cell coverage"):
+    with pytest.raises(
+        ValidationError, match="complete report requires exact cell coverage"
+    ):
         PackageFloorReportV1.model_validate(incomplete_coverage)
 
 
@@ -193,8 +206,7 @@ test-command = ["pytest"]
 
     assert report.result.status == "complete"
     projected = tuple(
-        Requirement(raw)
-        for raw in report.projection_evidence[0].projected_requirements
+        Requirement(raw) for raw in report.projection_evidence[0].projected_requirements
     )
     assert {str(requirement.specifier) for requirement in projected} == {
         "<4,>=2.0",
@@ -258,3 +270,41 @@ test-command = ["python", "-c", "pass"]
     assert merged.result.status == "complete"
     assert merged.projection_evidence[0].representable is True
     assert len(merged.projection_evidence[0].projected_requirements) == 2
+
+
+def test_projection_requires_exact_cell_set_equivalence() -> None:
+    declaration = RequirementDeclaration(
+        declaration_id="demo:base:idna",
+        package="demo",
+        pyproject_path="pyproject.toml",
+        location="base",
+        extra=None,
+        name="idna",
+        raw="idna",
+        source=SourceIdentity(kind="registry"),
+        kind="searchable",
+        managed=True,
+    )
+    gnu = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+        active_declaration_ids=(declaration.declaration_id,),
+    )
+    musl = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-musl",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+    projection = PackageReportBuilder().project(
+        declaration=declaration,
+        target_cells=(gnu, musl),
+        active_cells=(gnu,),
+        floors=(FloorProjection(cell=gnu, version="1.5"),),
+    )
+
+    assert projection.representable is False
+    assert projection.projected_requirements == ()

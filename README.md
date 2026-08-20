@@ -49,4 +49,4 @@ uv run pf apply
 - [P001 — v1 实施记录](plans/P001-pf-v1.md)
 - [P002 — D004 实施记录](plans/P002-pf-ty-enhancement.md)
 
-PF v1 与 `increment-v1` 静态证据策略均已实现。P001/P002 记录历史 TDD 和验证证据，不承担现行契约。
+PF v1 与 `increment-v2` 静态证据策略均已实现。P001/P002 记录历史 TDD 和验证证据，不承担现行契约。

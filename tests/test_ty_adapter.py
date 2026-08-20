@@ -153,10 +153,53 @@ def test_ty_adapter_preserves_external_diagnostic_multiplicity_on_exit_zero(
 
     assert isinstance(result, TyCheck)
     assert [item.identity for item in result.diagnostics] == [
-        "external|lib/python3.11/site-packages/demo.pyi|invalid-return-type",
-        "external|lib/python3.11/site-packages/demo.pyi|invalid-return-type",
+        "external|site-packages/demo.pyi|invalid-return-type",
+        "external|site-packages/demo.pyi|invalid-return-type",
     ]
     assert all(item.line is None and item.column is None for item in result.diagnostics)
+
+
+def test_ty_adapter_namespaces_environment_paths_as_interpreter_files(
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "environment"
+    path = environment / "lib" / "python3.11" / "os.pyi"
+    document = json.dumps(
+        [
+            {
+                "check_name": "invalid-type",
+                "description": "message",
+                "severity": "major",
+                "location": {
+                    "path": path.as_posix(),
+                    "lines": {"begin": 1},
+                },
+            }
+        ]
+    )
+    runner = ResultRunner(
+        ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+            stdout_summary=document,
+            stderr_summary="",
+            stdout_tail=document,
+            stderr_tail="",
+        )
+    )
+
+    result = TyAdapter(runner).check(
+        interpreter=environment / "bin" / "python",
+        package=tmp_path / "source",
+        python_minor="3.11",
+        target="x86_64-unknown-linux-gnu",
+        args=(),
+        timeout_seconds=600,
+    )
+
+    assert isinstance(result, TyCheck)
+    assert result.diagnostics[0].path == "interpreter/lib/python3.11/os.pyi"
 
 
 def test_ty_adapter_accepts_gitlab_lines_begin_without_a_column(tmp_path: Path) -> None:
@@ -196,9 +239,7 @@ def test_ty_adapter_accepts_gitlab_lines_begin_without_a_column(tmp_path: Path) 
     )
 
     assert isinstance(result, TyCheck)
-    assert result.diagnostics[0].identity == (
-        "snapshot|demo.py|3|unresolved-reference"
-    )
+    assert result.diagnostics[0].identity == ("snapshot|demo.py|3|unresolved-reference")
     assert result.diagnostics[0].column is None
 
 
@@ -345,7 +386,7 @@ def test_ty_adapter_leaves_unowned_config_and_non_table_terminal_to_ty(
         target="x86_64-unknown-linux-gnu",
         args=("-c",),
         timeout_seconds=600,
-        snapshot_root=tmp_path / "different-snapshot",
+        snapshot_root=tmp_path,
     )
 
     assert isinstance(result, TyCheck)
@@ -531,7 +572,7 @@ def test_ty_adapter_rejects_incomplete_or_malformed_gitlab_output(
     assert result.status == "TOOL_ERROR"
 
 
-def test_ty_adapter_stabilizes_external_paths_outside_the_environment(
+def test_ty_adapter_namespaces_external_paths_outside_the_environment(
     tmp_path: Path,
 ) -> None:
     records = [
@@ -546,7 +587,8 @@ def test_ty_adapter_stabilizes_external_paths_outside_the_environment(
         }
         for path in (
             "/opt/python/site-packages/vendor/demo.pyi",
-            "/opt/vendor/opaque.pyi",
+            "/opt/python/typeshed/stdlib/demo.pyi",
+            "/opt/python/site-packages/typeshed/demo.pyi",
         )
     ]
     document = json.dumps(records)
@@ -573,6 +615,47 @@ def test_ty_adapter_stabilizes_external_paths_outside_the_environment(
 
     assert isinstance(result, TyCheck)
     assert [item.path for item in result.diagnostics] == [
-        "opaque.pyi",
+        "site-packages/typeshed/demo.pyi",
         "site-packages/vendor/demo.pyi",
+        "typeshed/stdlib/demo.pyi",
     ]
+
+
+def test_ty_adapter_rejects_an_external_path_without_a_stable_namespace(
+    tmp_path: Path,
+) -> None:
+    document = json.dumps(
+        [
+            {
+                "check_name": "invalid-type",
+                "description": "message",
+                "severity": "major",
+                "location": {
+                    "path": "/opt/vendor/opaque.pyi",
+                    "lines": {"begin": 1},
+                },
+            }
+        ]
+    )
+    runner = ResultRunner(
+        ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+            stdout_summary=document,
+            stderr_summary="",
+            stdout_tail=document,
+            stderr_tail="",
+        )
+    )
+
+    result = TyAdapter(runner).check(
+        interpreter=tmp_path / "environment" / "bin" / "python",
+        package=tmp_path / "source",
+        python_minor="3.11",
+        target="x86_64-unknown-linux-gnu",
+        args=(),
+        timeout_seconds=600,
+    )
+
+    assert result.status == "TOOL_ERROR"

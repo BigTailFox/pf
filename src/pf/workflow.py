@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 
 from pf.environment import PreparedEnvironment
 from pf.errors import ConfigurationError
+from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
     CellMatrixEvent,
     CheckCompatibilityFailure,
@@ -338,9 +339,7 @@ class SearchCommandWorkflow:
                     cell_results=package_results,
                 )
                 report_path = (
-                    root
-                    / Path(package.pyproject_path).parent
-                    / "package-floor.json"
+                    root / Path(package.pyproject_path).parent / "package-floor.json"
                 )
                 if report_path.is_file():
                     existing = self._reports.read_if_same_generation(
@@ -386,9 +385,7 @@ class ExplainCommandWorkflow:
         )
         return tuple(
             self._reports.read(
-                root
-                / Path(package.pyproject_path).parent
-                / "package-floor.json"
+                root / Path(package.pyproject_path).parent / "package-floor.json"
             )
             for package in project.packages
         )
@@ -455,5 +452,7 @@ class ApplyCommandWorkflow:
                 or report.package.pyproject_path != package.pyproject_path
             ):
                 raise ConfigurationError("report package identity mismatch")
+            if report.policy_identity != evaluation_policy_identity(package.config):
+                raise ConfigurationError("report policy identity mismatch")
             reports.append(report)
         return self._editor.apply_many(reports=tuple(reports), root=root)

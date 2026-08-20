@@ -115,10 +115,10 @@ test-command = ["python", "-m", "unittest"]
         "ty_diagnostic_policy": {
             "comparison": "multiset-subtraction",
             "identity_rule": (
-                "snapshot-path-line-column-code+external-path-code"
+                "snapshot-path-line-column-code+external-namespace-path-code"
             ),
             "output_format": "gitlab",
-            "policy": "increment-v1",
+            "policy": "increment-v2",
         },
     }
     expected_policy = hashlib.sha256(
@@ -209,12 +209,10 @@ def test_environment_only_materializes_declarations_active_for_cell(
             with (package / "pyproject.toml").open("rb") as stream:
                 document = tomli.load(stream)
             self.dependencies = tuple(document["project"]["dependencies"])
-            self.optional = tuple(
-                document["project"]["optional-dependencies"]["http"]
+            self.optional = tuple(document["project"]["optional-dependencies"]["http"])
+            self.sibling = (package.parent / "sibling" / "pyproject.toml").read_text(
+                encoding="utf-8"
             )
-            self.sibling = (
-                package.parent / "sibling" / "pyproject.toml"
-            ).read_text(encoding="utf-8")
             return super().install_editable(**kwargs)
 
         def inspect_environment(self, **kwargs: object) -> GraphSuccess:
@@ -267,10 +265,14 @@ http = [
     (root / "pyproject.toml").write_text(root_pyproject, encoding="utf-8")
     (demo / "pyproject.toml").write_text(demo_pyproject, encoding="utf-8")
     (sibling / "pyproject.toml").write_text(sibling_pyproject, encoding="utf-8")
-    package = ProjectLoader().load(
-        root=root,
-        package_selection="demo",
-    ).packages[0]
+    package = (
+        ProjectLoader()
+        .load(
+            root=root,
+            package_selection="demo",
+        )
+        .packages[0]
+    )
     cell = next(cell for cell in package.cells if cell.extra_surface == ("http",))
     snapshot = SnapshotBuilder().build(root)
     uv = ReplicaInspectingUv()

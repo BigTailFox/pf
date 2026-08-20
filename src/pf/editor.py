@@ -71,6 +71,7 @@ class ProjectEditor:
             )
             expected = PackageReportBuilder().project(
                 declaration=declaration,
+                target_cells=report.target_cells,
                 active_cells=active_cells,
                 floors=projection.floors,
             )
@@ -238,7 +239,9 @@ class ProjectEditor:
         try:
             recovery = json.loads(journal.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise ConfigurationError(f"invalid apply recovery log: {journal}") from error
+            raise ConfigurationError(
+                f"invalid apply recovery log: {journal}"
+            ) from error
         if recovery.get("state") == "COMMITTED":
             return
         current_digest = self._digest(pyproject.read_bytes())

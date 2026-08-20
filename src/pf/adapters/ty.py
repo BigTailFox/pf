@@ -123,7 +123,9 @@ class TyAdapter:
         for index, argument in enumerate(args):
             option = argument.partition("=")[0]
             if option in _OWNED_OPTIONS:
-                raise ConfigurationError(f"adapter-owned ty option is not allowed: {option}")
+                raise ConfigurationError(
+                    f"adapter-owned ty option is not allowed: {option}"
+                )
             if option == "--config-file":
                 raise ConfigurationError(
                     "adapter-owned ty option may be changed by --config-file"
@@ -169,9 +171,7 @@ class TyAdapter:
             if not isinstance(terminal, dict):
                 continue
             normalized_keys = {key.replace("_", "-") for key in terminal}
-            conflicts = sorted(
-                _OWNED_CONFIGURATION_KEYS.intersection(normalized_keys)
-            )
+            conflicts = sorted(_OWNED_CONFIGURATION_KEYS.intersection(normalized_keys))
             if conflicts:
                 raise ConfigurationError(
                     "adapter-owned ty configuration is not allowed: "
@@ -279,15 +279,28 @@ class TyAdapter:
             return "snapshot", normalized.relative_to(snapshot).as_posix()
         except ValueError:
             pass
-        try:
-            return "external", normalized.relative_to(environment).as_posix()
-        except ValueError:
-            pass
         parts = normalized.parts
-        for marker in ("site-packages", "dist-packages", "typeshed"):
+        for marker in ("site-packages", "dist-packages"):
             if marker in parts:
-                return "external", Path(*parts[parts.index(marker) :]).as_posix()
-        return "external", normalized.name
+                relative = parts[parts.index(marker) + 1 :]
+                if not relative:
+                    raise ValueError("external site-packages path has no relative file")
+                path = Path("site-packages") / Path(*relative)
+                return "external", path.as_posix()
+        if "typeshed" in parts:
+            relative = parts[parts.index("typeshed") + 1 :]
+            if not relative:
+                raise ValueError("external typeshed path has no relative file")
+            return "external", (Path("typeshed") / Path(*relative)).as_posix()
+        try:
+            relative = normalized.relative_to(environment)
+        except ValueError as error:
+            raise ValueError(
+                "external diagnostic path has no stable namespace"
+            ) from error
+        if not relative.parts:
+            raise ValueError("external interpreter path has no relative file")
+        return "external", (Path("interpreter") / relative).as_posix()
 
     @staticmethod
     def _python_platform(target: str) -> str:

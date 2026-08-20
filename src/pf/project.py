@@ -85,6 +85,20 @@ def marker_platform(target: str) -> dict[str, str]:
     raise ConfigurationError(f"unsupported target platform: {target}")
 
 
+def marker_applies(marker: str | None, cell: Cell) -> bool:
+    """Evaluate one supported declaration marker for a frozen target cell."""
+    if marker is None:
+        return True
+    environment = default_environment()
+    environment["python_version"] = cell.python_minor
+    platform_values = marker_platform(cell.target)
+    environment["sys_platform"] = platform_values["sys_platform"]
+    environment["platform_machine"] = platform_values["platform_machine"]
+    parsed = Marker(marker)
+    extras = ("", *cell.extra_surface)
+    return any(parsed.evaluate({**environment, "extra": extra}) for extra in extras)
+
+
 class PythonMinorProvider(Protocol):
     def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]: ...
 
@@ -115,7 +129,9 @@ class ProjectLoader:
         )
         if package_selection is not None:
             selected_name = canonicalize_name(package_selection)
-            selected_path = Path(package_selection).as_posix().removeprefix("./").rstrip("/")
+            selected_path = (
+                Path(package_selection).as_posix().removeprefix("./").rstrip("/")
+            )
             packages = tuple(
                 package
                 for package in packages
@@ -124,7 +140,9 @@ class ProjectLoader:
                 or Path(package.pyproject_path).parent.as_posix() == selected_path
             )
             if not packages:
-                raise ConfigurationError(f"unknown package selection: {package_selection}")
+                raise ConfigurationError(
+                    f"unknown package selection: {package_selection}"
+                )
         if not packages:
             raise ConfigurationError("no installable packages selected")
         return ProjectPlan(packages=packages)
@@ -203,9 +221,10 @@ class ProjectLoader:
                 "",
                 declaration.marker,
             )
-            variables = set(
-                re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", marker_without_strings)
-            ) & _MARKER_VARIABLES
+            variables = (
+                set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", marker_without_strings))
+                & _MARKER_VARIABLES
+            )
             unsupported = sorted(variables - _PROJECTABLE_MARKER_VARIABLES)
             if unsupported:
                 raise ConfigurationError(
@@ -310,7 +329,9 @@ class ProjectLoader:
         try:
             requirement = Requirement(raw)
         except InvalidRequirement as error:
-            raise ConfigurationError(f"invalid dependency declaration: {raw}") from error
+            raise ConfigurationError(
+                f"invalid dependency declaration: {raw}"
+            ) from error
         name = canonicalize_name(requirement.name)
         if requirement.url is not None:
             parsed_url = urlsplit(requirement.url)
@@ -330,8 +351,12 @@ class ProjectLoader:
                 locator=ProjectLoader._public_url(requirement.url),
                 content_hash=f"sha256:{hashes[0].lower()}",
             )
-        fixed = source.kind != "registry" or requirement.url is not None or any(
-            spec.operator in {"==", "===", "~="} for spec in requirement.specifier
+        fixed = (
+            source.kind != "registry"
+            or requirement.url is not None
+            or any(
+                spec.operator in {"==", "===", "~="} for spec in requirement.specifier
+            )
         )
         managed_deps = config.managed_deps
         unmanaged_deps = config.unmanaged_deps
@@ -376,7 +401,9 @@ class ProjectLoader:
         try:
             return canonicalize_name(Requirement(raw).name)
         except InvalidRequirement as error:
-            raise ConfigurationError(f"invalid dependency declaration: {raw}") from error
+            raise ConfigurationError(
+                f"invalid dependency declaration: {raw}"
+            ) from error
 
     @staticmethod
     def _sources(
@@ -429,7 +456,9 @@ class ProjectLoader:
                 )
                 previous = result.get(name)
                 if previous is not None and previous != identity:
-                    raise ConfigurationError(f"ambiguous uv source for dependency: {name}")
+                    raise ConfigurationError(
+                        f"ambiguous uv source for dependency: {name}"
+                    )
                 result[name] = identity
         return result
 
@@ -465,9 +494,7 @@ class ProjectLoader:
                     raise ConfigurationError(f"ambiguous uv index: {name}")
                 indexes[name] = record
         non_explicit = tuple(
-            (name, record)
-            for name, record in indexes.items()
-            if not record[1]
+            (name, record) for name, record in indexes.items() if not record[1]
         )
         prioritized = tuple(item for item in non_explicit if not item[1][2])
         if prioritized:
@@ -492,7 +519,9 @@ class ProjectLoader:
         index_urls: dict[str, str],
     ) -> SourceIdentity:
         if isinstance(value, list):
-            raise ConfigurationError(f"multiple uv sources are not supported for: {name}")
+            raise ConfigurationError(
+                f"multiple uv sources are not supported for: {name}"
+            )
         if not isinstance(value, dict):
             raise ConfigurationError(f"invalid uv source for dependency: {name}")
         if value.get("workspace") is True:
@@ -507,7 +536,10 @@ class ProjectLoader:
             )
         if "git" in value:
             commit = value.get("rev")
-            if not isinstance(commit, str) or re.fullmatch(r"[0-9a-fA-F]{40,64}", commit) is None:
+            if (
+                not isinstance(commit, str)
+                or re.fullmatch(r"[0-9a-fA-F]{40,64}", commit) is None
+            ):
                 raise ConfigurationError(f"git source must use an exact commit: {name}")
             return SourceIdentity(
                 kind="git",
@@ -517,7 +549,9 @@ class ProjectLoader:
         if "url" in value:
             content_hash = value.get("hash")
             if not isinstance(content_hash, str) or not content_hash:
-                raise ConfigurationError(f"URL source requires integrity information: {name}")
+                raise ConfigurationError(
+                    f"URL source requires integrity information: {name}"
+                )
             return SourceIdentity(
                 kind="url",
                 locator=ProjectLoader._public_url(value["url"]),
@@ -551,7 +585,9 @@ class ProjectLoader:
         if config.extra_surfaces is not None:
             surfaces = config.extra_surfaces
             if () not in surfaces:
-                raise ConfigurationError("extra-surfaces must include the base surface []")
+                raise ConfigurationError(
+                    "extra-surfaces must include the base surface []"
+                )
             known = set(extras)
             for surface in surfaces:
                 unknown = sorted(set(surface) - known)
@@ -600,18 +636,12 @@ class ProjectLoader:
 
     @staticmethod
     def _declaration_active(declaration: RequirementDeclaration, cell: Cell) -> bool:
-        if declaration.location == "optional" and declaration.extra not in cell.extra_surface:
+        if (
+            declaration.location == "optional"
+            and declaration.extra not in cell.extra_surface
+        ):
             return False
-        if declaration.marker is None:
-            return True
-        environment = default_environment()
-        environment["python_version"] = cell.python_minor
-        platform_values = marker_platform(cell.target)
-        environment["sys_platform"] = platform_values["sys_platform"]
-        environment["platform_machine"] = platform_values["platform_machine"]
-        marker = Marker(declaration.marker)
-        extras = ("", *cell.extra_surface)
-        return any(marker.evaluate({**environment, "extra": extra}) for extra in extras)
+        return marker_applies(declaration.marker, cell)
 
     @staticmethod
     def _discover_packages(root: Path) -> tuple[Path, ...]:
@@ -693,11 +723,7 @@ class ProjectLoader:
             ) from error
         selected = tuple(
             sorted(
-                {
-                    minor
-                    for minor in available
-                    if Version(f"{minor}.0") in specifier
-                },
+                {minor for minor in available if Version(f"{minor}.0") in specifier},
                 key=Version,
             )
         )

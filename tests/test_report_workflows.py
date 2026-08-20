@@ -6,6 +6,7 @@ import pytest
 
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
+from pf.policy import evaluation_policy_identity
 from pf.report import ReportStore
 from pf.schemas.config import ApplyRequest, MergeRequest, ReportRequest
 from pf.schemas.evaluation import StatusEvent
@@ -17,7 +18,11 @@ from pf.schemas.report import (
     PackageIdentity,
     ProjectEditResult,
 )
-from pf.workflow import ApplyCommandWorkflow, ExplainCommandWorkflow, MergeCommandWorkflow
+from pf.workflow import (
+    ApplyCommandWorkflow,
+    ExplainCommandWorkflow,
+    MergeCommandWorkflow,
+)
 
 
 def report() -> PackageFloorReportV1:
@@ -69,7 +74,18 @@ def test_apply_workflow_validates_reports_then_edits_all_packages(
         encoding="utf-8",
     )
     store = ReportStore()
-    store.write(tmp_path / "package-floor.json", report())
+    package = (
+        ProjectLoader()
+        .load(
+            root=tmp_path,
+            package_selection=None,
+        )
+        .packages[0]
+    )
+    current_report = report().model_copy(
+        update={"policy_identity": evaluation_policy_identity(package.config)}
+    )
+    store.write(tmp_path / "package-floor.json", current_report)
 
     class Editor:
         def apply_many(
@@ -78,7 +94,7 @@ def test_apply_workflow_validates_reports_then_edits_all_packages(
             reports: tuple[PackageFloorReportV1, ...],
             root: Path,
         ) -> tuple[ProjectEditResult, ...]:
-            assert reports == (report(),)
+            assert reports == (current_report,)
             assert root == tmp_path
             return (
                 ProjectEditResult(
@@ -104,11 +120,36 @@ def test_apply_workflow_validates_reports_then_edits_all_packages(
     ).run(ApplyRequest(root=tmp_path.as_posix()))
 
     assert edits[0].changed is False
-    status = [
-        event for event in events.items if isinstance(event, StatusEvent)
-    ]
+    status = [event for event in events.items if isinstance(event, StatusEvent)]
     assert [event.message for event in status] == ["applying floors"]
     assert status[0].total == 1
+
+
+def test_apply_workflow_rejects_report_from_an_obsolete_evaluation_policy(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    store = ReportStore()
+    store.write(tmp_path / "package-floor.json", report())
+
+    class NeverEditor:
+        def apply_many(
+            self,
+            *,
+            reports: tuple[PackageFloorReportV1, ...],
+            root: Path,
+        ) -> tuple[ProjectEditResult, ...]:
+            raise AssertionError("policy drift must fail before editing")
+
+    with pytest.raises(ConfigurationError, match="report policy identity mismatch"):
+        ApplyCommandWorkflow(
+            projects=ProjectLoader(),
+            reports=store,
+            editor=NeverEditor(),
+        ).run(ApplyRequest(root=tmp_path.as_posix()))
 
 
 def test_apply_workflow_rejects_report_for_another_package(tmp_path: Path) -> None:

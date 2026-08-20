@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from pf.errors import ConfigurationError
 from pf import __version__
 from pf.policy import evaluation_policy_identity
-from pf.project import marker_platform
+from pf.project import marker_applies, marker_platform
 from pf.schemas.project import (
     CandidateSnapshot,
     Cell,
@@ -61,12 +61,12 @@ class PackageReportBuilder:
         )
         target_keys = {self._cell_key(cell) for cell in package.cells}
         coverage_complete = set(result_by_cell) == target_keys
-        all_success = bool(package.cells) and coverage_complete and all(
-            isinstance(result_by_cell[key], CellSuccess) for key in target_keys
+        all_success = (
+            bool(package.cells)
+            and coverage_complete
+            and all(isinstance(result_by_cell[key], CellSuccess) for key in target_keys)
         )
-        all_representable = all(
-            projection.representable for projection in projections
-        )
+        all_representable = all(projection.representable for projection in projections)
         if all_success and all_representable:
             result_summary = CompleteReportResult()
         else:
@@ -102,9 +102,7 @@ class PackageReportBuilder:
                 candidate_snapshots[key] for key in sorted(candidate_snapshots)
             ),
             target_cells=package.cells,
-            cell_results=tuple(
-                result_by_cell[key] for key in sorted(result_by_cell)
-            ),
+            cell_results=tuple(result_by_cell[key] for key in sorted(result_by_cell)),
             projection_evidence=projections,
             result=result_summary,
         )
@@ -129,13 +127,18 @@ class PackageReportBuilder:
             if not isinstance(result, CellSuccess):
                 continue
             floor = next(
-                (pin.version for pin in result.final_vector if pin.name == declaration.name),
+                (
+                    pin.version
+                    for pin in result.final_vector
+                    if pin.name == declaration.name
+                ),
                 None,
             )
             if floor is not None:
                 floors.append(FloorProjection(cell=cell, version=floor))
         return self.project(
             declaration=declaration,
+            target_cells=package.cells,
             active_cells=active_cells,
             floors=tuple(floors),
         )
@@ -144,25 +147,35 @@ class PackageReportBuilder:
         self,
         *,
         declaration: RequirementDeclaration,
+        target_cells: tuple[Cell, ...],
         active_cells: tuple[Cell, ...],
         floors: tuple[FloorProjection, ...],
     ) -> ProjectionEvidence:
         ordered_floors = tuple(
             sorted(floors, key=lambda floor: self._cell_key(floor.cell))
         )
-        complete = {
-            self._cell_key(floor.cell) for floor in ordered_floors
-        } == {self._cell_key(cell) for cell in active_cells}
+        complete = {self._cell_key(floor.cell) for floor in ordered_floors} == {
+            self._cell_key(cell) for cell in active_cells
+        }
         versions = {floor.version for floor in ordered_floors}
         if complete and len(versions) == 1:
-            requirements = (self._project_requirement(declaration, versions.pop()),)
+            version = next(iter(versions))
+            projected = ((version, self._project_requirement(declaration, version)),)
         elif complete:
-            requirements = self._project_distinct_floors(
+            projected = self._project_distinct_floors(
                 declaration,
                 ordered_floors,
             )
         else:
-            requirements = ()
+            projected = ()
+        if projected and not self._projection_is_equivalent(
+            declaration=declaration,
+            target_cells=target_cells,
+            floors=ordered_floors,
+            projected=projected,
+        ):
+            projected = ()
+        requirements = tuple(requirement for _, requirement in projected)
         return ProjectionEvidence(
             declaration_id=declaration.declaration_id,
             floors=ordered_floors,
@@ -174,7 +187,7 @@ class PackageReportBuilder:
         self,
         declaration: RequirementDeclaration,
         floors: tuple[FloorProjection, ...],
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, str], ...]:
         attributes: dict[str, dict[str, str] | None] = {
             self._cell_key(floor.cell): self._marker_attributes(floor.cell)
             for floor in floors
@@ -184,13 +197,7 @@ class PackageReportBuilder:
         varying = tuple(
             name
             for name in ("python_version", "sys_platform", "platform_machine")
-            if len(
-                {
-                    value[name]
-                    for value in attributes.values()
-                    if value is not None
-                }
-            )
+            if len({value[name] for value in attributes.values() if value is not None})
             > 1
         )
         selector_floors: dict[tuple[tuple[str, str], ...], str] = {}
@@ -217,9 +224,40 @@ class PackageReportBuilder:
                 for alternative in alternatives
             )
             requirements.append(
-                self._project_requirement(declaration, version, selector=marker)
+                (
+                    version,
+                    self._project_requirement(declaration, version, selector=marker),
+                )
             )
         return tuple(requirements)
+
+    def _projection_is_equivalent(
+        self,
+        *,
+        declaration: RequirementDeclaration,
+        target_cells: tuple[Cell, ...],
+        floors: tuple[FloorProjection, ...],
+        projected: tuple[tuple[str, str], ...],
+    ) -> bool:
+        intended = {self._cell_key(floor.cell): floor.version for floor in floors}
+        observed: dict[str, str] = {}
+        for version, raw in projected:
+            requirement = Requirement(raw)
+            marker = str(requirement.marker) if requirement.marker is not None else None
+            for cell in target_cells:
+                if (
+                    declaration.location == "optional"
+                    and declaration.extra not in cell.extra_surface
+                ):
+                    continue
+                if not marker_applies(marker, cell):
+                    continue
+                key = self._cell_key(cell)
+                previous = observed.get(key)
+                if previous is not None and previous != version:
+                    return False
+                observed[key] = version
+        return observed == intended
 
     @staticmethod
     def _project_requirement(
@@ -230,9 +268,7 @@ class PackageReportBuilder:
     ) -> str:
         original = Requirement(declaration.raw)
         name = original.name
-        extras = (
-            f"[{','.join(sorted(original.extras))}]" if original.extras else ""
-        )
+        extras = f"[{','.join(sorted(original.extras))}]" if original.extras else ""
         preserved = sorted(
             str(specifier)
             for specifier in original.specifier
@@ -272,9 +308,7 @@ class PackageReportBuilder:
 
     @staticmethod
     def _cell_key(cell: Cell) -> str:
-        return "|".join(
-            (cell.target, cell.python_minor, ",".join(cell.extra_surface))
-        )
+        return "|".join((cell.target, cell.python_minor, ",".join(cell.extra_surface)))
 
 
 class ReportStore:
@@ -347,7 +381,9 @@ class ReportStore:
             document = json.loads(content)
         except json.JSONDecodeError as error:
             raise ConfigurationError(f"invalid report JSON: {path}") from error
-        schema_version = document.get("schema_version") if isinstance(document, dict) else None
+        schema_version = (
+            document.get("schema_version") if isinstance(document, dict) else None
+        )
         if schema_version != 1:
             raise ConfigurationError(
                 f"unsupported report schema_version: {schema_version}"
@@ -435,8 +471,10 @@ class ReportStore:
         ordered_results = tuple(cell_results[key] for key in sorted(cell_results))
         target_keys = {self._cell_key(cell) for cell in first.target_cells}
         coverage_complete = set(cell_results) == target_keys
-        all_success = bool(first.target_cells) and coverage_complete and all(
-            isinstance(result, CellSuccess) for result in ordered_results
+        all_success = (
+            bool(first.target_cells)
+            and coverage_complete
+            and all(isinstance(result, CellSuccess) for result in ordered_results)
         )
         declaration_by_id = {
             declaration.declaration_id: declaration
@@ -459,10 +497,13 @@ class ReportStore:
             if not active_cells:
                 continue
             aggregated = projections.get(declaration.declaration_id)
-            rebuilt_projections[declaration.declaration_id] = projection_builder.project(
-                declaration=declaration,
-                active_cells=active_cells,
-                floors=aggregated.floors if aggregated is not None else (),
+            rebuilt_projections[declaration.declaration_id] = (
+                projection_builder.project(
+                    declaration=declaration,
+                    target_cells=first.target_cells,
+                    active_cells=active_cells,
+                    floors=aggregated.floors if aggregated is not None else (),
+                )
             )
         all_representable = all(
             projection.representable for projection in rebuilt_projections.values()

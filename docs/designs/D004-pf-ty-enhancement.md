@@ -1,7 +1,7 @@
 # PF `ty` 增量静态证据
 
 - **状态：** 已实现
-- **策略版本：** `increment-v1`
+- **策略版本：** `increment-v2`
 - **最后核对：** 2026-08-20
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
@@ -24,6 +24,8 @@ S_hi : multiset[DiagnosticIdentity]
 ```
 
 `S_hi` 是该 cell、源码快照和 Evaluation 策略内的运行时证据，不是项目配置，也不跨运行复用。不同 cell 不共享基线。
+
+`S_hi` 的 digest 是 D002 定义的 static/full Evaluation identity 的独立 context 部分；Proposal identity 本身不吸收 baseline。
 
 捕获 `S_hi` 的同一次 `TyCheck` 同时构成 `V_hi` 的自比较静态通过证据；不得再运行一次 `ty` “确认” baseline。
 
@@ -135,7 +137,17 @@ line 必填；GitLab 没有 column 时不虚构空 column。
 
 ### 5.2 External 诊断
 
-虚拟环境、site-packages、dist-packages、typeshed 或其他快照外路径移除运行时前缀并稳定为环境相对路径、标准 marker 后缀或 basename：
+路径先以 package cwd 补全相对路径，再用 `Path.resolve(strict=False)` 消解绝对形式和可解析的 symlink，最后按以下优先级分类：
+
+1. 位于 snapshot root：按 §5.1 处理；
+2. 路径中含 `site-packages` 或 `dist-packages`：统一为 `site-packages/<relative-path>`；
+3. 其余路径中含 `typeshed`：统一为 `typeshed/<relative-path>`；
+4. 位于所选解释器环境 root 的其他文件：统一为 `interpreter/<environment-relative-path>`；
+5. 其余快照外路径无法获得稳定 namespace，整次 `TyCheck` 为 `TOOL_ERROR`。
+
+`site-packages` 的判定先于 `typeshed`，因此 `site-packages/typeshed/foo.pyi` 与 `typeshed/foo.pyi` 不会 collision。运行时虚拟环境绝对前缀和 `dist-packages` / `site-packages` 差异不进入 identity。
+
+规范路径进入：
 
 ```text
 identity = external | path | code
@@ -150,7 +162,7 @@ External identity 不保留 line/column。这是有意的保守策略：依赖�
 基线 digest 对按顺序保存的 identity 列表计算：
 
 ```text
-sha256("pf:ty-diagnostic-baseline:increment-v1\0" + canonical identity list)
+sha256("pf:ty-diagnostic-baseline:increment-v2\0" + canonical identity list)
 ```
 
 消息和 severity 不进入 digest。
@@ -215,15 +227,17 @@ Schema validator 双向检查分类和结构：static pass 必须空 increment�
 
 `explain` 分别展示 baseline 诊断计数与 candidate 新增诊断，不能把 baseline 既有错误描述成本次不兼容原因。
 
+完整 `TyCheck` 继续保留 severity 和 message，因此 identity 命中但 message 改变仍可在报告中离线分析；这不改变 `STATIC_PASS` / `STATIC_FAIL`。
+
 ## 9. 策略 identity
 
 Evaluation 策略 identity 包含实际 `ty` distribution 版本、影响 Evaluation 的有效配置，以及：
 
 ```text
-policy        = increment-v1
+policy        = increment-v2
 output_format = gitlab
 comparison    = multiset-subtraction
-identity_rule = snapshot-path-line-column-code+external-path-code
+identity_rule = snapshot-path-line-column-code+external-namespace-path-code
 ```
 
 `jobs` 不进入 identity。改变诊断 identity、输出格式或比较代数时必须提升策略版本，使新旧报告不能 merge/apply。
@@ -259,5 +273,5 @@ identity_rule = snapshot-path-line-column-code+external-path-code
 - static-only floor；
 - 跨运行 `S_hi` cache；
 - 把 severity、message 或 fingerprint 纳入 identity；
-- 更精细的 external identity；
+- 把 external line/column、message 或 severity 纳入 identity；
 - 在 `V_hi` 上运行测试来代替 `V_check` 测试。

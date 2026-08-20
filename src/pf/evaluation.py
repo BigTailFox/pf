@@ -30,46 +30,88 @@ from pf.schemas.project import PackagePlan
 
 
 class EvaluationCache:
-    """Keep static and full evidence separate for the duration of one search."""
+    """Keep context-bound static and full evidence for one search."""
 
     def __init__(self) -> None:
-        self._static: dict[str, StaticEvaluation] = {}
-        self._full: dict[str, Evaluation] = {}
+        self._static: dict[tuple[str, str], StaticEvaluation] = {}
+        self._full: dict[tuple[str, str], Evaluation] = {}
 
-    def get_static(self, proposal_id: str) -> StaticEvaluation | None:
-        return self._static.get(proposal_id)
+    def get_static(
+        self,
+        proposal_id: str,
+        *,
+        baseline_digest: str,
+    ) -> StaticEvaluation | None:
+        return self._static.get(self._key(proposal_id, baseline_digest))
 
-    def get_full(self, proposal_id: str) -> Evaluation | None:
-        return self._full.get(proposal_id)
+    def get_full(
+        self,
+        proposal_id: str,
+        *,
+        baseline_digest: str,
+    ) -> Evaluation | None:
+        return self._full.get(self._key(proposal_id, baseline_digest))
 
     def record_static(
         self,
         evaluation: StaticEvaluation,
+        *,
+        baseline_digest: str,
     ) -> StaticEvaluation | CacheConflict:
         proposal_id = evaluation.proposal.proposal_id
-        existing = self._static.get(proposal_id)
+        self._require_matching_baseline(evaluation, baseline_digest)
+        key = self._key(proposal_id, baseline_digest)
+        existing = self._static.get(key)
         if existing is not None and existing.status != evaluation.status:
             return CacheConflict(
                 proposal_id=proposal_id,
                 observed_statuses=(existing.status, evaluation.status),
             )
         if existing is None:
-            self._static[proposal_id] = evaluation
+            self._static[key] = evaluation
             return evaluation
         return existing
 
-    def record_full(self, evaluation: Evaluation) -> Evaluation | CacheConflict:
+    def record_full(
+        self,
+        evaluation: Evaluation,
+        *,
+        baseline_digest: str,
+    ) -> Evaluation | CacheConflict:
         proposal_id = evaluation.proposal.proposal_id
-        existing = self._full.get(proposal_id)
+        self._require_matching_baseline(evaluation, baseline_digest)
+        key = self._key(proposal_id, baseline_digest)
+        existing = self._full.get(key)
         if existing is not None and existing.status != evaluation.status:
             return CacheConflict(
                 proposal_id=proposal_id,
                 observed_statuses=(existing.status, evaluation.status),
             )
         if existing is None:
-            self._full[proposal_id] = evaluation
+            self._full[key] = evaluation
             return evaluation
         return existing
+
+    @staticmethod
+    def _key(proposal_id: str, baseline_digest: str) -> tuple[str, str]:
+        if not baseline_digest:
+            raise ValueError("evaluation cache baseline digest cannot be empty")
+        return proposal_id, baseline_digest
+
+    @staticmethod
+    def _require_matching_baseline(
+        evaluation: StaticEvaluation | Evaluation,
+        baseline_digest: str,
+    ) -> None:
+        embedded: str | None
+        if isinstance(evaluation, (StaticPassEvaluation, StaticFailEvaluation)):
+            embedded = evaluation.baseline_digest
+        elif isinstance(evaluation, (PassEvaluation, TestFailEvaluation)):
+            embedded = evaluation.static.baseline_digest
+        else:
+            embedded = None
+        if embedded is not None and embedded != baseline_digest:
+            raise ValueError("evaluation does not match its cache baseline")
 
 
 class TyOperations(Protocol):
@@ -116,8 +158,7 @@ class StaticEvaluator:
     ) -> StaticEvaluation:
         if (
             baseline.proposal.cell != prepared.proposal.cell
-            or baseline.proposal.snapshot_digest
-            != prepared.proposal.snapshot_digest
+            or baseline.proposal.snapshot_digest != prepared.proposal.snapshot_digest
             or baseline.proposal.policy_identity != prepared.proposal.policy_identity
         ):
             raise ValueError(
@@ -152,7 +193,9 @@ class StaticEvaluator:
         *,
         package: PackagePlan,
     ) -> StaticBaselineCapture | IndeterminateEvaluation:
-        emit_cell_stage(self._events, prepared.proposal.cell, "capturing static baseline")
+        emit_cell_stage(
+            self._events, prepared.proposal.cell, "capturing static baseline"
+        )
         outcome = self._check(prepared, package=package)
         if isinstance(outcome, ToolFailure):
             return IndeterminateEvaluation(
@@ -203,6 +246,7 @@ class StaticEvaluator:
             else:
                 incremental.append(diagnostic)
         return tuple(incremental)
+
 
 class FullEvaluator:
     """Promote a static-clean Proposal through the complete test command once."""

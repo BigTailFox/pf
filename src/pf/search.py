@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal, NoReturn, Protocol
 
 from packaging.version import Version
 
@@ -80,16 +80,18 @@ class CoordinateSearch:
         self._evaluator = evaluator
         self._evidence_cache: dict[tuple[tuple[str, str], ...], ProbeEvidence] = {}
         self._observations: list[ProbeObservation] = []
-        self._observation_keys: set[
-            tuple[str | None, tuple[tuple[str, str], ...]]
-        ] = set()
+        self._observation_keys: set[tuple[str | None, tuple[tuple[str, str], ...]]] = (
+            set()
+        )
         self._slice_observations: dict[
             tuple[str, tuple[tuple[str, str], ...]], dict[Version, str]
         ] = {}
         snapshot_by_name = {snapshot.dependency: snapshot for snapshot in candidates}
         current = {pin.name: pin.version for pin in start}
         if tuple(sorted(current)) != tuple(snapshot_by_name):
-            raise ConfigurationError("start vector and candidate coordinates must match")
+            raise ConfigurationError(
+                "start vector and candidate coordinates must match"
+            )
         hint_by_name = {pin.name: pin.version for pin in hints}
         try:
             baseline = self._probe(current, dependency=None)
@@ -187,12 +189,7 @@ class CoordinateSearch:
                     )
         else:
             points = [version for version in versions if version >= probe_hint]
-            if current_version not in points:
-                points.append(current_version)
-            points.sort()
-            high_evidence = self._probe_version(
-                current, dependency, current_version
-            )
+            high_evidence = self._probe_version(current, dependency, current_version)
             if high_evidence.status != "PASS":
                 self._stop(high_evidence.status, dependency=dependency)
             floor = self._locate(
@@ -202,7 +199,7 @@ class CoordinateSearch:
                 low=probe_hint,
                 high=current_version,
             )
-        if floor not in versions:
+        if floor is None or floor not in versions:
             self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
         index = versions.index(floor)
         if index == 0:
@@ -216,9 +213,7 @@ class CoordinateSearch:
             if evidence.status not in _COMPATIBILITY_FAILURES:
                 self._stop(evidence.status, dependency=dependency)
             predecessor_status = (
-                "STATIC_FAIL"
-                if evidence.status == "STATIC_FAIL"
-                else "TEST_FAIL"
+                "STATIC_FAIL" if evidence.status == "STATIC_FAIL" else "TEST_FAIL"
             )
             boundary = CoordinateBoundary(
                 dependency=dependency,
@@ -236,15 +231,17 @@ class CoordinateSearch:
         points: list[Version],
         low: Version,
         high: Version,
-    ) -> Version:
+    ) -> Version | None:
         low_index = points.index(low)
-        high_index = points.index(high)
+        virtual_high = high not in points
+        high_index = len(points) if virtual_high else points.index(high)
         if high_index - low_index <= self.small_threshold:
-            for version in points[low_index + 1 : high_index + 1]:
+            candidate_high = min(high_index, len(points) - 1)
+            for version in points[low_index + 1 : candidate_high + 1]:
                 evidence = self._probe_version(current, dependency, version)
                 if evidence.status == "PASS":
                     return version
-            self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
+            return None if virtual_high else points[high_index]
         while high_index - low_index > 1:
             middle = (low_index + high_index) // 2
             evidence = self._probe_version(current, dependency, points[middle])
@@ -252,7 +249,7 @@ class CoordinateSearch:
                 high_index = middle
             else:
                 low_index = middle
-        return points[high_index]
+        return None if high_index == len(points) else points[high_index]
 
     def _probe_version(
         self,
@@ -321,7 +318,7 @@ class CoordinateSearch:
         *,
         dependency: str | None,
         counterexample: tuple[str, str] | None = None,
-    ) -> None:
+    ) -> NoReturn:
         raise _SearchStopped(
             CoordinateFailure.model_validate(
                 {
@@ -431,8 +428,14 @@ class _ProposalRunner:
         self._evaluations: dict[tuple[tuple[str, str], ...], Evaluation] = {}
         baseline_key = self._key(baseline.proposal.managed_vector)
         self._evaluations[baseline_key] = baseline
-        self._cache.record_static(baseline.static)
-        self._cache.record_full(baseline)
+        self._cache.record_static(
+            baseline.static,
+            baseline_digest=static_baseline.digest,
+        )
+        self._cache.record_full(
+            baseline,
+            baseline_digest=static_baseline.digest,
+        )
 
     def evaluate_static(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
         key = self._key(vector)
@@ -445,14 +448,20 @@ class _ProposalRunner:
                 status=prepared.status,
                 proposal_id=f"prepare:{prepared.status}",
             )
-        cached = self._cache.get_static(prepared.proposal.proposal_id)
+        cached = self._cache.get_static(
+            prepared.proposal.proposal_id,
+            baseline_digest=self._static_baseline.digest,
+        )
         if cached is None:
             result = self._static.evaluate(
                 prepared,
                 package=self._package,
                 baseline=self._static_baseline,
             )
-            stored = self._cache.record_static(result)
+            stored = self._cache.record_static(
+                result,
+                baseline_digest=self._static_baseline.digest,
+            )
             if isinstance(stored, CacheConflict):
                 prepared.close()
                 self._prepared.pop(key, None)
@@ -479,14 +488,20 @@ class _ProposalRunner:
                 status=prepared.status,
                 proposal_id=f"prepare:{prepared.status}",
             )
-        static = self._cache.get_static(prepared.proposal.proposal_id)
+        static = self._cache.get_static(
+            prepared.proposal.proposal_id,
+            baseline_digest=self._static_baseline.digest,
+        )
         result = self._full.evaluate(
             prepared,
             package=self._package,
             baseline=self._static_baseline,
             static_result=static,
         )
-        stored = self._cache.record_full(result)
+        stored = self._cache.record_full(
+            result,
+            baseline_digest=self._static_baseline.digest,
+        )
         if isinstance(stored, CacheConflict):
             evidence = ProbeEvidence(
                 status="NONDETERMINISTIC",

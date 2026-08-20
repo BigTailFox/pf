@@ -84,8 +84,13 @@ def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal() -
 
     assert isinstance(result, CoordinateSuccess)
     assert result.status == "SUCCESS"
-    assert [(pin.name, pin.version) for pin in result.vector] == [("a", "1"), ("b", "1")]
-    assert [(boundary.dependency, boundary.floor) for boundary in result.boundaries] == [
+    assert [(pin.name, pin.version) for pin in result.vector] == [
+        ("a", "1"),
+        ("b", "1"),
+    ]
+    assert [
+        (boundary.dependency, boundary.floor) for boundary in result.boundaries
+    ] == [
         ("a", "1"),
         ("b", "1"),
     ]
@@ -132,6 +137,45 @@ def test_coordinate_search_does_not_use_an_out_of_space_baseline_as_floor() -> N
     result = CoordinateSearch(small_threshold=4).minimize(
         start=(VersionPin(name="a", version="4"),),
         candidates=(snapshot("a"),),
+        evaluator=BaselineOnlyPasses(),
+    )
+
+    assert isinstance(result, CoordinateFailure)
+    assert result.status == "NO_PASS_IN_SEARCH_SPACE"
+
+
+def test_coordinate_search_binary_searches_below_a_virtual_pass_sentinel() -> None:
+    class ThresholdEvaluator:
+        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+            version = int(vector[0].version)
+            return ProbeEvidence(
+                status="PASS" if version >= 8 else "STATIC_FAIL",
+                proposal_id=str(version),
+            )
+
+    result = CoordinateSearch(small_threshold=2).minimize(
+        start=(VersionPin(name="a", version="10"),),
+        candidates=(wide_snapshot("a"),),
+        evaluator=ThresholdEvaluator(),
+    )
+
+    assert isinstance(result, CoordinateSuccess)
+    assert result.vector[0].version == "8"
+    assert result.boundaries[0].predecessor == "7"
+
+
+def test_coordinate_search_never_returns_a_virtual_pass_sentinel() -> None:
+    class BaselineOnlyPasses:
+        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+            version = vector[0].version
+            return ProbeEvidence(
+                status="PASS" if version == "10" else "TEST_FAIL",
+                proposal_id=version,
+            )
+
+    result = CoordinateSearch(small_threshold=2).minimize(
+        start=(VersionPin(name="a", version="10"),),
+        candidates=(wide_snapshot("a"),),
         evaluator=BaselineOnlyPasses(),
     )
 
