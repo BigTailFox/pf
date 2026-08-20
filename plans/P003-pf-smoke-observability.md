@@ -5,9 +5,14 @@
 - **完成日期：** 2026-08-20
 - **性质：** 非规范性实施记录
 - **设计来源：** [D001](../docs/designs/D001-pf.md)、[D002](../docs/designs/D002-pf-implementation.md)、[D004](../docs/designs/D004-pf-ty-enhancement.md)
+- **后续失败契约：** [D005](../docs/designs/D005-pf-failure-and-diagnose.md)
 - **起始提交：** `a1ac10225c5d68dedbb9d75e5635bbe9d97cd3a6`
 
-本文记录纵向 TDD 和验证证据，不复制现行产品、模块或静态诊断契约。
+本文记录纵向 TDD 和验证证据，不复制现行产品、模块或静态诊断契约。“已完成”只表示当时的 P003 范围已经实现，不表示后续 D005 已实现。
+
+## 0. 后续契约变更
+
+D005 已取代 P003 当时的 runtime-only candidate failure 结构：Rejection/Indeterminate 现在必须以 `AttemptFailureScope | CellFailureScope` 和 `FailureRecord` 进入公共报告，详细日志仍留在本机，并通过 `(report_generation_id, failure_id)` 的 diagnosis index 关联。D005、重塑后的 Schema 1 与 `pf diagnose` 当前均待实现；下面关于 `SearchDiagnosticEvent`、对象 identity 日志引用和“不扩展报告 Schema”的内容只记录 P003 当时的实现证据。
 
 ## 1. 纵向切片
 
@@ -29,7 +34,7 @@
 - 现有未跟踪 `package-floor.json` 不修改、不暂存、不提交。
 - `.pf` 仍排除在源码快照、Git 和公共报告之外。
 - 日志只持久化 `SubprocessRunner` 已脱敏且受捕获上限约束的事实；不记录环境变量值。
-- runtime 日志引用由 `RunLogStore` 按当前进程内对象 identity 维护，不进入公共 Schema JSON、Proposal identity、策略 identity 或 report equality。
+- P003 实现中的 runtime 日志引用由 `RunLogStore` 按当前进程内对象 identity 维护；D005 实施后，公共 Schema 仍不保存日志路径，但本地 diagnosis index 会把 FailureRecord 与详细日志关联。
 - `smoke` 不能改变 `check` 的 lowest-direct 含义，也不能触发候选发现。
 
 ## 3. RED / GREEN 记录
@@ -70,7 +75,7 @@ installed wheel: pf smoke
 
 第一次 Standards/Spec 双轴 review 发现并以回归测试修正：
 
-- search candidate 的 static/dynamic/install/harness 失败通过运行期强类型事件进入统一摘要，不扩展报告 Schema；
+- search candidate 的 static/dynamic/install/harness 失败通过运行期强类型事件进入统一摘要，不扩展报告 Schema（P003 历史实现；D005 已改变目标契约）；
 - 进程日志的 argv、cwd、环境变量名和输出片段全部增加独立硬上限；
 - run directory 写入改用逐级 `dir_fd`、禁止跟随 symlink 和 inode identity，初始化后路径替换也 fail closed；
 - `HighestVersionVerification` 的跨模块导入统一回到 `pf.schemas.evaluation` 所有者。

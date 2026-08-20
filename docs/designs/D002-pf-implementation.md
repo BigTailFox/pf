@@ -1,18 +1,19 @@
 # PF 实现结构
 
-- **状态：** 已实现
+- **状态：** 实施中
 - **最后核对：** 2026-08-20
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
+- **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义。
 
 ## 1. 设计原则
 
 PF 按深模块组织：小接口隐藏完整行为，调用方和测试都通过同一 interface 使用模块。
 
-- 每条业务规则只有一个所有者。候选过滤、静态增量、坐标搜索、报告授权和编辑授权不能散落在调用方。
+- 每条业务规则只有一个所有者。候选过滤、静态增量、失败分类、坐标搜索、报告授权和编辑授权不能散落在调用方。
 - 跨模块领域数据使用冻结、严格的 Pydantic Schema；运行时资源句柄可以使用内部 Python 对象。
 - 只为真实变化建立 seam。现行 seam 是外部进程、uv/ty/test 操作、Evaluator、cell 调度任务和进度消费。
 - 文件系统通过 `pathlib` 与真实临时目录测试，不建立通用 filesystem/repository 层。
@@ -55,11 +56,12 @@ src/pf/
 ├── environment.py       # EnvironmentFactory 与 PreparedEnvironment
 ├── evaluation.py        # StaticEvaluator、FullEvaluator、EvaluationCache
 ├── baseline.py          # HighestVersionVerifier 的最高版本完整验证生命周期
+├── failure.py           # FailurePolicy：结构化 scope + cause -> disposition
 ├── search.py            # CoordinateSearch 与 SearchCoordinator
 ├── scheduling.py        # Scheduler、deadline 与规范结果顺序
 ├── report.py            # PackageReportBuilder 与 ReportStore
 ├── editor.py            # ProjectEditor 与恢复日志
-├── workflow.py          # 七个命令的应用工作流
+├── workflow.py          # 八个命令的应用工作流
 ├── schemas/
 │   ├── base.py
 │   ├── config.py
@@ -82,7 +84,7 @@ cli.py / workflow.py / terminal.py
               │
               v
  project / snapshot / candidates / environment / evaluation
- search / scheduling / report / editor / policy
+ failure / search / scheduling / report / editor / policy
               │
               v
        adapters + schemas
@@ -121,7 +123,7 @@ Schema validator 只验证本记录的结构和纯不变量。需要 I/O 或多�
 `schemas/config.py`：
 
 - `EffectiveConfig`：合并并规范化后的完整包配置；
-- `CheckRequest`、`SmokeRequest`、`SearchRequest`、`ReportRequest`、`ApplyRequest`、`MergeRequest`：CLI 与工作流之间的严格请求。
+- `CheckRequest`、`SmokeRequest`、`SearchRequest`、`ReportRequest`、`DiagnoseRequest`、`ApplyRequest`、`MergeRequest`：CLI 与工作流之间的严格请求。
 
 原始 TOML patch 只在 `ConfigLoader` 内部使用普通 mapping，不跨模块传播。默认值、层级权限、互斥条件和字段规范化均由 `ConfigLoader` 一次完成。
 
@@ -129,31 +131,35 @@ Schema validator 只验证本记录的结构和纯不变量。需要 I/O 或多�
 
 - `RequirementDeclaration`、`Cell`、`SourceIdentity` / `SourcePlan`；
 - `SourceSnapshotIdentity` / `SnapshotEntry`；
-- `ResolvedNode`、`VersionPin`、`InterpreterIdentity`、`Proposal`；
+- `ResolvedNode`、`VersionPin`、`InterpreterIdentity`；
+- D005 定义的 `AttemptIdentity`、`Attempt` 与 `Proposal`；
 - `AvailableCandidate` / `AvailableArtifact`、`Candidate` / `CandidateSnapshot`；
 - `PackagePlan`、`ProjectPlan`。
 
 稳定 declaration ID 覆盖 `pyproject.toml` 路径、base/optional 位置、extra、规范化名称、requested extras、marker 与来源 identity，不包含数组下标、行号或会被 apply 改写的 specifier。
 
-Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解析图、解释器和 Evaluation 策略 identity。策略 identity 已包含影响 `ty` 执行、诊断判定和完整测试的有效配置，因此 cache key 不再重复拼接这些 policy 字段。
+Attempt 在 prepare 前建立，identity 覆盖源码快照、cell、requested resolution/vector、声明、source plan 与 Evaluation 策略。Proposal 只在解析图完成复查后建立，并同时保存 `attempt_id`；prepare 失败不得虚构 Proposal。
+
+Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解析图、解释器和 Evaluation 策略 identity。策略 identity 已包含影响 `ty` 执行、诊断判定、failure policy 和完整测试的有效配置，因此 cache key 不再重复拼接这些 policy 字段。
 
 `schemas/evaluation.py`：
 
 - `ProcessSpec` / `ProcessResult` 与外部工具结果；
+- D005 定义的 operation cause、prepare failure、`AttemptFailureScope | CellFailureScope`、`FailureRecord` 与 baseline outcome union；
 - D004 定义的 `TyDiagnostic`、`TyCheck`、`StaticBaseline` 与 static/full Evaluation union；
-- `CheckResult`、`HighestVersionVerification`、`SmokeResult`、`CacheConflict`；
+- `CheckResult`、`HighestVersionPass`、`BaselineRejection`、`BaselineIndeterminate`、`SmokeResult`、`CacheConflict`；
 - `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`。
 
-详细日志引用不进入 `ProcessResult` 或其他公共 Schema。`RunLogStore` 只在当前进程内按 `ProcessResult` 对象 identity 维护引用；报告序列化/重新读取后没有本地引用。日志丢失不能改变已经记录的 Evaluation 证据。
+`ProcessResult` 只包含脱敏、有界的可移植机械事实，不包含详细日志引用。`FailureRecord` 可以保存该 `ProcessResult`，公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005 定义的项目本地 diagnosis index；索引或日志丢失不能改变已经记录的 disposition。
 
 `schemas/report.py`：
 
-- probe、坐标边界与 `CoordinateOutcome`；
-- `CellSuccess` / `CellFailure`；
+- `ProbePass` / `ProbeRejection` / `ProbeIndeterminate`、坐标边界与 `CoordinateOutcome`；
+- cell result discriminator union（包括 Attempt 前的 `CellIndeterminate`）、baseline outcome 与 `FailureRecord` 引用；
 - 投影证据与 complete/incomplete report result；
 - `PackageFloorReportV1`、`ProjectEditResult`。
 
-`PackageFloorReportV1` validator 复证目标 cell 精确覆盖、成功证据、投影授权以及 D004 的静态基线一致性。公共 JSON 即使被手工编辑也不能绕过这些不变量。
+`PackageFloorReportV1` validator 复证目标 cell 精确覆盖、成功证据、FailureRecord 交叉引用、投影授权，以及 D004 的静态基线和 D005 的 disposition 一致性。公共 JSON 即使被手工编辑也不能绕过这些不变量。
 
 ## 6. CLI 与应用工作流
 
@@ -181,6 +187,7 @@ handler 只构造 request、调用一个 workflow、交给 `TerminalPresenter` �
 | `SmokeCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → HighestVersionVerifier | `.pf/logs`、临时环境 |
 | `SearchCommandWorkflow` | load → snapshot → 宿主 cell 搜索 → report build/update/write | `.pf/logs`、`package-floor.json` |
 | `ExplainCommandWorkflow` | load → 定位并读取报告 | 无 |
+| `DiagnoseCommandWorkflow` | load → 定位并读取报告 → 解析 FailureRecord → 可选读取本地 locator/log | 无 |
 | `MergeCommandWorkflow` | read → merge → write | 显式 output |
 | `ApplyCommandWorkflow` | load → 读取并核对报告 → `ProjectEditor.apply_many` | `pyproject.toml`、`.pf` 日志 |
 
@@ -232,10 +239,10 @@ build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 
 ```text
 prepare(package, cell, snapshot, resolution, managed_vector=None)
-  -> PreparedEnvironment | ToolFailure
+  -> PreparedEnvironment | PrepareFailure
 ```
 
-它创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。
+它在任何外部操作前构造 Attempt，再创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -262,10 +269,10 @@ evaluate(prepared, package, baseline, static_result=None) -> Evaluation
 
 ```text
 verify(package, cell, snapshot)
-  -> HighestVersionVerification | ToolFailure | IndeterminateEvaluation
+  -> HighestVersionPass | BaselineRejection | BaselineIndeterminate
 ```
 
-它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> close` 生命周期，返回冻结的 `StaticBaseline` 与完整 Evaluation。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`，因此不调用该 interface。
+它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> classify -> close` 生命周期。成功结果返回冻结的 `StaticBaseline` 与完整 Evaluation；任何非 PASS 结果经 `FailurePolicy` 分类并携带 `FailureRecord`。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`，因此不调用该 interface。
 
 本设计把单 cell 当前使用的 Evaluation context 定义为：
 
@@ -285,6 +292,15 @@ FullEvaluationKey   = (proposal_id, s_hi_digest)
 
 Full 所需 test policy 和 static 所需 diagnostic policy 已在 `proposal_id` 的策略 identity 中。`EvaluationCache` 的 get/record interface 因此显式接收 `baseline_digest`，在一次 search 内按二元 key 分离 static/full 结果、复用相同证据并检测同 context 冲突。公共报告不是 cache。
 
+### 8.5 FailurePolicy
+
+```text
+classify(scope, stage, cause, mechanical_facts, evaluation=None)
+  -> AttemptRejection | AttemptIndeterminate | CellIndeterminate
+```
+
+该深模块唯一实现 D005 的分类矩阵：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、role、stage 与 adapter cause 得出 disposition 并构造 `FailureRecord`。Cell scope 只允许 Indeterminate。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
+
 ## 9. 搜索与调度
 
 `CoordinateSearch` interface：
@@ -293,7 +309,7 @@ Full 所需 test policy 和 static 所需 diagnostic policy 已在 `proposal_id`
 minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
 ```
 
-它只读取冻结版本坐标和分类后的 `ProbeEvidence`；具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
+它只读取冻结版本坐标和分类后的 `ProbePass | ProbeRejection | ProbeIndeterminate`；具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
 
 `SearchCoordinator` interface：
 
@@ -301,9 +317,9 @@ minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
 search(package, cell, snapshot) -> CellResult
 ```
 
-它拥有单 cell 搜索状态机：消费 `HighestVersionVerifier` 已建立的 baseline 与 D004 静态基线、冻结候选、调用 static/dynamic CoordinateSearch、组装强类型 CellResult。它不复制最高版本验证，不负责跨 cell 并发或总时限。
+它拥有单 cell 搜索状态机：消费 `HighestVersionVerifier` 返回的 baseline outcome；只有 `HighestVersionPass` 才冻结候选并调用 static/dynamic CoordinateSearch，其他 outcome 直接成为 cell 终态。它组装强类型 CellResult 与 FailureRecord 引用，不复制最高版本验证，不负责跨 cell 并发或总时限。
 
-`Scheduler.run(tasks, jobs, max_duration_seconds, events)` 只调度独立 cell callable，限制并发、停止启动超过 deadline 的任务、为未启动 cell 产生 `TIMEOUT`、消费进度事件并按 package/target/python/extra 规范排序。单 cell 内 probe 始终串行。
+`Scheduler.run(tasks, jobs, max_duration_seconds, events)` 只调度独立 cell callable，限制并发、停止启动超过 deadline 的任务、为未启动 cell 产生带 `CellFailureScope` 的 `TIMEOUT / INDETERMINATE` cell 结果、消费进度事件并按 package/target/python/extra 规范排序。它不得虚构 Attempt。单 cell 内 probe 始终串行。
 
 ## 10. 外部 adapter
 
@@ -318,23 +334,25 @@ run(ProcessSpec) -> ProcessResult
 `RunLogStore` 是 `SubprocessRunner` 的可选记录 seam。生产 composition root 为每次 CLI 运行注入一个 store；runner 在进程完成并完成脱敏后调用：
 
 ```text
-record(process_id, redacted_spec, redacted_result) -> absolute_log_path
-reference_for(process_result) -> absolute_log_path | None
+record(process_id, redacted_spec, redacted_result) -> internal_log_path
+reference_for(process_result) -> internal_log_path | None
+associate(report_generation_id, failure_id, process_result) -> None
+lookup(report_generation_id, failure_id) -> project_relative_log_path | None
 ```
 
-store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，使用项目相对展示路径、随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 使用当前进程内对象 identity，不修改 Schema，也不尝试用可能碰撞的内容 hash 关联日志。写日志失败是基础设施错误，不能静默继续产生一个违反 CLI 可诊断性契约的 Evaluation。
+store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，并在 `.pf/logs/diagnosis-index.json` 维护 `(report_generation_id, failure_id) -> 相对日志路径`。两类文件都使用随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 只用于当前运行中按 `ProcessResult` 对象 identity 找到刚写入的日志；报告写入完成后，workflow 通过 `associate` 原子更新 locator index。不得用内容 hash、目录扫描或模糊输出匹配恢复关联。写日志或更新应有 locator 失败是基础设施错误，不能静默继续产生违反 CLI 可诊断性契约的报告。
 
 所有元数据字段与 stdout/stderr 片段在 store 边界再次施加硬上限。在支持 `dir_fd` 的平台，目录创建和替换通过逐级 directory fd、禁止跟随 symlink 的打开方式以及 run directory inode identity 完成；初始化后的目录被替换也必须 fail closed。Windows 先用 `GetVolumePathNameW` 解析项目实际承载卷（包括嵌套挂载点），并要求该卷声明 `FILE_PERSISTENT_ACLS`，再使用原生 directory handle 打开每一级目录：拒绝 reparse point、只共享 read 而拒绝后续 write/delete handle，并保持 guard 到运行结束；run directory 在 `CreateDirectoryW` 时通过 `SECURITY_ATTRIBUTES` 原子安装仅 owner 与 SYSTEM 可访问且对子文件继承的 protected DACL。其他无法提供等价安全原语的平台以已分类基础设施错误停止，不能退回有 TOCTOU 窗口的路径检查。
 
-candidate probe 的失败不为日志引用扩展报告 Schema。`SearchCoordinator` 只在当前运行中发出以 `kind` 判别的强类型 `SearchDiagnosticEvent` variants，其中分别保留 `StaticFailEvaluation`、`TestFailEvaluation`、`IndeterminateEvaluation` 或 `ToolFailure`；含 Proposal 的 variant 必须验证事件 cell 与 `proposal.cell` 一致。Presenter 在 `render_search` 时规范排序并生成与 check/smoke 相同的阶段摘要和运行期日志链接。报告仍保存 D003 规定的搜索证据，运行日志路径和事件不持久化。
+candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord` 持久化进报告；prepare failure 保留 Attempt 与原始脱敏机械事实，即使没有 Proposal。Attempt 前的 candidate discovery/scheduling Indeterminate 使用 Cell scope。边界和 cell 终态通过 `failure_id` 引用该记录。详细日志路径不进入报告 Schema：`SearchCommandWorkflow` 在成功写入报告后才以最终 `report_generation_id` 更新本地 diagnosis index。其他宿主 merge 进来的 FailureRecord 可以没有本地 locator，`diagnose` 此时仍展示报告内的有界 `ProcessResult`。
 
 ### 10.2 UvAdapter、TyAdapter、TestAdapter
 
-- `UvAdapter` 唯一构造解释器发现、venv、editable install、harness install、graph inspection 和候选查询的 uv argv，并把机械结果分类为强类型工具结果。
+- `UvAdapter` 唯一构造解释器发现、venv、editable install、harness install、graph inspection 和候选查询的 uv argv，并把机械结果分类为 D005 的稳定 operation cause，例如 `RESOLUTION_CONFLICT`、`BUILD_FAILURE`、`HARNESS_CONFLICT`、`SOURCE_FAILURE` 或 `TOOL_FAILURE`。
 - `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。
 - `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与失败退出码策略。
 
-所有 adapter 在返回前完成脱敏。Presenter 与 ReportStore 不负责补救原始 secret。
+所有 adapter 在返回前完成脱敏。Adapter 不决定 disposition；Presenter 与 ReportStore 也不负责补救原始 secret。
 
 ## 11. 报告与编辑
 
@@ -344,12 +362,12 @@ candidate probe 的失败不为日志引用扩展报告 Schema。`SearchCoordina
 
 `ReportStore` 唯一拥有：
 
-- Schema 1 读取与 64 MiB 上限；
+- 首发 Schema 1 严格读取与 64 MiB 上限；
 - canonical JSON 与原子写；
 - 同一 generation 的 search update；
 - 严格 merge 及合并后投影重算。
 
-未知 Schema、不匹配 generation、重复 cell 冲突或结构验证失败都保守失败。
+未知 Schema、缺少 D005 Attempt/FailureScope/FailureRecord union 的开发期旧结构、不匹配 generation、重复 cell 冲突或结构验证失败都保守失败。项目未发布，不提供 Schema 2、dual reader、迁移器或旧字段兼容分支。
 
 ### 11.2 ProjectEditor
 
@@ -372,7 +390,7 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 
 `terminal.py` 是业务 Rich 的唯一使用点：
 
-- stdout：最终成功摘要、explain、merge/apply 结果；
+- stdout：最终成功摘要、explain/diagnose、merge/apply 结果；
 - stderr：错误、警告、进度和外部工具诊断摘要；
 - TTY：主线程消费 ActivityEvent 并动态刷新；
 - 非 TTY：相同事件变为稳定文本行。
@@ -380,11 +398,11 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 Presenter 还唯一拥有 D001 的人类摘要规则：
 
 - 从强类型 `TyDiagnostic` 生成稳定单行摘要；
-- 把 adapter stage 映射为 install/harness/static/dynamic 用户阶段；
+- 从 `FailureRecord` 的 scope/disposition/cause/stage 生成 D005 的 title、impact、next step 和次级技术信息，并把 adapter stage 映射为用户可读阶段；
 - 从 `ProcessResult` 选择一行原因并折叠空白，不转储多行工具输出；
 - 用运行时日志引用生成项目相对文本和可选 OSC 8 本地文件链接。
 
-adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情，Presenter 不重新读取日志来决定状态。
+adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 
 生产代码不固定 Console/Table/Progress 的 width、height 或列尺寸，让 Rich 适配终端。worker 和 adapter 不直接打印。
 
@@ -393,10 +411,10 @@ adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保�
 测试以模块 interface 为表面：
 
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
-- CLI：两个入口、七命令 help、参数默认值、stdout/stderr 和退出码；
-- 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据；
+- CLI：两个入口、八命令 help、参数默认值、stdout/stderr 和退出码；
+- 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据、D005 failure 分类；
 - adapter：recording ProcessRunner、argv、状态、timeout、truncation 与脱敏；
 - 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
-- 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> apply`。
+- 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> diagnose -> apply`；另测 `diagnose` 不启动进程、不访问网络、不修改项目。
 
-需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../../plans/P001-pf-v1.md) 与 [P002](../../plans/P002-pf-ty-enhancement.md)。
+需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../../plans/P001-pf-v1.md)、[P002](../../plans/P002-pf-ty-enhancement.md) 与 [P003](../../plans/P003-pf-smoke-observability.md)；D005 尚无实施记录。

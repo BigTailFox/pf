@@ -1,13 +1,14 @@
 # PF 单 cell 搜索算法
 
-- **状态：** 已实现
+- **状态：** 实施中
 - **算法版本：** v1
 - **最后核对：** 2026-08-20
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
+- **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 
-本文是单个 package/cell 的坐标搜索、probe 顺序、不变量与终止条件的唯一所有者。候选如何进入冻结快照由 D001 定义；`STATIC_PASS` / `STATIC_FAIL` 的含义由 D004 定义；跨 cell 并发、报告和 apply 不属于本文。
+本文是单个 package/cell 的坐标搜索、probe 顺序、不变量与终止条件的唯一所有者。候选如何进入冻结快照由 D001 定义；静态诊断事实由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 与 FailureRecord 由 D005 定义；跨 cell 并发、报告和 apply 不属于本文。
 
 ## 1. 模型
 
@@ -29,7 +30,7 @@ C[d] = [c0, c1, ..., ck]
 V = {d1: version, d2: version, ...}
 ```
 
-Evaluator 实际观察的是由该向量构造的完整 Proposal；相同向量在不同 cell、源码快照、解析图、解释器或策略下不是相同证据。
+Evaluator 实际观察的是由该向量请求的 Probe Attempt。prepare 成功后才有完整 Proposal；prepare Rejection/Indeterminate 没有 Proposal。相同向量在不同 cell、源码快照、解释器或策略下不是相同 Attempt，成功解析图不同也不是相同 Proposal。
 
 核心向量：
 
@@ -41,53 +42,50 @@ Evaluator 实际观察的是由该向量构造的完整 Proposal；相同向量�
 
 ## 2. 假设与不变量
 
-v1 假设一个固定一维切片中的兼容性结果为：
+v1 假设一个固定一维切片中的确定兼容性结果为：
 
 ```text
-FAIL* PASS*
+REJECTED* PASS*
 ```
 
-其中 FAIL 只包括当前 Evaluator 的兼容性失败；D001 定义的非证据状态不属于失败侧。
+其中 `REJECTED` 只包括 D005 允许建立边界的 Probe Rejection；Probe Indeterminate 不属于拒绝侧。
 
 算法维护：
 
 1. `B` 具有直接完整 `PASS` 证据，并携带 D004 冻结的同一静态基线。
 2. 候选快照在本次 search 内不变化。
 3. 每次提交后的 current 都由当前阶段 Evaluator 直接证明通过。
-4. 只有兼容性证据可以移动边界；非证据状态立即停止。
+4. 只有 Probe Rejection 可以移动拒绝边界；Probe Indeterminate 立即停止当前 cell。
 5. 提交只严格降低一个坐标，算法不主动升高。
 6. 每个 sweep 按规范依赖顺序覆盖全部坐标。
 7. static、fast path 和 dynamic 阶段共享本 cell 的同一静态基线。
 8. 同一精确 Proposal 在 D002 定义的相同 Evaluation context 中复用 Evaluator 结果。
-9. 同切片观测冲突时立即停止，不猜测或跳过 hole。
+9. 同切片观测冲突时立即停止，不猜测或跳过 unknown hole。
 
 ## 3. SearchCoordinator 状态机
 
 单 cell 顺序固定为：
 
 ```text
-PREPARE B = V_hi
-  ↓
-CAPTURE D004 STATIC BASELINE
-  ↓
-FULL EVALUATE B
-  ├── compatibility failure -> BASELINE_FAILED
-  ├── non-evidence           -> 对应失败状态
-  └── PASS
+BASELINE ATTEMPT B = V_hi
+  ├── BaselineRejection     -> 终止 cell
+  ├── BaselineIndeterminate -> 终止 cell
+  └── PASS + D004 STATIC BASELINE
         ↓
 FREEZE CANDIDATE SNAPSHOTS
         ↓
 STATIC COORDINATE FIXPOINT
         ↓
 FULL EVALUATE V_static
-  ├── PASS      -> SUCCESS
-  ├── TEST_FAIL -> DYNAMIC COORDINATE FIXPOINT FROM B
-  └── other     -> 对应失败或 NONDETERMINISTIC
+  ├── PASS                              -> SUCCESS
+  ├── ProbeRejection(TEST_FAILURE)      -> DYNAMIC COORDINATE FIXPOINT FROM B
+  ├── ProbeIndeterminate               -> 终止 cell
+  └── 与已缓存结果冲突                  -> NONDETERMINISTIC
 ```
 
-候选发现发生在 baseline 完整通过之后。来源故障保存为 `SOURCE_ERROR`；过滤后候选为空保存为 `NO_PASS_IN_SEARCH_SPACE`。
+候选发现发生在 baseline 完整通过之后。此时尚无 Probe Attempt；来源故障形成带 `CellFailureScope` 和 FailureRecord 的 Indeterminate cell result，不得虚构 requested vector。过滤后候选为空保存为 `NO_PASS_IN_SEARCH_SPACE`。
 
-用于捕获静态基线的那次检查也是 `B` 的 static pass 证据，不重跑。Baseline 的完整测试失败产生 `BASELINE_FAILED`；项目既有静态诊断是否被接受由 D004 决定。
+用于捕获静态基线的那次检查也是 `B` 的 static pass 事实，不重跑。Baseline 的确定安装/build/harness/test failure 产生 Baseline Rejection；工具、来源或不完整执行产生 Baseline Indeterminate。完整分类由 D005 定义，项目既有静态诊断是否被接受由 D004 定义。
 
 ## 4. CoordinateSearch interface
 
@@ -97,9 +95,9 @@ D002 定义的 interface 为：
 minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
 ```
 
-开始时先直接 probe `start`。它必须 `PASS`；兼容性失败映射为 `BASELINE_FAILED`，非证据状态原样终止。
+开始时先读取或直接 probe `start`。它必须复用 SearchCoordinator 已建立的 `PASS`；若同 context 得到 Rejection 则与 baseline 冲突并返回 `NONDETERMINISTIC`，得到 Probe Indeterminate 则停止当前 cell。
 
-每个 observation 保存被探测的完整向量、当前坐标（若有）和分类后的证据。缓存按完整规范向量命中；同一向量可能在不同坐标上下文中记录 observation，但不会重复调用 Evaluator。
+每个 observation 保存 Attempt、被探测的完整向量、当前坐标（若有）和 `ProbePass | ProbeRejection | ProbeIndeterminate`。缓存按完整规范向量命中；同一向量可能在不同坐标上下文中记录 observation，但不会重复调用 Evaluator。
 
 ## 5. 一维定界
 
@@ -129,11 +127,11 @@ Static 阶段不传 hint，因此从最早候选开始。Dynamic 阶段把 `V_st
 - hint 已是最早候选时直接返回；
 - 否则 probe 最早候选；
 - 最早也通过则返回最早；
-- 最早失败则在 `[earliest, hint]` 中定位第一个通过样本。
+- 最早 Rejected 则在 `[earliest, hint]` 中定位第一个通过样本。
 
-### 5.3 Hint 失败
+### 5.3 Hint Rejection
 
-若 hint 是兼容性失败，以已知通过的 `current[d]` 作为高端，并在 `[hint, current[d]]` 中定位第一个通过样本。
+若 hint 是 Probe Rejection，以已知通过的 `current[d]` 作为高端，并在 `[hint, current[d]]` 中定位第一个通过样本。若 hint 是 Probe Indeterminate，立即停止当前 cell。
 
 令本切片内不高于 current 的冻结候选为：
 
@@ -152,7 +150,7 @@ sentinel 只保存“空间外 current 已知通过”这一边界事实，不�
 
 ### 5.4 线性与二分
 
-已知索引区间满足 `low = FAIL`、`high = PASS`；`low` 始终是真实候选，`high` 可以是真实候选或 §5.3 的虚拟索引 `n`。
+已知索引区间满足 `low = REJECTED`、`high = PASS`；`low` 始终是真实候选，`high` 可以是真实候选或 §5.3 的虚拟索引 `n`。
 
 当两端索引距离不超过 `small_threshold` 时，从 `low` 的后继开始升序线性 probe 所有真实候选，返回首个 `PASS`。若只剩虚拟 high 而没有真实 PASS，返回 `NO_PASS_IN_SEARCH_SPACE`。现行默认 `small_threshold = 8`。
 
@@ -162,21 +160,21 @@ sentinel 只保存“空间外 current 已知通过”这一边界事实，不�
 while high_index - low_index > 1:
     middle = floor((low_index + high_index) / 2)
     PASS(middle) -> high_index = middle
-    FAIL(middle) -> low_index = middle
+    REJECTED(middle) -> low_index = middle
 
 if high_index == n:
     return NO_PASS_IN_SEARCH_SPACE
 return C_valid[high_index]
 ```
 
-当 high 是 sentinel 时，循环计算出的 middle 仍严格小于 `n`，所以只 probe 真实候选。非证据状态在 probe 时已经终止，不能被当成二分失败侧。
+当 high 是 sentinel 时，循环计算出的 middle 仍严格小于 `n`，所以只 probe 真实候选。Probe Indeterminate 在 probe 时已经终止，不能被当成二分拒绝侧。
 
 ### 5.5 返回边界
 
 返回前必须保存：
 
 - floor 的直接 `PASS`；
-- 若 floor 不是首个候选，其直接前驱的 `STATIC_FAIL` 或 `TEST_FAIL`；
+- 若 floor 不是首个候选，其直接前驱的 Probe Rejection 及 `failure_id`；
 - 全部证据来自相同切片。
 
 若 floor 是首个候选，boundary 的 predecessor 为空。
@@ -188,7 +186,7 @@ return C_valid[high_index]
 ```text
 v_low < v_high
 PASS(v_low)
-compatibility FAIL(v_high)
+REJECTED(v_high)
 ```
 
 立即返回 `NON_MONOTONIC`，记录依赖和 `(v_low, v_high)` 反例。
@@ -248,7 +246,7 @@ V_static = minimize(
 
 ### 8.3 Dynamic fixpoint
 
-只有 fast path 得到 `TEST_FAIL` 才进入 dynamic 搜索：
+只有 fast path 得到 cause 为 `TEST_FAILURE` 的 Probe Rejection 才进入 dynamic 搜索：
 
 ```text
 V_final = minimize(
@@ -259,7 +257,7 @@ V_final = minimize(
 )
 ```
 
-Dynamic 必须从完整通过的 `B` 开始，不能从失败的 `V_static` 提交。每个候选先满足 D004 static 判据，再运行完整测试；不使用 partial tests。结束时 `V_final` 已具有直接 `PASS`，不额外重跑。
+Dynamic 必须从完整通过的 `B` 开始，不能从被 Rejected 的 `V_static` 提交。每个候选先满足 D004 static 判据，再运行完整测试；prepare/build/harness/static/test Rejection 都进入拒绝侧，Indeterminate 停止；不使用 partial tests。结束时 `V_final` 已具有直接 `PASS`，不额外重跑。
 
 ## 9. 输出
 
@@ -268,6 +266,7 @@ Dynamic 必须从完整通过的 `B` 开始，不能从失败的 `V_static` 提�
 - 冻结静态基线和完整通过 baseline；
 - CandidateSnapshot；
 - static probe、必要时的 dynamic probe；
+- 每个 rejected/indeterminate Attempt 的结构化 disposition、cause 与 FailureRecord；
 - 最终向量及完整 Evaluation；
 - 最终切片的每个坐标边界；
 - sweep 数与候选/策略 identity。
