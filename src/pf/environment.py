@@ -7,6 +7,11 @@ from pathlib import Path
 import tempfile
 from typing import Literal, Protocol
 
+from packaging.requirements import Requirement
+import tomlkit
+from tomlkit.items import Array
+
+from pf.errors import ConfigurationError
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
     GraphOutcome,
@@ -59,7 +64,6 @@ class UvOperations(Protocol):
         extra_surface: tuple[str, ...],
         resolution: Literal["highest", "lowest-direct"],
         timeout_seconds: int | None,
-        requirements: tuple[str, ...] = (),
     ) -> ToolOutcome: ...
 
     def inspect_interpreter(
@@ -142,6 +146,12 @@ class EnvironmentFactory:
         try:
             snapshot.materialize(proposal_root)
             package_root = proposal_root / Path(package.pyproject_path).parent
+            self._materialize_managed_vector(
+                package=package,
+                cell=cell,
+                package_root=package_root,
+                managed_vector=managed_vector,
+            )
             emit_cell_stage(self._events, cell, "preparing environment")
             create = self._uv.create_environment(
                 environment=environment_root,
@@ -173,9 +183,6 @@ class EnvironmentFactory:
                     stage="inspect-interpreter",
                     process=interpreter_result.process,
                 )
-            requirements = tuple(
-                f"{pin.name}=={pin.version}" for pin in managed_vector or ()
-            )
             emit_cell_stage(self._events, cell, "installing dependencies")
             install = self._uv.install_editable(
                 interpreter=interpreter,
@@ -183,7 +190,6 @@ class EnvironmentFactory:
                 extra_surface=cell.extra_surface,
                 resolution=resolution,
                 timeout_seconds=package.config.resolve_timeout,
-                requirements=requirements,
             )
             if isinstance(install, ToolFailure):
                 temporary_directory.cleanup()
@@ -307,6 +313,73 @@ class EnvironmentFactory:
         except Exception:
             temporary_directory.cleanup()
             raise
+
+    @staticmethod
+    def _materialize_managed_vector(
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        package_root: Path,
+        managed_vector: tuple[VersionPin, ...] | None,
+    ) -> None:
+        if managed_vector is None:
+            return
+        requested = {pin.name: pin.version for pin in managed_vector}
+        if len(requested) != len(managed_vector):
+            raise ConfigurationError("managed vector dependencies must be unique")
+        active_ids = set(cell.active_declaration_ids)
+        declarations = tuple(
+            declaration
+            for declaration in package.declarations
+            if declaration.managed and declaration.declaration_id in active_ids
+        )
+        expected = {declaration.name for declaration in declarations}
+        if set(requested) != expected:
+            raise ConfigurationError(
+                "managed vector must exactly cover active managed dependencies"
+            )
+
+        pyproject = package_root / "pyproject.toml"
+        document = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+        for declaration in declarations:
+            try:
+                if declaration.location == "base":
+                    value = document["project"]["dependencies"]
+                else:
+                    assert declaration.extra is not None
+                    value = document["project"]["optional-dependencies"][
+                        declaration.extra
+                    ]
+            except (KeyError, TypeError) as error:
+                raise ConfigurationError(
+                    f"dependency location has drifted: {declaration.declaration_id}"
+                ) from error
+            if not isinstance(value, Array):
+                raise ConfigurationError("dependency metadata is not a TOML array")
+            values = tuple(str(item) for item in value)
+            try:
+                index = values.index(declaration.raw)
+            except ValueError as error:
+                raise ConfigurationError(
+                    f"dependency declaration has drifted: {declaration.declaration_id}"
+                ) from error
+            requirement = Requirement(declaration.raw)
+            retained = tuple(
+                sorted(
+                    str(specifier)
+                    for specifier in requirement.specifier
+                    if specifier.operator in {"<", "<=", "!="}
+                )
+            )
+            extras = (
+                f"[{','.join(sorted(requirement.extras))}]"
+                if requirement.extras
+                else ""
+            )
+            exact = ",".join((f"=={requested[declaration.name]}", *retained))
+            marker = f"; {requirement.marker}" if requirement.marker else ""
+            value[index] = f"{requirement.name}{extras}{exact}{marker}"
+        pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
     @staticmethod
     def _interpreter(environment: Path) -> Path:

@@ -135,7 +135,6 @@ class UvAdapter:
         extra_surface: tuple[str, ...],
         resolution: Literal["highest", "lowest-direct"],
         timeout_seconds: int | None,
-        requirements: tuple[str, ...] = (),
     ) -> ToolOutcome:
         extras = ",".join(sorted(set(extra_surface)))
         editable = package.as_posix()
@@ -151,7 +150,6 @@ class UvAdapter:
                     interpreter.as_posix(),
                     "--resolution",
                     resolution,
-                    *requirements,
                     "--editable",
                     editable,
                 ),
