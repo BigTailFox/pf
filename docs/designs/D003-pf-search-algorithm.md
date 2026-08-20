@@ -1,540 +1,273 @@
-# PF 搜索算法
+# PF 单 cell 搜索算法
 
-- **状态：** 草案
-- **产品契约：** [D001](D001-pf.md)
-- **实现设计：** [D002](D002-pf-implementation.md)
-- **ty 增量静态检查：** [D004](D004-pf-ty-enhancement.md)
+- **状态：** 已实现
+- **算法版本：** v1
+- **最后核对：** 2026-08-20
+- **产品输入与结果：** [D001](D001-pf.md)
+- **模块接口：** [D002](D002-pf-implementation.md)
+- **静态证据：** [D004](D004-pf-ty-enhancement.md)
 
-本文定义 PF v1 的下界搜索。算法只处理一个 package/cell；跨 cell 并行和结果投影由外层模块负责。`ty` 如何从原始诊断变成 `STATIC_PASS` / `STATIC_FAIL` 以 D004 为准。
+本文是单个 package/cell 的坐标搜索、probe 顺序、不变量与终止条件的唯一所有者。候选如何进入冻结快照由 D001 定义；`STATIC_PASS` / `STATIC_FAIL` 的含义由 D004 定义；跨 cell 并发、报告和 apply 不属于本文。
 
-## 1. 结果承诺
+## 1. 模型
 
-PF 在冻结的候选集合中寻找一个完整通过的坐标最小向量。
-
-“坐标最小”表示：固定最终向量中的其他直接依赖后，没有任何单个受管依赖还能降低到搜索空间中的更早样本并通过完整 Evaluator。
-
-结果不是依赖笛卡尔积的全局最小值，也不证明未探测版本或其他依赖组合兼容。
-
-v1 假设同一一维切片中的结果为：
-
-```text
-FAIL* PASS*
-```
-
-该假设允许线性或二分定界。若实际观测与它冲突，算法立即停止，不尝试修复非单调区间。
-
-## 2. 模型
-
-### 2.1 Cell
-
-```text
-cell = (
-    package,
-    exact_target_triple,
-    cpython_minor,
-    extra_surface,
-)
-```
-
-每个 cell 独立解析、安装、测试和报告。
-
-### 2.2 受管依赖
-
-受管依赖集合为：
+受管依赖按规范化名称排序：
 
 ```text
 D = [d1, d2, ..., dn]
 ```
 
-依赖按规范化分发包名称排序。该顺序属于策略身份，所有 sweep 都使用同一顺序。
-
-### 2.3 候选
-
-每个依赖 `d` 有一个冻结的升序精确候选列表：
+每个依赖拥有一个已经按 D001 过滤并冻结的升序精确候选列表：
 
 ```text
 C[d] = [c0, c1, ..., ck]
 ```
 
-列表已经应用 search-space、granularity、来源、构件、预发布、yanked、已有上界和排除项。
-
-现有 `>=`/`>` 不限制向下搜索。候选不得高于 baseline 中该依赖的精确版本。
-
-### 2.4 向量与 Proposal
+搜索向量只列受管直接依赖：
 
 ```text
-V = {
-    d1: version,
-    d2: version,
-    ...
-}
+V = {d1: version, d2: version, ...}
 ```
 
-`V` 只描述受管直接依赖。真正被评估的是 Proposal，它还包含 cell、固定和非受管声明、完整解析图、来源及构件身份。
+Evaluator 实际观察的是由该向量构造的完整 Proposal；相同向量在不同 cell、源码快照、解析图、解释器或策略下不是相同证据。
 
-同一个 `V` 在不同 cell、源码快照或解析图中不是同一个 Proposal。
+核心向量：
 
-### 2.5 核心向量
+- `B` / `V_hi`：当前声明按最高允许版本解析并完整通过的 baseline；
+- `V_static`：增量静态 Evaluator 的坐标不动点；
+- `V_final`：完整 Evaluator 的坐标不动点。
 
-- `B` / `V_hi`：当前声明按最高允许版本解析的 baseline 向量；
-- `S_hi`：`V_hi` 上一次 `ty` 运行冻结的规范化诊断多重集；
-- `V_static`：StaticEvaluator 搜索得到的静态通过不动点；
-- `V_final`：FullEvaluator 搜索得到的完整通过不动点。
+`V_static` 和 `V_final` 都是完整向量，不是各依赖彼此独立的版本事实。
 
-`V_static` 是完整向量，不是各依赖相互独立的全局硬下界。
+## 2. 假设与不变量
 
-## 3. 不变量
-
-搜索始终维护以下不变量：
-
-1. `B` 已由 FullEvaluator 直接验证为 `PASS`。`B` 的静态部分相对自捕获的 `S_hi` 通过；完整测试必须单独通过。
-2. CandidateSnapshot 在搜索期间不可变化。
-3. 每次提交后的当前向量都被当前阶段的 Evaluator 直接验证为通过。
-4. 只有 `PASS`、`STATIC_FAIL` 和 `TEST_FAIL` 可以建立边界。`STATIC_FAIL` 表示相对 `S_hi` 的多重集增量，不是 `ty` 退出码。
-5. 每次提交至少严格降低一个坐标，永不主动升高。
-6. 每轮扫描全部受管依赖；启发式不能排除依赖。
-7. 结果相互矛盾时停止，不用猜测恢复单调性。
-8. 同一 cell 的全部静态/完整评估共享冻结的 `S_hi`。
-
-这些不变量使搜索可终止、可缓存，并保证最终向量至少具有直接通过证据。
-
-## 4. 候选快照
-
-### 4.1 建立顺序
-
-单个 cell 依次执行：
-
-1. 解析当前声明，得到 baseline Proposal 和精确向量 `B = V_hi`；
-2. 在 `B` 上运行 `ty`，冻结 `S_hi`，并得到 `STATIC_PASS(B)`；
-3. 完整验证 `B` 的测试；
-4. 以 `B` 为 search-space 锚点查询 index；
-5. 生成并冻结 CandidateSnapshot。
-
-Baseline 失败时不会建立搜索候选，也不会尝试旧版本恢复。
-
-### 4.2 搜索空间
-
-标量 `search-space`：
+v1 假设一个固定一维切片中的兼容性结果为：
 
 ```text
-all            全部合格历史版本
-current-major  与 B[d] 相同 major
-current-minor  与 B[d] 相同 minor
+FAIL* PASS*
 ```
 
-默认值为 `all`。
+其中 FAIL 只包括当前 Evaluator 的兼容性失败；D001 定义的非证据状态不属于失败侧。
 
-列表形式为逐依赖 PEP 508 版本范围。未列出的受管依赖使用 `all`。
+算法维护：
 
-列表条目只允许名称和非空 specifier；extras、marker、URL 和来源无效。
+1. `B` 具有直接完整 `PASS` 证据，并携带 D004 冻结的同一静态基线。
+2. 候选快照在本次 search 内不变化。
+3. 每次提交后的 current 都由当前阶段 Evaluator 直接证明通过。
+4. 只有兼容性证据可以移动边界；非证据状态立即停止。
+5. 提交只严格降低一个坐标，算法不主动升高。
+6. 每个 sweep 按规范依赖顺序覆盖全部坐标。
+7. static、fast path 和 dynamic 阶段共享本 cell 的同一静态基线。
+8. 同一精确 Proposal 的相同 Evaluator 结果在本次 search 内缓存。
+9. 同切片观测冲突时立即停止，不猜测或跳过 hole。
 
-显式范围可以不包含 `B[d]`。`B[d]` 仍是已知通过锚点，但不自动成为搜索空间内的 floor。
+## 3. SearchCoordinator 状态机
 
-标量 search-space 与 granularity 的合法组合为：
+单 cell 顺序固定为：
 
 ```text
-all            × major | minor | patch
-current-major  × minor | patch
-current-minor  × patch
+PREPARE B = V_hi
+  ↓
+CAPTURE D004 STATIC BASELINE
+  ↓
+FULL EVALUATE B
+  ├── compatibility failure -> BASELINE_FAILED
+  ├── non-evidence           -> 对应失败状态
+  └── PASS
+        ↓
+FREEZE CANDIDATE SNAPSHOTS
+        ↓
+STATIC COORDINATE FIXPOINT
+        ↓
+FULL EVALUATE V_static
+  ├── PASS      -> SUCCESS
+  ├── TEST_FAIL -> DYNAMIC COORDINATE FIXPOINT FROM B
+  └── other     -> 对应失败或 NONDETERMINISTIC
 ```
 
-### 4.3 搜索粒度
+候选发现发生在 baseline 完整通过之后。来源故障保存为 `SOURCE_ERROR`；过滤后候选为空保存为 `NO_PASS_IN_SEARCH_SPACE`。
 
-`release-granularity` 支持：
+用于捕获静态基线的那次检查也是 `B` 的 static pass 证据，不重跑。Baseline 的完整测试失败产生 `BASELINE_FAILED`；项目既有静态诊断是否被接受由 D004 决定。
 
-- `patch`：每个合格精确 release 都是样本；
-- `minor`：每个 minor 系列取冻结时最新的合格稳定 patch；
-- `major`：每个 major 系列取冻结时最新的合格稳定 patch。
+## 4. CoordinateSearch interface
 
-样本始终保留精确 PEP 440 版本。通过 `1.24.4` 只能生成 `>=1.24.4`。
-
-系列 key 包含 PEP 440 epoch 和 release tuple；缺失分量补零。Pre/dev 默认过滤，post release 归入基础 patch 系列。
-
-### 4.4 冻结
-
-CandidateBuilder 规范化并排序所有样本，保存系列到精确代表版本的映射。
-
-搜索开始后不刷新 index。运行中发布的新版本不进入本次搜索。
-
-来源身份或构件 hash 与快照不一致时返回 `SOURCE_CHANGED`，不得继续使用旧边界。
-
-## 5. Evaluator
-
-### 5.1 StaticEvaluator
+D002 定义的 interface 为：
 
 ```text
-Proposal + S_hi
-  ↓ resolve/install
-  ↓ ty
-  ↓ increment vs S_hi
-STATIC_PASS | STATIC_FAIL | 非证据状态
+minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
 ```
 
-`STATIC_PASS` 表示 `diagnostics(Proposal) ⊖ S_hi` 为空多重集。退出码不是诊断条数或静态通过的证明。
+开始时先直接 probe `start`。它必须 `PASS`；兼容性失败映射为 `BASELINE_FAILED`，非证据状态原样终止。
 
-`STATIC_PASS` 环境保留到本次 search 结束，可以被相同 Proposal 的 FullEvaluator 晋升一次。
+每个 observation 保存被探测的完整向量、当前坐标（若有）和分类后的证据。缓存按完整规范向量命中；同一向量可能在不同坐标上下文中记录 observation，但不会重复调用 Evaluator。
 
-### 5.2 FullEvaluator
+## 5. 一维定界
+
+在固定 `current` 上为依赖 `d` 搜索时，只改变 `d`：
 
 ```text
-Proposal + S_hi
-  ↓ STATIC_PASS cache?
-  ├── no  → StaticEvaluator
-  └── yes
-  ↓ full test-command
-PASS | STATIC_FAIL | TEST_FAIL | 非证据状态
+P(x) = evaluator(current with d = x)
 ```
 
-FullEvaluator 不运行测试子集。`STATIC_FAIL` 会短路测试，但仍是完整兼容性判据的失败结果。它表示相对 `S_hi` 的多重集增量，不是项目既有 typing 错误。
+旧 observation 只有在其他坐标完全相同的切片中才能用于单调性判断。
 
-### 5.3 非证据状态
+### 5.1 有效点与首次 probe
 
-以下状态立即终止当前 cell：
+只考虑 `C[d]` 中不高于 `current[d]` 的样本。没有样本时返回 `NO_PASS_IN_SEARCH_SPACE`；若最早样本就是 current，直接得到该坐标边界。
+
+首次 probe：
+
+- 无 hint：最早候选；
+- 有 hint：不高于 hint 的最新有效候选；若不存在则仍用最早候选。
+
+Static 阶段不传 hint，因此从最早候选开始。Dynamic 阶段把 `V_static[d]` 作为 hint。Hint 只改变顺序，不是硬下界。
+
+### 5.2 Hint 通过
+
+若 hint `PASS`：
+
+- hint 已是最早候选时直接返回；
+- 否则 probe 最早候选；
+- 最早也通过则返回最早；
+- 最早失败则在 `[earliest, hint]` 中定位第一个通过样本。
+
+### 5.3 Hint 失败
+
+若 hint 是兼容性失败，以已知通过的 `current[d]` 作为高端，并在 `[hint, current[d]]` 中定位第一个通过样本。
+
+当 current 位于显式搜索空间之外时，它可以用于定界，但不能作为空间内 floor。最终返回点不在冻结候选中即为 `NO_PASS_IN_SEARCH_SPACE`。
+
+### 5.4 线性与二分
+
+已知区间满足 `low = FAIL`、`high = PASS`。
+
+当两端索引距离不超过 `small_threshold` 时，从 `low` 的后继开始升序线性 probe，返回首个 `PASS`。现行默认 `small_threshold = 8`。
+
+更大区间使用确定的 lower-bound 二分：
 
 ```text
-UNAVAILABLE
-BUILD_UNAVAILABLE
-UNRESOLVABLE
-HARNESS_ERROR
-SOURCE_ERROR
-TOOL_ERROR
-TIMEOUT
+while high_index - low_index > 1:
+    middle = floor((low_index + high_index) / 2)
+    PASS(middle) -> high_index = middle
+    FAIL(middle) -> low_index = middle
+
+return points[high_index]
 ```
 
-它们不能被折叠为 `FAIL`，不能推进线性或二分边界，也不能被跳过。
+非证据状态在 probe 时已经终止，不能被当成二分失败侧。
 
-### 5.4 缓存与环境
+### 5.5 返回边界
 
-缓存 key 使用完整 Proposal、Evaluator 策略和本 cell 冻结的 `S_hi` digest，不只使用受管版本向量。
+返回前必须保存：
 
-同一个精确 Proposal 的完整测试只执行一次。测试后的环境视为污染，不再作为干净环境复用。
+- floor 的直接 `PASS`；
+- 若 floor 不是首个候选，其直接前驱的 `STATIC_FAIL` 或 `TEST_FAIL`；
+- 全部证据来自相同切片。
 
-若显式重跑得到冲突结果，状态为 `NONDETERMINISTIC`，立即停止并禁止 apply。
+若 floor 是首个候选，boundary 的 predecessor 为空。
 
-## 6. Baseline
+## 6. 非单调检测
 
-Baseline 使用当前源码快照、当前声明和正常最高版本解析策略，记为 `B = V_hi`。
-
-它不读取 workspace lock、操作者 `.venv` 或既有安装状态。捕获 `S_hi` 的 `ty` 运行就是 `B` 的静态评估，不再重跑。
-
-```text
-capture S_hi from ty(B)
-FullEvaluator(B, S_hi)
-  ├── PASS         → 继续；S_hi 冻结供本 cell 后续 probe 使用
-  ├── STATIC_FAIL  → 实现错误：自比较增量必须为空
-  ├── TEST_FAIL    → BASELINE_FAILED
-  └── 其他状态      → INDETERMINATE
-```
-
-`BASELINE_FAILED` 表示仓库在当前声明的正常最高版本环境中不能通过完整测试。项目既有 `ty` 诊断不是 baseline 失败。无法捕获 `S_hi` 时按非证据状态停止。PF 立即停止，不承担版本恢复职责。
-
-## 7. 一维定界
-
-静态和动态阶段共享 `find_floor`。差别只有 Evaluator 和首次 probe hint。
-
-### 7.1 输入
-
-`find_floor(V, d, C[d], hint, evaluator)` 的输入满足：
-
-- `V` 已由当前 Evaluator 验证为通过；
-- 除 `d` 外的所有坐标保持不变；
-- `C[d]` 按版本升序冻结；
-- `hint` 是候选中的优先 probe，可为空。
-
-定义：
-
-```text
-P(x) = evaluator(V with d = x)
-```
-
-所有 `P(x)` 必须属于同一个精确切片。其他坐标、cell、源码、来源或策略变化后，旧观测不能复用为该切片边界。
-
-### 7.2 首次 probe
-
-静态阶段优先 probe `C[d]` 的最早样本。
-
-动态阶段优先 probe 不高于 `V[d]` 的 `V_static[d]`；若它不在当前有效候选内，则使用最近的更低有效候选。
-
-Hint 只决定 probe 顺序，不是硬下界。
-
-### 7.3 Hint 通过
-
-若 `P(hint) = PASS`，继续检查 hint 以下的候选。
-
-先探测最早样本。若最早样本通过，直接返回它；否则得到：
-
-```text
-low = FAIL
-high = PASS
-```
-
-随后在 `[low, high]` 中定位第一个通过样本。
-
-### 7.4 Hint 失败
-
-若 hint 是兼容性失败，则当前向量提供已知通过高端：
-
-```text
-low = hint FAIL
-high = V[d] PASS
-```
-
-在单一通过区间假设下，hint 以下候选也属于失败侧，因此只需搜索 `[hint, V[d]]`。
-
-若当前通过高端不在显式 search-space 中，搜索可以用它定界，但不能把它报告为该空间内的 floor。
-
-### 7.5 定位
-
-候选数不超过实现常量 `small_threshold` 时，按升序线性查找第一个通过样本。
-
-更大区间使用标准 lower-bound 二分：
-
-```text
-while high 与 low 不相邻:
-    mid = 中间候选
-    PASS(mid) → high = mid
-    FAIL(mid) → low = mid
-
-return high
-```
-
-返回前必须具有：
-
-- 返回样本的直接通过证据；
-- 它是首个样本，或其直接前驱具有兼容性失败证据；
-- 所有证据属于同一切片。
-
-### 7.6 空搜索空间
-
-若显式 search-space 中所有样本都兼容性失败，而唯一通过高端位于空间之外，返回 `NO_PASS_IN_SEARCH_SPACE`。
-
-PF 保存失败边界并停止该 cell，不用空间外 baseline 冒充 floor。
-
-### 7.7 非单调检测
-
-每加入一个观测，都检查同一切片中的已知点。
-
-若存在：
+每次加入 observation 后，算法检查相同依赖、相同其他坐标的所有已知点。若存在：
 
 ```text
 v_low < v_high
 PASS(v_low)
-FAIL(v_high)
+compatibility FAIL(v_high)
 ```
 
-立即返回 `NON_MONOTONIC`。其中 `FAIL` 只包括当前 Evaluator 的兼容性失败，不包括非证据状态。
+立即返回 `NON_MONOTONIC`，记录依赖和 `(v_low, v_high)` 反例。
 
-稀疏 probe 不能发现所有未观测 hole。v1 将单一通过区间明确作为搜索假设，而不是完整认证结论。
+稀疏 probe 无法证明没有未观测 hole。v1 的 `FAIL* PASS*` 是明确假设，不是范围认证。
 
-## 8. 坐标不动点
-
-`minimize_coordinates` 对全部依赖反复调用 `find_floor`。
+## 7. 坐标不动点
 
 ```text
 current = start
 
 repeat:
     changed = false
+    round_boundaries = {}
 
     for d in canonical_dependency_order:
-        next = find_floor(current, d, ...)
-
-        if next < current[d]:
-            current[d] = next
-            assert evaluator(current) == PASS
+        floor, boundary = find_floor(current, d)
+        round_boundaries[d] = boundary
+        if floor < current[d]:
+            current[d] = floor
             changed = true
 
 until changed == false
 
-return current
+return current, boundaries from final unchanged sweep
 ```
 
-后续坐标降低后，较早坐标可能出现新的更低通过版本。因此一轮扫描不够，必须从头重复直到整轮无变化。
+后续坐标降低可能让早先坐标出现新的更低通过点，所以一轮不够。最终无变化 sweep 在最终上下文中重新建立全部坐标边界。
 
-最终无变化的一轮在最终上下文中重新建立每个坐标的边界。
+### 7.1 终止
 
-### 8.1 终止
+候选有限，每次提交严格降低一个坐标。令 `H` 为所有坐标从起始位置最多可下降的候选步数之和，则最多提交 `H` 次、最多执行 `H + 1` 个 sweep。
 
-候选集合有限，每次提交都严格降低至少一个坐标，算法从不主动升高坐标。
+依赖顺序、候选顺序、中点公式和 threshold 固定后，probe 顺序确定。多个坐标最小点可能存在；PF 返回规范顺序到达的固定点。
 
-令：
+## 8. 两阶段搜索
 
-```text
-H = Σ 每个坐标从起始位置最多可下降的样本数
-```
-
-最多发生 `H` 次提交，最多有 `H + 1` 轮 sweep。缓存避免在同一 Proposal 上重复执行相同 Evaluator。
-
-### 8.2 确定性
-
-依赖顺序、候选顺序、中点选择和 small threshold 固定后，probe 顺序确定。
-
-多个坐标最小点可能同时存在。PF 返回规范顺序产生的固定点，并在策略身份中记录该顺序。
-
-算法版本、中点规则和 small threshold 也进入策略身份，因为它们会影响实际 probe 集合和可观察到的非单调反例。
-
-## 9. 阶段一：静态定界
-
-Baseline 的完整通过蕴含增量静态通过，因此可以作为 StaticEvaluator 的起点。`S_hi` 在进入本阶段前已经冻结。
+### 8.1 Static fixpoint
 
 ```text
-V_static = minimize_coordinates(
+V_static = minimize(
     start=B,
+    candidates=frozen_candidates,
     evaluator=StaticEvaluator,
-    first_probe=earliest_candidate,
 )
 ```
 
-该阶段覆盖全部受管依赖，不做失败归因。
+`V_static` 是 D004 增量静态判据在最终上下文中的坐标不动点。Static 创建的同一 Proposal 环境/证据可以被 full 阶段晋升，但 static pass 本身不是完整通过。
 
-`V_static` 是 StaticEvaluator 在最终上下文中的坐标不动点。更低版本的 `STATIC_FAIL` 仍是上下文证据，不是独立包版本事实。
+### 8.2 联合测试 fast path
 
-StaticEvaluator 创建的环境暂不删除，为下一阶段的精确 Proposal 复用。
+对 `V_static` 执行一次完整 Evaluation。若 `PASS`，直接成功。
 
-## 10. 阶段二：联合测试 fast path
+该 fast path 安全：完整 `PASS` 的必要条件是 D004 static pass；若最终上下文中存在任一更低且完整通过的单坐标版本，它也必须通过 static，和 static fixpoint 矛盾。
 
-静态搜索结束后，直接评估整个猜测向量：
+在没有 cache conflict 的正常 fast path 中，最多测试两个不同向量：baseline 与 `V_static`；若两者相同则复用 baseline 证据。其余 probe 只做环境解析/安装和静态检查。
 
-```text
-FullEvaluator(V_static)
-```
+### 8.3 Dynamic fixpoint
 
-若结果为 `PASS`，立即返回 `V_static`。
-
-这是安全的 fast path：`V_static` 已按相对 `S_hi` 的多重集增量静态坐标最小，而完整兼容性要求先静态通过；因此任何单坐标更低的完整通过版本都必须先违反静态不动点。
-
-正常 fast path 只需要两次完整测试：
+只有 fast path 得到 `TEST_FAIL` 才进入 dynamic 搜索：
 
 ```text
-1 × FullEvaluator(B)
-1 × FullEvaluator(V_static)
-```
-
-其余 probe 只运行 resolve/install 和 `ty`。
-
-若结果为 `TEST_FAIL`，进入动态坐标搜索。
-
-若同一 Proposal 此前 `STATIC_PASS`、此时却 `STATIC_FAIL`，或出现其他冲突状态，则按 `NONDETERMINISTIC` 或不确定错误停止。
-
-## 11. 阶段三：动态坐标搜索
-
-动态阶段必须从完整通过的 `B` 开始，不能从测试失败的 `V_static` 开始提交。
-
-```text
-V_final = minimize_coordinates(
+V_final = minimize(
     start=B,
+    candidates=frozen_candidates,
     evaluator=FullEvaluator,
-    first_probe=V_static,
+    hints=V_static,
 )
 ```
 
-每个动态候选都需要完整兼容性判据：
+Dynamic 必须从完整通过的 `B` 开始，不能从失败的 `V_static` 提交。每个候选先满足 D004 static 判据，再运行完整测试；不使用 partial tests。结束时 `V_final` 已具有直接 `PASS`，不额外重跑。
 
-- 已有 `STATIC_PASS` 缓存时直接运行完整测试；
-- 未命中时先按需运行相对 `S_hi` 的 `ty` 多重集增量检查；
-- 静态通过后运行完整 `test-command`；
-- 不使用 partial tests。
+## 9. 输出
 
-`V_static[d]` 只是首次 probe hint。若最终上下文允许更低版本，`find_floor` 会重新打开该坐标。
+成功 `CellSuccess` 保存：
 
-每次提交后的 current 都有完整 `PASS`。搜索结束时，`V_final` 已经是最终完整通过证据，不再额外重跑同一个 Proposal。
+- 冻结静态基线和完整通过 baseline；
+- CandidateSnapshot；
+- static probe、必要时的 dynamic probe；
+- 最终向量及完整 Evaluation；
+- 最终切片的每个坐标边界；
+- sweep 数与候选/策略 identity。
 
-## 12. 高层状态机
+`observed_upper` 始终为 `null`，表示 v1 没有执行上界搜索。
 
-```text
-SNAPSHOT
-  ↓
-RESOLVE V_hi / B
-  ↓
-CAPTURE S_hi
-  ↓
-FULL EVALUATE B
-  ├── TEST_FAIL          → BASELINE_FAILED
-  ├── non-evidence       → INDETERMINATE
-  └── PASS
-        ↓
-FREEZE CANDIDATES
-        ↓
-STATIC COORDINATE FIXPOINT
-  ├── NON_MONOTONIC / NO_PASS_IN_SEARCH_SPACE / INDETERMINATE
-  └── V_static
-        ↓
-FULL EVALUATE V_static
-  ├── PASS      → SUCCESS
-  ├── TEST_FAIL → DYNAMIC COORDINATE FIXPOINT
-  └── other     → STOP
-                    ↓
-              V_final PASS
-                    ↓
-                 SUCCESS
-```
+算法成功只证明单 cell 搜索完成。跨 cell 完整覆盖、marker 投影和 apply 授权由 D001/D002 的报告模块决定。
 
-任何阶段达到总时限，都停止调度、保存不完整报告并禁止 apply。
+## 10. 非目标
 
-## 13. 成功证据
-
-成功的 dependency/cell 必须记录：
-
-- baseline Proposal、`S_hi` 和完整 `PASS`；
-- 冻结 CandidateSnapshot；
-- 静态和动态 probe 轨迹；
-- 每个 floor 的精确版本；
-- 最终完整 `PASS` 向量；
-- 最终切片中的坐标边界；
-- 搜索空间、粒度和规范依赖顺序；
-- 来源、构件、解释器、工具和测试策略身份。
-
-若 floor 是搜索空间中的首个样本，报告记录“没有更早候选”。
-
-若 floor 不是首个样本，报告记录同一最终切片中直接前驱的 `STATIC_FAIL` 或 `TEST_FAIL`。
-
-`observed_upper` 固定为 `null`，含义是 v1 未执行上界搜索。
-
-## 14. Apply 条件
-
-算法成功不自动授权单个 cell apply。外层投影必须确认：
-
-- 所有目标 cell 覆盖完整；
-- 每个 cell baseline 和最终向量完整通过；
-- 所有搜索均到达不动点；
-- 没有 `NON_MONOTONIC`、`NONDETERMINISTIC`、`NO_PASS_IN_SEARCH_SPACE` 或非证据状态；
-- 项目、候选、来源、构件和策略身份未漂移；
-- 精确 floor 可以由受支持 marker 表示。
-
-Apply 写入实际验证的 `>=exact_version`。它不生成或收紧上界，不修改 `<`、`<=`、`!=`、来源和无关字段。
-
-受限 search-space 可以 apply，但报告必须明确结果只是该空间内的 floor。
-
-## 15. 成本
-
-令 `m_d = |C[d]|`。
-
-单次、上下文固定的一维定界通常需要：
-
-```text
-1 次首次 probe + O(log m_d) 次二分 probe
-```
-
-小候选集改用 `O(m_d)` 线性探测。
-
-若总下降高度为 `H`，坐标算法最多执行 `H + 1` 轮 sweep。实际成本主要由解析、环境构建和完整测试决定，而不是纯搜索运算。
-
-fast path 将完整测试固定为 baseline 和 `V_static` 两次。动态路径的每个新 Proposal 都执行完整测试，但精确缓存避免重复。
-
-## 16. 后续工作
-
-以下能力不属于 v1：
-
-- 枚举或证明任意非单调空间中的真正最低版本；
-- 发现 hole 后继续 refinement；
-- 自动生成安全 `!=`；
-- 自动搜索不兼容上界；
-- failure attribution 和依赖置信度；
-- 测试用例关联、partial tests 和 progressive budget；
-- cost-aware、best-first 或并行单 cell probe；
-- 局部 dependency interaction 和组合搜索；
-- static-only 独立模式；
-- flaky retry 和重复确认；
-- 跨运行持久化 Evaluation 与 Proposal 环境；
-- 安全环境克隆、重置和增量依赖变更；
-- certification mode，对范围内所有候选逐一验证。
+- 任意非单调空间中的真正最低点；
+- hole 发现后的 refinement 或安全 `!=`；
+- 上界搜索；
+- failure attribution、partial tests 或 progressive budget；
+- 单 cell 并行 probe、cost-aware 或 best-first 顺序；
+- 依赖组合搜索；
+- flaky 重试与跨运行 Evaluation cache；
+- certification mode（逐一验证范围内所有候选）。
