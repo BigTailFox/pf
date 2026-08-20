@@ -74,7 +74,7 @@ src/pf/
 └── adapters/
     ├── process.py       # ProcessRunner seam 和 SubprocessRunner
     ├── uv.py            # uv 命令构造、解析和状态分类
-    ├── ty.py            # ty 命令与诊断分类
+    ├── ty.py            # ty gitlab JSON 与诊断规范化
     └── test_command.py  # 完整测试命令与退出码分类
 ```
 
@@ -164,9 +164,9 @@ class FrozenSchema(BaseModel):
 
 - `ProcessSpec`：完整 argv、cwd、环境增量、timeout、进程组和脱敏策略身份。
 - `ProcessResult`：退出码或 signal、耗时、脱敏 stdout/stderr 摘要、有界尾部和 timeout 标志。
-- `StaticPass`、`StaticFail` 和各非证据结果组成的 `StaticEvaluation` discriminator union。`TyCheck` 保存原始进程结果与规范化诊断；静态通过/失败由相对 `S_hi` 的增量决定，不能从 `ty` 退出码直接构造。
+- `StaticPass`、`StaticFail` 和各非证据结果组成的 `StaticEvaluation` discriminator union。`TyCheck` 保存原始进程结果与规范化诊断多重集；静态通过/失败由相对 `S_hi` 的多重集增量决定，不能从 `ty` 退出码直接构造。
 - `PassEvaluation`、`StaticFailEvaluation`、`TestFailEvaluation` 和各非证据结果组成的 `Evaluation` discriminator union。
-- `TyDiagnostic` 与 cell 级 `S_hi` digest；`STATIC_FAIL` 必须携带非空增量。
+- `TyDiagnostic` 与 cell 级 `S_hi` digest；`STATIC_FAIL` 必须携带非空增量多重集。未知 `check_name` 不能退化成空规则 id。
 - `ProgressEvent`：package、cell、阶段、已完成/总任务和不含 secret 的短消息。
 
 状态 union 必须让非法组合无法构造。例如 `PASS` 必须包含 static 与完整测试证据，`STATIC_FAIL` 不能包含伪造的测试结果，`TIMEOUT` 必须记录超时阶段。业务代码使用模式匹配处理具体结果，不把状态折叠为 `bool`。
@@ -443,7 +443,7 @@ ProcessRunner 不知道 `uv`、`ty` 或测试退出码语义。`UvAdapter`、`Ty
 
 `UvAdapter` 是所有 uv 命令构造和输出解析的唯一所有者，覆盖：解释器定位、候选查询、baseline resolve、精确 Proposal resolve/install、图冻结和构件身份。业务模块不得拼接 `uv pip` argv。
 
-`TyAdapter` 只负责运行 `ty`、固定机器可读输出、解析并规范化诊断，以及区分可比较的 `TyCheck` 与工具错误。它不创建环境，不保存 `S_hi`，也不决定是否继续测试。退出码 `1` 不是 `STATIC_FAIL`。
+`TyAdapter` 是结构化 diagnostic collector：运行 `ty`、固定 `--output-format gitlab`、拒绝与 adapter 拥有选项冲突的 `ty-args`、解析 JSON 并规范化诊断。它不创建环境，不保存 `S_hi`，不用退出码推断诊断条数，也不决定是否继续测试。退出 `0` 或 `1` 且 JSON 完整可解析时返回 `TyCheck`；退出 `2`/`101` 为 `TOOL_ERROR`。忽略 ty 的 `fingerprint`。
 
 `TestAdapter` 只运行完整 `test-command` argv，应用配置的 cwd、timeout 和 `test-failure-exit-codes`。v1 不提供 test selector、failure parser 或 partial test seam。
 
@@ -453,7 +453,7 @@ ProcessRunner 不知道 `uv`、`ty` 或测试退出码语义。`UvAdapter`、`Ty
 
 `EnvironmentFactory` 根据完整 Proposal 创建或定位隔离环境。
 
-`StaticEvaluator` 接收已安装环境和该 cell 冻结的 `S_hi`。它调用 `TyAdapter`，计算诊断增量，返回 `STATIC_PASS`、`STATIC_FAIL` 或非证据状态。捕获 `S_hi` 的那次 `TyCheck` 同时作为 `V_hi` 的静态通过证据，不再重跑。
+`StaticEvaluator` 接收已安装环境和该 cell 冻结的 `S_hi`。它调用 `TyAdapter`，计算诊断多重集增量，返回 `STATIC_PASS`、`STATIC_FAIL` 或非证据状态。捕获 `S_hi` 的那次 `TyCheck` 同时作为 `V_hi` 的静态通过证据，不再重跑。
 
 `FullEvaluator` 先查 static cache。精确 Proposal 未检查时调用带同一 `S_hi` 的 StaticEvaluator；静态通过后再调用 TestAdapter。
 
@@ -534,7 +534,7 @@ TESTED
 
 ```text
 PASS
-STATIC_FAIL   # 相对 S_hi 的增量诊断，不是 ty 退出码
+STATIC_FAIL   # 相对 S_hi 的多重集增量，不是 ty 退出码
 TEST_FAIL
 ```
 
@@ -550,7 +550,7 @@ TOOL_ERROR
 TIMEOUT
 ```
 
-`TyAdapter` 把进程结果分类为可比较的 `TyCheck` 或非证据状态。`StaticEvaluator` 完成相对 `S_hi` 的静态兼容性分类。`TestAdapter` 完成测试分类。CoordinateSearch 只接收分类后的结果。
+`TyAdapter` 把进程结果分类为可比较的 `TyCheck` 或非证据状态；退出码不证明诊断条数。`StaticEvaluator` 完成相对 `S_hi` 的多重集静态兼容性分类。`TestAdapter` 完成测试分类。CoordinateSearch 只接收分类后的结果。
 
 非证据状态终止当前 cell，不能推进边界。状态从底层向上传递时不得折叠成布尔值。
 
@@ -658,8 +658,8 @@ CoordinateSearch 是 `search.py` 的内部 seam，可以有集中算法测试，
 ### 18.4 Adapter 与端到端测试
 
 - `SubprocessRunner` 测进程组、signal、timeout、输出上限和脱敏；
-- Uv/Ty/Test adapter 使用 recording ProcessRunner 断言完整 argv、cwd、env 和状态分类；TyAdapter 覆盖 concise 解析、截断/非法输出为 `TOOL_ERROR`，以及退出码不直接等于静态评估状态；
-- `StaticEvaluator` 覆盖相对 `S_hi` 的空增量通过、新增身份失败、消失诊断仍通过，以及 check 与 search 共用同一比较；
+- Uv/Ty/Test adapter 使用 recording ProcessRunner 断言完整 argv、cwd、env 和状态分类；TyAdapter 覆盖 gitlab JSON 解析、截断/非法 JSON/`check_name` 缺失为 `TOOL_ERROR`、冲突 `ty-args` 为配置错误，以及退出码不直接等于静态评估状态或诊断条数；
+- `StaticEvaluator` 覆盖相对 `S_hi` 的空多重集增量通过、新增身份或重数增加失败、消失诊断仍通过，以及 check 与 search 共用同一比较；
 - 最小本地包端到端覆盖 `check -> search -> explain -> apply`；
 - CLI 端到端必须直接运行安装后的 `pf` 命令，不能只调用 Python 函数；
 - 需要网络、多个解释器或真实 index 的测试显式标记，不把环境缺失误报为功能回归。

@@ -77,7 +77,7 @@ V = {
 ### 2.5 核心向量
 
 - `B` / `V_hi`：当前声明按最高允许版本解析的 baseline 向量；
-- `S_hi`：`V_hi` 上一次 `ty` 运行冻结的规范化诊断集合；
+- `S_hi`：`V_hi` 上一次 `ty` 运行冻结的规范化诊断多重集；
 - `V_static`：StaticEvaluator 搜索得到的静态通过不动点；
 - `V_final`：FullEvaluator 搜索得到的完整通过不动点。
 
@@ -90,7 +90,7 @@ V = {
 1. `B` 已由 FullEvaluator 直接验证为 `PASS`。`B` 的静态部分相对自捕获的 `S_hi` 通过；完整测试必须单独通过。
 2. CandidateSnapshot 在搜索期间不可变化。
 3. 每次提交后的当前向量都被当前阶段的 Evaluator 直接验证为通过。
-4. 只有 `PASS`、`STATIC_FAIL` 和 `TEST_FAIL` 可以建立边界。`STATIC_FAIL` 表示相对 `S_hi` 的增量诊断，不是 `ty` 退出码。
+4. 只有 `PASS`、`STATIC_FAIL` 和 `TEST_FAIL` 可以建立边界。`STATIC_FAIL` 表示相对 `S_hi` 的多重集增量，不是 `ty` 退出码。
 5. 每次提交至少严格降低一个坐标，永不主动升高。
 6. 每轮扫描全部受管依赖；启发式不能排除依赖。
 7. 结果相互矛盾时停止，不用猜测恢复单调性。
@@ -170,7 +170,7 @@ Proposal + S_hi
 STATIC_PASS | STATIC_FAIL | 非证据状态
 ```
 
-`STATIC_PASS` 表示 `diagnostics(Proposal) − S_hi` 为空。`ty` 退出码 `1` 且无新诊断身份仍是静态通过。
+`STATIC_PASS` 表示 `diagnostics(Proposal) ⊖ S_hi` 为空多重集。退出码不是诊断条数或静态通过的证明。
 
 `STATIC_PASS` 环境保留到本次 search 结束，可以被相同 Proposal 的 FullEvaluator 晋升一次。
 
@@ -185,7 +185,7 @@ Proposal + S_hi
 PASS | STATIC_FAIL | TEST_FAIL | 非证据状态
 ```
 
-FullEvaluator 不运行测试子集。`STATIC_FAIL` 会短路测试，但仍是完整兼容性判据的失败结果。它表示相对 `S_hi` 的增量，不是项目既有 typing 错误。
+FullEvaluator 不运行测试子集。`STATIC_FAIL` 会短路测试，但仍是完整兼容性判据的失败结果。它表示相对 `S_hi` 的多重集增量，不是项目既有 typing 错误。
 
 ### 5.3 非证据状态
 
@@ -401,7 +401,7 @@ FullEvaluator(V_static)
 
 若结果为 `PASS`，立即返回 `V_static`。
 
-这是安全的 fast path：`V_static` 已按相对 `S_hi` 的增量静态坐标最小，而完整兼容性要求先静态通过；因此任何单坐标更低的完整通过版本都必须先违反静态不动点。
+这是安全的 fast path：`V_static` 已按相对 `S_hi` 的多重集增量静态坐标最小，而完整兼容性要求先静态通过；因此任何单坐标更低的完整通过版本都必须先违反静态不动点。
 
 正常 fast path 只需要两次完整测试：
 
@@ -431,7 +431,7 @@ V_final = minimize_coordinates(
 每个动态候选都需要完整兼容性判据：
 
 - 已有 `STATIC_PASS` 缓存时直接运行完整测试；
-- 未命中时先按需运行相对 `S_hi` 的 `ty` 增量检查；
+- 未命中时先按需运行相对 `S_hi` 的 `ty` 多重集增量检查；
 - 静态通过后运行完整 `test-command`；
 - 不使用 partial tests。
 
