@@ -1,6 +1,6 @@
 # PF `ty` 增量静态证据
 
-- **状态：** 已实现
+- **状态：** 实施中
 - **策略版本：** `increment-v2`
 - **最后核对：** 2026-08-20
 - **产品结果：** [D001](D001-pf.md)
@@ -191,7 +191,7 @@ sha256("pf:ty-diagnostic-baseline:increment-v2\0" + canonical identity list)
 
 `FullEvaluator` 只接受 static pass 进入完整测试。`CoordinateSearch` 看见分类与 Proposal identity，不读取诊断内容。
 
-## 7. check 与 search 的基线生命周期
+## 7. check、smoke 与 search 的基线生命周期
 
 ### 7.1 check
 
@@ -209,9 +209,15 @@ prepare lowest-direct V_check
 
 ### 7.2 search
 
-`SearchCoordinator` 在 baseline 环境 capture 一次，复用捕获所得 static pass 运行 baseline 完整测试，并把同一 `StaticBaseline` 注入 D003 的所有 static/full probe。
+`HighestVersionVerifier` 在 baseline 环境 capture 一次，复用捕获所得 static pass 运行 baseline 完整测试；`SearchCoordinator` 消费该结果，并把同一 `StaticBaseline` 注入 D003 的所有 static/full probe。
 
 项目既有诊断本身不会使 baseline static fail；baseline 是否继续、两阶段 probe 顺序和终态由 D001/D003 定义。
+
+### 7.3 smoke
+
+`smoke` 直接消费 `HighestVersionVerifier` 的完整结果，不发现候选。capture 返回的同一个 `TyCheck` 同时作为最高版本 Proposal 的 static pass，随后进入完整测试；不得为了展示 warning 再运行 `ty`。
+
+合法 `TyCheck` 的诊断数量可以为任意非负整数。每条诊断由 Presenter 按 D001 的短格式显示为 warning；这些展示规则不进入 `S_hi`、digest 或 Evaluation 分类。测试通过即为 smoke pass，测试正常失败即为 smoke compatibility failure；不能产生合法 `TyCheck` 或完整测试结果时保持非证据状态。
 
 ## 8. Schema 与报告
 
@@ -225,7 +231,7 @@ prepare lowest-direct V_check
 
 Schema validator 双向检查分类和结构：static pass 必须空 increment，static fail 必须非空且是当前 TyCheck 的子多重集，baseline capture 必须复用同一个 TyCheck。缺失或跨 scope 的证据不能读成有效 Schema 1 报告。
 
-`explain` 分别展示 baseline 诊断计数与 candidate 新增诊断，不能把 baseline 既有错误描述成本次不兼容原因。
+`check`、`smoke`、`search` 和 `explain` 复用同一个 `TyDiagnostic` 短摘要格式。它们分别展示与命令有关的 baseline/current 诊断或 candidate 新增诊断，不能把 baseline 既有错误描述成本次不兼容原因。
 
 完整 `TyCheck` 继续保留 severity 和 message，因此 identity 命中但 message 改变仍可在报告中离线分析；这不改变 `STATIC_PASS` / `STATIC_FAIL`。
 

@@ -1,6 +1,6 @@
 # PF 实现结构
 
-- **状态：** 已实现
+- **状态：** 实施中
 - **最后核对：** 2026-08-20
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -49,14 +49,16 @@ src/pf/
 ├── policy.py            # Evaluation 策略 identity
 ├── project.py           # ProjectLoader、声明/cell/source/test group 规划
 ├── snapshot.py          # SnapshotBuilder 与 SourceSnapshot 生命周期
+├── runlog.py            # RunLogStore 与脱敏的有界进程详细日志
 ├── candidates.py        # CandidateBuilder
 ├── environment.py       # EnvironmentFactory 与 PreparedEnvironment
 ├── evaluation.py        # StaticEvaluator、FullEvaluator、EvaluationCache
+├── baseline.py          # HighestVersionVerifier 的最高版本完整验证生命周期
 ├── search.py            # CoordinateSearch 与 SearchCoordinator
 ├── scheduling.py        # Scheduler、deadline 与规范结果顺序
 ├── report.py            # PackageReportBuilder 与 ReportStore
 ├── editor.py            # ProjectEditor 与恢复日志
-├── workflow.py          # 六个命令的应用工作流
+├── workflow.py          # 七个命令的应用工作流
 ├── schemas/
 │   ├── base.py
 │   ├── config.py
@@ -118,7 +120,7 @@ Schema validator 只验证本记录的结构和纯不变量。需要 I/O 或多�
 `schemas/config.py`：
 
 - `EffectiveConfig`：合并并规范化后的完整包配置；
-- `CheckRequest`、`SearchRequest`、`ReportRequest`、`ApplyRequest`、`MergeRequest`：CLI 与工作流之间的严格请求。
+- `CheckRequest`、`SmokeRequest`、`SearchRequest`、`ReportRequest`、`ApplyRequest`、`MergeRequest`：CLI 与工作流之间的严格请求。
 
 原始 TOML patch 只在 `ConfigLoader` 内部使用普通 mapping，不跨模块传播。默认值、层级权限、互斥条件和字段规范化均由 `ConfigLoader` 一次完成。
 
@@ -138,8 +140,10 @@ Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解�
 
 - `ProcessSpec` / `ProcessResult` 与外部工具结果；
 - D004 定义的 `TyDiagnostic`、`TyCheck`、`StaticBaseline` 与 static/full Evaluation union；
-- `CheckResult`、`CacheConflict`；
+- `CheckResult`、`SmokeResult`、`CacheConflict`；
 - `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`。
+
+详细日志引用不进入 `ProcessResult` 或其他公共 Schema。`RunLogStore` 只在当前进程内按 `ProcessResult` 对象 identity 维护引用；报告序列化/重新读取后没有本地引用。日志丢失不能改变已经记录的 Evaluation 证据。
 
 `schemas/report.py`：
 
@@ -172,8 +176,9 @@ handler 只构造 request、调用一个 workflow、交给 `TerminalPresenter` �
 
 | 工作流 | 编排职责 | 写入 |
 | --- | --- | --- |
-| `CheckCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → CompatibilityChecker | 临时环境 |
-| `SearchCommandWorkflow` | load → snapshot → 宿主 cell 搜索 → report build/update/write | `package-floor.json` |
+| `CheckCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → CompatibilityChecker | `.pf/logs`、临时环境 |
+| `SmokeCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → HighestVersionVerifier | `.pf/logs`、临时环境 |
+| `SearchCommandWorkflow` | load → snapshot → 宿主 cell 搜索 → report build/update/write | `.pf/logs`、`package-floor.json` |
 | `ExplainCommandWorkflow` | load → 定位并读取报告 | 无 |
 | `MergeCommandWorkflow` | read → merge → write | 显式 output |
 | `ApplyCommandWorkflow` | load → 读取并核对报告 → `ProjectEditor.apply_many` | `pyproject.toml`、`.pf` 日志 |
@@ -250,6 +255,17 @@ evaluate(prepared, package, baseline, static_result=None) -> Evaluation
 
 静态比较的完整规则由 D004 定义。`FullEvaluator` 只在 `StaticPassEvaluation` 后运行完整 `TestAdapter`，并保留原始 static/test 机械证据。
 
+### 8.4 最高版本完整验证
+
+`HighestVersionVerifier` interface：
+
+```text
+verify(package, cell, snapshot)
+  -> HighestVersionVerification | ToolFailure | IndeterminateEvaluation
+```
+
+它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> close` 生命周期，返回冻结的 `StaticBaseline` 与完整 Evaluation。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`，因此不调用该 interface。
+
 本设计把单 cell 当前使用的 Evaluation context 定义为：
 
 ```text
@@ -284,7 +300,7 @@ minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
 search(package, cell, snapshot) -> CellResult
 ```
 
-它拥有单 cell 状态机：建立 baseline 与 D004 静态基线、冻结候选、调用 static/dynamic CoordinateSearch、组装强类型 CellResult。它不负责跨 cell 并发或总时限。
+它拥有单 cell 搜索状态机：消费 `HighestVersionVerifier` 已建立的 baseline 与 D004 静态基线、冻结候选、调用 static/dynamic CoordinateSearch、组装强类型 CellResult。它不复制最高版本验证，不负责跨 cell 并发或总时限。
 
 `Scheduler.run(tasks, jobs, max_duration_seconds, events)` 只调度独立 cell callable，限制并发、停止启动超过 deadline 的任务、为未启动 cell 产生 `TIMEOUT`、消费进度事件并按 package/target/python/extra 规范排序。单 cell 内 probe 始终串行。
 
@@ -297,6 +313,15 @@ run(ProcessSpec) -> ProcessResult
 ```
 
 生产 adapter 是 `SubprocessRunner`。它唯一拥有 `shell=False` argv、cwd、最小环境增量、独立进程组、输出上限、timeout 终止、signal/启动错误机械记录和通用 secret/URL 脱敏。它不知道 uv、ty 或测试退出码语义。
+
+`RunLogStore` 是 `SubprocessRunner` 的可选记录 seam。生产 composition root 为每次 CLI 运行注入一个 store；runner 在进程完成并完成脱敏后调用：
+
+```text
+record(process_id, redacted_spec, redacted_result) -> absolute_log_path
+reference_for(process_result) -> absolute_log_path | None
+```
+
+store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，使用项目相对展示路径、随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名。`reference_for` 使用当前进程内对象 identity，不修改 Schema，也不尝试用可能碰撞的内容 hash 关联日志。写日志失败是基础设施错误，不能静默继续产生一个违反 CLI 可诊断性契约的 Evaluation。
 
 ### 10.2 UvAdapter、TyAdapter、TestAdapter
 
@@ -347,6 +372,15 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 - TTY：主线程消费 ActivityEvent 并动态刷新；
 - 非 TTY：相同事件变为稳定文本行。
 
+Presenter 还唯一拥有 D001 的人类摘要规则：
+
+- 从强类型 `TyDiagnostic` 生成稳定单行摘要；
+- 把 adapter stage 映射为 install/harness/static/dynamic 用户阶段；
+- 从 `ProcessResult` 选择一行原因并折叠空白，不转储多行工具输出；
+- 用运行时日志引用生成项目相对文本和可选 OSC 8 本地文件链接。
+
+adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情，Presenter 不重新读取日志来决定状态。
+
 生产代码不固定 Console/Table/Progress 的 width、height 或列尺寸，让 Rich 适配终端。worker 和 adapter 不直接打印。
 
 ## 13. 验证边界
@@ -354,10 +388,10 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 测试以模块 interface 为表面：
 
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
-- CLI：两个入口、六命令 help、参数默认值、stdout/stderr 和退出码；
+- CLI：两个入口、七命令 help、参数默认值、stdout/stderr 和退出码；
 - 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据；
 - adapter：recording ProcessRunner、argv、状态、timeout、truncation 与脱敏；
 - 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
-- 端到端：安装 wheel 后执行真实 `check -> search -> explain -> apply`。
+- 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> apply`。
 
 需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../../plans/P001-pf-v1.md) 与 [P002](../../plans/P002-pf-ty-enhancement.md)。

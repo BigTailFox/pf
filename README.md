@@ -18,6 +18,7 @@ PF v1 以一个可独立安装的包和一个兼容性 cell 为搜索单位：
 
 ```text
 pf check [package] [--jobs auto|N]
+pf smoke [package] [--jobs auto|N]
 pf search [package] [--jobs auto|N] [--max-duration DURATION]
 pf apply [package]
 pf minimize [package] [--jobs auto|N] [--max-duration DURATION]
@@ -29,6 +30,7 @@ pf merge REPORT... --output PATH
 
 ```text
 uv run pf --help
+uv run pf smoke
 uv run pf check
 uv run pf search
 uv run pf explain
@@ -38,6 +40,8 @@ uv run pf apply
 项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
 
 `search` 只写 `package-floor.json`。`apply` 只消费完整、未漂移且可表示的报告，不重新解析依赖、不运行 `ty` 或测试。
+
+`smoke` 在当前声明约束内建立尽可能新的 fresh install，运行一次 `ty` 和完整测试。`ty` 诊断以 warning 摘要展示，测试失败才是兼容性失败。外部工具的脱敏详细记录写入 `.pf/logs/`，终端摘要在支持时链接到对应日志。
 
 ## 文档
 
