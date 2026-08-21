@@ -12,7 +12,7 @@ README.md                 # 使用入口：能力摘要，链接到本页与 D00
 CONTEXT.md                # 领域词汇；不定义产品或实现规则
 docs/
 ├── README.md             # 本页：所有权、状态、导航
-├── designs/              # 规范性契约 D001–D006
+├── designs/              # 规范性契约 D001–D007
 └── plans/                # 非规范性实施记录 P001–P004
 ```
 
@@ -36,8 +36,9 @@ docs/
 | `ty` 静态证据 | [D004](designs/D004-pf-ty-enhancement.md) | `S_hi`、诊断身份、多重集增量、`TyAdapter` 与 `StaticEvaluator` 的职责 | 现行 | [P002](plans/P002-pf-ty-enhancement.md) |
 | failure 与 diagnose | [D005](designs/D005-pf-failure-and-diagnose.md) | Attempt、Rejection/Indeterminate、安装失败的搜索处置、FailureRecord、本地日志关联和 `pf diagnose` | 现行 | [P004](plans/P004-pf-failure-and-diagnose.md) |
 | CLI 交互与展示 | [D006](designs/D006-pf-cli-enhancement.md) | help 信息架构、调用错误、结果摘要、终端层级和 `pf explain` 展示 | 现行契约，待实现 | — |
+| 进程输出与日志 | [D007](designs/D007-pf-process-output.md) | 磁盘日志原文、每进程 16 MiB 输出缓存、`stdout_complete` / `stderr_complete` | 现行契约，待实现 | — |
 
-职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D002 可以列出模块位置但不复制 D004–D006 的业务或展示规则；D001 可以承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006。
+职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D002 可以列出模块位置但不复制 D004–D007 的业务或展示规则；D001 可以承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出与日志完整性只在 D007。
 
 ## 非规范性文档
 

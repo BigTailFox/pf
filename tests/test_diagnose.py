@@ -431,7 +431,7 @@ def test_diagnose_resolves_a_successful_floor_predecessor_and_local_log(
     assert "proposal: idna=2.0" in rendered
     assert "boundary role: predecessor" in rendered
     assert "process: exited 1" in rendered
-    assert "summary: tests failed" in rendered
+    assert "summary: tests failed" not in rendered
     assert ".pf/logs/run/process-0001.log" in rendered
 
 

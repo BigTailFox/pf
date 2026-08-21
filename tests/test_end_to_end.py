@@ -54,7 +54,8 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         results[command] = result
 
     assert "[py3.10]" in results["smoke"].stderr
-    assert "details: .pf/logs/" in results["smoke"].stderr
+    assert ".pf/logs/" in results["smoke"].stderr
+    assert "details." in results["smoke"].stderr
     assert "diagnosed 0 failures" in results["diagnose"].stdout
     assert (tmp_path / "package-floor.json").is_file()
     process_logs = tuple((tmp_path / ".pf/logs").glob("*/process-*.log"))
@@ -115,5 +116,7 @@ test-command = ["python", "-c", "raise SystemExit('smoke test failed')"]
 
     assert result.returncode == 1, (result.stdout, result.stderr)
     assert "The full test command failed for this version combination." in result.stderr
-    assert "smoke test failed" not in result.stderr
-    assert "details: .pf/logs/" in result.stderr
+    assert "details." in result.stderr
+    assert ".pf/logs/" in result.stderr
+    assert "pf diagnose demo --failure" in result.stderr
+    assert "failed at testing" in result.stderr

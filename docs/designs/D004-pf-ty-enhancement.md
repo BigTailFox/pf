@@ -8,8 +8,9 @@
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
+- **进程输出与日志：** [D007](D007-pf-process-output.md)
 
-本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线和增量比较的唯一契约。D001 只使用本文产生的静态结果；D002 只定义模块位置；D003 只消费搜索 disposition；工具 cause 到 Rejection/Indeterminate 的处置由 D005 定义；诊断在普通命令和 `explain` 中的展示层级由 D006 定义。
+本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线和增量比较的唯一契约。D001 只使用本文产生的静态结果；D002 只定义模块位置；D003 只消费搜索 disposition；工具 cause 到 Rejection/Indeterminate 的处置由 D005 定义；诊断在普通命令和 `explain` 中的展示层级由 D006 定义；`stdout_complete` 由 D007 定义。
 
 ## 1. 目标
 
@@ -89,9 +90,9 @@ ty check
 ### 4.1 工具完成与退出码
 
 ```text
-exit 0 或 1 + 未截断、合法 GitLab JSON -> TyCheck
+exit 0 或 1 + stdout_complete + 合法 GitLab JSON -> TyCheck
 timeout                              -> TIMEOUT cause
-其他退出、启动失败、截断或非法输出   -> TOOL_FAILURE cause
+其他退出、启动失败、stdout_complete 为 false 或非法输出 -> TOOL_FAILURE cause
 ```
 
 退出 `0` 的 JSON 可以含诊断，退出 `1` 的 JSON 也可以为空。退出码只说明本次工具执行是否可收集，不证明诊断数量或静态兼容性。
@@ -270,7 +271,7 @@ identity_rule = snapshot-path-line-column-code+external-namespace-path-code
 4. baseline 诊断消失或减少不推进失败边界。
 5. check 与 search 共享同一 StaticEvaluator 语义。
 6. 完整 `PASS` 仍要求完整测试。
-7. 截断、坏 JSON、缺字段或 owned-option 冲突不能生成兼容性边界。
+7. `stdout_complete` 为 false、坏 JSON、缺字段或 owned-option 冲突不能生成兼容性边界。
 8. `CoordinateSearch` 不解释诊断或 `ty` 退出码。
 9. 一个 cell 的 baseline 不能复用于另一个 cell、snapshot 或 policy。
 

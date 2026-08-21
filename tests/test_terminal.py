@@ -292,7 +292,7 @@ def test_render_error_keeps_completed_steps_and_drops_in_progress() -> None:
     )
 
     output = visible(terminal.getvalue())
-    assert "✓ loaded project\n" in output
+    assert "✓ loaded project" in output
     assert "built snapshot" not in output
     assert "✗ configuration: project source snapshot has drifted since search" in output
 
@@ -330,10 +330,10 @@ def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty() -> None:
     tty_presenter.close()
 
     assert plain.getvalue() == "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-    assert (
-        "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
-        in visible(terminal.getvalue())
+    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in visible(
+        terminal.getvalue()
     )
+    assert "╭" in visible(terminal.getvalue())
 
 
 def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
@@ -369,8 +369,8 @@ def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
 
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  error: Unresolved import 'missing'\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at static checking\n"
+        "error: Unresolved import 'missing'\n"
     )
 
 
@@ -397,8 +397,9 @@ def test_completed_cell_log_collapses_multiline_diagnostics_to_a_summary() -> No
 
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.12][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  Failed to build `numpy==1.24.0` Because cmake is missing\n"
+        "✗ [py3.12][x86_64-unknown-linux-gnu][no-extra] failed at installing dependencies\n"
+        "Failed to build `numpy==1.24.0`\n"
+        "Because cmake is missing\n"
     )
 
 
@@ -448,11 +449,289 @@ def tty_task_table(terminal: TerminalPresenter) -> str:
     return rendered.getvalue()
 
 
+def tty_live_display(terminal: TerminalPresenter) -> str:
+    assert terminal._progress is not None
+    rendered = StringIO()
+    console = Console(file=rendered, force_terminal=True, color_system=None, width=120)
+    for renderable in terminal._progress.get_renderables():
+        console.print(renderable)
+    return rendered.getvalue()
+
+
 def tty_presenter() -> TerminalPresenter:
     return TerminalPresenter(
         stdout=Console(file=StringIO(), force_terminal=True),
         stderr=Console(file=StringIO(), force_terminal=True),
     )
+
+
+def test_tty_setup_facts_render_in_one_rounded_card() -> None:
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(file=stderr, force_terminal=True),
+    )
+    cells = (
+        Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        ),
+        Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        ),
+        Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.12",
+            extra_surface=(),
+        ),
+    )
+
+    terminal.consume(StatusEvent(message="loading project"))
+    terminal.consume(StatusEvent(message="building snapshot"))
+    terminal.consume(StatusEvent(message="smoke testing"))
+    terminal.consume(CellMatrixEvent(cells=cells))
+
+    output = visible(stderr.getvalue())
+    assert output.count("╭") == 1
+    assert "✓ loaded project" in output
+    assert "✓ built snapshot" in output
+    assert "✓ selected 3 cells" in output
+    assert "python: 3.10, 3.11, 3.12" in output
+    assert "platform: x86_64-unknown-linux-gnu" in output
+    assert "extra surfaces: no-extra" in output
+    terminal.close()
+
+
+def test_tty_each_live_cell_renders_in_its_own_rounded_card() -> None:
+    cell_a = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    cell_b = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    terminal = tty_presenter()
+    terminal.consume(StatusEvent(message="smoke testing"))
+    terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_a,
+            phase="dynamic tests",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell_b,
+            phase="dynamic tests",
+            completed=0,
+            total=2,
+            message="running",
+        )
+    )
+
+    live = tty_live_display(terminal)
+    assert live.count("╭") == 2
+    assert "[py3.10][x86_64-unknown-linux-gnu][no-extra]" in live
+    assert "[py3.11][x86_64-unknown-linux-gnu][no-extra]" in live
+    assert live.count("dynamic tests") == 2
+    terminal.close()
+
+
+def test_tty_cell_title_uses_cyan() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    terminal = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(
+            file=StringIO(),
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+        ),
+    )
+    terminal.consume(StatusEvent(message="smoke testing"))
+    terminal.consume(CellMatrixEvent(cells=(cell,)))
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="dynamic tests",
+            completed=0,
+            total=1,
+            message="running",
+        )
+    )
+
+    painted = StringIO()
+    colored = Console(
+        file=painted,
+        force_terminal=True,
+        no_color=False,
+        color_system="standard",
+        theme=PF_THEME,
+        width=120,
+    )
+    assert terminal._progress is not None
+    for renderable in terminal._progress.get_renderables():
+        colored.print(renderable)
+    output = painted.getvalue()
+    title_at = output.index("[py3.10]")
+    assert "36" in output[: title_at + 1]
+    assert "1" in output[: title_at + 1]
+    terminal.close()
+
+
+def test_tty_frozen_failure_card_leads_with_diagnose_details_and_process_summary(
+    tmp_path: Path,
+) -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.11",
+        extra_surface=(),
+    )
+    attempt = attempt_for(cell)
+    proposal = Proposal(
+        proposal_id="highest",
+        attempt_id=attempt.attempt_id,
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    ty_process = process_result(exit_code=0, stdout="[]")
+    check = TyCheck(process=ty_process, diagnostics=())
+    static = StaticPassEvaluation(
+        proposal=proposal,
+        ty=check,
+        baseline_digest=ty_diagnostic_digest(()),
+    )
+    test_process = process_result(
+        stderr=(
+            "==================== test session starts ====================\n"
+            "collected 3 items\n"
+            "FAILED tests/test_cli.py::test_example\n"
+            "FAILED tests/test_project.py::test_load\n"
+            "=== 2 failed, 1 passed in 0.51s ==="
+        )
+    )
+    baseline = StaticBaseline(
+        proposal=proposal,
+        ty=check,
+        digest=ty_diagnostic_digest(check.diagnostics),
+    )
+    evaluation = TestFailEvaluation(
+        proposal=proposal,
+        static=static,
+        test=TestFail(process=test_process),
+    )
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="TEST_FAILURE",
+        stage="test",
+        process=test_process,
+    )
+    logs = RunLogStore(root=tmp_path, run_id="tty-run")
+    logs.record(
+        2,
+        ProcessSpec(
+            argv=("pytest",),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=10,
+        ),
+        test_process,
+    )
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=StringIO(), force_terminal=True),
+        stderr=Console(
+            file=stderr,
+            force_terminal=True,
+            no_color=False,
+            color_system="standard",
+            theme=PF_THEME,
+            width=120,
+        ),
+        logs=logs,
+        root=tmp_path,
+    )
+
+    exit_code = terminal.render_smoke(
+        SmokeBaselineRejection(
+            outcomes=(
+                BaselineRejection(
+                    attempt=attempt,
+                    failure=failure,
+                    static_baseline=baseline,
+                    evaluation=evaluation,
+                ),
+            )
+        )
+    )
+
+    output = stderr.getvalue()
+    plain = visible(output)
+    stripped = "".join(" " if ch in "│╭╮╰╯─" else ch for ch in plain)
+    collapsed = " ".join(stripped.split())
+    diagnose = f"`pf diagnose demo --failure {failure.failure_id}`"
+    assert exit_code == 1
+    assert "╭" in plain
+    assert "failed at testing" in collapsed
+    assert diagnose in collapsed
+    assert "-> run" in collapsed
+    assert "-> see" in collapsed
+    assert "for more information" in collapsed
+    assert "The full test command failed for this version combination." in collapsed
+    assert (
+        "The highest-version baseline did not pass, so PF did not start the floor "
+        "search for this cell."
+        in collapsed
+    )
+    assert ".pf/logs/tty-run/process-0002.log" in collapsed
+    assert "details." in collapsed
+    assert "test session starts" not in collapsed
+    assert "collected 3 items" not in collapsed
+    assert "FAILED tests/test_cli.py::test_example" in collapsed
+    assert "FAILED tests/test_project.py::test_load" in collapsed
+    assert "=== 2 failed, 1 passed in 0.51s ===" in collapsed
+    assert collapsed.index("failed at testing") < collapsed.index(
+        "The full test command failed for this version combination."
+    )
+    assert collapsed.index("The full test command failed") < collapsed.index(
+        "for more information"
+    )
+    assert collapsed.index("for more information") < collapsed.index(
+        "FAILED tests/test_cli.py"
+    )
+    assert collapsed.index("=== 2 failed, 1 passed in 0.51s ===") < collapsed.index(
+        "details."
+    )
+    assert "31" in output
+    path_at = output.index(".pf/logs/tty-run/process-0002.log")
+    assert "34" in output[:path_at]
 
 
 def test_tty_progress_spins_when_total_is_unknown() -> None:
@@ -528,10 +807,11 @@ def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
     terminal.consume(StatusEvent(message="searching cells"))
     terminal.consume(CellMatrixEvent(cells=(cell_a, cell_b)))
     output = visible(stderr.getvalue())
-    assert "✓ selected 2 cells\n" in output
-    assert "  python: 3.10, 3.11\n" in output
-    assert "  platform: x86_64-unknown-linux-gnu\n" in output
-    assert "  extra surfaces: no-extra, cuda\n" in output
+    assert "✓ selected 2 cells" in output
+    assert "python: 3.10, 3.11" in output
+    assert "platform: x86_64-unknown-linux-gnu" in output
+    assert "extra surfaces: no-extra, cuda" in output
+    assert "╭" in output
     table = tty_task_table(terminal)
     assert "0/2" in table
     assert "searching cells" in table
@@ -590,9 +870,8 @@ def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
     assert "SUCCESS" not in table
     assert "━" in table
     assert "1/2" in table
-    assert (
-        "✓ [py3.11][x86_64-unknown-linux-gnu][cuda] 0:00:00\n"
-        in visible(stderr.getvalue())
+    assert "✓ [py3.11][x86_64-unknown-linux-gnu][cuda] 0:00:00" in visible(
+        stderr.getvalue()
     )
 
     terminal.close()
@@ -694,7 +973,8 @@ def test_tty_running_cell_shows_dim_stage_under_the_title() -> None:
     assert "[py3.11][x86_64-unknown-linux-gnu][no-extra]" in table
     terminal.close()
     frozen = visible(stderr.getvalue())
-    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n" in frozen
+    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in frozen
+    assert "╭" in frozen
 
 
 def test_tty_search_and_cell_rows_use_the_same_indent_as_other_stages() -> None:
@@ -729,9 +1009,13 @@ def test_tty_search_and_cell_rows_use_the_same_indent_as_other_stages() -> None:
         )
     )
 
-    frozen = visible(stderr.getvalue()).splitlines()
-    assert frozen[0] == "✓ selected 2 cells"
-    assert frozen[1] == "  python: 3.10, 3.11"
+    frozen = [
+        line.strip("│ ").rstrip()
+        for line in visible(stderr.getvalue()).splitlines()
+        if line.strip() and line.strip() not in {"╭", "╰"} and "─" not in line
+    ]
+    assert "✓ selected 2 cells" in frozen
+    assert "python: 3.10, 3.11" in frozen
     table_lines = [
         line.rstrip() for line in tty_task_table(terminal).splitlines() if line.strip()
     ]
@@ -796,10 +1080,12 @@ def test_tty_completed_cell_freezes_into_the_log_immediately() -> None:
         "checking declarations"
     )
     frozen = visible(stderr.getvalue())
-    assert (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
-        "  error: Unresolved import 'missing'\n"
-    ) in frozen
+    assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in frozen
+    assert "failed at static checking" in frozen
+    assert "0:00:00" in frozen
+    assert "error: Unresolved import 'missing'" in frozen
+    assert "  error: Unresolved import 'missing'" not in frozen
+    assert "╭" in frozen
 
     terminal.consume(
         ProgressEvent(
@@ -812,11 +1098,9 @@ def test_tty_completed_cell_freezes_into_the_log_immediately() -> None:
         )
     )
     frozen = visible(stderr.getvalue())
-    assert (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
-        "  error: Unresolved import 'missing'\n"
-        "✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
-    ) in frozen
+    assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in frozen
+    assert "✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in frozen
+    assert frozen.count("╭") >= 2
     assert "checked declarations" not in frozen
 
 
@@ -879,26 +1163,27 @@ def test_tty_status_stages_spin_then_complete_in_past_tense() -> None:
     assert terminal.getvalue() == ""
 
     presenter.consume(StatusEvent(message="building snapshot"))
-    assert "✓ loaded project\n" in visible(terminal.getvalue())
-    assert "loading project\n" not in visible(terminal.getvalue())
+    assert visible(terminal.getvalue()) == ""
     table = tty_task_table(presenter)
     assert "building snapshot" in table
     assert "⠋" in table
 
     presenter.consume(StatusEvent(message="searching cells"))
-    assert "✓ built snapshot\n" in visible(terminal.getvalue())
+    assert visible(terminal.getvalue()) == ""
     table = tty_task_table(presenter)
     assert "searching cells" in table
     assert "⠋" in table
 
     presenter.close()
     output = visible(terminal.getvalue())
-    assert "✓ loaded project\n" in output
-    assert "✓ built snapshot\n" in output
-    assert "✓ searched cells\n" not in output
+    assert "✓ loaded project" in output
+    assert "✓ built snapshot" in output
+    assert "✓ searched cells" not in output
     assert "loading project\n" not in output
     assert "building snapshot\n" not in output
     assert "searching cells\n" not in output
+    assert "╭" in output
+    assert "╰" in output
 
 
 def test_tty_keeps_completed_steps_without_clearing_them() -> None:
@@ -936,24 +1221,23 @@ def test_tty_keeps_completed_steps_without_clearing_them() -> None:
     )
 
     output = visible(terminal.getvalue())
-    assert "✓ loaded project\n" in output
-    assert "✓ built snapshot\n" in output
+    assert "✓ loaded project" in output
+    assert "✓ built snapshot" in output
     assert "searching cells\n" not in output
     table = tty_task_table(presenter)
     assert "searching cells" in table
     assert "1/2" in table
     assert "[py3.10][x86_64-unknown-linux-gnu][no-extra]" not in table
     assert "uv pip install" not in table
-    assert (
-        "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
-        in visible(terminal.getvalue())
+    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in visible(
+        terminal.getvalue()
     )
 
     presenter.close()
     output = visible(terminal.getvalue())
-    assert "✓ loaded project\n" in output
-    assert "✓ built snapshot\n" in output
-    assert "✓ searched cells\n" not in output
+    assert "✓ loaded project" in output
+    assert "✓ built snapshot" in output
+    assert "✓ searched cells" not in output
     assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in output
 
 
@@ -1021,6 +1305,18 @@ def test_tty_completed_status_checkmark_is_green() -> None:
 
     presenter.consume(StatusEvent(message="loading project"))
     presenter.consume(StatusEvent(message="building snapshot"))
+    presenter.consume(
+        CellMatrixEvent(
+            cells=(
+                Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.10",
+                    extra_surface=(),
+                ),
+            )
+        )
+    )
 
     output = terminal.getvalue()
     assert "✓ loaded project" in visible(output)
@@ -1056,12 +1352,12 @@ def test_tty_matrix_axis_lines_are_dim() -> None:
     output = terminal.getvalue()
     python_at = output.index("python:")
     assert "\x1b[2m" in output[: python_at + 1]
-    assert visible(output) == (
-        "✓ selected 1 cell\n"
-        "  python: 3.10\n"
-        "  platform: x86_64-unknown-linux-gnu\n"
-        "  extra surfaces: no-extra\n"
-    )
+    plain = visible(output)
+    assert "✓ selected 1 cell" in plain
+    assert "python: 3.10" in plain
+    assert "platform: x86_64-unknown-linux-gnu" in plain
+    assert "extra surfaces: no-extra" in plain
+    assert "╭" in plain
 
 
 def test_tty_completed_cell_log_keeps_dim_status_and_diagnostic() -> None:
@@ -1108,15 +1404,15 @@ def test_tty_completed_cell_log_keeps_dim_status_and_diagnostic() -> None:
 
     output = terminal.getvalue()
     plain = visible(output)
-    assert (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
-        "  error: Unresolved import 'missing'\n"
-    ) in plain
+    assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
+    assert "failed at static checking" in plain
+    assert "0:00:00" in plain
+    assert "error: Unresolved import 'missing'" in plain
+    assert "  error: Unresolved import 'missing'" not in plain
     assert "STATIC_FAIL" not in plain
+    assert "╭" in plain
     title_at = output.index("[py3.10]")
     assert "31" in output[:title_at]
-    detail_at = output.rindex("error: Unresolved import")
-    assert "\x1b[2m" in output[: detail_at + 1]
 
 
 def test_tty_failed_progress_uses_a_red_cross() -> None:
@@ -1409,11 +1705,13 @@ def test_smoke_test_failure_prints_dynamic_summary_and_log_link(
     assert exit_code == 1
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  The full test command failed for this version combination.\n"
-        "  The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
-        f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
-        "  details: .pf/logs/smoke-run/process-0002.log\n"
+        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
+        "The full test command failed for this version combination.\n"
+        "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
+        f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+        "1 failed\n"
+        "2 passed\n"
+        "-> see .pf/logs/smoke-run/process-0002.log for details.\n"
     )
 
 
@@ -1526,21 +1824,22 @@ def test_search_candidate_diagnostics_use_stage_summaries_and_log_links(
     assert "The full test command failed for this version combination." in output
     assert "test dependencies cannot be installed" in output
     assert "RESOLUTION_CONFLICT" not in output
-    assert output.count("details: .pf/logs/search-run/") == 3
+    assert output.count(".pf/logs/search-run/") == 3
+    assert output.count("for details.") == 3
 
 
 @pytest.mark.parametrize(
-    ("adapter_stage", "user_stage"),
+    ("adapter_stage", "failed_at"),
     (
-        ("install", "install"),
-        ("install-harness", "harness"),
-        ("ty", "static"),
-        ("test", "dynamic"),
+        ("install", "installing dependencies"),
+        ("install-harness", "installing harness"),
+        ("ty", "static checking"),
+        ("test", "testing"),
     ),
 )
 def test_smoke_tool_failures_use_stable_user_stage_names(
     adapter_stage: str,
-    user_stage: str,
+    failed_at: str,
 ) -> None:
     terminal, stdout, stderr = presenter()
     cell = Cell(
@@ -1565,13 +1864,9 @@ def test_smoke_tool_failures_use_stable_user_stage_names(
 
     assert exit_code == 4
     assert stdout.getvalue() == ""
+    assert f"failed at {failed_at}" in stderr.getvalue()
     assert (
         "PF could not complete a verification tool operation reliably."
-        in stderr.getvalue()
-    )
-    assert (
-        "PF could not determine whether the highest-version baseline "
-        "works, so it stopped this cell."
         in stderr.getvalue()
     )
     assert "this candidate" not in stderr.getvalue()
@@ -1661,8 +1956,8 @@ def test_smoke_ty_diagnostics_are_warnings_with_one_line_summaries(
     assert stdout.getvalue() == "✓ smoke passed (1 cells)\n"
     assert stderr.getvalue() == (
         "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  src/demo.py:4:7 [invalid-type] Expected str, found int\n"
-        "  details: .pf/logs/ty-run/process-0003.log\n"
+        "src/demo.py:4:7 [invalid-type] Expected str, found int\n"
+        "-> see .pf/logs/ty-run/process-0003.log for details.\n"
     )
 
 
@@ -1717,7 +2012,7 @@ def test_check_reuses_ty_warning_summaries() -> None:
     assert stdout.getvalue() == "✓ check passed (1 cells)\n"
     assert stderr.getvalue() == (
         "⚠ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
+        "site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
     )
 
 
@@ -1771,8 +2066,8 @@ def test_check_static_failure_summarizes_only_incremental_diagnostics() -> None:
     assert exit_code == 1
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  demo.py:9:2 [dependency-regression] new dependency regression\n"
+        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at static checking\n"
+        "demo.py:9:2 [dependency-regression] new dependency regression\n"
         "✗ check failed: current declarations are incompatible\n"
     )
 
@@ -1894,10 +2189,11 @@ def test_search_baseline_rejection_prints_user_guidance() -> None:
     assert exit_code == 1
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  The test dependencies cannot be installed without changing the versions being checked.\n"
-        "  The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
-        f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at installing harness\n"
+        "The test dependencies cannot be installed without changing the versions being checked.\n"
+        "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
+        f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+        "No solution found when resolving dependencies\n"
     )
 
 
@@ -1924,10 +2220,10 @@ def test_search_infra_failure_prints_message_detail_without_a_process() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "! [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  PF could not reach or read a configured package source.\n"
-        "  PF could not obtain the information needed to start or continue this cell.\n"
-        f"  Diagnose: pf diagnose demo --failure {terminal_result.failure_id}\n"
+        "! [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at candidate discovery\n"
+        "PF could not reach or read a configured package source.\n"
+        "PF could not obtain the information needed to start or continue this cell.\n"
+        f"-> run `pf diagnose demo --failure {terminal_result.failure_id}` for more information.\n"
     )
 
 
@@ -1967,10 +2263,11 @@ def test_search_probe_indeterminate_prints_candidate_unknown_impact() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "! [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  The operation timed out, so compatibility is unknown.\n"
-        "  PF could not determine whether this candidate works, so it stopped this cell.\n"
-        f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
+        "! [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
+        "The operation timed out, so compatibility is unknown.\n"
+        "PF could not determine whether this candidate works, so it stopped this cell.\n"
+        f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+        "process timed out\n"
     )
 
 
@@ -2044,11 +2341,12 @@ def test_search_reuses_highest_baseline_ty_warning_summaries() -> None:
     assert exit_code == 1
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        "  demo.py:3 [unresolved-reference] Name is not defined\n"
-        "  The full test command failed for this version combination.\n"
-        "  The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
-        f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
+        "The full test command failed for this version combination.\n"
+        "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
+        f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+        "1 failed, 2 passed\n"
+        "demo.py:3 [unresolved-reference] Name is not defined\n"
     )
 
 

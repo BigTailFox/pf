@@ -6,8 +6,9 @@
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
+- **进程输出与日志：** [D007](D007-pf-process-output.md)
 
-本文是 PF CLI 帮助信息架构、调用错误反馈、终端信息层级、命令结果摘要和 `explain` 展示的唯一契约。D001 继续定义命令、参数语义、产品结果和退出码；D002 继续定义 `cli.py` / `TerminalPresenter` 的模块位置；D004 定义静态诊断事实；D005 定义 failure 的 title、impact、next step、技术信息和 `diagnose` 行为。本文只组织这些事实，不重新分类证据或改变产品语义。
+本文是 PF CLI 帮助信息架构、调用错误反馈、终端信息层级、命令结果摘要和 `explain` 展示的唯一契约。D001 继续定义命令、参数语义、产品结果和退出码；D002 继续定义 `cli.py` / `TerminalPresenter` 的模块位置；D004 定义静态诊断事实；D005 定义 failure 的 title、impact、next step、技术信息和 `diagnose` 行为；D007 定义 Process Log 与 Output Cache。本文只组织这些事实，不重新分类证据或改变产品语义。
 
 ## 1. 问题
 
@@ -30,7 +31,7 @@ D005 已经禁止把 `UNRESOLVABLE`、`TOOL_ERROR`、cause Enum 或 Schema statu
 - 最终摘要准确表达命令结果、影响范围和产生或修改的 artifact；
 - `explain` 默认回答 floor、coverage 和 apply blocker，不转储每次 attempt 的机械细节；
 - 相同结构化结果在非 TTY 下产生稳定文本，在 TTY 下使用自适应 Rich 展示；
-- 保留 D001/D005 的保守证据语义、stdout/stderr 边界、退出码和日志安全要求。
+- 保留 D001/D005 的保守证据语义、stdout/stderr 边界、退出码和 D007 的日志完整性要求。
 
 ### 2.2 非目标
 
@@ -284,33 +285,38 @@ scope facts -> per-cell frozen diagnostics (as cells complete) -> remaining live
 
 `smoke` / `check` / `search` 的 cell 结果行使用与 live 进度相同的标题（不含 package 名；范围已由 selected-cells 事实给出），并带上运行时间。第一行不含 Schema status 或 cause Enum。
 
-有 FailureRecord 的 `smoke` / `search` 完成块：
+有 FailureRecord 的 `smoke` / `check` / `search` 完成块：
 
 ```text
-! [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
-  PF could not complete a verification tool operation reliably.
-  PF could not determine whether the highest-version baseline works, so it stopped this cell.
-  Diagnose: pf diagnose demo --failure failure-38ac8f69eb9a182a
-  details: .pf/logs/...
+! [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing  0:00:19
+PF could not complete a verification tool operation reliably.
+PF could not determine whether the highest-version baseline works, so it stopped this cell.
+-> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
+FAILED tests/test_cli.py::test_example
+=== 1 failed, 2 passed in 0.51s ===
+-> see .pf/logs/.../process-0020.log for details.
 ```
 
-缩进行依次为 D005 title、D005 impact、`Diagnose:` 入口、可选 D004 单行诊断、日志链接。title/impact 完全来自 D005；`Diagnose:` 的 package 参数是报告中的包名，即使它碰巧与 CLI 名 `pf` 相同。
+第一行是图标、cell 标题、`failed at` 用户阶段（`installing dependencies` / `installing harness` / `static checking` / `testing`）和运行时间。第一行不含 Schema status 或 cause Enum。
 
-`check` 走 Evaluation 而不是 FailureRecord，不能提供 `diagnose` 入口：
+随后几层：
 
-```text
-✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:16
-  src/pf/environment.py:405:29 [not-subscriptable] Cannot subscript object of type `Item` ...
-  details: .pf/logs/...
-```
+1. D005 Reason（title 与 impact），默认颜色，允许换行，不压成单行摘要；
+2. `-> run \`pf diagnose PACKAGE --failure FAILURE_ID\` for more information.`，hint 色；package 参数是报告中的包名；
+3. 进程输出末尾最多 3 行（数据源由 D007 规定：先 Output Cache 末尾，否则读 Process Log 末尾），dim 样式，不把会话开头或整份日志铺进卡片；
+4. `-> see PATH for details.`，hint 色，路径可带 OSC 8。
 
-成功 cell 只有图标、标题和耗时：
+cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan，live 进度与冻结结果相同。
+
+`check` 没有 FailureRecord 时不能提供 diagnose 入口，第一行仍写 `failed at static checking` / `failed at testing`，其下是 D004 单行诊断、进程末 3 行和日志引用。
+
+成功 cell 只有图标、标题和耗时，不写 `failed at`：
 
 ```text
 ✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
 ```
 
-第一行是图标、`[py…]`、精确 target triple、extra surface 和运行时间。下方详情使用缩进和暗色样式。Python 前缀、精确 target triple 和 extra surface 都不能省略或用无标签 `none` 代替。
+第一行是图标、`[py…]`、精确 target triple、extra surface、失败时的 `failed at` 阶段，以及运行时间。TTY 详情不缩进，由圆角卡片承载，边框颜色与结果图标一致。Python 前缀、精确 target triple 和 extra surface 都不能省略或用无标签 `none` 代替。
 
 TTY 下该结果行是对应 live 进度行的固结形态，在 cell 完成时立即写入上方 log，并从底部进度中移除。非 TTY 在 cell 完成时直接输出同样的稳定文本。排序继续使用 D001/D002 的规范 cell 顺序来调度；完成顺序可以按实际结束时间出现在 log 中。
 
@@ -320,7 +326,7 @@ TTY 下该结果行是对应 live 进度行的固结形态，在 cell 完成时�
 demo [py3.11][x86_64-unknown-linux-gnu][no-extra]
 ```
 
-D005 §12.4 的实时摘要示例遵循本节布局：title 与 impact 在缩进行，而不是写在第一行冒号之后。
+D005 的 title 出现在 cell 卡片正文；impact 留给 `explain` / `diagnose`，不重复写进 `smoke` / `check` 卡片。
 
 ### 9.2 静态诊断
 
@@ -420,7 +426,8 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 ## 11. 自适应终端
 
 - 生产 `Console`、`Table` 和 `Progress` 不固定 width、height、列宽或 ratio；固定尺寸只允许出现在测试中；
-- TTY 使用动态进度，进度条固定在输出底部；cell 完成后立即冻结为稳定结果行并移出 live 表；非 TTY 不显示逐进程活动；
+- TTY 使用动态进度，进度条固定在输出底部；`smoke` / `check` / `search` / `minimize` 的范围事实冻结为一张圆角 `Panel`，每个 live cell（标题+阶段）各自一张圆角 `Panel`；cell 完成后立即冻结为同样的圆角 `Panel`，边框颜色与结果一致，并移出 live 表；非 TTY 不显示逐进程活动，也不输出 box drawing；
+- cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan；颜色只作补充，移除 ANSI 后标题文本不变；
 - 窄终端优先换行或把表格降级为带标签的纵向 block，不能截断 package、cell、状态、artifact 路径或 next action；
 - 不依赖光标定位表达唯一信息；live display 关闭后，最终冻结行必须能独立阅读；
 - 不支持颜色或 OSC 8 时保留相同可见文本；

@@ -168,16 +168,30 @@ def test_process_result_requires_exactly_one_terminal_fact(
     facts: dict[str, object],
 ) -> None:
     with pytest.raises(ValidationError):
-        ProcessResult.model_validate(
-            {
-                "duration_seconds": 0,
-                "stdout_summary": "",
-                "stderr_summary": "",
-                "stdout_tail": "",
-                "stderr_tail": "",
-                **facts,
-            }
-        )
+        ProcessResult.model_validate({"duration_seconds": 0, **facts})
+
+
+def test_process_result_omits_captured_output_from_portable_facts() -> None:
+    process = ProcessResult(
+        exit_code=1,
+        signal=None,
+        duration_seconds=0.1,
+        stdout_summary="484 passed in 11.12s",
+        stderr_summary="tool noise",
+        stdout_tail="484 passed in 11.12s",
+        stderr_tail="tool noise",
+    )
+
+    dumped = process.model_dump(mode="json")
+    restored = ProcessResult.model_validate(dumped)
+
+    assert "stdout_summary" not in dumped
+    assert "stderr_summary" not in dumped
+    assert "stdout_tail" not in dumped
+    assert "stderr_tail" not in dumped
+    assert restored.exit_code == 1
+    assert restored.stdout_summary == ""
+    assert restored.stderr_summary == ""
 
 
 @pytest.mark.parametrize(

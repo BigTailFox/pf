@@ -31,8 +31,10 @@ def test_subprocess_runner_captures_and_redacts_external_output(tmp_path: Path) 
     assert result.exit_code == 0
     assert result.signal is None
     assert result.timed_out is False
+    assert result.stdout_summary == "token=***\n"
     assert result.stdout_tail == "token=***\n"
     assert result.stderr_tail == "problem\n"
+    assert "top-secret" not in result.stdout_summary
     assert "top-secret" not in result.model_dump_json()
 
 
@@ -72,6 +74,30 @@ def test_subprocess_runner_records_redacted_bounded_process_logs(
     assert stat.S_IMODE(log_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(log_path.parent.stat().st_mode) == 0o700
     assert ".pf/logs" not in result.model_dump_json()
+
+
+def test_subprocess_runner_persists_complete_output_within_the_capture_limit(
+    tmp_path: Path,
+) -> None:
+    payload = ("progress-line\n" * 400) + "484 passed in 11.12s\n"
+    script = tmp_path / "emit.py"
+    script.write_text(f"print({payload!r}, end='')\n", encoding="utf-8")
+    logs = RunLogStore(root=tmp_path, run_id="complete-run")
+    result = SubprocessRunner(logs=logs).run(
+        ProcessSpec(
+            argv=(sys.executable, script.as_posix()),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    log_path = logs.reference_for(result)
+    assert result.stdout_truncated is False
+    assert payload in result.stdout_summary
+    assert log_path is not None
+    detail = log_path.read_text(encoding="utf-8")
+    assert payload in detail
+    assert "[truncated by RunLogStore]" not in detail
 
 
 def test_run_log_store_indexes_a_failure_without_exposing_the_path(

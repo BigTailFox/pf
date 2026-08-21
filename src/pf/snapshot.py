@@ -60,10 +60,7 @@ class SnapshotBuilder:
     """Own safe source traversal, identity hashing, and immutable staging."""
 
     def __init__(self, runner: ProcessRunner | None = None) -> None:
-        self._runner = runner or SubprocessRunner(
-            summary_limit=16 * 1024 * 1024,
-            tail_limit=16_384,
-        )
+        self._runner = runner or SubprocessRunner()
 
     def build(self, root: Path) -> SourceSnapshot:
         root = root.resolve()

@@ -89,7 +89,6 @@ class TyAdapter:
                 ),
                 cwd=package.as_posix(),
                 timeout_seconds=timeout_seconds,
-                summary_limit=8 * 1024 * 1024,
             )
         )
         if result.timed_out:

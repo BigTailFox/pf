@@ -53,7 +53,7 @@ _Avoid_: Baseline failure, Baseline Rejection
 _Avoid_: Disposition, evidence classification
 
 **FailureRecord**:
-公共报告中保存一次 Rejection 或 Indeterminate 的可移植记录，包含 failure scope、disposition、cause、stage 和有界脱敏机械事实。
+公共报告中保存一次 Rejection 或 Indeterminate 的可移植记录，包含 failure scope、disposition、cause、stage 和 Portable Process Facts。
 _Avoid_: Run log, error string
 
 **Cell Failure Scope**:
@@ -63,3 +63,15 @@ _Avoid_: Failed Attempt, Rejection
 **Diagnosis Index**:
 项目本地 `.pf/logs` 中用 `(report_generation_id, failure_id)` 将 FailureRecord 关联到相对详细日志路径的非证据索引。
 _Avoid_: Report field, run ID
+
+**Process Log**:
+一次外部进程的本机脱敏记录，含终态和完整 stdout/stderr 原文；不进入公共报告。
+_Avoid_: report log, ProcessResult output, summary/tail
+
+**Output Cache**:
+当前 CLI 进程内对某一个外部进程 Process Log 正文最多 16 MiB 的内存投影，用于 live 展示或加速读取；未覆盖全文时不是证据不完整。
+_Avoid_: capture limit, 跨进程总预算, summary_limit
+
+**Portable Process Facts**:
+进入 FailureRecord 的进程终态：退出码、signal、timeout、耗时，以及 `stdout_complete` / `stderr_complete`；不含输出文本。
+_Avoid_: head/tail, truncated, 有界摘要

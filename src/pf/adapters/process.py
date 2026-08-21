@@ -19,6 +19,9 @@ from pf.schemas.evaluation import (
     ProcessSpec,
 )
 
+DEFAULT_CAPTURE_LIMIT = 32 * 1024 * 1024
+DEFAULT_TAIL_LIMIT = 16_384
+
 
 class ProcessRunner(Protocol):
     def run(self, spec: ProcessSpec) -> ProcessResult: ...
@@ -65,8 +68,8 @@ class SubprocessRunner:
         redactor: SecretRedactor | None = None,
         listener: ProcessListener | None = None,
         logs: ProcessLogRecorder | None = None,
-        summary_limit: int = 4_096,
-        tail_limit: int = 16_384,
+        summary_limit: int = DEFAULT_CAPTURE_LIMIT,
+        tail_limit: int = DEFAULT_TAIL_LIMIT,
         terminate_grace_seconds: float = 1.0,
     ) -> None:
         self._redactor = redactor or SecretRedactor()

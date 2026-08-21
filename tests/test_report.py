@@ -13,6 +13,7 @@ from pf.schemas.evaluation import (
     CellFailureScope,
     FailureCause,
     FailureDetail,
+    ProcessResult,
 )
 from pf.schemas.project import SourceSnapshotIdentity
 from pf.schemas.report import (
@@ -107,6 +108,85 @@ def test_report_store_writes_canonical_versioned_json_and_rejects_unknown_schema
         ConfigurationError, match="unsupported report schema_version: 2"
     ):
         store.read(path)
+
+
+def test_report_store_omits_captured_process_output(tmp_path: Path) -> None:
+    store = ReportStore()
+    path = tmp_path / "package-floor.json"
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    failure = FailurePolicy().classify(
+        scope=CellFailureScope(
+            package=cell.package,
+            cell=cell,
+            source_snapshot_digest="snapshot",
+            evaluation_policy_identity="policy",
+        ),
+        cause="TOOL_FAILURE",
+        stage="test",
+        process=ProcessResult(
+            exit_code=0,
+            signal=None,
+            duration_seconds=11.12,
+            stdout_summary="484 passed in 11.12s",
+            stderr_summary="secret-noise",
+            stdout_tail="484 passed in 11.12s",
+            stderr_tail="secret-noise",
+            stdout_truncated=True,
+        ),
+    )
+    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+    package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
+    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
+    cells = (cell,)
+    report = PackageFloorReportV1(
+        report_generation_id=report_generation_id(
+            generator=generator,
+            package=package,
+            source_snapshot=snapshot,
+            policy_identity="policy",
+            requirement_declarations=(),
+            target_cells=cells,
+        ),
+        generator=generator,
+        package=package,
+        source_snapshot=snapshot,
+        policy_identity="policy",
+        requirement_declarations=(),
+        candidate_snapshots=(),
+        target_cells=cells,
+        cell_results=(
+            CellIndeterminate(
+                cell=cell,
+                phase="test",
+                failure_id=failure.failure_id,
+                failure_records=(failure,),
+            ),
+        ),
+        projection_evidence=(),
+        result=IncompleteReportResult(reasons=("INDETERMINATE",)),
+    )
+
+    store.write(path, report)
+    content = path.read_text(encoding="utf-8")
+    loaded = store.read(path)
+    process = loaded.failure_records[0].process
+
+    assert "stdout_summary" not in content
+    assert "stderr_summary" not in content
+    assert "stdout_tail" not in content
+    assert "stderr_tail" not in content
+    assert "484 passed" not in content
+    assert "secret-noise" not in content
+    assert process is not None
+    assert process.exit_code == 0
+    assert process.stdout_truncated is True
+    assert process.stdout_summary == ""
+    assert process.stderr_summary == ""
 
 
 def test_report_merge_is_deterministic_and_rejects_conflicting_cells() -> None:

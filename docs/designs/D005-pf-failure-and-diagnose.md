@@ -8,8 +8,9 @@
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
+- **进程输出与日志：** [D007](D007-pf-process-output.md)
 
-本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级。
+本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级，D007 定义进程输出原文、输出缓存和磁盘日志完整性。
 
 ## 1. 问题
 
@@ -86,7 +87,7 @@ Rejection 只拒绝当前完整 Attempt/Proposal。即使 Probe Attempt 只改�
 
 ### 4.1 机械事实
 
-`ProcessRunner` 只产生 `ProcessResult`：argv、cwd、环境变量名、exit/signal/start error、timeout、duration、截断标志和脱敏输出。它不知道兼容性。
+`ProcessRunner` 只产生 `ProcessResult`：argv、cwd、环境变量名、exit/signal/start error、timeout、duration、`stdout_complete` / `stderr_complete`。输出正文按 D007 进入 Process Log 与 Output Cache。它不知道兼容性。
 
 ### 4.2 操作原因
 
@@ -153,7 +154,7 @@ Attempt identity 不包含进程时长、输出文本、本地路径或 run ID�
 一次失败只有同时满足以下条件，才可以成为 Rejection：
 
 1. scope 完整：cell、snapshot、policy 和 requested vector/解析方式明确；
-2. 结果完整：没有 timeout、signal、启动失败、关键输出截断或解析歧义；
+2. 结果完整：没有 timeout、signal、启动失败、D007 定义的不完整磁盘日志（`stdout_complete` / `stderr_complete` 为 false）或解析歧义；Output Cache 未覆盖全文不是不完整；
 3. 失败是 Attempt 局部且确定的，而不是 index、网络、缓存、磁盘或 PF 自身故障；
 4. cause 属于验证契约，例如不可解析、不可构建、harness 冲突、静态回归或测试正常失败；
 5. 若为 Probe Attempt，它与同一 Evaluation context 中已经完整通过的 baseline 共享 scope。
@@ -326,9 +327,10 @@ FailureRecord
 - candidate discovery 或未启动 deadline 保留 cell scope，不能虚构 requested vector 或 Attempt ID；
 - `failure_id` 在一份报告内唯一且稳定，用于 boundary 和 `diagnose` 引用；
 - 人类摘要不进入 Schema；Presenter 根据结构化 scope、disposition、cause 和稳定细分类生成；
-- 公共报告不保存 secret、本地绝对日志路径或未脱敏环境值；
-- 输出截断标志必须保留，不能把截断内容冒充完整诊断；
-- 日志不可用不改变 disposition，但会降低可展示的细节。
+- 公共报告不保存 secret、stdout/stderr 文本、本地绝对日志路径或未脱敏环境值；
+- `stdout_complete` / `stderr_complete` 只表示 D007 的磁盘日志完整性，不能把不完整日志冒充完整诊断，也不能把 16 MiB 缓存投影写成不完整；
+- `failure_id` 由 Portable Process Facts 及本文结构化字段计算，不吸收进程输出文本；
+- 日志不可用不改变 disposition；没有本地 Process Log 时不能展示 stdout/stderr。
 
 ## 12. `pf diagnose` v1 interface
 
@@ -336,7 +338,7 @@ FailureRecord
 
 - 未指定 `--failure` 时，按 cell、attempt 顺序列出全部 Rejection 和 Indeterminate；
 - 指定后展示一个 FailureRecord 的完整可移植诊断；
-- 先展示用户可读的结果、原因、影响和下一步，再展示 disposition、cause、cell、phase/stage、requested vector、Proposal、边界作用、进程终态和脱敏摘要；
+- 先展示用户可读的结果、原因、影响和下一步，再展示 disposition、cause、cell、phase/stage、requested vector、Proposal、边界作用和进程终态；完整 stdout/stderr 只通过本地日志查看；
 - 没有 Attempt 时明确展示 cell-scoped operation，requested vector 与 Proposal 均为“不适用”；
 - 若当前机器仍有对应本地 run log，则额外显示日志链接；
 - 不修改报告或项目。
@@ -462,7 +464,7 @@ Technical details:
 
 ## 13. 本地详细日志
 
-`RunLogStore` 继续保存脱敏的完整进程日志，但公共报告不保存 `run_id`、绝对路径或其他本机定位信息。后续 `diagnose` 通过项目本地 locator index 查找日志：
+Process Log 的正文、Output Cache 和完整性语义由 D007 规定。`RunLogStore` 仍保存脱敏的本机进程日志，但公共报告不保存 `run_id`、绝对路径或其他本机定位信息。后续 `diagnose` 通过项目本地 locator index 查找日志：
 
 ```text
 .pf/logs/diagnosis-index.json
@@ -477,7 +479,7 @@ Technical details:
 - 只使用 `.pf/logs` 内相对路径；
 - 与日志共享私有权限、脱敏和原子写规则；
 - 不是公共证据，不参与 Proposal/policy identity、report equality、merge 或 apply；
-- 缺失时 `diagnose` 仍能使用报告内的有界 `ProcessResult`；
+- 缺失时 `diagnose` 仍能使用报告内的 Portable Process Facts，完整 stdout/stderr 按 D007 只存在于本地 Process Log；
 - 报告被同 generation 新结果更新时，同步替换对应 `failure_id` 的本地映射；
 - 不得通过扫描 run 目录、任意路径或模糊匹配输出内容寻找日志。
 
@@ -487,14 +489,15 @@ Technical details:
 
 | 规则 | 唯一所有者 |
 | --- | --- |
-| 进程终态、截断与脱敏机械事实 | `ProcessRunner` |
+| 进程终态、磁盘日志完整性与脱敏机械事实 | `ProcessRunner`；`stdout_complete` / `stderr_complete` 语义见 D007 |
+| 输出正文原文与 Output Cache | D007 |
+| 本地详细日志文件与 diagnosis index | `RunLogStore` |
 | uv/ty/test 操作 cause | 对应 Adapter |
 | Attempt 构造与 prepare stage | `EnvironmentFactory` / highest verifier |
 | scope + cause -> disposition | `FailurePolicy` |
 | baseline/probe 生命周期 | `SearchCoordinator` |
 | `PASS/REJECTED` 边界与 `INDETERMINATE` 停止 | D003 / `CoordinateSearch` |
 | FailureScope、FailureRecord 结构与交叉引用 | Evaluation/Report Schema |
-| 本地详细日志与 diagnosis index | `RunLogStore` |
 | `diagnose` 读取与组织 | `DiagnoseCommandWorkflow` |
 | 人类摘要、日志链接与 remediation 文案 | `TerminalPresenter` |
 
@@ -585,7 +588,7 @@ candidate query 发生在精确 Probe Attempt 建立前。结果使用 `CellFail
 
 ### D1：Candidate `BUILD_FAILURE` 形成 Rejection（已确认）
 
-完整、明确归属到当前 Attempt 的 build backend/wheel 构建失败形成 Rejection。generic exit、截断输出、signal 和启动失败仍为 Indeterminate。
+完整、明确归属到当前 Attempt 的 build backend/wheel 构建失败形成 Rejection。generic exit、磁盘日志不完整（`stdout_complete` / `stderr_complete` 为 false）、signal 和启动失败仍为 Indeterminate。
 
 因此，旧版本只能从源码构建且构建失败时可以建立 FAIL 点；搜索不因该 candidate 提前终止。
 

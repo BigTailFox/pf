@@ -215,7 +215,7 @@ def test_uv_adapter_lists_only_default_stable_cpython_minors(tmp_path: Path) -> 
         "--output-format",
         "json",
     )
-    assert runner.spec.summary_limit == 16 * 1024 * 1024
+    assert runner.spec.summary_limit is None
 
 
 def test_uv_adapter_lists_real_cpython_inventory_beyond_default_summary(

@@ -110,6 +110,27 @@ def test_failure_policy_requires_an_attempt_before_it_can_reject() -> None:
     assert indeterminate.disposition == "INDETERMINATE"
 
 
+def test_failure_record_identity_ignores_captured_process_output() -> None:
+    policy = FailurePolicy()
+    scope = AttemptFailureScope(attempt=_probe_attempt())
+    first = policy.classify(
+        scope=scope,
+        cause="TEST_FAILURE",
+        stage="test",
+        process=_process().model_copy(update={"stdout_summary": "first run"}),
+    )
+    second = policy.classify(
+        scope=scope,
+        cause="TEST_FAILURE",
+        stage="test",
+        process=_process().model_copy(update={"stdout_summary": "second run"}),
+    )
+
+    assert first.failure_id == second.failure_id
+    assert "first run" not in first.model_dump_json()
+    assert "No solution found" not in first.model_dump_json()
+
+
 @pytest.mark.parametrize(
     ("cause", "stage"),
     (

@@ -18,7 +18,7 @@ class RunLogStore:
     """Persist bounded process facts and retain runtime-only result references."""
 
     _METADATA_LIMIT = 4_096
-    _OUTPUT_LIMIT = 16_384
+    _OUTPUT_LIMIT = 32 * 1024 * 1024
     _INDEX_LIMIT = 8 * 1024 * 1024
     _INDEX_NAME = "diagnosis-index.json"
 

@@ -57,7 +57,6 @@ class UvAdapter:
                 argv=("uv", "python", "list", "--output-format", "json"),
                 cwd=root.as_posix(),
                 timeout_seconds=30,
-                summary_limit=_JSON_SUMMARY_LIMIT,
             )
         )
         outcome = self._classify(process, stage="python-list")
@@ -234,7 +233,6 @@ class UvAdapter:
                 argv=(interpreter.as_posix(), "-c", script),
                 cwd=cwd.as_posix(),
                 timeout_seconds=timeout_seconds,
-                summary_limit=_JSON_SUMMARY_LIMIT,
             )
         )
         outcome = self._classify(process, stage="inspect")

@@ -46,10 +46,10 @@ class ProcessResult(FrozenSchema):
     exit_code: int | None
     signal: int | None
     duration_seconds: float
-    stdout_summary: str
-    stderr_summary: str
-    stdout_tail: str
-    stderr_tail: str
+    stdout_summary: str = Field(default="", exclude=True)
+    stderr_summary: str = Field(default="", exclude=True)
+    stdout_tail: str = Field(default="", exclude=True)
+    stderr_tail: str = Field(default="", exclude=True)
     stdout_truncated: bool = False
     stderr_truncated: bool = False
     timed_out: bool = False
