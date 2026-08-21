@@ -3,9 +3,9 @@
 - **状态：** 已完成
 - **开始日期：** 2026-08-20
 - **完成日期：** 2026-08-20
-- **性质：** 非规范性实施记录
-- **设计来源：** [D001](../docs/designs/D001-pf.md)、[D002](../docs/designs/D002-pf-implementation.md)、[D004](../docs/designs/D004-pf-ty-enhancement.md)
-- **后续失败契约：** [D005](../docs/designs/D005-pf-failure-and-diagnose.md)
+- **性质：** 非规范性历史记录
+- **设计来源：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D004](../designs/D004-pf-ty-enhancement.md)
+- **后续失败契约：** [D005](../designs/D005-pf-failure-and-diagnose.md)
 - **起始提交：** `a1ac10225c5d68dedbb9d75e5635bbe9d97cd3a6`
 
 本文记录纵向 TDD 和验证证据，不复制现行产品、模块或静态诊断契约。“已完成”只表示当时的 P003 范围已经实现；D005 的实施证据见 [P004](P004-pf-failure-and-diagnose.md)。

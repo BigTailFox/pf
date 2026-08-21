@@ -3,8 +3,8 @@
 - **状态：** 已完成
 - **完成日期：** 2026-08-20
 - **性质：** 非规范性历史记录
-- **设计来源：** [D004](../docs/designs/D004-pf-ty-enhancement.md)
-- **现行失败处置：** [D005](../docs/designs/D005-pf-failure-and-diagnose.md)
+- **设计来源：** [D004](../designs/D004-pf-ty-enhancement.md)
+- **现行失败处置：** [D005](../designs/D005-pf-failure-and-diagnose.md)
 - **起始提交：** `36bcd2f80626204fbc56204a388d4c5b6f9876ac`
 
 本文只记录 D004 的 TDD 与验证过程。现行诊断 identity 与 multiset 语义由 D004 定义；这些静态事实如何形成 Rejection/Indeterminate 及进入 FailureRecord 由 D005 定义。本计划不保留第二份契约。

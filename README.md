@@ -44,18 +44,11 @@ uv run pf apply
 
 `smoke` 在当前声明约束内建立尽可能新的 fresh install，运行一次 `ty` 和完整测试。`ty` 诊断以 warning 摘要展示，测试失败才是兼容性失败。外部工具的脱敏详细记录写入 `.pf/logs/`，终端摘要在支持时链接到对应日志。
 
-`diagnose` 的现行契约是只读、离线地解释报告中的 Rejection 或 Indeterminate；它不访问网络、不创建环境，也不隐式重放失败。该命令与 D005 failure 模型尚待实现。
+`diagnose` 只读、离线地解释报告中的 Rejection 或 Indeterminate；它不访问网络、不创建环境，也不隐式重放失败。
 
 ## 文档
 
-- [工程文档索引与契约所有权](docs/README.md)
-- [D001 — 产品与命令契约](docs/designs/D001-pf.md)
-- [D002 — 实现结构](docs/designs/D002-pf-implementation.md)
-- [D003 — 搜索算法](docs/designs/D003-pf-search-algorithm.md)
-- [D004 — `ty` 增量静态证据](docs/designs/D004-pf-ty-enhancement.md)
-- [D005 — failure 语义与 diagnose](docs/designs/D005-pf-failure-and-diagnose.md)
-- [P001 — v1 实施记录](plans/P001-pf-v1.md)
-- [P002 — D004 实施记录](plans/P002-pf-ty-enhancement.md)
-- [P003 — smoke 与 CLI 可诊断性实施记录](plans/P003-pf-smoke-observability.md)
+- [工程文档索引](docs/README.md)：契约所有权、状态词和文档布局
+- [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
 
-PF v1 既有核心、`increment-v2` 静态证据策略和 P003 的运行时日志能力已经实现；D005 的 `failure-v1`、新 Schema 1 failure 模型、本地 diagnosis index 和 `diagnose` 尚待实现。P001–P003 记录历史 TDD 和验证证据，不承担现行契约。
+D001–D005 已落地。D006 的 CLI 展示增强仍待实现。实施记录不承担现行契约。

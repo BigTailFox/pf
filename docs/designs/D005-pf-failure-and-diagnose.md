@@ -1,6 +1,6 @@
 # PF failure 语义与 diagnose
 
-- **状态：** 现行契约
+- **状态：** 现行
 - **策略版本：** `failure-v1`
 - **最后核对：** 2026-08-21
 - **产品与命令：** [D001](D001-pf.md)
@@ -13,7 +13,7 @@
 
 ## 1. 问题
 
-当前已实现的开发期 Schema 把工具原因直接暴露为搜索状态：
+D005 落地前的开发期 Schema 把工具原因直接暴露为搜索状态：
 
 ```text
 BUILD_UNAVAILABLE
@@ -28,7 +28,7 @@ D001/D003 又把这些状态全部定义为非证据，因此 candidate probe �
 
 1. 同一机械失败在 baseline 和 candidate probe 中具有不同搜索含义，却被同一个 status 决定；
 2. candidate 的确定性安装失败无法作为 `FAIL* PASS*` 中的失败点，搜索被不必要地中止；
-3. prepare 失败发生在 Proposal 建立之前，现行实现既会虚构 `prepare:<status>` Proposal ID，也会丢失底层 `ToolFailure`，使报告不能解释失败。
+3. prepare 失败发生在 Proposal 建立之前，落地前的实现会虚构 `prepare:<status>` Proposal ID，也会丢失底层 `ToolFailure`，使报告不能解释失败。
 
 新的模型必须把以下三个问题分开：
 
@@ -110,13 +110,9 @@ Cause 回答“发生了什么”，不回答搜索是否继续。Adapter 不知
 
 ### 4.3 搜索处置
 
-失败策略根据 Attempt role、stage、cause 和证据完整性产生：
+失败策略只对失败事实产生 `REJECTED` 或 `INDETERMINATE`。`PASS` 来自完整成功的 Evaluation，不经过 `FailurePolicy`。
 
-```text
-PASS
-REJECTED
-INDETERMINATE
-```
+分类根据 FailureScope、stage、cause 和证据完整性作出。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），CellFailureScope 只能是 Indeterminate。
 
 `CoordinateSearch` 的二元兼容性关系为：
 
@@ -125,7 +121,7 @@ PASS     -> PASS
 REJECTED -> FAIL
 ```
 
-`INDETERMINATE` 不属于该关系，出现时立即结束当前 cell。
+`INDETERMINATE` 不属于该关系；D003 规定它出现时立即结束当前 cell。
 
 ## 5. Attempt identity
 
@@ -174,10 +170,10 @@ Baseline 的目标是建立已知完整通过的 `B = V_hi`。Baseline 被 Rejec
 
 两者必须保留区别：
 
-- baseline Rejection 表示当前 highest fresh install 确定不满足验证契约，属于兼容性失败，退出码为 `1`；
-- baseline Indeterminate 表示无法作出兼容性判断，退出码为 `4`。
+- baseline Rejection 表示当前 highest fresh install 确定不满足验证契约，属于兼容性失败；
+- baseline Indeterminate 表示无法作出兼容性判断。
 
-Schema 使用 `BaselineRejection | BaselineIndeterminate` discriminator union 表达两类终态，不保留含义宽泛的 `BASELINE_FAILED` Schema status。CLI 的人类文案仍可显示 “baseline failed”，但不能据此折叠结构化 disposition 和 cause。
+二者的命令退出码由 D001 定义。Schema 使用 `BaselineRejection | BaselineIndeterminate` discriminator union 表达两类终态，不保留含义宽泛的 `BASELINE_FAILED` Schema status。CLI 的人类文案仍可显示 “baseline failed”，但不能据此折叠结构化 disposition 和 cause。
 
 ### 7.2 Probe Attempt
 
@@ -238,48 +234,49 @@ Harness 是 PF 完整验证契约的一部分，但不是产品运行时依赖�
 - graph inspection 本身失败；
 - PF 检测到 requested vector 与实际图不一致。
 
-现行 `HARNESS_ERROR` 混合了上述两类情况，必须拆分后才能安全推进搜索。
+v1 把确定的 harness 冲突记为 `HARNESS_CONFLICT`，把无法分类的工具或来源故障记为 `TOOL_FAILURE` 或 `SOURCE_FAILURE`。
 
 ## 10. Probe 与边界 Schema
 
-`ProbeEvidence.status` 不再同时承担 cause 和 disposition。概念结构为：
+`ProbeEvidence.status` 只表达 disposition（`PASS` / `REJECTED` / `INDETERMINATE`）；cause 与 `failure_id` 是独立字段。Diagnosis 不写入报告记录，由 Presenter 从 FailureRecord 生成。现行结构为：
 
 ```text
 ProbePass
   attempt
-  proposal
+  proposal_id
   evaluation
 
 ProbeRejection
   attempt
-  proposal?       prepare rejection 时为空
+  proposal_id?       prepare rejection 时为空
+  failure_id
   cause
-  diagnosis
-  evaluation?     static/test rejection 时存在
+  evaluation?        static/test rejection 时存在
 
 ProbeIndeterminate
   attempt
-  proposal?
+  proposal_id?
+  failure_id
   cause
-  diagnosis
+  evaluation?
 
 BaselineRejection
   attempt
-  proposal?
-  cause
-  diagnosis
+  failure            FailureRecord
+  static_baseline?
   evaluation?
 
 BaselineIndeterminate
   attempt
-  proposal?
-  cause
-  diagnosis
+  failure            FailureRecord
+  static_baseline?
+  evaluation?
 
 CellIndeterminate
-  cell_scope      Attempt 建立前的 candidate discovery / scheduling 失败
-  cause
-  diagnosis
+  cell
+  phase
+  failure_id
+  failure_records    含 CellFailureScope 或 AttemptFailureScope
 ```
 
 `CoordinateBoundary` 的 predecessor 保存对 `ProbeRejection` observation 的引用或稳定 `failure_id`，而不是只保存 `STATIC_FAIL | TEST_FAIL` 字符串。
@@ -335,13 +332,7 @@ FailureRecord
 
 ## 12. `pf diagnose` v1 interface
 
-v1 interface：
-
-```text
-pf diagnose [package] [--failure FAILURE_ID]
-```
-
-默认读取所选 package 的 `package-floor.json`：
+命令表面由 D001 定义。`diagnose` 默认读取所选 package 的 `package-floor.json`：
 
 - 未指定 `--failure` 时，按 cell、attempt 顺序列出全部 Rejection 和 Indeterminate；
 - 指定后展示一个 FailureRecord 的完整可移植诊断；
@@ -385,9 +376,11 @@ FailurePresentation
   technical_code
 ```
 
-`title` 由 cause 决定，`impact` 由 scope、Attempt role 和 disposition 决定。已识别的 `summary_code` 可以细化标题；未知细分类必须退回 cause 的通用文案，不能回退为裸 Enum 或原始 stderr。
+`title` 由 cause 决定，`impact` 由 scope、Attempt `requested_resolution` 和 disposition 决定。已识别的 `summary_code` 可以细化标题；未知细分类必须退回 cause 的通用文案，不能回退为裸 Enum 或原始 stderr。
 
-实时 `check` / `smoke` / `search` 只显示 title、impact、failure ID 和诊断入口。`explain` 使用同一 title。`diagnose` 再展开 context、next step 和 technical details，避免普通失败输出被内部字段淹没。
+`smoke` / `search` 的 Rejection 与 Indeterminate 使用上述 title、impact、failure ID 和诊断入口。`explain` 使用同一 title。`diagnose` 再展开 context、next step 和 technical details。这些字段在普通命令、TTY 和非 TTY 中的出现层级由 D006 定义。
+
+`check` 验证当前声明，结果是 Evaluation 而不是 FailureRecord；它不能 `diagnose`，也不走本节省略模型。
 
 ### 12.2 Cause 的默认用户文案
 
@@ -494,7 +487,7 @@ Technical details:
 | 进程终态、截断与脱敏机械事实 | `ProcessRunner` |
 | uv/ty/test 操作 cause | 对应 Adapter |
 | Attempt 构造与 prepare stage | `EnvironmentFactory` / highest verifier |
-| scope + cause -> disposition | 新的 failure policy module |
+| scope + cause -> disposition | `FailurePolicy` |
 | baseline/probe 生命周期 | `SearchCoordinator` |
 | `PASS/REJECTED` 边界与 `INDETERMINATE` 停止 | D003 / `CoordinateSearch` |
 | FailureScope、FailureRecord 结构与交叉引用 | Evaluation/Report Schema |
@@ -502,13 +495,11 @@ Technical details:
 | `diagnose` 读取与组织 | `DiagnoseCommandWorkflow` |
 | 人类摘要、日志链接与 remediation 文案 | `TerminalPresenter` |
 
-Failure policy 应是一个深 module：调用方只提交结构化 FailureScope 和操作失败，module 隐藏分类矩阵。Adapter、搜索和 Presenter 都不得复制矩阵或使用 stderr substring 决定 disposition。
+Failure policy 是深模块 `FailurePolicy`：调用方只提交结构化 FailureScope 和操作失败，module 隐藏分类矩阵。Adapter、搜索和 Presenter 都不得复制矩阵或使用 stderr substring 决定 disposition。
 
 ## 15. 首发 Schema 与开发期报告
 
-本设计发生在 PF 首次发布之前。现有 Schema 1 和 algorithm v1 是开发期结构，不构成需要兼容的已发布契约。
-
-实施时：
+本设计发生在 PF 首次发布之前。被替换的开发期 Schema 1 不构成需要兼容的已发布契约。P004 已按以下约束落地：
 
 - 直接用本文结构替换现有 `schema_version = 1` 模型；
 - 首发 generator/search algorithm identity 保持 `v1`；

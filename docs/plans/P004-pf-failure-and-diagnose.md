@@ -3,7 +3,7 @@
 - **状态：** 已完成
 - **开始日期：** 2026-08-20
 - **完成日期：** 2026-08-21
-- **性质：** 非规范性实施记录
+- **性质：** 非规范性历史记录
 - **设计来源：** [D005](../designs/D005-pf-failure-and-diagnose.md)
 - **相关模块约束：** [D002](../designs/D002-pf-implementation.md)
 - **搜索契约：** [D003](../designs/D003-pf-search-algorithm.md)

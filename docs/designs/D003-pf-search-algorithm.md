@@ -1,8 +1,8 @@
 # PF 单 cell 搜索算法
 
-- **状态：** 实施中
+- **状态：** 现行
 - **算法版本：** v1
-- **最后核对：** 2026-08-20
+- **最后核对：** 2026-08-21
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
@@ -92,8 +92,11 @@ FULL EVALUATE V_static
 D002 定义的 interface 为：
 
 ```text
-minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
+minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
+  -> CoordinateOutcome
 ```
+
+`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。SearchCoordinator 在 static 与 dynamic 阶段都传入真值，因为 `B` 已有直接完整通过证据。
 
 开始时先读取或直接 probe `start`。它必须复用 SearchCoordinator 已建立的 `PASS`；若同 context 得到 Rejection 则与 baseline 冲突并返回 `NONDETERMINISTIC`，得到 Probe Indeterminate 则停止当前 cell。
 
@@ -152,7 +155,7 @@ sentinel 只保存“空间外 current 已知通过”这一边界事实，不�
 
 已知索引区间满足 `low = REJECTED`、`high = PASS`；`low` 始终是真实候选，`high` 可以是真实候选或 §5.3 的虚拟索引 `n`。
 
-当两端索引距离不超过 `small_threshold` 时，从 `low` 的后继开始升序线性 probe 所有真实候选，返回首个 `PASS`。若只剩虚拟 high 而没有真实 PASS，返回 `NO_PASS_IN_SEARCH_SPACE`。现行默认 `small_threshold = 8`。
+当两端索引距离不超过 D002 的 `small_threshold` 时，从 `low` 的后继开始升序线性 probe 所有真实候选，返回首个 `PASS`。若只剩虚拟 high 而没有真实 PASS，返回 `NO_PASS_IN_SEARCH_SPACE`。
 
 更大区间使用确定的 lower-bound 二分：
 

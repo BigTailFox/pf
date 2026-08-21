@@ -1,6 +1,6 @@
 # PF 实现结构
 
-- **状态：** 实施中
+- **状态：** 现行
 - **最后核对：** 2026-08-21
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -62,7 +62,7 @@ src/pf/
 ├── scheduling.py        # Scheduler、deadline 与规范结果顺序
 ├── report.py            # PackageReportBuilder 与 ReportStore
 ├── editor.py            # ProjectEditor 与恢复日志
-├── workflow.py          # 八个命令的应用工作流
+├── workflow.py          # 七个命令工作流；minimize 复用 search/apply
 ├── schemas/
 │   ├── base.py
 │   ├── config.py
@@ -132,24 +132,23 @@ Schema validator 只验证本记录的结构和纯不变量。需要 I/O 或多�
 
 - `RequirementDeclaration`、`Cell`、`SourceIdentity` / `SourcePlan`；
 - `SourceSnapshotIdentity` / `SnapshotEntry`；
-- `ResolvedNode`、`VersionPin`、`InterpreterIdentity`；
-- D005 定义的 `AttemptIdentity`、`Attempt` 与 `Proposal`；
+- `ResolvedNode`、`VersionPin`、`InterpreterIdentity`、`Proposal`；
 - `AvailableCandidate` / `AvailableArtifact`、`Candidate` / `CandidateSnapshot`；
 - `PackagePlan`、`ProjectPlan`。
 
 稳定 declaration ID 覆盖 `pyproject.toml` 路径、base/optional 位置、extra、规范化名称、requested extras、marker 与来源 identity，不包含数组下标、行号或会被 apply 改写的 specifier。
 
-Attempt 在 prepare 前建立，identity 覆盖源码快照、cell、requested resolution/vector、声明、source plan 与 Evaluation 策略。Proposal 只在解析图完成复查后建立，并同时保存 `attempt_id`；prepare 失败不得虚构 Proposal。
+Proposal 只在解析图完成复查后建立，并同时保存 `attempt_id`；prepare 失败不得虚构 Proposal。`AttemptIdentity` / `Attempt` 与 Failure 模型同属 Evaluation Schema，见下节。
 
 Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解析图、解释器和 Evaluation 策略 identity。策略 identity 已包含影响 `ty` 执行、诊断判定、failure policy 和完整测试的有效配置，因此 cache key 不再重复拼接这些 policy 字段。
 
 `schemas/evaluation.py`：
 
 - `ProcessSpec` / `ProcessResult` 与外部工具结果；
-- D005 定义的 operation cause、prepare failure、`AttemptFailureScope | CellFailureScope`、`FailureRecord` 与 baseline outcome union；
+- D005 定义的 `AttemptIdentity` / `Attempt`、operation cause、prepare failure、`AttemptFailureScope | CellFailureScope`、`FailureRecord` 与 baseline outcome union；
 - D004 定义的 `TyDiagnostic`、`TyCheck`、`StaticBaseline` 与 static/full Evaluation union；
 - `CheckResult`、`HighestVersionPass`、`BaselineRejection`、`BaselineIndeterminate`、`SmokeResult`、`CacheConflict`；
-- `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`。
+- `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`、`SearchFailureEvent`。
 
 `ProcessResult` 只包含脱敏、有界的可移植机械事实，不包含详细日志引用。`FailureRecord` 可以保存该 `ProcessResult`，公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005 定义的项目本地 diagnosis index；索引或日志丢失不能改变已经记录的 disposition。
 
@@ -178,7 +177,7 @@ main() -> None
 
 每个 command docstring 使用 Cyclopts 可解析的 NumPy-style `Parameters` 章节。typing annotation 只表达类型；文案不放在 `Annotated[..., Parameter(help=...)]` 或重复常量中。
 
-handler 只构造 request、调用一个 workflow、交给 `TerminalPresenter` 渲染并返回 D001 退出码。领域异常继承 `PfError`，只在 `main()` 最外层映射；内部模块不调用 `sys.exit()`。
+除 `minimize` 外，handler 只构造 request、调用一个 workflow、交给 `TerminalPresenter` 渲染并返回 D001 退出码。领域异常继承 `PfError`，只在 `main()` 最外层映射；内部模块不调用 `sys.exit()`。
 
 ### 6.2 工作流所有权
 
@@ -240,10 +239,10 @@ build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 
 ```text
 prepare(package, cell, snapshot, resolution, managed_vector=None)
-  -> PreparedEnvironment | PrepareFailure
+  -> PreparedEnvironment | PrepareFailure | ToolFailure
 ```
 
-它在任何外部操作前构造 Attempt，再创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。
+`resolution=highest` 或带 `managed_vector` 的精确向量会在任何外部操作前构造 Attempt。`check` 的 `lowest-direct` 不创建 Attempt；此时 prepare 失败直接返回 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -296,21 +295,22 @@ Full 所需 test policy 和 static 所需 diagnostic policy 已在 `proposal_id`
 ### 8.5 FailurePolicy
 
 ```text
-classify(scope, stage, cause, mechanical_facts, evaluation=None)
-  -> AttemptRejection | AttemptIndeterminate | CellIndeterminate
+classify(scope, cause, stage, process, summary_code=None, detail=None)
+  -> FailureRecord
 ```
 
-该深模块唯一实现 D005 的分类矩阵：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、role、stage 与 adapter cause 得出 disposition 并构造 `FailureRecord`。Cell scope 只允许 Indeterminate。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
+该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），没有单独的 role 参数。Cell scope 只允许 Indeterminate。PASS 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
 
 ## 9. 搜索与调度
 
 `CoordinateSearch` interface：
 
 ```text
-minimize(start, candidates, evaluator, hints=()) -> CoordinateOutcome
+minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
+  -> CoordinateOutcome
 ```
 
-它只读取冻结版本坐标和分类后的 `ProbePass | ProbeRejection | ProbeIndeterminate`；具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
+它只读取冻结版本坐标和分类后的 `ProbePass | ProbeRejection | ProbeIndeterminate`；`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
 
 `SearchCoordinator` interface：
 
@@ -389,7 +389,7 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 
 ## 12. TerminalPresenter
 
-`terminal.py` 是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果，根据 D006 选择 stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要与 artifact 布局；根据 D004 渲染规范单行诊断；根据 D005 从 `FailureRecord` 生成 title、impact、next step 和次级技术信息；根据 `RunLogStore` 引用生成项目相对文本和可选 OSC 8 本地文件链接。
+`terminal.py` 是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果：stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。D006 尚未完全落地，现行终端布局以实现为准，但不能在 D002 另写一套展示规则。
 
 adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 
@@ -400,7 +400,7 @@ adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保�
 测试以模块 interface 为表面：
 
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
-- CLI：按 D006 验证两个入口、八命令 help、调用错误、参数默认值、stdout/stderr 和结果摘要，并按 D001 验证退出码；
+- CLI：两个入口、八命令、参数默认值和 D001 退出码；D006 落地后按 D006 验证 help 分组、调用错误和结果摘要；
 - 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据、D005 failure 分类；
 - adapter：recording ProcessRunner、argv、状态、timeout、truncation 与脱敏；
 - 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
