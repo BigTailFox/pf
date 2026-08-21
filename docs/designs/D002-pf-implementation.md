@@ -8,8 +8,9 @@
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义；进程输出、磁盘日志与内存投影由 D007 定义。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 文案由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义；进程输出、磁盘日志与内存投影由 D007 定义；Attempt 序列、Cell Completion 和 Verification Journal 由 D008 定义。
 
 ## 1. 设计原则
 
@@ -240,10 +241,10 @@ build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 
 ```text
 prepare(package, cell, snapshot, resolution, managed_vector=None)
-  -> PreparedEnvironment | PrepareFailure | ToolFailure
+  -> PreparedEnvironment | PrepareFailure
 ```
 
-`resolution=highest` 或带 `managed_vector` 的精确向量会在任何外部操作前构造 Attempt。`check` 的 `lowest-direct` 不创建 Attempt；此时 prepare 失败直接返回 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。
+`resolution=highest`、`lowest-direct` 或带 `managed_vector` 的精确向量会在任何外部操作前构造 Attempt。prepare 失败返回 `PrepareFailure`，不得为 `lowest-direct` 省略 Attempt 或把 `PrepareFailure` unwrap 成裸 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。各命令的 Attempt 序列与完成投影由 D008 定义。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -273,7 +274,7 @@ verify(package, cell, snapshot)
   -> HighestVersionPass | BaselineRejection | BaselineIndeterminate
 ```
 
-它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> classify -> close` 生命周期。成功结果返回冻结的 `StaticBaseline` 与完整 Evaluation；任何非 PASS 结果经 `FailurePolicy` 分类并携带 `FailureRecord`。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`，因此不调用该 interface。
+它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> classify -> close` 生命周期。成功结果返回冻结的 `StaticBaseline` 与完整 Evaluation；任何非 PASS 结果经 `FailurePolicy` 分类并携带 `FailureRecord`。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`；两轮都必须保留 Attempt 并分类，见 D008。
 
 本设计把单 cell 当前使用的 Evaluation context 定义为：
 
@@ -300,7 +301,7 @@ classify(scope, cause, stage, process, summary_code=None, detail=None)
   -> FailureRecord
 ```
 
-该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），没有单独的 role 参数。Cell scope 只允许 Indeterminate。PASS 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
+该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline、Declaration 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `lowest-direct` / `exact-vector`），没有单独的 role 参数。Verification Role 由 D008 拥有，不进入本模块。Cell scope 只允许 Indeterminate。PASS 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
 
 ## 9. 搜索与调度
 

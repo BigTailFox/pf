@@ -16,9 +16,25 @@ _Avoid_: Failed Proposal, run
 按当前声明寻找最高版本验证锚点的 Attempt。
 _Avoid_: Baseline Proposal
 
+**Declaration Attempt**:
+按当前声明做最低直接解析的 Attempt；它验证声明下界，不是搜索探针。
+_Avoid_: Probe Attempt, Baseline Attempt, lowest-direct Evaluation
+
 **Probe Attempt**:
 对一个精确受管向量取得搜索证据的 Attempt。
 _Avoid_: Version check
+
+**Verification Run**:
+一次 smoke、check 或 search 对所选包、当前快照和策略执行的完整验证。
+_Avoid_: CLI session, report generation
+
+**Verification Journal**:
+一次验证运行写入本机 `.pf/logs` 的 FailureRecord 记录；它不是 floor 报告。
+_Avoid_: package-floor.json, diagnosis-index
+
+**Verification Role**:
+同一次 Attempt 请求在某次运行中承担的产品角色，用于诊断影响文案，不改变分类。
+_Avoid_: requested_resolution, Attempt kind
 
 **Proposal**:
 一个已经成功解析并确认实际依赖图的不可变候选方案。
@@ -53,7 +69,7 @@ _Avoid_: Baseline failure, Baseline Rejection
 _Avoid_: Disposition, evidence classification
 
 **FailureRecord**:
-公共报告中保存一次 Rejection 或 Indeterminate 的可移植记录，包含 failure scope、disposition、cause、stage 和 Portable Process Facts。
+一次 Rejection 或 Indeterminate 的可移植记录，包含 failure scope、disposition、cause、stage 和 Portable Process Facts；可写入 floor 报告或本机 Verification Journal。
 _Avoid_: Run log, error string
 
 **Cell Failure Scope**:
@@ -61,7 +77,7 @@ _Avoid_: Run log, error string
 _Avoid_: Failed Attempt, Rejection
 
 **Diagnosis Index**:
-项目本地 `.pf/logs` 中用 `(report_generation_id, failure_id)` 将 FailureRecord 关联到相对详细日志路径的非证据索引。
+项目本地 `.pf/logs` 中把 FailureRecord 关联到相对详细日志路径的非证据索引；键包括报告世代或验证运行。
 _Avoid_: Report field, run ID
 
 **Process Log**:

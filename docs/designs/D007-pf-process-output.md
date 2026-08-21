@@ -6,8 +6,9 @@
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF 中外部进程输出如何捕获、如何写入本机日志、如何进入内存投影，以及这些材料如何（不）构成兼容性证据的唯一契约。D001 只承诺报告不含输出文本、日志不进入 identity，以及终端给日志链接；D002 只定义 `ProcessRunner` / `RunLogStore` 的模块位置、安全写和 Schema 形状；D005 只消费本文定义的“磁盘日志是否完整”，不解释字节上限；D006 只规定 live 卡片展示末几行，不规定这几行从哪读。
+本文是 PF 中外部进程输出如何捕获、如何写入本机日志、如何进入内存投影，以及这些材料如何（不）构成兼容性证据的唯一契约。D001 只承诺报告不含输出文本、日志不进入 identity，以及终端给日志链接；D002 只定义 `ProcessRunner` / `RunLogStore` 的模块位置、安全写和 Schema 形状；D005 只消费本文定义的“磁盘日志是否完整”，不解释字节上限；D006 只规定 live 卡片展示末几行，不规定这几行从哪读；D008 的 Verification Journal 不含 stdout/stderr 正文。
 
 ## 1. 问题
 

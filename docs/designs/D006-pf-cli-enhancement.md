@@ -7,8 +7,9 @@
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF CLI 帮助信息架构、调用错误反馈、终端信息层级、命令结果摘要和 `explain` 展示的唯一契约。D001 继续定义命令、参数语义、产品结果和退出码；D002 继续定义 `cli.py` / `TerminalPresenter` 的模块位置；D004 定义静态诊断事实；D005 定义 failure 的 title、impact、next step、技术信息和 `diagnose` 行为；D007 定义 Process Log 与 Output Cache。本文只组织这些事实，不重新分类证据或改变产品语义。
+本文是 PF CLI 帮助信息架构、调用错误反馈、终端信息层级、命令结果摘要和 `explain` 展示的唯一契约。D001 继续定义命令、参数语义、产品结果和退出码；D002 继续定义 `cli.py` / `TerminalPresenter` 的模块位置；D004 定义静态诊断事实；D005 定义 failure 的 title、next step、技术信息；D007 定义 Process Log 与 Output Cache；D008 定义 Verification Role、Journal 以及 check 也产生 FailureRecord。本文只组织这些事实，不重新分类证据或改变产品语义。impact 句子由 D005/D008 拥有。
 
 ## 1. 问题
 
@@ -308,7 +309,7 @@ FAILED tests/test_cli.py::test_example
 
 cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan，live 进度与冻结结果相同。
 
-`check` 没有 FailureRecord 时不能提供 diagnose 入口，第一行仍写 `failed at static checking` / `failed at testing`，其下是 D004 单行诊断、进程末 3 行和日志引用。
+`smoke` / `check` / `search` 的非成功完成块只要有 FailureRecord 就提供 Diagnose 入口。check 不再有无 FailureRecord 的兼容性失败路径；其 Attempt 与 Journal 由 D008 定义。
 
 成功 cell 只有图标、标题和耗时，不写 `failed at`：
 
@@ -479,9 +480,9 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 ### 13.3 Cell 与 failure
 
 - 冻结 cell 第一行不含 Schema status 或 cause Enum；
-- `smoke` / `search` 的 FailureRecord 路径包含 D005 title、impact 和 `Diagnose:`；
+- `smoke` / `check` / `search` 的 FailureRecord 路径包含 D005 title、impact 和 `Diagnose:`；
 - baseline Indeterminate 的 impact 不得把 baseline 说成 candidate；
-- `check` 兼容性失败没有 `Diagnose:` 行。
+- check 的 `declaration-capture` 与 `declaration` impact 按 D008 区分，不得共用 search Baseline 句子。
 
 ### 13.4 `explain`
 

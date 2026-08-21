@@ -9,8 +9,9 @@
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级，D007 定义进程输出原文、输出缓存和磁盘日志完整性。
+本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 展示行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级，D007 定义进程输出原文、输出缓存和磁盘日志完整性，D008 定义各命令如何实例化 Attempt、Cell Completion，以及 `diagnose` 除报告外还读取 Verification Journal。
 
 ## 1. 问题
 
@@ -46,7 +47,7 @@ D001/D003 又把这些状态全部定义为非证据，因此 candidate probe �
 - timeout、来源故障、工具崩溃和内部不变量错误绝不伪装成兼容性失败；
 - 每个可报告的 Rejection/Indeterminate 保留完整 scope、stage、脱敏机械事实和可用日志引用；Attempt 已建立时还必须保留 requested resolution/vector；
 - `CoordinateSearch` 只消费搜索处置，不解释 uv 文本、stage 或退出码；
-- `pf diagnose` 能在不重新执行项目代码的情况下解释报告中的失败；
+- `pf diagnose` 能在不重新执行项目代码的情况下解释已记录的失败；读取哪些工件由 D008 定义；
 - CLI 先说明用户能理解的现象、影响和下一步，再把 cause Enum 作为次级技术信息；
 - 直接把首发 Schema 1 塑造成最终失败模型，不为开发期报告保留兼容层。
 
@@ -58,7 +59,8 @@ D001/D003 又把这些状态全部定义为非证据，因此 candidate probe �
 
 Attempt 分为：
 
-- **Baseline Attempt**：按当前声明解析 `highest`，目标是建立完整通过的搜索锚点；
+- **Baseline Attempt**：按当前声明解析 `highest`，目标是建立完整通过的搜索锚点或 smoke 的最高版本验证；
+- **Declaration Attempt**：按当前声明解析 `lowest-direct`，目标是验证声明下界；只由 `check` 建立，见 D008；
 - **Probe Attempt**：物化一个精确 requested vector，目标是在当前 Evaluation context 中获得搜索证据。
 
 ### 3.2 Proposal
@@ -113,7 +115,7 @@ Cause 回答“发生了什么”，不回答搜索是否继续。Adapter 不知
 
 失败策略只对失败事实产生 `REJECTED` 或 `INDETERMINATE`。`PASS` 来自完整成功的 Evaluation，不经过 `FailurePolicy`。
 
-分类根据 FailureScope、stage、cause 和证据完整性作出。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），CellFailureScope 只能是 Indeterminate。
+分类根据 FailureScope、stage、cause 和证据完整性作出。Baseline、Declaration 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `lowest-direct` / `exact-vector`），CellFailureScope 只能是 Indeterminate。各命令何时建立哪一种 Attempt 由 D008 定义。
 
 `CoordinateSearch` 的二元兼容性关系为：
 
@@ -134,8 +136,8 @@ Attempt identity 覆盖：
 AttemptIdentity
   source_snapshot_digest
   cell
-  requested_resolution       highest | exact-vector
-  requested_managed_vector   exact-vector 时必填
+  requested_resolution       highest | lowest-direct | exact-vector
+  requested_managed_vector   exact-vector 时必填；highest 与 lowest-direct 必须为空
   active declaration IDs
   source plan identity
   evaluation policy identity
@@ -158,6 +160,7 @@ Attempt identity 不包含进程时长、输出文本、本地路径或 run ID�
 3. 失败是 Attempt 局部且确定的，而不是 index、网络、缓存、磁盘或 PF 自身故障；
 4. cause 属于验证契约，例如不可解析、不可构建、harness 冲突、静态回归或测试正常失败；
 5. 若为 Probe Attempt，它与同一 Evaluation context 中已经完整通过的 baseline 共享 scope。
+6. 若为 Declaration Attempt，它与同一次 check cell 中已经合法捕获的 `S_hi` 共享静态基线；不要求 highest 完整测试 `PASS`。
 
 不满足任一条件时必须是 Indeterminate。
 
@@ -190,22 +193,34 @@ Baseline 的目标是建立已知完整通过的 `B = V_hi`。Baseline 被 Rejec
 
 Probe Attempt 的 Indeterminate 仍立即终止当前 cell。PF 不跳过 unknown hole，也不把它当成 rejected version。
 
+### 7.3 Declaration Attempt
+
+Declaration Attempt 只由 `check` 建立，序列与 Journal 由 D008 定义。它验证当前声明的 `lowest-direct` 解析，不进入 `CoordinateSearch`。
+
+- Rejection 表示声明下界确定不满足验证契约，终止该 check cell；
+- Indeterminate 表示无法判断下界是否成立，同样终止该 cell；
+- 它不是 Probe：没有“继续搜索”，也不要求事先存在完整测试通过的 Baseline。它要求同一次 check 运行已捕获合法 `S_hi`。
+
+check 里用于捕获 `S_hi` 的 highest Attempt 仍按 Baseline 列的 cause 规则分类；其 Verification Role 是 `declaration-capture`，impact 不得使用 search Baseline 文案。
+
 ## 8. v1 分类矩阵
 
-| 场景 | Cause | Baseline | Probe | 搜索含义 |
-| --- | --- | --- | --- | --- |
-| 精确依赖图无解 | `RESOLUTION_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 不可安装 |
-| wheel/build backend 确定失败 | `BUILD_FAILURE` | Rejected，终止 | Rejected，继续 | 当前 attempt 不可构建 |
-| harness 在目标图约束下无解 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 无法满足测试契约 |
-| harness 安装改变目标依赖图 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 无法保持被测图 |
-| D004 增量诊断非空 | `STATIC_REGRESSION` | 不适用 | Rejected，继续 | 静态兼容性失败 |
-| 测试以配置的失败码退出 | `TEST_FAILURE` | Rejected，终止 | Rejected，继续 | 动态兼容性失败 |
-| index/DNS/凭据/远端来源不可用 | `SOURCE_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 没有候选事实 |
-| 进程 timeout、signal 或启动失败 | `TIMEOUT` / `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 执行事实不完整 |
-| uv/ty/test 输出无法可靠解析 | `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 分类不可靠 |
-| Python/venv/解释器不满足 cell | `ENVIRONMENT_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 执行环境错误 |
-| 实际受管向量偏离 requested vector | `INTERNAL_INVARIANT` | Indeterminate，终止 | Indeterminate，终止 | PF/adapter 契约被违反 |
-| 同 context 结果冲突 | `NONDETERMINISTIC` | Indeterminate，终止 | Indeterminate，终止 | 不允许选择一个结果 |
+| 场景 | Cause | Baseline | Declaration | Probe | 搜索 / check 含义 |
+| --- | --- | --- | --- | --- | --- |
+| 精确依赖图无解 | `RESOLUTION_CONFLICT` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续 | 当前 attempt 不可安装 |
+| wheel/build backend 确定失败 | `BUILD_FAILURE` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续 | 当前 attempt 不可构建 |
+| harness 在目标图约束下无解 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续 | 当前 attempt 无法满足测试契约 |
+| harness 安装改变目标依赖图 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续 | 当前 attempt 无法保持被测图 |
+| D004 增量诊断非空 | `STATIC_REGRESSION` | 不适用 | Rejected，终止 check cell | Rejected，继续 | 静态兼容性失败 |
+| 测试以配置的失败码退出 | `TEST_FAILURE` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续 | 动态兼容性失败 |
+| index/DNS/凭据/远端来源不可用 | `SOURCE_FAILURE` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止 | 没有候选事实 |
+| 进程 timeout、signal 或启动失败 | `TIMEOUT` / `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止 | 执行事实不完整 |
+| uv/ty/test 输出无法可靠解析 | `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止 | 分类不可靠 |
+| Python/venv/解释器不满足 cell | `ENVIRONMENT_FAILURE` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止 | 执行环境错误 |
+| 实际受管向量偏离 requested vector | `INTERNAL_INVARIANT` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止 | PF/adapter 契约被违反 |
+| 同 context 结果冲突 | `NONDETERMINISTIC` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止 | 不允许选择一个结果 |
+
+Declaration 列只用于 `requested_resolution = lowest-direct`。它不推进 D003 边界。check 的 highest 静态捕获仍走 Baseline 列的 cause 规则，但 Verification Role 与 impact 由 D008 定义。`STATIC_REGRESSION` 在 Baseline 上不适用：highest 的 `TyCheck` 就是 `S_hi`；捕获后的评价若与捕获矛盾，是 `INTERNAL_INVARIANT`。
 
 矩阵中的 `BUILD_FAILURE` 作为 Rejection 是已确认决策。前提是 adapter 已经获得完整、可归属到当前 attempt 的构建失败；含糊的非零退出仍是 `TOOL_FAILURE`。
 
@@ -334,14 +349,14 @@ FailureRecord
 
 ## 12. `pf diagnose` v1 interface
 
-命令表面由 D001 定义。`diagnose` 默认读取所选 package 的 `package-floor.json`：
+命令表面由 D001 定义。`diagnose` 的读取面由 D008 定义：所选 package 的 `package-floor.json`（若存在）以及最近一次 Verification Journal。行为仍是：
 
-- 未指定 `--failure` 时，按 cell、attempt 顺序列出全部 Rejection 和 Indeterminate；
+- 未指定 `--failure` 时，按 D008 的来源顺序列出 Rejection 和 Indeterminate；
 - 指定后展示一个 FailureRecord 的完整可移植诊断；
 - 先展示用户可读的结果、原因、影响和下一步，再展示 disposition、cause、cell、phase/stage、requested vector、Proposal、边界作用和进程终态；完整 stdout/stderr 只通过本地日志查看；
 - 没有 Attempt 时明确展示 cell-scoped operation，requested vector 与 Proposal 均为“不适用”；
 - 若当前机器仍有对应本地 run log，则额外显示日志链接；
-- 不修改报告或项目。
+- 不修改报告、Journal 或项目。
 
 `diagnose` 与 `explain` 的职责不同：
 
@@ -378,11 +393,9 @@ FailurePresentation
   technical_code
 ```
 
-`title` 由 cause 决定，`impact` 由 scope、Attempt `requested_resolution` 和 disposition 决定。已识别的 `summary_code` 可以细化标题；未知细分类必须退回 cause 的通用文案，不能回退为裸 Enum 或原始 stderr。
+`title` 由 cause 决定。`impact` 由 scope、disposition 和 D008 的 Verification Role 决定，不能只从 `requested_resolution` 推断（check 的 highest 捕获与 search Baseline 会撞车）。已识别的 `summary_code` 可以细化标题；未知细分类必须退回 cause 的通用文案，不能回退为裸 Enum 或原始 stderr。
 
-`smoke` / `search` 的 Rejection 与 Indeterminate 使用上述 title、impact、failure ID 和诊断入口。`explain` 使用同一 title。`diagnose` 再展开 context、next step 和 technical details。这些字段在普通命令、TTY 和非 TTY 中的出现层级由 D006 定义。
-
-`check` 验证当前声明，结果是 Evaluation 而不是 FailureRecord；它不能 `diagnose`，也不走本节省略模型。
+`smoke` / `check` / `search` 的 Rejection 与 Indeterminate 使用上述 title、impact、failure ID 和诊断入口。`explain` 使用同一 title。`diagnose` 再展开 context、next step 和 technical details。这些字段在普通命令、TTY 和非 TTY 中的出现层级由 D006 定义。Role → impact 对照表由 D008 §8.4 拥有。
 
 ### 12.2 Cause 的默认用户文案
 
@@ -409,10 +422,12 @@ FailurePresentation
 | 结果 | 默认 impact |
 | --- | --- |
 | Probe Rejection | This candidate did not pass the required checks. PF will continue searching. |
-| Baseline Rejection | The highest-version baseline did not pass, so PF did not start the floor search for this cell. |
+| Baseline Rejection（search） | The highest-version baseline did not pass, so PF did not start the floor search for this cell. |
 | Probe Indeterminate | PF could not determine whether this candidate works, so it stopped this cell. |
-| Baseline Indeterminate | PF could not determine whether the highest-version baseline works, so it stopped this cell. |
+| Baseline Indeterminate（search） | PF could not determine whether the highest-version baseline works, so it stopped this cell. |
 | Cell-scoped Indeterminate | PF could not obtain the information needed to start or continue this cell. |
+
+smoke 的 Baseline 以及 check 的 `declaration-capture` / `declaration` impact 由 D008 §8.4 拥有，不在本表重复。Presenter 必须用 Journal 中的 Verification Role 选择句子。
 
 文案不得把完整 Attempt 的 Rejection 简化成“某个 dependency version 全局不兼容”。Harness conflict 也不得简化成“项目运行时依赖冲突”，因为它只说明 PF 的完整测试契约无法满足。
 
@@ -464,12 +479,13 @@ Technical details:
 
 ## 13. 本地详细日志
 
-Process Log 的正文、Output Cache 和完整性语义由 D007 规定。`RunLogStore` 仍保存脱敏的本机进程日志，但公共报告不保存 `run_id`、绝对路径或其他本机定位信息。后续 `diagnose` 通过项目本地 locator index 查找日志：
+Process Log 的正文、Output Cache 和完整性语义由 D007 规定。`RunLogStore` 仍保存脱敏的本机进程日志，但公共报告不保存 `run_id`、绝对路径或其他本机定位信息。后续 `diagnose` 通过项目本地 locator index 查找日志。键空间由 D008 扩展为报告世代与验证运行并存：
 
 ```text
 .pf/logs/diagnosis-index.json
-  (report_generation_id, failure_id)
-    -> <run-id>/process-<id>.log
+  latest_journal[package] = run_id
+  (report_generation_id, failure_id) -> <run-id>/process-<id>.log
+  (run_id, failure_id)              -> <run-id>/process-<id>.log
 ```
 
 `report_generation_id` 由 generator/algorithm、package、source snapshot、policy、声明和 target cells 的规范 identity 计算，不吸收 cell result 或本地日志信息。
@@ -481,6 +497,7 @@ Process Log 的正文、Output Cache 和完整性语义由 D007 规定。`RunLog
 - 不是公共证据，不参与 Proposal/policy identity、report equality、merge 或 apply；
 - 缺失时 `diagnose` 仍能使用报告内的 Portable Process Facts，完整 stdout/stderr 按 D007 只存在于本地 Process Log；
 - 报告被同 generation 新结果更新时，同步替换对应 `failure_id` 的本地映射；
+- 新的 Verification Run 替换该 package 的 `latest_journal`；
 - 不得通过扫描 run 目录、任意路径或模糊匹配输出内容寻找日志。
 
 其他宿主 merge 进来的 FailureRecord 在本机可以没有 locator；这不影响公共报告的证据或可移植诊断。
@@ -491,15 +508,19 @@ Process Log 的正文、Output Cache 和完整性语义由 D007 规定。`RunLog
 | --- | --- |
 | 进程终态、磁盘日志完整性与脱敏机械事实 | `ProcessRunner`；`stdout_complete` / `stderr_complete` 语义见 D007 |
 | 输出正文原文与 Output Cache | D007 |
-| 本地详细日志文件与 diagnosis index | `RunLogStore` |
+| 本地详细日志文件 | `RunLogStore` |
+| diagnosis index 的键空间（报告 ∪ journal） | D008 |
 | uv/ty/test 操作 cause | 对应 Adapter |
-| Attempt 构造与 prepare stage | `EnvironmentFactory` / highest verifier |
+| Attempt 构造与 prepare stage | `EnvironmentFactory` / highest verifier；何种 resolution 建 Attempt 见 D008 |
 | scope + cause -> disposition | `FailurePolicy` |
+| Verification Role 与 check Attempt 序列 | D008 |
 | baseline/probe 生命周期 | `SearchCoordinator` |
 | `PASS/REJECTED` 边界与 `INDETERMINATE` 停止 | D003 / `CoordinateSearch` |
 | FailureScope、FailureRecord 结构与交叉引用 | Evaluation/Report Schema |
-| `diagnose` 读取与组织 | `DiagnoseCommandWorkflow` |
+| `diagnose` 展示组织 | `DiagnoseCommandWorkflow` |
+| `diagnose` 读取哪些工件 | D008 |
 | 人类摘要、日志链接与 remediation 文案 | `TerminalPresenter` |
+| Role → impact | D008；Presenter 只渲染 |
 
 Failure policy 是深模块 `FailurePolicy`：调用方只提交结构化 FailureScope 和操作失败，module 隐藏分类矩阵。Adapter、搜索和 Presenter 都不得复制矩阵或使用 stderr substring 决定 disposition。
 
