@@ -611,8 +611,9 @@ requires-python = ">=3.12"
 def test_project_loader_rejects_unknown_package_selection(tmp_path: Path) -> None:
     write_basic_project(tmp_path, "")
 
-    with pytest.raises(ConfigurationError, match="unknown package selection"):
+    with pytest.raises(ConfigurationError, match="unknown package selection") as caught:
         ProjectLoader().load(root=tmp_path, package_selection="other")
+    assert caught.value.candidates == ("demo",)
 
 
 @pytest.mark.parametrize(

@@ -208,6 +208,39 @@ def test_configuration_error_uses_stderr_without_terminal_escape_codes() -> None
     assert "\x1b[" not in stderr.getvalue()
 
 
+def test_render_error_lists_known_package_candidates() -> None:
+    terminal, stdout, stderr = presenter()
+
+    exit_code = terminal.render_error(
+        ConfigurationError(
+            "unknown package selection: other",
+            candidates=("alpha", "beta", "demo"),
+        )
+    )
+
+    assert exit_code == 3
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "✗ configuration: unknown package selection: other\n"
+        "Known packages: alpha, beta, demo\n"
+    )
+
+
+def test_render_error_truncates_known_package_candidates_after_ten() -> None:
+    terminal, _, stderr = presenter()
+    names = tuple(f"pkg{index:02d}" for index in range(12))
+
+    terminal.render_error(
+        ConfigurationError("unknown package selection: other", candidates=names)
+    )
+
+    assert stderr.getvalue() == (
+        "✗ configuration: unknown package selection: other\n"
+        "Known packages: pkg00, pkg01, pkg02, pkg03, pkg04, pkg05, pkg06, "
+        "pkg07, pkg08, pkg09, ... and 2 more\n"
+    )
+
+
 def test_infrastructure_error_prints_the_captured_detail() -> None:
     terminal, stdout, stderr = presenter()
 
@@ -296,9 +329,9 @@ def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty() -> None:
     tty_presenter.consume(last)
     tty_presenter.close()
 
-    assert plain.getvalue() == "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] SUCCESS\n"
+    assert plain.getvalue() == "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
     assert (
-        "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 SUCCESS\n"
+        "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
         in visible(terminal.getvalue())
     )
 
@@ -336,7 +369,7 @@ def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
 
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] STATIC_FAIL\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "  error: Unresolved import 'missing'\n"
     )
 
@@ -364,7 +397,7 @@ def test_completed_cell_log_collapses_multiline_diagnostics_to_a_summary() -> No
 
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.12][x86_64-unknown-linux-gnu][no-extra] BUILD_UNAVAILABLE\n"
+        "✗ [py3.12][x86_64-unknown-linux-gnu][no-extra]\n"
         "  Failed to build `numpy==1.24.0` Because cmake is missing\n"
     )
 
@@ -558,13 +591,13 @@ def test_tty_cell_rows_use_titles_and_freeze_completed_on_top() -> None:
     assert "━" in table
     assert "1/2" in table
     assert (
-        "✓ [py3.11][x86_64-unknown-linux-gnu][cuda] 0:00:00 SUCCESS\n"
+        "✓ [py3.11][x86_64-unknown-linux-gnu][cuda] 0:00:00\n"
         in visible(stderr.getvalue())
     )
 
     terminal.close()
     output = visible(stderr.getvalue())
-    assert "✓ [py3.11][x86_64-unknown-linux-gnu][cuda] 0:00:00 SUCCESS" in output
+    assert "✓ [py3.11][x86_64-unknown-linux-gnu][cuda] 0:00:00" in output
 
 
 def test_tty_running_cell_shows_dim_stage_under_the_title() -> None:
@@ -661,7 +694,7 @@ def test_tty_running_cell_shows_dim_stage_under_the_title() -> None:
     assert "[py3.11][x86_64-unknown-linux-gnu][no-extra]" in table
     terminal.close()
     frozen = visible(stderr.getvalue())
-    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 SUCCESS\n" in frozen
+    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n" in frozen
 
 
 def test_tty_search_and_cell_rows_use_the_same_indent_as_other_stages() -> None:
@@ -764,7 +797,7 @@ def test_tty_completed_cell_freezes_into_the_log_immediately() -> None:
     )
     frozen = visible(stderr.getvalue())
     assert (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 STATIC_FAIL\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
         "  error: Unresolved import 'missing'\n"
     ) in frozen
 
@@ -780,9 +813,9 @@ def test_tty_completed_cell_freezes_into_the_log_immediately() -> None:
     )
     frozen = visible(stderr.getvalue())
     assert (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 STATIC_FAIL\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
         "  error: Unresolved import 'missing'\n"
-        "✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:00 SUCCESS\n"
+        "✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
     ) in frozen
     assert "checked declarations" not in frozen
 
@@ -912,7 +945,7 @@ def test_tty_keeps_completed_steps_without_clearing_them() -> None:
     assert "[py3.10][x86_64-unknown-linux-gnu][no-extra]" not in table
     assert "uv pip install" not in table
     assert (
-        "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 SUCCESS\n"
+        "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
         in visible(terminal.getvalue())
     )
 
@@ -921,7 +954,7 @@ def test_tty_keeps_completed_steps_without_clearing_them() -> None:
     assert "✓ loaded project\n" in output
     assert "✓ built snapshot\n" in output
     assert "✓ searched cells\n" not in output
-    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 SUCCESS" in output
+    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in output
 
 
 def test_status_and_process_activity_are_dynamic_on_tty() -> None:
@@ -1076,11 +1109,12 @@ def test_tty_completed_cell_log_keeps_dim_status_and_diagnostic() -> None:
     output = terminal.getvalue()
     plain = visible(output)
     assert (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00 STATIC_FAIL\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00\n"
         "  error: Unresolved import 'missing'\n"
     ) in plain
-    status_at = output.rindex("STATIC_FAIL")
-    assert "31" in output[: status_at + 1]
+    assert "STATIC_FAIL" not in plain
+    title_at = output.index("[py3.10]")
+    assert "31" in output[:title_at]
     detail_at = output.rindex("error: Unresolved import")
     assert "\x1b[2m" in output[: detail_at + 1]
 
@@ -1125,7 +1159,7 @@ def test_tty_failed_progress_uses_a_red_cross() -> None:
     output = terminal.getvalue()
     plain = visible(output)
     assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
-    assert "STATIC_FAIL" in plain
+    assert "STATIC_FAIL" not in plain
     assert "checked declarations" not in plain
     cross_at = output.index("✗")
     assert "31" in output[: cross_at + 1]
@@ -1171,7 +1205,7 @@ def test_tty_warning_progress_uses_a_warning_icon() -> None:
     output = terminal.getvalue()
     plain = visible(output)
     assert "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
-    assert "NO_PASS_IN_SEARCH_SPACE" in plain
+    assert "NO_PASS_IN_SEARCH_SPACE" not in plain
     assert "searched cells" not in plain
     warn_at = output.index("⚠")
     assert "33" in output[: warn_at + 1]
@@ -1375,7 +1409,7 @@ def test_smoke_test_failure_prints_dynamic_summary_and_log_link(
     assert exit_code == 1
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] BASELINE_REJECTION\n"
+        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
         "  The full test command failed for this version combination.\n"
         "  The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
         f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
@@ -1536,10 +1570,13 @@ def test_smoke_tool_failures_use_stable_user_stage_names(
         in stderr.getvalue()
     )
     assert (
-        "PF could not determine whether this candidate works, so it stopped this cell."
+        "PF could not determine whether the highest-version baseline "
+        "works, so it stopped this cell."
         in stderr.getvalue()
     )
+    assert "this candidate" not in stderr.getvalue()
     assert "TOOL_FAILURE" not in stderr.getvalue()
+    assert "BASELINE_INDETERMINATE" not in stderr.getvalue()
 
 
 def test_smoke_ty_diagnostics_are_warnings_with_one_line_summaries(
@@ -1623,7 +1660,7 @@ def test_smoke_ty_diagnostics_are_warnings_with_one_line_summaries(
     assert exit_code == 0
     assert stdout.getvalue() == "✓ smoke passed (1 cells)\n"
     assert stderr.getvalue() == (
-        "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra] PASS\n"
+        "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "  src/demo.py:4:7 [invalid-type] Expected str, found int\n"
         "  details: .pf/logs/ty-run/process-0003.log\n"
     )
@@ -1679,7 +1716,7 @@ def test_check_reuses_ty_warning_summaries() -> None:
     assert exit_code == 0
     assert stdout.getvalue() == "✓ check passed (1 cells)\n"
     assert stderr.getvalue() == (
-        "⚠ [py3.11][x86_64-unknown-linux-gnu][no-extra] PASS\n"
+        "⚠ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
         "  site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
     )
 
@@ -1734,7 +1771,7 @@ def test_check_static_failure_summarizes_only_incremental_diagnostics() -> None:
     assert exit_code == 1
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] STATIC_FAIL\n"
+        "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
         "  demo.py:9:2 [dependency-regression] new dependency regression\n"
         "✗ check failed: current declarations are incompatible\n"
     )
@@ -1793,7 +1830,7 @@ def test_check_does_not_repeat_diagnostics_already_frozen_from_progress() -> Non
     assert stdout.getvalue() == ""
     output = stderr.getvalue()
     assert output.count("demo.py:9:2 [dependency-regression]") == 1
-    assert output.count("STATIC_FAIL") == 1
+    assert "STATIC_FAIL" not in output
     assert "ty: 1 new diagnostic" not in output
     assert output.endswith(
         "✗ check failed: current declarations are incompatible\n"
@@ -1857,7 +1894,7 @@ def test_search_baseline_rejection_prints_user_guidance() -> None:
     assert exit_code == 1
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] BASELINE_REJECTION\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "  The test dependencies cannot be installed without changing the versions being checked.\n"
         "  The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
         f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
@@ -1887,7 +1924,7 @@ def test_search_infra_failure_prints_message_detail_without_a_process() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "! [py3.10][x86_64-unknown-linux-gnu][no-extra] CELL_INDETERMINATE\n"
+        "! [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "  PF could not reach or read a configured package source.\n"
         "  PF could not obtain the information needed to start or continue this cell.\n"
         f"  Diagnose: pf diagnose demo --failure {terminal_result.failure_id}\n"
@@ -1930,7 +1967,7 @@ def test_search_probe_indeterminate_prints_candidate_unknown_impact() -> None:
     assert exit_code == 4
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "! [py3.10][x86_64-unknown-linux-gnu][no-extra] CELL_INDETERMINATE\n"
+        "! [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "  The operation timed out, so compatibility is unknown.\n"
         "  PF could not determine whether this candidate works, so it stopped this cell.\n"
         f"  Diagnose: pf diagnose demo --failure {failure.failure_id}\n"
@@ -2007,7 +2044,7 @@ def test_search_reuses_highest_baseline_ty_warning_summaries() -> None:
     assert exit_code == 1
     assert stdout.getvalue() == "search completed (1 reports)\n"
     assert stderr.getvalue() == (
-        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] BASELINE_REJECTION\n"
+        "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "  demo.py:3 [unresolved-reference] Name is not defined\n"
         "  The full test command failed for this version combination.\n"
         "  The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"

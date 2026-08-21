@@ -127,6 +127,7 @@ class ProjectLoader:
             self._load_package(root=root, package_path=package_path)
             for package_path in package_paths
         )
+        available_names = tuple(sorted({package.name for package in packages}))
         if package_selection is not None:
             selected_name = canonicalize_name(package_selection)
             selected_path = (
@@ -141,7 +142,8 @@ class ProjectLoader:
             )
             if not packages:
                 raise ConfigurationError(
-                    f"unknown package selection: {package_selection}"
+                    f"unknown package selection: {package_selection}",
+                    candidates=available_names,
                 )
         if not packages:
             raise ConfigurationError("no installable packages selected")

@@ -36,6 +36,16 @@ class ConfigurationError(PfError):
     category = "configuration"
     exit_code = ExitCode.INVALID_INPUT
 
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        detail: str | None = None,
+        candidates: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__(message, detail=detail)
+        self.candidates = candidates
+
 
 class InfrastructureError(PfError):
     category = "infrastructure"

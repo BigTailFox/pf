@@ -24,7 +24,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from pf.errors import PfError
+from pf.errors import ConfigurationError, PfError
 from pf.schemas.evaluation import (
     ActivityEvent,
     AttemptFailureScope,
@@ -350,13 +350,10 @@ def _cell_finished_line(
     title: str,
     kind: OutcomeKind,
     elapsed: float | None = None,
-    status: str = "",
 ) -> Text:
     parts: list[str | tuple[str, str]] = [(f"{_ICONS[kind]} ", kind), title]
     if elapsed is not None:
         parts.extend([" ", (_format_elapsed(elapsed), "dim")])
-    if status:
-        parts.extend([" ", (status, kind)])
     return Text.assemble(*parts)
 
 
@@ -400,6 +397,14 @@ class TerminalPresenter:
                 Text(_single_line_summary(error.detail)),
                 soft_wrap=True,
             )
+        if isinstance(error, ConfigurationError) and error.candidates:
+            shown = error.candidates[:10]
+            remainder = len(error.candidates) - len(shown)
+            suffix = f", ... and {remainder} more" if remainder else ""
+            self.stderr.print(
+                f"Known packages: {', '.join(shown)}{suffix}",
+                soft_wrap=True,
+            )
         return int(error.exit_code)
 
     def render_check(self, result: CheckResult) -> int:
@@ -432,7 +437,6 @@ class TerminalPresenter:
                 if diagnostics:
                     self._print_cell_report(
                         outcome.attempt.identity.cell,
-                        status=outcome.status,
                         kind="warning",
                         diagnostics=diagnostics,
                         process=outcome.baseline.ty.process,
@@ -454,7 +458,6 @@ class TerminalPresenter:
                 process = outcome.evaluation.test.process
             self._print_cell_report(
                 outcome.cell,
-                status=outcome.status,
                 kind=kind,
                 diagnostics=diagnostics,
                 detail=detail,
@@ -475,7 +478,6 @@ class TerminalPresenter:
             if isinstance(evaluation, StaticFailEvaluation):
                 self._print_cell_report(
                     evaluation.proposal.cell,
-                    status=evaluation.status,
                     kind="failure",
                     diagnostics=evaluation.incremental,
                     process=evaluation.ty.process,
@@ -483,7 +485,6 @@ class TerminalPresenter:
             elif isinstance(evaluation, TestFailEvaluation):
                 self._print_cell_report(
                     evaluation.proposal.cell,
-                    status=evaluation.status,
                     kind="failure",
                     diagnostics=evaluation.static.ty.diagnostics,
                     detail=evaluation.test.process.diagnostic(),
@@ -495,7 +496,6 @@ class TerminalPresenter:
                     continue
                 self._print_cell_report(
                     evaluation.proposal.cell,
-                    status=evaluation.status,
                     kind="warning",
                     diagnostics=diagnostics,
                     process=evaluation.static.ty.process,
@@ -535,7 +535,6 @@ class TerminalPresenter:
                     kind = "warning"
                 self._print_cell_report(
                     result.cell,
-                    status=result.status,
                     kind=kind,
                     diagnostics=diagnostics,
                     process=process,
@@ -551,7 +550,6 @@ class TerminalPresenter:
             )
             self._print_cell_report(
                 first.cell,
-                status="",
                 kind=kind,
                 search_events=tuple(events),
             )
@@ -574,7 +572,6 @@ class TerminalPresenter:
         self,
         cell: Cell,
         *,
-        status: str,
         kind: OutcomeKind,
         diagnostics: tuple[TyDiagnostic, ...] = (),
         detail: str = "",
@@ -594,7 +591,6 @@ class TerminalPresenter:
                 title=_cell_title(cell),
                 kind=kind,
                 elapsed=elapsed,
-                status=status,
             )
         )
         seen_identities: set[str] = set()
@@ -720,6 +716,11 @@ class TerminalPresenter:
                 "The highest-version baseline did not pass, so PF did not start "
                 "the floor search for this cell."
             )
+        elif failure.scope.attempt.identity.requested_resolution == "highest":
+            impact = (
+                "PF could not determine whether the highest-version baseline "
+                "works, so it stopped this cell."
+            )
         else:
             impact = (
                 "PF could not determine whether this candidate works, so it stopped "
@@ -838,7 +839,6 @@ class TerminalPresenter:
         display_kind = "warning" if event.diagnostics and kind == "success" else kind
         self._print_cell_report(
             event.cell,
-            status=event.message,
             kind=display_kind,
             diagnostics=event.diagnostics,
             detail=event.detail,

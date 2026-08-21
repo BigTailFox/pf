@@ -408,7 +408,8 @@ FailurePresentation
 | --- | --- |
 | Probe Rejection | This candidate did not pass the required checks. PF will continue searching. |
 | Baseline Rejection | The highest-version baseline did not pass, so PF did not start the floor search for this cell. |
-| Attempt Indeterminate | PF could not determine whether this candidate works, so it stopped this cell. |
+| Probe Indeterminate | PF could not determine whether this candidate works, so it stopped this cell. |
+| Baseline Indeterminate | PF could not determine whether the highest-version baseline works, so it stopped this cell. |
 | Cell-scoped Indeterminate | PF could not obtain the information needed to start or continue this cell. |
 
 文案不得把完整 Attempt 的 Rejection 简化成“某个 dependency version 全局不兼容”。Harness conflict 也不得简化成“项目运行时依赖冲突”，因为它只说明 PF 的完整测试契约无法满足。
@@ -420,7 +421,8 @@ FailurePresentation
 candidate resolution conflict 的实时摘要：
 
 ```text
-✗ demo [py3.11][x86_64-unknown-linux-gnu][no-extra]: This version combination has conflicting dependency requirements and cannot be installed.
+✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:16
+  This version combination has conflicting dependency requirements and cannot be installed.
   This candidate did not pass the required checks. PF will continue searching.
   Diagnose: pf diagnose demo --failure failure-7f2c
 ```
@@ -428,7 +430,8 @@ candidate resolution conflict 的实时摘要：
 来源故障的实时摘要：
 
 ```text
-! demo [py3.11][x86_64-unknown-linux-gnu][no-extra]: PF could not reach or read a configured package source.
+! [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
+  PF could not reach or read a configured package source.
   PF could not obtain the information needed to start or continue this cell.
   Diagnose: pf diagnose demo --failure failure-a19d
 ```

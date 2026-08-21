@@ -19,7 +19,7 @@
 4. `search completed (1 reports)`、`apply completed (1 changed)` 等摘要既有单复数问题，也不能区分“执行结束”和“报告完整可应用”；
 5. `explain` 逐 cell、逐 Proposal 展开重复诊断并直接展示 declaration digest，用户难以先回答“floor 是什么、为什么不能 apply、下一步做什么”。
 
-D005 已经禁止把 `UNRESOLVABLE`、`TOOL_ERROR` 等 Enum 单独作为用户结论。D006 不建立一套旧 status 到文案的临时映射；依赖 failure 语义的展示直接等待并消费 D005。
+D005 已经禁止把 `UNRESOLVABLE`、`TOOL_ERROR`、cause Enum 或 Schema status 单独作为用户结论。P004 已落地 FailureRecord 与 `FailurePresentation`。D006 的 failure 展示必须消费这些结构化事实，不建立旧 status 到文案的临时映射。
 
 ## 2. 目标与非目标
 
@@ -53,27 +53,28 @@ D005 已经禁止把 `UNRESOLVABLE`、`TOOL_ERROR` 等 Enum 单独作为用户�
 4. **Next action**：可执行的下一条命令或调查入口；
 5. **Technical details**：稳定 Enum、ID 和进程事实，只在 `diagnose` 等明确调查界面展开。
 
-信息必须按层级渐进披露。默认输出不能要求用户先理解 Proposal ID、declaration digest、cause Enum 或 adapter stage。
+信息必须按层级渐进披露。默认输出不能要求用户先理解 Proposal ID、declaration digest、cause Enum、Schema status 或 adapter stage。
 
 ### 3.2 结果必须语义真实
 
-- 只有退出 `0` 的成功结果使用 `✓` 和 `passed` / `complete` / `updated`；
-- 退出非零的命令不得先输出无修饰的 `completed`，也不得使用成功图标；
-- `search` 写出了不完整报告，只能描述为 `incomplete` 或 `stopped`，不能描述为搜索成功；
-- 图标稳定映射为：`✓` 成功，`⚠` warning 或无可应用 floor，`✗` Rejection/兼容性失败/用法错误，`!` Indeterminate/基础设施错误；
+- 只有退出 `0` 的成功结果使用 `✓`；成功动词按对象选择：`passed`（smoke/check）、`updated`（apply/minimize 改写了元数据）、`complete`（仅 D001 完整可授权报告）；
+- 退出非零的命令不得输出无修饰的 `completed`，也不得使用成功图标；
+- `search` 写出了不完整报告，只能描述为 `incomplete` 或 `stopped`，不能描述为搜索成功；二者的选择由 §8.4 的 reason 表决定；
+- 图标稳定映射为：`✓` 成功，`⚠` warning 或无可应用 floor，`✗` Rejection/兼容性失败，`!` Indeterminate/基础设施错误；
+- 调用错误使用 §6.2 的 `Error:` 块，不加结果图标；
 - 颜色只作补充；移除 ANSI 后，图标和文字仍必须完整表达结果；
-- `complete` 专指 D001 定义的完整、可授权报告，不能泛指进程已经返回。
+- `complete` 专指 D001 定义的完整、可授权报告。cell 覆盖、apply 成功和 minimize 成功不得使用该词。
 
 ### 3.3 术语一致
 
 - 用户文案使用 `Python 3.11`、精确 target triple 和 `no-extra`，不使用无标签的 `3.11` / `none`；
 - `report` 指 `package-floor.json`，`project metadata` 指目标 `pyproject.toml`；
 - 一行命令说明避免 `highest-resolution`、`projection evidence` 等实现术语；详细帮助可以解释对应语义；
-- D005 的 cause/disposition Enum 只出现在 `diagnose` 的 `Technical details`。
+- D005 的 cause/disposition Enum，以及 `STATIC_FAIL`、`BASELINE_REJECTION`、`BASELINE_INDETERMINATE`、`CELL_INDETERMINATE` 等 Schema status，只出现在 `diagnose` 的 `Technical details`。实时 cell 行、命令摘要和默认 `explain` 不得把它们当作结论。
 
 ## 4. 顶层帮助信息架构
 
-`pf --help` 按用户工作流分组并保持以下顺序，不按字母排序：
+`pf --help` 按用户工作流分组并保持以下顺序，不按字母排序。`explain` 放在 Find and apply 中，是因为 D1 的 `search -> inspect -> apply` 里它是 apply 前的报告检查；`diagnose` / `merge` 是事后调查与跨宿主组合，放在 Inspect and combine。
 
 ```text
 Usage: pf COMMAND
@@ -129,7 +130,7 @@ Usage 必须显示具体参数名，例如 `pf search [OPTIONS] [PACKAGE]`，不
     [default: none]
 ```
 
-`--max-duration` 只停止新调度并保存不完整报告；帮助不能暗示它会杀死正在运行的进程。阶段 timeout 仍由 D001 配置拥有。
+`--max-duration` 只停止新调度并保存不完整报告；帮助不能暗示它会杀死正在运行的进程。阶段 timeout 仍由 D001 配置拥有。未启动 cell 按 D005 记为 `TIMEOUT` / Indeterminate，摘要按 §8.4 使用 `stopped`。
 
 ### 5.3 `merge`
 
@@ -144,7 +145,17 @@ REPORT      A package-floor.json report to merge. [required]
 
 零输入不能进入 `MergeRequest` 或 workflow。
 
-### 5.4 帮助来源
+### 5.4 `diagnose`
+
+```text
+Usage: pf diagnose [OPTIONS] [PACKAGE]
+
+--failure FAILURE_ID
+    Inspect one recorded failure. Omit to list every recorded rejection
+    or indeterminate result.
+```
+
+### 5.5 帮助来源
 
 Cyclopts 的命令说明和参数说明继续从可解析 docstring 生成。类型 annotation 只承载类型、位置性和约束，不复制帮助字符串；生产代码不维护第二套 help 常量或手写 Rich help 页面。
 
@@ -177,7 +188,7 @@ Try 'pf merge --help' for more information.
 
 - 不输出 Python exception 类型、stack frame、Pydantic 文档 URL 或内部字段路径；
 - 错误必须复述可接受格式，例如 duration 使用 `30s`, `10m`, `2h`, or `none`；
-- 未知 package 在项目发现成功时按规范顺序列出最多 10 个候选名称；超过 10 个时追加 `... and N more`，不继续刷屏；
+- 未知 package 的候选名称由 `ProjectLoader` 放进 `ConfigurationError.candidates`；`TerminalPresenter` 按规范顺序列出最多 10 个，超过 10 个时追加 `... and N more`。Presenter 不扫描文件系统去发现包名；
 - 非 TTY 不包含 ANSI、OSC 8 或 Rich live 控制序列；
 - 未预期的编程错误不属于本节，不能通过宽泛捕获改写成 configuration error。
 
@@ -186,21 +197,32 @@ Try 'pf merge --help' for more information.
 | 内容 | 通道 |
 | --- | --- |
 | 退出 `0` 的最终摘要 | stdout |
-| 成功的 `explain` / `diagnose` 主体 | stdout |
+| 成功读取并展示的 `explain` / `diagnose` 全文，含 Summary/Next | stdout |
 | 成功的 `merge` / `apply` artifact 结果 | stdout |
-| 错误、warning、failure、incomplete 摘要 | stderr |
-| TTY 动态进度和非 TTY 稳定阶段事件 | stderr |
+| 错误、warning、failure、incomplete/stopped 命令摘要 | stderr |
+| TTY 动态进度 | stderr |
+| 冻结的范围事实（selected cells）与 cell 完成块 | stderr |
 | D004 单行诊断与 D005 failure 摘要 | stderr |
 
-一个顶层命令只有一个最终摘要。TTY 的 live progress 始终固定在输出底部。每当一个 cell 完成，该 cell 立即从运行时进度中移除，并作为稳定诊断块写入上方 log；不要在命令结束时再输出第二份 cell 诊断。`checking declarations` / `searching cells` / `smoke testing` 只作为底部进度描述，完成后不冻结成 `checked declarations` 一类阶段行。
+`explain` 在成功读取报告后始终退出 `0` 并把全文放在 stdout，即使报告 `incomplete`。报告缺失、非法或 package 无法解析仍是命令错误，走 stderr 与退出码 `3`。不要把 `explain` 的 Summary 拆到 stderr。
+
+一个顶层命令只有一个最终摘要。TTY 的 live progress 始终固定在输出底部。每当一个 cell 完成，该 cell 立即从运行时进度中移除，并作为稳定诊断块写入上方 log；不要在命令结束时再输出第二份 cell 诊断。
+
+阶段事件分两类：
+
+- **范围事实**可以冻结：`loaded project`、`built snapshot`、`selected N cells` 及 python/platform/extra 明细。它们回答 Scope，完成后仍可读。
+- **工作动词**只出现在 TTY 底部进度：`checking declarations` / `searching cells` / `smoke testing`。完成后不得冻结成 `checked declarations` 一类过去时阶段行。
+- 非 TTY 没有 live 进度，因此不输出工作动词行；只输出范围事实、cell 完成块和最终摘要。
 
 顺序固定为：
 
 ```text
-phase log -> per-cell frozen diagnostics (as cells complete) -> remaining live progress at bottom -> artifact details -> final summary
+scope facts -> per-cell frozen diagnostics (as cells complete) -> remaining live progress at bottom -> artifact details -> final summary
 ```
 
-最终摘要必须是该命令最后一条用户可见结果。`minimize` 内部执行 search 和 apply，但不能连续调用两个“最终” renderer；search 成功进入 apply 时只保留阶段事件，最后输出一个 minimize 摘要。search 未得到完整报告时，摘要明确说明 apply 未运行。
+最终摘要必须是该命令最后一条用户可见结果。
+
+`minimize` 的唯一最终 renderer 是 `TerminalPresenter.render_minimize(reports, edits)`。`edits` 为 `None` 表示 apply 未运行。handler 仍按 D002 顺序调用 search/apply workflow，但不得连续调用 `render_search` 和 `render_apply`。search 未得到完整报告时摘要明确说明 apply 未运行。
 
 ## 8. 最终摘要
 
@@ -212,7 +234,7 @@ phase log -> per-cell frozen diagnostics (as cells complete) -> remaining live p
 <icon> <command outcome> · <count/scope> · <artifact or next state>
 ```
 
-计数必须使用统一的 singular/plural formatter；`1 cell`、`2 cells`、`1 report`、`2 reports`、`1 project`、`2 projects`，不得在各 renderer 内拼接 `cells` / `reports`。
+计数必须使用统一的 singular/plural formatter；`1 cell`、`2 cells`、`1 report`、`2 reports`、`1 project`、`2 projects`，不得在各 renderer 内拼接 `cells` / `reports`。多 package 时先按 §8.3 列出 artifact，再输出一条命令级摘要；图标和动词跟随 D001 混合终态优先级下的主导结果。
 
 ### 8.2 示例
 
@@ -224,16 +246,17 @@ phase log -> per-cell frozen diagnostics (as cells complete) -> remaining live p
 ✓ Search complete · 1 report · package-floor.json
 ⚠ Search incomplete · 1 report written · 3 cells have no applicable floor
 ! Search stopped · compatibility is unknown for 1 cell · report written: package-floor.json
+✗ Search stopped · highest-version baseline did not pass · 1 report written
 
 ✓ Applied floors · 1 project updated · pyproject.toml
-✓ Apply complete · no metadata changes
+✓ Applied floors · no metadata changes
 ✓ Merged 3 reports · merged.json
 
-✓ Minimize complete · 1 project updated
+✓ Minimized floors · 1 project updated
 ⚠ Minimize stopped before apply · search report is incomplete
 ```
 
-具体 failure title 和 impact 仍来自 D005。摘要不把一个 Proposal 的结果概括成某个 dependency version 的全局兼容性结论。
+具体 failure title 和 impact 仍来自 D005。摘要不把一个 Proposal 的结果概括成某个 dependency version 的全局兼容性结论。`smoke` 测试通过但存在 ty 诊断时，最终摘要仍是退出 `0` 的 `Smoke passed`；cell 行用 `⚠` 展示诊断，不把 warning 升级成命令失败。
 
 ### 8.3 Artifact
 
@@ -243,19 +266,51 @@ phase log -> per-cell frozen diagnostics (as cells complete) -> remaining live p
 - 路径支持 OSC 8 时可以成为链接，但可见文本始终是项目相对路径或用户传入路径；
 - 只有实际成功写入的 artifact 才能用 `written` / `updated` / `merged`。
 
+### 8.4 Search / minimize 的 reason 映射
+
+报告 `result.reasons` 到摘要动词、图标和 D001 退出码的映射如下。多 reason 时先按 D001 优先级选择主导类：Baseline Rejection（1）> Indeterminate/基础设施（4）> 其他不可应用（2）。
+
+| 主导 reason | 动词 | 图标 | 退出码 |
+| --- | --- | --- | --- |
+| `BASELINE_REJECTION` | `stopped` | `✗` | 1 |
+| `INDETERMINATE` | `stopped` | `!` | 4 |
+| `NO_PASS_IN_SEARCH_SPACE`、`NON_MONOTONIC`、`NONDETERMINISTIC`、`MISSING_CELL`、`UNREPRESENTABLE_PROJECTION` | `incomplete` | `⚠` | 2 |
+
+`--max-duration` 导致未启动 cell 记 `TIMEOUT` / `INDETERMINATE` 时走 `stopped`。摘要句子使用人类语言（`compatibility is unknown`、`no applicable floor`、`highest-version baseline did not pass`），不回显 reason Enum。
+
 ## 9. Cell 与诊断格式
 
 ### 9.1 Cell
 
-`smoke` / `check` / `search` 的 cell 结果行使用与 live 进度相同的标题，并带上运行时间和结束状态：
+`smoke` / `check` / `search` 的 cell 结果行使用与 live 进度相同的标题（不含 package 名；范围已由 selected-cells 事实给出），并带上运行时间。第一行不含 Schema status 或 cause Enum。
+
+有 FailureRecord 的 `smoke` / `search` 完成块：
 
 ```text
-✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:16 STATIC_FAIL
+! [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
+  PF could not complete a verification tool operation reliably.
+  PF could not determine whether the highest-version baseline works, so it stopped this cell.
+  Diagnose: pf diagnose demo --failure failure-38ac8f69eb9a182a
+  details: .pf/logs/...
+```
+
+缩进行依次为 D005 title、D005 impact、`Diagnose:` 入口、可选 D004 单行诊断、日志链接。title/impact 完全来自 D005；`Diagnose:` 的 package 参数是报告中的包名，即使它碰巧与 CLI 名 `pf` 相同。
+
+`check` 走 Evaluation 而不是 FailureRecord，不能提供 `diagnose` 入口：
+
+```text
+✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:16
   src/pf/environment.py:405:29 [not-subscriptable] Cannot subscript object of type `Item` ...
   details: .pf/logs/...
 ```
 
-第一行是图标、`[py…]`、精确 target triple、extra surface、运行时间和结束状态。下方详情使用缩进和暗色样式：D004 单行诊断、D005 failure 摘要、日志链接。Python 前缀、精确 target triple 和 extra surface 都不能省略或用无标签 `none` 代替。
+成功 cell 只有图标、标题和耗时：
+
+```text
+✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+```
+
+第一行是图标、`[py…]`、精确 target triple、extra surface 和运行时间。下方详情使用缩进和暗色样式。Python 前缀、精确 target triple 和 extra surface 都不能省略或用无标签 `none` 代替。
 
 TTY 下该结果行是对应 live 进度行的固结形态，在 cell 完成时立即写入上方 log，并从底部进度中移除。非 TTY 在 cell 完成时直接输出同样的稳定文本。排序继续使用 D001/D002 的规范 cell 顺序来调度；完成顺序可以按实际结束时间出现在 log 中。
 
@@ -264,6 +319,8 @@ TTY 下该结果行是对应 live 进度行的固结形态，在 cell 完成时�
 ```text
 demo [py3.11][x86_64-unknown-linux-gnu][no-extra]
 ```
+
+D005 §12.4 的实时摘要示例遵循本节布局：title 与 impact 在缩进行，而不是写在第一行冒号之后。
 
 ### 9.2 静态诊断
 
@@ -292,20 +349,22 @@ tests/test_cli.py:128:9 [unknown-argument] Argument ...  ×9
 `explain` 回答：
 
 1. 读取了哪个 package/report；
-2. 报告是否 complete、是否可以 apply；
+2. 报告是否 complete，以及**该报告是否授权 apply**（不是当前工作树现在执行 `apply` 是否会成功）；
 3. target cell 覆盖是否完整；
 4. 每条直接依赖声明的已验证 floor 和投影结果是什么；
 5. 哪些 blocker 阻止 apply，以及如何进入 `diagnose`。
 
-它不按 attempt 顺序转储全部 observation、Proposal、进程输出或技术 Enum。单次 attempt 的完整调查继续属于 D005 `diagnose`。
+它不按 attempt 顺序转储全部 observation、Proposal、进程输出或技术 Enum。单次 attempt 的完整调查继续属于 D005 `diagnose`。源码漂移和策略 identity 不匹配由 `apply` 在退出码 `3` 时报告；`explain` 不重新核对快照。
 
 ### 10.2 默认层级
 
+无 floor、报告不完整：
+
 ```text
-pf · package-floor.json
+demo · package-floor.json
 Status: incomplete
-Apply: blocked
-Cells: 0/3 complete
+Apply: not authorized by this report
+Cells: 0/3 covered
 
 Requirements
   cyclopts>=4.0   no applicable floor
@@ -315,18 +374,22 @@ Blockers
   3 cells · Python 3.10, 3.11, 3.12 · x86_64-unknown-linux-gnu · no-extra
   What happened: <D005 failure title>
   Impact: <D005 impact for the grouped scopes>
-  Diagnose: pf diagnose pf
+  Diagnose: pf diagnose demo
 
 Summary: report is incomplete and cannot be applied.
 ```
+
+缺覆盖（`MISSING_CELL`）时 `Cells` 显示已覆盖数，Blockers 说明哪些 target cell 没有本次宿主证据，Diagnose 只在存在 FailureRecord 时出现。
+
+投影不可表示（`UNREPRESENTABLE_PROJECTION`）时对应声明显示 `projection blocked`，Apply 为 `not authorized by this report`。
 
 完整报告示例：
 
 ```text
 demo · package-floor.json
 Status: complete
-Apply: ready
-Cells: 3/3 complete
+Apply: authorized by this report
+Cells: 3/3 covered
 
 Requirements
   httpx>=0.20   -> httpx>=0.24
@@ -336,7 +399,7 @@ Summary: 2 dependency declarations have verified floors.
 Next: pf apply demo
 ```
 
-示例中的版本只说明布局，不定义 floor 结果。
+示例中的版本只说明布局，不定义 floor 结果。多 package 时每个报告重复该块，最后一条 `Summary`/`Next` 仍属于 `explain` 全文，留在 stdout。
 
 ### 10.3 声明与投影
 
@@ -352,7 +415,7 @@ Presenter 必须用 `declaration_id` 关联 `requirement_declarations`，默认�
 
 Blocker 可以按相同 D005 `FailurePresentation` 聚合多个 cell，但必须保留涉及的规范 cell 列表和 FailureRecord 数量。标题、影响和 next step 完全来自 D005；D006 只规定段落位置、cell 聚合、诊断折叠和 `Diagnose:` 入口。单个 FailureRecord 使用带 `--failure` 的精确入口；多个 FailureRecord 使用 `pf diagnose PACKAGE` 列表入口，不能任选一个 ID 冒充整组。
 
-如果 D005 尚未实现，D006 的 `explain` blocker 层不得通过旧 status 或 stderr 自由文本生成临时解释。可以先实施帮助、参数校验和通用摘要，blocker 重构必须与 D005 一起落地。
+P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；没有结构化 failure 事实就不能声称 explain 完成。禁止旧 status 兼容分支，也禁止从 stderr 自由文本生成临时解释。帮助、参数校验和通用摘要可以先行，但不得用它们冒充 blocker 文案。
 
 ## 11. 自适应终端
 
@@ -370,8 +433,10 @@ Blocker 可以按相同 D005 `FailurePresentation` 聚合多个 cell，但必须
 | 命令存在、参数语义、退出码 | D001 |
 | Cyclopts 注册、位置性、参数 cardinality、docstring help | `cli.py` |
 | workflow 业务编排和 artifact 写入 | `workflow.py` 与对应深模块 |
-| failure title、impact、next step、technical code | D005 / `TerminalPresenter` |
-| help 分组、结果摘要、cell/diagnostic/explain 布局 | D006 / `TerminalPresenter` |
+| 未知 package 的候选名称 | `ProjectLoader` via `ConfigurationError.candidates` |
+| failure title、impact、next step、technical code | D005；`TerminalPresenter` 只渲染 |
+| help 分组、结果摘要、cell/diagnostic/explain 布局 | D006；`TerminalPresenter` 只渲染 |
+| `render_minimize` | `TerminalPresenter` |
 | TTY event、Rich renderable、stdout/stderr | `TerminalPresenter` |
 | 诊断事实与多重集 | D004 |
 | 报告证据与 canonical JSON | `ReportStore` / Schema |
@@ -382,50 +447,61 @@ Blocker 可以按相同 D005 `FailurePresentation` 聚合多个 cell，但必须
 - `TerminalPresenter` 可以建立内部 presentation object，但该对象不进入公共 Schema；
 - adapter、Evaluator、workflow、report 和 editor 不拼用户文案、不导入 Rich；
 - 不创建第二个 CLI renderer、通用 `formatting.py` 或只被调用一次的 helper module；
-- artifact 路径来自 workflow/result 的结构化事实，Presenter 不扫描文件系统猜测输出。
+- artifact 路径来自 workflow/result 的结构化事实，Presenter 不扫描文件系统猜测输出；
+- 未知 package 的候选列表不得由 Presenter 重新发现。
 
 ## 13. 验证契约
 
 ### 13.1 Help 与调用错误
 
 - `pf` 和 `python -m pf` 的顶层 help 分组、顺序和文案一致；
-- 八个命令的 `--help` 覆盖位置参数、默认值和 duration 格式；
+- 八个命令的 `--help` 覆盖位置参数、默认值、`--failure` 和 duration 格式；
 - `package` 只显示为可选位置参数；
 - `merge --output PATH` 在 workflow 前失败，退出 `3`，无 traceback；
-- 未知 option、非法 jobs/duration、未知 package 都验证 stderr、usage、退出码和无 ANSI 的非 TTY 输出。
+- 未知 option、非法 jobs/duration、未知 package 都验证 stderr、usage、退出码和无 ANSI 的非 TTY 输出；
+- 未知 package 验证候选列表上限 10 和 `... and N more`。
 
 ### 13.2 结果与通道
 
 - success、compatibility failure、no-applicable-floor、indeterminate 分别验证图标、措辞和 D001 退出码；
 - 单复数覆盖 `0/1/N`；
-- incomplete search 不输出无修饰的 `search completed`；
-- `minimize` 成功和 search-blocked 路径都只有一个最终摘要；
+- incomplete/stopped search 不输出无修饰的 `search completed`，并按 §8.4 断言动词和图标；
+- `minimize` 成功和 search-blocked 路径都只调用 `render_minimize`，只有一个最终摘要；
 - stdout/stderr 分别断言，不依赖合并流的调度顺序。
 
-### 13.3 `explain`
+### 13.3 Cell 与 failure
+
+- 冻结 cell 第一行不含 Schema status 或 cause Enum；
+- `smoke` / `search` 的 FailureRecord 路径包含 D005 title、impact 和 `Diagnose:`；
+- baseline Indeterminate 的 impact 不得把 baseline 说成 candidate；
+- `check` 兼容性失败没有 `Diagnose:` 行。
+
+### 13.4 `explain`
 
 - complete、incomplete、missing-cell、projection-blocked 和多 package 报告；
+- `Apply: authorized by this report` / `not authorized by this report`，不出现 `Apply: ready`；
 - 声明名称/原始 requirement 替代 digest；
 - 重复诊断以 `×N` 保留重数，并验证 10 条上限和省略计数；
 - failure title 与 diagnose 入口复用 D005，不出现裸 cause/status；
-- 默认输出不含 Proposal ID、snapshot hash、policy identity 或多行工具输出。
+- 默认输出不含 Proposal ID、snapshot hash、policy identity 或多行工具输出；
+- 全文在 stdout。
 
-### 13.4 终端模式
+### 13.5 终端模式
 
-- 非 TTY 是无 ANSI/OSC 8 的稳定文本；
+- 非 TTY 是无 ANSI/OSC 8 的稳定文本，且没有工作动词阶段行；
 - TTY 在 56、80、120 列验证不溢出、不丢字段和完成行冻结；
 - 生产 Presenter 构造不传固定终端尺寸；
 - wheel 安装后按 `smoke -> check -> search -> explain -> diagnose -> apply` 做入口 smoke，并验证 `pf` 与 `python -m pf` 一致。
 
 ## 14. 实施顺序
 
-1. **Help and invocation**：命令分组、位置参数、duration 文案、`merge` 非空和统一 usage error；
-2. **Command summary**：统一 count/artifact/outcome、修正 stdout/stderr、让 `minimize` 只输出一个最终摘要；
-3. **D005 dependency**（P004 已完成）：FailureRecord、FailurePresentation、diagnosis index 和 `diagnose`；
-4. **Explain hierarchy**：声明关联、coverage/projection、blocker 分组和诊断折叠；
+1. **Cell and failure placement**：去掉 cell 行上的 Schema status，消费 D005 title/impact/`Diagnose:`，修正 baseline Indeterminate impact；
+2. **Help and invocation**：命令分组、位置参数、duration 文案、`merge` 非空、未知 package 候选和统一 usage error；
+3. **Command summary**：按 §8.4 统一 count/artifact/outcome、修正 stdout/stderr、落地 `render_minimize`；
+4. **Explain hierarchy**：声明关联、coverage/projection、blocker 分组和诊断折叠；必须消费 `FailurePresentation`；
 5. **Installed validation**：窄/宽 TTY、非 TTY、两个入口和真实 artifact 路径。
 
-每个阶段以公开 CLI 行为测试开始。第 4 阶段必须消费 D005 结构化事实，不得保留旧 status 兼容分支或从 stderr 猜测文案。
+每个阶段以公开 CLI 行为测试开始。第 4 阶段不得保留旧 status 兼容分支或从 stderr 猜测文案。
 
 ## 15. 不变量
 
@@ -440,12 +516,14 @@ Blocker 可以按相同 D005 `FailurePresentation` 聚合多个 cell，但必须
 9. artifact 只有在实际写入或修改后才能描述为 written/updated/merged。
 10. 生产终端布局不硬编码宽高，非 TTY 不输出控制序列。
 11. 展示选择不进入报告、Evaluation、policy 或 source identity。
+12. 默认 cell 行、命令摘要和 `explain` 不把 Schema status 或 cause Enum 当作结论。
+13. `complete` 只描述 D001 完整可授权报告。
 
 ## 16. 决策记录
 
 ### D1：命令按工作流分组，不按字母排序（已确认）
 
-CLI 是任务导航，不是符号索引。分组和顺序优先表达 `verify -> search -> inspect -> apply` 的关系。
+CLI 是任务导航，不是符号索引。分组和顺序优先表达 `verify -> search -> inspect -> apply` 的关系。`explain` 放在 Find and apply 中，因为它是 apply 前的 inspect；`diagnose` 是事后调查。
 
 ### D2：`package` 只保留位置参数（已确认）
 
@@ -453,7 +531,7 @@ D001 已把表面定义为 `[package]`。移除自动生成的 `--package` 可�
 
 ### D3：不完整 search 不是成功摘要（已确认）
 
-写出合法不完整报告与得到完整可应用 floor 是两个事实。CLI 同时展示 artifact 和 incomplete/stopped outcome，不用 `completed` 混淆二者。
+写出合法不完整报告与得到完整可应用 floor 是两个事实。CLI 同时展示 artifact 和 incomplete/stopped outcome，不用 `completed` 混淆二者。动词由图标表 §8.4 决定。
 
 ### D4：`explain` 展示声明，不展示 digest（已确认）
 
@@ -461,8 +539,16 @@ digest 是报告关联键，不是用户术语。Presenter 必须通过结构化
 
 ### D5：`minimize` 只有一个最终摘要（已确认）
 
-`minimize` 是一个用户命令。内部 search/apply 阶段可以产生进度，但不能各自冒充顶层最终结果。
+`minimize` 是一个用户命令。内部 search/apply 阶段可以产生进度，但不能各自冒充顶层最终结果。唯一入口是 `render_minimize`。
 
-### D6：D005 前不实现临时 failure 文案（已确认）
+### D6：不实现临时 failure 文案（已确认）
 
-旧 status 缺少 D005 scope/disposition/cause，无法可靠决定影响或 next step。临时映射会重复所有权并可能把 Indeterminate 写成兼容性失败，因此直接等待 D005 结构化事实。
+旧 status 缺少 D005 scope/disposition/cause，无法可靠决定影响或 next step。P004 已提供结构化事实；展示层直接消费，不保留平行映射。
+
+### D7：冻结 cell 行不显示 Schema status（已确认）
+
+图标已经编码成功/失败/警告/不确定。Schema status 是机器词汇，放在第一行会盖过 D005 title。title、impact 和 `Diagnose:` 放在缩进行。
+
+### D8：`explain` 的 Apply 只表示报告授权（已确认）
+
+`explain` 不核对当前工作树。`authorized by this report` 避免把“报告完整”说成“现在执行 apply 一定成功”。

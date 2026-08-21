@@ -191,7 +191,7 @@ main() -> None
 | `MergeCommandWorkflow` | read → merge → write | 显式 output |
 | `ApplyCommandWorkflow` | load → 读取并核对报告 → `ProjectEditor.apply_many` | `pyproject.toml`、`.pf` 日志 |
 
-`minimize` 只在 handler 中顺序复用 search 和 apply workflow；安全规则仍由报告 Schema、ReportStore 和 ProjectEditor 强制。
+`minimize` 只在 handler 中顺序复用 search 和 apply workflow；安全规则仍由报告 Schema、ReportStore 和 ProjectEditor 强制。最终展示必须走 `TerminalPresenter.render_minimize(reports, edits)`：`edits is None` 表示 apply 未运行。handler 不得连续调用 `render_search` 和 `render_apply`。
 
 ## 7. 项目规划与快照
 
@@ -205,7 +205,7 @@ load(root: Path, package_selection: str | None) -> ProjectPlan
 
 它隐藏并唯一拥有：
 
-- workspace 与可安装包发现、root packages/exclude 选择；
+- workspace 与可安装包发现、root packages/exclude 选择；未知 package 时把已发现名称放入 `ConfigurationError.candidates`；
 - 三层配置加载；
 - PEP 508 声明解析、固定/可搜索/受管分类；
 - marker 投影、extra surface 与有序 cell；
