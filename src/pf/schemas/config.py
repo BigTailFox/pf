@@ -15,9 +15,9 @@ class EffectiveConfig(FrozenSchema):
     extras: Literal["none", "each", "all"] | None = "each"
     extra_surfaces: tuple[tuple[str, ...], ...] | None = None
     release_granularity: Literal["major", "minor", "patch"] = "minor"
-    search_space: Literal["all", "current-major", "current-minor"] | tuple[
-        str, ...
-    ] = "all"
+    search_space: Literal["all", "current-major", "current-minor"] | tuple[str, ...] = (
+        "all"
+    )
     distribution: Literal["wheel", "sdist", "any"] = "wheel"
     allow_prereleases: bool = False
     managed_deps: tuple[str, ...] | None = None
@@ -38,7 +38,9 @@ class EffectiveConfig(FrozenSchema):
         import re
 
         if any(re.fullmatch(r"3\.[0-9]+", minor) is None for minor in value):
-            raise ValueError("python entries must be CPython minor versions like '3.11'")
+            raise ValueError(
+                "python entries must be CPython minor versions like '3.11'"
+            )
         if tuple(sorted(set(value))) != value:
             raise ValueError("python entries must be sorted and unique")
         return value
@@ -104,6 +106,12 @@ class SearchRequest(FrozenSchema):
 class ReportRequest(FrozenSchema):
     root: str
     package: str | None = None
+
+
+class DiagnoseRequest(FrozenSchema):
+    root: str
+    package: str | None = None
+    failure_id: str | None = None
 
 
 class ApplyRequest(FrozenSchema):

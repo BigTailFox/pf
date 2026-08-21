@@ -62,7 +62,10 @@ class Cell(FrozenSchema):
             raise ValueError("cell target must be an exact uv target triple")
         if tuple(sorted(set(self.extra_surface))) != self.extra_surface:
             raise ValueError("extra surface must be sorted and unique")
-        if tuple(sorted(set(self.active_declaration_ids))) != self.active_declaration_ids:
+        if (
+            tuple(sorted(set(self.active_declaration_ids)))
+            != self.active_declaration_ids
+        ):
             raise ValueError("active declaration IDs must be sorted and unique")
         return self
 
@@ -86,6 +89,7 @@ class InterpreterIdentity(FrozenSchema):
 
 class Proposal(FrozenSchema):
     proposal_id: str
+    attempt_id: str | None = None
     snapshot_digest: str
     cell: Cell
     managed_vector: tuple[VersionPin, ...]

@@ -6,9 +6,10 @@ import os
 from pathlib import Path
 import re
 import secrets
+import stat
 from threading import Lock
 
-from pf.errors import InfrastructureError
+from pf.errors import ConfigurationError, InfrastructureError
 from pf.schemas.evaluation import ProcessResult, ProcessSpec
 from pf.windows_runlog import WindowsRunDirectory
 
@@ -18,6 +19,8 @@ class RunLogStore:
 
     _METADATA_LIMIT = 4_096
     _OUTPUT_LIMIT = 16_384
+    _INDEX_LIMIT = 8 * 1024 * 1024
+    _INDEX_NAME = "diagnosis-index.json"
 
     def __init__(self, *, root: Path, run_id: str | None = None) -> None:
         self._root = root.resolve()
@@ -65,6 +68,128 @@ class RunLogStore:
     def reference_for(self, result: ProcessResult) -> Path | None:
         with self._lock:
             return self._references.get(id(result))
+
+    def associate(
+        self,
+        report_generation_id: str,
+        failure_id: str,
+        result: ProcessResult,
+    ) -> None:
+        """Associate a portable failure identity with this run's local log."""
+        if self.reference_for(result) is None:
+            raise InfrastructureError(
+                "could not write PF diagnosis index",
+                detail=(
+                    "the failure process was not recorded by this RunLogStore; "
+                    "refusing to publish an unusable diagnosis locator"
+                ),
+            )
+        self.replace_associations(
+            report_generation_id,
+            ((failure_id, result),),
+            replace_generation=False,
+        )
+
+    def replace_associations(
+        self,
+        report_generation_id: str,
+        failures: tuple[tuple[str, ProcessResult | None], ...],
+        *,
+        replace_generation: bool = True,
+        remove_failure_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Atomically update one report generation's local log locators."""
+        try:
+            with self._lock:
+                located: dict[str, str] = {}
+                for failure_id, result in failures:
+                    if result is None:
+                        continue
+                    relative = self._relative_reference(result)
+                    if relative is None:
+                        raise ValueError(
+                            "current failure process has no recorded diagnosis locator"
+                        )
+                    located[failure_id] = relative
+                if not located and not replace_generation and not remove_failure_ids:
+                    return
+                if located:
+                    self._ensure_run()
+                if not self._supports_secure_dir_fd():
+                    if not self._supports_windows_guard():
+                        raise OSError(
+                            "secure PF diagnosis indexes are unsupported on this platform"
+                        )
+                    self._replace_associations_windows(
+                        report_generation_id,
+                        located,
+                        replace_generation=replace_generation,
+                        remove_failure_ids=remove_failure_ids,
+                    )
+                    return
+                logs_fd = self._open_existing_logs()
+                if logs_fd is None:
+                    return
+                try:
+                    entries = self._read_index_at(logs_fd)
+                    self._update_entries(
+                        entries,
+                        report_generation_id,
+                        located,
+                        replace_generation=replace_generation,
+                        remove_failure_ids=remove_failure_ids,
+                    )
+                    self._write_private_at(
+                        logs_fd,
+                        self._INDEX_NAME,
+                        json.dumps(
+                            {
+                                "format": "pf-diagnosis-index-v1",
+                                "entries": entries,
+                            },
+                            sort_keys=True,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        + "\n",
+                    )
+                finally:
+                    os.close(logs_fd)
+        except (OSError, NotImplementedError, ValueError) as error:
+            raise InfrastructureError(
+                "could not write PF diagnosis index",
+                detail=str(error),
+            ) from error
+
+    def lookup(self, report_generation_id: str, failure_id: str) -> Path | None:
+        """Resolve exactly one indexed local log without scanning run directories."""
+        try:
+            with self._lock:
+                if not self._supports_secure_dir_fd():
+                    if not self._supports_windows_guard():
+                        raise OSError(
+                            "secure PF diagnosis indexes are unsupported on this platform"
+                        )
+                    return self._lookup_windows(report_generation_id, failure_id)
+                logs_fd = self._open_existing_logs()
+                if logs_fd is None:
+                    return None
+                try:
+                    entries = self._read_index_at(logs_fd)
+                    generation = entries.get(report_generation_id)
+                    if not isinstance(generation, dict):
+                        return None
+                    relative = generation.get(failure_id)
+                    if not isinstance(relative, str):
+                        return None
+                    return self._validated_log_path(logs_fd, relative)
+                finally:
+                    os.close(logs_fd)
+        except (OSError, NotImplementedError, ValueError) as error:
+            raise ConfigurationError(
+                "could not read PF diagnosis log",
+                detail=str(error),
+            ) from error
 
     def close(self) -> None:
         with self._lock:
@@ -145,6 +270,220 @@ class RunLogStore:
             raise OSError(f"PF project root is not a directory: {self._root}")
         return descriptor
 
+    def _open_existing_logs(self) -> int | None:
+        root_fd = self._open_root()
+        pf_fd: int | None = None
+        logs_fd: int | None = None
+        try:
+            try:
+                pf_fd = self._open_directory(root_fd, ".pf")
+                logs_fd = self._open_directory(pf_fd, "logs")
+            except FileNotFoundError:
+                return None
+            result = logs_fd
+            logs_fd = None
+            return result
+        finally:
+            for descriptor in (logs_fd, pf_fd, root_fd):
+                if descriptor is not None:
+                    os.close(descriptor)
+
+    def _relative_reference(self, result: ProcessResult) -> str | None:
+        path = self._references.get(id(result))
+        if path is None:
+            return None
+        relative = path.relative_to(self._root / ".pf" / "logs")
+        self._validate_relative_locator(relative.as_posix())
+        return relative.as_posix()
+
+    def _read_index_at(self, logs_fd: int) -> dict[str, dict[str, str]]:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self._INDEX_NAME, flags, dir_fd=logs_fd)
+        except FileNotFoundError:
+            return {}
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_size > self._INDEX_LIMIT:
+                raise ValueError("PF diagnosis index is not a bounded regular file")
+            with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+                descriptor = -1
+                content = stream.read(self._INDEX_LIMIT + 1)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        return self._parse_index(content)
+
+    def _parse_index(self, content: str) -> dict[str, dict[str, str]]:
+        if len(content.encode("utf-8")) > self._INDEX_LIMIT:
+            raise ValueError("PF diagnosis index exceeds its size limit")
+        document = json.loads(content)
+        if not isinstance(document, dict) or document.get("format") != (
+            "pf-diagnosis-index-v1"
+        ):
+            raise ValueError("PF diagnosis index has an unsupported format")
+        entries = document.get("entries")
+        if not isinstance(entries, dict):
+            raise ValueError("PF diagnosis index entries are invalid")
+        validated: dict[str, dict[str, str]] = {}
+        for generation, failures in entries.items():
+            if not isinstance(generation, str) or not isinstance(failures, dict):
+                raise ValueError("PF diagnosis index generation is invalid")
+            validated_failures: dict[str, str] = {}
+            for indexed_failure, relative in failures.items():
+                if not isinstance(indexed_failure, str) or not isinstance(
+                    relative, str
+                ):
+                    raise ValueError("PF diagnosis index locator is invalid")
+                self._validate_relative_locator(relative)
+                validated_failures[indexed_failure] = relative
+            validated[generation] = validated_failures
+        return validated
+
+    def _replace_associations_windows(
+        self,
+        report_generation_id: str,
+        located: dict[str, str],
+        *,
+        replace_generation: bool,
+        remove_failure_ids: tuple[str, ...],
+    ) -> None:
+        guard = self._windows_run
+        owns_guard = False
+        if guard is None:
+            try:
+                guard = WindowsRunDirectory.open_existing(root=self._root)
+            except FileNotFoundError:
+                return
+            owns_guard = True
+        try:
+            index_path = guard.logs_root / self._INDEX_NAME
+            try:
+                entries = self._parse_index(
+                    guard.read_bounded_text(index_path, limit=self._INDEX_LIMIT)
+                )
+            except FileNotFoundError:
+                entries = {}
+            self._update_entries(
+                entries,
+                report_generation_id,
+                located,
+                replace_generation=replace_generation,
+                remove_failure_ids=remove_failure_ids,
+            )
+            guard.write_private(index_path, self._index_content(entries))
+        finally:
+            if owns_guard:
+                guard.close()
+
+    def _lookup_windows(
+        self,
+        report_generation_id: str,
+        failure_id: str,
+    ) -> Path | None:
+        try:
+            guard = WindowsRunDirectory.open_existing(root=self._root)
+        except FileNotFoundError:
+            return None
+        try:
+            try:
+                entries = self._parse_index(
+                    guard.read_bounded_text(
+                        guard.logs_root / self._INDEX_NAME,
+                        limit=self._INDEX_LIMIT,
+                    )
+                )
+            except FileNotFoundError:
+                return None
+            generation = entries.get(report_generation_id)
+            if not isinstance(generation, dict):
+                return None
+            relative = generation.get(failure_id)
+            if not isinstance(relative, str):
+                return None
+            self._validate_relative_locator(relative)
+            run_name, file_name = Path(relative).parts
+            run_guard = WindowsRunDirectory.open_existing(
+                root=self._root,
+                run_id=run_name,
+            )
+            try:
+                run_guard.validate_regular_file(
+                    run_guard.logs_root / run_name / file_name
+                )
+            finally:
+                run_guard.close()
+            return Path(".pf") / "logs" / relative
+        finally:
+            guard.close()
+
+    @staticmethod
+    def _update_entries(
+        entries: dict[str, dict[str, str]],
+        report_generation_id: str,
+        located: dict[str, str],
+        *,
+        replace_generation: bool,
+        remove_failure_ids: tuple[str, ...],
+    ) -> None:
+        generation: dict[str, str] = (
+            {} if replace_generation else dict(entries.get(report_generation_id, {}))
+        )
+        for failure_id in remove_failure_ids:
+            generation.pop(failure_id, None)
+        generation.update(located)
+        if generation:
+            entries[report_generation_id] = generation
+        else:
+            entries.pop(report_generation_id, None)
+
+    @staticmethod
+    def _index_content(entries: dict[str, dict[str, str]]) -> str:
+        return (
+            json.dumps(
+                {
+                    "format": "pf-diagnosis-index-v1",
+                    "entries": entries,
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+
+    @staticmethod
+    def _validate_relative_locator(relative: str) -> None:
+        parts = Path(relative).parts
+        if (
+            len(parts) != 2
+            or any(part in {"", ".", ".."} for part in parts)
+            or re.fullmatch(r"[A-Za-z0-9._-]+", parts[0]) is None
+            or re.fullmatch(r"process-[0-9]{4}\.log", parts[1]) is None
+        ):
+            raise ValueError("PF diagnosis log locator is unsafe")
+
+    def _validated_log_path(self, logs_fd: int, relative: str) -> Path:
+        self._validate_relative_locator(relative)
+        run_name, file_name = Path(relative).parts
+        run_fd = self._open_directory(logs_fd, run_name)
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                file_name,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=run_fd,
+            )
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError("PF diagnosis log is not a regular file")
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            os.close(run_fd)
+        return Path(".pf") / "logs" / relative
+
     @staticmethod
     def _is_directory_mode(mode: int) -> bool:
         import stat
@@ -164,10 +503,10 @@ class RunLogStore:
         descriptor = os.open(name, cls._directory_flags(), dir_fd=parent_fd)
         opened = os.fstat(descriptor)
         linked = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if (
-            not cls._is_directory_mode(linked.st_mode)
-            or (opened.st_dev, opened.st_ino) != (linked.st_dev, linked.st_ino)
-        ):
+        if not cls._is_directory_mode(linked.st_mode) or (
+            opened.st_dev,
+            opened.st_ino,
+        ) != (linked.st_dev, linked.st_ino):
             os.close(descriptor)
             raise OSError(f"PF log directory cannot be a symlink: {name}")
         return descriptor
@@ -215,20 +554,9 @@ class RunLogStore:
                 pass
 
     def _write_private_path(self, path: Path, content: str) -> None:
-        temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-        try:
-            with temporary.open("x", encoding="utf-8") as stream:
-                os.chmod(temporary, 0o600)
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            if self._windows_run is None:
-                raise OSError("Windows run directory guard is unavailable")
-            self._windows_run.assert_intact()
-            temporary.replace(path)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+        if self._windows_run is None:
+            raise OSError("Windows run directory guard is unavailable")
+        self._windows_run.write_private(path, content)
 
     @staticmethod
     def _supports_secure_dir_fd() -> bool:

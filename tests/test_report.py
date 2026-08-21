@@ -7,16 +7,23 @@ from typing import Literal
 import pytest
 
 from pf.errors import ConfigurationError
+from pf.failure import FailurePolicy
 from pf.report import ReportStore
+from pf.schemas.evaluation import (
+    CellFailureScope,
+    FailureCause,
+    FailureDetail,
+)
 from pf.schemas.project import SourceSnapshotIdentity
 from pf.schemas.report import (
-    CellFailure,
+    CellIndeterminate,
     FloorProjection,
     GeneratorIdentity,
     IncompleteReportResult,
     PackageFloorReportV1,
     PackageIdentity,
     ProjectionEvidence,
+    report_generation_id,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -29,16 +36,53 @@ from pf.schemas.project import (
 
 
 def incomplete_report() -> PackageFloorReportV1:
+    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+    package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
+    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
     return PackageFloorReportV1(
-        generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
-        package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
-        source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+        report_generation_id=report_generation_id(
+            generator=generator,
+            package=package,
+            source_snapshot=snapshot,
+            policy_identity="policy",
+            requirement_declarations=(),
+            target_cells=(),
+        ),
+        generator=generator,
+        package=package,
+        source_snapshot=snapshot,
         policy_identity="policy",
         requirement_declarations=(),
         candidate_snapshots=(),
         cell_results=(),
         projection_evidence=(),
-        result=IncompleteReportResult(reasons=("TIMEOUT",)),
+        result=IncompleteReportResult(reasons=("INDETERMINATE",)),
+    )
+
+
+def cell_failure(
+    cell: Cell,
+    cause: FailureCause,
+    *,
+    stage: str = "evaluation",
+) -> CellIndeterminate:
+    failure = FailurePolicy().classify(
+        scope=CellFailureScope(
+            package=cell.package,
+            cell=cell,
+            source_snapshot_digest="snapshot",
+            evaluation_policy_identity="policy",
+        ),
+        cause=cause,
+        stage=stage,
+        process=None,
+        detail=FailureDetail(code="test-failure", message="test failure"),
+    )
+    return CellIndeterminate(
+        cell=cell,
+        phase=stage,
+        failure_id=failure.failure_id,
+        failure_records=(failure,),
     )
 
 
@@ -59,7 +103,9 @@ def test_report_store_writes_canonical_versioned_json_and_rejects_unknown_schema
     document = json.loads(content)
     document["schema_version"] = 2
     path.write_text(json.dumps(document), encoding="utf-8")
-    with pytest.raises(ConfigurationError, match="unsupported report schema_version: 2"):
+    with pytest.raises(
+        ConfigurationError, match="unsupported report schema_version: 2"
+    ):
         store.read(path)
 
 
@@ -77,25 +123,34 @@ def test_report_merge_is_deterministic_and_rejects_conflicting_cells() -> None:
 
     def report_for(
         cell: Cell,
-        status: Literal["TIMEOUT", "TOOL_ERROR", "SOURCE_ERROR"],
+        cause: Literal["TIMEOUT", "TOOL_FAILURE", "SOURCE_FAILURE"],
     ) -> PackageFloorReportV1:
+        generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+        package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
+        snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
         return PackageFloorReportV1(
-            generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
-            package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
-            source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+            report_generation_id=report_generation_id(
+                generator=generator,
+                package=package,
+                source_snapshot=snapshot,
+                policy_identity="policy",
+                requirement_declarations=(),
+                target_cells=cells,
+            ),
+            generator=generator,
+            package=package,
+            source_snapshot=snapshot,
             policy_identity="policy",
             requirement_declarations=(),
             candidate_snapshots=(),
             target_cells=cells,
-            cell_results=(
-                CellFailure(status=status, cell=cell, phase="evaluation"),
-            ),
+            cell_results=(cell_failure(cell, cause),),
             projection_evidence=(),
-            result=IncompleteReportResult(reasons=(status, "MISSING_CELL")),
+            result=IncompleteReportResult(reasons=("INDETERMINATE", "MISSING_CELL")),
         )
 
     first = report_for(cells[1], "TIMEOUT")
-    second = report_for(cells[0], "TOOL_ERROR")
+    second = report_for(cells[0], "TOOL_FAILURE")
     merged = store.merge((first, second))
 
     assert [result.cell.python_minor for result in merged.cell_results] == [
@@ -103,9 +158,9 @@ def test_report_merge_is_deterministic_and_rejects_conflicting_cells() -> None:
         "3.11",
     ]
     assert merged.result.status == "incomplete"
-    assert merged.result.reasons == ("TIMEOUT", "TOOL_ERROR")
+    assert merged.result.reasons == ("INDETERMINATE",)
 
-    conflict = report_for(cells[1], "SOURCE_ERROR")
+    conflict = report_for(cells[1], "SOURCE_FAILURE")
     with pytest.raises(ConfigurationError, match="conflicting result for cell"):
         store.merge((first, conflict))
 
@@ -129,6 +184,47 @@ def test_report_store_rejects_missing_malformed_and_invalid_reports(
         store.read(invalid)
 
 
+def test_report_store_rejects_development_era_baseline_failed_status(
+    tmp_path: Path,
+) -> None:
+    store = ReportStore()
+    path = tmp_path / "package-floor.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "report_generation_id": "legacy",
+                "generator": {"name": "pf", "version": "0.1.0", "algorithm": "v1"},
+                "package": {"name": "demo", "pyproject_path": "pyproject.toml"},
+                "source_snapshot": {"digest": "snapshot", "entries": []},
+                "policy_identity": "policy",
+                "requirement_declarations": [],
+                "candidate_snapshots": [],
+                "target_cells": [],
+                "cell_results": [
+                    {
+                        "status": "BASELINE_FAILED",
+                        "cell": {
+                            "package": "demo",
+                            "target": "x86_64-unknown-linux-gnu",
+                            "python_minor": "3.10",
+                            "extra_surface": [],
+                        },
+                        "phase": "baseline-evaluation",
+                    }
+                ],
+                "projection_evidence": [],
+                "result": {"status": "incomplete", "reasons": ["BASELINE_FAILED"]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="invalid v1 report"):
+        store.read(path)
+
+
 def test_report_update_replaces_local_cells_and_retains_other_hosts() -> None:
     cells = (
         Cell(
@@ -145,40 +241,41 @@ def test_report_update_replaces_local_cells_and_retains_other_hosts() -> None:
         ),
     )
 
-    def make_report(results: tuple[CellFailure, ...]) -> PackageFloorReportV1:
+    def make_report(results: tuple[CellIndeterminate, ...]) -> PackageFloorReportV1:
+        generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+        package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
+        snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
         return PackageFloorReportV1(
-            generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
-            package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
-            source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+            report_generation_id=report_generation_id(
+                generator=generator,
+                package=package,
+                source_snapshot=snapshot,
+                policy_identity="policy",
+                requirement_declarations=(),
+                target_cells=cells,
+            ),
+            generator=generator,
+            package=package,
+            source_snapshot=snapshot,
             policy_identity="policy",
             requirement_declarations=(),
             candidate_snapshots=(),
             target_cells=cells,
             cell_results=results,
             projection_evidence=(),
-            result=IncompleteReportResult(reasons=("TIMEOUT",)),
+            result=IncompleteReportResult(reasons=("INDETERMINATE",)),
         )
 
     existing = make_report(
-        tuple(
-            CellFailure(status="TIMEOUT", cell=cell, phase="old") for cell in cells
-        )
+        tuple(cell_failure(cell, "TIMEOUT", stage="old") for cell in cells)
     )
-    replacement = make_report(
-        (
-            CellFailure(
-                status="TOOL_ERROR",
-                cell=cells[1],
-                phase="new",
-            ),
-        )
-    )
+    replacement = make_report((cell_failure(cells[1], "TOOL_FAILURE", stage="new"),))
 
     updated = ReportStore().update(existing, replacement)
     failures = tuple(
         result
         for result in updated.cell_results
-        if isinstance(result, CellFailure)
+        if isinstance(result, CellIndeterminate)
     )
 
     assert len(failures) == len(updated.cell_results)
@@ -302,10 +399,21 @@ def test_report_merge_rejects_conflicting_candidate_and_projection_evidence() ->
         snapshot: CandidateSnapshot,
         floor: str,
     ) -> PackageFloorReportV1:
+        generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+        package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
+        source_snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
         return PackageFloorReportV1(
-            generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
-            package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
-            source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+            report_generation_id=report_generation_id(
+                generator=generator,
+                package=package,
+                source_snapshot=source_snapshot,
+                policy_identity="policy",
+                requirement_declarations=(declaration,),
+                target_cells=(cell,),
+            ),
+            generator=generator,
+            package=package,
+            source_snapshot=source_snapshot,
             policy_identity="policy",
             requirement_declarations=(declaration,),
             candidate_snapshots=(snapshot,),

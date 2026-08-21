@@ -6,18 +6,25 @@ import json
 from pathlib import Path
 
 from packaging.requirements import Requirement
+import pytest
 import tomli
 
 from pf.environment import EnvironmentFactory, PreparedEnvironment
+from pf.errors import ConfigurationError
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
+    FailureCause,
+    GraphOutcome,
     GraphSuccess,
+    InterpreterOutcome,
     InterpreterSuccess,
+    PrepareFailure,
     ProcessResult,
     ProgressEvent,
     ToolFailure,
+    ToolOutcome,
     ToolSuccess,
 )
 from pf.schemas.project import InterpreterIdentity, ResolvedNode, VersionPin
@@ -37,13 +44,13 @@ def successful_process() -> ProcessResult:
 
 
 class SuccessfulUv:
-    def create_environment(self, **kwargs: object) -> ToolSuccess:
+    def create_environment(self, **kwargs: object) -> ToolOutcome:
         return ToolSuccess(stage="create-environment", process=successful_process())
 
-    def install_editable(self, **kwargs: object) -> ToolSuccess:
+    def install_editable(self, **kwargs: object) -> ToolOutcome:
         return ToolSuccess(stage="install", process=successful_process())
 
-    def inspect_interpreter(self, **kwargs: object) -> InterpreterSuccess:
+    def inspect_interpreter(self, **kwargs: object) -> InterpreterOutcome:
         return InterpreterSuccess(
             process=successful_process(),
             interpreter=InterpreterIdentity(
@@ -53,7 +60,7 @@ class SuccessfulUv:
             ),
         )
 
-    def inspect_environment(self, **kwargs: object) -> GraphSuccess:
+    def inspect_environment(self, **kwargs: object) -> GraphOutcome:
         return GraphSuccess(
             process=successful_process(),
             nodes=(
@@ -62,7 +69,7 @@ class SuccessfulUv:
             ),
         )
 
-    def install_requirements(self, **kwargs: object) -> ToolSuccess:
+    def install_requirements(self, **kwargs: object) -> ToolOutcome:
         return ToolSuccess(stage="install-harness", process=successful_process())
 
 
@@ -120,6 +127,7 @@ test-command = ["python", "-m", "unittest"]
             "output_format": "gitlab",
             "policy": "increment-v2",
         },
+        "failure_policy": "failure-v1",
     }
     expected_policy = hashlib.sha256(
         (
@@ -141,7 +149,7 @@ def test_environment_materializes_requested_vector_in_replica_metadata(
         def __init__(self) -> None:
             self.requirement: Requirement | None = None
 
-        def install_editable(self, **kwargs: object) -> ToolSuccess:
+        def install_editable(self, **kwargs: object) -> ToolOutcome:
             package = kwargs["package"]
             assert isinstance(package, Path)
             replica = ProjectLoader().load(root=package, package_selection=None)
@@ -194,6 +202,61 @@ test-command = ["python", "-c", "pass"]
     snapshot.close()
 
 
+def test_environment_prepare_failure_retains_attempt_without_a_proposal(
+    tmp_path: Path,
+) -> None:
+    class ResolutionConflictUv(SuccessfulUv):
+        def install_editable(self, **kwargs: object) -> ToolFailure:
+            return ToolFailure(
+                cause="RESOLUTION_CONFLICT",
+                stage="install-project",
+                process=ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                    stdout_summary="",
+                    stderr_summary="No solution found",
+                    stdout_tail="",
+                    stderr_tail="No solution found",
+                ),
+            )
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna>=3"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+    requested = (VersionPin(name="idna", version="3.1"),)
+
+    result = EnvironmentFactory(ResolutionConflictUv()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+        managed_vector=requested,
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.attempt.identity.requested_resolution == "exact-vector"
+    assert result.attempt.identity.requested_managed_vector == requested
+    assert result.failure.cause == "RESOLUTION_CONFLICT"
+    assert not hasattr(result, "proposal")
+
+
 def test_environment_only_materializes_declarations_active_for_cell(
     tmp_path: Path,
 ) -> None:
@@ -203,7 +266,7 @@ def test_environment_only_materializes_declarations_active_for_cell(
             self.optional: tuple[str, ...] = ()
             self.sibling: str = ""
 
-        def install_editable(self, **kwargs: object) -> ToolSuccess:
+        def install_editable(self, **kwargs: object) -> ToolOutcome:
             package = kwargs["package"]
             assert isinstance(package, Path)
             with (package / "pyproject.toml").open("rb") as stream:
@@ -353,9 +416,9 @@ test-command = ["pytest"]
         resolution="highest",
     )
 
-    assert isinstance(result, ToolFailure)
-    assert result.status == "HARNESS_ERROR"
-    assert result.stage == "install-harness"
+    assert isinstance(result, PrepareFailure)
+    assert result.failure.cause == "HARNESS_CONFLICT"
+    assert result.failure.stage == "install-harness"
 
 
 def test_environment_reports_prepare_stages(tmp_path: Path) -> None:
@@ -404,4 +467,263 @@ test-command = ["pytest"]
         "installing harness",
     ]
     prepared.close()
+    snapshot.close()
+
+
+def _write_demo(root: Path, *, harness: bool = False) -> Path:
+    project = root / "project"
+    project.mkdir()
+    harness_toml = (
+        """
+[dependency-groups]
+test = ["pytest"]
+"""
+        if harness
+        else ""
+    )
+    command = '["pytest"]' if harness else '["python", "-c", "pass"]'
+    (project / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna"]
+{harness_toml}
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = {command}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    return project
+
+
+def _failed_tool(cause: FailureCause, stage: str) -> ToolFailure:
+    return ToolFailure(
+        cause=cause,
+        stage=stage,
+        process=ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+            stdout_summary="",
+            stderr_summary=f"{stage} failed",
+            stdout_tail="",
+            stderr_tail=f"{stage} failed",
+        ),
+    )
+
+
+def test_environment_establishes_attempt_before_any_external_operation(
+    tmp_path: Path,
+) -> None:
+    class CreateFails(SuccessfulUv):
+        def create_environment(self, **kwargs: object) -> ToolFailure:
+            return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
+
+    root = _write_demo(tmp_path)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(CreateFails()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.attempt.identity.requested_resolution == "highest"
+    assert result.attempt.identity.requested_managed_vector is None
+    assert result.failure.cause == "ENVIRONMENT_FAILURE"
+    assert result.failure.stage == "create-environment"
+    snapshot.close()
+
+
+def test_environment_check_prepare_failure_has_no_attempt(tmp_path: Path) -> None:
+    class CreateFails(SuccessfulUv):
+        def create_environment(self, **kwargs: object) -> ToolFailure:
+            return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
+
+    root = _write_demo(tmp_path)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(CreateFails()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="lowest-direct",
+    )
+
+    assert isinstance(result, ToolFailure)
+    assert result.cause == "ENVIRONMENT_FAILURE"
+    snapshot.close()
+
+
+@pytest.mark.parametrize(
+    ("method", "cause", "stage"),
+    (
+        ("inspect_interpreter", "ENVIRONMENT_FAILURE", "inspect-interpreter"),
+        ("install_editable", "BUILD_FAILURE", "install-project"),
+        ("inspect_environment", "TOOL_FAILURE", "inspect"),
+    ),
+)
+def test_environment_prepare_keeps_attempt_when_a_stage_fails(
+    tmp_path: Path,
+    method: str,
+    cause: FailureCause,
+    stage: str,
+) -> None:
+    class StageFails(SuccessfulUv):
+        def __init__(self) -> None:
+            setattr(self, method, lambda **kwargs: _failed_tool(cause, stage))
+
+    root = _write_demo(tmp_path)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(StageFails()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.attempt.identity.requested_resolution == "highest"
+    assert result.failure.cause == cause
+    assert result.failure.stage == stage
+    snapshot.close()
+
+
+def test_environment_rejects_an_interpreter_that_does_not_match_the_cell(
+    tmp_path: Path,
+) -> None:
+    class WrongInterpreter(SuccessfulUv):
+        def inspect_interpreter(self, **kwargs: object) -> InterpreterSuccess:
+            return InterpreterSuccess(
+                process=successful_process(),
+                interpreter=InterpreterIdentity(
+                    implementation="cpython",
+                    version="3.11.13",
+                    abi="cpython-311-x86_64-linux-gnu",
+                ),
+            )
+
+    root = _write_demo(tmp_path)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(WrongInterpreter()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.failure.cause == "ENVIRONMENT_FAILURE"
+    assert result.failure.stage == "inspect-interpreter"
+    snapshot.close()
+
+
+def test_environment_rejects_a_graph_that_omits_managed_dependencies(
+    tmp_path: Path,
+) -> None:
+    class MissingManaged(SuccessfulUv):
+        def inspect_environment(self, **kwargs: object) -> GraphSuccess:
+            return GraphSuccess(
+                process=successful_process(),
+                nodes=(ResolvedNode(name="demo", version="0.1.0"),),
+            )
+
+    root = _write_demo(tmp_path)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(MissingManaged()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.failure.cause == "INTERNAL_INVARIANT"
+    assert result.failure.stage == "inspect"
+    snapshot.close()
+
+
+def test_environment_prepare_keeps_attempt_when_harness_install_fails(
+    tmp_path: Path,
+) -> None:
+    class HarnessFails(SuccessfulUv):
+        def install_requirements(self, **kwargs: object) -> ToolFailure:
+            return _failed_tool("HARNESS_CONFLICT", "install-harness")
+
+    root = _write_demo(tmp_path, harness=True)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(HarnessFails()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.failure.cause == "HARNESS_CONFLICT"
+    assert result.failure.stage == "install-harness"
+    snapshot.close()
+
+
+def test_environment_prepare_keeps_attempt_when_harness_graph_inspection_fails(
+    tmp_path: Path,
+) -> None:
+    class HarnessInspectFails(SuccessfulUv):
+        def __init__(self) -> None:
+            self.inspections = 0
+
+        def inspect_environment(self, **kwargs: object) -> GraphOutcome:
+            self.inspections += 1
+            if self.inspections == 2:
+                return _failed_tool("TOOL_FAILURE", "inspect")
+            return super().inspect_environment(**kwargs)
+
+    root = _write_demo(tmp_path, harness=True)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    result = EnvironmentFactory(HarnessInspectFails()).prepare(
+        package=package,
+        cell=package.cells[0],
+        snapshot=snapshot,
+        resolution="highest",
+    )
+
+    assert isinstance(result, PrepareFailure)
+    assert result.failure.cause == "TOOL_FAILURE"
+    assert result.failure.stage == "inspect"
+    snapshot.close()
+
+
+def test_environment_rejects_a_managed_vector_that_does_not_cover_declarations(
+    tmp_path: Path,
+) -> None:
+    root = _write_demo(tmp_path)
+    package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+    snapshot = SnapshotBuilder().build(root)
+
+    with pytest.raises(ConfigurationError, match="exactly cover"):
+        EnvironmentFactory(SuccessfulUv()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution="highest",
+            managed_vector=(),
+        )
     snapshot.close()

@@ -8,11 +8,11 @@
 - **后续失败契约：** [D005](../docs/designs/D005-pf-failure-and-diagnose.md)
 - **起始提交：** `a1ac10225c5d68dedbb9d75e5635bbe9d97cd3a6`
 
-本文记录纵向 TDD 和验证证据，不复制现行产品、模块或静态诊断契约。“已完成”只表示当时的 P003 范围已经实现，不表示后续 D005 已实现。
+本文记录纵向 TDD 和验证证据，不复制现行产品、模块或静态诊断契约。“已完成”只表示当时的 P003 范围已经实现；D005 的实施证据见 [P004](P004-pf-failure-and-diagnose.md)。
 
 ## 0. 后续契约变更
 
-D005 已取代 P003 当时的 runtime-only candidate failure 结构：Rejection/Indeterminate 现在必须以 `AttemptFailureScope | CellFailureScope` 和 `FailureRecord` 进入公共报告，详细日志仍留在本机，并通过 `(report_generation_id, failure_id)` 的 diagnosis index 关联。D005、重塑后的 Schema 1 与 `pf diagnose` 当前均待实现；下面关于 `SearchDiagnosticEvent`、对象 identity 日志引用和“不扩展报告 Schema”的内容只记录 P003 当时的实现证据。
+D005 已取代 P003 当时的 runtime-only candidate failure 结构：Rejection/Indeterminate 现在必须以 `AttemptFailureScope | CellFailureScope` 和 `FailureRecord` 进入公共报告，详细日志仍留在本机，并通过 `(report_generation_id, failure_id)` 的 diagnosis index 关联。D005、重塑后的 Schema 1 与 `pf diagnose` 的实施证据见 [P004](P004-pf-failure-and-diagnose.md)；下面关于 `SearchDiagnosticEvent`、对象 identity 日志引用和“不扩展报告 Schema”的内容只记录 P003 当时的实现证据。
 
 ## 1. 纵向切片
 

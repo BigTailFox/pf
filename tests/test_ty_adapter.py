@@ -7,7 +7,7 @@ import pytest
 
 from pf.adapters.ty import TyAdapter
 from pf.errors import ConfigurationError
-from pf.schemas.evaluation import ProcessResult, ProcessSpec, TyCheck
+from pf.schemas.evaluation import ProcessResult, ProcessSpec, ToolFailure, TyCheck
 
 
 class DiagnosticRunner:
@@ -426,8 +426,8 @@ def test_ty_adapter_maps_supported_and_unknown_targets(
     ("exit_code", "timed_out", "expected"),
     (
         (0, False, "SUCCESS"),
-        (2, False, "TOOL_ERROR"),
-        (101, False, "TOOL_ERROR"),
+        (2, False, "TOOL_FAILURE"),
+        (101, False, "TOOL_FAILURE"),
         (None, True, "TIMEOUT"),
     ),
 )
@@ -459,7 +459,8 @@ def test_ty_adapter_preserves_non_diagnostic_terminal_states(
         timeout_seconds=None,
     )
 
-    assert result.status == expected
+    observed = result.cause if isinstance(result, ToolFailure) else result.status
+    assert observed == expected
 
 
 @pytest.mark.parametrize(
@@ -569,7 +570,8 @@ def test_ty_adapter_rejects_incomplete_or_malformed_gitlab_output(
         timeout_seconds=600,
     )
 
-    assert result.status == "TOOL_ERROR"
+    assert isinstance(result, ToolFailure)
+    assert result.cause == "TOOL_FAILURE"
 
 
 def test_ty_adapter_namespaces_external_paths_outside_the_environment(
@@ -658,4 +660,5 @@ def test_ty_adapter_rejects_an_external_path_without_a_stable_namespace(
         timeout_seconds=600,
     )
 
-    assert result.status == "TOOL_ERROR"
+    assert isinstance(result, ToolFailure)
+    assert result.cause == "TOOL_FAILURE"

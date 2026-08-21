@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import stat
@@ -8,7 +9,7 @@ import sys
 import pytest
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
-from pf.errors import InfrastructureError
+from pf.errors import ConfigurationError, InfrastructureError
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import EnvironmentVariable, ProcessEvent, ProcessSpec
 
@@ -71,6 +72,135 @@ def test_subprocess_runner_records_redacted_bounded_process_logs(
     assert stat.S_IMODE(log_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(log_path.parent.stat().st_mode) == 0o700
     assert ".pf/logs" not in result.model_dump_json()
+
+
+def test_run_log_store_indexes_a_failure_without_exposing_the_path(
+    tmp_path: Path,
+) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+    runner = SubprocessRunner(logs=logs)
+    result = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "raise SystemExit(2)"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    logs.associate("generation-a", "failure-a", result)
+
+    assert logs.lookup("generation-a", "failure-a") == Path(
+        ".pf/logs/diagnosis-run/process-0001.log"
+    )
+    assert logs.lookup("generation-a", "failure-missing") is None
+    index = tmp_path / ".pf/logs/diagnosis-index.json"
+    assert stat.S_IMODE(index.stat().st_mode) == 0o600
+    assert str(tmp_path) not in index.read_text(encoding="utf-8")
+
+
+def test_run_log_store_refuses_to_index_an_unrecorded_current_process(
+    tmp_path: Path,
+) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+    result = SubprocessRunner().run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "raise SystemExit(2)"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    with pytest.raises(
+        InfrastructureError,
+        match="could not write PF diagnosis index",
+    ):
+        logs.associate("generation-a", "failure-a", result)
+
+
+def test_run_log_store_replaces_and_removes_generation_associations(
+    tmp_path: Path,
+) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+    runner = SubprocessRunner(logs=logs)
+    first = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "raise SystemExit(1)"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+    second = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "raise SystemExit(2)"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    logs.replace_associations(
+        "generation-a",
+        (("failure-a", first), ("failure-b", second)),
+    )
+    logs.replace_associations(
+        "generation-a",
+        (("failure-b", second),),
+    )
+
+    assert logs.lookup("generation-a", "failure-a") is None
+    assert logs.lookup("generation-a", "failure-b") == Path(
+        ".pf/logs/diagnosis-run/process-0002.log"
+    )
+
+    logs.replace_associations(
+        "generation-a",
+        (),
+        replace_generation=False,
+        remove_failure_ids=("failure-b",),
+    )
+
+    assert logs.lookup("generation-a", "failure-b") is None
+
+
+def test_run_log_store_ignores_a_remote_failure_without_a_local_process(
+    tmp_path: Path,
+) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+
+    logs.replace_associations("generation-a", (("failure-a", None),))
+
+    assert logs.lookup("generation-a", "failure-a") is None
+    assert not (tmp_path / ".pf").exists()
+
+
+@pytest.mark.parametrize(
+    "document",
+    (
+        {"format": "unknown", "entries": {}},
+        {"format": "pf-diagnosis-index-v1", "entries": []},
+        {"format": "pf-diagnosis-index-v1", "entries": {"generation": []}},
+        {
+            "format": "pf-diagnosis-index-v1",
+            "entries": {"generation": {"failure": 1}},
+        },
+        {
+            "format": "pf-diagnosis-index-v1",
+            "entries": {"generation": {"failure": "../outside.log"}},
+        },
+    ),
+)
+def test_run_log_store_rejects_an_invalid_diagnosis_index(
+    tmp_path: Path,
+    document: object,
+) -> None:
+    logs_root = tmp_path / ".pf/logs"
+    logs_root.mkdir(parents=True)
+    (logs_root / "diagnosis-index.json").write_text(
+        json.dumps(document),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
+        RunLogStore(root=tmp_path).lookup("generation", "failure")
 
 
 def test_run_log_store_refuses_a_symlinked_pf_directory(tmp_path: Path) -> None:
@@ -169,10 +299,14 @@ def test_run_log_store_uses_a_platform_guard_without_dir_fd(
     )
 
     class FakeWindowsRunDirectory:
-        def __init__(self, run_root: Path) -> None:
+        def __init__(self, root: Path, run_root: Path | None = None) -> None:
+            self.root = root
             self.run_root = run_root
-            opened = run_root.stat()
-            self.identity = opened.st_dev, opened.st_ino
+            guarded = (root, root / ".pf", root / ".pf/logs")
+            self.paths = (*guarded, *((run_root,) if run_root is not None else ()))
+            self.identities = tuple(
+                (path.stat().st_dev, path.stat().st_ino) for path in self.paths
+            )
 
         @classmethod
         def create(
@@ -183,15 +317,44 @@ def test_run_log_store_uses_a_platform_guard_without_dir_fd(
         ) -> "FakeWindowsRunDirectory":
             run_root = root / ".pf/logs" / run_id
             run_root.mkdir(mode=0o700, parents=True)
-            return cls(run_root)
+            return cls(root, run_root)
+
+        @classmethod
+        def open_existing(
+            cls,
+            *,
+            root: Path,
+            run_id: str | None = None,
+        ) -> "FakeWindowsRunDirectory":
+            run_root = root / ".pf/logs" / run_id if run_id is not None else None
+            return cls(root, run_root)
+
+        @property
+        def logs_root(self) -> Path:
+            return self.root / ".pf/logs"
 
         def assert_intact(self) -> None:
-            linked = self.run_root.lstat()
-            if self.run_root.is_symlink() or (
-                linked.st_dev,
-                linked.st_ino,
-            ) != self.identity:
-                raise OSError("PF run log directory identity changed")
+            for path, identity in zip(self.paths, self.identities):
+                linked = path.lstat()
+                if path.is_symlink() or (linked.st_dev, linked.st_ino) != identity:
+                    raise OSError("PF run log directory identity changed")
+
+        def write_private(self, path: Path, content: str) -> None:
+            self.assert_intact()
+            path.write_text(content, encoding="utf-8")
+            self.assert_intact()
+
+        def read_bounded_text(self, path: Path, *, limit: int) -> str:
+            self.assert_intact()
+            return path.read_text(encoding="utf-8")[: limit + 1]
+
+        def validate_regular_file(self, path: Path) -> None:
+            self.assert_intact()
+            if path.is_symlink() or not path.is_file():
+                raise OSError("unsafe PF log file")
+
+        def close(self) -> None:
+            pass
 
     monkeypatch.setattr(
         "pf.runlog.WindowsRunDirectory",
@@ -232,6 +395,104 @@ def test_run_log_store_uses_a_platform_guard_without_dir_fd(
     with pytest.raises(InfrastructureError, match="could not write PF process log"):
         logs.record(2, second_spec, result)
     assert not (outside / "process-0002.log").exists()
+
+
+def test_run_log_store_uses_the_windows_guard_for_index_and_offline_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        RunLogStore,
+        "_supports_secure_dir_fd",
+        staticmethod(lambda: False),
+    )
+    monkeypatch.setattr(
+        RunLogStore,
+        "_supports_windows_guard",
+        staticmethod(lambda: True),
+    )
+    guard_events: list[str] = []
+
+    class FakeWindowsRunDirectory:
+        def __init__(self, root: Path, run_id: str | None) -> None:
+            self.root = root
+            self.run_id = run_id
+            guard_events.append("run-open" if run_id is not None else "logs-open")
+            guarded = [root, root / ".pf", root / ".pf/logs"]
+            if run_id is not None:
+                guarded.append(root / ".pf/logs" / run_id)
+            self.paths = tuple(guarded)
+            self.identities = tuple(
+                (path.stat().st_dev, path.stat().st_ino) for path in self.paths
+            )
+
+        @classmethod
+        def create(
+            cls,
+            *,
+            root: Path,
+            run_id: str,
+        ) -> "FakeWindowsRunDirectory":
+            (root / ".pf/logs" / run_id).mkdir(mode=0o700, parents=True)
+            return cls(root, run_id)
+
+        @classmethod
+        def open_existing(
+            cls,
+            *,
+            root: Path,
+            run_id: str | None = None,
+        ) -> "FakeWindowsRunDirectory":
+            return cls(root, run_id)
+
+        @property
+        def logs_root(self) -> Path:
+            return self.root / ".pf/logs"
+
+        def assert_intact(self) -> None:
+            for path, identity in zip(self.paths, self.identities):
+                linked = path.lstat()
+                if path.is_symlink() or (linked.st_dev, linked.st_ino) != identity:
+                    raise OSError("PF log directory identity changed")
+
+        def write_private(self, path: Path, content: str) -> None:
+            self.assert_intact()
+            path.write_text(content, encoding="utf-8")
+
+        def read_bounded_text(self, path: Path, *, limit: int) -> str:
+            self.assert_intact()
+            return path.read_text(encoding="utf-8")[: limit + 1]
+
+        def validate_regular_file(self, path: Path) -> None:
+            self.assert_intact()
+            if path.is_symlink() or not path.is_file():
+                raise OSError("unsafe PF log file")
+
+        def close(self) -> None:
+            guard_events.append(
+                "run-close" if self.run_id is not None else "logs-close"
+            )
+
+    monkeypatch.setattr("pf.runlog.WindowsRunDirectory", FakeWindowsRunDirectory)
+    logs = RunLogStore(root=tmp_path, run_id="windows-run")
+    runner = SubprocessRunner(logs=logs)
+    result = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "raise SystemExit(2)"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    logs.associate("generation-a", "failure-a", result)
+    logs.close()
+    guard_events.clear()
+
+    offline = RunLogStore(root=tmp_path, run_id="offline")
+    assert offline.lookup("generation-a", "failure-a") == Path(
+        ".pf/logs/windows-run/process-0001.log"
+    )
+    assert guard_events == ["logs-open", "run-open", "run-close", "logs-close"]
 
 
 def test_run_log_store_fails_closed_without_a_secure_platform_backend(

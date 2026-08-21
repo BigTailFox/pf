@@ -1,13 +1,14 @@
 # PF 实现结构
 
 - **状态：** 实施中
-- **最后核对：** 2026-08-20
+- **最后核对：** 2026-08-21
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
+- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。
 
 ## 1. 设计原则
 
@@ -388,33 +389,21 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 
 ## 12. TerminalPresenter
 
-`terminal.py` 是业务 Rich 的唯一使用点：
-
-- stdout：最终成功摘要、explain/diagnose、merge/apply 结果；
-- stderr：错误、警告、进度和外部工具诊断摘要；
-- TTY：主线程消费 ActivityEvent 并动态刷新；
-- 非 TTY：相同事件变为稳定文本行。
-
-Presenter 还唯一拥有 D001 的人类摘要规则：
-
-- 从强类型 `TyDiagnostic` 生成稳定单行摘要；
-- 从 `FailureRecord` 的 scope/disposition/cause/stage 生成 D005 的 title、impact、next step 和次级技术信息，并把 adapter stage 映射为用户可读阶段；
-- 从 `ProcessResult` 选择一行原因并折叠空白，不转储多行工具输出；
-- 用运行时日志引用生成项目相对文本和可选 OSC 8 本地文件链接。
+`terminal.py` 是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果，根据 D006 选择 stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要与 artifact 布局；根据 D004 渲染规范单行诊断；根据 D005 从 `FailureRecord` 生成 title、impact、next step 和次级技术信息；根据 `RunLogStore` 引用生成项目相对文本和可选 OSC 8 本地文件链接。
 
 adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 
-生产代码不固定 Console/Table/Progress 的 width、height 或列尺寸，让 Rich 适配终端。worker 和 adapter 不直接打印。
+生产布局和输出通道的精确契约由 D006 定义。worker 和 adapter 不直接打印。
 
 ## 13. 验证边界
 
 测试以模块 interface 为表面：
 
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
-- CLI：两个入口、八命令 help、参数默认值、stdout/stderr 和退出码；
+- CLI：按 D006 验证两个入口、八命令 help、调用错误、参数默认值、stdout/stderr 和结果摘要，并按 D001 验证退出码；
 - 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据、D005 failure 分类；
 - adapter：recording ProcessRunner、argv、状态、timeout、truncation 与脱敏；
 - 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
 - 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> diagnose -> apply`；另测 `diagnose` 不启动进程、不访问网络、不修改项目。
 
-需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../../plans/P001-pf-v1.md)、[P002](../../plans/P002-pf-ty-enhancement.md) 与 [P003](../../plans/P003-pf-smoke-observability.md)；D005 尚无实施记录。
+需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../plans/P001-pf-v1.md)、[P002](../plans/P002-pf-ty-enhancement.md)、[P003](../plans/P003-pf-smoke-observability.md) 与 [P004](../plans/P004-pf-failure-and-diagnose.md)。

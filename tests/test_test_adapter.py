@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pf.adapters.test_command import TestAdapter
-from pf.schemas.evaluation import ProcessResult, ProcessSpec
+from pf.schemas.evaluation import ProcessResult, ProcessSpec, ToolFailure
 
 
 class FailingTestRunner:
@@ -48,7 +48,7 @@ def test_test_adapter_uses_configured_argv_and_failure_codes(tmp_path: Path) -> 
     ("exit_code", "timed_out", "expected"),
     (
         (0, False, "TEST_PASS"),
-        (2, False, "TOOL_ERROR"),
+        (2, False, "TOOL_FAILURE"),
         (None, True, "TIMEOUT"),
     ),
 )
@@ -79,4 +79,35 @@ def test_test_adapter_preserves_every_terminal_classification(
         timeout_seconds=10,
     )
 
-    assert result.status == expected
+    observed = result.cause if isinstance(result, ToolFailure) else result.status
+    assert observed == expected
+
+
+@pytest.mark.parametrize("exit_code", (0, 1))
+def test_test_adapter_classifies_truncated_output_before_building_an_outcome(
+    tmp_path: Path,
+    exit_code: int,
+) -> None:
+    class Runner:
+        def run(self, spec: ProcessSpec) -> ProcessResult:
+            return ProcessResult(
+                exit_code=exit_code,
+                signal=None,
+                duration_seconds=0.1,
+                stdout_summary="bounded",
+                stderr_summary="",
+                stdout_tail="bounded",
+                stderr_tail="",
+                stdout_truncated=True,
+            )
+
+    result = TestAdapter(Runner()).run(
+        command=("pytest",),
+        cwd=tmp_path,
+        environment=(),
+        failure_exit_codes=(1,),
+        timeout_seconds=10,
+    )
+
+    assert isinstance(result, ToolFailure)
+    assert result.cause == "TOOL_FAILURE"

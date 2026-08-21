@@ -15,6 +15,7 @@ from pf.schemas.evaluation import (
     InterpreterSuccess,
     ProcessResult,
     ProcessSpec,
+    ToolFailure,
 )
 from pf.schemas.project import Cell, SourceIdentity
 
@@ -170,11 +171,31 @@ def test_uv_adapter_lists_only_default_stable_cpython_minors(tmp_path: Path) -> 
                 duration_seconds=0.1,
                 stdout_summary=json.dumps(
                     [
-                        {"version": "3.12.4", "implementation": "cpython", "variant": "default"},
-                        {"version": "3.11.9", "implementation": "cpython", "variant": "default"},
-                        {"version": "3.13.0rc1", "implementation": "cpython", "variant": "default"},
-                        {"version": "3.12.4", "implementation": "cpython", "variant": "freethreaded"},
-                        {"version": "3.10.14", "implementation": "pypy", "variant": "default"},
+                        {
+                            "version": "3.12.4",
+                            "implementation": "cpython",
+                            "variant": "default",
+                        },
+                        {
+                            "version": "3.11.9",
+                            "implementation": "cpython",
+                            "variant": "default",
+                        },
+                        {
+                            "version": "3.13.0rc1",
+                            "implementation": "cpython",
+                            "variant": "default",
+                        },
+                        {
+                            "version": "3.12.4",
+                            "implementation": "cpython",
+                            "variant": "freethreaded",
+                        },
+                        {
+                            "version": "3.10.14",
+                            "implementation": "pypy",
+                            "variant": "default",
+                        },
                     ]
                 ),
                 stderr_summary="",
@@ -251,12 +272,19 @@ def test_uv_adapter_owns_environment_and_harness_install_argv(tmp_path: Path) ->
     ("result", "expected"),
     (
         (process_result(exit_code=None, timed_out=True), "TIMEOUT"),
-        (process_result(exit_code=1, stderr="failed to build wheel"), "BUILD_UNAVAILABLE"),
-        (process_result(exit_code=1, stderr="No solution found"), "UNRESOLVABLE"),
-        (process_result(exit_code=1, stderr="unexpected"), "TOOL_ERROR"),
+        (process_result(exit_code=1, stderr="failed to build wheel"), "BUILD_FAILURE"),
+        (
+            process_result(exit_code=1, stderr="No solution found"),
+            "RESOLUTION_CONFLICT",
+        ),
+        (
+            process_result(exit_code=1, stderr="failed to download: DNS error"),
+            "SOURCE_FAILURE",
+        ),
+        (process_result(exit_code=1, stderr="unexpected"), "TOOL_FAILURE"),
     ),
 )
-def test_uv_adapter_preserves_uv_failure_classes(
+def test_uv_adapter_classifies_operation_causes(
     tmp_path: Path,
     result: ProcessResult,
     expected: str,
@@ -272,7 +300,8 @@ def test_uv_adapter_preserves_uv_failure_classes(
         timeout_seconds=None,
     )
 
-    assert outcome.status == expected
+    assert isinstance(outcome, ToolFailure)
+    assert outcome.cause == expected
 
 
 @pytest.mark.parametrize(
@@ -284,7 +313,13 @@ def test_uv_adapter_preserves_uv_failure_classes(
         process_result(stdout="[]"),
         process_result(
             stdout=json.dumps(
-                [{"version": "not-a-version", "implementation": "cpython", "variant": "default"}]
+                [
+                    {
+                        "version": "not-a-version",
+                        "implementation": "cpython",
+                        "variant": "default",
+                    }
+                ]
             )
         ),
     ),
@@ -301,7 +336,9 @@ def test_uv_python_inventory_rejects_unusable_evidence(
         UvAdapter(Runner()).available_cpython_minors(root=tmp_path)
 
 
-def test_uv_python_inventory_failure_includes_process_diagnostic(tmp_path: Path) -> None:
+def test_uv_python_inventory_failure_includes_process_diagnostic(
+    tmp_path: Path,
+) -> None:
     class Runner:
         def run(self, spec: ProcessSpec) -> ProcessResult:
             return process_result(exit_code=1, stderr="uv: python list failed")
@@ -318,7 +355,11 @@ def test_uv_adapter_inspects_interpreter_identity(tmp_path: Path) -> None:
         def run(self, spec: ProcessSpec) -> ProcessResult:
             return process_result(
                 stdout=json.dumps(
-                    {"implementation": "cpython", "version": "3.10.18", "abi": "cpython-310"}
+                    {
+                        "implementation": "cpython",
+                        "version": "3.10.18",
+                        "abi": "cpython-310",
+                    }
                 )
             )
 
@@ -337,8 +378,8 @@ def test_uv_adapter_inspects_interpreter_identity(tmp_path: Path) -> None:
     ("result", "expected"),
     (
         (process_result(exit_code=None, timed_out=True), "TIMEOUT"),
-        (process_result(stdout="{}", truncated=True), "TOOL_ERROR"),
-        (process_result(stdout="not-json"), "TOOL_ERROR"),
+        (process_result(stdout="{}", truncated=True), "TOOL_FAILURE"),
+        (process_result(stdout="not-json"), "TOOL_FAILURE"),
     ),
 )
 def test_uv_adapter_rejects_unusable_interpreter_evidence(
@@ -356,7 +397,8 @@ def test_uv_adapter_rejects_unusable_interpreter_evidence(
         timeout_seconds=10,
     )
 
-    assert outcome.status == expected
+    assert isinstance(outcome, ToolFailure)
+    assert outcome.cause == expected
 
 
 @pytest.mark.parametrize(
@@ -382,7 +424,8 @@ def test_uv_graph_inspection_rejects_unusable_evidence(
         timeout_seconds=10,
     )
 
-    assert outcome.status == "TOOL_ERROR"
+    assert isinstance(outcome, ToolFailure)
+    assert outcome.cause == "TOOL_FAILURE"
 
 
 def test_uv_graph_inspection_ignores_invalid_dependency_metadata(
@@ -448,7 +491,9 @@ def test_candidate_query_filters_files_and_preserves_yanked_sdists(
     class Response(BytesIO):
         headers = {}
 
-    monkeypatch.setattr("pf.adapters.uv.urlopen", lambda request, timeout: Response(document))
+    monkeypatch.setattr(
+        "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
+    )
     candidates = UvAdapter(RecordingRunner()).query(
         dependency="demo",
         source=SourceIdentity(kind="registry", locator="https://index.example/simple"),
@@ -518,7 +563,9 @@ def test_candidate_query_rejects_a_declared_oversized_response(
     class Response(BytesIO):
         headers = {"Content-Length": str(16 * 1024 * 1024 + 1)}
 
-    monkeypatch.setattr("pf.adapters.uv.urlopen", lambda request, timeout: Response(b"{}"))
+    monkeypatch.setattr(
+        "pf.adapters.uv.urlopen", lambda request, timeout: Response(b"{}")
+    )
 
     with pytest.raises(InfrastructureError):
         UvAdapter(RecordingRunner()).query(

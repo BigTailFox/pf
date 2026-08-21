@@ -24,6 +24,7 @@ from pf.scheduling import Scheduler
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
+    DiagnoseRequest,
     MergeRequest,
     ReportRequest,
     SearchRequest,
@@ -37,6 +38,8 @@ from pf.terminal import TerminalPresenter
 from pf.workflow import (
     CheckCommandWorkflow,
     CompatibilityChecker,
+    DiagnoseCommandWorkflow,
+    FailureDiagnosis,
     ApplyCommandWorkflow,
     ExplainCommandWorkflow,
     MergeCommandWorkflow,
@@ -61,6 +64,10 @@ class ExplainWorkflow(Protocol):
     def run(self, request: ReportRequest) -> tuple[PackageFloorReportV1, ...]: ...
 
 
+class DiagnoseWorkflow(Protocol):
+    def run(self, request: DiagnoseRequest) -> tuple[FailureDiagnosis, ...]: ...
+
+
 class MergeWorkflow(Protocol):
     def run(self, request: MergeRequest) -> PackageFloorReportV1: ...
 
@@ -76,6 +83,7 @@ class CliContext:
     smoke_workflow: SmokeWorkflow | None = None
     search_workflow: SearchWorkflow | None = None
     explain_workflow: ExplainWorkflow | None = None
+    diagnose_workflow: DiagnoseWorkflow | None = None
     merge_workflow: MergeWorkflow | None = None
     apply_workflow: ApplyWorkflow | None = None
     run_logs: RunLogStore | None = None
@@ -227,6 +235,30 @@ def create_app(context: CliContext) -> App:
         return context.presenter.render_explain(context.explain_workflow.run(request))
 
     @app.command
+    def diagnose(
+        package: str | None = None,
+        *,
+        failure: str | None = None,
+    ) -> int:
+        """Explain a recorded rejection or indeterminate result.
+
+        Parameters
+        ----------
+        package
+            Package name or path whose recorded failures should be diagnosed.
+        failure
+            Stable failure ID to inspect; omit to list every recorded failure.
+        """
+        if context.diagnose_workflow is None:
+            raise ConfigurationError("diagnose workflow is not assembled")
+        request = DiagnoseRequest(
+            root=Path.cwd().as_posix(),
+            package=package,
+            failure_id=failure,
+        )
+        return context.presenter.render_diagnose(context.diagnose_workflow.run(request))
+
+    @app.command
     def merge(*reports: Path, output: Path) -> int:
         """Merge compatible reports produced on different hosts.
 
@@ -303,10 +335,16 @@ def build_context() -> CliContext:
             reports=reports,
             report_builder=PackageReportBuilder(),
             events=presenter,
+            logs=logs,
         ),
         explain_workflow=ExplainCommandWorkflow(
             projects=projects,
             reports=reports,
+        ),
+        diagnose_workflow=DiagnoseCommandWorkflow(
+            projects=ProjectLoader(),
+            reports=reports,
+            logs=logs,
         ),
         merge_workflow=MergeCommandWorkflow(reports=reports),
         apply_workflow=ApplyCommandWorkflow(

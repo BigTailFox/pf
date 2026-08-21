@@ -1,14 +1,15 @@
 # PF failure 语义与 diagnose
 
-- **状态：** 现行契约，待实现
+- **状态：** 现行契约
 - **策略版本：** `failure-v1`
-- **最后核对：** 2026-08-20
+- **最后核对：** 2026-08-21
 - **产品与命令：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
+- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 
-本文是 PF 中失败分类、搜索处置、失败证据保真和 `diagnose` 行为的唯一契约。D001 只定义用户可见结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实。
+本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级。
 
 ## 1. 问题
 
@@ -421,10 +422,12 @@ FailurePresentation
 
 ### 12.4 输出示例
 
+以下示例的 cell 标题和段落布局遵循 D006；failure title、impact 和 next step 仍由本文定义。
+
 candidate resolution conflict 的实时摘要：
 
 ```text
-✗ demo [py3.11][linux-x86_64]: This version combination has conflicting dependency requirements and cannot be installed.
+✗ demo [py3.11][x86_64-unknown-linux-gnu][no-extra]: This version combination has conflicting dependency requirements and cannot be installed.
   This candidate did not pass the required checks. PF will continue searching.
   Diagnose: pf diagnose demo --failure failure-7f2c
 ```
@@ -432,7 +435,7 @@ candidate resolution conflict 的实时摘要：
 来源故障的实时摘要：
 
 ```text
-! demo [py3.11][linux-x86_64]: PF could not reach or read a configured package source.
+! demo [py3.11][x86_64-unknown-linux-gnu][no-extra]: PF could not reach or read a configured package source.
   PF could not obtain the information needed to start or continue this cell.
   Diagnose: pf diagnose demo --failure failure-a19d
 ```
@@ -448,7 +451,7 @@ Next step: Check the index URL, network, credentials, and source availability, t
 
 Context:
   package: demo
-  cell: py3.11 / linux-x86_64 / no-extra
+  cell: py3.11 / x86_64-unknown-linux-gnu / no-extra
   stage: candidate discovery
 
 Technical details:

@@ -87,7 +87,10 @@ class SubprocessRunner:
         size = self._terminal_size()
         environment["COLUMNS"] = str(size.columns)
         environment["LINES"] = str(size.lines)
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        with (
+            tempfile.TemporaryFile() as stdout_file,
+            tempfile.TemporaryFile() as stderr_file,
+        ):
             try:
                 process = subprocess.Popen(
                     spec.argv,
@@ -215,9 +218,7 @@ class SubprocessRunner:
         summary_bytes = stream.read(summary_limit)
         stream.seek(max(0, size - self._tail_limit))
         tail_bytes = stream.read(self._tail_limit)
-        summary = self._redactor.redact(
-            summary_bytes.decode("utf-8", errors="replace")
-        )
+        summary = self._redactor.redact(summary_bytes.decode("utf-8", errors="replace"))
         tail = self._redactor.redact(tail_bytes.decode("utf-8", errors="replace"))
         return summary, tail, size > summary_limit
 

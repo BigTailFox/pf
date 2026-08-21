@@ -121,9 +121,7 @@ class ConfigLoader:
                 python=tuple(sorted(set(merged.get("python", ())))),
                 platform=tuple(merged.get("platform", ())),
                 extras=(
-                    None
-                    if "extra-surfaces" in merged
-                    else merged.get("extras", "each")
+                    None if "extra-surfaces" in merged else merged.get("extras", "each")
                 ),
                 extra_surfaces=(
                     self._extra_surfaces(merged["extra-surfaces"])
@@ -208,7 +206,9 @@ class ConfigLoader:
             try:
                 requirement = Requirement(text)
             except InvalidRequirement as error:
-                raise ConfigurationError(f"invalid search-space entry: {text}") from error
+                raise ConfigurationError(
+                    f"invalid search-space entry: {text}"
+                ) from error
             if (
                 requirement.extras
                 or requirement.marker is not None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from packaging.requirements import Requirement
 from pydantic import ValidationError
@@ -9,6 +10,8 @@ import pytest
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptIdentity,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
@@ -29,6 +32,9 @@ from pf.schemas.report import (
     CoordinateBoundary,
     CoordinateSuccess,
     FloorProjection,
+    ProbeObservation,
+    ProbePass,
+    report_generation_id,
 )
 from pf.schemas.report import PackageFloorReportV1
 from pf.snapshot import SnapshotBuilder
@@ -51,12 +57,27 @@ def passing_evaluation(
     version: str,
     *,
     snapshot_digest: str,
+    resolution: Literal["highest", "exact-vector"] = "exact-vector",
+    attempt: Attempt | None = None,
 ) -> PassEvaluation:
+    vector = (VersionPin(name="idna", version=version),)
+    owned_attempt = attempt or Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot_digest,
+            cell=cell,
+            requested_resolution=resolution,
+            requested_managed_vector=(vector if resolution == "exact-vector" else None),
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
     proposal = Proposal(
         proposal_id=f"idna={version}",
+        attempt_id=owned_attempt.attempt_id,
         snapshot_digest=snapshot_digest,
         cell=cell,
-        managed_vector=(VersionPin(name="idna", version=version),),
+        managed_vector=vector,
         fixed_declaration_ids=(),
         resolved_graph=(),
         policy_identity="policy",
@@ -80,19 +101,61 @@ def successful_cell(
     snapshot_digest: str,
 ) -> CellSuccess:
     vector = (VersionPin(name="idna", version=floor),)
+    final_attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot_digest,
+            cell=cell,
+            requested_resolution="exact-vector",
+            requested_managed_vector=vector,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
+    final_evaluation = passing_evaluation(
+        cell,
+        floor,
+        snapshot_digest=snapshot_digest,
+        attempt=final_attempt,
+    )
     search = CoordinateSuccess(
         vector=vector,
-        observations=(),
+        observations=(
+            ProbeObservation(
+                dependency="idna",
+                candidate_version=floor,
+                vector=vector,
+                evidence=ProbePass(
+                    attempt=final_attempt,
+                    proposal_id=final_evaluation.proposal.proposal_id,
+                    evaluation=final_evaluation,
+                ),
+            ),
+        ),
         boundaries=(CoordinateBoundary(dependency="idna", floor=floor),),
         sweeps=1,
+    )
+    baseline_attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot_digest,
+            cell=cell,
+            requested_resolution="highest",
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
     )
     baseline = passing_evaluation(
         cell,
         "3.11",
         snapshot_digest=snapshot_digest,
+        resolution="highest",
+        attempt=baseline_attempt,
     )
     return CellSuccess(
         cell=cell,
+        baseline_attempt=baseline_attempt,
         static_baseline=StaticBaseline(
             proposal=baseline.proposal,
             ty=baseline.static.ty,
@@ -102,11 +165,7 @@ def successful_cell(
         candidate_snapshots=(),
         static_search=search,
         final_vector=vector,
-        final_evaluation=passing_evaluation(
-            cell,
-            floor,
-            snapshot_digest=snapshot_digest,
-        ),
+        final_evaluation=final_evaluation,
     )
 
 
@@ -159,6 +218,14 @@ test-command = ["pytest"]
             python_minor="3.11",
             extra_surface=(),
         ),
+    )
+    incomplete_coverage["report_generation_id"] = report_generation_id(
+        generator=report.generator,
+        package=report.package,
+        source_snapshot=report.source_snapshot,
+        policy_identity=report.policy_identity,
+        requirement_declarations=report.requirement_declarations,
+        target_cells=incomplete_coverage["target_cells"],
     )
     with pytest.raises(
         ValidationError, match="complete report requires exact cell coverage"

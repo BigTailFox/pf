@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
 import json
 import os
@@ -14,10 +15,13 @@ from tomlkit.items import Array
 from pf.errors import ConfigurationError
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptIdentity,
     GraphOutcome,
     InterpreterOutcome,
     InterpreterSuccess,
     ProgressEvent,
+    PrepareFailure,
     ToolFailure,
     ToolOutcome,
 )
@@ -29,9 +33,7 @@ class StageConsumer(Protocol):
     def consume(self, event: ProgressEvent) -> None: ...
 
 
-def emit_cell_stage(
-    events: StageConsumer | None, cell: Cell, stage: str
-) -> None:
+def emit_cell_stage(events: StageConsumer | None, cell: Cell, stage: str) -> None:
     if events is None:
         return
     events.consume(
@@ -99,6 +101,7 @@ class PreparedEnvironment:
     def __init__(
         self,
         *,
+        attempt: Attempt | None = None,
         proposal: Proposal,
         proposal_root: Path,
         package_root: Path,
@@ -106,6 +109,7 @@ class PreparedEnvironment:
         interpreter: Path,
         temporary_directory: tempfile.TemporaryDirectory[str],
     ) -> None:
+        self.attempt = attempt
         self.proposal = proposal
         self.proposal_root = proposal_root
         self.package_root = package_root
@@ -138,7 +142,20 @@ class EnvironmentFactory:
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
         managed_vector: tuple[VersionPin, ...] | None = None,
-    ) -> PreparedEnvironment | ToolFailure:
+    ) -> PreparedEnvironment | PrepareFailure | ToolFailure:
+        attempt = self._attempt(
+            package=package,
+            cell=cell,
+            snapshot=snapshot,
+            resolution=resolution,
+            managed_vector=managed_vector,
+        )
+
+        def failed(failure: ToolFailure) -> PrepareFailure | ToolFailure:
+            if attempt is None:
+                return failure
+            return PrepareFailure(attempt=attempt, failure=failure)
+
         temporary_directory = tempfile.TemporaryDirectory(prefix="pf-proposal-")
         runtime_root = Path(temporary_directory.name)
         proposal_root = runtime_root / "source"
@@ -161,7 +178,7 @@ class EnvironmentFactory:
             )
             if isinstance(create, ToolFailure):
                 temporary_directory.cleanup()
-                return create
+                return failed(create)
             interpreter = self._interpreter(environment_root)
             interpreter_result = self._uv.inspect_interpreter(
                 interpreter=interpreter,
@@ -170,7 +187,7 @@ class EnvironmentFactory:
             )
             if not isinstance(interpreter_result, InterpreterSuccess):
                 temporary_directory.cleanup()
-                return interpreter_result
+                return failed(interpreter_result)
             if (
                 interpreter_result.interpreter.implementation != "cpython"
                 or not interpreter_result.interpreter.version.startswith(
@@ -178,10 +195,12 @@ class EnvironmentFactory:
                 )
             ):
                 temporary_directory.cleanup()
-                return ToolFailure(
-                    status="HARNESS_ERROR",
-                    stage="inspect-interpreter",
-                    process=interpreter_result.process,
+                return failed(
+                    ToolFailure(
+                        cause="ENVIRONMENT_FAILURE",
+                        stage="inspect-interpreter",
+                        process=interpreter_result.process,
+                    )
                 )
             emit_cell_stage(self._events, cell, "installing dependencies")
             install = self._uv.install_editable(
@@ -193,7 +212,7 @@ class EnvironmentFactory:
             )
             if isinstance(install, ToolFailure):
                 temporary_directory.cleanup()
-                return install
+                return failed(install)
             graph = self._uv.inspect_environment(
                 interpreter=interpreter,
                 cwd=package_root,
@@ -201,7 +220,7 @@ class EnvironmentFactory:
             )
             if isinstance(graph, ToolFailure):
                 temporary_directory.cleanup()
-                return graph
+                return failed(graph)
 
             installed = {node.name: node.version for node in graph.nodes}
             active_ids = set(cell.active_declaration_ids)
@@ -218,17 +237,17 @@ class EnvironmentFactory:
             missing = tuple(name for name in managed_names if name not in installed)
             if missing:
                 temporary_directory.cleanup()
-                return ToolFailure(
-                    status="HARNESS_ERROR",
-                    stage="inspect",
-                    process=graph.process,
+                return failed(
+                    ToolFailure(
+                        cause="INTERNAL_INVARIANT",
+                        stage="inspect",
+                        process=graph.process,
+                    )
                 )
             if package.test_requirements:
                 constraints = runtime_root / "target-constraints.txt"
                 constraints.write_text(
-                    "".join(
-                        f"{node.name}=={node.version}\n" for node in graph.nodes
-                    ),
+                    "".join(f"{node.name}=={node.version}\n" for node in graph.nodes),
                     encoding="utf-8",
                 )
                 emit_cell_stage(self._events, cell, "installing harness")
@@ -241,7 +260,7 @@ class EnvironmentFactory:
                 )
                 if isinstance(harness, ToolFailure):
                     temporary_directory.cleanup()
-                    return harness
+                    return failed(harness)
                 harness_graph = self._uv.inspect_environment(
                     interpreter=interpreter,
                     cwd=package_root,
@@ -249,7 +268,7 @@ class EnvironmentFactory:
                 )
                 if isinstance(harness_graph, ToolFailure):
                     temporary_directory.cleanup()
-                    return harness_graph
+                    return failed(harness_graph)
                 target_versions = {node.name: node.version for node in graph.nodes}
                 after_versions = {
                     node.name: node.version for node in harness_graph.nodes
@@ -259,10 +278,12 @@ class EnvironmentFactory:
                     for name, version in target_versions.items()
                 ):
                     temporary_directory.cleanup()
-                    return ToolFailure(
-                        status="HARNESS_ERROR",
-                        stage="install-harness",
-                        process=harness_graph.process,
+                    return failed(
+                        ToolFailure(
+                            cause="HARNESS_CONFLICT",
+                            stage="install-harness",
+                            process=harness_graph.process,
+                        )
                     )
             actual_vector = tuple(
                 VersionPin(name=name, version=installed[name]) for name in managed_names
@@ -271,7 +292,9 @@ class EnvironmentFactory:
             proposal_data = {
                 "snapshot_digest": snapshot.identity.digest,
                 "cell": cell.model_dump(mode="json"),
-                "managed_vector": [pin.model_dump(mode="json") for pin in actual_vector],
+                "managed_vector": [
+                    pin.model_dump(mode="json") for pin in actual_vector
+                ],
                 "fixed_declaration_ids": sorted(
                     declaration.declaration_id
                     for declaration in package.declarations
@@ -294,6 +317,7 @@ class EnvironmentFactory:
             ).hexdigest()
             proposal = Proposal(
                 proposal_id=proposal_id,
+                attempt_id=attempt.attempt_id if attempt is not None else None,
                 snapshot_digest=snapshot.identity.digest,
                 cell=cell,
                 managed_vector=actual_vector,
@@ -303,6 +327,7 @@ class EnvironmentFactory:
                 interpreter=interpreter_result.interpreter,
             )
             return PreparedEnvironment(
+                attempt=attempt,
                 proposal=proposal,
                 proposal_root=proposal_root,
                 package_root=package_root,
@@ -313,6 +338,40 @@ class EnvironmentFactory:
         except Exception:
             temporary_directory.cleanup()
             raise
+
+    @staticmethod
+    def _attempt(
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+        resolution: Literal["highest", "lowest-direct"],
+        managed_vector: tuple[VersionPin, ...] | None,
+    ) -> Attempt | None:
+        if resolution == "lowest-direct" and managed_vector is None:
+            return None
+        requested_resolution: Literal["highest", "exact-vector"] = (
+            "exact-vector" if managed_vector is not None else "highest"
+        )
+        source_plan = json.dumps(
+            package.source_plan.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        source_plan_identity = hashlib.sha256(
+            b"pf:source-plan:v1\0" + source_plan
+        ).hexdigest()
+        return Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution=requested_resolution,
+                requested_managed_vector=managed_vector,
+                active_declaration_ids=cell.active_declaration_ids,
+                source_plan_identity=source_plan_identity,
+                evaluation_policy_identity=evaluation_policy_identity(package.config),
+            )
+        )
 
     @staticmethod
     def _materialize_managed_vector(
@@ -343,13 +402,17 @@ class EnvironmentFactory:
         document = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
         for declaration in declarations:
             try:
+                project = document["project"]
+                if not isinstance(project, Mapping):
+                    raise TypeError("project metadata is not a table")
                 if declaration.location == "base":
-                    value = document["project"]["dependencies"]
+                    value = project["dependencies"]
                 else:
                     assert declaration.extra is not None
-                    value = document["project"]["optional-dependencies"][
-                        declaration.extra
-                    ]
+                    extras = project["optional-dependencies"]
+                    if not isinstance(extras, Mapping):
+                        raise TypeError("optional-dependencies metadata is not a table")
+                    value = extras[declaration.extra]
             except (KeyError, TypeError) as error:
                 raise ConfigurationError(
                     f"dependency location has drifted: {declaration.declaration_id}"

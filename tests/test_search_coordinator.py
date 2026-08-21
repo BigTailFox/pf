@@ -8,13 +8,14 @@ from pf.environment import PreparedEnvironment
 from pf.errors import InfrastructureError
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
-    HighestVersionVerification,
+    Attempt,
+    AttemptIdentity,
+    BaselineRejection,
+    HighestVersionPass,
     PassEvaluation,
     ProcessResult,
-    SearchDiagnosticEvent,
-    SearchDynamicDiagnosticEvent,
-    SearchStaticDiagnosticEvent,
-    SearchToolDiagnosticEvent,
+    PrepareFailure,
+    SearchFailureEvent,
     StaticBaseline,
     StaticBaselineCapture,
     StaticFailEvaluation,
@@ -38,9 +39,13 @@ from pf.schemas.project import (
     SourcePlan,
     VersionPin,
 )
-from pf.schemas.report import CellFailure, CellSuccess
+from pf.schemas.report import (
+    CellIndeterminate,
+    CellSuccess,
+    ProbeRejection,
+)
 from pf.search import SearchCoordinator
-from pf.snapshot import SnapshotBuilder
+from pf.snapshot import SnapshotBuilder, SourceSnapshot
 
 
 def successful_process() -> ProcessResult:
@@ -57,9 +62,9 @@ def successful_process() -> ProcessResult:
 
 class RecordingDiagnostics:
     def __init__(self) -> None:
-        self.events: list[SearchDiagnosticEvent] = []
+        self.events: list[SearchFailureEvent] = []
 
-    def consume(self, event: SearchDiagnosticEvent) -> None:
+    def consume(self, event: SearchFailureEvent) -> None:
         self.events.append(event)
 
 
@@ -69,14 +74,30 @@ class ProposalFactory:
         *,
         package: PackagePlan,
         cell: Cell,
-        snapshot: object,
+        snapshot: SourceSnapshot,
         resolution: str,
         managed_vector: tuple[VersionPin, ...] | None = None,
     ) -> PreparedEnvironment:
         vector = managed_vector or (VersionPin(name="a", version="3"),)
+        attempt = Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution=(
+                    "exact-vector" if managed_vector is not None else "highest"
+                ),
+                requested_managed_vector=(
+                    vector if managed_vector is not None else None
+                ),
+                active_declaration_ids=cell.active_declaration_ids,
+                source_plan_identity="sources",
+                evaluation_policy_identity="policy",
+            )
+        )
         proposal = Proposal(
             proposal_id=";".join(f"{pin.name}={pin.version}" for pin in vector),
-            snapshot_digest="snapshot",
+            attempt_id=attempt.attempt_id,
+            snapshot_digest=snapshot.identity.digest,
             cell=cell,
             managed_vector=vector,
             fixed_declaration_ids=(),
@@ -86,6 +107,7 @@ class ProposalFactory:
         temporary = tempfile.TemporaryDirectory(prefix="pf-test-proposal-")
         root = Path(temporary.name)
         return PreparedEnvironment(
+            attempt=attempt,
             proposal=proposal,
             proposal_root=root,
             package_root=root,
@@ -214,7 +236,9 @@ class FullThreshold:
         return TestFailEvaluation(
             proposal=prepared.proposal,
             static=static,
-            test=TestFail(process=successful_process()),
+            test=TestFail(
+                process=successful_process().model_copy(update={"exit_code": 1})
+            ),
         )
 
 
@@ -329,10 +353,13 @@ def test_search_coordinator_consumes_shared_highest_version_verification(
         static_result=capture.static,
     )
     assert isinstance(baseline_evaluation, PassEvaluation)
+    baseline_attempt = prepared.attempt
+    assert baseline_attempt is not None
 
     class Highest:
-        def verify(self, **kwargs: object) -> HighestVersionVerification:
-            return HighestVersionVerification(
+        def verify(self, **kwargs: object) -> HighestVersionPass:
+            return HighestVersionPass(
+                attempt=baseline_attempt,
                 baseline=capture.baseline,
                 evaluation=baseline_evaluation,
             )
@@ -422,14 +449,12 @@ def test_search_report_evidence_keeps_static_fail_incremental_diagnostics(
     failure = next(
         observation.evidence
         for observation in result.static_search.observations
-        if observation.evidence.status == "STATIC_FAIL"
+        if isinstance(observation.evidence, ProbeRejection)
+        and observation.evidence.cause == "STATIC_REGRESSION"
     )
-    assert isinstance(failure.static, StaticFailEvaluation)
-    assert failure.static.incremental[0].code == "dependency-regression"
-    assert any(
-        isinstance(event, SearchStaticDiagnosticEvent)
-        for event in diagnostics.events
-    )
+    assert isinstance(failure.evaluation, StaticFailEvaluation)
+    assert failure.evaluation.incremental[0].code == "dependency-regression"
+    assert diagnostics.events[0].failure.failure_id == failure.failure_id
 
 
 def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failure(
@@ -469,10 +494,7 @@ def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failur
     assert result.final_vector == (VersionPin(name="a", version="2"),)
     assert result.dynamic_search is not None
     assert result.dynamic_search.boundaries[0].predecessor == "1"
-    assert any(
-        isinstance(event, SearchDynamicDiagnosticEvent)
-        for event in diagnostics.events
-    )
+    assert any(event.failure.cause == "TEST_FAILURE" for event in diagnostics.events)
 
 
 def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
@@ -509,10 +531,53 @@ def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
 
     result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
 
-    assert isinstance(result, CellFailure)
-    assert result.status == "SOURCE_ERROR"
+    assert isinstance(result, CellIndeterminate)
+    assert result.status == "CELL_INDETERMINATE"
     assert result.phase == "candidate-discovery"
-    assert result.detail == "index unavailable"
+    assert result.failure_records[0].cause == "SOURCE_FAILURE"
+    assert result.failure_records[0].scope.kind == "cell"
+
+
+def test_search_coordinator_retains_candidate_source_failure_detail(
+    tmp_path: Path,
+) -> None:
+    class UnavailableCandidates:
+        def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
+            raise InfrastructureError(
+                "index unavailable",
+                detail="DNS lookup for packages.example failed",
+            )
+
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    static = StaticPasses()
+
+    result = SearchCoordinator(
+        environments=ProposalFactory(),
+        candidates=UnavailableCandidates(),
+        static=static,
+        full=FullPasses(static),
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert isinstance(result, CellIndeterminate)
+    detail = result.failure_records[0].detail
+    assert detail is not None
+    assert "DNS lookup for packages.example failed" in detail.message
 
 
 def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
@@ -536,7 +601,7 @@ def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
         test_group_present=True,
     )
     failure = ToolFailure(
-        status="UNRESOLVABLE",
+        cause="HARNESS_CONFLICT",
         stage="install-harness",
         process=ProcessResult(
             exit_code=1,
@@ -548,10 +613,21 @@ def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
             stderr_tail="No solution found",
         ),
     )
+    attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot.identity.digest,
+            cell=cell,
+            requested_resolution="highest",
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
 
     class UnresolvableEnvironments:
-        def prepare(self, **kwargs: Any) -> ToolFailure:
-            return failure
+        def prepare(self, **kwargs: Any) -> PrepareFailure:
+            return PrepareFailure(attempt=attempt, failure=failure)
 
     class NeverEvaluate:
         def capture(self, *args: object, **kwargs: object) -> NoReturn:
@@ -567,10 +643,10 @@ def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
         full=NeverEvaluate(),
     ).search(package=package, cell=cell, snapshot=snapshot)
 
-    assert isinstance(result, CellFailure)
-    assert result.status == "UNRESOLVABLE"
-    assert result.phase == "baseline-prepare"
-    assert result.failure == failure
+    assert isinstance(result, BaselineRejection)
+    assert result.status == "BASELINE_REJECTION"
+    assert result.failure.cause == "HARNESS_CONFLICT"
+    assert result.failure.process == failure.process
 
 
 def test_search_coordinator_emits_candidate_prepare_failure_diagnostic(
@@ -608,25 +684,41 @@ def test_search_coordinator_emits_candidate_prepare_failure_diagnostic(
         static_result=capture.static,
     )
     assert isinstance(baseline, PassEvaluation)
+    baseline_attempt = prepared.attempt
+    assert baseline_attempt is not None
     failure = ToolFailure(
-        status="UNRESOLVABLE",
-        stage="install",
+        cause="RESOLUTION_CONFLICT",
+        stage="install-project",
         process=successful_process().model_copy(
             update={"exit_code": 1, "stderr_summary": "No solution found"}
         ),
     )
 
     class Highest:
-        def verify(self, **kwargs: object) -> HighestVersionVerification:
-            return HighestVersionVerification(
+        def verify(self, **kwargs: object) -> HighestVersionPass:
+            return HighestVersionPass(
+                attempt=baseline_attempt,
                 baseline=capture.baseline,
                 evaluation=baseline,
             )
 
     class CandidateFailure:
-        def prepare(self, **kwargs: Any) -> ToolFailure:
-            assert kwargs.get("managed_vector") is not None
-            return failure
+        def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
+            vector = cast(tuple[VersionPin, ...], kwargs["managed_vector"])
+            if vector[0].version != "1":
+                return ProposalFactory().prepare(**kwargs)
+            attempt = Attempt.from_identity(
+                AttemptIdentity(
+                    source_snapshot_digest=snapshot.identity.digest,
+                    cell=cell,
+                    requested_resolution="exact-vector",
+                    requested_managed_vector=vector,
+                    active_declaration_ids=cell.active_declaration_ids,
+                    source_plan_identity="sources",
+                    evaluation_policy_identity="policy",
+                )
+            )
+            return PrepareFailure(attempt=attempt, failure=failure)
 
     recorder = RecordingDiagnostics()
     result = SearchCoordinator(
@@ -638,8 +730,109 @@ def test_search_coordinator_emits_candidate_prepare_failure_diagnostic(
         diagnostics=recorder,
     ).search(package=package, cell=cell, snapshot=snapshot)
 
-    assert isinstance(result, CellFailure)
-    assert result.status == "UNRESOLVABLE"
-    assert recorder.events == [
-        SearchToolDiagnosticEvent(cell=cell, outcome=failure)
-    ]
+    assert isinstance(result, CellSuccess)
+    assert result.final_vector == (VersionPin(name="a", version="2"),)
+    rejection = result.failure_records[0]
+    assert rejection.cause == "RESOLUTION_CONFLICT"
+    assert rejection.disposition == "REJECTED"
+    assert result.static_search.boundaries[0].predecessor_failure_id == (
+        rejection.failure_id
+    )
+    assert recorder.events == [SearchFailureEvent(cell=cell, failure=rejection)]
+
+
+def test_search_coordinator_reuses_a_prepare_failure_for_the_same_attempt(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    static = StaticPasses()
+    highest_prepared = ProposalFactory().prepare(
+        package=package,
+        cell=cell,
+        snapshot=snapshot,
+        resolution="highest",
+    )
+    capture = static.capture(highest_prepared, package=package)
+    baseline = FullPasses(static).evaluate(
+        highest_prepared,
+        package=package,
+        baseline=capture.baseline,
+        static_result=capture.static,
+    )
+    assert isinstance(baseline, PassEvaluation)
+    baseline_attempt = highest_prepared.attempt
+    assert baseline_attempt is not None
+
+    class Highest:
+        def verify(self, **kwargs: object) -> HighestVersionPass:
+            return HighestVersionPass(
+                attempt=baseline_attempt,
+                baseline=capture.baseline,
+                evaluation=baseline,
+            )
+
+    class FailsFirstPrepare:
+        def __init__(self) -> None:
+            self.version_one_calls = 0
+
+        def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
+            vector = cast(tuple[VersionPin, ...], kwargs["managed_vector"])
+            if vector[0].version != "1":
+                return ProposalFactory().prepare(**kwargs)
+            self.version_one_calls += 1
+            if self.version_one_calls > 1:
+                return ProposalFactory().prepare(**kwargs)
+            attempt = Attempt.from_identity(
+                AttemptIdentity(
+                    source_snapshot_digest=snapshot.identity.digest,
+                    cell=cell,
+                    requested_resolution="exact-vector",
+                    requested_managed_vector=vector,
+                    active_declaration_ids=cell.active_declaration_ids,
+                    source_plan_identity="sources",
+                    evaluation_policy_identity="policy",
+                )
+            )
+            return PrepareFailure(
+                attempt=attempt,
+                failure=ToolFailure(
+                    cause="RESOLUTION_CONFLICT",
+                    stage="install-project",
+                    process=successful_process().model_copy(update={"exit_code": 1}),
+                ),
+            )
+
+    environments = FailsFirstPrepare()
+    result = SearchCoordinator(
+        environments=environments,
+        candidates=FrozenCandidates(),
+        static=static,
+        full=FullThreshold(static),
+        highest=Highest(),
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert environments.version_one_calls == 1
+    assert isinstance(result, CellSuccess)
+    assert all(
+        observation.evidence.status != "PASS"
+        for search in (result.static_search, result.dynamic_search)
+        if search is not None
+        for observation in search.observations
+        if observation.vector == (VersionPin(name="a", version="1"),)
+    )

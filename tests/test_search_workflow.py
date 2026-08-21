@@ -2,34 +2,63 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
+from pf.failure import FailurePolicy
+from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
+from pf.runlog import RunLogStore
 from pf.scheduling import Scheduler
 from pf.schemas.config import SearchRequest
-from pf.schemas.evaluation import CellMatrixEvent, ProgressEvent
+from pf.schemas.evaluation import (
+    CellFailureScope,
+    CellMatrixEvent,
+    FailureDetail,
+    ProcessResult,
+    ProcessSpec,
+    ProgressEvent,
+)
 from pf.schemas.project import Cell, PackagePlan
-from pf.schemas.report import CellFailure
-from pf.snapshot import SnapshotBuilder
+from pf.schemas.report import CellIndeterminate
+from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.workflow import SearchCommandWorkflow
 
 
 class FailedSearch:
-    def __init__(self) -> None:
+    def __init__(self, process: ProcessResult | None = None) -> None:
         self.cells: list[Cell] = []
+        self.process = process
 
     def search(
         self,
         *,
         package: PackagePlan,
         cell: Cell,
-        snapshot: object,
-    ) -> CellFailure:
+        snapshot: SourceSnapshot,
+    ) -> CellIndeterminate:
         self.cells.append(cell)
-        return CellFailure(
-            status="TIMEOUT",
+        failure = FailurePolicy().classify(
+            scope=CellFailureScope(
+                package=package.name,
+                cell=cell,
+                source_snapshot_digest=snapshot.identity.digest,
+                evaluation_policy_identity=evaluation_policy_identity(package.config),
+            ),
+            cause="TIMEOUT",
+            stage=f"evaluation-{len(self.cells)}",
+            process=self.process,
+            detail=(
+                None
+                if self.process is not None
+                else FailureDetail(code="deadline", message="deadline expired")
+            ),
+        )
+        return CellIndeterminate(
             cell=cell,
             phase=f"evaluation-{len(self.cells)}",
+            failure_id=failure.failure_id,
+            failure_records=(failure,),
         )
 
 
@@ -84,7 +113,10 @@ test-command = ["pytest"]
     )
 
     assert output[0].result.status == "incomplete"
-    assert output[0].result.reasons == ("TIMEOUT", "UNREPRESENTABLE_PROJECTION")
+    assert output[0].result.reasons == (
+        "INDETERMINATE",
+        "UNREPRESENTABLE_PROJECTION",
+    )
     completions = [
         event
         for event in events.items
@@ -120,6 +152,76 @@ test-command = ["pytest"]
     )
     assert refreshed[0].source_snapshot != output[0].source_snapshot
     assert store.read(tmp_path / "package-floor.json") == refreshed[0]
+
+
+def test_search_workflow_indexes_failure_logs_after_writing_the_report(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+managed-deps = []
+test-command = ["python", "-c", "pass"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    logs = RunLogStore(root=tmp_path, run_id="search-run")
+    process = ProcessResult(
+        exit_code=124,
+        signal=None,
+        duration_seconds=1,
+        stdout_summary="",
+        stderr_summary="",
+        stdout_tail="",
+        stderr_tail="",
+        timed_out=True,
+    )
+    logs.record(
+        1,
+        ProcessSpec(
+            argv=(sys.executable, "-c", "pass"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=1,
+        ),
+        process,
+    )
+    workflow = SearchCommandWorkflow(
+        projects=ProjectLoader(),
+        snapshots=SnapshotBuilder(),
+        coordinator=FailedSearch(process),
+        scheduler=Scheduler(),
+        reports=ReportStore(),
+        report_builder=PackageReportBuilder(),
+        events=Events(),
+        logs=logs,
+    )
+
+    report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+    failure = report.failure_records[0]
+
+    assert logs.lookup(report.report_generation_id, failure.failure_id) == Path(
+        ".pf/logs/search-run/process-0001.log"
+    )
+
+    replacement = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+    replacement_failure = replacement.failure_records[0]
+
+    assert replacement_failure.failure_id != failure.failure_id
+    assert logs.lookup(report.report_generation_id, failure.failure_id) is None
+    assert logs.lookup(
+        replacement.report_generation_id,
+        replacement_failure.failure_id,
+    ) == Path(".pf/logs/search-run/process-0001.log")
 
 
 def test_search_replaces_a_report_from_an_incompatible_policy_generation(
@@ -237,9 +339,7 @@ test-command = ["python", "-c", "pass"]
 
     reports = workflow.run(SearchRequest(root=tmp_path.as_posix()))
 
-    assert [cell.target for cell in coordinator.cells] == [
-        "x86_64-unknown-linux-gnu"
-    ]
+    assert [cell.target for cell in coordinator.cells] == ["x86_64-unknown-linux-gnu"]
     matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
     assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
     assert reports[0].result.status == "incomplete"

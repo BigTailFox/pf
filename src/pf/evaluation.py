@@ -178,8 +178,8 @@ class StaticEvaluator:
         outcome = self._check(prepared, package=package)
         if isinstance(outcome, ToolFailure):
             return IndeterminateEvaluation(
-                status=outcome.status,
                 proposal=prepared.proposal,
+                cause=outcome.cause,
                 failure=outcome,
             )
         incremental = self._increment(outcome, baseline)
@@ -209,8 +209,8 @@ class StaticEvaluator:
         outcome = self._check(prepared, package=package)
         if isinstance(outcome, ToolFailure):
             return IndeterminateEvaluation(
-                status=outcome.status,
                 proposal=prepared.proposal,
+                cause=outcome.cause,
                 failure=outcome,
             )
         digest = ty_diagnostic_digest(outcome.diagnostics)
@@ -319,7 +319,7 @@ class FullEvaluator:
             )
         assert isinstance(outcome, ToolFailure)
         return IndeterminateEvaluation(
-            status=outcome.status,
             proposal=prepared.proposal,
+            cause=outcome.cause,
             failure=outcome,
         )

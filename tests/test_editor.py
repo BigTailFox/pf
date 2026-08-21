@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import tomli
 import pytest
@@ -10,6 +11,8 @@ from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptIdentity,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
@@ -24,6 +27,8 @@ from pf.schemas.report import (
     CoordinateBoundary,
     CoordinateSuccess,
     PackageFloorReportV1,
+    ProbeObservation,
+    ProbePass,
 )
 from pf.snapshot import SnapshotBuilder
 
@@ -45,12 +50,27 @@ def evaluation(
     version: str,
     *,
     snapshot_digest: str,
+    resolution: Literal["highest", "exact-vector"] = "exact-vector",
+    attempt: Attempt | None = None,
 ) -> PassEvaluation:
+    vector = (VersionPin(name="idna", version=version),)
+    owned_attempt = attempt or Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot_digest,
+            cell=cell,
+            requested_resolution=resolution,
+            requested_managed_vector=(vector if resolution == "exact-vector" else None),
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
     proposal = Proposal(
         proposal_id=f"idna={version}",
+        attempt_id=owned_attempt.attempt_id,
         snapshot_digest=snapshot_digest,
         cell=cell,
-        managed_vector=(VersionPin(name="idna", version=version),),
+        managed_vector=vector,
         fixed_declaration_ids=(),
         resolved_graph=(),
         policy_identity="policy",
@@ -96,19 +116,61 @@ test-command = ["pytest"]
     snapshot = SnapshotBuilder().build(tmp_path)
     cell = package.cells[0]
     vector = (VersionPin(name="idna", version="3.0"),)
+    final_attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot.identity.digest,
+            cell=cell,
+            requested_resolution="exact-vector",
+            requested_managed_vector=vector,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
+    final_evaluation = evaluation(
+        cell,
+        "3.0",
+        snapshot_digest=snapshot.identity.digest,
+        attempt=final_attempt,
+    )
     search = CoordinateSuccess(
         vector=vector,
-        observations=(),
+        observations=(
+            ProbeObservation(
+                dependency="idna",
+                candidate_version="3.0",
+                vector=vector,
+                evidence=ProbePass(
+                    attempt=final_attempt,
+                    proposal_id=final_evaluation.proposal.proposal_id,
+                    evaluation=final_evaluation,
+                ),
+            ),
+        ),
         boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
         sweeps=1,
+    )
+    baseline_attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot.identity.digest,
+            cell=cell,
+            requested_resolution="highest",
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
     )
     baseline_evaluation = evaluation(
         cell,
         "3.11",
         snapshot_digest=snapshot.identity.digest,
+        resolution="highest",
+        attempt=baseline_attempt,
     )
     result = CellSuccess(
         cell=cell,
+        baseline_attempt=baseline_attempt,
         static_baseline=StaticBaseline(
             proposal=baseline_evaluation.proposal,
             ty=baseline_evaluation.static.ty,
@@ -118,11 +180,7 @@ test-command = ["pytest"]
         candidate_snapshots=(),
         static_search=search,
         final_vector=vector,
-        final_evaluation=evaluation(
-            cell,
-            "3.0",
-            snapshot_digest=snapshot.identity.digest,
-        ),
+        final_evaluation=final_evaluation,
     )
     report = PackageReportBuilder().build(
         package=package,
@@ -198,16 +256,57 @@ dependencies = ["idna<4"]
     for package in project.packages:
         cell = package.cells[0]
         vector = (VersionPin(name="idna", version="3.0"),)
+        final_attempt = Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution="exact-vector",
+                requested_managed_vector=vector,
+                active_declaration_ids=cell.active_declaration_ids,
+                source_plan_identity="sources",
+                evaluation_policy_identity="policy",
+            )
+        )
+        final_evaluation = evaluation(
+            cell,
+            "3.0",
+            snapshot_digest=snapshot.identity.digest,
+            attempt=final_attempt,
+        )
         coordinate = CoordinateSuccess(
             vector=vector,
-            observations=(),
+            observations=(
+                ProbeObservation(
+                    dependency="idna",
+                    candidate_version="3.0",
+                    vector=vector,
+                    evidence=ProbePass(
+                        attempt=final_attempt,
+                        proposal_id=final_evaluation.proposal.proposal_id,
+                        evaluation=final_evaluation,
+                    ),
+                ),
+            ),
             boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
             sweeps=1,
+        )
+        baseline_attempt = Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution="highest",
+                requested_managed_vector=None,
+                active_declaration_ids=cell.active_declaration_ids,
+                source_plan_identity="sources",
+                evaluation_policy_identity="policy",
+            )
         )
         baseline_evaluation = evaluation(
             cell,
             "3.11",
             snapshot_digest=snapshot.identity.digest,
+            resolution="highest",
+            attempt=baseline_attempt,
         )
         reports.append(
             PackageReportBuilder().build(
@@ -216,6 +315,7 @@ dependencies = ["idna<4"]
                 cell_results=(
                     CellSuccess(
                         cell=cell,
+                        baseline_attempt=baseline_attempt,
                         static_baseline=StaticBaseline(
                             proposal=baseline_evaluation.proposal,
                             ty=baseline_evaluation.static.ty,
@@ -227,11 +327,7 @@ dependencies = ["idna<4"]
                         candidate_snapshots=(),
                         static_search=coordinate,
                         final_vector=vector,
-                        final_evaluation=evaluation(
-                            cell,
-                            "3.0",
-                            snapshot_digest=snapshot.identity.digest,
-                        ),
+                        final_evaluation=final_evaluation,
                     ),
                 ),
             )
@@ -245,6 +341,4 @@ dependencies = ["idna<4"]
     assert [edit.changed for edit in edits] == [True, True]
     for name in ("alpha", "beta"):
         with (tmp_path / "packages" / name / "pyproject.toml").open("rb") as stream:
-            assert tomli.load(stream)["project"]["dependencies"] == [
-                "idna<4,>=3.0"
-            ]
+            assert tomli.load(stream)["project"]["dependencies"] == ["idna<4,>=3.0"]

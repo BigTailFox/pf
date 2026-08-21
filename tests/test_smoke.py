@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import SmokeRequest
 from pf.schemas.evaluation import (
-    HighestVersionVerification,
+    Attempt,
+    AttemptFailureScope,
+    AttemptIdentity,
+    BaselineIndeterminate,
+    BaselineRejection,
+    HighestVersionOutcome,
+    HighestVersionPass,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
@@ -13,7 +20,6 @@ from pf.schemas.evaluation import (
     TestFail,
     TestFailEvaluation,
     TestPass,
-    ToolFailure,
     TyCheck,
     ty_diagnostic_digest,
 )
@@ -29,6 +35,34 @@ class Events:
 
     def consume(self, event: object) -> None:
         self.items.append(event)
+
+
+def attempt_and_proposal(
+    *,
+    cell: Cell,
+    snapshot: SourceSnapshot,
+) -> tuple[Attempt, Proposal]:
+    attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot.identity.digest,
+            cell=cell,
+            requested_resolution="highest",
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
+    return attempt, Proposal(
+        proposal_id="highest",
+        attempt_id=attempt.attempt_id,
+        snapshot_digest=snapshot.identity.digest,
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
 
 
 def test_smoke_workflow_verifies_each_host_cell_at_highest_resolution(
@@ -60,7 +94,7 @@ test-command = ["python", "-c", "pass"]
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> HighestVersionVerification:
+        ) -> HighestVersionOutcome:
             seen.append(cell)
             process = ProcessResult(
                 exit_code=0,
@@ -71,15 +105,7 @@ test-command = ["python", "-c", "pass"]
                 stdout_tail="[]",
                 stderr_tail="",
             )
-            proposal = Proposal(
-                proposal_id="highest",
-                snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                managed_vector=(),
-                fixed_declaration_ids=(),
-                resolved_graph=(),
-                policy_identity="policy",
-            )
+            attempt, proposal = attempt_and_proposal(cell=cell, snapshot=snapshot)
             check = TyCheck(process=process, diagnostics=())
             baseline = StaticBaseline(
                 proposal=proposal,
@@ -91,7 +117,8 @@ test-command = ["python", "-c", "pass"]
                 ty=check,
                 baseline_digest=baseline.digest,
             )
-            return HighestVersionVerification(
+            return HighestVersionPass(
+                attempt=attempt,
                 baseline=baseline,
                 evaluation=PassEvaluation(
                     proposal=proposal,
@@ -110,7 +137,7 @@ test-command = ["python", "-c", "pass"]
     ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
     assert result.status == "PASS"
-    assert len(result.evaluations) == 1
+    assert len(result.outcomes) == 1
     assert [cell.target for cell in seen] == ["x86_64-unknown-linux-gnu"]
 
 
@@ -142,7 +169,7 @@ test-command = ["python", "-c", "raise SystemExit(1)"]
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> HighestVersionVerification:
+        ) -> HighestVersionOutcome:
             process = ProcessResult(
                 exit_code=1,
                 signal=None,
@@ -152,15 +179,7 @@ test-command = ["python", "-c", "raise SystemExit(1)"]
                 stdout_tail="1 failed",
                 stderr_tail="",
             )
-            proposal = Proposal(
-                proposal_id="highest",
-                snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                managed_vector=(),
-                fixed_declaration_ids=(),
-                resolved_graph=(),
-                policy_identity="policy",
-            )
+            attempt, proposal = attempt_and_proposal(cell=cell, snapshot=snapshot)
             check = TyCheck(
                 process=process.model_copy(update={"stdout_summary": "[]"}),
                 diagnostics=(),
@@ -175,13 +194,22 @@ test-command = ["python", "-c", "raise SystemExit(1)"]
                 ty=check,
                 baseline_digest=baseline.digest,
             )
-            return HighestVersionVerification(
-                baseline=baseline,
-                evaluation=TestFailEvaluation(
-                    proposal=proposal,
-                    static=static,
-                    test=TestFail(process=process),
-                ),
+            evaluation = TestFailEvaluation(
+                proposal=proposal,
+                static=static,
+                test=TestFail(process=process),
+            )
+            failure = FailurePolicy().classify(
+                scope=AttemptFailureScope(attempt=attempt),
+                cause="TEST_FAILURE",
+                stage="test",
+                process=process,
+            )
+            return BaselineRejection(
+                attempt=attempt,
+                failure=failure,
+                static_baseline=baseline,
+                evaluation=evaluation,
             )
 
     result = SmokeCommandWorkflow(
@@ -193,7 +221,7 @@ test-command = ["python", "-c", "raise SystemExit(1)"]
         host_target="x86_64-unknown-linux-gnu",
     ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
-    assert result.status == "TEST_FAILED"
+    assert result.status == "BASELINE_REJECTION"
 
 
 def test_smoke_workflow_preserves_an_indeterminate_tool_failure(
@@ -216,23 +244,32 @@ test-command = ["python", "-c", "pass"]
         + "\n",
         encoding="utf-8",
     )
-    failure = ToolFailure(
-        status="TOOL_ERROR",
-        stage="ty",
-        process=ProcessResult(
-            exit_code=2,
-            signal=None,
-            duration_seconds=0.1,
-            stdout_summary="",
-            stderr_summary="ty crashed",
-            stdout_tail="",
-            stderr_tail="ty crashed",
-        ),
+    process = ProcessResult(
+        exit_code=2,
+        signal=None,
+        duration_seconds=0.1,
+        stdout_summary="",
+        stderr_summary="ty crashed",
+        stdout_tail="",
+        stderr_tail="ty crashed",
     )
 
     class Verifier:
-        def verify(self, **kwargs: object) -> ToolFailure:
-            return failure
+        def verify(
+            self,
+            *,
+            package: PackagePlan,
+            cell: Cell,
+            snapshot: SourceSnapshot,
+        ) -> HighestVersionOutcome:
+            attempt, _ = attempt_and_proposal(cell=cell, snapshot=snapshot)
+            failure = FailurePolicy().classify(
+                scope=AttemptFailureScope(attempt=attempt),
+                cause="TOOL_FAILURE",
+                stage="ty",
+                process=process,
+            )
+            return BaselineIndeterminate(attempt=attempt, failure=failure)
 
     result = SmokeCommandWorkflow(
         projects=ProjectLoader(),
@@ -244,4 +281,5 @@ test-command = ["python", "-c", "pass"]
     ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
     assert result.status == "INDETERMINATE"
-    assert result.failure is failure
+    assert isinstance(result.outcomes[0], BaselineIndeterminate)
+    assert result.outcomes[0].failure.process is process

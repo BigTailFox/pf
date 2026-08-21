@@ -103,9 +103,7 @@ def test_static_evaluator_rejects_a_baseline_from_another_scope(
     changes: dict[str, object]
     if scope == "cell":
         changes = {
-            "cell": prepared.proposal.cell.model_copy(
-                update={"python_minor": "3.11"}
-            )
+            "cell": prepared.proposal.cell.model_copy(update={"python_minor": "3.11"})
         }
     elif scope == "snapshot":
         changes = {"snapshot_digest": "other-snapshot"}
@@ -275,7 +273,7 @@ class PassingTy:
         (TestFail(process=process_result(exit_code=1)), "TEST_FAIL"),
         (
             ToolFailure(
-                status="TIMEOUT",
+                cause="TIMEOUT",
                 stage="test",
                 process=ProcessResult(
                     exit_code=None,
@@ -288,7 +286,7 @@ class PassingTy:
                     timed_out=True,
                 ),
             ),
-            "TIMEOUT",
+            "INDETERMINATE",
         ),
     ),
 )
@@ -373,7 +371,7 @@ test-command = ["pytest"]
     class FailingTool:
         def check(self, **kwargs: object) -> ToolFailure:
             return ToolFailure(
-                status="TOOL_ERROR",
+                cause="TOOL_FAILURE",
                 stage="ty",
                 process=process_result(exit_code=2),
             )
@@ -387,9 +385,11 @@ test-command = ["pytest"]
     result = evaluator.capture(prepared, package=package)
 
     assert isinstance(evaluated, IndeterminateEvaluation)
-    assert evaluated.status == "TOOL_ERROR"
+    assert evaluated.status == "INDETERMINATE"
+    assert evaluated.cause == "TOOL_FAILURE"
     assert isinstance(result, IndeterminateEvaluation)
-    assert result.status == "TOOL_ERROR"
+    assert result.status == "INDETERMINATE"
+    assert result.cause == "TOOL_FAILURE"
 
 
 def test_evaluators_report_static_and_dynamic_stages(tmp_path: Path) -> None:

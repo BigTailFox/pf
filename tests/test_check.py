@@ -57,7 +57,7 @@ class Events:
 
 def tool_failure() -> ToolFailure:
     return ToolFailure(
-        status="TOOL_ERROR",
+        cause="TOOL_FAILURE",
         stage="prepare",
         process=ProcessResult(
             exit_code=1,
@@ -333,7 +333,7 @@ def test_check_reports_progress_for_each_host_cell(tmp_path: Path) -> None:
     progress = [event for event in events.items if isinstance(event, ProgressEvent)]
     assert [(event.message, event.completed, event.total) for event in progress] == [
         ("running", 0, 1),
-        ("TOOL_ERROR", 1, 1),
+        ("FAILURE", 1, 1),
     ]
 
 
@@ -408,7 +408,7 @@ def test_check_rejects_an_incomplete_execution_contract(
 
 @pytest.mark.parametrize(
     "evaluation_status",
-    ("STATIC_FAIL", "TEST_FAIL", "TOOL_ERROR"),
+    ("STATIC_FAIL", "TEST_FAIL", "INDETERMINATE"),
 )
 def test_check_preserves_compatibility_and_indeterminate_outcomes(
     tmp_path: Path,
@@ -527,10 +527,10 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
                     static=static,
                     test=TestFail(process=process),
                 )
-            failure = ToolFailure(status="TOOL_ERROR", stage="ty", process=process)
+            failure = ToolFailure(cause="TOOL_FAILURE", stage="ty", process=process)
             return IndeterminateEvaluation(
-                status="TOOL_ERROR",
                 proposal=prepared.proposal,
+                cause="TOOL_FAILURE",
                 failure=failure,
             )
 
@@ -574,9 +574,7 @@ def test_check_workflow_returns_the_aggregate_or_first_failure(
 
     assert result.status == ("INDETERMINATE" if indeterminate else "PASS")
     assert [
-        event.message
-        for event in events.items
-        if isinstance(event, StatusEvent)
+        event.message for event in events.items if isinstance(event, StatusEvent)
     ] == ["loading project", "building snapshot", "checking declarations"]
     matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
     assert [cell.python_minor for cell in matrix.cells] == ["3.10"]
@@ -625,7 +623,9 @@ test-command = ["python", "-c", "pass"]
     ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
     matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
-    assert [(cell.python_minor, cell.target, cell.extra_surface) for cell in matrix.cells] == [
+    assert [
+        (cell.python_minor, cell.target, cell.extra_surface) for cell in matrix.cells
+    ] == [
         ("3.10", "x86_64-unknown-linux-gnu", ()),
         ("3.10", "x86_64-unknown-linux-gnu", ("cuda",)),
         ("3.11", "x86_64-unknown-linux-gnu", ()),
@@ -673,7 +673,7 @@ test-command = ["python", "-c", "pass"]
             with lock:
                 active -= 1
             return ToolFailure(
-                status="TOOL_ERROR",
+                cause="TOOL_FAILURE",
                 stage="prepare",
                 process=ProcessResult(
                     exit_code=1,

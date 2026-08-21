@@ -13,6 +13,10 @@ from pydantic import ValidationError
 from pf.errors import ConfigurationError
 from pf import __version__
 from pf.policy import evaluation_policy_identity
+from pf.schemas.evaluation import (
+    BaselineIndeterminate,
+    BaselineRejection,
+)
 from pf.project import marker_applies, marker_platform
 from pf.schemas.project import (
     CandidateSnapshot,
@@ -22,7 +26,9 @@ from pf.schemas.project import (
     SourceSnapshotIdentity,
 )
 from pf.schemas.report import (
-    CellFailure,
+    CellIndeterminate,
+    CellResult,
+    CellSearchFailure,
     CellSuccess,
     CompleteReportResult,
     FloorProjection,
@@ -31,6 +37,7 @@ from pf.schemas.report import (
     PackageIdentity,
     PackageFloorReportV1,
     ProjectionEvidence,
+    report_generation_id,
 )
 
 
@@ -42,7 +49,7 @@ class PackageReportBuilder:
         *,
         package: PackagePlan,
         source_snapshot: SourceSnapshotIdentity,
-        cell_results: tuple[CellSuccess | CellFailure, ...],
+        cell_results: tuple[CellResult, ...],
     ) -> PackageFloorReportV1:
         result_by_cell = {
             self._cell_key(result.cell): result for result in cell_results
@@ -70,10 +77,10 @@ class PackageReportBuilder:
         if all_success and all_representable:
             result_summary = CompleteReportResult()
         else:
-            reasons: set[str] = {
-                result.status
+            reasons = {
+                reason
                 for result in cell_results
-                if isinstance(result, CellFailure)
+                if (reason := self._failure_reason(result)) is not None
             }
             if not coverage_complete:
                 reasons.add("MISSING_CELL")
@@ -83,20 +90,33 @@ class PackageReportBuilder:
 
         candidate_snapshots: dict[tuple[str, str], CandidateSnapshot] = {}
         for result in cell_results:
-            if not isinstance(result, CellSuccess):
+            if not isinstance(
+                result, (CellSuccess, CellIndeterminate, CellSearchFailure)
+            ):
                 continue
             for snapshot in result.candidate_snapshots:
                 key = (self._cell_key(snapshot.cell), snapshot.dependency)
                 candidate_snapshots[key] = snapshot
 
+        generator = GeneratorIdentity(name="pf", version=__version__, algorithm="v1")
+        package_identity = PackageIdentity(
+            name=package.name,
+            pyproject_path=package.pyproject_path,
+        )
+        policy_identity = self._policy_identity(package, cell_results)
         return PackageFloorReportV1(
-            generator=GeneratorIdentity(name="pf", version=__version__, algorithm="v1"),
-            package=PackageIdentity(
-                name=package.name,
-                pyproject_path=package.pyproject_path,
+            report_generation_id=report_generation_id(
+                generator=generator,
+                package=package_identity,
+                source_snapshot=source_snapshot,
+                policy_identity=policy_identity,
+                requirement_declarations=package.declarations,
+                target_cells=package.cells,
             ),
+            generator=generator,
+            package=package_identity,
             source_snapshot=source_snapshot,
-            policy_identity=self._policy_identity(package, cell_results),
+            policy_identity=policy_identity,
             requirement_declarations=package.declarations,
             candidate_snapshots=tuple(
                 candidate_snapshots[key] for key in sorted(candidate_snapshots)
@@ -112,7 +132,7 @@ class PackageReportBuilder:
         *,
         declaration: RequirementDeclaration,
         package: PackagePlan,
-        result_by_cell: dict[str, CellSuccess | CellFailure],
+        result_by_cell: dict[str, CellResult],
     ) -> ProjectionEvidence | None:
         active_cells = tuple(
             cell
@@ -297,14 +317,28 @@ class PackageReportBuilder:
     @staticmethod
     def _policy_identity(
         package: PackagePlan,
-        cell_results: tuple[CellSuccess | CellFailure, ...],
+        cell_results: tuple[CellResult, ...],
     ) -> str:
         for result in cell_results:
             if isinstance(result, CellSuccess):
                 return result.final_evaluation.proposal.policy_identity
-            if result.baseline is not None:
+            if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+                return result.attempt.identity.evaluation_policy_identity
+            if isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
+                result.baseline is not None
+            ):
                 return result.baseline.proposal.policy_identity
         return evaluation_policy_identity(package.config)
+
+    @staticmethod
+    def _failure_reason(result: CellResult) -> str | None:
+        if isinstance(result, BaselineRejection):
+            return "BASELINE_REJECTION"
+        if isinstance(result, (BaselineIndeterminate, CellIndeterminate)):
+            return "INDETERMINATE"
+        if isinstance(result, CellSearchFailure):
+            return result.reason
+        return None
 
     @staticmethod
     def _cell_key(cell: Cell) -> str:
@@ -519,6 +553,7 @@ class ReportStore:
                 reasons.add("MISSING_CELL")
             result_summary = IncompleteReportResult(reasons=tuple(sorted(reasons)))
         return PackageFloorReportV1(
+            report_generation_id=first.report_generation_id,
             generator=first.generator,
             package=first.package,
             source_snapshot=first.source_snapshot,
@@ -567,13 +602,14 @@ class ReportStore:
             )
             for projection in existing.projection_evidence
         )
-        reasons: set[str] = {
-            result.status
+        reasons = {
+            reason
             for result in retained_results
-            if isinstance(result, CellFailure)
+            if (reason := PackageReportBuilder._failure_reason(result)) is not None
         }
         reasons.update({"MISSING_CELL", "UNREPRESENTABLE_PROJECTION"})
         retained = PackageFloorReportV1(
+            report_generation_id=existing.report_generation_id,
             generator=existing.generator,
             package=existing.package,
             source_snapshot=existing.source_snapshot,

@@ -125,10 +125,17 @@ class SnapshotBuilder:
                 target = os.readlink(source)
                 target_path = Path(target)
                 if target_path.is_absolute():
-                    raise ConfigurationError(f"absolute source symlink is unsafe: {relative}")
+                    raise ConfigurationError(
+                        f"absolute source symlink is unsafe: {relative}"
+                    )
                 resolved_target = (source.parent / target_path).resolve()
-                if source_root not in resolved_target.parents and resolved_target != source_root:
-                    raise ConfigurationError(f"source symlink escapes snapshot root: {relative}")
+                if (
+                    source_root not in resolved_target.parents
+                    and resolved_target != source_root
+                ):
+                    raise ConfigurationError(
+                        f"source symlink escapes snapshot root: {relative}"
+                    )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.symlink_to(target)
                 entries.append(
@@ -201,8 +208,7 @@ class SnapshotBuilder:
                 matched = fnmatch.fnmatchcase(relative, pattern)
             else:
                 matched = any(
-                    fnmatch.fnmatchcase(part, pattern)
-                    for part in Path(relative).parts
+                    fnmatch.fnmatchcase(part, pattern) for part in Path(relative).parts
                 )
             if matched:
                 ignored = not negated

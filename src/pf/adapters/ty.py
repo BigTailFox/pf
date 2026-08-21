@@ -93,9 +93,9 @@ class TyAdapter:
             )
         )
         if result.timed_out:
-            return ToolFailure(status="TIMEOUT", stage="ty", process=result)
+            return ToolFailure(cause="TIMEOUT", stage="ty", process=result)
         if result.exit_code not in {0, 1} or result.stdout_truncated:
-            return ToolFailure(status="TOOL_ERROR", stage="ty", process=result)
+            return ToolFailure(cause="TOOL_FAILURE", stage="ty", process=result)
         try:
             document = json.loads(result.stdout_summary)
             if not isinstance(document, list):
@@ -115,7 +115,7 @@ class TyAdapter:
                 )
             )
         except (KeyError, TypeError, ValueError):
-            return ToolFailure(status="TOOL_ERROR", stage="ty", process=result)
+            return ToolFailure(cause="TOOL_FAILURE", stage="ty", process=result)
         return TyCheck(process=result, diagnostics=diagnostics)
 
     @staticmethod

@@ -13,6 +13,7 @@ from pf.errors import ConfigurationError, NoApplicableFloorError, PfError
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
+    DiagnoseRequest,
     MergeRequest,
     ReportRequest,
     SearchRequest,
@@ -26,6 +27,7 @@ from pf.schemas.report import (
     PackageFloorReportV1,
     PackageIdentity,
     ProjectEditResult,
+    report_generation_id,
 )
 from pf.terminal import TerminalPresenter
 
@@ -36,10 +38,21 @@ class NeverCheck:
 
 
 def minimal_report() -> PackageFloorReportV1:
+    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+    package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
+    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
     return PackageFloorReportV1(
-        generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
-        package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
-        source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
+        report_generation_id=report_generation_id(
+            generator=generator,
+            package=package,
+            source_snapshot=snapshot,
+            policy_identity="policy",
+            requirement_declarations=(),
+            target_cells=(),
+        ),
+        generator=generator,
+        package=package,
+        source_snapshot=snapshot,
         policy_identity="policy",
         requirement_declarations=(),
         candidate_snapshots=(),
@@ -65,6 +78,7 @@ def test_module_help_lists_every_v1_command() -> None:
         "apply",
         "minimize",
         "explain",
+        "diagnose",
         "merge",
     ):
         assert command in result.stdout
@@ -82,6 +96,26 @@ def test_search_help_documents_scheduling_options_and_defaults() -> None:
     assert "--jobs" in result.stdout
     assert "auto" in result.stdout
     assert "--max-duration" in result.stdout
+
+
+def test_diagnose_help_documents_offline_failure_inspection() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "diagnose", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "recorded rejection or indeterminate result" in result.stdout
+    assert "--failure" in result.stdout
+
+
+def test_module_entrypoint_reexports_cli_main() -> None:
+    import pf.__main__ as module
+    from pf.cli import main
+
+    assert module.main is main
 
 
 @pytest.mark.parametrize("command", ("check", "smoke"))
@@ -185,7 +219,7 @@ def test_smoke_command_builds_a_request_and_renders_the_workflow_result(
 
         def run(self, request: SmokeRequest) -> SmokePass:
             self.request = request
-            return SmokePass(evaluations=())
+            return SmokePass(outcomes=())
 
     monkeypatch.chdir(tmp_path)
     stdout = StringIO()
@@ -291,6 +325,45 @@ def test_explain_command_only_requests_existing_reports(
     assert exit_code == 0
     assert workflow.request == ReportRequest(root=tmp_path.as_posix(), package="demo")
     assert stdout.getvalue() == "explained 0 reports\n"
+
+
+def test_diagnose_command_only_requests_recorded_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DiagnoseWorkflow:
+        def __init__(self) -> None:
+            self.request: DiagnoseRequest | None = None
+
+        def run(self, request: DiagnoseRequest):
+            self.request = request
+            return ()
+
+    monkeypatch.chdir(tmp_path)
+    stdout = StringIO()
+    workflow = DiagnoseWorkflow()
+    context = CliContext(
+        check_workflow=NeverCheck(),
+        diagnose_workflow=workflow,
+        presenter=TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+        ),
+    )
+
+    exit_code = create_app(context)(
+        ["diagnose", "demo", "--failure", "failure-a"],
+        exit_on_error=False,
+        result_action="return_value",
+    )
+
+    assert exit_code == 0
+    assert workflow.request == DiagnoseRequest(
+        root=tmp_path.as_posix(),
+        package="demo",
+        failure_id="failure-a",
+    )
+    assert stdout.getvalue() == "diagnosed 0 failures\n"
 
 
 def test_merge_command_passes_explicit_inputs_and_output_to_workflow(
@@ -410,7 +483,10 @@ def test_apply_failure_does_not_claim_floors_were_applied(
     assert caught.value.code == 2
     assert stdout.getvalue() == ""
     assert "applied floors" not in stderr.getvalue()
-    assert "no-applicable-floor: cannot apply an incomplete floor report" in stderr.getvalue()
+    assert (
+        "no-applicable-floor: cannot apply an incomplete floor report"
+        in stderr.getvalue()
+    )
 
 
 def test_minimize_does_not_apply_when_search_report_is_incomplete(
@@ -510,6 +586,7 @@ def test_minimize_applies_after_a_complete_search(
         ("apply",),
         ("minimize",),
         ("explain",),
+        ("diagnose",),
         ("merge", "--output", "merged.json"),
     ),
 )
@@ -538,4 +615,5 @@ def test_default_context_assembles_every_v1_workflow() -> None:
     assert context.search_workflow is not None
     assert context.apply_workflow is not None
     assert context.explain_workflow is not None
+    assert context.diagnose_workflow is not None
     assert context.merge_workflow is not None

@@ -17,6 +17,7 @@ from pf.schemas.report import (
     PackageFloorReportV1,
     PackageIdentity,
     ProjectEditResult,
+    report_generation_id,
 )
 from pf.workflow import (
     ApplyCommandWorkflow,
@@ -25,12 +26,30 @@ from pf.workflow import (
 )
 
 
-def report() -> PackageFloorReportV1:
+def report(
+    *,
+    package_name: str = "demo",
+    policy_identity: str = "policy",
+) -> PackageFloorReportV1:
+    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
+    package = PackageIdentity(
+        name=package_name,
+        pyproject_path="pyproject.toml",
+    )
+    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
     return PackageFloorReportV1(
-        generator=GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1"),
-        package=PackageIdentity(name="demo", pyproject_path="pyproject.toml"),
-        source_snapshot=SourceSnapshotIdentity(digest="snapshot", entries=()),
-        policy_identity="policy",
+        report_generation_id=report_generation_id(
+            generator=generator,
+            package=package,
+            source_snapshot=snapshot,
+            policy_identity=policy_identity,
+            requirement_declarations=(),
+            target_cells=(),
+        ),
+        generator=generator,
+        package=package,
+        source_snapshot=snapshot,
+        policy_identity=policy_identity,
         requirement_declarations=(),
         candidate_snapshots=(),
         target_cells=(),
@@ -82,9 +101,7 @@ def test_apply_workflow_validates_reports_then_edits_all_packages(
         )
         .packages[0]
     )
-    current_report = report().model_copy(
-        update={"policy_identity": evaluation_policy_identity(package.config)}
-    )
+    current_report = report(policy_identity=evaluation_policy_identity(package.config))
     store.write(tmp_path / "package-floor.json", current_report)
 
     class Editor:
@@ -158,14 +175,7 @@ def test_apply_workflow_rejects_report_for_another_package(tmp_path: Path) -> No
         encoding="utf-8",
     )
     store = ReportStore()
-    mismatched = report().model_copy(
-        update={
-            "package": PackageIdentity(
-                name="other",
-                pyproject_path="pyproject.toml",
-            )
-        }
-    )
+    mismatched = report(package_name="other")
     store.write(tmp_path / "package-floor.json", mismatched)
 
     class NeverEditor:

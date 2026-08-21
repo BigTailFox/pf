@@ -37,7 +37,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     )
 
     results = {}
-    for command in ("smoke", "check", "search", "explain", "apply"):
+    for command in ("smoke", "check", "search", "explain", "diagnose", "apply"):
         result = subprocess.run(
             [sys.executable, "-m", "pf", command],
             cwd=tmp_path,
@@ -53,22 +53,25 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         )
         results[command] = result
 
-    assert "ty: 1 diagnostic" in results["smoke"].stderr
+    assert "[py3.10]" in results["smoke"].stderr
     assert "details: .pf/logs/" in results["smoke"].stderr
+    assert "diagnosed 0 failures" in results["diagnose"].stdout
     assert (tmp_path / "package-floor.json").is_file()
     process_logs = tuple((tmp_path / ".pf/logs").glob("*/process-*.log"))
     assert process_logs
     assert any(
-        "ty\", \"check" in path.read_text(encoding="utf-8")
-        for path in process_logs
+        'ty", "check' in path.read_text(encoding="utf-8") for path in process_logs
     )
-    assert "demo: complete" in subprocess.run(
-        [sys.executable, "-m", "pf", "explain"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    assert (
+        "demo: complete"
+        in subprocess.run(
+            [sys.executable, "-m", "pf", "explain"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
 
 
 def test_smoke_returns_compatibility_failure_when_full_tests_fail(
@@ -111,6 +114,6 @@ test-command = ["python", "-c", "raise SystemExit('smoke test failed')"]
     )
 
     assert result.returncode == 1, (result.stdout, result.stderr)
-    assert "tests failed (dynamic)" in result.stderr
-    assert "smoke test failed" in result.stderr
+    assert "The full test command failed for this version combination." in result.stderr
+    assert "smoke test failed" not in result.stderr
     assert "details: .pf/logs/" in result.stderr

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -9,19 +10,27 @@ from pf.errors import ConfigurationError
 from pf.evaluation import require_full_evaluation_contract
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
+    AttemptFailureScope,
+    BaselineIndeterminate,
+    BaselineRejection,
+    CellFailureScope,
     CellMatrixEvent,
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
     CheckResult,
     Evaluation,
-    HighestVersionVerification,
+    FailureRecord,
+    HighestVersionOutcome,
+    HighestVersionPass,
     IndeterminateEvaluation,
     PassEvaluation,
+    PrepareFailure,
+    ProcessResult,
     SmokeIndeterminate,
+    SmokeBaselineRejection,
     SmokePass,
     SmokeResult,
-    SmokeTestFailure,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
@@ -36,12 +45,23 @@ from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
+    DiagnoseRequest,
     MergeRequest,
     ReportRequest,
     SearchRequest,
     SmokeRequest,
 )
-from pf.schemas.report import CellResult, PackageFloorReportV1, ProjectEditResult
+from pf.schemas.report import (
+    CellIndeterminate,
+    CellResult,
+    CellSearchFailure,
+    CellSuccess,
+    CoordinateSuccess,
+    PackageFloorReportV1,
+    ProbeIndeterminate,
+    ProbeRejection,
+    ProjectEditResult,
+)
 from pf.project import ProjectLoader, host_target as current_host_target
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
@@ -66,7 +86,7 @@ class CheckEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
-    ) -> PreparedEnvironment | ToolFailure: ...
+    ) -> PreparedEnvironment | PrepareFailure | ToolFailure: ...
 
 
 class CheckStaticOperations(Protocol):
@@ -128,7 +148,7 @@ class CompatibilityChecker:
             resolution="highest",
         )
         if not isinstance(highest, PreparedEnvironment):
-            return highest
+            return highest.failure if isinstance(highest, PrepareFailure) else highest
         try:
             capture = self._static.capture(highest, package=package)
         finally:
@@ -142,7 +162,9 @@ class CompatibilityChecker:
             resolution="lowest-direct",
         )
         if not isinstance(prepared, PreparedEnvironment):
-            return prepared
+            return (
+                prepared.failure if isinstance(prepared, PrepareFailure) else prepared
+            )
         try:
             return self._full.evaluate(
                 prepared,
@@ -270,7 +292,7 @@ class SmokeCellOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> HighestVersionVerification | ToolFailure | IndeterminateEvaluation: ...
+    ) -> HighestVersionOutcome: ...
 
 
 class SmokeCommandWorkflow:
@@ -338,46 +360,32 @@ class SmokeCommandWorkflow:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Callable[[], Evaluation | ToolFailure]:
-        def run() -> Evaluation | ToolFailure:
-            result = self._verifier.verify(
+    ) -> Callable[[], HighestVersionOutcome]:
+        def run() -> HighestVersionOutcome:
+            return self._verifier.verify(
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
             )
-            if isinstance(result, HighestVersionVerification):
-                return result.evaluation
-            return result
 
         return run
 
     @staticmethod
     def _aggregate(
-        outcomes: tuple[Evaluation | ToolFailure, ...],
+        outcomes: tuple[HighestVersionOutcome, ...],
     ) -> SmokeResult:
-        evaluations: list[Evaluation] = []
-        infra: list[ToolFailure] = []
-        for outcome in outcomes:
-            if isinstance(outcome, ToolFailure):
-                infra.append(outcome)
-                continue
-            evaluations.append(outcome)
-            if isinstance(outcome, IndeterminateEvaluation):
-                infra.append(outcome.failure)
-        if any(isinstance(item, TestFailEvaluation) for item in evaluations):
-            return SmokeTestFailure(evaluations=tuple(evaluations))
-        if any(isinstance(item, StaticFailEvaluation) for item in evaluations):
-            raise ValueError("highest-version capture cannot produce STATIC_FAIL")
-        if infra:
-            return SmokeIndeterminate(
-                evaluations=tuple(
-                    item for item in evaluations if isinstance(item, PassEvaluation)
-                ),
-                failure=infra[0],
+        if any(isinstance(item, BaselineRejection) for item in outcomes):
+            return SmokeBaselineRejection(outcomes=outcomes)
+        if any(isinstance(item, BaselineIndeterminate) for item in outcomes):
+            narrowed = tuple(
+                item
+                for item in outcomes
+                if isinstance(item, (HighestVersionPass, BaselineIndeterminate))
             )
+            return SmokeIndeterminate(outcomes=narrowed)
         return SmokePass(
-            evaluations=tuple(
-                item for item in evaluations if isinstance(item, PassEvaluation)
+            outcomes=tuple(
+                item for item in outcomes if isinstance(item, HighestVersionPass)
             )
         )
 
@@ -395,6 +403,17 @@ class CellSearchOperations(Protocol):
     ) -> CellResult: ...
 
 
+class FailureLogAssociations(Protocol):
+    def replace_associations(
+        self,
+        report_generation_id: str,
+        failures: tuple[tuple[str, ProcessResult | None], ...],
+        *,
+        replace_generation: bool = True,
+        remove_failure_ids: tuple[str, ...] = (),
+    ) -> None: ...
+
+
 class SearchCommandWorkflow:
     """Own load, snapshot, bounded cell scheduling, and report persistence."""
 
@@ -408,6 +427,7 @@ class SearchCommandWorkflow:
         reports: ReportStore,
         report_builder: PackageReportBuilder,
         events: ProgressConsumer,
+        logs: FailureLogAssociations | None = None,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
@@ -417,6 +437,7 @@ class SearchCommandWorkflow:
         self._reports = reports
         self._report_builder = report_builder
         self._events = events
+        self._logs = logs
         self._host_target = host_target or current_host_target()
 
     def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]:
@@ -434,6 +455,14 @@ class SearchCommandWorkflow:
                 ScheduledCellTask(
                     cell=cell,
                     run=self._cell_task(package, cell, snapshot),
+                    deadline_scope=CellFailureScope(
+                        package=package.name,
+                        cell=cell,
+                        source_snapshot_digest=snapshot.identity.digest,
+                        evaluation_policy_identity=evaluation_policy_identity(
+                            package.config
+                        ),
+                    ),
                 )
                 for package in project.packages
                 for cell in package.cells
@@ -461,6 +490,7 @@ class SearchCommandWorkflow:
                 report_path = (
                     root / Path(package.pyproject_path).parent / "package-floor.json"
                 )
+                existing = None
                 if report_path.is_file():
                     existing = self._reports.read_if_same_generation(
                         report_path,
@@ -469,6 +499,29 @@ class SearchCommandWorkflow:
                     if existing is not None:
                         report = self._reports.update(existing, report)
                 self._reports.write(report_path, report)
+                if self._logs is not None:
+                    replaced_cells = {result.cell for result in package_results}
+                    remove_failure_ids = (
+                        tuple(
+                            failure.failure_id
+                            for old_result in existing.cell_results
+                            if old_result.cell in replaced_cells
+                            for failure in self._failure_records(old_result)
+                        )
+                        if existing is not None
+                        else ()
+                    )
+                    current_failures = tuple(
+                        (failure.failure_id, failure.process)
+                        for result in package_results
+                        for failure in self._failure_records(result)
+                    )
+                    self._logs.replace_associations(
+                        report.report_generation_id,
+                        current_failures,
+                        replace_generation=existing is None,
+                        remove_failure_ids=remove_failure_ids,
+                    )
                 reports.append(report)
             return tuple(reports)
         finally:
@@ -489,6 +542,12 @@ class SearchCommandWorkflow:
 
         return run
 
+    @staticmethod
+    def _failure_records(result: CellResult) -> tuple[FailureRecord, ...]:
+        if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+            return (result.failure,)
+        return result.failure_records
+
 
 class ExplainCommandWorkflow:
     """Locate and read reports without owning any evaluation capability."""
@@ -508,6 +567,154 @@ class ExplainCommandWorkflow:
                 root / Path(package.pyproject_path).parent / "package-floor.json"
             )
             for package in project.packages
+        )
+
+
+class DiagnosisLogLocator(Protocol):
+    def lookup(
+        self,
+        report_generation_id: str,
+        failure_id: str,
+    ) -> Path | None: ...
+
+
+@dataclass(frozen=True)
+class FailureDiagnosis:
+    report_generation_id: str
+    package: str
+    failure: FailureRecord
+    proposal_id: str | None
+    boundary_role: Literal["predecessor"] | None
+    log_path: Path | None
+
+
+class DiagnoseCommandWorkflow:
+    """Resolve portable report failures and optional local logs without execution."""
+
+    def __init__(
+        self,
+        *,
+        projects: ProjectLoader,
+        reports: ReportStore,
+        logs: DiagnosisLogLocator,
+    ) -> None:
+        self._projects = projects
+        self._reports = reports
+        self._logs = logs
+
+    def run(self, request: DiagnoseRequest) -> tuple[FailureDiagnosis, ...]:
+        root = Path(request.root)
+        project = self._projects.load(
+            root=root,
+            package_selection=request.package,
+        )
+        entries: list[FailureDiagnosis] = []
+        for package in project.packages:
+            report = self._reports.read(
+                root / Path(package.pyproject_path).parent / "package-floor.json"
+            )
+            for result in report.cell_results:
+                for failure in self._failure_records(result):
+                    if (
+                        request.failure_id is not None
+                        and failure.failure_id != request.failure_id
+                    ):
+                        continue
+                    proposal_id, boundary_role = self._search_context(
+                        result,
+                        failure.failure_id,
+                    )
+                    entries.append(
+                        FailureDiagnosis(
+                            report_generation_id=report.report_generation_id,
+                            package=report.package.name,
+                            failure=failure,
+                            proposal_id=proposal_id,
+                            boundary_role=boundary_role,
+                            log_path=self._logs.lookup(
+                                report.report_generation_id,
+                                failure.failure_id,
+                            ),
+                        )
+                    )
+        if request.failure_id is not None and not entries:
+            raise ConfigurationError(f"failure ID not found: {request.failure_id}")
+        return tuple(sorted(entries, key=self._sort_key))
+
+    @staticmethod
+    def _failure_records(result: CellResult) -> tuple[FailureRecord, ...]:
+        if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+            return (result.failure,)
+        return result.failure_records
+
+    @staticmethod
+    def _search_context(
+        result: CellResult,
+        failure_id: str,
+    ) -> tuple[str | None, Literal["predecessor"] | None]:
+        if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+            proposal_id = (
+                result.evaluation.proposal.proposal_id
+                if result.evaluation is not None
+                else None
+            )
+            return proposal_id, None
+        searches = ()
+        if isinstance(result, CellSuccess):
+            searches = (
+                result.static_search,
+                *(
+                    (result.dynamic_search,)
+                    if result.dynamic_search is not None
+                    else ()
+                ),
+            )
+        elif isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
+            result.coordinate_failure is not None
+        ):
+            searches = (result.coordinate_failure,)
+        proposal_id: str | None = None
+        boundary_role: Literal["predecessor"] | None = None
+        for search in searches:
+            for observation in search.observations:
+                evidence = observation.evidence
+                if isinstance(evidence, (ProbeRejection, ProbeIndeterminate)) and (
+                    evidence.failure_id == failure_id
+                ):
+                    proposal_id = evidence.proposal_id
+            if isinstance(search, CoordinateSuccess) and any(
+                boundary.predecessor_failure_id == failure_id
+                for boundary in search.boundaries
+            ):
+                boundary_role = "predecessor"
+        return proposal_id, boundary_role
+
+    @staticmethod
+    def _sort_key(entry: FailureDiagnosis) -> tuple[object, ...]:
+        scope = entry.failure.scope
+        cell = (
+            scope.attempt.identity.cell
+            if isinstance(scope, AttemptFailureScope)
+            else scope.cell
+        )
+        if isinstance(scope, AttemptFailureScope):
+            identity = scope.attempt.identity
+            resolution_rank = 0 if identity.requested_resolution == "highest" else 1
+            vector = tuple(
+                (pin.name, pin.version)
+                for pin in (identity.requested_managed_vector or ())
+            )
+        else:
+            resolution_rank = -1
+            vector = ()
+        return (
+            entry.package,
+            cell.target,
+            cell.python_minor,
+            cell.extra_surface,
+            resolution_rank,
+            vector,
+            entry.failure.failure_id,
         )
 
 

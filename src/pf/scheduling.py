@@ -7,16 +7,26 @@ import os
 import time
 from typing import Generic, Protocol, TypeVar, cast
 
+from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     ActivityEvent,
+    BaselineIndeterminate,
+    BaselineRejection,
+    CellFailureScope,
+    FailureDetail,
+    FailureRecord,
+    HighestVersionPass,
     IndeterminateEvaluation,
+    PassEvaluation,
+    ProcessResult,
     ProgressEvent,
     StaticFailEvaluation,
     TestFailEvaluation,
     ToolFailure,
+    TyDiagnostic,
 )
 from pf.schemas.project import Cell
-from pf.schemas.report import CellFailure
+from pf.schemas.report import CellIndeterminate, CellSearchFailure, CellSuccess
 
 
 class ProgressConsumer(Protocol):
@@ -34,10 +44,14 @@ T = TypeVar("T", bound=HasStatus)
 class ScheduledCellTask(Generic[T]):
     cell: Cell
     run: Callable[[], T]
+    deadline_scope: CellFailureScope | None = None
 
 
 class Scheduler:
     """Bound independent cell work while preserving canonical result order."""
+
+    def __init__(self, *, failures: FailurePolicy | None = None) -> None:
+        self._failures = failures or FailurePolicy()
 
     def run(
         self,
@@ -85,18 +99,11 @@ class Scheduler:
                     completed_items.append((task.cell, result))
                     completed += 1
                     events.consume(
-                        ProgressEvent(
-                            package=task.cell.package,
+                        _completion_progress(
                             cell=task.cell,
-                            phase=(
-                                result.phase
-                                if isinstance(result, CellFailure)
-                                else "complete"
-                            ),
+                            result=result,
                             completed=completed,
                             total=len(tasks),
-                            message=result.status,
-                            detail=_outcome_diagnostic(result),
                         )
                     )
                 self._fill(
@@ -108,23 +115,33 @@ class Scheduler:
                 )
 
         for task in pending:
-            timeout = CellFailure(
-                status="TIMEOUT",
+            if task.deadline_scope is None:
+                raise ValueError("deadline-limited cell task requires failure scope")
+            failure = self._failures.classify(
+                scope=task.deadline_scope,
+                cause="TIMEOUT",
+                stage="scheduler-deadline",
+                process=None,
+                detail=FailureDetail(
+                    code="scheduler-deadline",
+                    message="scheduling stopped at the total deadline",
+                ),
+            )
+            timeout = CellIndeterminate(
                 cell=task.cell,
                 phase="scheduler-deadline",
-                detail="scheduling stopped at the total deadline",
+                failure_id=failure.failure_id,
+                failure_records=(failure,),
             )
             completed_items.append((task.cell, cast(T, timeout)))
             completed += 1
             events.consume(
-                ProgressEvent(
-                    package=task.cell.package,
+                _completion_progress(
                     cell=task.cell,
-                    phase="scheduler-deadline",
+                    result=timeout,
                     completed=completed,
                     total=len(tasks),
-                    message="TIMEOUT",
-                    detail=_outcome_diagnostic(timeout),
+                    phase="scheduler-deadline",
                 )
             )
 
@@ -166,6 +183,117 @@ class Scheduler:
         return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
 
 
+def _completion_progress(
+    *,
+    cell: Cell,
+    result: object,
+    completed: int,
+    total: int,
+    phase: str | None = None,
+) -> ProgressEvent:
+    diagnostics, process, failure, detail = _completion_payload(result)
+    return ProgressEvent(
+        package=cell.package,
+        cell=cell,
+        phase=phase or getattr(result, "phase", "complete"),
+        completed=completed,
+        total=total,
+        message=getattr(result, "status", "FAILURE"),
+        detail=detail,
+        diagnostics=diagnostics,
+        process=process,
+        failure=failure,
+    )
+
+
+def _completion_payload(
+    result: object,
+) -> tuple[
+    tuple[TyDiagnostic, ...],
+    ProcessResult | None,
+    FailureRecord | None,
+    str,
+]:
+    if isinstance(result, StaticFailEvaluation):
+        return result.incremental, result.ty.process, None, ""
+    if isinstance(result, TestFailEvaluation):
+        return (
+            result.static.ty.diagnostics,
+            result.test.process,
+            None,
+            result.test.process.diagnostic(),
+        )
+    if isinstance(result, PassEvaluation):
+        diagnostics = result.static.ty.diagnostics
+        return (
+            diagnostics,
+            result.static.ty.process if diagnostics else None,
+            None,
+            "",
+        )
+    if isinstance(result, ToolFailure):
+        return (), result.process, None, result.process.diagnostic()
+    if isinstance(result, IndeterminateEvaluation):
+        return (), result.failure.process, None, result.failure.process.diagnostic()
+    if isinstance(result, HighestVersionPass):
+        diagnostics = result.baseline.ty.diagnostics
+        return (
+            diagnostics,
+            result.baseline.ty.process if diagnostics else None,
+            None,
+            "",
+        )
+    if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+        evaluation = result.evaluation
+        if isinstance(evaluation, StaticFailEvaluation):
+            return (
+                evaluation.incremental,
+                evaluation.ty.process,
+                result.failure,
+                "",
+            )
+        if isinstance(evaluation, TestFailEvaluation):
+            return (
+                evaluation.static.ty.diagnostics,
+                evaluation.test.process,
+                result.failure,
+                evaluation.test.process.diagnostic(),
+            )
+        return (), result.failure.process, result.failure, _outcome_diagnostic(result)
+    if isinstance(result, CellSuccess):
+        baseline = result.static_baseline
+        diagnostics = baseline.ty.diagnostics if baseline is not None else ()
+        return (
+            diagnostics,
+            baseline.ty.process if baseline is not None and diagnostics else None,
+            None,
+            "",
+        )
+    if isinstance(result, CellSearchFailure):
+        baseline = result.static_baseline
+        diagnostics = baseline.ty.diagnostics
+        return diagnostics, baseline.ty.process if diagnostics else None, None, ""
+    if isinstance(result, CellIndeterminate):
+        terminal = _terminal_failure(result)
+        if terminal.process is not None:
+            return (), terminal.process, terminal, terminal.process.diagnostic()
+        return (
+            (),
+            None,
+            terminal,
+            terminal.detail.message if terminal.detail is not None else "",
+        )
+    return (), None, None, _outcome_diagnostic(result)
+
+
+def _terminal_failure(result: CellIndeterminate) -> FailureRecord:
+    return next(
+        failure
+        for failure in result.failure_records
+        if failure.failure_id == result.failure_id
+    )
+
+
 def _outcome_diagnostic(result: object) -> str:
     if isinstance(result, ToolFailure):
         return result.process.diagnostic()
@@ -175,12 +303,14 @@ def _outcome_diagnostic(result: object) -> str:
         return result.test.process.diagnostic()
     if isinstance(result, IndeterminateEvaluation):
         return result.failure.process.diagnostic()
-    if isinstance(result, CellFailure):
-        if result.failure is not None:
+    if isinstance(result, CellIndeterminate):
+        terminal = _terminal_failure(result)
+        if terminal.process is not None:
+            return terminal.process.diagnostic()
+        return terminal.detail.message if terminal.detail is not None else ""
+    if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+        if result.failure.process is not None:
             return result.failure.process.diagnostic()
-        if result.baseline is not None:
-            nested = _outcome_diagnostic(result.baseline)
-            if nested:
-                return nested
-        return result.detail or ""
+        if result.failure.detail is not None:
+            return result.failure.detail.message
     return ""

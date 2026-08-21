@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from threading import Lock
@@ -26,29 +27,30 @@ from rich.theme import Theme
 from pf.errors import PfError
 from pf.schemas.evaluation import (
     ActivityEvent,
+    AttemptFailureScope,
+    BaselineIndeterminate,
+    BaselineRejection,
     CellMatrixEvent,
     CheckResult,
-    IndeterminateEvaluation,
+    FailureCause,
+    FailureRecord,
+    HighestVersionPass,
     PassEvaluation,
     ProcessEvent,
     ProcessResult,
     ProgressEvent,
-    SearchDynamicDiagnosticEvent,
-    SearchDiagnosticEvent,
-    SearchIndeterminateDiagnosticEvent,
-    SearchStaticDiagnosticEvent,
-    SearchToolDiagnosticEvent,
+    SearchFailureEvent,
     SmokeResult,
     StaticFailEvaluation,
     StatusEvent,
     ToolFailure,
     TestFailEvaluation,
-    TyCheck,
     TyDiagnostic,
 )
 from pf.schemas.project import Cell
 from pf.schemas.report import (
-    CellFailure,
+    CellIndeterminate,
+    CellSearchFailure,
     CellSuccess,
     PackageFloorReportV1,
     ProjectEditResult,
@@ -56,6 +58,7 @@ from pf.schemas.report import (
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
+    from pf.workflow import FailureDiagnosis
 
 
 PF_THEME = Theme(
@@ -63,23 +66,14 @@ PF_THEME = Theme(
         "success": "green",
         "failure": "bold red",
         "warning": "yellow",
+        "indeterminate": "bold yellow",
         "dim": "dim",
         "path": "cyan",
         "version": "magenta",
     }
 )
 
-_INFRA_REASONS = frozenset(
-    {
-        "UNAVAILABLE",
-        "BUILD_UNAVAILABLE",
-        "UNRESOLVABLE",
-        "HARNESS_ERROR",
-        "SOURCE_ERROR",
-        "TOOL_ERROR",
-        "TIMEOUT",
-    }
-)
+_INFRA_REASONS = frozenset({"INDETERMINATE", "BASELINE_REJECTION"})
 
 _COMPLETED_STATUS = {
     "loading project": "loaded project",
@@ -89,11 +83,18 @@ _COMPLETED_STATUS = {
     "smoke testing": "smoke tested",
     "applying floors": "applied floors",
 }
-
+_CELL_PHASE_MESSAGES = frozenset(
+    {
+        "checking declarations",
+        "searching cells",
+        "smoke testing",
+    }
+)
 _ICONS = {
     "success": "✓",
     "failure": "✗",
     "warning": "⚠",
+    "indeterminate": "!",
 }
 _ICON_WIDTH = 2
 _SUMMARY_WIDTH = 240
@@ -119,9 +120,47 @@ _WARNING_STATUSES = frozenset(
     }
 )
 _IN_PROGRESS_STATUSES = frozenset({"running"})
-_OUTCOME_RANK = {"success": 0, "warning": 1, "failure": 2}
+_OUTCOME_RANK = {"success": 0, "warning": 1, "failure": 2, "indeterminate": 3}
 
-OutcomeKind = Literal["success", "failure", "warning"]
+OutcomeKind = Literal["success", "failure", "warning", "indeterminate"]
+
+
+_FAILURE_TITLES: dict[FailureCause, str] = {
+    "RESOLUTION_CONFLICT": "This version combination has conflicting dependency requirements and cannot be installed.",
+    "BUILD_FAILURE": "This version combination could not be built.",
+    "HARNESS_CONFLICT": "The test dependencies cannot be installed without changing the versions being checked.",
+    "STATIC_REGRESSION": "This version combination introduces new type-checking diagnostics.",
+    "TEST_FAILURE": "The full test command failed for this version combination.",
+    "SOURCE_FAILURE": "PF could not reach or read a configured package source.",
+    "ENVIRONMENT_FAILURE": "The current Python or system environment cannot run this check.",
+    "TOOL_FAILURE": "PF could not complete a verification tool operation reliably.",
+    "TIMEOUT": "The operation timed out, so compatibility is unknown.",
+    "INTERNAL_INVARIANT": "PF detected an inconsistent verification result.",
+    "NONDETERMINISTIC": "The same version combination produced conflicting results.",
+}
+
+_FAILURE_NEXT_STEPS: dict[FailureCause, str] = {
+    "RESOLUTION_CONFLICT": "Review the conflicting requirements, adjust project constraints if needed, then rerun PF.",
+    "BUILD_FAILURE": "Inspect the build details and log; check build requirements, Python support, and available artifacts.",
+    "HARNESS_CONFLICT": "Adjust the configured test dependencies so they preserve the dependency graph under test.",
+    "STATIC_REGRESSION": "Review the new diagnostics and decide whether to fix the code or keep a higher dependency floor.",
+    "TEST_FAILURE": "Review the failing test summary and log before changing code or dependency constraints.",
+    "SOURCE_FAILURE": "Check the index URL, network, credentials, and source availability, then rerun PF.",
+    "ENVIRONMENT_FAILURE": "Verify the interpreter, platform support, permissions, and required system tools.",
+    "TOOL_FAILURE": "Inspect the technical details and log; verify that the named tool can run in this environment.",
+    "TIMEOUT": "Inspect the log and increase the relevant timeout only if the operation is expected to finish.",
+    "INTERNAL_INVARIANT": "Keep the failure ID and technical details when reporting the problem; do not trust this cell result.",
+    "NONDETERMINISTIC": "Stabilize flaky tests or external inputs, then rerun the full search.",
+}
+
+
+@dataclass(frozen=True)
+class FailurePresentation:
+    title: str
+    impact: str
+    next_step: str
+    failure_id: str
+    technical_code: str
 
 
 class ProcessLogReferences(Protocol):
@@ -135,6 +174,8 @@ def _outcome_kind(status: str) -> OutcomeKind | None:
         return "success"
     if status in _WARNING_STATUSES:
         return "warning"
+    if status in {"CELL_INDETERMINATE", "BASELINE_INDETERMINATE"}:
+        return "indeterminate"
     return "failure"
 
 
@@ -154,7 +195,7 @@ def _python_sort_key(minor: str) -> tuple[int, ...]:
 
 def _format_extra_surface(surface: tuple[str, ...]) -> str:
     if not surface:
-        return "none"
+        return "no-extra"
     return "+".join(surface)
 
 
@@ -277,7 +318,7 @@ def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
 
 def _cell_title(cell: Cell) -> str:
     return (
-        f"[{cell.python_minor}][{cell.target}]"
+        f"[py{cell.python_minor}][{cell.target}]"
         f"[{_format_extra_surface(cell.extra_surface)}]"
     )
 
@@ -295,10 +336,7 @@ def _ty_diagnostic_summary(diagnostic: TyDiagnostic) -> str:
         location += f":{diagnostic.line}"
     if diagnostic.column is not None:
         location += f":{diagnostic.column}"
-    return (
-        f"{location} [{diagnostic.code}] "
-        f"{_single_line_summary(diagnostic.message)}"
-    )
+    return f"{location} [{diagnostic.code}] {_single_line_summary(diagnostic.message)}"
 
 
 def _format_elapsed(seconds: float | None) -> str:
@@ -307,38 +345,18 @@ def _format_elapsed(seconds: float | None) -> str:
     return str(timedelta(seconds=max(0, int(seconds))))
 
 
-def _styled_reason_lines(
-    status: str, diagnostic: str, kind: OutcomeKind
-) -> tuple[Text, ...]:
-    text = _single_line_summary(diagnostic)
-    if not text:
-        return (Text.assemble("  ", (status, kind)),)
-    return (Text.assemble("  ", (status, kind), (f": {text}", "dim")),)
-
-
-def _cell_finished_block(
-    *,
-    title: str,
-    status: str,
-    kind: OutcomeKind,
-    elapsed: float | None = None,
-    detail: str = "",
-) -> tuple[Text, ...]:
-    heading = _cell_finished_line(title=title, kind=kind, elapsed=elapsed)
-    if kind == "success":
-        return (heading,)
-    return (heading, *_styled_reason_lines(status, detail, kind))
-
-
 def _cell_finished_line(
     *,
     title: str,
     kind: OutcomeKind,
     elapsed: float | None = None,
+    status: str = "",
 ) -> Text:
     parts: list[str | tuple[str, str]] = [(f"{_ICONS[kind]} ", kind), title]
     if elapsed is not None:
         parts.extend([" ", (_format_elapsed(elapsed), "dim")])
+    if status:
+        parts.extend([" ", (status, kind)])
     return Text.assemble(*parts)
 
 
@@ -362,11 +380,10 @@ class TerminalPresenter:
         self._overall_task: TaskID | None = None
         self._cell_tasks: dict[tuple[str, str, str, tuple[str, ...]], TaskID] = {}
         self._cell_stage_tasks: dict[tuple[str, str, str, tuple[str, ...]], TaskID] = {}
-        self._completed_cell_keys: list[tuple[str, str, str, tuple[str, ...]]] = []
-        self._frozen_cell_blocks: list[tuple[Text, ...]] = []
+        self._emitted_cell_keys: set[tuple[str, str, str, tuple[str, ...]]] = set()
         self._pending_status: StatusEvent | None = None
         self._pending_outcome: OutcomeKind | None = None
-        self._search_diagnostics: list[SearchDiagnosticEvent] = []
+        self._search_diagnostics: list[SearchFailureEvent] = []
 
     def render_error(self, error: PfError) -> int:
         self.close(abandon_pending=True)
@@ -387,8 +404,7 @@ class TerminalPresenter:
 
     def render_check(self, result: CheckResult) -> int:
         self.close()
-        self._render_evaluation_ty_summaries(result.evaluations)
-        self._render_evaluation_process_failures(result.evaluations)
+        self._render_check_evaluations(result.evaluations)
         if result.status == "PASS":
             self._print_outcome(
                 "success",
@@ -403,135 +419,228 @@ class TerminalPresenter:
             )
             return 1
         self._print_tool_failure(
-            f"check indeterminate: {result.failure.status}",
+            f"check indeterminate: {_FAILURE_TITLES[result.failure.cause]}",
             result.failure,
         )
         return 4
 
     def render_smoke(self, result: SmokeResult) -> int:
         self.close()
-        self._render_evaluation_ty_summaries(result.evaluations)
-        self._render_evaluation_process_failures(result.evaluations)
+        for outcome in result.outcomes:
+            if isinstance(outcome, HighestVersionPass):
+                diagnostics = outcome.baseline.ty.diagnostics
+                if diagnostics:
+                    self._print_cell_report(
+                        outcome.attempt.identity.cell,
+                        status=outcome.status,
+                        kind="warning",
+                        diagnostics=diagnostics,
+                        process=outcome.baseline.ty.process,
+                    )
+                continue
+            kind: OutcomeKind = (
+                "failure"
+                if isinstance(outcome, BaselineRejection)
+                else "indeterminate"
+            )
+            diagnostics: tuple[TyDiagnostic, ...] = ()
+            process = outcome.failure.process
+            detail = ""
+            if isinstance(outcome.evaluation, StaticFailEvaluation):
+                diagnostics = outcome.evaluation.incremental
+                process = outcome.evaluation.ty.process
+            elif isinstance(outcome.evaluation, TestFailEvaluation):
+                diagnostics = outcome.evaluation.static.ty.diagnostics
+                process = outcome.evaluation.test.process
+            self._print_cell_report(
+                outcome.cell,
+                status=outcome.status,
+                kind=kind,
+                diagnostics=diagnostics,
+                detail=detail,
+                process=process,
+                failure=outcome.failure,
+            )
         if result.status == "PASS":
             self._print_outcome(
                 "success",
-                f"smoke passed ({len(result.evaluations)} cells)",
+                f"smoke passed ({len(result.outcomes)} cells)",
                 console=self.stdout,
             )
             return 0
-        if result.status == "TEST_FAILED":
-            self._print_outcome("failure", "smoke failed: tests failed")
-            return 1
-        self._print_tool_failure(
-            f"smoke indeterminate: {result.failure.status}",
-            result.failure,
-        )
-        return 4
+        return 1 if result.status == "BASELINE_REJECTION" else 4
 
-    def _render_evaluation_ty_summaries(
-        self,
-        evaluations: tuple[object, ...],
-    ) -> None:
+    def _render_check_evaluations(self, evaluations: tuple[object, ...]) -> None:
         for evaluation in evaluations:
             if isinstance(evaluation, StaticFailEvaluation):
-                self._print_ty_diagnostics(
+                self._print_cell_report(
                     evaluation.proposal.cell,
-                    evaluation.incremental,
+                    status=evaluation.status,
                     kind="failure",
-                    qualifier="new ",
+                    diagnostics=evaluation.incremental,
+                    process=evaluation.ty.process,
                 )
-                self._print_log_reference(evaluation.ty.process)
-                continue
-            if not isinstance(evaluation, (PassEvaluation, TestFailEvaluation)):
-                continue
-            self._print_ty_warning(
-                evaluation.proposal.cell,
-                evaluation.static.ty,
-            )
-
-    def _render_evaluation_process_failures(
-        self,
-        evaluations: tuple[object, ...],
-    ) -> None:
-        for evaluation in evaluations:
-            if not isinstance(evaluation, TestFailEvaluation):
-                continue
-            cell = evaluation.proposal.cell
-            self._print_outcome(
-                "failure",
-                f"{cell.package} {_cell_title(cell)} tests failed (dynamic)",
-            )
-            self._print_process_detail(evaluation.test.process)
-
-    def _print_ty_warning(self, cell: Cell, check: TyCheck) -> None:
-        self._print_ty_diagnostics(
-            cell,
-            check.diagnostics,
-            kind="warning",
-        )
-        if check.diagnostics:
-            self._print_log_reference(check.process)
-
-    def _print_ty_diagnostics(
-        self,
-        cell: Cell,
-        diagnostics: tuple[TyDiagnostic, ...],
-        *,
-        kind: OutcomeKind,
-        qualifier: str = "",
-    ) -> None:
-        if not diagnostics:
-            return
-        count = len(diagnostics)
-        noun = "diagnostic" if count == 1 else "diagnostics"
-        self.stderr.print(
-            Text.assemble(
-                (f"{_ICONS[kind]} ", kind),
-                (
-                    f"{cell.package} {_cell_title(cell)} ty: "
-                    f"{count} {qualifier}{noun}"
-                ),
-            )
-        )
-        for diagnostic in diagnostics:
-            self.stderr.print(Text(f"  {_ty_diagnostic_summary(diagnostic)}"))
+            elif isinstance(evaluation, TestFailEvaluation):
+                self._print_cell_report(
+                    evaluation.proposal.cell,
+                    status=evaluation.status,
+                    kind="failure",
+                    diagnostics=evaluation.static.ty.diagnostics,
+                    detail=evaluation.test.process.diagnostic(),
+                    process=evaluation.test.process,
+                )
+            elif isinstance(evaluation, PassEvaluation):
+                diagnostics = evaluation.static.ty.diagnostics
+                if not diagnostics:
+                    continue
+                self._print_cell_report(
+                    evaluation.proposal.cell,
+                    status=evaluation.status,
+                    kind="warning",
+                    diagnostics=diagnostics,
+                    process=evaluation.static.ty.process,
+                )
 
     def render_search(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
         self.close()
         self.stdout.print(f"search completed ({len(reports)} reports)")
+        leftover = self._take_search_diagnostics()
+        events_by_cell: dict[
+            tuple[str, str, str, tuple[str, ...]], list[SearchFailureEvent]
+        ] = {}
+        for event in leftover:
+            events_by_cell.setdefault(_cell_key(event.cell), []).append(event)
         for report in reports:
             for result in report.cell_results:
-                if result.static_baseline is not None:
-                    self._print_ty_warning(
-                        result.cell,
-                        result.static_baseline.ty,
+                key = _cell_key(result.cell)
+                events = tuple(events_by_cell.pop(key, ()))
+                baseline = result.static_baseline
+                diagnostics = baseline.ty.diagnostics if baseline is not None else ()
+                process = (
+                    baseline.ty.process
+                    if baseline is not None and diagnostics
+                    else None
+                )
+                failures = (
+                    (result.failure,)
+                    if isinstance(result, (BaselineRejection, BaselineIndeterminate))
+                    else result.failure_records
+                    if isinstance(
+                        result, (CellSuccess, CellIndeterminate, CellSearchFailure)
                     )
-                if isinstance(result, CellFailure) and isinstance(
-                    result.baseline, TestFailEvaluation
-                ):
-                    self._render_evaluation_process_failures((result.baseline,))
-        diagnostics = self._take_search_diagnostics()
-        self._render_search_diagnostics(diagnostics)
+                    else ()
+                )
+                kind = _outcome_kind(result.status) or "failure"
+                if diagnostics and kind == "success":
+                    kind = "warning"
+                self._print_cell_report(
+                    result.cell,
+                    status=result.status,
+                    kind=kind,
+                    diagnostics=diagnostics,
+                    process=process,
+                    failures=failures,
+                    search_events=events,
+                )
+        for events in events_by_cell.values():
+            first = events[0]
+            kind = (
+                "failure"
+                if any(event.failure.disposition == "REJECTED" for event in events)
+                else "indeterminate"
+            )
+            self._print_cell_report(
+                first.cell,
+                status="",
+                kind=kind,
+                search_events=tuple(events),
+            )
         reasons = {
             reason
             for report in reports
             if report.result.status == "incomplete"
             for reason in report.result.reasons
         }
-        diagnosed: set[tuple[Cell, str]] = set()
-        for event in diagnostics:
-            if isinstance(event.outcome, (ToolFailure, IndeterminateEvaluation)):
-                diagnosed.add((event.cell, event.outcome.status))
-        for report in reports:
-            self._print_search_infra(report, diagnosed=diagnosed)
         self._print_search_outcome(reasons)
         if not reasons:
             return 0
-        if "BASELINE_FAILED" in reasons:
+        if "BASELINE_REJECTION" in reasons:
             return 1
-        if reasons & _INFRA_REASONS:
+        if "INDETERMINATE" in reasons:
             return 4
         return 2
+
+    def _print_cell_report(
+        self,
+        cell: Cell,
+        *,
+        status: str,
+        kind: OutcomeKind,
+        diagnostics: tuple[TyDiagnostic, ...] = (),
+        detail: str = "",
+        process: ProcessResult | None = None,
+        failure: FailureRecord | None = None,
+        failures: tuple[FailureRecord, ...] = (),
+        elapsed: float | None = None,
+        search_events: tuple[SearchFailureEvent, ...] = (),
+    ) -> None:
+        key = _cell_key(cell)
+        if key in self._emitted_cell_keys:
+            return
+        if diagnostics and kind == "success":
+            kind = "warning"
+        self._print_step(
+            _cell_finished_line(
+                title=_cell_title(cell),
+                kind=kind,
+                elapsed=elapsed,
+                status=status,
+            )
+        )
+        seen_identities: set[str] = set()
+        for diagnostic in diagnostics:
+            seen_identities.add(diagnostic.identity)
+            self._print_step(
+                Text(f"  {_ty_diagnostic_summary(diagnostic)}", style="dim")
+            )
+        diagnosed = {event.failure.failure_id for event in search_events}
+        for event in search_events:
+            evaluation = event.evaluation
+            if isinstance(evaluation, StaticFailEvaluation):
+                for diagnostic in evaluation.incremental:
+                    if diagnostic.identity in seen_identities:
+                        continue
+                    seen_identities.add(diagnostic.identity)
+                    self._print_step(
+                        Text(f"  {_ty_diagnostic_summary(diagnostic)}", style="dim")
+                    )
+            self._print_failure_details(cell, event.failure)
+            if event.failure.process is not None:
+                self._print_log_reference(event.failure.process)
+        records = ((failure,) if failure is not None else ()) + failures
+        for record in records:
+            if record.failure_id in diagnosed:
+                continue
+            self._print_failure_details(cell, record)
+            if record.process is not None:
+                self._print_log_reference(record.process)
+            diagnosed.add(record.failure_id)
+        if detail and failure is None and not failures and not search_events:
+            self._print_step(Text(f"  {_single_line_summary(detail)}", style="dim"))
+        if process is not None and not diagnosed:
+            self._print_log_reference(process)
+        self._emitted_cell_keys.add(key)
+
+    def _print_failure_details(self, cell: Cell, failure: FailureRecord) -> None:
+        presentation = self.failure_presentation(failure)
+        self._print_step(Text(f"  {presentation.title}", style="dim"))
+        self._print_step(Text(f"  {presentation.impact}", style="dim"))
+        self._print_step(
+            Text(
+                f"  Diagnose: pf diagnose {cell.package} --failure {failure.failure_id}",
+                style="dim",
+            )
+        )
 
     def consume(self, event: ActivityEvent) -> None:
         with self._lock:
@@ -539,15 +648,7 @@ class TerminalPresenter:
                 self._consume_status(event)
             elif isinstance(event, ProcessEvent):
                 self._consume_process(event)
-            elif isinstance(
-                event,
-                (
-                    SearchStaticDiagnosticEvent,
-                    SearchDynamicDiagnosticEvent,
-                    SearchIndeterminateDiagnosticEvent,
-                    SearchToolDiagnosticEvent,
-                ),
-            ):
+            elif isinstance(event, SearchFailureEvent):
                 self._search_diagnostics.append(event)
             elif isinstance(event, CellMatrixEvent):
                 self._consume_matrix(event)
@@ -569,7 +670,7 @@ class TerminalPresenter:
     def _print_process_detail(self, process: ProcessResult) -> None:
         detail = _single_line_summary(process.diagnostic())
         if detail:
-            self.stderr.print(Text(f"  {detail}"), soft_wrap=True)
+            self._print_step(Text(f"  {detail}", style="dim"))
         self._print_log_reference(process)
 
     def _print_log_reference(self, process: ProcessResult) -> None:
@@ -583,111 +684,54 @@ class TerminalPresenter:
             displayed = resolved.relative_to(self._root).as_posix()
         except ValueError:
             displayed = resolved.as_posix()
-        link = Text(displayed, style=f"link {resolved.as_uri()}")
-        self.stderr.print(Text.assemble("  details: ", link))
+        line = Text("  details: ", style="dim")
+        line.append(displayed, style=f"link {resolved.as_uri()}")
+        self._print_step(line)
 
-    def _render_search_diagnostics(
-        self,
-        diagnostics: tuple[SearchDiagnosticEvent, ...],
-    ) -> None:
-        for event in diagnostics:
-            outcome = event.outcome
-            if isinstance(outcome, StaticFailEvaluation):
-                self._print_ty_diagnostics(
-                    event.cell,
-                    outcome.incremental,
-                    kind="failure",
-                    qualifier="new ",
-                )
-                self._print_log_reference(outcome.ty.process)
-            elif isinstance(outcome, TestFailEvaluation):
-                self._render_evaluation_process_failures((outcome,))
-            elif isinstance(outcome, IndeterminateEvaluation):
-                self._print_tool_failure(
-                    (
-                        f"{event.cell.package} {_cell_title(event.cell)} "
-                        f"candidate {outcome.status}"
-                    ),
-                    outcome.failure,
-                )
-            else:
-                self._print_tool_failure(
-                    (
-                        f"{event.cell.package} {_cell_title(event.cell)} "
-                        f"candidate {outcome.status}"
-                    ),
-                    outcome,
-                )
-
-    def _take_search_diagnostics(self) -> tuple[SearchDiagnosticEvent, ...]:
-        with self._lock:
-            diagnostics = tuple(
-                sorted(self._search_diagnostics, key=self._search_diagnostic_key)
-            )
-            self._search_diagnostics.clear()
-            return diagnostics
+    def _take_search_diagnostics(self) -> tuple[SearchFailureEvent, ...]:
+        diagnostics = tuple(
+            sorted(self._search_diagnostics, key=self._search_diagnostic_key)
+        )
+        self._search_diagnostics.clear()
+        return diagnostics
 
     @staticmethod
     def _search_diagnostic_key(
-        event: SearchDiagnosticEvent,
+        event: SearchFailureEvent,
     ) -> tuple[object, ...]:
-        outcome = event.outcome
-        if isinstance(outcome, ToolFailure):
-            identity = (outcome.stage, outcome.process.diagnostic())
-        elif isinstance(outcome, IndeterminateEvaluation):
-            identity = (
-                outcome.proposal.proposal_id,
-                outcome.failure.stage,
-                outcome.failure.process.diagnostic(),
+        return (*_cell_key(event.cell), event.failure.failure_id)
+
+    @staticmethod
+    def failure_presentation(failure: FailureRecord) -> FailurePresentation:
+        if not isinstance(failure.scope, AttemptFailureScope):
+            impact = (
+                "PF could not obtain the information needed to start or continue "
+                "this cell."
+            )
+        elif failure.disposition == "REJECTED" and (
+            failure.scope.attempt.identity.requested_resolution == "exact-vector"
+        ):
+            impact = (
+                "This candidate did not pass the required checks. "
+                "PF will continue searching."
+            )
+        elif failure.disposition == "REJECTED":
+            impact = (
+                "The highest-version baseline did not pass, so PF did not start "
+                "the floor search for this cell."
             )
         else:
-            identity = (outcome.proposal.proposal_id,)
-        return (*_cell_key(event.cell), outcome.status, *identity)
-
-    def _print_search_infra(
-        self,
-        report: PackageFloorReportV1,
-        *,
-        diagnosed: set[tuple[Cell, str]],
-    ) -> None:
-        if report.result.status != "incomplete":
-            return
-        printed = False
-        for result in report.cell_results:
-            if (
-                not isinstance(result, CellFailure)
-                or result.status not in _INFRA_REASONS
-            ):
-                continue
-            if (result.cell, result.status) in diagnosed:
-                printed = True
-                continue
-            heading = (
-                f"{result.status} ({result.phase}): {result.cell.package} "
-                f"{result.cell.python_minor} {result.cell.target}"
+            impact = (
+                "PF could not determine whether this candidate works, so it stopped "
+                "this cell."
             )
-            failure = result.failure
-            if failure is None and isinstance(
-                result.baseline, IndeterminateEvaluation
-            ):
-                failure = result.baseline.failure
-            if failure is not None:
-                self._print_tool_failure(heading, failure)
-            else:
-                self._print_outcome("failure", heading)
-                if result.detail:
-                    self.stderr.print(
-                        Text(f"  {_single_line_summary(result.detail)}"),
-                        soft_wrap=True,
-                    )
-            printed = True
-        if printed:
-            return
-        infra_reasons = tuple(
-            reason for reason in report.result.reasons if reason in _INFRA_REASONS
+        return FailurePresentation(
+            title=_FAILURE_TITLES[failure.cause],
+            impact=impact,
+            next_step=_FAILURE_NEXT_STEPS[failure.cause],
+            failure_id=failure.failure_id,
+            technical_code=f"{failure.disposition}/{failure.cause}",
         )
-        if infra_reasons:
-            self._print_outcome("failure", ", ".join(infra_reasons))
 
     def _consume_status(self, event: StatusEvent) -> None:
         if not self.stderr.is_terminal:
@@ -698,8 +742,11 @@ class TerminalPresenter:
         if (
             self._pending_status is not None
             and self._pending_status.message != event.message
+            and self._pending_status.message not in _CELL_PHASE_MESSAGES
         ):
-            self._print_step(self._completed_status_line(self._pending_status, "success"))
+            self._print_step(
+                self._completed_status_line(self._pending_status, "success")
+            )
             self._pending_outcome = None
         self._pending_status = event
         description = self._status_description(event)
@@ -711,9 +758,7 @@ class TerminalPresenter:
 
     def _consume_matrix(self, event: CellMatrixEvent) -> None:
         heading, *details = _matrix_summary_lines(event.cells)
-        self._print_step(
-            Text.assemble((f"{_ICONS['success']} ", "success"), heading)
-        )
+        self._print_step(Text.assemble((f"{_ICONS['success']} ", "success"), heading))
         for line in details:
             self._print_step(Text(f"  {line}", style="dim"))
         if not self.stderr.is_terminal:
@@ -735,7 +780,6 @@ class TerminalPresenter:
         return
 
     def _consume_progress(self, event: ProgressEvent) -> None:
-        title = _cell_title(event.cell)
         kind = _outcome_kind(event.message)
         if kind is None and event.phase != "start":
             if not self.stderr.is_terminal:
@@ -743,15 +787,26 @@ class TerminalPresenter:
             self._ensure_cell_task(event.cell, start=True)
             self._set_cell_stage(event.cell, event.phase)
             return
+        if kind is not None:
+            if self.stderr.is_terminal:
+                self._ensure_cell_task(event.cell, start=True)
+            elapsed = self._cell_elapsed(event.cell)
+            self._freeze_completed_cell(event, kind=kind, elapsed=elapsed)
+            if self.stderr.is_terminal:
+                self._remove_live_cell(event.cell)
+                self._ensure_overall(
+                    description=(
+                        self._status_description(self._pending_status)
+                        if self._pending_status is not None
+                        else None
+                    ),
+                    total=event.total,
+                    completed=event.completed,
+                )
+                if event.completed >= event.total:
+                    self._finish_progress()
+            return
         if not self.stderr.is_terminal:
-            if kind is not None:
-                for line in _cell_finished_block(
-                    title=title,
-                    status=event.message,
-                    kind=kind,
-                    detail=event.detail,
-                ):
-                    self.stderr.print(line)
             return
         self._ensure_overall(
             description=(
@@ -762,41 +817,59 @@ class TerminalPresenter:
             total=event.total,
             completed=event.completed,
         )
-        key = _cell_key(event.cell)
         task_id = self._ensure_cell_task(event.cell, start=True)
         assert self._progress is not None
-        if kind is None:
-            self._progress.update(task_id, description=title)
-        else:
-            self._set_cell_stage(event.cell, "")
-            self._progress.update(
-                task_id,
-                description=title,
-                total=1,
-                completed=1,
-                kind=kind,
-            )
-            self._progress.stop_task(task_id)
-            elapsed = next(
-                (task.elapsed for task in self._progress.tasks if task.id == task_id),
-                None,
-            )
-            block = _cell_finished_block(
-                title=title,
-                status=event.message,
-                kind=kind,
-                elapsed=elapsed,
-                detail=event.detail,
-            )
-            if key in self._completed_cell_keys:
-                index = self._completed_cell_keys.index(key)
-                self._frozen_cell_blocks[index] = block
-            else:
-                self._completed_cell_keys.append(key)
-                self._frozen_cell_blocks.append(block)
-        self._pending_outcome = _escalate_outcome(self._pending_outcome, kind)
-        if event.completed >= event.total and kind is not None:
-            self._finish_progress()
+        self._progress.update(task_id, description=_cell_title(event.cell))
+
+    def _freeze_completed_cell(
+        self,
+        event: ProgressEvent,
+        *,
+        kind: OutcomeKind,
+        elapsed: float | None,
+    ) -> None:
+        key = _cell_key(event.cell)
+        search_events = tuple(
+            item for item in self._search_diagnostics if _cell_key(item.cell) == key
+        )
+        self._search_diagnostics = [
+            item for item in self._search_diagnostics if _cell_key(item.cell) != key
+        ]
+        display_kind = "warning" if event.diagnostics and kind == "success" else kind
+        self._print_cell_report(
+            event.cell,
+            status=event.message,
+            kind=display_kind,
+            diagnostics=event.diagnostics,
+            detail=event.detail,
+            process=event.process,
+            failure=event.failure,
+            elapsed=elapsed,
+            search_events=search_events,
+        )
+        self._pending_outcome = _escalate_outcome(self._pending_outcome, display_kind)
+
+    def _cell_elapsed(self, cell: Cell) -> float | None:
+        if self._progress is None:
+            return None
+        task_id = self._cell_tasks.get(_cell_key(cell))
+        if task_id is None:
+            return None
+        return next(
+            (task.elapsed for task in self._progress.tasks if task.id == task_id),
+            None,
+        )
+
+    def _remove_live_cell(self, cell: Cell) -> None:
+        if self._progress is None:
+            return
+        key = _cell_key(cell)
+        task_id = self._cell_tasks.pop(key, None)
+        if task_id is not None:
+            self._progress.remove_task(task_id)
+        stage_id = self._cell_stage_tasks.pop(key, None)
+        if stage_id is not None:
+            self._progress.remove_task(stage_id)
 
     def _ensure_progress(self) -> None:
         if self._progress is not None:
@@ -874,19 +947,12 @@ class TerminalPresenter:
             return []
         by_id = {task.id: task for task in self._progress.tasks}
         ordered: list[Task] = []
+        for key, task_id in self._cell_tasks.items():
+            if task_id in by_id:
+                ordered.append(by_id[task_id])
+                ordered.extend(self._stage_tasks_for(key, by_id))
         if self._overall_task is not None and self._overall_task in by_id:
             ordered.append(by_id[self._overall_task])
-        seen: set[tuple[str, str, str, tuple[str, ...]]] = set()
-        for key in self._completed_cell_keys:
-            task_id = self._cell_tasks.get(key)
-            if task_id is not None and task_id in by_id:
-                ordered.append(by_id[task_id])
-                ordered.extend(self._stage_tasks_for(key, by_id))
-                seen.add(key)
-        for key, task_id in self._cell_tasks.items():
-            if key not in seen and task_id in by_id:
-                ordered.append(by_id[task_id])
-                ordered.extend(self._stage_tasks_for(key, by_id))
         return ordered
 
     def _stage_tasks_for(
@@ -946,31 +1012,29 @@ class TerminalPresenter:
 
     def _print_step(self, message: str | Text) -> None:
         if self._progress is not None:
-            self._progress.print(message, highlight=False)
+            self._progress.print(message, highlight=False, soft_wrap=True)
         else:
-            self.stderr.print(message)
+            self.stderr.print(message, soft_wrap=True)
 
     def _finish_progress(self) -> None:
         if self._progress is None:
             return
-        for block in self._frozen_cell_blocks:
-            for line in block:
-                self._print_step(line)
-        if self._pending_status is not None:
+        if (
+            self._pending_status is not None
+            and self._pending_status.message not in _CELL_PHASE_MESSAGES
+        ):
             self._print_step(
                 self._completed_status_line(
                     self._pending_status, self._pending_outcome or "success"
                 )
             )
-            self._pending_status = None
+        self._pending_status = None
         self._pending_outcome = None
         self._progress.stop()
         self._progress = None
         self._overall_task = None
         self._cell_tasks.clear()
         self._cell_stage_tasks.clear()
-        self._completed_cell_keys.clear()
-        self._frozen_cell_blocks.clear()
 
     def render_explain(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
         self.close()
@@ -981,13 +1045,118 @@ class TerminalPresenter:
             self.stdout.print(f"{report.package.name}: {report.result.status}")
             if report.result.status == "incomplete":
                 self.stdout.print(f"  reasons: {', '.join(report.result.reasons)}")
+            for failure in report.failure_records:
+                presentation = self.failure_presentation(failure)
+                self.stdout.print(f"  {presentation.title}")
+                self.stdout.print(
+                    f"    Diagnose: pf diagnose {report.package.name} "
+                    f"--failure {failure.failure_id}"
+                )
             self._render_static_diagnostics(report)
             for projection in report.projection_evidence:
                 requirements = ", ".join(projection.projected_requirements) or "none"
-                self.stdout.print(
-                    f"  {projection.declaration_id}: {requirements}"
-                )
+                self.stdout.print(f"  {projection.declaration_id}: {requirements}")
         return 0
+
+    def render_diagnose(
+        self,
+        diagnoses: tuple[FailureDiagnosis, ...],
+    ) -> int:
+        self.close()
+        if not diagnoses:
+            self.stdout.print("diagnosed 0 failures")
+            return 0
+        for index, diagnosis in enumerate(diagnoses):
+            if index:
+                self.stdout.print()
+            failure = diagnosis.failure
+            presentation = self.failure_presentation(failure)
+            scope = failure.scope
+            cell = (
+                scope.attempt.identity.cell
+                if isinstance(scope, AttemptFailureScope)
+                else scope.cell
+            )
+            outcome = (
+                "The verification attempt was rejected"
+                if failure.disposition == "REJECTED"
+                else "Compatibility is unknown"
+            )
+            self.stdout.print(f"Failure: {failure.failure_id}")
+            self.stdout.print(f"Outcome: {outcome}")
+            self.stdout.print(f"What happened: {presentation.title}")
+            self.stdout.print(f"Impact: {presentation.impact}")
+            self.stdout.print(f"Next step: {presentation.next_step}")
+            self.stdout.print()
+            self.stdout.print("Context:")
+            self.stdout.print(f"  package: {diagnosis.package}")
+            self.stdout.print(
+                "  cell: "
+                f"py{cell.python_minor} / {cell.target} / "
+                f"{_format_extra_surface(cell.extra_surface)}"
+            )
+            self.stdout.print(f"  stage: {failure.stage}")
+            self.stdout.print()
+            self.stdout.print("Technical details:")
+            self.stdout.print(f"  disposition: {failure.disposition}")
+            self.stdout.print(f"  cause: {failure.cause}")
+            if isinstance(scope, AttemptFailureScope):
+                identity = scope.attempt.identity
+                self.stdout.print(f"  attempt: {scope.attempt.attempt_id}")
+                self.stdout.print(
+                    f"  requested resolution: {identity.requested_resolution}"
+                )
+                vector = identity.requested_managed_vector
+                self.stdout.print(
+                    "  requested vector: "
+                    + (
+                        ", ".join(f"{pin.name}=={pin.version}" for pin in vector)
+                        if vector is not None
+                        else "not applicable"
+                    )
+                )
+            else:
+                self.stdout.print("  attempt: not available")
+                self.stdout.print("  requested vector: not applicable")
+            self.stdout.print(f"  proposal: {diagnosis.proposal_id or 'not available'}")
+            self.stdout.print(f"  boundary role: {diagnosis.boundary_role or 'none'}")
+            if failure.detail is not None:
+                self.stdout.print(f"  detail code: {failure.detail.code}")
+                self.stdout.print(
+                    f"  detail: {_single_line_summary(failure.detail.message)}"
+                )
+            if failure.process is not None:
+                self.stdout.print(
+                    f"  process: {self._process_terminal(failure.process)}"
+                )
+                summary = _single_line_summary(failure.process.diagnostic())
+                if summary:
+                    self.stdout.print(f"  summary: {summary}")
+            if diagnosis.log_path is not None:
+                resolved = (self._root / diagnosis.log_path).resolve()
+                self.stdout.print(
+                    Text.assemble(
+                        "  log: ",
+                        (
+                            diagnosis.log_path.as_posix(),
+                            f"link {resolved.as_uri()}",
+                        ),
+                    )
+                )
+            else:
+                self.stdout.print("  Detailed local log is unavailable.")
+        return 0
+
+    @staticmethod
+    def _process_terminal(process: ProcessResult) -> str:
+        if process.timed_out:
+            return "timed out"
+        if process.start_error is not None:
+            return "could not start"
+        if process.signal is not None:
+            return f"terminated by signal {process.signal}"
+        assert process.exit_code is not None
+        return f"exited {process.exit_code}"
 
     def _render_static_diagnostics(self, report: PackageFloorReportV1) -> None:
         for result in report.cell_results:
@@ -1002,9 +1171,15 @@ class TerminalPresenter:
             if isinstance(result, CellSuccess):
                 searches = (
                     result.static_search,
-                    *((result.dynamic_search,) if result.dynamic_search is not None else ()),
+                    *(
+                        (result.dynamic_search,)
+                        if result.dynamic_search is not None
+                        else ()
+                    ),
                 )
-            elif result.coordinate_failure is not None:
+            elif isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
+                result.coordinate_failure is not None
+            ):
                 searches = (result.coordinate_failure,)
             else:
                 searches = ()
@@ -1012,9 +1187,11 @@ class TerminalPresenter:
             for search in searches:
                 for observation in search.observations:
                     evidence = observation.evidence
-                    static = evidence.static
+                    static = evidence.static_evaluation
                     if not isinstance(static, StaticFailEvaluation):
                         continue
+                    if evidence.proposal_id is None:
+                        raise ValueError("static evidence requires a Proposal")
                     if evidence.proposal_id in seen_proposals:
                         continue
                     seen_proposals.add(evidence.proposal_id)

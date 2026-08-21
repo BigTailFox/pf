@@ -50,8 +50,7 @@ class CandidateBuilder:
             {
                 declaration.name
                 for declaration in package.declarations
-                if declaration.managed
-                and declaration.declaration_id in active_ids
+                if declaration.managed and declaration.declaration_id in active_ids
             }
         )
         policy_json = json.dumps(
@@ -71,12 +70,15 @@ class CandidateBuilder:
             declarations = tuple(
                 declaration
                 for declaration in package.declarations
-                if declaration.name == dependency and declaration.managed
+                if declaration.name == dependency
+                and declaration.managed
                 and declaration.declaration_id in active_ids
             )
             sources = {declaration.source for declaration in declarations}
             if len(sources) != 1:
-                raise ConfigurationError(f"ambiguous source for dependency: {dependency}")
+                raise ConfigurationError(
+                    f"ambiguous source for dependency: {dependency}"
+                )
             source = next(iter(sources))
             available = self._provider.query(
                 dependency=dependency,
@@ -87,8 +89,7 @@ class CandidateBuilder:
                 specifier
                 for declaration in declarations
                 for specifier in declaration.specifier.split(",")
-                if specifier
-                and Specifier(specifier).operator in {"<", "<=", "!="}
+                if specifier and Specifier(specifier).operator in {"<", "<=", "!="}
             )
             search_requirement = self._search_requirement(package, dependency)
             eligible: list[tuple[Version, AvailableArtifact]] = []
@@ -105,13 +106,17 @@ class CandidateBuilder:
                     for specifier in restrictions
                 ):
                     continue
-                if search_requirement is not None and version not in search_requirement.specifier:
+                if (
+                    search_requirement is not None
+                    and version not in search_requirement.specifier
+                ):
                     continue
                 if isinstance(package.config.search_space, str):
                     baseline_version = baseline_versions[dependency]
                     if (
                         package.config.search_space == "current-major"
-                        and self._release(version)[0] != self._release(baseline_version)[0]
+                        and self._release(version)[0]
+                        != self._release(baseline_version)[0]
                     ):
                         continue
                     if (
@@ -135,9 +140,7 @@ class CandidateBuilder:
                     representatives[key] = (version, artifact)
             ordered = sorted(representatives.items(), key=lambda item: item[1][0])
             if not ordered:
-                raise NoApplicableFloorError(
-                    f"empty candidate space for: {dependency}"
-                )
+                raise NoApplicableFloorError(f"empty candidate space for: {dependency}")
             candidates = tuple(
                 Candidate(
                     version=str(version),
