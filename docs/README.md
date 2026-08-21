@@ -5,6 +5,8 @@
 
 本页定义工程文档的职责、位置和状态词。每类规范性契约只有一个所有者；其他文档只说明上下文并引用所有者，不复制规则。
 
+**现行**文档描述已落地规则，必须与代码一致。**现行契约，待实现**是已确认的替换所有者：落地前，现行文档最多用一句话指向它们，不得把待实现规则写成当前命令、Schema 或模块接口。待实现文档的「对现行契约的取代」列出将被替换的现行条款；那些条款在落地前仍以现行文档为准。
+
 ## 布局
 
 ```text
@@ -39,12 +41,12 @@ docs/
 | 进程输出与日志 | [D007](designs/D007-pf-process-output.md) | 磁盘日志原文、每进程 16 MiB 输出缓存、`stdout_complete` / `stderr_complete` | 现行契约，待实现 | — |
 | 验证运行语义 | [D008](designs/D008-pf-verification-run.md) | smoke/check/search 如何实例化 Attempt、统一错误链路、Verification Journal、`diagnose` 读取面 | 现行契约，待实现 | — |
 
-职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D008 拥有各命令的 Attempt 序列和 diagnose 的工件来源，但不复制 D005 的 cause 矩阵；D002 可以列出模块位置但不复制 D004–D008 的业务或展示规则；D001 可以承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出与日志完整性只在 D007，验证运行与 Journal 只在 D008。
+职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D008 拥有各命令的 Attempt 序列和 diagnose 的工件来源，但不复制 D005 的 cause 矩阵；D007 拥有磁盘日志原文与完整性标志，但不复制 D005 的 disposition；D002 可以列出模块位置但不复制 D004–D008 的业务或展示规则；D001 可以承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出与日志完整性只在 D007，验证运行与 Journal 只在 D008。
 
 ## 非规范性文档
 
 - 根目录 [README](../README.md) 是使用入口，只摘要能力并链接 D001 与本页。
-- 根目录 [CONTEXT.md](../CONTEXT.md) 是领域词汇表。它固定术语与避免用法，不定义命令、算法或模块接口。
+- 根目录 [CONTEXT.md](../CONTEXT.md) 是领域词汇表。它固定术语与避免用法，不定义命令、算法或模块接口。已确认但尚未落地的术语可以收录，但不收录字节上限、文件格式或命令规则。
 - [P001](plans/P001-pf-v1.md)、[P002](plans/P002-pf-ty-enhancement.md)、[P003](plans/P003-pf-smoke-observability.md) 和 [P004](plans/P004-pf-failure-and-diagnose.md) 是已经完成的实施与验证记录。它们提供历史证据，不定义现行行为；其中 P003 的运行时-only failure 诊断结构已经由 D005 取代，D005 的实施证据见 P004。
 
 若实施记录、README 或代码注释与规范性文档冲突，以对应契约所有者为准，并在同一变更中修复实现或所有者文档。改变契约时只修改所有者；其他文档最多更新链接、状态或非规范性证据。

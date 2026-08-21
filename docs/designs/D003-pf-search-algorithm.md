@@ -7,9 +7,9 @@
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **验证运行语义：** [D008](D008-pf-verification-run.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)（待实现）
 
-本文是单个 package/cell 的坐标搜索、probe 顺序、不变量与终止条件的唯一所有者。候选如何进入冻结快照由 D001 定义；静态诊断事实由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 与 FailureRecord 由 D005 定义；check 的 Declaration Attempt 不进入本文，见 D008；跨 cell 并发、报告和 apply 不属于本文。
+本文是单个 package/cell 的坐标搜索、probe 顺序、不变量与终止条件的唯一所有者。候选如何进入冻结快照由 D001 定义；静态诊断事实由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 与 FailureRecord 由 D005 定义；`check` 的声明验证不进入坐标搜索。D008 若为 check 引入 Declaration Attempt，仍不进入本文。跨 cell 并发、报告和 apply 不属于本文。
 
 ## 1. 模型
 

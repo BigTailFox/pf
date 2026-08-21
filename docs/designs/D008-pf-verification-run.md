@@ -220,22 +220,18 @@ diagnostics   D004 增量或 warning 基线诊断
 
 调度器可以继续接收各命令自己的结果类型，但投影必须经过这一观察。不得再丢 `ToolFailure.stage`。
 
-### 6.4 `lowest-direct` 的分类矩阵
+### 6.4 Declaration Attempt 的分类扩展
 
-D005 的 cause 集合不变。`FailurePolicy` 对 `requested_resolution = lowest-direct` 使用与 Probe 相同的 **Rejection 资格**（证据完整且 cause/stage 属于验证契约时 Reject），但 **搜索含义固定为“终止该 check cell”**——check 没有后续 probe。
+cause 集合、Rejection 资格和 Baseline/Probe 列仍由 D005 §8 唯一拥有，本文不复制该矩阵。本文只增加：
 
-| Cause | Baseline `highest` | Declaration `lowest-direct` | Probe `exact-vector` |
-| --- | --- | --- | --- |
-| `RESOLUTION_CONFLICT` / `BUILD_FAILURE` / `HARNESS_CONFLICT` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续搜索 |
-| `STATIC_REGRESSION` | 不适用（捕获矛盾走 `INTERNAL_INVARIANT`） | Rejected，终止 check cell | Rejected，继续搜索 |
-| `TEST_FAILURE` | Rejected，终止 | Rejected，终止 check cell | Rejected，继续搜索 |
-| `SOURCE_FAILURE` / `TIMEOUT` / `TOOL_FAILURE` / `ENVIRONMENT_FAILURE` / `INTERNAL_INVARIANT` / `NONDETERMINISTIC` | Indeterminate，终止 | Indeterminate，终止 check cell | Indeterminate，终止搜索 cell |
-
-`rejection_is_supported` 必须接受 `lowest-direct`。`highest && STATIC_REGRESSION` 仍不得成为 Rejection。
+- `requested_resolution = lowest-direct` 使用与 Probe 相同的 Rejection 资格（证据完整且 cause/stage 属于验证契约时 Reject）；
+- 搜索含义固定为“终止该 check cell”——check 没有后续 probe；
+- `rejection_is_supported` 必须接受 `lowest-direct`；
+- `highest && STATIC_REGRESSION` 仍不得成为 Rejection，规则仍在 D005。
 
 Declaration Attempt 不要求事先存在一次 **完整通过测试的** Baseline。它要求本 cell 在同一次 check 运行中已经得到合法 `S_hi`。这是 D004 静态基线，不是 D005 搜索锚点。不得把 Declaration Attempt 解释为 Probe，也不得因此要求 smoke 式的 highest `PASS`。
 
-check 的 `declaration-capture` 使用 `highest` 行：确定性安装/构建/harness 失败是 Rejection；工具/来源/超时是 Indeterminate。捕获成功后的 `TyCheck` 诊断不是 Rejection。
+check 的 `declaration-capture` 使用 D005 的 Baseline/`highest` 行：确定性安装/构建/harness 失败是 Rejection；工具/来源/超时是 Indeterminate。捕获成功后的 `TyCheck` 诊断不是 Rejection。
 
 ## 7. 命令终态
 
@@ -306,7 +302,7 @@ D005 的 locator 从“只键到报告世代”扩展为同时键到验证运行
 
 ### 8.4 impact 选择
 
-D005 的 title 仍只由 cause 决定。impact 由 disposition、scope 和 **Verification Role** 决定，不再只由 `requested_resolution` 决定（否则 check 的 highest 会误用 Baseline 的“未开始 floor 搜索”）。
+落地前，现行 impact 以 D005 §12.3 为准（由 `requested_resolution` 决定）。落地后本文取代该表：impact 由 disposition、scope 和 **Verification Role** 决定，不再只由 `requested_resolution` 决定（否则 check 的 highest 会误用 Baseline 的“未开始 floor 搜索”）。
 
 | Role | REJECTED | INDETERMINATE |
 | --- | --- | --- |
@@ -356,13 +352,14 @@ D006 仍拥有布局。本文改变的是数据是否存在：
 
 落地本文后，下列条款作废：
 
-- D001 §6.5：`diagnose` **只** 读取 `package-floor.json`；
-- D002 §8.2：`check` 的 `lowest-direct` 不创建 Attempt、prepare 失败直接 `ToolFailure`；
+- D001 §6.1：`check` 的 `lowest-direct` 不建立 Attempt，非成功结果不能 `diagnose`；
+- D001 §6.5：`diagnose` **只** 读取 `package-floor.json`，落地前不读取 Journal；
+- D002 §8.2：`check` 的 `lowest-direct` 不创建 Attempt、prepare 失败直接 `ToolFailure`，`CompatibilityChecker` unwrap `PrepareFailure`；
 - D005 §3.1：Attempt 只有 Baseline 与 Probe 两种；
 - D005 §12 / §12.1：`diagnose` 只解释报告中的失败；`check` 是 Evaluation 不能 diagnose；
 - D005 §12.3：impact **只** 由 `requested_resolution` 决定；
-- D006 §9.1：check 无 FailureRecord 时不能提供 Diagnose；
-- D006 §13.3：check 兼容性失败没有 Diagnose 行；
+- D006 §9.1：没有 FailureRecord 的 check 失败不能提供 Diagnose；
+- D006 §13.3：D008 落地前 check 的 Evaluation 失败路径没有 Diagnose；
 - 实现：`CompatibilityChecker` unwrap `PrepareFailure`；`_completion_payload` 丢弃 `ToolFailure.stage`；Presenter 用 `STATIC_FAIL` / `BUILD_UNAVAILABLE` 猜 stage。
 
 P004 中“check 兼容性失败仍走 Evaluation”是历史实施记录，不再描述现行目标。

@@ -6,11 +6,11 @@
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
-- **进程输出与日志：** [D007](D007-pf-process-output.md)
-- **验证运行语义：** [D008](D008-pf-verification-run.md)
+- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)（待实现）
+- **进程输出与日志：** [D007](D007-pf-process-output.md)（待实现）
+- **验证运行语义：** [D008](D008-pf-verification-run.md)（待实现）
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 文案由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义；进程输出、磁盘日志与内存投影由 D007 定义；Attempt 序列、Cell Completion 和 Verification Journal 由 D008 定义。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文的替换契约见 D007；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 的替换契约见 D008。本文描述已落地接口，不把待实现规则写成现行 Schema。
 
 ## 1. 设计原则
 
@@ -53,7 +53,7 @@ src/pf/
 ├── policy.py            # Evaluation 策略 identity
 ├── project.py           # ProjectLoader、声明/cell/source/test group 规划
 ├── snapshot.py          # SnapshotBuilder 与 SourceSnapshot 生命周期
-├── runlog.py            # RunLogStore 与脱敏的进程详细日志
+├── runlog.py            # RunLogStore 与脱敏的有界进程详细日志
 ├── windows_runlog.py    # Windows reparse-safe directory handle 与私有 DACL
 ├── candidates.py        # CandidateBuilder
 ├── environment.py       # EnvironmentFactory 与 PreparedEnvironment
@@ -152,7 +152,7 @@ Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解�
 - `CheckResult`、`HighestVersionPass`、`BaselineRejection`、`BaselineIndeterminate`、`SmokeResult`、`CacheConflict`；
 - `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`、`SearchFailureEvent`。
 
-`ProcessResult` 的可移植部分由 D007 定义为 Portable Process Facts：脱敏终态和 `stdout_complete` / `stderr_complete`，不含 stdout/stderr 文本，也不含详细日志引用。运行期 Output Cache 不得进入 `package-floor.json`。`FailureRecord` 可以保存该 `ProcessResult`；公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005 定义的项目本地 diagnosis index；索引或日志丢失不能改变已经记录的 disposition。
+`ProcessResult` 只包含脱敏、有界的可移植机械事实（含 `stdout_truncated` / `stderr_truncated`），不包含详细日志引用。`FailureRecord` 可以保存该 `ProcessResult`，公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005 定义的项目本地 diagnosis index；索引或日志丢失不能改变已经记录的 disposition。D007 落地后替换截断字段与有界输出语义。
 
 `schemas/report.py`：
 
@@ -193,7 +193,7 @@ main() -> None
 | `MergeCommandWorkflow` | read → merge → write | 显式 output |
 | `ApplyCommandWorkflow` | load → 读取并核对报告 → `ProjectEditor.apply_many` | `pyproject.toml`、`.pf` 日志 |
 
-`minimize` 只在 handler 中顺序复用 search 和 apply workflow；安全规则仍由报告 Schema、ReportStore 和 ProjectEditor 强制。最终展示必须走 `TerminalPresenter.render_minimize(reports, edits)`：`edits is None` 表示 apply 未运行。handler 不得连续调用 `render_search` 和 `render_apply`。
+`minimize` 只在 handler 中顺序复用 search 和 apply workflow；安全规则仍由报告 Schema、ReportStore 和 ProjectEditor 强制。
 
 ## 7. 项目规划与快照
 
@@ -241,10 +241,10 @@ build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 
 ```text
 prepare(package, cell, snapshot, resolution, managed_vector=None)
-  -> PreparedEnvironment | PrepareFailure
+  -> PreparedEnvironment | PrepareFailure | ToolFailure
 ```
 
-`resolution=highest`、`lowest-direct` 或带 `managed_vector` 的精确向量会在任何外部操作前构造 Attempt。prepare 失败返回 `PrepareFailure`，不得为 `lowest-direct` 省略 Attempt 或把 `PrepareFailure` unwrap 成裸 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。各命令的 Attempt 序列与完成投影由 D008 定义。
+`resolution=highest` 或带 `managed_vector` 的精确向量会在任何外部操作前构造 Attempt。`check` 的 `lowest-direct` 不创建 Attempt；此时 prepare 失败直接返回 `ToolFailure`。`CompatibilityChecker` 现行会把 highest 的 `PrepareFailure` unwrap 成 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。D008 落地后为 `lowest-direct` 建立 Attempt，并禁止 unwrap `PrepareFailure`。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -274,7 +274,7 @@ verify(package, cell, snapshot)
   -> HighestVersionPass | BaselineRejection | BaselineIndeterminate
 ```
 
-它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> classify -> close` 生命周期。成功结果返回冻结的 `StaticBaseline` 与完整 Evaluation；任何非 PASS 结果经 `FailurePolicy` 分类并携带 `FailureRecord`。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`；两轮都必须保留 Attempt 并分类，见 D008。
+它唯一拥有 `prepare(highest) -> static capture -> full evaluate with captured static -> classify -> close` 生命周期。成功结果返回冻结的 `StaticBaseline` 与完整 Evaluation；任何非 PASS 结果经 `FailurePolicy` 分类并携带 `FailureRecord`。`smoke` 和 `SearchCoordinator` 是两个真实调用方；两者不得复制最高版本验证序列或再次运行 `ty`。`CompatibilityChecker` 有意只 capture 最高版本静态基线、再测试 `lowest-direct`，因此不调用该 interface。
 
 本设计把单 cell 当前使用的 Evaluation context 定义为：
 
@@ -301,7 +301,7 @@ classify(scope, cause, stage, process, summary_code=None, detail=None)
   -> FailureRecord
 ```
 
-该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline、Declaration 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `lowest-direct` / `exact-vector`），没有单独的 role 参数。Verification Role 由 D008 拥有，不进入本模块。Cell scope 只允许 Indeterminate。PASS 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
+该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），没有单独的 role 参数。Cell scope 只允许 Indeterminate。PASS 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
 
 ## 9. 搜索与调度
 
@@ -332,7 +332,7 @@ search(package, cell, snapshot) -> CellResult
 run(ProcessSpec) -> ProcessResult
 ```
 
-生产 adapter 是 `SubprocessRunner`。它唯一拥有 `shell=False` argv、cwd、最小环境增量、独立进程组、timeout 终止、signal/启动错误机械记录和通用 secret/URL 脱敏。输出如何写入 Process Log、如何进入每进程 16 MiB Output Cache，以及 `stdout_complete` / `stderr_complete` 的含义由 D007 规定。它不知道 uv、ty 或测试退出码语义。
+生产 adapter 是 `SubprocessRunner`。它唯一拥有 `shell=False` argv、cwd、最小环境增量、独立进程组、输出上限、timeout 终止、signal/启动错误机械记录和通用 secret/URL 脱敏。它不知道 uv、ty 或测试退出码语义。
 
 `RunLogStore` 是 `SubprocessRunner` 的可选记录 seam。生产 composition root 为每次 CLI 运行注入一个 store；runner 在进程完成并完成脱敏后调用：
 
@@ -345,9 +345,9 @@ lookup(report_generation_id, failure_id) -> project_relative_log_path | None
 
 store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，并在 `.pf/logs/diagnosis-index.json` 维护 `(report_generation_id, failure_id) -> 相对日志路径`。两类文件都使用随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 只用于当前运行中按 `ProcessResult` 对象 identity 找到刚写入的日志；报告写入完成后，workflow 通过 `associate` 原子更新 locator index。不得用内容 hash、目录扫描或模糊输出匹配恢复关联。写日志或更新应有 locator 失败是基础设施错误，不能静默继续产生违反 CLI 可诊断性契约的报告。
 
-日志正文、每进程 16 MiB Output Cache 和 `stdout_complete` / `stderr_complete` 由 D007 规定。元数据字段（argv、cwd、环境变量名）在 store 边界仍可施加硬上限。在支持 `dir_fd` 的平台，目录创建和替换通过逐级 directory fd、禁止跟随 symlink 的打开方式以及 run directory inode identity 完成；初始化后的目录被替换也必须 fail closed。Windows 先用 `GetVolumePathNameW` 解析项目实际承载卷（包括嵌套挂载点），并要求该卷声明 `FILE_PERSISTENT_ACLS`，再使用原生 directory handle 打开每一级目录：拒绝 reparse point、只共享 read 而拒绝后续 write/delete handle，并保持 guard 到运行结束；run directory 在 `CreateDirectoryW` 时通过 `SECURITY_ATTRIBUTES` 原子安装仅 owner 与 SYSTEM 可访问且对子文件继承的 protected DACL。其他无法提供等价安全原语的平台以已分类基础设施错误停止，不能退回有 TOCTOU 窗口的路径检查。
+所有元数据字段与 stdout/stderr 片段在 store 边界再次施加硬上限。在支持 `dir_fd` 的平台，目录创建和替换通过逐级 directory fd、禁止跟随 symlink 的打开方式以及 run directory inode identity 完成；初始化后的目录被替换也必须 fail closed。Windows 先用 `GetVolumePathNameW` 解析项目实际承载卷（包括嵌套挂载点），并要求该卷声明 `FILE_PERSISTENT_ACLS`，再使用原生 directory handle 打开每一级目录：拒绝 reparse point、只共享 read 而拒绝后续 write/delete handle，并保持 guard 到运行结束；run directory 在 `CreateDirectoryW` 时通过 `SECURITY_ATTRIBUTES` 原子安装仅 owner 与 SYSTEM 可访问且对子文件继承的 protected DACL。其他无法提供等价安全原语的平台以已分类基础设施错误停止，不能退回有 TOCTOU 窗口的路径检查。
 
-candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord` 持久化进报告；prepare failure 保留 Attempt 与原始脱敏机械事实，即使没有 Proposal。Attempt 前的 candidate discovery/scheduling Indeterminate 使用 Cell scope。边界和 cell 终态通过 `failure_id` 引用该记录。详细日志路径和进程输出文本不进入报告 Schema：`SearchCommandWorkflow` 在成功写入报告后才以最终 `report_generation_id` 更新本地 diagnosis index。其他宿主 merge 进来的 FailureRecord 可以没有本地 locator，`diagnose` 此时仍展示报告内的 Portable Process Facts，完整输出按 D007 只存在于本机 Process Log。
+candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord` 持久化进报告；prepare failure 保留 Attempt 与原始脱敏机械事实，即使没有 Proposal。Attempt 前的 candidate discovery/scheduling Indeterminate 使用 Cell scope。边界和 cell 终态通过 `failure_id` 引用该记录。详细日志路径不进入报告 Schema：`SearchCommandWorkflow` 在成功写入报告后才以最终 `report_generation_id` 更新本地 diagnosis index。其他宿主 merge 进来的 FailureRecord 可以没有本地 locator，`diagnose` 此时仍展示报告内的有界 `ProcessResult`。
 
 ### 10.2 UvAdapter、TyAdapter、TestAdapter
 
@@ -404,7 +404,7 @@ adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保�
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
 - CLI：两个入口、八命令、参数默认值和 D001 退出码；D006 落地后按 D006 验证 help 分组、调用错误和结果摘要；
 - 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据、D005 failure 分类；
-- adapter：recording ProcessRunner、argv、状态、timeout、日志完整性与脱敏；
+- adapter：recording ProcessRunner、argv、状态、timeout、truncation 与脱敏；
 - 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
 - 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> diagnose -> apply`；另测 `diagnose` 不启动进程、不访问网络、不修改项目。
 

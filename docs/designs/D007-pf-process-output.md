@@ -208,14 +208,15 @@ D006 规定失败卡片最多展示进程输出末 3 行，并给 `-> see PATH`�
 
 落地本文后，下列现行行为作废：
 
-- 默认 4 KiB / 32 MiB 捕获上限把全文切进 `ProcessResult`；
+- 默认 32 MiB（以及历史上的 4 KiB）捕获上限把全文切进 `ProcessResult`；
 - `RunLogStore` 对输出正文再施加小于原文的第二截断；
-- `TestAdapter` 在 `stdout_complete` 为 true 时因内存投影不完整返回 `TOOL_FAILURE`；
+- `TestAdapter` / `TyAdapter` 因 `stdout_truncated` 或内存投影不完整返回 `TOOL_FAILURE`；
 - 生产路径上的 `ProcessSpec.summary_limit`；
 - Schema 字段 `stdout_truncated` / `stderr_truncated`；
-- D001 §5.4 把“超过捕获上限”写成产品承诺。
+- D001 §5.4 把有界 head/tail 与捕获上限写成产品承诺；
+- D004 §4.1 / D005 §6 把输出截断当作证据不完整。
 
-P003 中“有界 head/tail 即日志”的历史证据仍然有效，但不再描述现行目标。
+P003 中“有界 head/tail 即日志”的历史证据仍然有效，但不再描述落地后的目标。
 
 ## 12. 被拒绝的方案
 
