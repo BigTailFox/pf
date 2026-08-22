@@ -12,6 +12,8 @@
 
 本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线和增量比较的唯一契约。D001 只使用本文产生的静态结果；D002 只定义模块位置；D003 只消费搜索 disposition；工具 cause 到 Rejection/Indeterminate 的处置由 D005 定义；诊断在普通命令和 `explain` 中的展示层级由 D006 定义。需要完整工具输出才能分类时，完整性由 D007 的磁盘日志 `*_complete` 判定，而不是 Output Cache 是否装满。
 
+已确认但尚未落地的 static transition、runtime witness 与 runtime-only boundary 语义见 [D011](D011-pf-runtime-backed-static-search.md)；落地前本文仍是现行静态证据契约。
+
 ## 1. 目标
 
 PF 定位依赖降级相对当前最高允许版本引入的静态回归，而不是替项目执行“必须 type-clean”的 CI。

@@ -11,6 +11,8 @@
 
 本文是单个 package/cell 的坐标搜索、probe 顺序、不变量与终止条件的唯一所有者。候选如何进入冻结快照由 D001 定义；静态诊断事实由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 与 FailureRecord 由 D005 定义；`check` 的声明验证不进入坐标搜索。D008 若为 check 引入 Declaration Attempt，仍不进入本文。跨 cell 并发、报告和 apply 不属于本文。
 
+已确认但尚未落地的 runtime-backed static region 搜索将按 [D011](D011-pf-runtime-backed-static-search.md) 取代本文相关条款；落地前本文仍是现行算法。
+
 ## 1. 模型
 
 受管依赖按规范化名称排序：
