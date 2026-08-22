@@ -13,10 +13,13 @@ from pf._secure_runlog import PosixDirectoryAdapter, WindowsDirectoryAdapter
 
 class TestPosixDirectoryAdapter:
     def test_secure_directory_contract(self, tmp_path: Path) -> None:
+        def write_log(stream: TextIO) -> None:
+            stream.write("log")
+
         adapter = PosixDirectoryAdapter(root=tmp_path, run_id="run")
         adapter.ensure_run("manifest\n")
         adapter.write_run_text("journal.json", "journal\n")
-        adapter.write_run_stream("process-0001.log", lambda stream: stream.write("log"))
+        adapter.write_run_stream("process-0001.log", write_log)
         adapter.write_logs_text("diagnosis-index.json", "index\n")
 
         run_root = tmp_path / ".pf/logs/run"

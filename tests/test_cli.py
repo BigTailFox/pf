@@ -4,12 +4,25 @@ import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
+from typing import NoReturn, cast
 
 import pytest
 from rich.console import Console
 
-from pf.cli import CliContext, build_context, create_app
+from pf.cli import (
+    ApplyWorkflow as ApplyWorkflowProtocol,
+    CheckWorkflow as CheckWorkflowProtocol,
+    CliContext,
+    DiagnoseWorkflow as DiagnoseWorkflowProtocol,
+    ExplainWorkflow as ExplainWorkflowProtocol,
+    MergeWorkflow as MergeWorkflowProtocol,
+    SearchWorkflow as SearchWorkflowProtocol,
+    SmokeWorkflow as SmokeWorkflowProtocol,
+    build_context,
+    create_app,
+)
 from pf.errors import NoApplicableFloorError, PfError
+from pf.runlog import RunLogStore
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -38,7 +51,7 @@ class NeverCheck:
 
 
 class NeverCalledWorkflow:
-    def run(self, request: object) -> object:
+    def run(self, request: object) -> NoReturn:
         raise AssertionError("unselected workflow should not run")
 
 
@@ -50,25 +63,45 @@ class NoOpRunLogs:
 def make_context(
     *,
     presenter: TerminalPresenter,
-    check_workflow: object | None = None,
-    smoke_workflow: object | None = None,
-    search_workflow: object | None = None,
-    explain_workflow: object | None = None,
-    diagnose_workflow: object | None = None,
-    merge_workflow: object | None = None,
-    apply_workflow: object | None = None,
-    run_logs: object | None = None,
+    check_workflow: CheckWorkflowProtocol | None = None,
+    smoke_workflow: SmokeWorkflowProtocol | None = None,
+    search_workflow: SearchWorkflowProtocol | None = None,
+    explain_workflow: ExplainWorkflowProtocol | None = None,
+    diagnose_workflow: DiagnoseWorkflowProtocol | None = None,
+    merge_workflow: MergeWorkflowProtocol | None = None,
+    apply_workflow: ApplyWorkflowProtocol | None = None,
+    run_logs: RunLogStore | None = None,
 ) -> CliContext:
-    return CliContext(  # ty: ignore[invalid-argument-type]
-        check_workflow=check_workflow or NeverCalledWorkflow(),
-        smoke_workflow=smoke_workflow or NeverCalledWorkflow(),
-        search_workflow=search_workflow or NeverCalledWorkflow(),
-        explain_workflow=explain_workflow or NeverCalledWorkflow(),
-        diagnose_workflow=diagnose_workflow or NeverCalledWorkflow(),
-        merge_workflow=merge_workflow or NeverCalledWorkflow(),
-        apply_workflow=apply_workflow or NeverCalledWorkflow(),
+    return CliContext(
+        check_workflow=(
+            check_workflow if check_workflow is not None else NeverCalledWorkflow()
+        ),
+        smoke_workflow=(
+            smoke_workflow if smoke_workflow is not None else NeverCalledWorkflow()
+        ),
+        search_workflow=(
+            search_workflow if search_workflow is not None else NeverCalledWorkflow()
+        ),
+        explain_workflow=(
+            explain_workflow if explain_workflow is not None else NeverCalledWorkflow()
+        ),
+        diagnose_workflow=(
+            diagnose_workflow
+            if diagnose_workflow is not None
+            else NeverCalledWorkflow()
+        ),
+        merge_workflow=(
+            merge_workflow if merge_workflow is not None else NeverCalledWorkflow()
+        ),
+        apply_workflow=(
+            apply_workflow if apply_workflow is not None else NeverCalledWorkflow()
+        ),
         presenter=presenter,
-        run_logs=run_logs or NoOpRunLogs(),
+        run_logs=(
+            run_logs
+            if run_logs is not None
+            else cast(RunLogStore, NoOpRunLogs())
+        ),
     )
 
 
@@ -709,7 +742,7 @@ class TestCommandDispatch:
                 events.append("logs")
 
         never = NeverCalledWorkflow()
-        context = CliContext(  # ty: ignore[invalid-argument-type]
+        context = CliContext(
             check_workflow=never,
             smoke_workflow=never,
             search_workflow=never,
@@ -717,8 +750,8 @@ class TestCommandDispatch:
             diagnose_workflow=never,
             merge_workflow=never,
             apply_workflow=never,
-            presenter=Presenter(),
-            run_logs=Logs(),
+            presenter=cast(TerminalPresenter, Presenter()),
+            run_logs=cast(RunLogStore, Logs()),
         )
 
         with context:

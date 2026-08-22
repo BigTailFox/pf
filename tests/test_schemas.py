@@ -1353,7 +1353,9 @@ class TestReportSchemas:
         assert "completed" not in stage.model_dump()
         assert "phase" not in completed.model_dump()
         with pytest.raises(ValidationError, match="Extra inputs"):
-            CellStageEvent(cell=cell, stage="install", completed=0)
+            CellStageEvent.model_validate(
+                {"cell": cell, "stage": "install", "completed": 0}
+            )
         with pytest.raises(ValidationError, match="completion counters"):
             CellCompletedEvent(
                 cell=cell,
