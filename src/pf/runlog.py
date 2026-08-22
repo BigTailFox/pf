@@ -17,6 +17,8 @@ from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
     VerificationJournal,
+    VerificationJournalRecord,
+    VerificationJournalV1,
 )
 from pf.windows_runlog import WindowsRunDirectory
 
@@ -125,6 +127,8 @@ class RunLogStore:
     def write_journal(self, journal: VerificationJournal) -> Path:
         """Write this run's Verification Journal and index its failure locators."""
         try:
+            if not isinstance(journal, VerificationJournal):
+                raise ValueError("verification journal writer only accepts v2")
             with self._lock:
                 self._ensure_run()
                 path = self._run_root / self._JOURNAL_NAME
@@ -172,7 +176,7 @@ class RunLogStore:
                 detail=str(error),
             ) from error
 
-    def read_latest_journal(self, package: str) -> VerificationJournal | None:
+    def read_latest_journal(self, package: str) -> VerificationJournalRecord | None:
         run_id = self.latest_journal_id(package)
         if run_id is None:
             return None
@@ -188,7 +192,7 @@ class RunLogStore:
         except (OSError, NotImplementedError, ValueError, ConfigurationError):
             return None
 
-    def read_journal(self, run_id: str) -> VerificationJournal | None:
+    def read_journal(self, run_id: str) -> VerificationJournalRecord | None:
         path = self._root / ".pf" / "logs" / run_id / self._JOURNAL_NAME
         if not path.is_file():
             return None
@@ -199,10 +203,13 @@ class RunLogStore:
         if not isinstance(document, dict):
             return None
         schema = document.pop("schema", None)
-        if schema:
-            document["schema_version"] = schema
+        document["schema_version"] = schema
         try:
-            return VerificationJournal.model_validate(document)
+            if schema == "verification-journal-v2":
+                return VerificationJournal.model_validate(document)
+            if schema == "verification-journal-v1":
+                return VerificationJournalV1.model_validate(document)
+            return None
         except Exception:
             return None
 

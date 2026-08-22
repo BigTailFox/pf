@@ -24,6 +24,7 @@ from pf.schemas.project import (
     PackagePlan,
     RequirementDeclaration,
     SourceSnapshotIdentity,
+    cell_identity,
 )
 from pf.schemas.report import (
     CellIndeterminate,
@@ -39,6 +40,8 @@ from pf.schemas.report import (
     ProjectionEvidence,
     report_generation_id,
 )
+
+CellKey = tuple[str, str, str, tuple[str, ...]]
 
 
 class PackageReportBuilder:
@@ -80,7 +83,7 @@ class PackageReportBuilder:
             reasons = {
                 reason
                 for result in cell_results
-                if (reason := self._failure_reason(result)) is not None
+                if (reason := incomplete_reason(result)) is not None
             }
             if not coverage_complete:
                 reasons.add("MISSING_CELL")
@@ -88,7 +91,7 @@ class PackageReportBuilder:
                 reasons.add("UNREPRESENTABLE_PROJECTION")
             result_summary = IncompleteReportResult(reasons=tuple(sorted(reasons)))
 
-        candidate_snapshots: dict[tuple[str, str], CandidateSnapshot] = {}
+        candidate_snapshots: dict[tuple[CellKey, str], CandidateSnapshot] = {}
         for result in cell_results:
             if not isinstance(
                 result, (CellSuccess, CellIndeterminate, CellSearchFailure)
@@ -132,7 +135,7 @@ class PackageReportBuilder:
         *,
         declaration: RequirementDeclaration,
         package: PackagePlan,
-        result_by_cell: dict[str, CellResult],
+        result_by_cell: dict[CellKey, CellResult],
     ) -> ProjectionEvidence | None:
         active_cells = tuple(
             cell
@@ -208,7 +211,7 @@ class PackageReportBuilder:
         declaration: RequirementDeclaration,
         floors: tuple[FloorProjection, ...],
     ) -> tuple[tuple[str, str], ...]:
-        attributes: dict[str, dict[str, str] | None] = {
+        attributes: dict[CellKey, dict[str, str] | None] = {
             self._cell_key(floor.cell): self._marker_attributes(floor.cell)
             for floor in floors
         }
@@ -260,7 +263,7 @@ class PackageReportBuilder:
         projected: tuple[tuple[str, str], ...],
     ) -> bool:
         intended = {self._cell_key(floor.cell): floor.version for floor in floors}
-        observed: dict[str, str] = {}
+        observed: dict[CellKey, str] = {}
         for version, raw in projected:
             requirement = Requirement(raw)
             marker = str(requirement.marker) if requirement.marker is not None else None
@@ -331,18 +334,18 @@ class PackageReportBuilder:
         return evaluation_policy_identity(package.config)
 
     @staticmethod
-    def _failure_reason(result: CellResult) -> str | None:
-        if isinstance(result, BaselineRejection):
-            return "BASELINE_REJECTION"
-        if isinstance(result, (BaselineIndeterminate, CellIndeterminate)):
-            return "INDETERMINATE"
-        if isinstance(result, CellSearchFailure):
-            return result.reason
-        return None
+    def _cell_key(cell: Cell) -> CellKey:
+        return cell_identity(cell)
 
-    @staticmethod
-    def _cell_key(cell: Cell) -> str:
-        return "|".join((cell.target, cell.python_minor, ",".join(cell.extra_surface)))
+
+def incomplete_reason(result: CellResult) -> str | None:
+    if isinstance(result, BaselineRejection):
+        return "BASELINE_REJECTION"
+    if isinstance(result, (BaselineIndeterminate, CellIndeterminate)):
+        return "INDETERMINATE"
+    if isinstance(result, CellSearchFailure):
+        return result.reason
+    return None
 
 
 class ReportStore:
@@ -605,7 +608,7 @@ class ReportStore:
         reasons = {
             reason
             for result in retained_results
-            if (reason := PackageReportBuilder._failure_reason(result)) is not None
+            if (reason := incomplete_reason(result)) is not None
         }
         reasons.update({"MISSING_CELL", "UNREPRESENTABLE_PROJECTION"})
         retained = PackageFloorReportV1(
@@ -638,14 +641,8 @@ class ReportStore:
                 raise ConfigurationError(f"report {label} identity mismatch")
 
     @staticmethod
-    def _cell_key(cell: Cell) -> str:
-        return "|".join(
-            (
-                cell.target,
-                cell.python_minor,
-                ",".join(cell.extra_surface),
-            )
-        )
+    def _cell_key(cell: Cell) -> CellKey:
+        return cell_identity(cell)
 
     @staticmethod
     def _sync_directory(directory: Path) -> None:

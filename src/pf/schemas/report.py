@@ -27,8 +27,10 @@ from pf.schemas.project import (
     CandidateSnapshot,
     Cell,
     RequirementDeclaration,
+    SelectedCandidate,
     SourceSnapshotIdentity,
     VersionPin,
+    cell_identity,
 )
 
 
@@ -459,8 +461,71 @@ class CellSuccess(FrozenSchema):
         }
         if self.final_evaluation.proposal.attempt_id not in final_attempts:
             raise ValueError("final Proposal must resolve to a reported probe Attempt")
+        self._validate_final_authority()
         self._validate_failure_references()
         return self
+
+    def _validate_final_authority(self) -> None:
+        terminal = (
+            self.dynamic_search
+            if self.dynamic_search is not None
+            else self.static_search
+        )
+        names = tuple(pin.name for pin in self.final_vector)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("final vector dependency names must be unique and sorted")
+        if self.final_vector != terminal.vector:
+            raise ValueError("final vector must equal the terminal search vector")
+        if self.final_vector != self.final_evaluation.proposal.managed_vector:
+            raise ValueError("final vector must equal the PASS Proposal managed vector")
+        final_pass = next(
+            (
+                observation
+                for observation in terminal.observations
+                if isinstance(observation.evidence, ProbePass)
+                and observation.evidence.proposal_id
+                == self.final_evaluation.proposal.proposal_id
+            ),
+            None,
+        )
+        if final_pass is None:
+            raise ValueError("terminal search must include the final ProbePass")
+        if final_pass.vector != self.final_vector:
+            raise ValueError("final ProbePass observation vector must match final vector")
+        if (
+            final_pass.evidence.attempt.identity.requested_managed_vector
+            != self.final_vector
+        ):
+            raise ValueError("final ProbePass Attempt vector must match final vector")
+        if (
+            final_pass.evidence.attempt.attempt_id
+            != self.final_evaluation.proposal.attempt_id
+        ):
+            raise ValueError("final ProbePass Attempt must own the PASS Proposal")
+        snapshots = {
+            snapshot.dependency: snapshot for snapshot in self.candidate_snapshots
+        }
+        if len(snapshots) != len(self.candidate_snapshots):
+            raise ValueError("CandidateSnapshot dependencies must be unique")
+        if names != tuple(sorted(snapshots)):
+            raise ValueError(
+                "final vector dependencies must match CandidateSnapshot names"
+            )
+        for pin in self.final_vector:
+            matches = tuple(
+                candidate
+                for candidate in snapshots[pin.name].candidates
+                if candidate.version == pin.version
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    "final vector must uniquely select CandidateSnapshot evidence"
+                )
+            SelectedCandidate(
+                dependency=pin.name,
+                version=pin.version,
+                artifact=matches[0].artifact,
+            )
 
     def _validate_failure_references(self) -> None:
         known = self._failure_map()
@@ -825,7 +890,7 @@ class PackageFloorReportV1(FrozenSchema):
         failures = tuple(
             failure
             for result in self.cell_results
-            for failure in _failure_records_for_result(result)
+            for failure in failure_records_for_result(result)
         )
         if len({failure.failure_id for failure in failures}) != len(failures):
             raise ValueError("FailureRecord IDs must be unique within one report")
@@ -859,12 +924,12 @@ class PackageFloorReportV1(FrozenSchema):
         return tuple(
             failure
             for result in self.cell_results
-            for failure in _failure_records_for_result(result)
+            for failure in failure_records_for_result(result)
         )
 
     @staticmethod
     def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
-        return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
+        return cell_identity(cell)
 
 
 class ProjectEditResult(FrozenSchema):
@@ -873,7 +938,7 @@ class ProjectEditResult(FrozenSchema):
     recovery_log_path: str
 
 
-def _failure_records_for_result(result: CellResult) -> tuple[FailureRecord, ...]:
+def failure_records_for_result(result: CellResult) -> tuple[FailureRecord, ...]:
     if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
         return (result.failure,)
     return result.failure_records

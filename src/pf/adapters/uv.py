@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
+from collections.abc import Mapping
 import json
 from pathlib import Path
+import re
 from typing import Literal
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 
 from packaging.requirements import InvalidRequirement, Requirement
@@ -20,7 +23,7 @@ from packaging.utils import (
 from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
 
-from pf.adapters.process import ProcessRunner, read_process_output
+from pf.adapters.process import ProcessRunner, SecretRedactor, read_process_output
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
     GraphOutcome,
@@ -39,17 +42,109 @@ from pf.schemas.project import (
     Cell,
     InterpreterIdentity,
     ResolvedNode,
+    SelectedCandidate,
+    public_locator,
     SourceIdentity,
 )
 
 _JSON_SUMMARY_LIMIT = 16 * 1024 * 1024
 
 
+class RegistryAccess:
+    """Process-local registry credentials; never part of portable PF schemas."""
+
+    __slots__ = ("_credentials",)
+
+    def __init__(
+        self,
+        credentials: Mapping[str | None, tuple[str | None, str | None]] | None = None,
+    ) -> None:
+        self._credentials = dict(credentials or {})
+
+    @classmethod
+    def basic(
+        cls,
+        *,
+        index: str | None,
+        username: str,
+        password: str,
+    ) -> "RegistryAccess":
+        key = cls._environment_key(index) if index is not None else None
+        return cls({key: (username, password)})
+
+    @classmethod
+    def from_environment(cls, environment: Mapping[str, str]) -> "RegistryAccess":
+        credentials: dict[str | None, tuple[str | None, str | None]] = {}
+        default_username = environment.get("UV_INDEX_USERNAME")
+        default_password = environment.get("UV_INDEX_PASSWORD")
+        if default_username is not None or default_password is not None:
+            credentials[None] = (default_username, default_password)
+
+        suffixes: dict[str, dict[str, str]] = {}
+        for name, value in environment.items():
+            if not name.startswith("UV_INDEX_"):
+                continue
+            if name in {"UV_INDEX_USERNAME", "UV_INDEX_PASSWORD"}:
+                continue
+            for suffix in ("_USERNAME", "_PASSWORD"):
+                if name.endswith(suffix):
+                    key = name[len("UV_INDEX_") : -len(suffix)]
+                    suffixes.setdefault(key, {})[suffix] = value
+                    break
+        for key, values in suffixes.items():
+            credentials[key] = (
+                values.get("_USERNAME"),
+                values.get("_PASSWORD"),
+            )
+        return cls(credentials)
+
+    @property
+    def secret_literals(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    value
+                    for credentials in self._credentials.values()
+                    for value in credentials
+                    if value
+                },
+                key=len,
+                reverse=True,
+            )
+        )
+
+    def authorization(self, source: SourceIdentity) -> str | None:
+        key = self._environment_key(source.index) if source.index is not None else None
+        credentials = self._credentials.get(key)
+        if credentials is None:
+            return None
+        username, password = credentials
+        if not username or not password:
+            label = source.index or "default"
+            raise InfrastructureError(f"registry credentials are incomplete: {label}")
+        encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+        return f"Basic {encoded}"
+
+    @staticmethod
+    def _environment_key(index: str) -> str:
+        return "".join(character if character.isalnum() else "_" for character in index).upper()
+
+
 class UvAdapter:
     """Own every uv argv and classify uv process facts into PF outcomes."""
 
-    def __init__(self, runner: ProcessRunner) -> None:
+    def __init__(
+        self,
+        runner: ProcessRunner,
+        *,
+        registry_access: RegistryAccess | None = None,
+        redactor: SecretRedactor | None = None,
+    ) -> None:
         self._runner = runner
+        self._registry_access = registry_access or RegistryAccess()
+        self._redactor = redactor or SecretRedactor(
+            self._registry_access.secret_literals
+        )
 
     def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]:
         process = self._runner.run(
@@ -138,11 +233,15 @@ class UvAdapter:
         extra_surface: tuple[str, ...],
         resolution: Literal["highest", "lowest-direct"],
         timeout_seconds: int | None,
+        selection: tuple[SelectedCandidate, ...] | None = None,
     ) -> ToolOutcome:
         extras = ",".join(sorted(set(extra_surface)))
         editable = package.as_posix()
         if extras:
             editable = f"{editable}[{extras}]"
+        selected_requirements = tuple(
+            self._selected_requirement(item) for item in selection or ()
+        )
         result = self._runner.run(
             ProcessSpec(
                 argv=(
@@ -155,12 +254,19 @@ class UvAdapter:
                     resolution,
                     "--editable",
                     editable,
+                    *selected_requirements,
                 ),
                 cwd=package.as_posix(),
                 timeout_seconds=timeout_seconds,
             )
         )
         return self._classify(result, stage="install")
+
+    @staticmethod
+    def _selected_requirement(selected: SelectedCandidate) -> str:
+        assert selected.artifact.locator is not None
+        digest = selected.artifact.content_hash.removeprefix("sha256:")
+        return f"{selected.dependency} @ {selected.artifact.locator}#sha256={digest}"
 
     def create_environment(
         self,
@@ -280,55 +386,108 @@ class UvAdapter:
             )
         base_url = source.locator or "https://pypi.org/simple/"
         project_url = f"{base_url.rstrip('/')}/{canonicalize_name(dependency)}/"
+        headers = {
+            "Accept": "application/vnd.pypi.simple.latest+json",
+            "User-Agent": "pf/0.1",
+        }
+        authorization = self._registry_access.authorization(source)
+        if authorization is not None:
+            headers["Authorization"] = authorization
         request = Request(
             project_url,
-            headers={
-                "Accept": "application/vnd.pypi.simple.latest+json",
-                "User-Agent": "pf/0.1",
-            },
+            headers=headers,
         )
         try:
             with urlopen(request, timeout=30) as response:
                 length = response.headers.get("Content-Length")
-                if length is not None and int(length) > _JSON_SUMMARY_LIMIT:
-                    raise InfrastructureError(
-                        "registry candidate response is too large"
-                    )
+                if length is not None:
+                    if not isinstance(length, str) or not length.isdecimal():
+                        raise ValueError("Content-Length is not a non-negative decimal")
+                    if int(length) > _JSON_SUMMARY_LIMIT:
+                        raise InfrastructureError(
+                            "registry candidate response is too large"
+                        )
                 payload = response.read(_JSON_SUMMARY_LIMIT + 1)
         except (HTTPError, URLError, TimeoutError, OSError) as error:
             raise InfrastructureError(
                 f"registry candidate query failed for: {dependency}",
-                detail=str(error),
+                detail=self._redactor.redact(str(error)),
+            ) from error
+        except (ValueError, TypeError, AttributeError) as error:
+            raise InfrastructureError(
+                "registry returned invalid Simple JSON",
+                detail=self._redactor.redact(str(error)),
             ) from error
         if len(payload) > _JSON_SUMMARY_LIMIT:
             raise InfrastructureError("registry candidate response is too large")
         try:
-            document = json.loads(payload)
-            files = document["files"]
-        except (KeyError, TypeError, json.JSONDecodeError) as error:
+            return self._available_candidates(
+                payload=payload,
+                project_url=project_url,
+                cell=cell,
+            )
+        except (
+            KeyError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            InvalidVersion,
+            InvalidSpecifier,
+            InvalidWheelFilename,
+            InvalidSdistFilename,
+            ValidationError,
+            json.JSONDecodeError,
+        ) as error:
             raise InfrastructureError(
                 "registry returned invalid Simple JSON",
-                detail=str(error),
+                detail=self._redactor.redact(str(error)),
             ) from error
 
+    def _available_candidates(
+        self,
+        *,
+        payload: bytes,
+        project_url: str,
+        cell: Cell,
+    ) -> tuple[AvailableCandidate, ...]:
+        document = json.loads(payload)
+        if not isinstance(document, Mapping):
+            raise TypeError("Simple JSON root must be an object")
+        files = document.get("files")
+        if not isinstance(files, list):
+            raise TypeError("Simple JSON files must be an array")
         grouped: dict[Version, list[tuple[AvailableArtifact, bool]]] = {}
         target_python = Version(f"{cell.python_minor}.0")
         for file in files:
+            if not isinstance(file, Mapping):
+                raise TypeError("Simple JSON file must be an object")
             filename = file.get("filename")
-            hashes = file.get("hashes", {})
             locator = file.get("url")
-            if not isinstance(filename, str) or not isinstance(locator, str):
-                continue
+            hashes = file.get("hashes")
+            if not isinstance(filename, str) or not filename:
+                raise TypeError("Simple JSON filename must be a non-empty string")
+            if not isinstance(locator, str) or not locator:
+                raise TypeError("Simple JSON URL must be a non-empty string")
+            if not isinstance(hashes, Mapping):
+                raise TypeError("Simple JSON hashes must be an object")
             sha256 = hashes.get("sha256")
-            if not isinstance(sha256, str) or not sha256:
-                continue
+            if not isinstance(sha256, str) or re.fullmatch(
+                r"[0-9a-fA-F]{64}", sha256
+            ) is None:
+                raise ValueError("Simple JSON SHA-256 hash is invalid")
             requires_python = file.get("requires-python")
-            if requires_python:
-                try:
-                    if target_python not in SpecifierSet(requires_python):
-                        continue
-                except InvalidSpecifier:
+            if requires_python is not None:
+                if not isinstance(requires_python, str):
+                    raise TypeError("Simple JSON requires-python must be a string")
+                if target_python not in SpecifierSet(requires_python):
                     continue
+            yanked = file.get("yanked", False)
+            if not isinstance(yanked, (bool, str)):
+                raise TypeError("Simple JSON yanked must be a boolean or string")
+            resolved_locator = urljoin(project_url, locator)
+            parsed_locator = urlsplit(resolved_locator)
+            if parsed_locator.scheme not in {"http", "https"} or not parsed_locator.hostname:
+                raise ValueError("Simple JSON artifact URL is invalid")
             artifact: AvailableArtifact
             try:
                 _, version, _, tags = parse_wheel_filename(filename)
@@ -338,22 +497,19 @@ class UvAdapter:
                     filename=filename,
                     kind="wheel",
                     content_hash=f"sha256:{sha256}",
-                    locator=urljoin(project_url, locator),
+                    locator=public_locator(resolved_locator),
                     python_minors=(cell.python_minor,),
                     targets=(cell.target,),
                 )
             except InvalidWheelFilename:
-                try:
-                    _, version = parse_sdist_filename(filename)
-                except InvalidSdistFilename:
-                    continue
+                _, version = parse_sdist_filename(filename)
                 artifact = AvailableArtifact(
                     filename=filename,
                     kind="sdist",
                     content_hash=f"sha256:{sha256}",
-                    locator=urljoin(project_url, locator),
+                    locator=public_locator(resolved_locator),
                 )
-            grouped.setdefault(version, []).append((artifact, bool(file.get("yanked"))))
+            grouped.setdefault(version, []).append((artifact, bool(yanked)))
 
         result = []
         for version in sorted(grouped):

@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-21
+- **最后核对：** 2026-08-22
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
@@ -9,9 +9,9 @@
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
-- **契约修复、模块加深与内部 seam：** 落地前见 [D009](D009-pf-v1-refactor.md)
+- **契约修复、模块加深与内部 seam：** [D009](D009-pf-v1-refactor.md)
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有。D009 落地前，本文仍是现行模块接口，不得把待实现拆分写成当前布局。本文描述已落地接口，不复制其他契约的业务规则。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有；整改后的内部 seam 与安全边界由 D009 拥有。本文描述已落地接口，不复制其他契约的业务规则。
 
 ## 1. 设计原则
 
@@ -31,7 +31,7 @@ PF 按深模块组织：小接口隐藏完整行为，调用方和测试都通�
 | 领域 | 实现 | 所有权约束 |
 | --- | --- | --- |
 | CLI | Cyclopts 4.x | `cli.py` 注册命令；说明文本来自 command docstring |
-| 终端 | Rich | 只有 `terminal.py` 创建业务 Rich renderable |
+| 终端 | Rich | 只有 `pf.terminal` 包创建业务 Rich renderable |
 | Schema | Pydantic 2.x | `schemas/` 保存跨模块不可变记录与 discriminator union |
 | 需求与版本 | `packaging` | PEP 440/508 和名称规范化的唯一库实现 |
 | TOML | `tomli` + `tomlkit` | `tomli` 读取；`tomlkit` 保留 apply 格式与注释 |
@@ -48,10 +48,11 @@ src/pf/
 ├── __init__.py          # 版本；无 CLI 副作用
 ├── __main__.py          # python -m pf -> cli.main
 ├── cli.py               # Cyclopts、CliContext、唯一 composition root
-├── terminal.py          # TerminalPresenter 与 ActivityEvent 消费
+├── terminal/            # TerminalPresenter；私有 explain/diagnose renderer
 ├── errors.py            # PfError 分类及 D001 退出码映射
 ├── config.py            # [tool.pf] 层合并与 CLI duration/jobs 解析
 ├── policy.py            # Evaluation 策略 identity
+├── project_discovery.py # 离线 package identity/path 发现
 ├── project.py           # ProjectLoader、声明/cell/source/test group 规划
 ├── snapshot.py          # SnapshotBuilder 与 SourceSnapshot 生命周期
 ├── runlog.py            # RunLogStore 与脱敏的有界进程详细日志
@@ -61,8 +62,10 @@ src/pf/
 ├── evaluation.py        # StaticEvaluator、FullEvaluator、EvaluationCache
 ├── baseline.py          # HighestVersionVerifier 的最高版本完整验证生命周期
 ├── failure.py           # FailurePolicy：结构化 scope + cause -> disposition
-├── search.py            # CoordinateSearch 与 SearchCoordinator
+├── coordinate_search.py # CoordinateSearch 与纯向量 evaluator seam
+├── search.py            # SearchCoordinator 与 ProposalRunner
 ├── scheduling.py        # Scheduler、deadline 与规范结果顺序
+├── verification.py      # VerificationRunner、调度与 Journal 写入时序
 ├── report.py            # PackageReportBuilder 与 ReportStore
 ├── editor.py            # ProjectEditor 与恢复日志
 ├── workflow.py          # 七个命令工作流；minimize 复用 search/apply
@@ -84,7 +87,7 @@ src/pf/
 ## 4. 依赖方向
 
 ```text
-cli.py / workflow.py / terminal.py
+cli.py / workflow.py / terminal/
               │
               v
  project / snapshot / candidates / environment / evaluation
@@ -98,7 +101,7 @@ cli.py / workflow.py / terminal.py
 
 - `cli.py` 是唯一生产 composition root；命令 handler 不读取 TOML、不拼外部 argv、不执行搜索规则。
 - `workflow.py` 编排一个用户命令的完整用例；深模块自身仍强制安全不变量。
-- `search.py` 不导入 Cyclopts、Rich、`subprocess` 或 TOML 库。
+- `coordinate_search.py` 与 `search.py` 不导入 Cyclopts、Rich、`subprocess` 或 TOML 库。
 - 业务模块不得导入 Rich；adapter 不得导入 CLI/terminal，也不直接打印。
 - `schemas` 只依赖标准库、Pydantic 和其他 Schema；不读取文件或启动进程。
 - 跨层循环依赖是所有权错误，不能用延迟导入掩盖。
@@ -186,11 +189,11 @@ main() -> None
 
 | 工作流 | 编排职责 | 写入 |
 | --- | --- | --- |
-| `CheckCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → CompatibilityChecker | `.pf/logs`、临时环境 |
-| `SmokeCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → HighestVersionVerifier | `.pf/logs`、临时环境 |
-| `SearchCommandWorkflow` | load → snapshot → 宿主 cell 搜索 → report build/update/write | `.pf/logs`、`package-floor.json` |
-| `ExplainCommandWorkflow` | load → 定位并读取报告 | 无 |
-| `DiagnoseCommandWorkflow` | load → 定位并读取报告 ∪ `latest_journal` → 解析 FailureRecord → 可选读取本地 locator/log | 无 |
+| `CheckCommandWorkflow` | planning → snapshot → 宿主 cell → VerificationRunner → CompatibilityChecker | `.pf/logs`、临时环境 |
+| `SmokeCommandWorkflow` | planning → snapshot → 宿主 cell → VerificationRunner → HighestVersionVerifier | `.pf/logs`、临时环境 |
+| `SearchCommandWorkflow` | planning → snapshot → VerificationRunner → report build/update/write | `.pf/logs`、`package-floor.json` |
+| `ExplainCommandWorkflow` | discovery → 定位并读取报告 | 无 |
+| `DiagnoseCommandWorkflow` | discovery → 定位并读取报告 ∪ `latest_journal` → 解析 FailureRecord → 可选读取本地 locator/log | 无 |
 | `MergeCommandWorkflow` | read → merge → write | 显式 output |
 | `ApplyCommandWorkflow` | load → 读取并核对报告 → `ProjectEditor.apply_many` | `pyproject.toml`、`.pf` 日志 |
 
@@ -198,7 +201,9 @@ main() -> None
 
 ## 7. 项目规划与快照
 
-### 7.1 ProjectLoader
+### 7.1 ProjectDiscovery 与 ProjectLoader
+
+`ProjectDiscovery.discover(root, package_selection) -> tuple[PackageLocation, ...]` 只读取 package identity 与路径，统一处理 root、workspace member、显式 package path、选择/排除和 canonical name 唯一性。Explain 与 Diagnose 只依赖该离线 interface，不进入 Python discovery 或环境规划。
 
 外部 interface：
 
@@ -206,9 +211,8 @@ main() -> None
 load(root: Path, package_selection: str | None) -> ProjectPlan
 ```
 
-它隐藏并唯一拥有：
+`ProjectLoader` 复用 discovery 结果，并隐藏、唯一拥有：
 
-- workspace 与可安装包发现、root packages/exclude 选择；未知 package 时把已发现名称放入 `ConfigurationError.candidates`；
 - 三层配置加载；
 - PEP 508 声明解析、固定/可搜索/受管分类；
 - marker 投影、extra surface 与有序 cell；
@@ -236,16 +240,16 @@ Git 项目通过唯一 `ProcessRunner` 执行 `git ls-files --cached --others --
 build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 ```
 
-候选策略值由 D001 定义。`CandidateBuilder` 是 source、artifact、prerelease/yanked、specifier、search-space、granularity、baseline cap、排序、series representative 与 digest 的唯一实现所有者。它不决定 probe 顺序，也不把来源失败解释为版本失败。
+候选策略值由 D001 定义。`CandidateBuilder` 是 source、artifact、prerelease/yanked、specifier、search-space、granularity、baseline cap、排序和 series representative 的唯一实现所有者；`schemas.project.candidate_snapshot_digest` 拥有并校验冻结证据 identity。它不决定 probe 顺序，也不把来源失败解释为版本失败。
 
 ### 8.2 EnvironmentFactory
 
 ```text
-prepare(package, cell, snapshot, resolution, managed_vector=None)
+prepare(package, cell, snapshot, resolution, selection=None)
   -> PreparedEnvironment | PrepareFailure
 ```
 
-`resolution=highest`、`lowest-direct` 或带 `managed_vector` 的精确向量都会在任何外部操作前构造 Attempt。prepare 失败返回 `PrepareFailure(attempt, failure)`；调用方不得 unwrap 成裸 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，必含 `attempt`，不进入公共报告。Attempt 序列与 Role 由 D008 拥有。
+`resolution=highest`、`lowest-direct` 或带冻结 `SelectedCandidate` selection 的精确向量都会在任何外部操作前构造 Attempt。精确路径使用 artifact locator 与完整 SHA-256，并在安装后核对 managed vector。prepare 失败返回 `PrepareFailure(attempt, failure)`；调用方不得 unwrap 成裸 `ToolFailure`。随后创建独立源码副本和虚拟环境，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，必含 `attempt`，不进入公共报告。Attempt 序列与 Role 由 D008 拥有。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -313,9 +317,9 @@ minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
   -> CoordinateOutcome
 ```
 
-它只读取冻结版本坐标和分类后的 `ProbePass | ProbeRejection | ProbeIndeterminate`；`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
+它位于 `coordinate_search.py`，只读取冻结版本坐标和分类后的 `ProbePass | ProbeRejection | ProbeIndeterminate`；`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。一次调用的 evaluator、cache、observation 与 slice 状态由该调用私有，同一实例可嵌套和并发使用。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
 
-`SearchCoordinator` interface：
+`SearchCoordinator` 位于 `search.py`，构造时必须显式注入 `HighestVersionVerifier` 与 `CoordinateSearch`。其运行 interface：
 
 ```text
 search(package, cell, snapshot) -> CellResult
@@ -323,7 +327,9 @@ search(package, cell, snapshot) -> CellResult
 
 它拥有单 cell 搜索状态机：消费 `HighestVersionVerifier` 返回的 baseline outcome；只有 `HighestVersionPass` 才冻结候选并调用 static/dynamic CoordinateSearch，其他 outcome 直接成为 cell 终态。它组装强类型 CellResult 与 FailureRecord 引用，不复制最高版本验证，不负责跨 cell 并发或总时限。
 
-`Scheduler.run(tasks, jobs, max_duration_seconds, events)` 只调度独立 cell callable，限制并发、停止启动超过 deadline 的任务、为未启动 cell 产生带 `CellFailureScope` 的 `TIMEOUT / INDETERMINATE` cell 结果、消费进度事件并按 package/target/python/extra 规范排序。它不得虚构 Attempt。单 cell 内 probe 始终串行。
+`VerificationRunner.run(VerificationRun)` 是 Check / Smoke / Search 共同的 scheduling、completion event 与 Verification Journal 时序所有者。失败 completion 只有在 Journal 写入成功后才携带 `diagnose_available=true`；`logs=None` 或写入失败时为 false，写入错误在 completion 发布后抛出。
+
+`Scheduler.run(tasks, jobs, max_duration_seconds, events)` 是 Runner 内部的并发执行 seam：限制并发、停止启动超过 deadline 的任务、为未启动 cell 产生带 `CellFailureScope` 的 `TIMEOUT / INDETERMINATE` cell 结果，并按 package/target/python/extra 规范排序。它不得虚构 Attempt。单 cell 内 probe 始终串行。
 
 ## 10. 外部 adapter
 
@@ -340,11 +346,14 @@ run(ProcessSpec) -> ProcessResult
 ```text
 record(process_id, redacted_spec, redacted_result) -> internal_log_path
 reference_for(process_result) -> internal_log_path | None
-associate(report_generation_id, failure_id, process_result) -> None
+write_journal(VerificationJournalV2) -> internal_journal_path
+read_latest_journal(package) -> VerificationJournalV2 | VerificationJournalV1 | None
+replace_associations(generation, failures, ...) -> None
 lookup(report_generation_id, failure_id) -> project_relative_log_path | None
+lookup_run(run_id, failure_id) -> project_relative_log_path | None
 ```
 
-store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，并在 `.pf/logs/diagnosis-index.json` 维护 `(report_generation_id, failure_id) -> 相对日志路径`。两类文件都使用随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 只用于当前运行中按 `ProcessResult` 对象 identity 找到刚写入的日志；报告写入完成后，workflow 通过 `associate` 原子更新 locator index。不得用内容 hash、目录扫描或模糊输出匹配恢复关联。写日志或更新应有 locator 失败是基础设施错误，不能静默继续产生违反 CLI 可诊断性契约的报告。
+store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF-8 `.log` 文件，并在 `.pf/logs/diagnosis-index.json` 维护 `(report_generation_id, failure_id) -> 相对日志路径`。两类文件都使用随机化 run-id、私有目录/文件权限和原子 replace。环境只记录变量名；`.pf` 或 `.pf/logs` 是 symlink 时 fail closed，不把日志写到项目 root 之外。`reference_for` 只用于当前运行中按 `ProcessResult` 对象 identity 找到刚写入的日志；报告写入完成后，workflow 通过 `replace_associations` 原子更新 locator index。不得用内容 hash、目录扫描或模糊输出匹配恢复关联。写日志或更新应有 locator 失败是基础设施错误，不能静默继续产生违反 CLI 可诊断性契约的报告。
 
 所有元数据字段与 stdout/stderr 片段在 store 边界再次施加硬上限。在支持 `dir_fd` 的平台，目录创建和替换通过逐级 directory fd、禁止跟随 symlink 的打开方式以及 run directory inode identity 完成；初始化后的目录被替换也必须 fail closed。Windows 先用 `GetVolumePathNameW` 解析项目实际承载卷（包括嵌套挂载点），并要求该卷声明 `FILE_PERSISTENT_ACLS`，再使用原生 directory handle 打开每一级目录：拒绝 reparse point、只共享 read 而拒绝后续 write/delete handle，并保持 guard 到运行结束；run directory 在 `CreateDirectoryW` 时通过 `SECURITY_ATTRIBUTES` 原子安装仅 owner 与 SYSTEM 可访问且对子文件继承的 protected DACL。其他无法提供等价安全原语的平台以已分类基础设施错误停止，不能退回有 TOCTOU 窗口的路径检查。
 
@@ -385,14 +394,15 @@ apply_many(reports, root) -> tuple[ProjectEditResult, ...]
 写入用 `tomlkit` 保留格式，之后重新解析项目。恢复日志状态为：
 
 ```text
-PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
+PREPARED -> PROJECTS_REPLACED -> VALIDATED -> COMMITTED
+                            \-> ROLLING_BACK -> ROLLED_BACK
 ```
 
 每次 apply 先检查未完成日志；identity 不匹配时停止，不覆盖未知用户修改。TOML 与日志使用临时文件、`fsync` 和原子 replace。
 
 ## 12. TerminalPresenter
 
-`terminal.py` 是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果：stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
+`pf.terminal` 包是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果；live Check / Smoke / Search 留在包入口，Explain / Diagnose renderer 位于包内私有模块。stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
 
 adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 
@@ -404,9 +414,9 @@ adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保�
 
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
 - CLI：两个入口、八命令、参数默认值、D001 退出码，以及 D006 的 help 分组、调用错误和结果摘要；
-- 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据、D005 failure 分类；
+- 核心：真实临时项目/快照、fake adapter、离线 ProjectDiscovery、D003 focused/reentrant algorithm、D004 增量证据、D005 failure 分类；
 - adapter：recording ProcessRunner、argv、状态、timeout、`*_complete` 与脱敏；
-- 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
+- 持久化：canonical JSON、Journal v2/v1 reader、diagnosis index、merge/update、投影、恢复日志、幂等 apply；
 - 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> diagnose -> apply`；另测 `diagnose` 不启动进程、不访问网络、不修改项目。
 
-需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../plans/P001-pf-v1.md)、[P002](../plans/P002-pf-ty-enhancement.md)、[P003](../plans/P003-pf-smoke-observability.md)、[P004](../plans/P004-pf-failure-and-diagnose.md)、[P005](../plans/P005-pf-process-output.md)、[P006](../plans/P006-pf-verification-run.md) 与 [P007](../plans/P007-pf-cli-enhancement.md)。
+需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../plans/P001-pf-v1.md)、[P002](../plans/P002-pf-ty-enhancement.md)、[P003](../plans/P003-pf-smoke-observability.md)、[P004](../plans/P004-pf-failure-and-diagnose.md)、[P005](../plans/P005-pf-process-output.md)、[P006](../plans/P006-pf-verification-run.md)、[P007](../plans/P007-pf-cli-enhancement.md) 与 [P008](../plans/P008-pf-v1-refactor.md)。

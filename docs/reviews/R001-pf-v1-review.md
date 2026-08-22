@@ -1,6 +1,6 @@
 # R001 — PF v1 仓库评审
 
-- **状态：** 快照，已按独立复核修订
+- **状态：** 快照，已按独立复核与实施前终审修订
 - **日期：** 2026-08-22
 - **性质：** 非规范性评审；不定义命令、算法、Schema 或模块接口
 - **对照：** 当时 `main` / `d1b8614`（`feat: implement D006, D007, D008`），远程 `origin` 为 `git@github.com:BigTailFox/pf.git`
@@ -12,7 +12,9 @@
 
 ## 1. 结论
 
-D001–D008 的命令、主要状态机和展示主路径已经落地，但不能再写成「已全部落地」。现行实现至少有五个高风险契约缺口：流式脱敏可泄露跨分块 secret；CandidateSnapshot 的 artifact/hash 没有约束实际 probe 安装；complete report 没把 `final_vector` 绑定到 PASS Proposal；apply 写后校验失败不回滚；workspace 重名包会在 workflow 中静默覆盖或混合。
+D001–D008 的命令、主要状态机和展示主路径已经落地，但不能再写成「已全部落地」。现行实现至少有五个高风险契约缺口：流式脱敏可在 Process Log / Output Cache / 终端末行留下跨分块明文；CandidateSnapshot 的 artifact/hash 没有约束实际 probe 安装；complete report 没把 `final_vector` 绑定到 PASS Proposal；apply 写后校验失败不回滚；workspace 重名包会在 workflow 中静默覆盖或混合。
+
+流式缺口打在本机诊断和终端，不进入 `package-floor.json` 的 stdout/stderr 正文。公共报告另有残留凭据面：`FailureDetail.message` 和未剥离 query 的 artifact locator。
 
 这些是当前契约的实现缺口，不是新产品范围。它们优先于模块加深、文件拆分和新工程能力。
 
@@ -24,13 +26,17 @@ D001–D008 的命令、主要状态机和展示主路径已经落地，但不�
 
 ### 2.1 流式脱敏跨分块泄露
 
-`SubprocessRunner._redact_stream` 保留 overlap 后，把已确定前缀和 pending 尾部分别交给 `SecretRedactor.redact`。若 secret 或 URL userinfo 横跨两段的切点，两次调用都看不到完整值，最终拼接的 Output Cache / Process Log 仍可出现明文。
+`SubprocessRunner._redact_stream` 保留 overlap 后，把已确定前缀和 pending 尾部分别交给 `SecretRedactor.redact`。若 secret 或 URL userinfo 横跨两段的切点，两次调用都看不到完整值。同一份脱敏文本同时进入 Output Cache、Process Log，以及 live 卡片的末 3 行。
 
-生产 `cli.build_context` 还没有向 `SubprocessRunner` 注入实际 credential literals；正常装配主要依赖 URL userinfo 正则，不能覆盖工具输出中的裸 token/password。
+生产 `cli.build_context` 构造 `SubprocessRunner(listener=..., logs=...)`，不注入 credential literals；正常装配主要依赖 URL userinfo 正则，不能覆盖工具输出中的裸 token/password。overlap 在无 secrets 时默认 256 字节。
 
-**影响：** 违反 D001 / D007 的日志、终端和报告不得保存凭据契约。
+`.pf/` 在 `.gitignore` 里，也不进源码快照，但不是用完即删的临时目录：v1 不自动删除运行日志，`diagnose` 会打开这些文件，CI 和工作区拷贝常会带走它。同一条流还进终端，所以不能因为「本机文件」省略脱敏。
 
-**下一步：** 流式脱敏必须在任意 byte 分块下与一次性脱敏等价；composition root 注入本次运行实际使用的 secret，但 secret 不进入 Schema、ProcessSpec、日志或 identity。测试覆盖 64 KiB 临界点前后、UTF-8、多 secret 和 URL userinfo。
+`package-floor.json` 的 `ProcessResult.stdout` / `stderr` 标了 `exclude=True`，公共报告不含进程输出正文。流式 overlap 缺口不构成 floor 报告泄漏。
+
+**影响：** 违反 D001 / D007 对日志和终端的凭据承诺。
+
+**下一步：** 流式脱敏必须在任意 byte 分块下与一次性脱敏等价。composition root 只注入本次运行实际装入的 `RegistryAccess` literals 和 `ProcessSpec.environment` 值，不扫描环境变量。secret 不进入 Schema、日志或 identity。测试覆盖 64 KiB 临界点前后、UTF-8、多 secret、URL userinfo，以及 cache / log / listener / 终端四个观察面。
 
 ### 2.2 Candidate artifact 与实际安装脱节
 
@@ -106,6 +112,18 @@ ProjectLoader 正确地从可移植 SourceIdentity 中删除 URL userinfo/query�
 
 **下一步：** 静态阶段只缓存 Evaluation；非最终环境立即关闭。确定 final vector 后重新 prepare 一次做 full evaluation。该策略允许重复环境准备，但不重复相同 context 的完整测试。
 
+### 3.6 公共报告的残留凭据面
+
+`package-floor.json` 不保存 stdout/stderr 正文，但下列 portable 字段仍可能带出凭据：
+
+- `FailureDetail.message`：部分路径写入 `process.diagnostic()`（含缓存里的 stderr）或 `str(HTTPError)`；
+- `AvailableArtifact.locator`：PEP 691 的 `url` 经 `urljoin` 后直接保存，没有像 `SourceIdentity` 那样去掉 userinfo/query；私有索引的 query token 会进候选快照；
+- `ProcessResult.start_error`：会进报告，创建时已经过 redactor。
+
+`SourceIdentity.locator` 和带 userinfo 的 PEP 508 直接 URL 已经在声明阶段处理，不是这条缺口。
+
+**下一步：** 进入 Schema dump 的 detail 不含输出正文和 credential；artifact locator 与 `SourceIdentity` 使用同一套公开 URL 规则。这与流式 overlap 是不同 seam，不要用 `_redact_stream` 去扫报告。
+
 ## 4. 模块设计评审
 
 ### 4.1 Cell identity 与排序是两件事
@@ -148,7 +166,7 @@ Check static 只需要 `capture`，Search static 需要 `capture + evaluate`，F
 
 | 优先级 | 项 | 完成标准 |
 | --- | --- | --- |
-| P0 | 流式脱敏 | 任意分块与一次性脱敏等价；生产 credential 已注入但不落盘 |
+| P0 | 流式脱敏 | 任意分块与一次性脱敏等价；观察面是 cache / log / 终端，不是报告正文 |
 | P0 | Report authority | final vector、ProbePass、Proposal、Evaluation、projection 闭环 |
 | P0 | Apply transaction | 单包与 workspace 写后失败均自动回滚 |
 | P0 | Workspace package identity | canonical name 重复在 discovery 阶段失败 |
@@ -157,6 +175,7 @@ Check static 只需要 `capture`，Search static 需要 `capture + evaluate`，F
 | P1 | 离线 ProjectDiscovery | Explain / Diagnose 不启动工具、不联网、不写日志 |
 | P1 | Journal package policies | 多包运行不再伪装成第一包 policy |
 | P1 | Registry adapter | 私有认证可用；畸形响应保守失败 |
+| P1 | 报告 portable 凭据 | FailureDetail 不含输出正文；artifact locator 为公开 URL |
 | P1 | Cell identity / Failure 提取 | equality 与 order 分离；单一提取入口 |
 | P1 | VerificationRunner | 三工作流共享深 interface，不复制 gate/schedule/journal |
 | P1 | FailurePolicy 输入 | Evaluation → classify 的机械映射只有一个实现 |
@@ -187,7 +206,8 @@ Check static 只需要 `capture`，Search static 需要 `capture + evaluate`，F
 
 | 面 | 当前判断 |
 | --- | --- |
-| 流式 redaction | 缺跨 chunk / URL userinfo / production secret tests |
+| 流式 redaction | 缺跨 chunk / URL userinfo / production secret tests；观察面是 cache/log/终端 |
+| 报告 portable 凭据 | FailureDetail 可抄 diagnostic()；artifact locator 未剥离 query |
 | Report authority | 缺 final vector 与 PASS Proposal 防篡改矩阵 |
 | ProjectEditor | 2 个测试；缺 rollback / restart recovery / workspace atomicity |
 | Project discovery | 缺 canonical duplicate package names |
@@ -205,3 +225,5 @@ Check static 只需要 `capture`，Search static 需要 `capture + evaluate`，F
 - `tests/test_windows_runlog.py` 的条件 skip 发生在 Windows，用来跳过“拒绝非 Windows”这一测试；不是在非 Windows skip 整个文件。
 - `ProjectEditor` 现有首个测试已经覆盖 unauthorized projected requirement 不写回；待补的是 final evidence、rollback 和 workspace transaction。
 - `/home/llh/pf` 是 git 仓库，`main` 跟踪 `origin/main`；无需初始化仓库。
+- 初稿把流式脱敏写成「日志、终端和报告」同一缺口。终审后：`package-floor.json` 不含 stdout/stderr 正文；跨分块明文出现在 Output Cache、Process Log 和 live 卡片。报告残留凭据面是 `FailureDetail.message` 与未剥离 query 的 artifact locator，见 §3.6。
+- `.pf/` 是 gitignore 的本机诊断目录，v1 不自动删除；不是省略日志脱敏的理由。

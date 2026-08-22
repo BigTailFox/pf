@@ -68,6 +68,11 @@ class ProcessLogRecorder(Protocol):
 class SecretRedactor:
     """Remove configured secrets and URL userinfo before data crosses the seam."""
 
+    _URL_SCHEME = re.compile(r"(?i)[a-z][a-z0-9+.-]*://")
+    _INCOMPLETE_SCHEME = re.compile(
+        r"(?i)(?:^|[^a-z0-9+.-])([a-z][a-z0-9+.-]{0,31}:?/?/?)\Z"
+    )
+
     def __init__(self, secrets: tuple[str, ...] = ()) -> None:
         self._secrets = tuple(
             sorted({secret for secret in secrets if secret}, key=len, reverse=True)
@@ -82,6 +87,47 @@ class SecretRedactor:
         for secret in self._secrets:
             redacted = redacted.replace(secret, "***")
         return redacted
+
+    def with_secrets(self, secrets: tuple[str, ...]) -> "SecretRedactor":
+        return SecretRedactor((*self._secrets, *secrets))
+
+    def holdback_chars(self, text: str) -> int:
+        """Return the suffix that must not yet be emitted to a consumer."""
+        hold = self._secret_prefix_holdback(text)
+        hold = max(hold, self._open_url_holdback(text))
+        return max(hold, self._incomplete_scheme_holdback(text))
+
+    def _secret_prefix_holdback(self, text: str) -> int:
+        hold = 0
+        for secret in self._secrets:
+            limit = min(len(secret) - 1, len(text))
+            for length in range(limit, 0, -1):
+                if text.endswith(secret[:length]):
+                    hold = max(hold, length)
+                    break
+        return hold
+
+    def _open_url_holdback(self, text: str) -> int:
+        match = None
+        for candidate in self._URL_SCHEME.finditer(text):
+            match = candidate
+        if match is None:
+            return 0
+        rest = text[match.end() :]
+        if re.search(r"[@/\s]", rest):
+            return 0
+        return len(text) - match.start()
+
+    def _incomplete_scheme_holdback(self, text: str) -> int:
+        match = self._INCOMPLETE_SCHEME.search(text)
+        if match is not None:
+            candidate = match.group(1)
+            if "://" in candidate:
+                return 0
+            return len(candidate)
+        if re.fullmatch(r"(?i)[a-z][a-z0-9+.-]{0,31}:?/?/?", text):
+            return len(text)
+        return 0
 
     def overlap_bytes(self) -> int:
         longest = max((len(secret.encode("utf-8")) for secret in self._secrets), default=0)
@@ -239,7 +285,10 @@ class SubprocessRunner:
     def run(self, spec: ProcessSpec) -> ProcessResult:
         started = time.monotonic()
         process_id = next(self._process_ids)
-        argv = tuple(self._redactor.redact(argument) for argument in spec.argv)
+        redactor = self._redactor.with_secrets(
+            tuple(item.value for item in spec.environment)
+        )
+        argv = tuple(redactor.redact(argument) for argument in spec.argv)
         self._emit(ProcessEvent(process_id=process_id, argv=argv, state="started"))
         environment = os.environ.copy()
         environment.update({item.name: item.value for item in spec.environment})
@@ -271,10 +320,10 @@ class SubprocessRunner:
                     exit_code=None,
                     signal=None,
                     duration_seconds=time.monotonic() - started,
-                    start_error=self._redactor.redact(str(error)),
+                    start_error=redactor.redact(str(error)),
                 )
                 self._store_output(result, (True, True))
-                self._commit_log(process_id, spec, result, argv)
+                self._commit_log(process_id, spec, result, argv, redactor)
                 self._emit(
                     ProcessEvent(
                         process_id=process_id,
@@ -294,13 +343,14 @@ class SubprocessRunner:
                 process.communicate()
 
             cache = _OutputCacheBuilder(cache_limit)
-            writer = self._begin_log(process_id, spec, argv)
+            writer = self._begin_log(process_id, spec, argv, redactor)
             self._redact_stream(
                 stdout_file,
                 _StreamSink(
                     cache.consume_stdout,
                     None if writer is None else writer.write_stdout,
                 ),
+                redactor,
             )
             self._redact_stream(
                 stderr_file,
@@ -308,6 +358,7 @@ class SubprocessRunner:
                     cache.consume_stderr,
                     None if writer is None else writer.write_stderr,
                 ),
+                redactor,
             )
         return_code = process.returncode
         exit_code = return_code if return_code >= 0 else None
@@ -356,11 +407,16 @@ class SubprocessRunner:
         )
         self._output_full[id(result)] = covered_full
 
-    def _redacted_spec(self, spec: ProcessSpec, argv: tuple[str, ...]) -> ProcessSpec:
+    def _redacted_spec(
+        self,
+        spec: ProcessSpec,
+        argv: tuple[str, ...],
+        redactor: SecretRedactor,
+    ) -> ProcessSpec:
         return spec.model_copy(
             update={
                 "argv": argv,
-                "cwd": self._redactor.redact(spec.cwd),
+                "cwd": redactor.redact(spec.cwd),
                 "environment": tuple(
                     EnvironmentVariable(name=item.name, value="***")
                     for item in spec.environment
@@ -373,10 +429,14 @@ class SubprocessRunner:
         process_id: int,
         spec: ProcessSpec,
         argv: tuple[str, ...],
+        redactor: SecretRedactor,
     ) -> ProcessLogWriter | None:
         if self._logs is None:
             return None
-        return self._logs.begin_record(process_id, self._redacted_spec(spec, argv))
+        return self._logs.begin_record(
+            process_id,
+            self._redacted_spec(spec, argv, redactor),
+        )
 
     def _commit_log(
         self,
@@ -384,8 +444,9 @@ class SubprocessRunner:
         spec: ProcessSpec,
         result: ProcessResult,
         argv: tuple[str, ...],
+        redactor: SecretRedactor,
     ) -> None:
-        writer = self._begin_log(process_id, spec, argv)
+        writer = self._begin_log(process_id, spec, argv, redactor)
         if writer is not None:
             writer.finish(result)
 
@@ -393,25 +454,33 @@ class SubprocessRunner:
         if self._listener is not None:
             self._listener.consume(event)
 
-    def _redact_stream(self, stream: BinaryIO, consume: Callable[[str], None]) -> None:
+    def _redact_stream(
+        self,
+        stream: BinaryIO,
+        consume: Callable[[str], None],
+        redactor: SecretRedactor,
+    ) -> None:
         stream.flush()
         stream.seek(0)
-        overlap = self._redactor.overlap_bytes()
-        pending = b""
+        pending_bytes = b""
+        pending_text = ""
         while True:
             chunk = stream.read(_STREAM_CHUNK_SIZE)
             if not chunk:
                 break
-            data = pending + chunk
-            if len(data) <= overlap:
-                pending = data
+            complete, pending_bytes = _split_utf8(pending_bytes + chunk)
+            if not complete:
                 continue
-            keep, pending = data[:-overlap], data[-overlap:]
-            keep, leftover = _split_utf8(keep)
-            pending = leftover + pending
-            consume(self._redactor.redact(keep.decode("utf-8", errors="replace")))
-        if pending:
-            consume(self._redactor.redact(pending.decode("utf-8", errors="replace")))
+            pending_text += complete.decode("utf-8", errors="replace")
+            hold = redactor.holdback_chars(pending_text)
+            emit_at = len(pending_text) - hold
+            if emit_at > 0:
+                consume(redactor.redact(pending_text[:emit_at]))
+                pending_text = pending_text[emit_at:]
+        if pending_bytes:
+            pending_text += pending_bytes.decode("utf-8", errors="replace")
+        if pending_text:
+            consume(redactor.redact(pending_text))
 
     @staticmethod
     def _terminal_size() -> os.terminal_size:

@@ -1,24 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
 from cyclopts import App, Group, Parameter
 from cyclopts.exceptions import CycloptsError
 
-from pf.adapters.process import SubprocessRunner
+from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.test_command import TestAdapter
 from pf.adapters.ty import TyAdapter
-from pf.adapters.uv import UvAdapter
+from pf.adapters.uv import RegistryAccess, UvAdapter
 from pf.baseline import HighestVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.config import parse_jobs, parse_max_duration
+from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError, InvocationError, PfError
 from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
+from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
 from pf.runlog import RunLogStore
 from pf.scheduling import Scheduler
@@ -36,6 +39,7 @@ from pf.schemas.report import PackageFloorReportV1, ProjectEditResult
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
 from pf.terminal import TerminalPresenter, command_usage, command_usage_line
+from pf.verification import VerificationRunner
 from pf.workflow import (
     CheckCommandWorkflow,
     CompatibilityChecker,
@@ -317,8 +321,14 @@ def build_context() -> CliContext:
     root = Path.cwd()
     logs = RunLogStore(root=root)
     presenter = TerminalPresenter(logs=logs, root=root)
-    runner = SubprocessRunner(listener=presenter, logs=logs)
-    uv = UvAdapter(runner)
+    registry_access = RegistryAccess.from_environment(os.environ)
+    redactor = SecretRedactor(registry_access.secret_literals)
+    runner = SubprocessRunner(redactor=redactor, listener=presenter, logs=logs)
+    uv = UvAdapter(
+        runner,
+        registry_access=registry_access,
+        redactor=redactor,
+    )
     environments = EnvironmentFactory(uv, events=presenter)
     static = StaticEvaluator(TyAdapter(runner), events=presenter)
     full = FullEvaluator(static=static, tests=TestAdapter(runner), events=presenter)
@@ -332,27 +342,31 @@ def build_context() -> CliContext:
         static=static,
         full=full,
     )
-    projects = ProjectLoader(pythons=uv)
+    discovery = ProjectDiscovery()
+    projects = ProjectLoader(pythons=uv, discovery=discovery)
     snapshots = SnapshotBuilder(runner)
     reports = ReportStore()
     scheduler = Scheduler()
+    verification = VerificationRunner(
+        scheduler=scheduler,
+        events=presenter,
+        logs=logs,
+    )
     return CliContext(
         check_workflow=CheckCommandWorkflow(
             projects=projects,
             snapshots=snapshots,
             checker=checker,
-            scheduler=scheduler,
+            verification=verification,
             events=presenter,
-            logs=logs,
         ),
         presenter=presenter,
         smoke_workflow=SmokeCommandWorkflow(
             projects=projects,
             snapshots=snapshots,
             verifier=highest,
-            scheduler=scheduler,
+            verification=verification,
             events=presenter,
-            logs=logs,
         ),
         search_workflow=SearchCommandWorkflow(
             projects=projects,
@@ -363,20 +377,21 @@ def build_context() -> CliContext:
                 static=static,
                 full=full,
                 highest=highest,
+                coordinate_search=CoordinateSearch(),
                 diagnostics=presenter,
             ),
-            scheduler=scheduler,
+            verification=verification,
             reports=reports,
             report_builder=PackageReportBuilder(),
             events=presenter,
-            logs=logs,
+            associations=logs,
         ),
         explain_workflow=ExplainCommandWorkflow(
-            projects=projects,
+            discovery=discovery,
             reports=reports,
         ),
         diagnose_workflow=DiagnoseCommandWorkflow(
-            projects=ProjectLoader(),
+            discovery=discovery,
             reports=reports,
             logs=logs,
         ),

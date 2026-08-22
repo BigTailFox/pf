@@ -1,11 +1,29 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import model_validator
 
 from pf.schemas.base import FrozenSchema
 from pf.schemas.config import EffectiveConfig
+
+
+def public_locator(value: str) -> str:
+    """Return a portable URL without userinfo or query."""
+    parsed = urlsplit(value)
+    if not parsed.scheme:
+        return value
+    host = parsed.hostname or ""
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    netloc = host
+    if parsed.scheme == "file" and parsed.path.startswith("/"):
+        netloc = host
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 class SourceIdentity(FrozenSchema):
@@ -70,6 +88,11 @@ class Cell(FrozenSchema):
         return self
 
 
+def cell_identity(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
+    """Lookup key for a compatibility cell. Not an order contract."""
+    return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
+
+
 class ResolvedNode(FrozenSchema):
     name: str
     version: str
@@ -121,6 +144,51 @@ class Candidate(FrozenSchema):
     prerelease: bool = False
 
 
+def candidate_snapshot_digest(
+    *,
+    dependency: str,
+    cell: Cell,
+    policy_identity: str,
+    source: SourceIdentity,
+    candidates: tuple[Candidate, ...],
+    series_representatives: tuple[tuple[str, str], ...],
+) -> str:
+    identity = {
+        "dependency": dependency,
+        "cell": cell.model_dump(mode="json"),
+        "policy_identity": policy_identity,
+        "source": source.model_dump(mode="json"),
+        "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
+        "series_representatives": series_representatives,
+    }
+    return hashlib.sha256(
+        b"pf:candidate-snapshot:v1\0"
+        + json.dumps(
+            identity,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+class SelectedCandidate(FrozenSchema):
+    dependency: str
+    version: str
+    artifact: AvailableArtifact
+
+    @model_validator(mode="after")
+    def validate_installable_artifact(self) -> "SelectedCandidate":
+        if not self.dependency.strip() or not self.version.strip():
+            raise ValueError("selected candidate identity cannot be empty")
+        if not self.artifact.filename.strip() or self.artifact.locator is None:
+            raise ValueError("selected candidate requires an artifact locator")
+        if re.fullmatch(r"sha256:[0-9a-fA-F]{64}", self.artifact.content_hash) is None:
+            raise ValueError("selected candidate requires a complete SHA-256 hash")
+        if public_locator(self.artifact.locator) != self.artifact.locator:
+            raise ValueError("selected candidate locator must be public")
+        return self
+
+
 class CandidateSnapshot(FrozenSchema):
     dependency: str
     cell: Cell
@@ -137,6 +205,16 @@ class CandidateSnapshot(FrozenSchema):
         versions = [candidate.version for candidate in self.candidates]
         if len(set(versions)) != len(versions):
             raise ValueError("candidate snapshot versions must be unique")
+        expected_digest = candidate_snapshot_digest(
+            dependency=self.dependency,
+            cell=self.cell,
+            policy_identity=self.policy_identity,
+            source=self.source,
+            candidates=self.candidates,
+            series_representatives=self.series_representatives,
+        )
+        if self.digest != expected_digest:
+            raise ValueError("candidate snapshot digest does not match its evidence")
         return self
 
 

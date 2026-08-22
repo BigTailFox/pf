@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any, Literal, Protocol
-from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlsplit
 
 import tomli
 
@@ -17,6 +17,7 @@ from packaging.version import Version
 
 from pf.config import ConfigLoader
 from pf.errors import ConfigurationError
+from pf.project_discovery import ProjectDiscovery
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.project import (
     Cell,
@@ -25,6 +26,7 @@ from pf.schemas.project import (
     RequirementDeclaration,
     SourceIdentity,
     SourcePlan,
+    public_locator,
 )
 
 
@@ -111,9 +113,11 @@ class ProjectLoader:
         config_loader: ConfigLoader | None = None,
         *,
         pythons: PythonMinorProvider | None = None,
+        discovery: ProjectDiscovery | None = None,
     ) -> None:
         self._config_loader = config_loader or ConfigLoader()
         self._pythons = pythons
+        self._discovery = discovery or ProjectDiscovery()
 
     def load(
         self,
@@ -122,31 +126,19 @@ class ProjectLoader:
         package_selection: str | None,
     ) -> ProjectPlan:
         root = root.resolve()
-        package_paths = self._discover_packages(root)
-        packages = tuple(
-            self._load_package(root=root, package_path=package_path)
-            for package_path in package_paths
+        locations = self._discovery.discover(
+            root=root,
+            package_selection=package_selection,
         )
-        available_names = tuple(sorted({package.name for package in packages}))
-        if package_selection is not None:
-            selected_name = canonicalize_name(package_selection)
-            selected_path = (
-                Path(package_selection).as_posix().removeprefix("./").rstrip("/")
-            )
-            packages = tuple(
-                package
-                for package in packages
-                if package.name == selected_name
-                or package.pyproject_path == selected_path
-                or Path(package.pyproject_path).parent.as_posix() == selected_path
-            )
-            if not packages:
-                raise ConfigurationError(
-                    f"unknown package selection: {package_selection}",
-                    candidates=available_names,
-                )
-        if not packages:
-            raise ConfigurationError("no installable packages selected")
+        packages = tuple(
+            self._load_package(root=root, package_path=location.package_root)
+            for location in locations
+        )
+        if any(
+            package.name != location.name
+            for package, location in zip(packages, locations, strict=True)
+        ):
+            raise ConfigurationError("package identity changed during project loading")
         return ProjectPlan(packages=packages)
 
     def _load_package(self, *, root: Path, package_path: Path) -> PackagePlan:
@@ -574,10 +566,7 @@ class ProjectLoader:
         parsed = urlsplit(value)
         if not parsed.scheme or not parsed.hostname:
             raise ConfigurationError("source URL must be absolute")
-        host = parsed.hostname
-        if parsed.port is not None:
-            host = f"{host}:{parsed.port}"
-        return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+        return public_locator(value)
 
     @staticmethod
     def _extra_surfaces(
@@ -644,65 +633,6 @@ class ProjectLoader:
         ):
             return False
         return marker_applies(declaration.marker, cell)
-
-    @staticmethod
-    def _discover_packages(root: Path) -> tuple[Path, ...]:
-        document = ProjectLoader._read(root / "pyproject.toml")
-        candidates: set[Path] = set()
-        if "project" in document:
-            candidates.add(root)
-
-        workspace = document.get("tool", {}).get("uv", {}).get("workspace", {})
-        excluded_paths: set[Path] = set()
-        for pattern in workspace.get("exclude", ()):
-            excluded_paths.update(path.resolve() for path in root.glob(pattern))
-        for pattern in workspace.get("members", ()):
-            for path in root.glob(pattern):
-                resolved = path.resolve()
-                if root not in resolved.parents or resolved in excluded_paths:
-                    continue
-                pyproject = resolved / "pyproject.toml"
-                if pyproject.is_file() and "project" in ProjectLoader._read(pyproject):
-                    candidates.add(resolved)
-
-        root_config = document.get("tool", {}).get("pf", {})
-        for patch in root_config.get("package", {}).values():
-            explicit_path = patch.get("path")
-            if explicit_path is None:
-                continue
-            resolved = (root / explicit_path).resolve()
-            if root not in resolved.parents and resolved != root:
-                raise ConfigurationError("package path escapes the workspace root")
-            candidates.add(resolved)
-
-        selected = root_config.get("packages")
-        selected_names = (
-            {canonicalize_name(name) for name in selected}
-            if selected is not None
-            else None
-        )
-        excluded_names = {
-            canonicalize_name(name) for name in root_config.get("exclude-packages", ())
-        }
-        discovered: list[tuple[str, Path]] = []
-        for path in candidates:
-            pyproject = path / "pyproject.toml"
-            if not pyproject.is_file():
-                raise ConfigurationError(f"package path has no pyproject.toml: {path}")
-            package_document = ProjectLoader._read(pyproject)
-            project = package_document.get("project", {})
-            if "name" not in project:
-                continue
-            name = canonicalize_name(project["name"])
-            if selected_names is not None and name not in selected_names:
-                continue
-            if name in excluded_names:
-                continue
-            discovered.append((name, path))
-
-        if not discovered:
-            raise ConfigurationError("workspace has no discovered installable packages")
-        return tuple(path for _, path in sorted(discovered))
 
     def _python_minors(
         self,

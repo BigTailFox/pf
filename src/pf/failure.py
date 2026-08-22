@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from pf.schemas.evaluation import (
     AttemptFailureScope,
+    Evaluation,
     FailureCause,
     FailureDetail,
     FailureRecord,
     FailureScope,
+    PassEvaluation,
     ProcessResult,
+    StaticFailEvaluation,
+    StaticPassEvaluation,
+    TestFailEvaluation,
     rejection_is_supported,
 )
 
@@ -50,4 +55,33 @@ class FailurePolicy:
             process=process,
             summary_code=summary_code,
             detail=detail,
+        )
+
+    def classify_evaluation(
+        self,
+        scope: FailureScope,
+        evaluation: Evaluation,
+    ) -> FailureRecord | None:
+        if isinstance(evaluation, (PassEvaluation, StaticPassEvaluation)):
+            return None
+        if isinstance(evaluation, StaticFailEvaluation):
+            return self.classify(
+                scope=scope,
+                cause="STATIC_REGRESSION",
+                stage="ty",
+                process=evaluation.ty.process,
+            )
+        if isinstance(evaluation, TestFailEvaluation):
+            return self.classify(
+                scope=scope,
+                cause="TEST_FAILURE",
+                stage="test",
+                process=evaluation.test.process,
+            )
+        return self.classify(
+            scope=scope,
+            cause=evaluation.cause,
+            stage=evaluation.failure.stage,
+            process=evaluation.failure.process,
+            summary_code=evaluation.failure.summary_code,
         )

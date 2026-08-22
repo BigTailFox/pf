@@ -1,6 +1,6 @@
 # PF v1 模块加深与内部 seam
 
-- **状态：** 现行契约，待实现
+- **状态：** 现行
 - **日期：** 2026-08-22
 - **来源：** [R001](../reviews/R001-pf-v1-review.md)（`d1b8614` 快照，含独立复核）
 - **产品与命令：** [D001](D001-pf.md)
@@ -12,13 +12,13 @@
 
 本文是 v1 主路径落地之后「先补齐现行契约，再加深已有模块、收回泄漏的内部 seam、补测试面和工程门禁」的唯一整改契约。它不增加命令，不扩展 D001 的产品范围，不改 D003 的 probe 顺序，不改 D005 的 cause/disposition 矩阵，也不把 D001 §10 的非目标改写成待办。
 
-R001 是非规范性快照。整改行为、模块 interface、顺序和完成标准以本文为准。落地前，模块位置与 interface 仍以 D002 / 当前实现为准；落地后，本文取代 §14 列出的条款。
+R001 是非规范性快照。整改行为、模块 interface 和完成标准以本文为准；当前模块位置由已同步的 D002 描述，本文取代 §14 列出的旧条款。
 
 ## 1. 问题
 
-现行实现的税分四类。
+本设计落地前的实现税分四类。
 
-1. **已有契约没有完全落地。** 流式脱敏可泄露跨分块 secret；CandidateSnapshot 的 artifact/hash 没有约束实际安装；complete report 没有把 final vector 绑定到 PASS Proposal；apply 失败不回滚；workspace canonical package name 不唯一。
+1. **已有契约没有完全落地。** 流式脱敏可在 Process Log / Output Cache / 终端留下跨分块明文；公共报告不含输出正文，但 FailureDetail 和 artifact locator 仍可能带出凭据；CandidateSnapshot 的 artifact/hash 没有约束实际安装；complete report 没有把 final vector 绑定到 PASS Proposal；apply 失败不回滚；workspace canonical package name 不唯一。
 2. **同一含义多套实现。** Cell lookup 至少五套，FailureRecord 提取至少三套；Evaluation → classify 输入写了两遍；多包 Journal 却只保存第一包 policy identity。
 3. **共同编排没有形成深模块。** Check / Smoke / Search 复制 Journal gate + schedule + final Journal；离线读取命令复用完整 ProjectLoader，带入不需要的 Python discovery。
 4. **测试没有穿过真正的 interface。** CoordinateSearch 的连续调用测不到重入；ProjectEditor 没有 rollback/workspace transaction 测试；RunLogStore 没有独立测试面；Registry adapter 没有认证和畸形输入矩阵。
@@ -29,7 +29,7 @@ D002 的拆分条件仍有效：文件变长不是拆分理由；只有已经存
 
 ### 2.1 目标
 
-- D001 / D007 要求的凭据不落日志，在任意流分块下成立；
+- D001 / D007 要求的凭据不出现在 Output Cache、Process Log、终端末行、FailureDetail 或 artifact locator；流式分块与一次性脱敏等价；
 - exact-vector probe 安装 CandidateSnapshot 选中的精确 artifact，并校验 hash；
 - complete report 的 final vector、ProbePass、Attempt、Proposal、Evaluation 与 projection 形成闭环；
 - `ProjectEditor.apply_many` 对 workspace 是可恢复事务，失败不留下半应用状态；
@@ -57,14 +57,14 @@ D002 的拆分条件仍有效：文件变长不是拆分理由；只有已经存
 
 | 阶段 | 项 | 完成标准 |
 | --- | --- | --- |
-| P0 | 流式脱敏 | 任意 byte 分块与一次性脱敏等价；production secret 已装配但不落盘 |
+| P0 | 流式脱敏 | 任意 byte 分块与一次性脱敏等价；cache / log / 终端无明文；production secret 只来自本次运行实际装入的值 |
 | P0 | Report authority | final vector、terminal search、ProbePass、Attempt、Proposal、Evaluation、projection 闭环 |
 | P0 | Apply transaction | 单包与 workspace 任一写后失败均回滚，重启恢复不误提交 target |
 | P0 | Workspace identity | canonical package name 重复在 discovery 阶段失败并列出冲突路径 |
 | P0 | Candidate artifact binding | exact-vector 使用冻结 artifact locator + hash，不允许同版本改选 |
 | P0 | 工程门禁 | Python 3.10–3.12；Ruff、ty、pytest `--no-testmon`、build |
 | P1 | 离线 ProjectDiscovery | Explain / Diagnose 不启动工具、不联网、不创建运行日志 |
-| P1 | Registry / Journal identity | 私有认证可用；畸形外部输入保守失败；Journal 按包记录 policy |
+| P1 | Registry / Journal identity | 私有认证可用；畸形外部输入保守失败；artifact locator 为公开 URL；Journal 按包记录 policy |
 | P1 | Cell identity / Failure 提取 | lookup 与 order 分离；全库使用单一 lookup / extraction owner |
 | P1 | VerificationRunner | 三个 workflow 不再复制 gate + schedule + journal，interface 只接收一次运行 |
 | P1 | Evaluation → FailureRecord | 两个调用方只调用 `FailurePolicy.classify_evaluation` |
@@ -77,9 +77,13 @@ P0 是现行产品和安全契约的修复，必须先于纯重构。P1 可以�
 
 ## 4. 现行契约修复
 
-### 4.1 流式脱敏
+### 4.1 凭据观察面与流式脱敏
 
-D007 的行为不变：已知 credential 和 URL userinfo 在进入 listener、Output Cache、Process Log 或异常 detail 前必须脱敏。
+D007 的行为不变。凭据有三层观察面，不要当成同一缺口：
+
+1. **进程流。** 已知 credential 和 URL userinfo 在进入 listener、Output Cache、Process Log 或终端末行之前必须脱敏。`.pf/` 是 gitignore 的本机诊断目录，v1 不自动删除；`diagnose` 会打开 Process Log。同一条流同时进入终端，因此本机落盘仍要脱敏。
+2. **`package-floor.json` 正文。** `ProcessResult.stdout` / `stderr` 继续 `exclude=True`。流式 overlap 缺口不进入公共报告正文。
+3. **报告 portable 字段。** 进入 dump 的 `FailureDetail.message`、`AvailableArtifact.locator` 和 `ProcessResult.start_error` 必须已经是公开值。`FailureDetail` 不得抄 `process.diagnostic()` 或未脱敏的 HTTPError 字符串；artifact locator 与 `SourceIdentity` 使用同一套公开 URL 规则（去掉 userinfo 和 query）。
 
 `SecretRedactor` 的单值 interface 保留；流式读取由 Process adapter 内部拥有，不把 chunk state 暴露给调用方。实现必须满足：
 
@@ -89,7 +93,7 @@ concat(redact_stream(chunks)) == redact(concat(chunks))
 
 上式按同一 UTF-8 replacement 规则比较，并对任意 chunk partition 成立。实现可以在内部保留未决前缀或先对组合窗口脱敏，但不得把可能属于 secret 的前缀提前交给 consumer。
 
-composition root 必须把本次运行实际使用的 credential literals 交给 `SecretRedactor`。credential 来源可以是 uv/index 的运行时认证配置或受支持环境变量；它们只存在于进程内。`ProcessSpec.environment` 继续只在运行时携带值，日志只记录变量名和 `***`。
+composition root 把本次运行实际装入的 credential literals 交给 `SecretRedactor`。来源只包括：进程内 `RegistryAccess` 持有的值，以及生产 `ProcessSpec.environment` 实际带入子进程的值。不扫描操作系统环境变量表。它们只存在于进程内。`ProcessSpec.environment` 继续只在运行时携带值，日志只记录变量名和 `***`。
 
 测试至少覆盖：
 
@@ -97,7 +101,10 @@ composition root 必须把本次运行实际使用的 credential literals 交给
 - URL userinfo 的 scheme、userinfo、`@` 分别跨 chunk；
 - 多字节 UTF-8 紧邻 secret；
 - 多个重叠 secret，以最长值优先；
-- stdout、stderr、listener、Output Cache、Process Log 四个观察面均无明文。
+- stdout、stderr、listener、Output Cache、Process Log 五个观察面均无明文；
+- `package-floor.json` dump 不含 stdout/stderr 正文；
+- 含 query token 的 PEP 691 file URL 写入 CandidateSnapshot 后 locator 不含 query 或 userinfo；
+- 由 `process.diagnostic()` 或 HTTPError 构造的 FailureDetail 不含 credential 或输出正文。
 
 ### 4.2 精确 Candidate artifact
 
@@ -118,7 +125,7 @@ SelectedCandidate = (dependency, version, artifact)
 
 `EnvironmentFactory.prepare` 的 probe 路径接收 selection，而不是只接收裸 vector；Attempt 的 `requested_managed_vector` 仍由 selection 投影得到。生产安装必须：
 
-- 使用 selection 中每个 artifact 的精确 locator；
+- 使用 selection 中每个 artifact 的精确 locator（公开 URL，不含 userinfo 或 query）；
 - 强制校验 SHA-256；
 - 遵守已选 wheel/sdist kind，不让 resolver 改选同版本其他构件；
 - 安装完成后检查实际解析图仍等于 requested vector；
@@ -153,7 +160,7 @@ final_vector
 事务分两个阶段。
 
 1. **Prepare：** 对全部 report 完成 complete authority、package/policy/source identity、projection 复核、TOML 渲染和重新解析；此阶段不得写用户文件。任何失败返回时 workspace 字节不变。
-2. **Commit：** 为全部会改变的文件写 backup 和一个 workspace recovery journal，再逐个原子 replace；全部文件替换后重新读取并做一次 ProjectLoader 验证。只有全部通过才提交并清理 backup。
+2. **Commit：** 为全部会改变的文件写 backup 和一个 workspace recovery journal，再逐个原子 replace；全部文件替换后重新读取 TOML，核对 package identity、声明位置和投影已应用。写后校验不调用 PythonMinorProvider、不启动 uv、不写 Process Log。只有全部通过才提交并清理 backup。
 
 Recovery journal 至少保存每个文件的相对路径、original digest、target digest、backup path 和事务状态：
 
@@ -169,7 +176,8 @@ PREPARED -> PROJECTS_REPLACED -> VALIDATED -> COMMITTED
 - 重启看到 original digest 视为该文件已回滚；看到 target digest 必须继续回滚，不得直接标记 COMMITTED；
 - 任一文件既非 original 也非 target，停止并报告未知用户修改，不覆盖；
 - 所有 target 已验证且 journal 已到 VALIDATED 才可恢复为 COMMITTED；
-- 无实际变更时保持幂等，不创建新的 recovery transaction。
+- 无实际变更时保持幂等，不创建新的 recovery transaction；
+- 无法解析或 `schema_version` 无法识别的旧 apply-recovery journal：fail closed，不标 COMMITTED，不覆盖用户文件。
 
 ### 4.5 ProjectDiscovery 与 canonical package identity
 
@@ -194,7 +202,7 @@ Explain / Diagnose 只依赖 ProjectDiscovery + ReportStore / DiagnosisLogLocato
 
 ### 4.6 Registry 认证与输入验证
 
-可移植 `SourceIdentity` 继续只保存公开 locator/index，不保存 userinfo、query token 或 credential。生产 registry adapter 另接收进程内 `RegistryAccess`，或复用 uv 的认证能力；该对象不得可序列化，也不得出现在错误 detail。
+可移植 `SourceIdentity` 继续只保存公开 locator/index，不保存 userinfo、query token 或 credential。生产 composition root 构造进程内 `RegistryAccess`，只交给 registry adapter 和 `SecretRedactor`。该对象不得可序列化，也不得出现在错误 detail。adapter 内部可以调用 uv 的认证能力，但那是 adapter 实现，不另开一条可序列化通道，CandidateBuilder 不学习认证协议。
 
 Registry adapter 是 true external seam。生产 HTTP/uv adapter 与测试 mock 都满足现有 query 行为，CandidateBuilder 不学习认证协议。
 
@@ -203,7 +211,7 @@ Adapter 在返回 `AvailableCandidate` 前完整验证：
 - Content-Length 是非负十进制且不超过上限；
 - JSON root 与 `files` 是正确类型；
 - 每个 file 是 mapping；filename/url/hash/requires-python/yanked 是允许类型；
-- locator 解析、hash、Version、SpecifierSet 和 artifact tag 错误都被捕获；
+- locator 解析、hash、Version、SpecifierSet 和 artifact tag 错误都被捕获；保存的 file URL 必须先变成公开 locator（与 `_public_url` 相同：去掉 userinfo 和 query）；
 - `HTTPError`、`URLError`、timeout、OSError、ValueError、TypeError、AttributeError 和 JSON/schema 错误统一包装成 InfrastructureError。
 
 认证失败不得回退到匿名不同来源；异常 detail 先脱敏再离开 adapter。
@@ -427,6 +435,7 @@ DiagnosisLogLocator 已声明 `lookup` / `lookup_run` / `read_latest_journal`；
 - target/original/unknown digest 三分支；
 - 写第 N 个 workspace member 失败时全部 rollback；
 - rollback 失败保留可人工恢复的 journal/backup；
+- 未知或无法解析的 recovery journal fail closed；
 - 重复 apply 幂等。
 
 ProjectEditor 不注入无状态 PackageReportBuilder。Projection 的一个实现已经是生产与测试共同 interface；若未来出现第二个真实 projection adapter，再另开 seam。
@@ -444,8 +453,9 @@ replace_associations / lookup / lookup_run
 
 ### 10.3 Registry / redaction / discovery
 
-- Registry mock 覆盖认证成功/失败、401、不合法 Content-Length、root/files/file/hash/url/requires-python 类型矩阵；
-- Redaction 只从 process/log public observation 断言，不调用私有 chunk helper；
+- Registry mock 覆盖认证成功/失败、401、不合法 Content-Length、root/files/file/hash/url/requires-python 类型矩阵，以及 file URL 带 userinfo/query 时保存公开 locator；
+- Redaction 只从 process/log/terminal public observation 断言，不调用私有 chunk helper；`package-floor.json` dump 断言不含 stdout/stderr；
+- FailureDetail 由 diagnostic 或 HTTPError 构造时，dump 后的 message 不含 credential 或输出正文；
 - ProjectDiscovery 覆盖 root/member/explicit path/selection、canonical duplicate、escape、离线无工具；
 - Explain / Diagnose 用会在任何外部调用时报错的 adapter 证明严格离线。
 
@@ -490,7 +500,8 @@ uv build
 
 | 规则 | 唯一所有者 |
 | --- | --- |
-| Secret 值与 URL userinfo 的机械脱敏 | D007；Process adapter 实现，本文补流式完成标准 |
+| Secret 值与 URL userinfo 的机械脱敏 | D007；Process adapter 实现，本文补流式完成标准与观察面 |
+| 报告 portable 字段中的公开 URL / FailureDetail | Registry adapter 与 FailurePolicy 调用方；dump 前必须已是公开值 |
 | Candidate eligibility / artifact selection | CandidateBuilder + CandidateSnapshot；安装必须消费 selection |
 | final evidence 闭环 / complete authority | CellSuccess / PackageFloorReportV1 validators |
 | workspace apply transaction / recovery | ProjectEditor.apply_many |
@@ -514,11 +525,11 @@ uv build
 | 全量门禁 | 本文 §12；落地后以 workflow 文件为执行证据 |
 | 命令、退出码、D001 §10 非目标 | D001 |
 
-落地后更新 D002 布局表，加入 `project_discovery.py`、`verification.py`、`coordinate_search.py`，并写明 terminal 可以是包。D002 不复制本文的函数签名。
+D002 布局表已加入 `project_discovery.py`、`verification.py`、`coordinate_search.py` 与 `pf.terminal` 包；D002 不复制本文的行为契约。
 
 ## 14. 对现行契约的取代
 
-落地本文后，下列 D002 条款作废或收窄：
+本文落地后，下列旧 D002 条款已作废或收窄：
 
 - §3：search.py 同时拥有算法与 coordinator；业务 Rich 只能在单文件 terminal.py；
 - §6.2：Check / Smoke / Search 各自拥有完整 schedule + Journal 循环；Explain / Diagnose 都必须依赖完整 ProjectLoader；
@@ -536,6 +547,10 @@ D001、D003、D004、D005、D006、D007 的产品、算法、展示和保密语�
 ## 15. 被拒绝的方案
 
 - **先做纯重构再修授权/保密缺口。** P0 是现行契约，优先级高于 locality 优化。
+- **因为 `.pf/` 是本机文件而省略日志脱敏。** `.pf/` 不进 git，但 v1 不删除日志，diagnose 会打开它，且同一条流进入终端。
+- **用流式 redactor 扫描 `package-floor.json`。** 报告不含 stdout/stderr 正文；报告凭据面是 FailureDetail 和 artifact locator。
+- **扫描操作系统环境变量表收集 secret。** 只注入本次运行实际装入 RegistryAccess 和 ProcessSpec.environment 的值。
+- **Apply 写后走完整 ProjectLoader。** apply 不解析环境；写后只核对 TOML 与 package identity。
 - **11 参数自由函数 `run_verification(...)`。** 它透传稳定依赖，是浅 wrapper；使用构造时注入的 VerificationRunner。
 - **把 Check / Search Protocol 合成一个宽 Protocol。** Consumer 使用的能力不同，测试 adapter 是真实变化点。
 - **让 Explain / Diagnose 共享完整 ProjectLoader。** 未配置 Python 时会启动 uv，违反离线读取契约；共享 ProjectDiscovery。
@@ -552,10 +567,12 @@ D001、D003、D004、D005、D006、D007 的产品、算法、展示和保密语�
 
 ## 16. 验证契约
 
-- Secret 或 URL userinfo 位于任意 process stream chunk 边界时，listener、Output Cache、Process Log 和异常 detail 都不出现明文；
+- Secret 或 URL userinfo 位于任意 process stream chunk 边界时，listener、Output Cache、Process Log 和终端末行都不出现明文；
+- `package-floor.json` dump 不含 stdout/stderr；FailureDetail.message 不含 credential 或进程输出正文；AvailableArtifact.locator 不含 userinfo 或 query；
+- composition root 交给 SecretRedactor 的 literals 仅来自本次运行的 RegistryAccess 与 ProcessSpec.environment；
 - 每个 exact-vector Attempt 的安装输入可唯一回到 CandidateSnapshot 的 artifact locator/hash/kind；
 - 只改 report 中 final vector、terminal search、ProbePass、Attempt、Proposal、Evaluation 或 projection 任一处都会验证失败；
-- 任一单包/workspace 写后验证失败，所有 pyproject bytes 恢复为调用前值；
+- 任一单包/workspace 写后验证失败，所有 pyproject bytes 恢复为调用前值；写后校验不启动 Python provider；未知 recovery schema fail closed；
 - 两个 workspace member 使用相同 canonical package name 时，ProjectDiscovery 在 workflow 前失败；
 - Explain / Diagnose 在未配置 Python minor 时也不调用 PythonMinorProvider 或任何外部工具；
 - Journal v2 package policies 唯一并精确覆盖 packages，entry scope policy 与所属 package 相等；
@@ -573,7 +590,7 @@ D001、D003、D004、D005、D006、D007 的产品、算法、展示和保密语�
 
 ## 17. 实施顺序
 
-1. **安全与授权：** redaction chunk tests → CellSuccess/report 防篡改 tests → apply rollback/workspace transaction tests → 修实现。
+1. **安全与授权：** redaction chunk tests → report dump 无 stdout、FailureDetail 无正文、artifact locator 为公开 URL → CellSuccess/report 防篡改 tests → apply rollback/workspace transaction tests（含未知 recovery schema、写后不启动 uv）→ 修实现。
 2. **证据执行：** artifact selection 映射 → 精确安装/hash → registry 认证/输入矩阵。
 3. **发现与门禁：** ProjectDiscovery + duplicate names + Explain/Diagnose 离线；CI matrix + Ruff/ty/pytest/build。
 4. **持久化 identity：** Journal v2 + v1 reader + RunLogStore 独立测试。
@@ -588,7 +605,7 @@ D001、D003、D004、D005、D006、D007 的产品、算法、展示和保密语�
 
 ## 18. 不变量
 
-1. 凭据不进入任何持久化、portable schema、terminal 或 exception detail。
+1. 凭据不进入 Process Log、Output Cache、终端、FailureDetail、artifact locator 或 exception detail。`package-floor.json` 继续不含 stdout/stderr 正文。
 2. Candidate artifact evidence 与 exact-vector 执行是同一选择。
 3. Apply 只消费闭合的 PASS evidence，失败不改变用户元数据。
 4. Canonical package name 在一个 ProjectPlan / VerificationRun 内唯一。
@@ -638,3 +655,11 @@ Workspace package config 可以不同；第一包不能代表整个 Verification
 ### D9：产品范围继续守住 D001 §10（已确认）
 
 本轮修复既有证据、保密和恢复保证；不借机加入算法野心或新命令。
+
+### D10：脱敏按观察面分开（已确认）
+
+进程流、`package-floor.json` 正文和报告 portable 字段是三条缝。`.pf/` 本机且 gitignore 不取消日志脱敏；报告没有输出正文也不等于报告没有凭据字段。
+
+### D11：Apply 写后不解析环境（已确认）
+
+D001 规定 apply 不解析环境、不运行 ty 或测试。写后校验只确认刚写入的 TOML 与 package identity。未知旧 recovery journal fail closed，避免把历史 target 误标为已提交。

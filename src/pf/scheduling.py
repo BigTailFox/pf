@@ -26,8 +26,12 @@ from pf.schemas.evaluation import (
     ToolFailure,
     TyDiagnostic,
 )
-from pf.schemas.project import Cell
+from pf.schemas.project import Cell, cell_identity
 from pf.schemas.report import CellIndeterminate, CellSearchFailure, CellSuccess
+
+
+def cell_schedule_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
+    return cell_identity(cell)
 
 
 class ProgressConsumer(Protocol):
@@ -35,7 +39,8 @@ class ProgressConsumer(Protocol):
 
 
 class HasStatus(Protocol):
-    status: str
+    @property
+    def status(self) -> str: ...
 
 
 T = TypeVar("T", bound=HasStatus)
@@ -150,7 +155,7 @@ class Scheduler:
             result
             for _, result in sorted(
                 completed_items,
-                key=lambda item: self._cell_key(item[0]),
+                key=lambda item: cell_schedule_key(item[0]),
             )
         )
 
@@ -181,7 +186,7 @@ class Scheduler:
 
     @staticmethod
     def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
-        return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
+        return cell_schedule_key(cell)
 
 
 def _completion_progress(

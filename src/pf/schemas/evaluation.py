@@ -680,8 +680,70 @@ class VerificationJournalEntry(FrozenSchema):
     attempt: Attempt | None = None
     failure: FailureRecord
 
+    @model_validator(mode="after")
+    def validate_entry_identity(self) -> "VerificationJournalEntry":
+        if self.package != self.cell.package:
+            raise ValueError("journal entry package must match its cell")
+        scope = self.failure.scope
+        if isinstance(scope, AttemptFailureScope):
+            if self.attempt != scope.attempt:
+                raise ValueError("journal entry attempt must match its failure scope")
+            if scope.attempt.identity.cell != self.cell:
+                raise ValueError("journal entry cell must match its attempt")
+        else:
+            if self.attempt is not None:
+                raise ValueError("cell-scoped journal entry cannot contain an attempt")
+            if scope.cell != self.cell or scope.package != self.package:
+                raise ValueError("journal entry cell must match its failure scope")
+        return self
+
+
+class VerificationPackagePolicy(FrozenSchema):
+    package: str
+    evaluation_policy_identity: str
+
 
 class VerificationJournal(FrozenSchema):
+    schema_version: Literal["verification-journal-v2"] = "verification-journal-v2"
+    run_id: str
+    command: Literal["smoke", "check", "search"]
+    source_snapshot_digest: str
+    package_policies: tuple[VerificationPackagePolicy, ...]
+    entries: tuple[VerificationJournalEntry, ...]
+
+    @property
+    def packages(self) -> tuple[str, ...]:
+        return tuple(item.package for item in self.package_policies)
+
+    @model_validator(mode="after")
+    def validate_package_policies(self) -> "VerificationJournal":
+        packages = self.packages
+        if not packages or packages != tuple(sorted(set(packages))):
+            raise ValueError("journal package policies must be sorted and unique")
+        policies = {
+            item.package: item.evaluation_policy_identity
+            for item in self.package_policies
+        }
+        for entry in self.entries:
+            policy = policies.get(entry.package)
+            if policy is None:
+                raise ValueError("journal entry package has no policy identity")
+            scope = entry.failure.scope
+            if isinstance(scope, AttemptFailureScope):
+                identity = scope.attempt.identity
+                entry_policy = identity.evaluation_policy_identity
+                snapshot_digest = identity.source_snapshot_digest
+            else:
+                entry_policy = scope.evaluation_policy_identity
+                snapshot_digest = scope.source_snapshot_digest
+            if entry_policy != policy:
+                raise ValueError("journal entry policy identity does not match package")
+            if snapshot_digest != self.source_snapshot_digest:
+                raise ValueError("journal entry snapshot does not match its run")
+        return self
+
+
+class VerificationJournalV1(FrozenSchema):
     schema_version: Literal["verification-journal-v1"] = "verification-journal-v1"
     run_id: str
     command: Literal["smoke", "check", "search"]
@@ -689,6 +751,9 @@ class VerificationJournal(FrozenSchema):
     source_snapshot_digest: str
     evaluation_policy_identity: str
     entries: tuple[VerificationJournalEntry, ...]
+
+
+VerificationJournalRecord = VerificationJournal | VerificationJournalV1
 
 
 class HighestVersionPass(FrozenSchema):

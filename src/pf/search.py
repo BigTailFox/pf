@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal, NoReturn, Protocol
+import re
+from typing import Literal, Protocol
 
-from packaging.version import Version
-
-from pf.baseline import HighestVersionVerifier
+from pf.coordinate_search import CoordinateSearch
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.environment import PreparedEnvironment
 from pf.evaluation import EvaluationCache, require_full_evaluation_contract
@@ -39,6 +37,7 @@ from pf.schemas.project import (
     CandidateSnapshot,
     Cell,
     PackagePlan,
+    SelectedCandidate,
     VersionPin,
 )
 from pf.schemas.report import (
@@ -46,9 +45,7 @@ from pf.schemas.report import (
     CellResult,
     CellSearchFailure,
     CellSuccess,
-    CoordinateBoundary,
     CoordinateFailure,
-    CoordinateOutcome,
     CoordinateSuccess,
     ProbeEvidence,
     ProbeIndeterminate,
@@ -59,301 +56,49 @@ from pf.schemas.report import (
 from pf.snapshot import SourceSnapshot
 
 
-class VectorEvaluator(Protocol):
-    def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence: ...
-
-
-@dataclass
-class _SearchStopped(Exception):
-    result: CoordinateFailure
-
-
-@dataclass(frozen=True)
-class _KnownPass:
-    status: Literal["PASS"] = "PASS"
-
-
-SearchEvidence = ProbeEvidence | _KnownPass
-
-
-class CoordinateSearch:
-    """Find a deterministic coordinate fixpoint over frozen discrete versions."""
-
-    def __init__(self, *, small_threshold: int = 8) -> None:
-        if small_threshold < 1:
-            raise ValueError("small_threshold must be positive")
-        self.small_threshold = small_threshold
-
-    def minimize(
-        self,
-        *,
-        start: tuple[VersionPin, ...],
-        candidates: tuple[CandidateSnapshot, ...],
-        evaluator: VectorEvaluator,
-        hints: tuple[VersionPin, ...] = (),
-        start_is_known_pass: bool = False,
-    ) -> CoordinateOutcome:
-        self._evaluator = evaluator
-        self._evidence_cache: dict[tuple[tuple[str, str], ...], ProbeEvidence] = {}
-        self._observations: list[ProbeObservation] = []
-        self._observation_keys: set[tuple[str | None, tuple[tuple[str, str], ...]]] = (
-            set()
+def select_probe(
+    vector: tuple[VersionPin, ...],
+    snapshots: tuple[CandidateSnapshot, ...],
+) -> tuple[SelectedCandidate, ...]:
+    """Bind an exact vector to the frozen artifact selected for each version."""
+    vector_by_name = {pin.name: pin.version for pin in vector}
+    snapshot_by_name = {snapshot.dependency: snapshot for snapshot in snapshots}
+    if len(vector_by_name) != len(vector) or len(snapshot_by_name) != len(snapshots):
+        raise ConfigurationError("probe dependencies must be unique")
+    if set(vector_by_name) != set(snapshot_by_name):
+        raise ConfigurationError(
+            "probe vector and candidate snapshots must cover the same dependencies"
         )
-        self._slice_observations: dict[
-            tuple[str, tuple[tuple[str, str], ...]], dict[Version, str]
-        ] = {}
-        snapshot_by_name = {snapshot.dependency: snapshot for snapshot in candidates}
-        current = {pin.name: pin.version for pin in start}
-        if tuple(sorted(current)) != tuple(snapshot_by_name):
+    selected: list[SelectedCandidate] = []
+    for dependency in sorted(vector_by_name):
+        matches = tuple(
+            candidate
+            for candidate in snapshot_by_name[dependency].candidates
+            if candidate.version == vector_by_name[dependency]
+        )
+        if len(matches) != 1:
             raise ConfigurationError(
-                "start vector and candidate coordinates must match"
+                f"probe version is not uniquely frozen for dependency: {dependency}"
             )
-        hint_by_name = {pin.name: pin.version for pin in hints}
-        self._known_pass_keys = (
-            {tuple((pin.name, pin.version) for pin in self._vector(current))}
-            if start_is_known_pass
-            else set()
-        )
-        try:
-            baseline = self._probe(current, dependency=None)
-            if baseline.status != "PASS":
-                return CoordinateFailure(
-                    status="NONDETERMINISTIC",
-                    observations=tuple(self._observations),
-                )
-            sweeps = 0
-            final_boundaries: dict[str, CoordinateBoundary] = {}
-            while True:
-                sweeps += 1
-                changed = False
-                round_boundaries: dict[str, CoordinateBoundary] = {}
-                for dependency in sorted(snapshot_by_name):
-                    floor, boundary = self._find_floor(
-                        current=current,
-                        snapshot=snapshot_by_name[dependency],
-                        hint=hint_by_name.get(dependency),
-                    )
-                    round_boundaries[dependency] = boundary
-                    if Version(floor) < Version(current[dependency]):
-                        current[dependency] = floor
-                        changed = True
-                final_boundaries = round_boundaries
-                if not changed:
-                    break
-            return CoordinateSuccess(
-                vector=self._vector(current),
-                observations=tuple(self._observations),
-                boundaries=tuple(
-                    final_boundaries[name] for name in sorted(final_boundaries)
-                ),
-                sweeps=sweeps,
+        candidate = matches[0]
+        artifact = candidate.artifact
+        if (
+            not artifact.filename.strip()
+            or artifact.locator is None
+            or not artifact.locator.strip()
+            or re.fullmatch(r"sha256:[0-9a-fA-F]{64}", artifact.content_hash) is None
+        ):
+            raise ConfigurationError(
+                f"probe artifact is incomplete for dependency: {dependency}"
             )
-        except _SearchStopped as stopped:
-            return stopped.result
-
-    def _find_floor(
-        self,
-        *,
-        current: dict[str, str],
-        snapshot: CandidateSnapshot,
-        hint: str | None,
-    ) -> tuple[str, CoordinateBoundary]:
-        dependency = snapshot.dependency
-        current_version = Version(current[dependency])
-        versions = [
-            Version(candidate.version)
-            for candidate in snapshot.candidates
-            if Version(candidate.version) <= current_version
-        ]
-        if not versions:
-            self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
-        if versions[0] == current_version:
-            return str(current_version), CoordinateBoundary(
+        selected.append(
+            SelectedCandidate(
                 dependency=dependency,
-                floor=str(current_version),
-            )
-
-        probe_hint = versions[0]
-        if hint is not None:
-            requested = Version(hint)
-            eligible_hints = [version for version in versions if version <= requested]
-            if eligible_hints:
-                probe_hint = eligible_hints[-1]
-        hint_evidence = self._probe_version(current, dependency, probe_hint)
-        if hint_evidence.status == "PASS":
-            if probe_hint == versions[0]:
-                floor = probe_hint
-            else:
-                earliest_evidence = self._probe_version(
-                    current, dependency, versions[0]
-                )
-                if earliest_evidence.status == "PASS":
-                    floor = versions[0]
-                else:
-                    floor = self._locate(
-                        current=current,
-                        dependency=dependency,
-                        points=[
-                            version
-                            for version in versions
-                            if versions[0] <= version <= probe_hint
-                        ],
-                        low=versions[0],
-                        high=probe_hint,
-                    )
-        else:
-            points = [version for version in versions if version >= probe_hint]
-            high_evidence = self._probe_version(current, dependency, current_version)
-            if high_evidence.status != "PASS":
-                self._stop("NONDETERMINISTIC", dependency=dependency)
-            floor = self._locate(
-                current=current,
-                dependency=dependency,
-                points=points,
-                low=probe_hint,
-                high=current_version,
-            )
-        if floor is None or floor not in versions:
-            self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
-        index = versions.index(floor)
-        if index == 0:
-            boundary = CoordinateBoundary(
-                dependency=dependency,
-                floor=str(floor),
-            )
-        else:
-            predecessor = versions[index - 1]
-            evidence = self._probe_version(current, dependency, predecessor)
-            if not isinstance(evidence, ProbeRejection):
-                self._stop("NONDETERMINISTIC", dependency=dependency)
-            boundary = CoordinateBoundary(
-                dependency=dependency,
-                floor=str(floor),
-                predecessor=str(predecessor),
-                predecessor_failure_id=evidence.failure_id,
-            )
-        return str(floor), boundary
-
-    def _locate(
-        self,
-        *,
-        current: dict[str, str],
-        dependency: str,
-        points: list[Version],
-        low: Version,
-        high: Version,
-    ) -> Version | None:
-        low_index = points.index(low)
-        virtual_high = high not in points
-        high_index = len(points) if virtual_high else points.index(high)
-        if high_index - low_index <= self.small_threshold:
-            candidate_high = min(high_index, len(points) - 1)
-            for version in points[low_index + 1 : candidate_high + 1]:
-                evidence = self._probe_version(current, dependency, version)
-                if evidence.status == "PASS":
-                    return version
-            return None if virtual_high else points[high_index]
-        while high_index - low_index > 1:
-            middle = (low_index + high_index) // 2
-            evidence = self._probe_version(current, dependency, points[middle])
-            if evidence.status == "PASS":
-                high_index = middle
-            else:
-                low_index = middle
-        return None if high_index == len(points) else points[high_index]
-
-    def _probe_version(
-        self,
-        current: dict[str, str],
-        dependency: str,
-        version: Version,
-    ) -> SearchEvidence:
-        vector = dict(current)
-        vector[dependency] = str(version)
-        return self._probe(vector, dependency=dependency)
-
-    def _probe(
-        self,
-        versions: dict[str, str],
-        *,
-        dependency: str | None,
-    ) -> SearchEvidence:
-        vector = self._vector(versions)
-        vector_key = tuple((pin.name, pin.version) for pin in vector)
-        if vector_key in self._known_pass_keys:
-            return _KnownPass()
-        evidence = self._evidence_cache.get(vector_key)
-        if evidence is None:
-            evidence = self._evaluator.evaluate(vector)
-            self._evidence_cache[vector_key] = evidence
-        observation_key = (dependency, vector_key)
-        if observation_key not in self._observation_keys:
-            self._observation_keys.add(observation_key)
-            candidate_version = versions[dependency] if dependency is not None else None
-            self._observations.append(
-                ProbeObservation(
-                    dependency=dependency,
-                    candidate_version=candidate_version,
-                    vector=vector,
-                    evidence=evidence,
-                )
-            )
-        if isinstance(evidence, ProbeIndeterminate):
-            self._stop(
-                "INDETERMINATE",
-                dependency=dependency,
-                failure_id=evidence.failure_id,
-            )
-        if dependency is not None:
-            slice_key = (
-                dependency,
-                tuple(
-                    (name, version)
-                    for name, version in vector_key
-                    if name != dependency
-                ),
-            )
-            points = self._slice_observations.setdefault(slice_key, {})
-            points[Version(versions[dependency])] = evidence.status
-            for low, low_status in points.items():
-                for high, high_status in points.items():
-                    if (
-                        low < high
-                        and low_status == "PASS"
-                        and high_status == "REJECTED"
-                    ):
-                        self._stop(
-                            "NON_MONOTONIC",
-                            dependency=dependency,
-                            counterexample=(str(low), str(high)),
-                        )
-        return evidence
-
-    def _stop(
-        self,
-        status: str,
-        *,
-        dependency: str | None,
-        counterexample: tuple[str, str] | None = None,
-        failure_id: str | None = None,
-    ) -> NoReturn:
-        raise _SearchStopped(
-            CoordinateFailure.model_validate(
-                {
-                    "status": status,
-                    "dependency": dependency,
-                    "observations": tuple(self._observations),
-                    "counterexample": counterexample,
-                    "failure_id": failure_id,
-                }
+                version=candidate.version,
+                artifact=artifact,
             )
         )
-
-    @staticmethod
-    def _vector(versions: dict[str, str]) -> tuple[VersionPin, ...]:
-        return tuple(
-            VersionPin(name=name, version=versions[name]) for name in sorted(versions)
-        )
+    return tuple(selected)
 
 
 class SearchEnvironmentOperations(Protocol):
@@ -364,7 +109,7 @@ class SearchEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
-        managed_vector: tuple[VersionPin, ...] | None = None,
+        selection: tuple[SelectedCandidate, ...] | None = None,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -447,6 +192,7 @@ class _ProposalRunner:
         cell: Cell,
         snapshot: SourceSnapshot,
         static_baseline: StaticBaseline,
+        candidate_snapshots: tuple[CandidateSnapshot, ...],
         diagnostics: SearchDiagnosticConsumer | None = None,
         failures: FailurePolicy | None = None,
     ) -> None:
@@ -457,6 +203,7 @@ class _ProposalRunner:
         self._cell = cell
         self._snapshot = snapshot
         self._static_baseline = static_baseline
+        self._candidate_snapshots = candidate_snapshots
         self._diagnostics = diagnostics
         self._failures = failures or FailurePolicy()
         self._failure_records: dict[str, FailureRecord] = {}
@@ -482,39 +229,40 @@ class _ProposalRunner:
         if isinstance(prepared, PrepareFailure):
             return self._prepare_evidence(prepared)
         assert prepared.attempt is not None
-        cached = self._cache.get_static(
-            prepared.proposal.proposal_id,
-            baseline_digest=self._static_baseline.digest,
-        )
-        if cached is None:
-            result = self._static.evaluate(
-                prepared,
-                package=self._package,
-                baseline=self._static_baseline,
-            )
-            stored = self._cache.record_static(
-                result,
+        try:
+            cached = self._cache.get_static(
+                prepared.proposal.proposal_id,
                 baseline_digest=self._static_baseline.digest,
             )
-            if isinstance(stored, CacheConflict):
-                prepared.close()
-                self._prepared.pop(key, None)
-                return self._indeterminate_evidence(
-                    attempt=prepared.attempt,
-                    proposal_id=prepared.proposal.proposal_id,
-                    stage="static-cache",
-                    detail=FailureDetail(
-                        code="conflicting-static-evaluation",
-                        message="the same proposal produced conflicting static results",
-                    ),
+            if cached is None:
+                result = self._static.evaluate(
+                    prepared,
+                    package=self._package,
+                    baseline=self._static_baseline,
                 )
-        else:
-            result = cached
-        evidence = self._static_evidence(prepared, result)
-        if not isinstance(result, StaticPassEvaluation):
+                stored = self._cache.record_static(
+                    result,
+                    baseline_digest=self._static_baseline.digest,
+                )
+                if isinstance(stored, CacheConflict):
+                    return self._indeterminate_evidence(
+                        attempt=prepared.attempt,
+                        proposal_id=prepared.proposal.proposal_id,
+                        stage="static-cache",
+                        detail=FailureDetail(
+                            code="conflicting-static-evaluation",
+                            message=(
+                                "the same proposal produced conflicting static "
+                                "results"
+                            ),
+                        ),
+                    )
+            else:
+                result = cached
+            return self._static_evidence(prepared, result)
+        finally:
             prepared.close()
             self._prepared.pop(key, None)
-        return evidence
 
     def evaluate_full(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
         key = self._key(vector)
@@ -525,37 +273,39 @@ class _ProposalRunner:
         if isinstance(prepared, PrepareFailure):
             return self._prepare_evidence(prepared)
         assert prepared.attempt is not None
-        static = self._cache.get_static(
-            prepared.proposal.proposal_id,
-            baseline_digest=self._static_baseline.digest,
-        )
-        result = self._full.evaluate(
-            prepared,
-            package=self._package,
-            baseline=self._static_baseline,
-            static_result=static,
-        )
-        stored = self._cache.record_full(
-            result,
-            baseline_digest=self._static_baseline.digest,
-        )
-        if isinstance(stored, CacheConflict):
-            evidence = self._indeterminate_evidence(
-                attempt=prepared.attempt,
-                proposal_id=prepared.proposal.proposal_id,
-                stage="full-cache",
-                detail=FailureDetail(
-                    code="conflicting-full-evaluation",
-                    message="the same proposal produced conflicting full results",
-                ),
+        try:
+            static = self._cache.get_static(
+                prepared.proposal.proposal_id,
+                baseline_digest=self._static_baseline.digest,
             )
-        else:
-            self._evaluations[key] = stored
-            evidence = self._full_evidence(prepared, stored)
-        self._full_evidence_by_key[key] = evidence
-        prepared.close()
-        self._prepared.pop(key, None)
-        return evidence
+            result = self._full.evaluate(
+                prepared,
+                package=self._package,
+                baseline=self._static_baseline,
+                static_result=static,
+            )
+            stored = self._cache.record_full(
+                result,
+                baseline_digest=self._static_baseline.digest,
+            )
+            if isinstance(stored, CacheConflict):
+                evidence = self._indeterminate_evidence(
+                    attempt=prepared.attempt,
+                    proposal_id=prepared.proposal.proposal_id,
+                    stage="full-cache",
+                    detail=FailureDetail(
+                        code="conflicting-full-evaluation",
+                        message="the same proposal produced conflicting full results",
+                    ),
+                )
+            else:
+                self._evaluations[key] = stored
+                evidence = self._full_evidence(prepared, stored)
+            self._full_evidence_by_key[key] = evidence
+            return evidence
+        finally:
+            prepared.close()
+            self._prepared.pop(key, None)
 
     def full_evaluation(self, vector: tuple[VersionPin, ...]) -> Evaluation | None:
         return self._evaluations.get(self._key(vector))
@@ -612,7 +362,7 @@ class _ProposalRunner:
             cell=self._cell,
             snapshot=self._snapshot,
             resolution="highest",
-            managed_vector=vector,
+            selection=select_probe(vector, self._candidate_snapshots),
         )
         if isinstance(prepared, PrepareFailure):
             self._prepare_failures[key] = prepared
@@ -655,23 +405,20 @@ class _ProposalRunner:
         assert prepared.attempt is not None
         if isinstance(result, StaticPassEvaluation):
             return self._pass_evidence(prepared.attempt, result)
-        if isinstance(result, StaticFailEvaluation):
-            return self._failure_evidence(
-                attempt=prepared.attempt,
-                proposal_id=result.proposal.proposal_id,
-                cause="STATIC_REGRESSION",
-                stage="ty",
-                process=result.ty.process,
-                evaluation=result,
-            )
+        failure = self._failures.classify_evaluation(
+            AttemptFailureScope(attempt=prepared.attempt),
+            result,
+        )
+        assert failure is not None
         return self._failure_evidence(
             attempt=prepared.attempt,
             proposal_id=result.proposal.proposal_id,
-            cause=result.cause,
-            stage=result.failure.stage,
-            process=result.failure.process,
-            summary_code=result.failure.summary_code,
+            cause=failure.cause,
+            stage=failure.stage,
+            process=failure.process,
+            summary_code=failure.summary_code,
             evaluation=result,
+            record=failure,
         )
 
     def _full_evidence(
@@ -682,32 +429,20 @@ class _ProposalRunner:
         assert prepared.attempt is not None
         if isinstance(result, PassEvaluation):
             return self._pass_evidence(prepared.attempt, result)
-        if isinstance(result, StaticFailEvaluation):
-            return self._failure_evidence(
-                attempt=prepared.attempt,
-                proposal_id=result.proposal.proposal_id,
-                cause="STATIC_REGRESSION",
-                stage="ty",
-                process=result.ty.process,
-                evaluation=result,
-            )
-        if isinstance(result, TestFailEvaluation):
-            return self._failure_evidence(
-                attempt=prepared.attempt,
-                proposal_id=result.proposal.proposal_id,
-                cause="TEST_FAILURE",
-                stage="test",
-                process=result.test.process,
-                evaluation=result,
-            )
+        failure = self._failures.classify_evaluation(
+            AttemptFailureScope(attempt=prepared.attempt),
+            result,
+        )
+        assert failure is not None
         return self._failure_evidence(
             attempt=prepared.attempt,
             proposal_id=result.proposal.proposal_id,
-            cause=result.cause,
-            stage=result.failure.stage,
-            process=result.failure.process,
-            summary_code=result.failure.summary_code,
+            cause=failure.cause,
+            stage=failure.stage,
+            process=failure.process,
+            summary_code=failure.summary_code,
             evaluation=result,
+            record=failure,
         )
 
     @staticmethod
@@ -738,8 +473,9 @@ class _ProposalRunner:
         | None,
         summary_code: str | None = None,
         detail: FailureDetail | None = None,
+        record: FailureRecord | None = None,
     ) -> ProbeEvidence:
-        failure = self._failures.classify(
+        failure = record or self._failures.classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause=cause,
             stage=stage,
@@ -811,8 +547,8 @@ class SearchCoordinator:
         candidates: CandidateOperations,
         static: StaticOperations,
         full: FullOperations,
-        highest: HighestOperations | None = None,
-        coordinate_search: CoordinateSearch | None = None,
+        highest: HighestOperations,
+        coordinate_search: CoordinateSearch,
         diagnostics: SearchDiagnosticConsumer | None = None,
         failures: FailurePolicy | None = None,
     ) -> None:
@@ -821,16 +557,9 @@ class SearchCoordinator:
         self._static = static
         self._full = full
         self._failures = failures or FailurePolicy()
-        self._highest = highest or HighestVersionVerifier(
-            environments=environments,
-            static=static,
-            full=full,
-            failures=self._failures,
-        )
+        self._highest = highest
         self._diagnostics = diagnostics
-        self._coordinate_threshold = (
-            coordinate_search.small_threshold if coordinate_search is not None else 8
-        )
+        self._coordinate_search = coordinate_search
 
     def search(
         self,
@@ -854,7 +583,7 @@ class SearchCoordinator:
                 cell=cell,
                 baseline=baseline_evaluation.proposal.managed_vector,
             )
-        except InfrastructureError as error:
+        except InfrastructureError:
             failure = self._failures.classify(
                 scope=CellFailureScope(
                     package=package.name,
@@ -867,9 +596,7 @@ class SearchCoordinator:
                 process=None,
                 detail=FailureDetail(
                     code="candidate-discovery-failed",
-                    message=(
-                        f"{error}: {error.detail}" if error.detail else str(error)
-                    ),
+                    message="candidate discovery failed",
                 ),
             )
             return CellIndeterminate(
@@ -898,13 +625,12 @@ class SearchCoordinator:
             cell=cell,
             snapshot=snapshot,
             static_baseline=capture.baseline,
+            candidate_snapshots=candidate_snapshots,
             diagnostics=self._diagnostics,
             failures=self._failures,
         )
         try:
-            static_search = CoordinateSearch(
-                small_threshold=self._coordinate_threshold
-            ).minimize(
+            static_search = self._coordinate_search.minimize(
                 start=baseline_evaluation.proposal.managed_vector,
                 candidates=candidate_snapshots,
                 evaluator=_StaticVectorEvaluator(runner),
@@ -976,9 +702,7 @@ class SearchCoordinator:
                     ),
                     failure_records=runner.failure_records,
                 )
-            dynamic_search = CoordinateSearch(
-                small_threshold=self._coordinate_threshold
-            ).minimize(
+            dynamic_search = self._coordinate_search.minimize(
                 start=baseline_evaluation.proposal.managed_vector,
                 candidates=candidate_snapshots,
                 evaluator=_FullVectorEvaluator(runner),

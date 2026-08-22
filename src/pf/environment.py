@@ -25,7 +25,13 @@ from pf.schemas.evaluation import (
     ToolFailure,
     ToolOutcome,
 )
-from pf.schemas.project import Cell, PackagePlan, Proposal, VersionPin
+from pf.schemas.project import (
+    Cell,
+    PackagePlan,
+    Proposal,
+    SelectedCandidate,
+    VersionPin,
+)
 from pf.snapshot import SourceSnapshot
 
 
@@ -66,6 +72,7 @@ class UvOperations(Protocol):
         extra_surface: tuple[str, ...],
         resolution: Literal["highest", "lowest-direct"],
         timeout_seconds: int | None,
+        selection: tuple[SelectedCandidate, ...] | None = None,
     ) -> ToolOutcome: ...
 
     def inspect_interpreter(
@@ -142,7 +149,14 @@ class EnvironmentFactory:
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
         managed_vector: tuple[VersionPin, ...] | None = None,
+        selection: tuple[SelectedCandidate, ...] | None = None,
     ) -> PreparedEnvironment | PrepareFailure:
+        if managed_vector is not None and selection is not None:
+            raise ConfigurationError(
+                "exact-vector prepare cannot receive both vector and selection"
+            )
+        if selection is not None:
+            managed_vector = self._selection_vector(selection)
         attempt = self._attempt(
             package=package,
             cell=cell,
@@ -206,6 +220,7 @@ class EnvironmentFactory:
                 package=package_root,
                 extra_surface=cell.extra_surface,
                 resolution=resolution,
+                selection=selection,
                 timeout_seconds=package.config.resolve_timeout,
             )
             if isinstance(install, ToolFailure):
@@ -286,6 +301,15 @@ class EnvironmentFactory:
             actual_vector = tuple(
                 VersionPin(name=name, version=installed[name]) for name in managed_names
             )
+            if managed_vector is not None and actual_vector != managed_vector:
+                temporary_directory.cleanup()
+                return failed(
+                    ToolFailure(
+                        cause="INTERNAL_INVARIANT",
+                        stage="proposal-vector",
+                        process=graph.process,
+                    )
+                )
             policy_identity = evaluation_policy_identity(package.config)
             proposal_data = {
                 "snapshot_digest": snapshot.identity.digest,
@@ -336,6 +360,20 @@ class EnvironmentFactory:
         except Exception:
             temporary_directory.cleanup()
             raise
+
+    @staticmethod
+    def _selection_vector(
+        selection: tuple[SelectedCandidate, ...],
+    ) -> tuple[VersionPin, ...]:
+        names = tuple(item.dependency for item in selection)
+        if names != tuple(sorted(set(names))):
+            raise ConfigurationError(
+                "artifact selection dependencies must be sorted and unique"
+            )
+        return tuple(
+            VersionPin(name=item.dependency, version=item.version)
+            for item in selection
+        )
 
     @staticmethod
     def _attempt(

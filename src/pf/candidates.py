@@ -18,6 +18,7 @@ from pf.schemas.project import (
     PackagePlan,
     SourceIdentity,
     VersionPin,
+    candidate_snapshot_digest,
 )
 
 
@@ -153,24 +154,14 @@ class CandidateBuilder:
             representatives_record = tuple(
                 (candidate.series_key, candidate.version) for candidate in candidates
             )
-            identity = {
-                "dependency": dependency,
-                "cell": cell.model_dump(mode="json"),
-                "policy_identity": policy_identity,
-                "source": source.model_dump(mode="json"),
-                "candidates": [
-                    candidate.model_dump(mode="json") for candidate in candidates
-                ],
-                "series_representatives": representatives_record,
-            }
-            digest = hashlib.sha256(
-                b"pf:candidate-snapshot:v1\0"
-                + json.dumps(
-                    identity,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode()
-            ).hexdigest()
+            digest = candidate_snapshot_digest(
+                dependency=dependency,
+                cell=cell,
+                policy_identity=policy_identity,
+                source=source,
+                candidates=candidates,
+                series_representatives=representatives_record,
+            )
             snapshots.append(
                 CandidateSnapshot(
                     dependency=dependency,
