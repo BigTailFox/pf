@@ -6,19 +6,23 @@ import tempfile
 import pytest
 
 from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
-from pf.evaluation import FullEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
     CellStageEvent,
+    DiagnosticClassification,
     GraphSuccess,
     IndeterminateEvaluation,
     InterpreterSuccess,
     ProcessResult,
+    RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessPlan,
+    RuntimeWitnessResult,
     StaticBaseline,
     StaticBaselineCapture,
-    StaticFailEvaluation,
+    StaticRegressionEvaluation,
     TestOutcome,
     TestFail,
     TestPass,
@@ -30,6 +34,7 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import Cell, InterpreterIdentity, Proposal, ResolvedNode
 from pf.snapshot import SnapshotBuilder
+from pf.static_transition import static_fingerprint
 
 
 def process_result(*, exit_code: int = 0) -> ProcessResult:
@@ -143,9 +148,13 @@ class FailingTy:
         )
 
 
-class ExplodingTests:
+class PassingTests:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def run(self, **kwargs: object) -> TestOutcome:
-        raise AssertionError("tests must not run after a static failure")
+        self.calls += 1
+        return TestPass(process=process_result())
 
 
 class PassingTy:
@@ -154,6 +163,27 @@ class PassingTy:
 
 
 class TestEvaluators:
+    def test_static_fingerprint_preserves_the_complete_ordered_multiset(self) -> None:
+        states = {
+            "empty": static_fingerprint(()),
+            "a": static_fingerprint(("A",)),
+            "a-twice": static_fingerprint(("A", "A")),
+            "a-b": static_fingerprint(("A", "B")),
+            "c": static_fingerprint(("C",)),
+        }
+
+        assert len(set(states.values())) == len(states)
+        assert states == {
+            name: static_fingerprint(identities)
+            for name, identities in {
+                "empty": (),
+                "a": ("A",),
+                "a-twice": ("A", "A"),
+                "a-b": ("A", "B"),
+                "c": ("C",),
+            }.items()
+        }
+
     @pytest.mark.parametrize("scope", ("cell", "snapshot", "policy"))
     def test_static_evaluator_rejects_a_baseline_from_another_scope(
         self,
@@ -234,15 +264,16 @@ class TestEvaluators:
             baseline=capture.baseline,
         )
 
-        assert capture.static.status == "STATIC_PASS"
+        assert capture.static.status == "STATIC_UNCHANGED"
         assert capture.static.incremental == ()
         assert capture.static.ty is capture.baseline.ty
         assert capture.static.baseline_digest == capture.baseline.digest
-        assert isinstance(result, StaticFailEvaluation)
+        assert isinstance(result, StaticRegressionEvaluation)
         assert [item.identity for item in result.incremental] == [shifted.identity]
+        assert result.static_fingerprint == static_fingerprint((shifted.identity,))
         assert result.baseline_digest == capture.baseline.digest
 
-    def test_full_evaluator_short_circuits_on_static_failure(
+    def test_runtime_evaluator_runs_tests_for_a_general_static_regression(
         self, tmp_path: Path
     ) -> None:
         root = tmp_path / "project"
@@ -270,9 +301,10 @@ class TestEvaluators:
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
-        evaluator = FullEvaluator(
+        tests = PassingTests()
+        evaluator = RuntimeEvaluator(
             static=StaticEvaluator(FailingTy()),
-            tests=ExplodingTests(),
+            tests=tests,
         )
         baseline_check = TyCheck(process=process_result(exit_code=1), diagnostics=())
         baseline = StaticBaseline(
@@ -283,8 +315,151 @@ class TestEvaluators:
 
         result = evaluator.evaluate(prepared, package=package, baseline=baseline)
 
-        assert result.status == "STATIC_FAIL"
-        assert prepared.tested is False
+        assert result.status == "PASS"
+        assert result.static.status == "STATIC_REGRESSION"
+        assert tests.calls == 1
+        assert prepared.tested is True
+
+    @pytest.mark.parametrize(
+        ("witness_status", "expected", "test_calls"),
+        (
+            ("PRESENT", "PASS", 1),
+            ("NOT_APPLICABLE", "PASS", 1),
+            ("CONFIRMED_MISSING", "RUNTIME_INTERFACE_MISSING", 0),
+            ("TOOL_FAILURE", "INDETERMINATE", 0),
+        ),
+    )
+    def test_runtime_evaluator_routes_structured_witness_results(
+        self,
+        tmp_path: Path,
+        witness_status: str,
+        expected: str,
+        test_calls: int,
+    ) -> None:
+        prepared = prepared_for_static(tmp_path, "candidate")
+        source = prepared.proposal_root / "demo.py"
+        source.write_text("import demo\n", encoding="utf-8")
+        increment = diagnostic("snapshot|demo.py|1|2|unresolved-import")
+        plan = RuntimeWitnessPlan(
+            diagnostic_identities=(increment.identity,),
+            managed_dependency="demo",
+            operation="import-module",
+            module="demo",
+        )
+        static = StaticRegressionEvaluation(
+            proposal=prepared.proposal,
+            ty=TyCheck(
+                process=process_result(exit_code=1),
+                diagnostics=(increment,),
+            ),
+            baseline_digest=ty_diagnostic_digest(()),
+            incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=(
+                DiagnosticClassification(
+                    diagnostic_identity=increment.identity,
+                    classification="strong",
+                    reason_code="witness-planned",
+                    witness_plan=plan,
+                ),
+            ),
+        )
+
+        class Witnesses:
+            def run(self, **kwargs: object) -> RuntimeWitnessResult | ToolFailure:
+                if witness_status == "TOOL_FAILURE":
+                    return ToolFailure(
+                        cause="TOOL_FAILURE",
+                        stage="witness",
+                        process=process_result(exit_code=2),
+                    )
+                return RuntimeWitnessResult.model_validate(
+                    {
+                        "status": witness_status,
+                        "plan": plan,
+                        "process": process_result(),
+                    }
+                )
+
+        tests = PassingTests()
+        result = RuntimeEvaluator(
+            static=StaticEvaluator(PassingTy()),
+            tests=tests,
+            witnesses=Witnesses(),
+        ).evaluate(
+            prepared,
+            package=ProjectLoader()
+            .load(root=Path.cwd(), package_selection=None)
+            .packages[0],
+            baseline=empty_baseline(prepared),
+            static_result=static,
+        )
+
+        assert result.status == expected
+        assert tests.calls == test_calls
+        if expected == "RUNTIME_INTERFACE_MISSING":
+            assert isinstance(result, RuntimeInterfaceMissingEvaluation)
+
+    def test_runtime_evaluator_deduplicates_an_identical_multiset_witness_plan(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        prepared = prepared_for_static(tmp_path, "candidate")
+        increment = diagnostic("snapshot|demo.py|1|2|unresolved-import")
+        plan = RuntimeWitnessPlan(
+            diagnostic_identities=(increment.identity,),
+            managed_dependency="demo",
+            operation="import-module",
+            module="demo",
+        )
+        classification = DiagnosticClassification(
+            diagnostic_identity=increment.identity,
+            classification="strong",
+            reason_code="witness-planned",
+            witness_plan=plan,
+        )
+        static = StaticRegressionEvaluation(
+            proposal=prepared.proposal,
+            ty=TyCheck(
+                process=process_result(exit_code=1),
+                diagnostics=(increment, increment),
+            ),
+            baseline_digest=ty_diagnostic_digest(()),
+            incremental=(increment, increment),
+            static_fingerprint=static_fingerprint(
+                (increment.identity, increment.identity)
+            ),
+            classifications=(classification, classification),
+        )
+
+        class Witnesses:
+            calls = 0
+
+            def run(self, **kwargs: object) -> RuntimeWitnessResult:
+                self.calls += 1
+                return RuntimeWitnessResult(
+                    status="PRESENT",
+                    plan=plan,
+                    process=process_result(),
+                )
+
+        witnesses = Witnesses()
+        result = RuntimeEvaluator(
+            static=StaticEvaluator(PassingTy()),
+            tests=PassingTests(),
+            witnesses=witnesses,
+        ).evaluate(
+            prepared,
+            package=ProjectLoader()
+            .load(root=Path.cwd(), package_selection=None)
+            .packages[0],
+            baseline=empty_baseline(prepared),
+            static_result=static,
+        )
+
+        assert result.status == "PASS"
+        assert witnesses.calls == 1
+        assert len(result.witnesses) == 1
 
     @pytest.mark.parametrize(
         ("outcome", "expected"),
@@ -351,7 +526,7 @@ class TestEvaluators:
                 return outcome
 
         tests = Tests()
-        result = FullEvaluator(
+        result = RuntimeEvaluator(
             static=StaticEvaluator(PassingTy()),
             tests=tests,
         ).evaluate(prepared, package=package, baseline=empty_baseline(prepared))
@@ -450,7 +625,7 @@ class TestEvaluators:
         static = StaticEvaluator(PassingTy(), events=events)
         capture = static.capture(prepared, package=package)
         assert isinstance(capture, StaticBaselineCapture)
-        result = FullEvaluator(
+        result = RuntimeEvaluator(
             static=static,
             tests=Tests(),
             events=events,

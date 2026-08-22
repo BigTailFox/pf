@@ -281,7 +281,7 @@ class TestSearchWorkflow:
                 "status": "BASELINE_FAILED",
                 "phase": "baseline-evaluation",
                 "baseline": {
-                    "status": "STATIC_FAIL",
+                    "status": "STATIC_REGRESSION",
                     "proposal": {
                         "proposal_id": "legacy-baseline",
                         "snapshot_digest": document["source_snapshot"]["digest"],
@@ -293,7 +293,7 @@ class TestSearchWorkflow:
                         "interpreter": None,
                     },
                     "ty": {
-                        "status": "STATIC_FAIL",
+                        "status": "STATIC_REGRESSION",
                         "process": {
                             "exit_code": 1,
                             "signal": None,

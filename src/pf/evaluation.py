@@ -13,11 +13,15 @@ from pf.schemas.evaluation import (
     Evaluation,
     IndeterminateEvaluation,
     PassEvaluation,
+    RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessAttempt,
+    RuntimeWitnessOutcome,
+    RuntimeWitnessPlan,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticRegressionEvaluation,
+    StaticUnchangedEvaluation,
     TestFail,
     TestFailEvaluation,
     TestOutcome,
@@ -28,6 +32,7 @@ from pf.schemas.evaluation import (
     ty_diagnostic_digest,
 )
 from pf.schemas.project import PackagePlan
+from pf.static_transition import StaticTransitionClassifier, static_fingerprint
 
 
 def require_full_evaluation_contract(package: PackagePlan, command: str) -> None:
@@ -114,9 +119,19 @@ class EvaluationCache:
         baseline_digest: str,
     ) -> None:
         embedded: str | None
-        if isinstance(evaluation, (StaticPassEvaluation, StaticFailEvaluation)):
+        if isinstance(
+            evaluation,
+            (StaticUnchangedEvaluation, StaticRegressionEvaluation),
+        ):
             embedded = evaluation.baseline_digest
-        elif isinstance(evaluation, (PassEvaluation, TestFailEvaluation)):
+        elif isinstance(
+            evaluation,
+            (
+                PassEvaluation,
+                TestFailEvaluation,
+                RuntimeInterfaceMissingEvaluation,
+            ),
+        ):
             embedded = evaluation.static.baseline_digest
         else:
             embedded = None
@@ -150,13 +165,29 @@ class TestOperations(Protocol):
     ) -> TestOutcome: ...
 
 
+class RuntimeWitnessOperations(Protocol):
+    def run(
+        self,
+        *,
+        plan: RuntimeWitnessPlan,
+        interpreter: Path,
+        cwd: Path,
+        timeout_seconds: int | None,
+    ) -> RuntimeWitnessOutcome: ...
+
+
 class StaticEvaluator:
     """Freeze one cell baseline and compare Proposal diagnostics against it."""
 
     def __init__(
-        self, ty: TyOperations, *, events: StageConsumer | None = None
+        self,
+        ty: TyOperations,
+        *,
+        classifier: StaticTransitionClassifier | None = None,
+        events: StageConsumer | None = None,
     ) -> None:
         self._ty = ty
+        self._classifier = classifier or StaticTransitionClassifier()
         self._events = events
 
     def evaluate(
@@ -184,17 +215,26 @@ class StaticEvaluator:
             )
         incremental = self._increment(outcome, baseline)
         if not incremental:
-            return StaticPassEvaluation(
+            return StaticUnchangedEvaluation(
                 proposal=prepared.proposal,
                 ty=outcome,
                 baseline_digest=baseline.digest,
                 incremental=(),
+                static_fingerprint=static_fingerprint(()),
             )
-        return StaticFailEvaluation(
+        return StaticRegressionEvaluation(
             proposal=prepared.proposal,
             ty=outcome,
             baseline_digest=baseline.digest,
             incremental=incremental,
+            static_fingerprint=static_fingerprint(
+                tuple(item.identity for item in incremental)
+            ),
+            classifications=self._classifier.classify(
+                prepared,
+                package=package,
+                incremental=incremental,
+            ),
         )
 
     def capture(
@@ -219,11 +259,12 @@ class StaticEvaluator:
             ty=outcome,
             digest=digest,
         )
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=prepared.proposal,
             ty=outcome,
             baseline_digest=digest,
             incremental=(),
+            static_fingerprint=static_fingerprint(()),
         )
         return StaticBaselineCapture(baseline=baseline, static=static)
 
@@ -258,18 +299,20 @@ class StaticEvaluator:
         return tuple(incremental)
 
 
-class FullEvaluator:
-    """Promote a static-clean Proposal through the complete test command once."""
+class RuntimeEvaluator:
+    """Route static transitions through witness evidence and the full test command."""
 
     def __init__(
         self,
         *,
         static: StaticEvaluator,
         tests: TestOperations,
+        witnesses: RuntimeWitnessOperations | None = None,
         events: StageConsumer | None = None,
     ) -> None:
         self._static = static
         self._tests = tests
+        self._witnesses = witnesses
         self._events = events
 
     def evaluate(
@@ -285,8 +328,39 @@ class FullEvaluator:
             package=package,
             baseline=baseline,
         )
-        if not isinstance(static, StaticPassEvaluation):
+        if isinstance(static, IndeterminateEvaluation):
             return static
+        witness_attempts: list[RuntimeWitnessAttempt] = []
+        if isinstance(static, StaticRegressionEvaluation) and self._witnesses:
+            plans: list[RuntimeWitnessPlan] = []
+            for classification in static.classifications:
+                plan = classification.witness_plan
+                if plan is not None and plan not in plans:
+                    plans.append(plan)
+            for plan in plans:
+                emit_cell_stage(self._events, prepared.proposal.cell, "runtime witness")
+                witness = self._witnesses.run(
+                    plan=plan,
+                    interpreter=prepared.interpreter,
+                    cwd=prepared.package_root,
+                    timeout_seconds=package.config.test_timeout,
+                )
+                attempt = RuntimeWitnessAttempt(plan=plan, outcome=witness)
+                witness_attempts.append(attempt)
+                if isinstance(witness, ToolFailure):
+                    return IndeterminateEvaluation(
+                        proposal=prepared.proposal,
+                        cause=witness.cause,
+                        failure=witness,
+                        static=static,
+                        witnesses=tuple(witness_attempts),
+                    )
+                if witness.status == "CONFIRMED_MISSING":
+                    return RuntimeInterfaceMissingEvaluation(
+                        proposal=prepared.proposal,
+                        static=static,
+                        witnesses=tuple(witness_attempts),
+                    )
         emit_cell_stage(self._events, prepared.proposal.cell, "dynamic tests")
         cwd = (
             prepared.proposal_root
@@ -309,12 +383,14 @@ class FullEvaluator:
             return PassEvaluation(
                 proposal=prepared.proposal,
                 static=static,
+                witnesses=tuple(witness_attempts),
                 test=outcome,
             )
         if isinstance(outcome, TestFail):
             return TestFailEvaluation(
                 proposal=prepared.proposal,
                 static=static,
+                witnesses=tuple(witness_attempts),
                 test=outcome,
             )
         assert isinstance(outcome, ToolFailure)
@@ -322,4 +398,6 @@ class FullEvaluator:
             proposal=prepared.proposal,
             cause=outcome.cause,
             failure=outcome,
+            static=static,
+            witnesses=tuple(witness_attempts),
         )

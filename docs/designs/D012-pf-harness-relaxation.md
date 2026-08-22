@@ -9,7 +9,7 @@
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
 - **架构接口：** [D010](D010-pf-v1-architecture.md)
-- **待实现搜索契约：** [D011](D011-pf-runtime-backed-static-search.md)
+- **现行搜索契约：** [D011](D011-pf-runtime-backed-static-search.md)
 
 本文定义 PF 如何在不把 test harness 变成搜索坐标的前提下，防止 harness 自身的最低版本要求错误提高 project dependency floor。本文仍是草案，不取代现行契约，也不能被 CLI、报告或实现描述成已经可用。
 
@@ -344,7 +344,7 @@ SEARCH PROBE / DECLARATION
 
 Harness Relaxation 不构成新的 search phase。冻结是 Attempt 前的输入准备；`H(P)` resolution 是 `EnvironmentFactory.prepare` implementation；`CoordinateSearch` 仍只观察 project vector 对应的 `ProbePass | ProbeRejection | ProbeIndeterminate`。
 
-D011 落地后，static region、runtime witness 和最终直接测试规则保持不变。`HARNESS_CONFLICT` 是 prepare 阶段对完整 Attempt 的确定 resolution Rejection，不是 static-only boundary。
+D011 已落地；static region、runtime witness 和最终直接测试规则保持不变。`HARNESS_CONFLICT` 是 prepare 阶段对完整 Attempt 的确定 resolution Rejection，不是 static-only boundary。
 
 ## 12. 动态测试契约
 

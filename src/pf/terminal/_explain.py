@@ -11,7 +11,7 @@ from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     AttemptFailureScope,
     FailureRecord,
-    StaticFailEvaluation,
+    StaticRegressionEvaluation,
     TyDiagnostic,
 )
 from pf.schemas.project import Cell
@@ -173,10 +173,7 @@ def _render_static_diagnostics(
             Text(f"  {_cell_title(result.cell)} ty baseline: {count} {noun}")
         )
         if isinstance(result, CellSuccess):
-            searches = (
-                result.static_search,
-                *((result.dynamic_search,) if result.dynamic_search is not None else ()),
-            )
+            searches = (result.search,)
         elif isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
             result.coordinate_failure is not None
         ):
@@ -188,7 +185,7 @@ def _render_static_diagnostics(
             for observation in search.observations:
                 evidence = observation.evidence
                 static = evidence.static_evaluation
-                if not isinstance(static, StaticFailEvaluation):
+                if not isinstance(static, StaticRegressionEvaluation):
                     continue
                 if evidence.proposal_id is None:
                     raise ValueError("static evidence requires a Proposal")

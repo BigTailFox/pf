@@ -19,7 +19,7 @@ from pf.environment import (
     PreparedEnvironment,
     ResolutionRequest,
 )
-from pf.evaluation import FullEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import CheckRequest
@@ -40,13 +40,12 @@ from pf.schemas.evaluation import (
     TestPass,
     ToolFailure,
     TyCheck,
-    TyDiagnostic,
     ty_diagnostic_digest,
 )
 from pf.schemas.evaluation import (
     IndeterminateEvaluation,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticRegressionEvaluation,
+    StaticUnchangedEvaluation,
     StaticEvaluation,
     TestFail,
     TestFailEvaluation,
@@ -100,7 +99,7 @@ def passing_check(cell: Cell) -> PassEvaluation:
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process, diagnostics=()),
             baseline_digest=ty_diagnostic_digest(()),
@@ -268,7 +267,7 @@ class TestCompatibilityChecker:
                 )
                 return StaticBaselineCapture(
                     baseline=baseline,
-                    static=StaticPassEvaluation(
+                    static=StaticUnchangedEvaluation(
                         proposal=prepared.proposal,
                         ty=check,
                         baseline_digest=baseline.digest,
@@ -289,7 +288,7 @@ class TestCompatibilityChecker:
                 assert baseline.proposal.proposal_id == "highest"
                 assert static_result is None
                 prepared.mark_tested()
-                static = StaticPassEvaluation(
+                static = StaticUnchangedEvaluation(
                     proposal=prepared.proposal,
                     ty=TyCheck(process=process, diagnostics=()),
                     baseline_digest=baseline.digest,
@@ -377,7 +376,7 @@ class TestCompatibilityChecker:
                 self, *args: object, **kwargs: object
             ) -> (
                 PassEvaluation
-                | StaticFailEvaluation
+                | StaticRegressionEvaluation
                 | TestFailEvaluation
                 | IndeterminateEvaluation
             ):
@@ -433,7 +432,7 @@ class TestCompatibilityChecker:
         checker = CompatibilityChecker(
             environments=EnvironmentFactory(uv),
             static=static,
-            full=FullEvaluator(
+            full=RuntimeEvaluator(
                 static=static,
                 tests=TestAdapter(runner),
             ),
@@ -584,7 +583,7 @@ class TestCheckWorkflow:
 
     @pytest.mark.parametrize(
         "evaluation_status",
-        ("STATIC_FAIL", "TEST_FAIL", "INDETERMINATE"),
+        ("TEST_FAIL", "INDETERMINATE"),
     )
     def test_check_preserves_compatibility_and_indeterminate_outcomes(
         self,
@@ -657,7 +656,7 @@ class TestCheckWorkflow:
                 )
                 return StaticBaselineCapture(
                     baseline=baseline,
-                    static=StaticPassEvaluation(
+                    static=StaticUnchangedEvaluation(
                         proposal=prepared.proposal,
                         ty=check,
                         baseline_digest=baseline.digest,
@@ -681,26 +680,8 @@ class TestCheckWorkflow:
                     stdout="",
                     stderr="",
                 )
-                if evaluation_status == "STATIC_FAIL":
-                    increment = TyDiagnostic(
-                        identity="snapshot|demo.py|1|1|invalid-type",
-                        origin="snapshot",
-                        path="demo.py",
-                        line=1,
-                        column=1,
-                        code="invalid-type",
-                        severity="major",
-                        message="invalid type",
-                    )
-                    check = TyCheck(process=process, diagnostics=(increment,))
-                    return StaticFailEvaluation(
-                        proposal=prepared.proposal,
-                        ty=check,
-                        baseline_digest=baseline.digest,
-                        incremental=(increment,),
-                    )
                 if evaluation_status == "TEST_FAIL":
-                    static = StaticPassEvaluation(
+                    static = StaticUnchangedEvaluation(
                         proposal=prepared.proposal,
                         ty=TyCheck(
                             process=process.model_copy(update={"exit_code": 0}),
@@ -730,7 +711,6 @@ class TestCheckWorkflow:
         assert (
             result.status
             == {
-                "STATIC_FAIL": "REJECTED",
                 "TEST_FAIL": "REJECTED",
                 "INDETERMINATE": "INDETERMINATE",
             }[evaluation_status]
@@ -741,7 +721,6 @@ class TestCheckWorkflow:
         assert (
             result.failure.cause
             == {
-                "STATIC_FAIL": "STATIC_REGRESSION",
                 "TEST_FAIL": "TEST_FAILURE",
                 "INDETERMINATE": "TOOL_FAILURE",
             }[evaluation_status]
@@ -749,7 +728,6 @@ class TestCheckWorkflow:
         assert (
             result.failure.stage
             == {
-                "STATIC_FAIL": "ty",
                 "TEST_FAIL": "test",
                 "INDETERMINATE": "ty",
             }[evaluation_status]

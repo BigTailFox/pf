@@ -16,10 +16,11 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
+    RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessResult,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
-    StaticFailEvaluation,
     TestFailEvaluation,
     ToolFailure,
 )
@@ -133,17 +134,23 @@ class HighestVersionVerifier:
                     baseline=capture.baseline,
                     evaluation=evaluation,
                 )
-            if isinstance(evaluation, StaticFailEvaluation):
+            if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+                confirmed = next(
+                    attempt.outcome
+                    for attempt in evaluation.witnesses
+                    if isinstance(attempt.outcome, RuntimeWitnessResult)
+                    and attempt.outcome.status == "CONFIRMED_MISSING"
+                )
                 failure = self._failures.classify(
                     scope=AttemptFailureScope(attempt=prepared.attempt),
                     cause="INTERNAL_INVARIANT",
-                    stage="baseline-static",
-                    process=evaluation.ty.process,
+                    stage="baseline-witness",
+                    process=confirmed.process,
                     detail=FailureDetail(
-                        code="unexpected-baseline-static-regression",
+                        code="unexpected-baseline-runtime-witness",
                         message=(
-                            "highest full evaluation contradicted its captured "
-                            "static baseline"
+                            "highest full evaluation cannot witness a static baseline "
+                            "increment"
                         ),
                     ),
                 )

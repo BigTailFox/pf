@@ -24,9 +24,9 @@ from pf.schemas.evaluation import (
     FailureRecord,
     PassEvaluation,
     ProcessResult,
+    RuntimeInterfaceMissingEvaluation,
     SearchFailureEvent,
     SmokeResult,
-    StaticFailEvaluation,
     TestFailEvaluation,
     ToolFailure,
     TyDiagnostic,
@@ -100,7 +100,7 @@ _FAILURE_TITLES: dict[FailureCause, str] = {
     "RESOLUTION_CONFLICT": "This version combination has conflicting dependency requirements and cannot be installed.",
     "BUILD_FAILURE": "This version combination could not be built.",
     "HARNESS_CONFLICT": "The test dependencies cannot be installed without changing the versions being checked.",
-    "STATIC_REGRESSION": "This version combination introduces new type-checking diagnostics.",
+    "RUNTIME_INTERFACE_MISSING": "A required runtime interface is missing from this version combination.",
     "TEST_FAILURE": "The full test command failed for this version combination.",
     "SOURCE_FAILURE": "PF could not reach or read a configured package source.",
     "ENVIRONMENT_FAILURE": "The current Python or system environment cannot run this check.",
@@ -114,7 +114,7 @@ _FAILURE_NEXT_STEPS: dict[FailureCause, str] = {
     "RESOLUTION_CONFLICT": "Review the conflicting requirements, adjust project constraints if needed, then rerun PF.",
     "BUILD_FAILURE": "Inspect the build details and log; check build requirements, Python support, and available artifacts.",
     "HARNESS_CONFLICT": "Adjust the configured test dependencies so they preserve the dependency graph under test.",
-    "STATIC_REGRESSION": "Review the new diagnostics and decide whether to fix the code or keep a higher dependency floor.",
+    "RUNTIME_INTERFACE_MISSING": "Review the confirmed missing module or member before changing dependency constraints.",
     "TEST_FAILURE": "Review the failing test summary and log before changing code or dependency constraints.",
     "SOURCE_FAILURE": "Check the index URL, network, credentials, and source availability, then rerun PF.",
     "ENVIRONMENT_FAILURE": "Verify the interpreter, platform support, permissions, and required system tools.",
@@ -506,7 +506,11 @@ class TerminalPresenter:
         for evaluation in evaluations:
             if not isinstance(
                 evaluation,
-                (StaticFailEvaluation, TestFailEvaluation, PassEvaluation),
+                (
+                    RuntimeInterfaceMissingEvaluation,
+                    TestFailEvaluation,
+                    PassEvaluation,
+                ),
             ):
                 continue
             presentation = CellPresentation.from_result(

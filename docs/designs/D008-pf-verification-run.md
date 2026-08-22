@@ -1,7 +1,7 @@
 # PF 统一运行语义
 
 - **状态：** 现行
-- **最后核对：** 2026-08-21
+- **最后核对：** 2026-08-23
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -133,7 +133,7 @@ Adapter 仍然不知道契约。`FailurePolicy` 仍然不知道命令。Presente
 | `baseline` | smoke、search | `highest` | `full` |
 | `declaration-capture` | check | `highest` | `static-capture` |
 | `declaration` | check | `lowest-direct` | `full`（相对本 cell 刚捕获的 `S_hi`） |
-| `probe` | search | `exact-vector` | 由 D003 决定 static 或 full |
+| `probe` | search | `exact-vector` | D003 runtime-backed；static-only 只作调度事实 |
 
 Role 写入 Journal，供 diagnose 与 impact 使用。它不进入 `attempt_id` 或 `failure_id`。
 
@@ -157,7 +157,7 @@ Role 写入 Journal，供 diagnose 与 impact 使用。它不进入 `attempt_id`
 
 - 第 1 步失败则 **不** 启动第 2 步。没有 `S_hi` 就不能对下界做 D004 增量。
 - 第 1 步的合法 `TyCheck` 诊断构成 `S_hi`，其本身不是 FailureRecord；捕获过程的工具失败才分类。
-- 第 2 步的增量非空是 `STATIC_REGRESSION`；测试以配置失败码退出是 `TEST_FAILURE`。二者都是 Declaration Attempt 上的 Rejection（证据完整时）。
+- 第 2 步的增量非空是 `STATIC_REGRESSION` transition，但它不是 FailureCause 或 Rejection；eligible witness confirmed missing 是 `RUNTIME_INTERFACE_MISSING`，测试以配置失败码退出是 `TEST_FAILURE`，二者在证据完整时是 Declaration Attempt 上的 Rejection。
 - `CoordinateSearch` 不得看见这两次 Attempt。
 
 第 1 步 Rejection（例如当前声明在 highest 下无解或不能构建）表示 **当前声明在该 cell 的最高解析上确定不满足验证契约**，命令级仍是 D001 的兼容性失败。它还不是“下界不兼容”——下界尚未被问到。diagnose 必须用 `declaration-capture` 的 impact，不得写成 Baseline“因此未开始 floor 搜索”，也不得写成 Declaration“下界未通过”。
@@ -194,15 +194,15 @@ Adapter cause + stage + process
 
 ### 6.2 评价阶段
 
-`IndeterminateEvaluation`、`StaticFailEvaluation`、`TestFailEvaluation` 在进入调度器之前（或在完成投影之内、但必须在 Presenter 之前）变成带 Attempt 的 `FailureRecord`：
+`RuntimeInterfaceMissingEvaluation`、`TestFailEvaluation` 与 `IndeterminateEvaluation` 在进入调度器之前（或在完成投影之内、但必须在 Presenter 之前）变成带 Attempt 的 `FailureRecord`：
 
 | 评价结果 | cause | stage |
 | --- | --- | --- |
-| `StaticFailEvaluation` | `STATIC_REGRESSION` | `ty` |
+| `RuntimeInterfaceMissingEvaluation` | `RUNTIME_INTERFACE_MISSING` | `witness` |
 | `TestFailEvaluation` | `TEST_FAILURE` | `test` |
 | `IndeterminateEvaluation` | 其 `ToolFailure.cause` | 其 `ToolFailure.stage` |
 
-check 不再把 `STATIC_FAIL` / `TEST_FAIL` 作为 Presenter 的 stage 来源。
+StaticUnchanged/StaticRegression 不是本表的 failure Evaluation。check 不再把 Schema status 作为 Presenter 的 stage 来源。
 
 ### 6.3 Cell Completion
 
@@ -227,7 +227,7 @@ cause 集合、Rejection 资格和 Baseline/Probe 列仍由 D005 §8 唯一拥�
 - `requested_resolution = lowest-direct` 使用与 Probe 相同的 Rejection 资格（证据完整且 cause/stage 属于验证契约时 Reject）；
 - 搜索含义固定为“终止该 check cell”——check 没有后续 probe；
 - `rejection_is_supported` 必须接受 `lowest-direct`；
-- `highest && STATIC_REGRESSION` 仍不得成为 Rejection，规则仍在 D005。
+- 任意 role 的 `STATIC_REGRESSION` 都没有 disposition；只有 runtime witness/test 或既有 prepare cause 进入 D005。
 
 Declaration Attempt 不要求事先存在一次 **完整通过测试的** Baseline。它要求本 cell 在同一次 check 运行中已经得到合法 `S_hi`。这是 D004 静态基线，不是 D005 搜索锚点。不得把 Declaration Attempt 解释为 Probe，也不得因此要求 smoke 式的 highest `PASS`。
 
@@ -272,7 +272,7 @@ entries[]
   failure             FailureRecord
 ```
 
-Journal 不保存 stdout/stderr 正文、绝对路径或完整 Evaluation。`STATIC_REGRESSION` 的诊断原文以对应 Process Log 为准。权限、脱敏、原子写与 `.pf/logs` 的其余规则由 D002 / D007 拥有。Journal 的目标 identity 与写入时机见 [D009](D009-pf-v1-refactor.md) §4.7 / §6；落地前仍以本节和现行实现为准。
+Journal 不保存 stdout/stderr 正文、绝对路径或完整 Evaluation。Static transition 与 witness 的完整公共证据保存在 search report；Journal 中失败的工具原文以对应 Process Log 为准。权限、脱敏、原子写与 `.pf/logs` 的其余规则由 D002 / D007 拥有。Journal 的目标 identity 与写入时机见 [D009](D009-pf-v1-refactor.md) §4.7 / §6。
 
 search 成功写入 `package-floor.json` 之后，Journal 与报告中的 FailureRecord 必须能按 `failure_id` 对上。报告仍不保存 `run_id`。
 
@@ -335,8 +335,7 @@ D006 仍拥有布局。本文改变的是数据是否存在：
 | Cell Completion 必须携带 stage 与 FailureRecord | 本文 |
 | cause、disposition 矩阵、`failure_id`、title/next step | D005 |
 | 上表 Role → impact 文案 | 本文；Presenter 只渲染 |
-| `highest && STATIC_REGRESSION` 不得 Reject | D005 |
-| `lowest-direct` 可对 `STATIC_REGRESSION` Reject | 本文扩展，由 `FailurePolicy` 实现 |
+| static transition 没有 disposition；runtime-missing/test 才可 Reject | D004 / D005 |
 | 命令存在、退出码、`package-floor.json` apply 语义 | D001 |
 | `prepare` 对三种 resolution 都返回 Attempt | `EnvironmentFactory`；接口形状见 D002 |
 | check 不得 unwrap `PrepareFailure` | `CompatibilityChecker` |
@@ -378,7 +377,7 @@ P004 中“check 兼容性失败仍走 Evaluation”是历史实施记录，不�
 ## 13. 验证契约
 
 - `lowest-direct` prepare 失败保留 Attempt，`failure.stage` 为 `install` / `install-harness` 等 adapter 名；TTY 第一行是 `failed at installing dependencies`（或 harness），并有 Diagnose；
-- check 的 `STATIC_FAIL` 分类为 Declaration Attempt + `STATIC_REGRESSION` + `ty`，不再依赖 `message == "STATIC_FAIL"`；
+- check 的 lowest-direct static regression 继续运行 witness/test；confirmed missing 或 test failure 才产生 Declaration FailureRecord；
 - check 的 highest 安装失败不启动 `lowest-direct`，diagnose impact 使用 `declaration-capture` 文案；
 - Journal 不出现在 `explain` / `apply` 路径；把 Journal 误当作报告必须失败；
 - `pf diagnose pkg --failure ID` 在仅跑过 check、没有 `package-floor.json` 时仍能展示该 ID；
@@ -392,7 +391,7 @@ P004 中“check 兼容性失败仍走 Evaluation”是历史实施记录，不�
 2. **check 错误链**：停止 unwrap；`CompatibilityChecker` 对两轮失败都 `classify`；调度投影始终带 `FailureRecord.stage`。
 3. **Journal 与 index**：smoke/check/search 写 Journal；扩展 diagnosis index；`diagnose` 按 §8.3 读取。
 4. **展示**：去掉 status 特判；check 与 smoke 同样输出 Diagnose；impact 按 Role 选择。
-5. **入口验证**：真实 `check` 安装失败与静态回归都能 `diagnose`；`search` → `explain` → `apply` 仍只认报告。
+5. **入口验证**：真实 `check` 安装失败，以及保留静态 regression 上下文的 runtime failure，都能 `diagnose`；`search` → `explain` → `apply` 仍只认报告。
 
 每个阶段以公开 CLI 行为测试开始。不得保留“check 无 FailureRecord”兼容分支。
 

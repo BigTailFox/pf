@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-22
+- **最后核对：** 2026-08-23
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
@@ -61,7 +61,8 @@ src/pf/
 ├── windows_runlog.py    # Windows reparse-safe directory handle 与私有 DACL
 ├── candidates.py        # CandidateBuilder
 ├── environment.py       # EnvironmentFactory 与 PreparedEnvironment
-├── evaluation.py        # StaticEvaluator、FullEvaluator、EvaluationCache
+├── static_transition.py # fingerprint、diagnostic classifier 与 witness planner
+├── evaluation.py        # StaticEvaluator、RuntimeEvaluator、EvaluationCache
 ├── baseline.py          # HighestVersionVerifier 的最高版本完整验证生命周期
 ├── failure.py           # FailurePolicy：结构化 scope + cause -> disposition
 ├── coordinate_search.py # CoordinateSearch 与纯向量 evaluator seam
@@ -81,6 +82,7 @@ src/pf/
     ├── process.py
     ├── uv.py
     ├── ty.py
+    ├── runtime_witness.py
     └── test_command.py
 ```
 
@@ -269,13 +271,13 @@ capture(prepared, package) -> StaticBaselineCapture | IndeterminateEvaluation
 evaluate(prepared, package, baseline) -> StaticEvaluation
 ```
 
-`FullEvaluator`：
+`RuntimeEvaluator`：
 
 ```text
 evaluate(prepared, package, baseline, static_result=None) -> Evaluation
 ```
 
-静态比较的完整规则由 D004 定义。`FullEvaluator` 只在 `StaticPassEvaluation` 后运行完整 `TestAdapter`，并保留原始 static/test 机械证据。
+静态 transition、classifier 与 witness 的完整规则由 D004 定义。`RuntimeEvaluator` 接受 unchanged/regression transition：eligible strong regression 可先运行 adapter-owned witness；confirmed missing 形成 runtime negative evidence，PRESENT/NOT_APPLICABLE 与 general regression 继续运行完整 `TestAdapter`。静态 regression 本身不短路，也不产生 disposition。
 
 ### 8.4 最高版本完整验证
 
@@ -294,17 +296,18 @@ verify(package, cell, snapshot)
 EvaluationContext = (cell, frozen StaticBaseline S_hi, effective policies)
 ```
 
-它是 `SearchCoordinator` / `_ProposalRunner` 绑定 evaluator 的内部概念，不增加公共 Pydantic Schema 或透传类。Evaluator 仍通过现有 `baseline` 参数接收 context 中的冻结静态基线；static、fast path 和 dynamic 必须共享同一个 context。
+它是 `SearchCoordinator` / `_ProposalRunner` 绑定 evaluator 的内部概念，不增加公共 Pydantic Schema 或透传类。Evaluator 仍通过现有 `baseline` 参数接收 context 中的冻结静态基线；static、witness、test 与 region 必须共享同一个 context。
 
 `TyCheck` 是 Proposal 的原始工具事实；`StaticEvaluation` 是 `TyCheck` 相对 `S_hi` 得到的兼容性证据。现行代码不单独缓存 `TyCheck`。若把三层身份写成概念 key：
 
 ```text
 TyCheckKey          = proposal_id
-StaticEvaluationKey = (proposal_id, s_hi_digest)
-FullEvaluationKey   = (proposal_id, s_hi_digest)
+StaticStateKey      = (proposal_id, s_hi_digest)
+WitnessKey          = (proposal_id, witness_plan_identity)
+TestEvaluationKey   = (proposal_id, s_hi_digest)
 ```
 
-Full 所需 test policy 和 static 所需 diagnostic policy 已在 `proposal_id` 的策略 identity 中。`EvaluationCache` 的 get/record interface 因此显式接收 `baseline_digest`，在一次 search 内按二元 key 分离 static/full 结果、复用相同证据并检测同 context 冲突。公共报告不是 cache。
+Test 所需 full policy 和 static/witness policy 已在 `proposal_id` 的策略 identity 中。`EvaluationCache` 的 get/record interface 显式接收 `baseline_digest`，在一次 search 内分离 static/full 结果、复用相同证据并检测同 context 冲突。Witness plan/result 保存在 Evaluation；region tracker 只保存 invocation-local 调度事实。公共报告不是 cache。
 
 ### 8.5 FailurePolicy
 
@@ -313,7 +316,7 @@ classify(scope, cause, stage, process, summary_code=None, detail=None)
   -> FailureRecord
 ```
 
-该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），没有单独的 role 参数。Cell scope 只允许 Indeterminate。PASS 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-v1` 是 Evaluation policy identity 的组成部分。
+该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），没有单独的 role 参数。Cell scope 只允许 Indeterminate。PASS 与 static transition 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-runtime-v1` 是 Evaluation policy identity 的组成部分。
 
 ## 9. 搜索与调度
 
@@ -324,7 +327,7 @@ minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
   -> CoordinateOutcome
 ```
 
-它位于 `coordinate_search.py`，只读取冻结版本坐标和分类后的 `ProbePass | ProbeRejection | ProbeIndeterminate`；`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。一次调用的 evaluator、cache、observation 与 slice 状态由该调用私有，同一实例可嵌套和并发使用。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
+它位于 `coordinate_search.py`。普通 evaluator 读取 `ProbePass | ProbeRejection | ProbeIndeterminate`；search 使用 runtime-backed seam，额外返回无 disposition 的 `StaticOnlyEvidence`、提供 `promote` 和 invocation-local regions。`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。一次调用的 evaluator、cache、observation 与 Slice 状态由该调用私有，同一实例可嵌套和并发使用。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
 
 `SearchCoordinator` 位于 `search.py`，构造时必须显式注入 `HighestVersionVerifier` 与 `CoordinateSearch`。其运行 interface：
 
@@ -332,7 +335,7 @@ minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
 search(package, cell, snapshot) -> CellResult
 ```
 
-它拥有单 cell 搜索状态机：消费 `HighestVersionVerifier` 返回的 baseline outcome；只有 `HighestVersionPass` 才冻结候选并调用 static/dynamic CoordinateSearch，其他 outcome 直接成为 cell 终态。它组装强类型 CellResult 与 FailureRecord 引用，不复制最高版本验证，不负责跨 cell 并发或总时限。私有 `_ProposalRunner.evaluate_full(vector) -> ProbeRun` 一次返回 evidence 与 Evaluation，并按 vector key 缓存该单一不可变结果；fast path 与 dynamic final 不通过二次 lookup 恢复 Evaluation。Runner 实现 context manager，集中关闭仍存活的 PreparedEnvironment。
+它拥有单 cell 搜索状态机：消费 `HighestVersionVerifier` 返回的 baseline outcome；只有 `HighestVersionPass` 才冻结候选并调用一次 runtime-backed CoordinateSearch，其他 outcome 直接成为 cell 终态。`_ProposalRunner.evaluate_in_slice` 先建立 Proposal 自身 static transition，再决定直接 runtime evaluation 或 static-only guidance；`promote` 对提交点取得精确 runtime evidence；`evaluate_full` 按 vector key 缓存单一不可变结果。Coordinator 组装强类型 CellResult、regions 与 FailureRecord 引用，不复制最高版本验证，不负责跨 cell 并发或总时限。Runner 实现 context manager，集中关闭 PreparedEnvironment。
 
 `VerificationRunner.run(VerificationRun)` 是 Check / Smoke / Search 共同的 scheduling、领域 deadline、completion projection 与 Verification Journal 时序所有者。它内部构造 Scheduler；失败 completion 只有在 Journal 写入成功后才携带 `diagnose_available=true`；`logs=None` 或写入失败时为 false，写入错误在 completion 发布后抛出。
 
@@ -366,10 +369,11 @@ store 在 `.pf/logs/<UTC-run-id>/` 写一个 run manifest 和每进程一个 UTF
 
 candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord` 持久化进报告；prepare failure 保留 Attempt 与原始脱敏机械事实，即使没有 Proposal。Attempt 前的 candidate discovery/scheduling Indeterminate 使用 Cell scope。边界和 cell 终态通过 `failure_id` 引用该记录。详细日志路径不进入报告 Schema：`SearchCommandWorkflow` 在成功写入报告后才以最终 `report_generation_id` 更新本地 diagnosis index。其他宿主 merge 进来的 FailureRecord 可以没有本地 locator，`diagnose` 此时仍展示报告内的有界 `ProcessResult`。
 
-### 10.2 UvAdapter、TyAdapter、TestAdapter
+### 10.2 UvAdapter、TyAdapter、RuntimeWitnessAdapter、TestAdapter
 
 - `UvAdapter` 唯一构造解释器发现、venv、editable install、harness install、graph inspection 和候选查询的 uv argv，并把机械结果分类为 D005 的稳定 operation cause，例如 `RESOLUTION_CONFLICT`、`BUILD_FAILURE`、`HARNESS_CONFLICT`、`SOURCE_FAILURE` 或 `TOOL_FAILURE`。
 - `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。
+- `RuntimeWitnessAdapter` 只执行 D004 的 owned、无 shell、结构化名称可达性 harness；它不决定 disposition。
 - `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与失败退出码策略。
 
 所有 adapter 在返回前完成脱敏。Adapter 不决定 disposition；Presenter 与 ReportStore 也不负责补救原始 secret。

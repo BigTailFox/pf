@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pf.coordinate_search import CoordinateSearch
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
@@ -25,12 +25,13 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     PrepareFailure,
+    RuntimeInterfaceMissingEvaluation,
     SearchFailureEvent,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticRegressionEvaluation,
+    StaticUnchangedEvaluation,
     TestFailEvaluation,
     ToolFailure,
 )
@@ -53,6 +54,10 @@ from pf.schemas.report import (
     ProbeObservation,
     ProbePass,
     ProbeRejection,
+    StaticOnlyEvidence,
+    StaticRegion,
+    StaticRegionRuntimeReference,
+    StaticRegionSlice,
 )
 from pf.snapshot import SourceSnapshot
 
@@ -171,20 +176,40 @@ class ProbeRun:
     evaluation: Evaluation | None
 
 
-class _StaticVectorEvaluator:
-    def __init__(self, runner: "_ProposalRunner") -> None:
-        self._runner = runner
+@dataclass(frozen=True)
+class _RegionPoint:
+    index: int
+    version: str
+    static: StaticUnchangedEvaluation | StaticRegressionEvaluation
+    evidence: ProbeEvidence | None
 
-    def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-        return self._runner.evaluate_static(vector)
 
-
-class _FullVectorEvaluator:
+class _RuntimeBackedVectorEvaluator:
     def __init__(self, runner: "_ProposalRunner") -> None:
         self._runner = runner
 
     def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
         return self._runner.evaluate_full(vector).evidence
+
+    def evaluate_in_slice(
+        self,
+        vector: tuple[VersionPin, ...],
+        *,
+        dependency: str,
+    ) -> ProbeEvidence | StaticOnlyEvidence:
+        return self._runner.evaluate_in_slice(vector, dependency=dependency)
+
+    def promote(
+        self,
+        vector: tuple[VersionPin, ...],
+        *,
+        dependency: str,
+    ) -> ProbeEvidence:
+        return self._runner.promote(vector, dependency=dependency)
+
+    @property
+    def regions(self) -> tuple[StaticRegion, ...]:
+        return self._runner.regions
 
 
 class _ProposalRunner:
@@ -218,56 +243,16 @@ class _ProposalRunner:
         self._prepared: dict[tuple[tuple[str, str], ...], PreparedEnvironment] = {}
         self._prepare_failures: dict[tuple[tuple[str, str], ...], PrepareFailure] = {}
         self._full_runs: dict[tuple[tuple[str, str], ...], ProbeRun] = {}
+        self._snapshot_by_dependency = {
+            item.dependency: item for item in candidate_snapshots
+        }
+        self._region_points: dict[StaticRegionSlice, dict[int, _RegionPoint]] = {}
 
     def __enter__(self) -> "_ProposalRunner":
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
-
-    def evaluate_static(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-        key = self._key(vector)
-        full = self._full_runs.get(key)
-        if full is not None and isinstance(full.evaluation, PassEvaluation):
-            return full.evidence
-        prepared = self._prepare(vector)
-        if isinstance(prepared, PrepareFailure):
-            return self._prepare_evidence(prepared)
-        assert prepared.attempt is not None
-        try:
-            cached = self._cache.get_static(
-                prepared.proposal.proposal_id,
-                baseline_digest=self._static_baseline.digest,
-            )
-            if cached is None:
-                result = self._static.evaluate(
-                    prepared,
-                    package=self._package,
-                    baseline=self._static_baseline,
-                )
-                stored = self._cache.record_static(
-                    result,
-                    baseline_digest=self._static_baseline.digest,
-                )
-                if isinstance(stored, CacheConflict):
-                    return self._indeterminate_evidence(
-                        attempt=prepared.attempt,
-                        proposal_id=prepared.proposal.proposal_id,
-                        stage="static-cache",
-                        detail=FailureDetail(
-                            code="conflicting-static-evaluation",
-                            message=(
-                                "the same proposal produced conflicting static "
-                                "results"
-                            ),
-                        ),
-                    )
-            else:
-                result = cached
-            return self._static_evidence(prepared, result)
-        finally:
-            prepared.close()
-            self._prepared.pop(key, None)
 
     def evaluate_full(self, vector: tuple[VersionPin, ...]) -> ProbeRun:
         key = self._key(vector)
@@ -324,6 +309,291 @@ class _ProposalRunner:
             prepared.close()
             self._prepared.pop(key, None)
 
+    def evaluate_in_slice(
+        self,
+        vector: tuple[VersionPin, ...],
+        *,
+        dependency: str,
+    ) -> ProbeEvidence | StaticOnlyEvidence:
+        key = self._key(vector)
+        existing = self._full_runs.get(key)
+        if existing is not None:
+            return existing.evidence
+        prepared = self._prepare(vector)
+        if isinstance(prepared, PrepareFailure):
+            return self._prepare_evidence(prepared)
+        assert prepared.attempt is not None
+        try:
+            static = self._cache.get_static(
+                prepared.proposal.proposal_id,
+                baseline_digest=self._static_baseline.digest,
+            )
+            if static is None:
+                evaluated = self._static.evaluate(
+                    prepared,
+                    package=self._package,
+                    baseline=self._static_baseline,
+                )
+                stored = self._cache.record_static(
+                    evaluated,
+                    baseline_digest=self._static_baseline.digest,
+                )
+                if isinstance(stored, CacheConflict):
+                    return self._indeterminate_evidence(
+                        attempt=prepared.attempt,
+                        proposal_id=prepared.proposal.proposal_id,
+                        stage="static-cache",
+                        detail=FailureDetail(
+                            code="conflicting-static-evaluation",
+                            message=(
+                                "the same proposal produced conflicting static results"
+                            ),
+                        ),
+                    )
+                static = stored
+            if isinstance(static, IndeterminateEvaluation):
+                return self._static_evidence(prepared, static)
+            region_slice, index, version = self._region_slice(vector, dependency)
+            guidance = self._region_guidance(
+                region_slice,
+                index=index,
+                fingerprint=static.static_fingerprint,
+            )
+            if guidance is not None:
+                status, representative = guidance
+                self._record_region_point(
+                    region_slice,
+                    _RegionPoint(
+                        index=index,
+                        version=version,
+                        static=static,
+                        evidence=None,
+                    ),
+                )
+                return StaticOnlyEvidence(
+                    attempt=prepared.attempt,
+                    proposal_id=prepared.proposal.proposal_id,
+                    static_evaluation=static,
+                    guidance=status,
+                    region_slice=region_slice,
+                    representative_proposal_id=representative,
+                )
+            result = self._full.evaluate(
+                prepared,
+                package=self._package,
+                baseline=self._static_baseline,
+                static_result=static,
+            )
+            stored_full = self._cache.record_full(
+                result,
+                baseline_digest=self._static_baseline.digest,
+            )
+            if isinstance(stored_full, CacheConflict):
+                run = ProbeRun(
+                    evidence=self._indeterminate_evidence(
+                        attempt=prepared.attempt,
+                        proposal_id=prepared.proposal.proposal_id,
+                        stage="full-cache",
+                        detail=FailureDetail(
+                            code="conflicting-full-evaluation",
+                            message=(
+                                "the same proposal produced conflicting full results"
+                            ),
+                        ),
+                    ),
+                    evaluation=None,
+                )
+            else:
+                run = ProbeRun(
+                    evidence=self._full_evidence(prepared, stored_full),
+                    evaluation=stored_full,
+                )
+            self._full_runs[key] = run
+            direct = (
+                run.evidence
+                if run.evidence.proposal_id is not None
+                else None
+            )
+            self._record_region_point(
+                region_slice,
+                _RegionPoint(
+                    index=index,
+                    version=version,
+                    static=static,
+                    evidence=direct,
+                ),
+            )
+            return run.evidence
+        finally:
+            prepared.close()
+            self._prepared.pop(key, None)
+
+    def promote(
+        self,
+        vector: tuple[VersionPin, ...],
+        *,
+        dependency: str,
+    ) -> ProbeEvidence:
+        run = self.evaluate_full(vector)
+        region_slice, index, _ = self._region_slice(vector, dependency)
+        point = self._region_points.get(region_slice, {}).get(index)
+        if point is not None and run.evidence.proposal_id is not None:
+            self._record_region_point(
+                region_slice,
+                _RegionPoint(
+                    index=point.index,
+                    version=point.version,
+                    static=point.static,
+                    evidence=run.evidence,
+                ),
+            )
+        return run.evidence
+
+    @property
+    def regions(self) -> tuple[StaticRegion, ...]:
+        regions: list[StaticRegion] = []
+        for region_slice in sorted(
+            self._region_points,
+            key=lambda item: (
+                item.active_dependency,
+                tuple((pin.name, pin.version) for pin in item.other_coordinates),
+            ),
+        ):
+            points = sorted(
+                self._region_points[region_slice].values(),
+                key=lambda item: item.index,
+            )
+            component: list[_RegionPoint] = []
+            for point in points:
+                if component and (
+                    point.index != component[-1].index + 1
+                    or point.static.static_fingerprint
+                    != component[-1].static.static_fingerprint
+                ):
+                    regions.append(self._build_region(region_slice, component))
+                    component = []
+                component.append(point)
+            if component:
+                regions.append(self._build_region(region_slice, component))
+        return tuple(regions)
+
+    def _region_slice(
+        self,
+        vector: tuple[VersionPin, ...],
+        dependency: str,
+    ) -> tuple[StaticRegionSlice, int, str]:
+        snapshot = self._snapshot_by_dependency[dependency]
+        order = tuple(candidate.version for candidate in snapshot.candidates)
+        versions = {pin.name: pin.version for pin in vector}
+        version = versions[dependency]
+        return (
+            StaticRegionSlice(
+                cell=self._cell,
+                source_snapshot_digest=self._static_baseline.proposal.snapshot_digest,
+                policy_identity=self._static_baseline.proposal.policy_identity,
+                baseline_digest=self._static_baseline.digest,
+                active_dependency=dependency,
+                other_coordinates=tuple(
+                    VersionPin(name=name, version=versions[name])
+                    for name in sorted(versions)
+                    if name != dependency
+                ),
+                candidate_order=order,
+            ),
+            order.index(version),
+            version,
+        )
+
+    def _region_guidance(
+        self,
+        region_slice: StaticRegionSlice,
+        *,
+        index: int,
+        fingerprint: str,
+    ) -> tuple[Literal["PASS", "REJECTED"], str] | None:
+        points = self._region_points.get(region_slice, {})
+        component: list[_RegionPoint] = []
+        cursor = index - 1
+        while (
+            cursor in points
+            and points[cursor].static.static_fingerprint == fingerprint
+        ):
+            component.append(points[cursor])
+            cursor -= 1
+        cursor = index + 1
+        while (
+            cursor in points
+            and points[cursor].static.static_fingerprint == fingerprint
+        ):
+            component.append(points[cursor])
+            cursor += 1
+        direct = sorted(
+            (
+                point
+                for point in component
+                if isinstance(point.evidence, (ProbePass, ProbeRejection))
+            ),
+            key=lambda item: item.index,
+        )
+        statuses = {point.evidence.status for point in direct if point.evidence}
+        if len(statuses) != 1 or not direct:
+            return None
+        status = next(iter(statuses))
+        if status == "PASS":
+            guidance: Literal["PASS", "REJECTED"] = "PASS"
+        elif status == "REJECTED":
+            guidance = "REJECTED"
+        else:
+            return None
+        assert direct[0].evidence is not None
+        proposal_id = direct[0].evidence.proposal_id
+        if proposal_id is None:
+            return None
+        return guidance, proposal_id
+
+    def _record_region_point(
+        self,
+        region_slice: StaticRegionSlice,
+        point: _RegionPoint,
+    ) -> None:
+        points = self._region_points.setdefault(region_slice, {})
+        existing = points.get(point.index)
+        if existing is not None and (
+            existing.version != point.version or existing.static != point.static
+        ):
+            raise ValueError("static region point changed within one search")
+        if existing is None or point.evidence is not None:
+            points[point.index] = point
+
+    @staticmethod
+    def _build_region(
+        region_slice: StaticRegionSlice,
+        points: list[_RegionPoint],
+    ) -> StaticRegion:
+        references = tuple(
+            StaticRegionRuntimeReference(
+                proposal_id=point.evidence.proposal_id,
+                status=point.evidence.status,
+            )
+            for point in points
+            if point.evidence is not None and point.evidence.proposal_id is not None
+        )
+        unique_references = tuple(
+            dict.fromkeys(
+                (reference.proposal_id, reference.status) for reference in references
+            )
+        )
+        fingerprint = points[0].static.static_fingerprint
+        return StaticRegion(
+            slice=region_slice,
+            static_fingerprint=fingerprint,
+            observed_versions=tuple(point.version for point in points),
+            runtime_references=tuple(
+                StaticRegionRuntimeReference(proposal_id=proposal_id, status=status)
+                for proposal_id, status in unique_references
+            ),
+        )
+
     @property
     def failure_records(self) -> tuple[FailureRecord, ...]:
         return tuple(self._failure_records.values())
@@ -340,7 +610,7 @@ class _ProposalRunner:
         self,
         failure: FailureRecord,
         *,
-        evaluation: StaticFailEvaluation
+        evaluation: RuntimeInterfaceMissingEvaluation
         | TestFailEvaluation
         | IndeterminateEvaluation
         | None,
@@ -414,11 +684,9 @@ class _ProposalRunner:
     def _static_evidence(
         self,
         prepared: PreparedEnvironment,
-        result: StaticEvaluation,
+        result: IndeterminateEvaluation,
     ) -> ProbeEvidence:
         assert prepared.attempt is not None
-        if isinstance(result, StaticPassEvaluation):
-            return self._pass_evidence(prepared.attempt, result)
         failure = self._failures.classify_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             result,
@@ -462,7 +730,7 @@ class _ProposalRunner:
     @staticmethod
     def _pass_evidence(
         attempt: Attempt,
-        evaluation: StaticPassEvaluation | PassEvaluation,
+        evaluation: PassEvaluation,
     ) -> ProbeEvidence:
         proposal = evaluation.proposal
         if proposal.attempt_id is None:
@@ -481,7 +749,7 @@ class _ProposalRunner:
         cause: FailureCause,
         stage: str,
         process: ProcessResult | None,
-        evaluation: StaticFailEvaluation
+        evaluation: RuntimeInterfaceMissingEvaluation
         | TestFailEvaluation
         | IndeterminateEvaluation
         | None,
@@ -552,7 +820,7 @@ class _ProposalRunner:
 
 
 class SearchCoordinator:
-    """Own the complete baseline, static, fast-path, and dynamic cell state machine."""
+    """Own the baseline and single runtime-backed cell search state machine."""
 
     def __init__(
         self,
@@ -643,127 +911,61 @@ class SearchCoordinator:
             diagnostics=self._diagnostics,
             failures=self._failures,
         ) as runner:
-            static_search = self._coordinate_search.minimize(
+            search = self._coordinate_search.minimize(
                 start=baseline_evaluation.proposal.managed_vector,
                 candidates=candidate_snapshots,
-                evaluator=_StaticVectorEvaluator(runner),
+                evaluator=_RuntimeBackedVectorEvaluator(runner),
                 start_is_known_pass=True,
             )
-            if isinstance(static_search, CoordinateFailure):
+            if isinstance(search, CoordinateFailure):
+                search = CoordinateFailure.model_validate(
+                    {**search.model_dump(), "regions": runner.regions}
+                )
                 return self._coordinate_failure(
                     cell=cell,
-                    phase="static-search",
+                    phase="runtime-search",
                     static_baseline=capture.baseline,
                     baseline=baseline_evaluation,
                     candidates=candidate_snapshots,
-                    outcome=static_search,
+                    outcome=search,
                     runner=runner,
                     baseline_attempt=capture.attempt,
                 )
-            fast_run = runner.evaluate_full(static_search.vector)
-            fast_evidence = fast_run.evidence
-            static_search = self._append_observation(
-                static_search,
-                vector=static_search.vector,
-                evidence=fast_evidence,
+            if search.vector == baseline_evaluation.proposal.managed_vector:
+                final_evaluation = baseline_evaluation
+            else:
+                final_run = runner.evaluate_full(search.vector)
+                final_evidence = final_run.evidence
+                search = self._append_observation(
+                    search,
+                    vector=search.vector,
+                    evidence=final_evidence,
+                )
+                final_evaluation = final_run.evaluation
+                if not isinstance(final_evidence, ProbePass) or not isinstance(
+                    final_evaluation, PassEvaluation
+                ):
+                    return CellSearchFailure(
+                        reason="NONDETERMINISTIC",
+                        cell=cell,
+                        phase="runtime-final",
+                        baseline_attempt=capture.attempt,
+                        static_baseline=capture.baseline,
+                        baseline=baseline_evaluation,
+                        candidate_snapshots=candidate_snapshots,
+                        failure_records=runner.failure_records,
+                    )
+            search = CoordinateSuccess.model_validate(
+                {**search.model_dump(), "regions": runner.regions}
             )
-            fast_evaluation = fast_run.evaluation
-            if fast_evidence.status == "PASS" and isinstance(
-                fast_evaluation, PassEvaluation
-            ):
-                return CellSuccess(
-                    cell=cell,
-                    baseline_attempt=capture.attempt,
-                    static_baseline=capture.baseline,
-                    baseline=baseline_evaluation,
-                    candidate_snapshots=candidate_snapshots,
-                    static_search=static_search,
-                    final_vector=static_search.vector,
-                    final_evaluation=fast_evaluation,
-                    failure_records=runner.failure_records,
-                )
-            if isinstance(fast_evidence, ProbeIndeterminate):
-                return CellIndeterminate(
-                    cell=cell,
-                    phase="static-fast-path",
-                    failure_id=fast_evidence.failure_id,
-                    failure_records=runner.failure_records,
-                    baseline_attempt=capture.attempt,
-                    static_baseline=capture.baseline,
-                    baseline=baseline_evaluation,
-                    candidate_snapshots=candidate_snapshots,
-                    coordinate_failure=CoordinateFailure(
-                        status="INDETERMINATE",
-                        observations=static_search.observations,
-                        failure_id=fast_evidence.failure_id,
-                    ),
-                )
-            if not (
-                isinstance(fast_evidence, ProbeRejection)
-                and fast_evidence.cause == "TEST_FAILURE"
-            ):
-                return CellSearchFailure(
-                    reason="NONDETERMINISTIC",
-                    cell=cell,
-                    phase="static-fast-path",
-                    baseline_attempt=capture.attempt,
-                    static_baseline=capture.baseline,
-                    baseline=baseline_evaluation,
-                    candidate_snapshots=candidate_snapshots,
-                    coordinate_failure=CoordinateFailure(
-                        status="NONDETERMINISTIC",
-                        observations=static_search.observations,
-                    ),
-                    failure_records=runner.failure_records,
-                )
-            dynamic_search = self._coordinate_search.minimize(
-                start=baseline_evaluation.proposal.managed_vector,
-                candidates=candidate_snapshots,
-                evaluator=_FullVectorEvaluator(runner),
-                hints=static_search.vector,
-                start_is_known_pass=True,
-            )
-            if isinstance(dynamic_search, CoordinateFailure):
-                return self._coordinate_failure(
-                    cell=cell,
-                    phase="dynamic-search",
-                    static_baseline=capture.baseline,
-                    baseline=baseline_evaluation,
-                    candidates=candidate_snapshots,
-                    outcome=dynamic_search,
-                    runner=runner,
-                    baseline_attempt=capture.attempt,
-                )
-            final_run = runner.evaluate_full(dynamic_search.vector)
-            final_evidence = final_run.evidence
-            dynamic_search = self._append_observation(
-                dynamic_search,
-                vector=dynamic_search.vector,
-                evidence=final_evidence,
-            )
-            final_evaluation = final_run.evaluation
-            if not isinstance(final_evidence, ProbePass) or not isinstance(
-                final_evaluation, PassEvaluation
-            ):
-                return CellSearchFailure(
-                    reason="NONDETERMINISTIC",
-                    cell=cell,
-                    phase="dynamic-final",
-                    baseline_attempt=capture.attempt,
-                    static_baseline=capture.baseline,
-                    baseline=baseline_evaluation,
-                    candidate_snapshots=candidate_snapshots,
-                    failure_records=runner.failure_records,
-                )
             return CellSuccess(
                 cell=cell,
                 baseline_attempt=capture.attempt,
                 static_baseline=capture.baseline,
                 baseline=baseline_evaluation,
                 candidate_snapshots=candidate_snapshots,
-                static_search=static_search,
-                dynamic_search=dynamic_search,
-                final_vector=dynamic_search.vector,
+                search=search,
+                final_vector=search.vector,
                 final_evaluation=final_evaluation,
                 failure_records=runner.failure_records,
             )
@@ -778,6 +980,10 @@ class SearchCoordinator:
         if any(
             observation.vector == vector
             and observation.evidence.attempt == evidence.attempt
+            and isinstance(
+                observation.evidence,
+                (ProbePass, ProbeRejection, ProbeIndeterminate),
+            )
             and observation.evidence.status == evidence.status
             for observation in search.observations
         ):

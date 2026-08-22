@@ -206,9 +206,16 @@ class TestEnvironmentFactory:
                     "snapshot-path-line-column-code+external-namespace-path-code"
                 ),
                 "output_format": "gitlab",
-                "policy": "increment-v2",
+                "policy": "static-transition-v1",
+                "fingerprint": "ordered-incremental-identity-multiset",
+                "region_scope": "fixed-slice-contiguous",
+                "strong_classifier": "strong-classifier-v1",
+                "witness_planner": "witness-planner-v1",
+                "witness_harness": "witness-harness-v1",
+                "boundary_rule": "runtime-evidence-only",
+                "final_verification": "direct-test-command-pass",
             },
-            "failure_policy": "failure-v1",
+            "failure_policy": "failure-runtime-v1",
         }
         expected_policy = hashlib.sha256(
             (

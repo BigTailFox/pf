@@ -18,7 +18,7 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
     TestPass,
     TyCheck,
     ty_diagnostic_digest,
@@ -125,7 +125,7 @@ def evaluation(
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process(), diagnostics=()),
             baseline_digest=ty_diagnostic_digest(()),
@@ -206,7 +206,7 @@ def _report_for_package(package, source_snapshot) -> PackageFloorReportV1:
                 ),
                 baseline=baseline_evaluation,
                 candidate_snapshots=candidate_snapshot(cell, vector),
-                static_search=coordinate,
+                search=coordinate,
                 final_vector=vector,
                 final_evaluation=final_evaluation,
             ),
@@ -318,7 +318,7 @@ class TestProjectEditor:
             ),
             baseline=baseline_evaluation,
             candidate_snapshots=candidate_snapshot(cell, vector),
-            static_search=search,
+            search=search,
             final_vector=vector,
             final_evaluation=final_evaluation,
         )
@@ -467,7 +467,7 @@ class TestProjectEditor:
                             ),
                             baseline=baseline_evaluation,
                             candidate_snapshots=candidate_snapshot(cell, vector),
-                            static_search=coordinate,
+                            search=coordinate,
                             final_vector=vector,
                             final_evaluation=final_evaluation,
                         ),

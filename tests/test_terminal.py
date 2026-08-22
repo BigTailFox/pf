@@ -26,6 +26,7 @@ from pf.schemas.evaluation import (
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
+    DiagnosticClassification,
     PassEvaluation,
     ProcessEvent,
     ProcessResult,
@@ -39,8 +40,8 @@ from pf.schemas.evaluation import (
     SmokePass,
     SmokeIndeterminate,
     StaticBaseline,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticRegressionEvaluation,
+    StaticUnchangedEvaluation,
     StatusEvent,
     TestFail,
     TestFailEvaluation,
@@ -74,6 +75,7 @@ from pf.schemas.report import (
     report_generation_id,
 )
 from pf.terminal import PF_THEME, TerminalPresenter
+from pf.static_transition import static_fingerprint
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -110,6 +112,19 @@ def process_result(
         stderr=stderr,
         timed_out=timed_out,
         start_error=start_error,
+    )
+
+
+def general_classifications(
+    *diagnostics: TyDiagnostic,
+) -> tuple[DiagnosticClassification, ...]:
+    return tuple(
+        DiagnosticClassification(
+            diagnostic_identity=diagnostic.identity,
+            classification="general",
+            reason_code="test-fixture",
+        )
+        for diagnostic in diagnostics
     )
 
 
@@ -463,7 +478,7 @@ class TestProgressRendering:
         terminal.consume(
             completed_event(
                 cell,
-                status="STATIC_FAIL",
+                status="STATIC_REGRESSION",
                 process=process_result(
                     exit_code=1,
                     stderr="error: Unresolved import 'missing'",
@@ -490,8 +505,8 @@ class TestProgressRendering:
         attempt = attempt_for(cell, resolution="lowest-direct")
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
+            cause="TEST_FAILURE",
+            stage="test",
             process=process_result(
                 exit_code=1, stderr="error: Unresolved import 'missing'"
             ),
@@ -504,16 +519,16 @@ class TestProgressRendering:
                 status="REJECTED",
                 failure=failure,
                 role="declaration",
-                stage="ty",
+                stage="test",
             )
         )
 
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
-        assert "failed at static checking" in output
+        assert "failed at testing" in output
         assert "The declared lower bounds did not pass the required checks." in output
         assert f"pf diagnose demo --failure {failure.failure_id}" in output
-        assert "STATIC_FAIL" not in output
+        assert "STATIC_REGRESSION" not in output
         assert "REJECTED" not in output
 
     def test_completed_cell_omits_diagnose_when_journal_is_unavailable(self) -> None:
@@ -779,7 +794,7 @@ class TestProgressRendering:
         )
         ty_process = process_result(exit_code=0, stdout="[]")
         check = TyCheck(process=ty_process, diagnostics=())
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=ty_diagnostic_digest(()),
@@ -1028,7 +1043,7 @@ class TestProgressRendering:
         presenter.consume(
             completed_event(
                 cell,
-                status="STATIC_FAIL",
+                status="STATIC_REGRESSION",
                 process=process_result(
                     exit_code=1,
                     stderr="error: Unresolved import 'missing'",
@@ -1044,7 +1059,7 @@ class TestProgressRendering:
         assert "0:00:00" in plain
         assert "error: Unresolved import 'missing'" in plain
         assert "  error: Unresolved import 'missing'" not in plain
-        assert "STATIC_FAIL" not in plain
+        assert "STATIC_REGRESSION" not in plain
         assert "╭" in plain
         title_at = output.index("[py3.10]")
         assert "31" in output[:title_at]
@@ -1078,7 +1093,7 @@ class TestProgressRendering:
         presenter.consume(
             completed_event(
                 cell,
-                status="STATIC_FAIL",
+                status="STATIC_REGRESSION",
                 stage="ty",
             )
         )
@@ -1086,7 +1101,7 @@ class TestProgressRendering:
         output = terminal.getvalue()
         plain = visible(output)
         assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
-        assert "STATIC_FAIL" not in plain
+        assert "STATIC_REGRESSION" not in plain
         assert "checked declarations" not in plain
         cross_at = output.index("✗")
         assert "31" in output[: cross_at + 1]
@@ -1276,7 +1291,7 @@ class TestVerificationRendering:
         )
         ty_process = process_result(exit_code=0, stdout="[]")
         check = TyCheck(process=ty_process, diagnostics=())
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=ty_diagnostic_digest(()),
@@ -1432,7 +1447,7 @@ class TestVerificationRendering:
             process,
         )
         check = TyCheck(process=process, diagnostics=(diagnostic,))
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=ty_diagnostic_digest(check.diagnostics),
@@ -1504,7 +1519,7 @@ class TestVerificationRendering:
         )
         process = process_result(exit_code=1, stdout="[]")
         check = TyCheck(process=process, diagnostics=(diagnostic,))
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=ty_diagnostic_digest(check.diagnostics),
@@ -1532,7 +1547,7 @@ class TestVerificationRendering:
             "site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
         )
 
-    def test_check_static_failure_summarizes_only_incremental_diagnostics(self) -> None:
+    def test_check_runtime_failure_summarizes_static_increment(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -1569,22 +1584,29 @@ class TestVerificationRendering:
             message="new dependency regression",
         )
         process = process_result(exit_code=1, stdout="[]")
-        static = StaticFailEvaluation(
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process, diagnostics=(existing, increment)),
             baseline_digest=ty_diagnostic_digest((existing,)),
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=general_classifications(increment),
         )
         terminal, stdout, stderr = presenter()
+        evaluation = TestFailEvaluation(
+            proposal=proposal,
+            static=static,
+            test=TestFail(process=process),
+        )
 
         exit_code = terminal.render_check(
-            CheckCompatibilityFailure(evaluations=(static,))
+            CheckCompatibilityFailure(evaluations=(evaluation,))
         )
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at static checking\n"
+            "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
             "demo.py:9:2 [dependency-regression] new dependency regression\n"
             "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
         )
@@ -1618,31 +1640,39 @@ class TestVerificationRendering:
             message="new dependency regression",
         )
         process = process_result(exit_code=1, stdout="[]")
-        static = StaticFailEvaluation(
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process, diagnostics=(increment,)),
             baseline_digest=ty_diagnostic_digest(()),
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=general_classifications(increment),
         )
         terminal, stdout, stderr = presenter()
+        evaluation = TestFailEvaluation(
+            proposal=proposal,
+            static=static,
+            test=TestFail(process=process),
+        )
         terminal.consume(
             completed_event(
                 cell,
-                status="STATIC_FAIL",
+                status="TEST_FAIL",
                 diagnostics=(increment,),
                 process=process,
+                stage="test",
             )
         )
 
         exit_code = terminal.render_check(
-            CheckCompatibilityFailure(evaluations=(static,))
+            CheckCompatibilityFailure(evaluations=(evaluation,))
         )
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
         output = stderr.getvalue()
         assert output.count("demo.py:9:2 [dependency-regression]") == 1
-        assert "STATIC_FAIL" not in output
+        assert "STATIC_REGRESSION" not in output
         assert "ty: 1 new diagnostic" not in output
         assert output.endswith(
             "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
@@ -1715,21 +1745,18 @@ class TestSearchRendering:
             severity="error",
             message="argument has the wrong type",
         )
-        static = StaticFailEvaluation(
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(process=static_process, diagnostics=(increment,)),
             baseline_digest=ty_diagnostic_digest(()),
             incremental=(increment,),
-        )
-        static_pass = StaticPassEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=static_process, diagnostics=()),
-            baseline_digest=ty_diagnostic_digest(()),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=general_classifications(increment),
         )
         dynamic_process = process_result(stderr="1 failed\n2 passed")
         dynamic = TestFailEvaluation(
             proposal=proposal,
-            static=static_pass,
+            static=static,
             test=TestFail(process=dynamic_process),
         )
         install_process = process_result(stderr="No solution found\nconflicting pins")
@@ -1759,12 +1786,6 @@ class TestSearchRendering:
             logs=logs,
             root=tmp_path,
         )
-        static_failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
-            process=static_process,
-        )
         dynamic_failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause="TEST_FAILURE",
@@ -1776,9 +1797,6 @@ class TestSearchRendering:
             cause=install.cause,
             stage=install.stage,
             process=install.process,
-        )
-        terminal.consume(
-            SearchFailureEvent(cell=cell, failure=static_failure, evaluation=static)
         )
         terminal.consume(
             SearchFailureEvent(cell=cell, failure=dynamic_failure, evaluation=dynamic)
@@ -1795,8 +1813,8 @@ class TestSearchRendering:
         assert "The full test command failed for this version combination." in output
         assert "test dependencies cannot be installed" in output
         assert "RESOLUTION_CONFLICT" not in output
-        assert output.count(".pf/logs/search-run/") == 3
-        assert output.count("for details.") == 3
+        assert output.count(".pf/logs/search-run/") == 2
+        assert output.count("for details.") == 2
 
     @pytest.mark.parametrize(
         ("reasons", "expected_exit"),
@@ -1987,7 +2005,7 @@ class TestSearchRendering:
             ty=check,
             digest=ty_diagnostic_digest(check.diagnostics),
         )
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=baseline.digest,
@@ -2125,13 +2143,18 @@ class TestExplainRendering:
             resolved_graph=(),
             policy_identity="policy",
         )
-        candidate_attempt = attempt_for(cell, resolution="exact-vector", vector=())
+        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
+        candidate_attempt = attempt_for(
+            cell,
+            resolution="exact-vector",
+            vector=candidate_vector,
+        )
         proposal = Proposal(
             proposal_id="candidate",
             attempt_id=candidate_attempt.attempt_id,
             snapshot_digest="snapshot",
             cell=cell,
-            managed_vector=(),
+            managed_vector=candidate_vector,
             fixed_declaration_ids=(),
             resolved_graph=(),
             policy_identity="policy",
@@ -2162,19 +2185,26 @@ class TestExplainRendering:
             ty=TyCheck(process=process, diagnostics=(existing,)),
             digest=ty_diagnostic_digest((existing,)),
         )
-        static = StaticFailEvaluation(
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process, diagnostics=(existing, increment)),
             baseline_digest=baseline.digest,
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=general_classifications(increment),
+        )
+        runtime_failure = TestFailEvaluation(
+            proposal=proposal,
+            static=static,
+            test=TestFail(process=process),
         )
         rejection = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=candidate_attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
-            process=process,
+            cause="TEST_FAILURE",
+            stage="test",
+            process=runtime_failure.test.process,
         )
-        baseline_static = StaticPassEvaluation(
+        baseline_static = StaticUnchangedEvaluation(
             proposal=baseline_proposal,
             ty=baseline.ty,
             baseline_digest=baseline.digest,
@@ -2182,7 +2212,7 @@ class TestExplainRendering:
         failure = CellSearchFailure(
             reason="NO_PASS_IN_SEARCH_SPACE",
             cell=cell,
-            phase="static-search",
+            phase="runtime-search",
             baseline_attempt=baseline_attempt,
             static_baseline=baseline,
             baseline=PassEvaluation(
@@ -2197,13 +2227,13 @@ class TestExplainRendering:
                     ProbeObservation(
                         dependency="demo-dep",
                         candidate_version="1",
-                        vector=(),
+                        vector=candidate_vector,
                         evidence=ProbeRejection(
                             attempt=candidate_attempt,
                             proposal_id=proposal.proposal_id,
                             failure_id=rejection.failure_id,
-                            cause="STATIC_REGRESSION",
-                            evaluation=static,
+                            cause="TEST_FAILURE",
+                            evaluation=runtime_failure,
                         ),
                     ),
                 ),
@@ -2250,13 +2280,18 @@ class TestExplainRendering:
             resolved_graph=(),
             policy_identity="policy",
         )
-        candidate_attempt = attempt_for(cell, resolution="exact-vector", vector=())
+        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
+        candidate_attempt = attempt_for(
+            cell,
+            resolution="exact-vector",
+            vector=candidate_vector,
+        )
         proposal = Proposal(
             proposal_id="candidate",
             attempt_id=candidate_attempt.attempt_id,
             snapshot_digest="snapshot",
             cell=cell,
-            managed_vector=(),
+            managed_vector=candidate_vector,
             fixed_declaration_ids=(),
             resolved_graph=(),
             policy_identity="policy",
@@ -2300,8 +2335,13 @@ class TestExplainRendering:
             )
             for index in range(3, 14)
         )
-        incremental = (repeated, repeated, repeated, *extras)
-        static = StaticFailEvaluation(
+        incremental = tuple(
+            sorted(
+                (repeated, repeated, repeated, *extras),
+                key=lambda item: item.identity,
+            )
+        )
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(
                 process=process,
@@ -2311,14 +2351,23 @@ class TestExplainRendering:
             ),
             baseline_digest=baseline.digest,
             incremental=incremental,
+            static_fingerprint=static_fingerprint(
+                tuple(item.identity for item in incremental)
+            ),
+            classifications=general_classifications(*incremental),
+        )
+        runtime_failure = TestFailEvaluation(
+            proposal=proposal,
+            static=static,
+            test=TestFail(process=process),
         )
         rejection = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=candidate_attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
-            process=process,
+            cause="TEST_FAILURE",
+            stage="test",
+            process=runtime_failure.test.process,
         )
-        baseline_static = StaticPassEvaluation(
+        baseline_static = StaticUnchangedEvaluation(
             proposal=baseline_proposal,
             ty=baseline.ty,
             baseline_digest=baseline.digest,
@@ -2326,7 +2375,7 @@ class TestExplainRendering:
         failure = CellSearchFailure(
             reason="NO_PASS_IN_SEARCH_SPACE",
             cell=cell,
-            phase="static-search",
+            phase="runtime-search",
             baseline_attempt=baseline_attempt,
             static_baseline=baseline,
             baseline=PassEvaluation(
@@ -2341,13 +2390,13 @@ class TestExplainRendering:
                     ProbeObservation(
                         dependency="demo-dep",
                         candidate_version="1",
-                        vector=(),
+                        vector=candidate_vector,
                         evidence=ProbeRejection(
                             attempt=candidate_attempt,
                             proposal_id=proposal.proposal_id,
                             failure_id=rejection.failure_id,
-                            cause="STATIC_REGRESSION",
-                            evaluation=static,
+                            cause="TEST_FAILURE",
+                            evaluation=runtime_failure,
                         ),
                     ),
                 ),
@@ -2363,7 +2412,7 @@ class TestExplainRendering:
         assert "×3" in rendered
         assert "extra diagnostic 3" in rendered
         assert "... and 2 more unique diagnostics" in rendered
-        assert "extra diagnostic 13" not in rendered
+        assert "extra diagnostic 9" not in rendered
         assert "Diagnose: pf diagnose demo" in rendered
 
     @pytest.mark.parametrize("width", (56, 80, 120))

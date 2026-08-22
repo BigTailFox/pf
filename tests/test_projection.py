@@ -15,7 +15,7 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
     TestPass,
     TyCheck,
     ty_diagnostic_digest,
@@ -125,7 +125,7 @@ def passing_evaluation(
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=TyCheck(process=successful_process(), diagnostics=()),
             baseline_digest=ty_diagnostic_digest(()),
@@ -204,7 +204,7 @@ def successful_cell(
         ),
         baseline=baseline,
         candidate_snapshots=candidate_snapshot(cell, vector),
-        static_search=search,
+        search=search,
         final_vector=vector,
         final_evaluation=final_evaluation,
     )

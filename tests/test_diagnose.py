@@ -25,7 +25,7 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
@@ -81,19 +81,20 @@ def candidate_snapshot(
 ) -> tuple[CandidateSnapshot, ...]:
     pin = vector[0]
     source = SourceIdentity(kind="registry")
-    candidates = (
+    candidates = tuple(
         Candidate(
-            version=pin.version,
-            series_key=pin.version,
+            version=item.version,
+            series_key=item.version,
             artifact=AvailableArtifact(
-                filename=f"{pin.name}-{pin.version}.whl",
+                filename=f"{item.name}-{item.version}.whl",
                 kind="wheel",
                 content_hash=f"sha256:{'a' * 64}",
-                locator=f"https://files.example/{pin.name}-{pin.version}.whl",
+                locator=f"https://files.example/{item.name}-{item.version}.whl",
             ),
-        ),
+        )
+        for item in vector
     )
-    representatives = ((pin.version, pin.version),)
+    representatives = tuple((item.version, item.version) for item in vector)
     return (
         CandidateSnapshot(
             dependency=pin.name,
@@ -239,7 +240,7 @@ def _pass_evaluation(
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=baseline_check,
             baseline_digest=baseline_digest,
@@ -376,8 +377,11 @@ def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
                     baseline_attempt=baseline_attempt,
                     static_baseline=baseline,
                     baseline=baseline_evaluation,
-                    candidate_snapshots=candidate_snapshot(cell, final_vector),
-                    static_search=search,
+                    candidate_snapshots=candidate_snapshot(
+                        cell,
+                        (rejected_vector[0], final_vector[0]),
+                    ),
+                    search=search,
                     final_vector=final_vector,
                     final_evaluation=final_evaluation,
                     failure_records=(failure,),
@@ -683,8 +687,8 @@ class TestDiagnoseWorkflow:
         )
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
+            cause="TEST_FAILURE",
+            stage="test",
             process=_process(exit_code=1),
         )
         logs = RunLogStore(root=tmp_path, run_id="check-run")

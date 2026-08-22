@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-08-22
+- **最后核对：** 2026-08-23
 
 本页定义工程文档的职责、位置和状态词。每类规范性契约只有一个所有者；其他文档只说明上下文并引用所有者，不复制规则。
 
@@ -15,7 +15,7 @@ CONTEXT.md                # 领域词汇；不定义产品或实现规则
 docs/
 ├── README.md             # 本页：所有权、状态、导航
 ├── designs/              # 规范性契约与设计草案 D001–D012
-├── plans/                # 非规范性实施记录 P001–P009
+├── plans/                # 非规范性实施记录 P001–P010
 └── reviews/              # 非规范性评审快照 R001–
 ```
 
@@ -45,7 +45,7 @@ docs/
 | 验证运行语义 | [D008](designs/D008-pf-verification-run.md) | smoke/check/search 如何实例化 Attempt、统一错误链路、Verification Journal、`diagnose` 读取面 | 现行 | [P006](plans/P006-pf-verification-run.md) |
 | 契约修复、模块加深与内部 seam | [D009](designs/D009-pf-v1-refactor.md) | 日志保密、证据/apply 授权、离线 discovery、验证编排、search 拆分、测试面与全量门禁 | 现行 | [P008](plans/P008-pf-v1-refactor.md) |
 | 架构加深 | [D010](designs/D010-pf-v1-architecture.md) | 判别 resolution/event、Runner 内部调度、平台日志 seam、终端私有视图与完整 composition | 现行 | [P009](plans/P009-pf-v1-architecture.md) |
-| runtime-backed 静态引导搜索 | [D011](designs/D011-pf-runtime-backed-static-search.md) | static fingerprint/region、runtime witness、动态边界与最终直接验证 | 现行契约，待实现 | — |
+| runtime-backed 静态引导搜索 | [D011](designs/D011-pf-runtime-backed-static-search.md) | static fingerprint/region、runtime witness、动态边界与最终直接验证 | 现行 | [P010](plans/P010-pf-runtime-backed-static-search.md)（已完成） |
 
 ## 设计草案
 
@@ -59,7 +59,7 @@ docs/
 
 - 根目录 [README](../README.md) 是使用入口，只摘要能力并链接 D001 与本页。
 - 根目录 [CONTEXT.md](../CONTEXT.md) 是领域词汇表。它固定术语与避免用法，不定义命令、算法或模块接口。不收录字节上限、文件格式或命令规则。
-- [P001](plans/P001-pf-v1.md)、[P002](plans/P002-pf-ty-enhancement.md)、[P003](plans/P003-pf-smoke-observability.md)、[P004](plans/P004-pf-failure-and-diagnose.md)、[P005](plans/P005-pf-process-output.md)、[P006](plans/P006-pf-verification-run.md)、[P007](plans/P007-pf-cli-enhancement.md)、[P008](plans/P008-pf-v1-refactor.md) 和 [P009](plans/P009-pf-v1-architecture.md) 是已经完成的实施与验证记录。它们提供历史证据，不定义现行行为；其中 P003 的运行时-only failure 诊断结构已经由 D005 取代，D005 的实施证据见 P004。D007/D008/D006/D009/D010 的实施证据分别见 P005、P006、P007、P008、P009。
+- [P001](plans/P001-pf-v1.md)、[P002](plans/P002-pf-ty-enhancement.md)、[P003](plans/P003-pf-smoke-observability.md)、[P004](plans/P004-pf-failure-and-diagnose.md)、[P005](plans/P005-pf-process-output.md)、[P006](plans/P006-pf-verification-run.md)、[P007](plans/P007-pf-cli-enhancement.md)、[P008](plans/P008-pf-v1-refactor.md)、[P009](plans/P009-pf-v1-architecture.md) 和 [P010](plans/P010-pf-runtime-backed-static-search.md) 是已经完成的实施与验证记录。它们提供历史证据，不定义现行行为；其中 P003 的运行时-only failure 诊断结构已经由 D005 取代，D005 的实施证据见 P004。D007/D008/D006/D009/D010/D011 的实施证据分别见 P005、P006、P007、P008、P009、P010。
 - [R001](reviews/R001-pf-v1-review.md) 是 2026-08-22 对照 D009 落地前 `main` 的 v1 仓库评审。它提供契约缺口与首轮重构意见，不定义现行行为；对应整改契约见 [D009](designs/D009-pf-v1-refactor.md)。实施前终审补充了脱敏观察面：流式缺口在日志/终端，不在 `package-floor.json` 正文。
 - [R002](reviews/R002-pf-v1-architecture-review.md) 是 2026-08-22 对照 D009 落地后 `af10d0c` 的架构评审。它记录剩余 module/interface/seam 优化机会，不定义现行行为；对应整改契约与实施记录是 [D010](designs/D010-pf-v1-architecture.md) / [P009](plans/P009-pf-v1-architecture.md)。
 

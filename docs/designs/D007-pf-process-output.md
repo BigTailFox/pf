@@ -1,7 +1,7 @@
 # PF 进程输出、磁盘日志与内存投影
 
 - **状态：** 现行
-- **最后核对：** 2026-08-21
+- **最后核对：** 2026-08-23
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
@@ -102,7 +102,7 @@ argv、cwd、环境变量名等元数据仍可有独立硬上限（实现细节�
 
 v1 不对 Process Log 的 stdout/stderr 正文设置产品字节上限，也不提供 `[tool.pf]` 配额项。
 
-进程仍受 D001 的 timeout 约束。磁盘耗尽、权限失败、写入中断导致日志没写完时，对应流的 `*_complete` 为 false，cause 按 D005 走基础设施/工具失败，不得伪装成 `TEST_FAILURE` 或 `STATIC_REGRESSION`。
+进程仍受 D001 的 timeout 约束。磁盘耗尽、权限失败、写入中断导致日志没写完时，对应流的 `*_complete` 为 false，cause 按 D005 走基础设施/工具失败，不得伪装成 `TEST_FAILURE` 或 `RUNTIME_INTERFACE_MISSING`。
 
 PF v1 不自动删除运行日志。
 

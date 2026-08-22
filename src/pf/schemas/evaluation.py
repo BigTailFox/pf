@@ -15,6 +15,10 @@ from pf.schemas.project import (
     ResolvedNode,
     VersionPin,
 )
+from pf.static_transition import (
+    STATIC_POLICY_VERSION,
+    static_fingerprint as compute_static_fingerprint,
+)
 
 
 class EnvironmentVariable(FrozenSchema):
@@ -85,7 +89,7 @@ FailureCause = Literal[
     "RESOLUTION_CONFLICT",
     "BUILD_FAILURE",
     "HARNESS_CONFLICT",
-    "STATIC_REGRESSION",
+    "RUNTIME_INTERFACE_MISSING",
     "TEST_FAILURE",
     "SOURCE_FAILURE",
     "ENVIRONMENT_FAILURE",
@@ -100,7 +104,7 @@ _REJECTION_STAGES: dict[str, frozenset[str]] = {
     "RESOLUTION_CONFLICT": frozenset({"install", "install-project"}),
     "BUILD_FAILURE": frozenset({"install", "install-project", "install-harness"}),
     "HARNESS_CONFLICT": frozenset({"install-harness"}),
-    "STATIC_REGRESSION": frozenset({"ty"}),
+    "RUNTIME_INTERFACE_MISSING": frozenset({"witness"}),
     "TEST_FAILURE": frozenset({"test"}),
 }
 
@@ -122,8 +126,6 @@ def rejection_is_supported(
         return False
     if stage not in _REJECTION_STAGES.get(cause, ()):
         return False
-    if requested_resolution == "highest" and cause == "STATIC_REGRESSION":
-        return False
     if (
         exit_code is None
         or signal is not None
@@ -133,7 +135,10 @@ def rejection_is_supported(
         or not stderr_complete
     ):
         return False
-    return exit_code != 0 or cause in {"HARNESS_CONFLICT", "STATIC_REGRESSION"}
+    return exit_code != 0 or cause in {
+        "HARNESS_CONFLICT",
+        "RUNTIME_INTERFACE_MISSING",
+    }
 
 
 class AttemptIdentity(FrozenSchema):
@@ -408,7 +413,7 @@ def ty_diagnostic_digest(diagnostics: tuple[TyDiagnostic, ...]) -> str:
     identities = [item.identity for item in diagnostics]
     canonical = json.dumps(identities, separators=(",", ":")).encode()
     return hashlib.sha256(
-        b"pf:ty-diagnostic-baseline:increment-v2\0" + canonical
+        f"pf:ty-diagnostic-baseline:{STATIC_POLICY_VERSION}\0".encode() + canonical
     ).hexdigest()
 
 
@@ -519,47 +524,183 @@ GraphOutcome = Annotated[
 ]
 
 
-class StaticPassEvaluation(FrozenSchema):
-    status: Literal["STATIC_PASS"] = "STATIC_PASS"
+class RuntimeWitnessPlan(FrozenSchema):
+    diagnostic_identities: tuple[str, ...]
+    managed_dependency: str
+    operation: Literal["import-module", "import-symbol", "has-member"]
+    module: str
+    owner: str | None = None
+    symbol_or_member: str | None = None
+    planner_policy_version: str = "witness-planner-v1"
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> "RuntimeWitnessPlan":
+        if not self.diagnostic_identities:
+            raise ValueError("runtime witness plan requires diagnostic identities")
+        if self.diagnostic_identities != tuple(sorted(self.diagnostic_identities)):
+            raise ValueError("runtime witness diagnostics must use canonical order")
+        if not self.managed_dependency.strip() or not self.module.strip():
+            raise ValueError("runtime witness dependency and module cannot be empty")
+        if self.planner_policy_version != "witness-planner-v1":
+            raise ValueError("unsupported runtime witness planner policy")
+        if self.operation == "import-module":
+            if self.owner is not None or self.symbol_or_member is not None:
+                raise ValueError(
+                    "import-module witness cannot retain an owner or symbol"
+                )
+        elif self.operation == "import-symbol":
+            if self.owner is not None or not self.symbol_or_member:
+                raise ValueError("import-symbol witness requires only a symbol")
+        elif not self.owner or not self.symbol_or_member:
+            raise ValueError("has-member witness requires an owner and member")
+        return self
+
+
+class DiagnosticClassification(FrozenSchema):
+    diagnostic_identity: str
+    classification: Literal["strong", "general"]
+    reason_code: str
+    witness_plan: RuntimeWitnessPlan | None = None
+    classifier_policy_version: str = "strong-classifier-v1"
+
+    @model_validator(mode="after")
+    def validate_classification(self) -> "DiagnosticClassification":
+        if not self.diagnostic_identity or not self.reason_code:
+            raise ValueError("diagnostic classification facts cannot be empty")
+        if self.classifier_policy_version != "strong-classifier-v1":
+            raise ValueError("unsupported strong classifier policy")
+        if self.classification == "strong":
+            if self.witness_plan is None:
+                raise ValueError(
+                    "strong diagnostic classification requires a witness plan"
+                )
+            if self.diagnostic_identity not in self.witness_plan.diagnostic_identities:
+                raise ValueError(
+                    "strong diagnostic must be covered by its witness plan"
+                )
+        elif self.witness_plan is not None:
+            raise ValueError("general diagnostic cannot retain a witness plan")
+        return self
+
+
+class RuntimeWitnessResult(FrozenSchema):
+    status: Literal["PRESENT", "CONFIRMED_MISSING", "NOT_APPLICABLE"]
+    plan: RuntimeWitnessPlan
+    process: ProcessResult
+
+    @model_validator(mode="after")
+    def validate_result(self) -> "RuntimeWitnessResult":
+        process = self.process
+        if (
+            process.exit_code != 0
+            or process.signal is not None
+            or process.start_error is not None
+            or process.timed_out
+            or not process.stdout_complete
+            or not process.stderr_complete
+        ):
+            raise ValueError("runtime witness result requires a complete normal exit 0")
+        return self
+
+
+RuntimeWitnessOutcome = Annotated[
+    Union[RuntimeWitnessResult, ToolFailure],
+    Field(discriminator="status"),
+]
+
+
+class RuntimeWitnessAttempt(FrozenSchema):
+    plan: RuntimeWitnessPlan
+    outcome: RuntimeWitnessOutcome
+
+    @model_validator(mode="after")
+    def validate_attempt(self) -> "RuntimeWitnessAttempt":
+        if isinstance(self.outcome, RuntimeWitnessResult):
+            if self.outcome.plan != self.plan:
+                raise ValueError("runtime witness result must match its plan")
+        elif self.outcome.stage != "witness":
+            raise ValueError("runtime witness tool failure must use witness stage")
+        return self
+
+
+class StaticUnchangedEvaluation(FrozenSchema):
+    status: Literal["STATIC_UNCHANGED"] = "STATIC_UNCHANGED"
     proposal: "Proposal"
     ty: TyCheck
     baseline_digest: str
     incremental: tuple[TyDiagnostic, ...] = ()
+    static_fingerprint: str = compute_static_fingerprint(())
 
     @model_validator(mode="after")
-    def validate_static_pass(self) -> "StaticPassEvaluation":
+    def validate_static_unchanged(self) -> "StaticUnchangedEvaluation":
         if not self.baseline_digest:
             raise ValueError("static evaluation baseline digest cannot be empty")
         if self.incremental:
-            raise ValueError("STATIC_PASS requires an empty diagnostic increment")
+            raise ValueError("STATIC_UNCHANGED requires an empty diagnostic increment")
+        if self.static_fingerprint != compute_static_fingerprint(()):
+            raise ValueError("static fingerprint does not match its increment")
         return self
 
 
-class StaticFailEvaluation(FrozenSchema):
-    status: Literal["STATIC_FAIL"] = "STATIC_FAIL"
+class StaticRegressionEvaluation(FrozenSchema):
+    status: Literal["STATIC_REGRESSION"] = "STATIC_REGRESSION"
     proposal: "Proposal"
     ty: TyCheck
     baseline_digest: str
     incremental: tuple[TyDiagnostic, ...]
+    static_fingerprint: str
+    classifications: tuple[DiagnosticClassification, ...]
 
     @model_validator(mode="after")
-    def validate_static_fail(self) -> "StaticFailEvaluation":
+    def validate_static_regression(self) -> "StaticRegressionEvaluation":
         if not self.baseline_digest:
             raise ValueError("static evaluation baseline digest cannot be empty")
         if not self.incremental:
-            raise ValueError("STATIC_FAIL requires a non-empty diagnostic increment")
+            raise ValueError(
+                "STATIC_REGRESSION requires a non-empty diagnostic increment"
+            )
         raw = Counter(item.identity for item in self.ty.diagnostics)
         increment = Counter(item.identity for item in self.incremental)
         if increment - raw:
             raise ValueError(
                 "static increment must be a sub-multiset of ty diagnostics"
             )
+        identities = tuple(item.identity for item in self.incremental)
+        if identities != tuple(sorted(identities)):
+            raise ValueError("static increment must use canonical diagnostic order")
+        expected = compute_static_fingerprint(identities)
+        if self.static_fingerprint != expected:
+            raise ValueError("static fingerprint does not match its increment")
+        classified = tuple(item.diagnostic_identity for item in self.classifications)
+        if classified != identities:
+            raise ValueError(
+                "static diagnostic classifications must match the ordered increment"
+            )
         return self
+
+
+def _require_witness_prefix(
+    static: StaticUnchangedEvaluation | StaticRegressionEvaluation,
+    witnesses: tuple[RuntimeWitnessAttempt, ...],
+) -> tuple[RuntimeWitnessPlan, ...]:
+    allowed_list: list[RuntimeWitnessPlan] = []
+    if isinstance(static, StaticRegressionEvaluation):
+        for classification in static.classifications:
+            plan = classification.witness_plan
+            if plan is not None and plan not in allowed_list:
+                allowed_list.append(plan)
+    allowed = tuple(allowed_list)
+    plans = tuple(attempt.plan for attempt in witnesses)
+    if plans != allowed[: len(plans)] or len(set(plans)) != len(plans):
+        raise ValueError(
+            "runtime witness attempts must follow this Proposal's classified plans"
+        )
+    return allowed
 
 
 class StaticBaselineCapture(FrozenSchema):
     baseline: StaticBaseline
-    static: StaticPassEvaluation
+    static: StaticUnchangedEvaluation
 
     @model_validator(mode="after")
     def validate_capture(self) -> "StaticBaselineCapture":
@@ -575,16 +716,84 @@ class StaticBaselineCapture(FrozenSchema):
 class PassEvaluation(FrozenSchema):
     status: Literal["PASS"] = "PASS"
     proposal: "Proposal"
-    static: StaticPassEvaluation
+    static: StaticUnchangedEvaluation | StaticRegressionEvaluation
+    witnesses: tuple[RuntimeWitnessAttempt, ...] = ()
     test: TestPass
+
+    @model_validator(mode="after")
+    def validate_pass(self) -> "PassEvaluation":
+        if self.static.proposal != self.proposal:
+            raise ValueError("pass static evidence must match its proposal")
+        if any(
+            isinstance(attempt.outcome, RuntimeWitnessResult)
+            and attempt.outcome.status == "CONFIRMED_MISSING"
+            for attempt in self.witnesses
+        ):
+            raise ValueError("pass cannot retain confirmed-missing witness evidence")
+        if any(isinstance(attempt.outcome, ToolFailure) for attempt in self.witnesses):
+            raise ValueError("pass cannot retain witness tool failure")
+        allowed = _require_witness_prefix(self.static, self.witnesses)
+        if self.witnesses and len(self.witnesses) != len(allowed):
+            raise ValueError("pass must complete every selected witness plan")
+        return self
 
 
 class TestFailEvaluation(FrozenSchema):
     __test__: ClassVar[bool] = False
     status: Literal["TEST_FAIL"] = "TEST_FAIL"
     proposal: "Proposal"
-    static: StaticPassEvaluation
+    static: StaticUnchangedEvaluation | StaticRegressionEvaluation
+    witnesses: tuple[RuntimeWitnessAttempt, ...] = ()
     test: TestFail
+
+    @model_validator(mode="after")
+    def validate_test_failure(self) -> "TestFailEvaluation":
+        if self.static.proposal != self.proposal:
+            raise ValueError("test failure static evidence must match its proposal")
+        if any(
+            isinstance(attempt.outcome, RuntimeWitnessResult)
+            and attempt.outcome.status == "CONFIRMED_MISSING"
+            for attempt in self.witnesses
+        ):
+            raise ValueError(
+                "test failure cannot run after confirmed-missing witness evidence"
+            )
+        if any(isinstance(attempt.outcome, ToolFailure) for attempt in self.witnesses):
+            raise ValueError("test failure cannot retain witness tool failure")
+        allowed = _require_witness_prefix(self.static, self.witnesses)
+        if self.witnesses and len(self.witnesses) != len(allowed):
+            raise ValueError("test failure must complete every selected witness plan")
+        return self
+
+
+class RuntimeInterfaceMissingEvaluation(FrozenSchema):
+    status: Literal["RUNTIME_INTERFACE_MISSING"] = "RUNTIME_INTERFACE_MISSING"
+    proposal: "Proposal"
+    static: StaticRegressionEvaluation
+    witnesses: tuple[RuntimeWitnessAttempt, ...]
+
+    @model_validator(mode="after")
+    def validate_runtime_missing(self) -> "RuntimeInterfaceMissingEvaluation":
+        if self.static.proposal != self.proposal:
+            raise ValueError("runtime missing static evidence must match its proposal")
+        _require_witness_prefix(self.static, self.witnesses)
+        if not self.witnesses or not (
+            isinstance(self.witnesses[-1].outcome, RuntimeWitnessResult)
+            and self.witnesses[-1].outcome.status == "CONFIRMED_MISSING"
+        ):
+            raise ValueError(
+                "runtime interface missing requires confirmed-missing witness evidence"
+            )
+        if any(
+            isinstance(attempt.outcome, ToolFailure)
+            or (
+                isinstance(attempt.outcome, RuntimeWitnessResult)
+                and attempt.outcome.status == "CONFIRMED_MISSING"
+            )
+            for attempt in self.witnesses[:-1]
+        ):
+            raise ValueError("runtime evaluation must stop at its first terminal witness")
+        return self
 
 
 class IndeterminateEvaluation(FrozenSchema):
@@ -592,16 +801,48 @@ class IndeterminateEvaluation(FrozenSchema):
     proposal: "Proposal"
     cause: FailureCause
     failure: ToolFailure
+    static: StaticUnchangedEvaluation | StaticRegressionEvaluation | None = None
+    witnesses: tuple[RuntimeWitnessAttempt, ...] = ()
 
     @model_validator(mode="after")
     def validate_failure_cause(self) -> "IndeterminateEvaluation":
         if self.cause != self.failure.cause:
             raise ValueError("indeterminate evaluation must retain its tool cause")
+        if self.failure.stage in {"witness", "test"} and self.static is None:
+            raise ValueError(
+                "runtime indeterminate evaluation requires its static evidence"
+            )
+        if self.static is not None and self.static.proposal != self.proposal:
+            raise ValueError("indeterminate static evidence must match its proposal")
+        if self.witnesses:
+            if self.static is None:
+                raise ValueError("witness indeterminate requires static evidence")
+            _require_witness_prefix(self.static, self.witnesses)
+            last = self.witnesses[-1].outcome
+            if not isinstance(last, ToolFailure) or last != self.failure:
+                raise ValueError(
+                    "witness indeterminate must end with its retained tool failure"
+                )
+            if any(
+                isinstance(attempt.outcome, ToolFailure)
+                or (
+                    isinstance(attempt.outcome, RuntimeWitnessResult)
+                    and attempt.outcome.status == "CONFIRMED_MISSING"
+                )
+                for attempt in self.witnesses[:-1]
+            ):
+                raise ValueError(
+                    "witness evaluation must stop at its first terminal outcome"
+                )
         return self
 
 
 StaticEvaluation = Annotated[
-    Union[StaticPassEvaluation, StaticFailEvaluation, IndeterminateEvaluation],
+    Union[
+        StaticUnchangedEvaluation,
+        StaticRegressionEvaluation,
+        IndeterminateEvaluation,
+    ],
     Field(discriminator="status"),
 ]
 
@@ -609,7 +850,7 @@ StaticEvaluation = Annotated[
 Evaluation = Annotated[
     Union[
         PassEvaluation,
-        StaticFailEvaluation,
+        RuntimeInterfaceMissingEvaluation,
         TestFailEvaluation,
         IndeterminateEvaluation,
     ],
@@ -786,7 +1027,7 @@ class BaselineRejection(FrozenSchema):
     attempt: Attempt
     failure: FailureRecord
     static_baseline: StaticBaseline | None = None
-    evaluation: StaticFailEvaluation | TestFailEvaluation | None = None
+    evaluation: TestFailEvaluation | None = None
 
     @property
     def cell(self) -> Cell:
@@ -802,25 +1043,12 @@ class BaselineRejection(FrozenSchema):
             raise ValueError("baseline rejection requires attempt scope")
         if self.failure.scope.attempt != self.attempt:
             raise ValueError("baseline rejection failure must match its attempt")
-        if self.failure.cause in {"STATIC_REGRESSION", "TEST_FAILURE"} and (
-            self.evaluation is None
-        ):
-            raise ValueError(
-                "baseline static/test rejection requires structured evaluation"
-            )
-        if isinstance(self.evaluation, StaticFailEvaluation) and (
-            self.failure.cause != "STATIC_REGRESSION"
-        ):
-            raise ValueError("baseline static rejection cause must match evaluation")
+        if self.failure.cause == "TEST_FAILURE" and self.evaluation is None:
+            raise ValueError("baseline test rejection requires structured evaluation")
         if isinstance(self.evaluation, TestFailEvaluation) and (
             self.failure.cause != "TEST_FAILURE"
         ):
             raise ValueError("baseline test rejection cause must match evaluation")
-        if isinstance(self.evaluation, StaticFailEvaluation) and (
-            self.failure.stage != "ty"
-            or self.failure.process != self.evaluation.ty.process
-        ):
-            raise ValueError("baseline static diagnosis must match its evaluation")
         if isinstance(self.evaluation, TestFailEvaluation) and (
             self.failure.stage != "test"
             or self.failure.process != self.evaluation.test.process
@@ -980,7 +1208,9 @@ class CellCompletedEvent(FrozenSchema):
     @model_validator(mode="after")
     def validate_progress(self) -> "CellCompletedEvent":
         if self.total <= 0 or self.completed <= 0 or self.completed > self.total:
-            raise ValueError("cell completion counters must satisfy 0 < completed <= total")
+            raise ValueError(
+                "cell completion counters must satisfy 0 < completed <= total"
+            )
         return self
 
 
@@ -1007,7 +1237,10 @@ class SearchFailureEvent(FrozenSchema):
     cell: Cell
     failure: FailureRecord
     evaluation: (
-        StaticFailEvaluation | TestFailEvaluation | IndeterminateEvaluation | None
+        RuntimeInterfaceMissingEvaluation
+        | TestFailEvaluation
+        | IndeterminateEvaluation
+        | None
     ) = None
 
     @model_validator(mode="after")

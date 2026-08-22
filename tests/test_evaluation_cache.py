@@ -5,10 +5,11 @@ import pytest
 from pf.evaluation import EvaluationCache
 from pf.schemas.evaluation import (
     CacheConflict,
+    DiagnosticClassification,
     PassEvaluation,
     ProcessResult,
-    StaticPassEvaluation,
-    StaticFailEvaluation,
+    StaticUnchangedEvaluation,
+    StaticRegressionEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
@@ -16,6 +17,7 @@ from pf.schemas.evaluation import (
     TyDiagnostic,
 )
 from pf.schemas.project import Cell, Proposal
+from pf.static_transition import static_fingerprint
 
 
 def process(exit_code: int = 0) -> ProcessResult:
@@ -63,7 +65,7 @@ class TestEvaluationCache:
             resolved_graph=(),
             policy_identity="policy",
         )
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check(),
             baseline_digest="baseline",
@@ -107,18 +109,26 @@ class TestEvaluationCache:
             resolved_graph=(),
             policy_identity="policy",
         )
-        passed = StaticPassEvaluation(
+        passed = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check(),
             baseline_digest="baseline",
             incremental=(),
         )
         increment = diagnostic()
-        failed = StaticFailEvaluation(
+        failed = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process(exit_code=1), diagnostics=(increment,)),
             baseline_digest="baseline",
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=(
+                DiagnosticClassification(
+                    diagnostic_identity=increment.identity,
+                    classification="general",
+                    reason_code="test-fixture",
+                ),
+            ),
         )
         cache = EvaluationCache()
 
@@ -127,7 +137,7 @@ class TestEvaluationCache:
         conflict = cache.record_static(failed, baseline_digest="baseline")
 
         assert isinstance(conflict, CacheConflict)
-        assert conflict.observed_statuses == ("STATIC_PASS", "STATIC_FAIL")
+        assert conflict.observed_statuses == ("STATIC_UNCHANGED", "STATIC_REGRESSION")
 
         static = passed
         full = PassEvaluation(
@@ -155,18 +165,26 @@ class TestEvaluationCache:
             resolved_graph=(),
             policy_identity="policy",
         )
-        first = StaticPassEvaluation(
+        first = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check(),
             baseline_digest="baseline-a",
             incremental=(),
         )
         increment = diagnostic()
-        second = StaticFailEvaluation(
+        second = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(process=process(exit_code=1), diagnostics=(increment,)),
             baseline_digest="baseline-b",
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=(
+                DiagnosticClassification(
+                    diagnostic_identity=increment.identity,
+                    classification="general",
+                    reason_code="test-fixture",
+                ),
+            ),
         )
         first_full = PassEvaluation(
             proposal=proposal,

@@ -23,13 +23,11 @@ from pf.schemas.evaluation import (
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
     TyCheck,
-    TyDiagnostic,
     ty_diagnostic_digest,
     ToolFailure,
 )
@@ -116,7 +114,7 @@ def _capture(prepared: PreparedEnvironment) -> StaticBaselineCapture:
     )
     return StaticBaselineCapture(
         baseline=baseline,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=prepared.proposal,
             ty=check,
             baseline_digest=baseline.digest,
@@ -237,7 +235,7 @@ class TestHighestVersionVerifier:
                 )
                 return StaticBaselineCapture(
                     baseline=baseline,
-                    static=StaticPassEvaluation(
+                    static=StaticUnchangedEvaluation(
                         proposal=prepared.proposal,
                         ty=check,
                         baseline_digest=baseline.digest,
@@ -253,7 +251,7 @@ class TestHighestVersionVerifier:
                 baseline: StaticBaseline,
                 static_result: StaticEvaluation | None = None,
             ) -> PassEvaluation:
-                assert isinstance(static_result, StaticPassEvaluation)
+                assert isinstance(static_result, StaticUnchangedEvaluation)
                 assert static_result.ty is baseline.ty
                 prepared.mark_tested()
                 return PassEvaluation(
@@ -444,7 +442,6 @@ class TestHighestVersionVerifier:
     @pytest.mark.parametrize(
         ("kind", "expected_status", "expected_cause"),
         (
-            ("static", "BASELINE_INDETERMINATE", "INTERNAL_INVARIANT"),
             ("test", "BASELINE_REJECTION", "TEST_FAILURE"),
             ("tool", "BASELINE_INDETERMINATE", "TOOL_FAILURE"),
         ),
@@ -473,26 +470,6 @@ class TestHighestVersionVerifier:
                 failed_process = successful_process().model_copy(
                     update={"exit_code": 1}
                 )
-                if kind == "static":
-                    diagnostic = TyDiagnostic(
-                        identity="snapshot|demo.py|1|1|invalid-return-type",
-                        origin="snapshot",
-                        path="demo.py",
-                        line=1,
-                        column=1,
-                        code="invalid-return-type",
-                        severity="error",
-                        message="incompatible return type",
-                    )
-                    return StaticFailEvaluation(
-                        proposal=prepared.proposal,
-                        ty=TyCheck(
-                            process=failed_process,
-                            diagnostics=(diagnostic,),
-                        ),
-                        baseline_digest=capture.baseline.digest,
-                        incremental=(diagnostic,),
-                    )
                 if kind == "test":
                     return TestFailEvaluation(
                         proposal=prepared.proposal,
@@ -508,6 +485,7 @@ class TestHighestVersionVerifier:
                     proposal=prepared.proposal,
                     cause=failure.cause,
                     failure=failure,
+                    static=capture.static,
                 )
 
         result = HighestVersionVerifier(

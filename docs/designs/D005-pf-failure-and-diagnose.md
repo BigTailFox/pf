@@ -1,8 +1,8 @@
 # PF failure 语义与 diagnose
 
 - **状态：** 现行
-- **策略版本：** `failure-v1`
-- **最后核对：** 2026-08-21
+- **策略版本：** `failure-runtime-v1`
+- **最后核对：** 2026-08-23
 - **产品与命令：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -99,7 +99,7 @@ Adapter 把机械事实分类为操作层 cause，例如：
 RESOLUTION_CONFLICT
 BUILD_FAILURE
 HARNESS_CONFLICT
-STATIC_REGRESSION
+RUNTIME_INTERFACE_MISSING
 TEST_FAILURE
 SOURCE_FAILURE
 ENVIRONMENT_FAILURE
@@ -158,7 +158,7 @@ Attempt identity 不包含进程时长、输出文本、本地路径或 run ID�
 1. scope 完整：cell、snapshot、policy 和 requested vector/解析方式明确；
 2. 结果完整：没有 timeout、signal、启动失败、关键流 `*_complete == false` 或解析歧义；
 3. 失败是 Attempt 局部且确定的，而不是 index、网络、缓存、磁盘或 PF 自身故障；
-4. cause 属于验证契约，例如不可解析、不可构建、harness 冲突、静态回归或测试正常失败；
+4. cause 属于验证契约，例如不可解析、不可构建、harness 冲突、runtime witness 确认接口缺失或测试正常失败；D004 static regression 本身不属于 FailureCause；
 5. 若为 Probe Attempt，它与同一 Evaluation context 中已经完整通过的 baseline 共享 scope。
 
 不满足任一条件时必须是 Indeterminate。
@@ -200,7 +200,8 @@ Probe Attempt 的 Indeterminate 仍立即终止当前 cell。PF 不跳过 unknow
 | wheel/build backend 确定失败 | `BUILD_FAILURE` | Rejected，终止 | Rejected，继续 | 当前 attempt 不可构建 |
 | harness 在目标图约束下无解 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 无法满足测试契约 |
 | harness 安装改变目标依赖图 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 无法保持被测图 |
-| D004 增量诊断非空 | `STATIC_REGRESSION` | 不适用 | Rejected，继续 | 静态兼容性失败 |
+| D004 增量诊断非空 | 无 cause/disposition | 不适用 | 按 D003/D004 继续 witness/test | 仅 static transition |
+| witness 精确确认 runtime 名称缺失 | `RUNTIME_INTERFACE_MISSING` | 不适用 | Rejected，继续 | runtime 接口不可达 |
 | 测试以配置的失败码退出 | `TEST_FAILURE` | Rejected，终止 | Rejected，继续 | 动态兼容性失败 |
 | index/DNS/凭据/远端来源不可用 | `SOURCE_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 没有候选事实 |
 | 进程 timeout、signal 或启动失败 | `TIMEOUT` / `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 执行事实不完整 |
@@ -254,7 +255,7 @@ ProbeRejection
   proposal_id?       prepare rejection 时为空
   failure_id
   cause
-  evaluation?        static/test rejection 时存在
+  evaluation?        runtime-missing/test rejection 时存在
 
 ProbeIndeterminate
   attempt
@@ -282,7 +283,7 @@ CellIndeterminate
   failure_records    含 CellFailureScope 或 AttemptFailureScope
 ```
 
-`CoordinateBoundary` 的 predecessor 保存对 `ProbeRejection` observation 的引用或稳定 `failure_id`，而不是只保存 `STATIC_FAIL | TEST_FAIL` 字符串。
+`CoordinateBoundary` 的 predecessor 保存对直接 runtime `ProbeRejection` observation 的引用或稳定 `failure_id`。Static-only observation 没有 disposition，不能成为 predecessor。
 
 最终报告必须能够表达：
 
@@ -394,7 +395,7 @@ FailurePresentation
 | `RESOLUTION_CONFLICT` | This version combination has conflicting dependency requirements and cannot be installed. | Review the conflicting requirements, adjust project constraints if needed, then rerun PF. |
 | `BUILD_FAILURE` | This version combination could not be built. | Inspect the build details and log; check build requirements, Python support, and available artifacts. |
 | `HARNESS_CONFLICT` | The test dependencies cannot be installed without changing the versions being checked. | Adjust the configured test dependencies so they preserve the dependency graph under test. |
-| `STATIC_REGRESSION` | This version combination introduces new type-checking diagnostics. | Review the new diagnostics and decide whether to fix the code or keep a higher dependency floor. |
+| `RUNTIME_INTERFACE_MISSING` | A required runtime interface is missing from this version combination. | Review the confirmed missing module or member before changing dependency constraints. |
 | `TEST_FAILURE` | The full test command failed for this version combination. | Review the failing test summary and log before changing code or dependency constraints. |
 | `SOURCE_FAILURE` | PF could not reach or read a configured package source. | Check the index URL, network, credentials, and source availability, then rerun PF. |
 | `ENVIRONMENT_FAILURE` | The current Python or system environment cannot run this check. | Verify the interpreter, platform support, permissions, and required system tools. |
@@ -511,7 +512,7 @@ Failure policy 是深模块 `FailurePolicy`：调用方只提交结构化 Failur
 
 - 直接用本文结构替换现有 `schema_version = 1` 模型；
 - 首发 generator/search algorithm identity 保持 `v1`；
-- Evaluation policy identity 加入 `failure-v1`；
+- Evaluation policy identity 加入 `failure-runtime-v1`；
 - 不实现 Schema 2、dual reader、迁移器或旧字段兼容分支；
 - 所有开发期 `package-floor.json` 删除后重新 search；
 - 旧结构即使也声明 `schema_version = 1`，仍因缺少 Attempt/FailureScope/FailureRecord 和新 union 字段而严格验证失败；
@@ -576,7 +577,7 @@ candidate query 发生在精确 Probe Attempt 建立前。结果使用 `CellFail
 
 1. 没有 Attempt identity 就没有 Rejection；Attempt 建立前的失败只能是 cell-scoped Indeterminate。
 2. prepare 失败没有 Proposal，不得虚构 Proposal ID。
-3. 只有 `ProbeRejection` 可以推进 FAIL 边界；`ProbeIndeterminate` 必须停止当前 cell。
+3. 只有直接 runtime `ProbeRejection` 可以推进 FAIL 边界；static transition/region guidance 没有 disposition，`ProbeIndeterminate` 必须停止当前 cell。
 4. Baseline 必须完整 `PASS` 后才能进入 candidate discovery 和 CoordinateSearch。
 5. Rejection 只作用于完整 Attempt/Proposal，不进行 dependency failure attribution。
 6. Cause 与 disposition 正交；Adapter cause 不能直接充当搜索状态。

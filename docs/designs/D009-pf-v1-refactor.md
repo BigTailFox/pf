@@ -9,8 +9,9 @@
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
+- **现行搜索决策：** [D011](D011-pf-runtime-backed-static-search.md)
 
-本文是 v1 主路径落地之后「先补齐现行契约，再加深已有模块、收回泄漏的内部 seam、补测试面和工程门禁」的唯一整改契约。它不增加命令，不扩展 D001 的产品范围，不改 D003 的 probe 顺序，不改 D005 的 cause/disposition 矩阵，也不把 D001 §10 的非目标改写成待办。
+本文是 v1 主路径落地之后「先补齐现行契约，再加深已有模块、收回泄漏的内部 seam、补测试面和工程门禁」的唯一整改契约。它不增加命令，不扩展 D001 的产品范围，也不把 D001 §10 的非目标改写成待办。D011 后续取代了本文中 static/dynamic 双阶段搜索和 static disposition 的历史前提；搜索顺序与 cause/disposition 现以已同步的 D003/D005 为准。
 
 R001 是非规范性快照。整改行为、模块 interface 和完成标准以本文为准；当前模块位置由已同步的 D002 描述，本文取代 §14 列出的旧条款。
 
@@ -31,7 +32,7 @@ D002 的拆分条件仍有效：文件变长不是拆分理由；只有已经存
 
 - D001 / D007 要求的凭据不出现在 Output Cache、Process Log、终端末行、FailureDetail 或 artifact locator；流式分块与一次性脱敏等价；
 - exact-vector probe 安装 CandidateSnapshot 选中的精确 artifact，并校验 hash；
-- complete report 的 final vector、ProbePass、Attempt、Proposal、Evaluation 与 projection 形成闭环；
+- complete report 的 final vector、runtime-backed search、ProbePass、Attempt、Proposal、Evaluation 与 projection 形成闭环；
 - `ProjectEditor.apply_many` 对 workspace 是可恢复事务，失败不留下半应用状态；
 - workspace canonical package name 在 discovery seam 唯一；
 - Explain / Diagnose 只做离线 package/report discovery，不调用 uv、Python inventory、SnapshotBuilder 或 evaluator；
@@ -45,7 +46,7 @@ D002 的拆分条件仍有效：文件变长不是拆分理由；只有已经存
 ### 2.2 非目标
 
 - 不增加、删除或重命名 D001 命令；
-- 不改变 D003 的候选顺序、hint、指数探针、单调性或 fixpoint 语义；
+- 不在本文重新定义 D003 当时的候选顺序、hint、探针或单调性语义；后续取代见 D011；
 - 不引入上界搜索、failure attribution、static-only floor、flaky retry、跨运行 Evaluation cache 或非宿主执行；
 - 不按行数把七个 workflow 拆成七个文件，不优先拆 `schemas/evaluation.py`、`project.py` 或 `environment.py`；
 - 不重写 terminal 视觉，不把业务 Rich 带出 `pf.terminal` 包；
@@ -58,7 +59,7 @@ D002 的拆分条件仍有效：文件变长不是拆分理由；只有已经存
 | 阶段 | 项 | 完成标准 |
 | --- | --- | --- |
 | P0 | 流式脱敏 | 任意 byte 分块与一次性脱敏等价；cache / log / 终端无明文；production secret 只来自本次运行实际装入的值 |
-| P0 | Report authority | final vector、terminal search、ProbePass、Attempt、Proposal、Evaluation、projection 闭环 |
+| P0 | Report authority | final vector、runtime-backed search、ProbePass、Attempt、Proposal、Evaluation、projection 闭环 |
 | P0 | Apply transaction | 单包与 workspace 任一写后失败均回滚，重启恢复不误提交 target |
 | P0 | Workspace identity | canonical package name 重复在 discovery 阶段失败并列出冲突路径 |
 | P0 | Candidate artifact binding | exact-vector 使用冻结 artifact locator + hash，不允许同版本改选 |
@@ -138,10 +139,8 @@ CellResult / report validator 验证 final vector 可以唯一映射回本次报
 `CellSuccess` 新增并集中强制以下不变量：
 
 ```text
-terminal_search = dynamic_search if dynamic_search is not None else static_search
-
 final_vector
-  == terminal_search.vector
+  == search.vector
   == final_evaluation.proposal.managed_vector
   == final ProbePass observation.vector
   == final ProbePass attempt.identity.requested_managed_vector
@@ -151,7 +150,7 @@ final_vector
 
 `PackageFloorReportV1.validate_completion_authority` 继续验证 cell 覆盖与 projection，但 floor 只能来自已经闭环的 `CellSuccess.final_vector`。Builder、Store、Editor 不各写一套 final evidence 推断。
 
-新增防篡改矩阵：分别只改 final vector、terminal search vector、ProbePass vector、Attempt requested vector、Proposal managed vector、final Evaluation、Candidate artifact 和 projection floor，每一种都必须在 Schema 或 apply 前失败。
+新增防篡改矩阵：分别只改 final vector、search vector、ProbePass vector、Attempt requested vector、Proposal managed vector、final Evaluation、Candidate artifact 和 projection floor，每一种都必须在 Schema 或 apply 前失败。
 
 ### 4.4 Workspace apply transaction
 
@@ -236,13 +235,13 @@ RunLogStore reader 可以读取 v1 历史 Journal 供 diagnose；writer 只写 v
 
 ### 4.8 PreparedEnvironment 生命周期
 
-静态 probe 完成后：
+Candidate probe 完成后：
 
-- StaticFail / Indeterminate 立即关闭；
-- StaticPass 保存 Evaluation/cache，不保留 PreparedEnvironment；
-- static coordinate search 确定 final vector 后，为 full evaluation 重新 prepare 精确 selection；
-- dynamic search 的每个 full evaluation 结束即关闭；
-- 同一 Evaluation context 的完整测试仍最多执行一次。
+- static transition 或 Indeterminate 完成即关闭环境；
+- 同 region 的 static-only observation 只保存证据/cache，不保留 PreparedEnvironment；
+- 新 region 首点在同一个 prepared environment 中由 static transition 继续到 witness/test；
+- static frontier 提交前由 `promote` 重新 prepare 精确 selection；
+- 每个 runtime evaluation 结束即关闭环境，同一 Evaluation context 的完整测试仍最多执行一次。
 
 资源测试通过公开 search interface 观察 prepare/close 数量与最终结果，不读取 `_prepared` 私有 dict。并行 N cells 时长期存活环境数由 active jobs 限制，不随已探测候选总数增长。
 
@@ -345,7 +344,7 @@ D008 §6.2 继续唯一拥有 Evaluation → cause/stage 的语义表；本文�
 classify_evaluation(scope, evaluation) -> FailureRecord | None
 ```
 
-它严格实现 D008 §6.2；PassEvaluation / StaticPassEvaluation 返回 `None`，其余 Evaluation 取出 D008 要求的 cause、stage、process 和 summary_code 后调用现有 `classify(...)`。
+它严格实现 D008 §6.2；PassEvaluation 返回 `None`；RuntimeInterfaceMissing/TestFail/Indeterminate Evaluation 取出 D008 要求的 cause、stage、process 和 summary_code 后调用现有 `classify(...)`。Static transition 不进入该接口的 failure union。
 
 CompatibilityChecker 与 ProposalRunner 只区分「None 是 pass」和「FailureRecord 如何包成各自 outcome/evidence」，不再写 cause 字符串。PrepareFailure 和 CellFailureScope 继续直接调用 `classify(...)`。FailurePolicy 不接收 command 或 VerificationRole。
 
@@ -418,7 +417,7 @@ FullEvaluateOperations.evaluate(...)
 
 同一个 EnvironmentFactory / StaticEvaluator 可以满足多个 Protocol。只有方法集合、参数语义和错误模式完全一致的两个 consumer 才共用同一个 Protocol。
 
-FullEvaluator 的 `static` 构造参数类型改为 StaticEvaluateOperations，不绑具体 StaticEvaluator，也不要求无用的 `capture`。测试 fake 只实现被测调用方实际使用的方法。
+RuntimeEvaluator 的 `static` 构造参数类型为 StaticEvaluateOperations，不绑具体 StaticEvaluator，也不要求无用的 `capture`；witness 与 test adapter 分别通过窄 Protocol 注入。测试 fake 只实现被测调用方实际使用的方法。
 
 DiagnosisLogLocator 已声明 `lookup` / `lookup_run` / `read_latest_journal`；Diagnose 直接调用，不做 `getattr` / `hasattr`。测试 fake 缺方法应在类型检查或测试运行时立即失败。
 

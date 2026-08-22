@@ -25,6 +25,7 @@ from pf.schemas.evaluation import (
     CellFailureScope,
     CellStageEvent,
     CellSucceeded,
+    DiagnosticClassification,
     FailureDetail,
     HighestVersionPass,
     IndeterminateEvaluation,
@@ -36,8 +37,8 @@ from pf.schemas.evaluation import (
     SmokeIndeterminate,
     StaticBaseline,
     StaticBaselineCapture,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticRegressionEvaluation,
+    StaticUnchangedEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
@@ -74,8 +75,13 @@ from pf.schemas.report import (
     ProbeIndeterminate,
     ProbePass,
     ProbeRejection,
+    StaticOnlyEvidence,
+    StaticRegion,
+    StaticRegionRuntimeReference,
+    StaticRegionSlice,
     report_generation_id,
 )
+from pf.static_transition import static_fingerprint
 
 
 class ExampleRecord(FrozenSchema):
@@ -149,6 +155,19 @@ def _diagnostic(*, line: int = 1, code: str = "invalid-type") -> TyDiagnostic:
     )
 
 
+def _general_classifications(
+    *diagnostics: TyDiagnostic,
+) -> tuple[DiagnosticClassification, ...]:
+    return tuple(
+        DiagnosticClassification(
+            diagnostic_identity=diagnostic.identity,
+            classification="general",
+            reason_code="test-fixture",
+        )
+        for diagnostic in diagnostics
+    )
+
+
 def _baseline_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
     attempt = _attempt()
     proposal = _proposal("baseline", attempt=attempt)
@@ -160,7 +179,7 @@ def _baseline_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
     )
     passed = PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=baseline.digest,
@@ -172,6 +191,11 @@ def _baseline_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
 
 def _indeterminate_evaluation(attempt: Attempt) -> IndeterminateEvaluation:
     proposal = _proposal("candidate", attempt=attempt)
+    static = StaticUnchangedEvaluation(
+        proposal=proposal,
+        ty=TyCheck(process=_successful_process(), diagnostics=()),
+        baseline_digest=ty_diagnostic_digest(()),
+    )
     failure = ToolFailure(
         cause="TOOL_FAILURE",
         stage="test",
@@ -181,6 +205,7 @@ def _indeterminate_evaluation(attempt: Attempt) -> IndeterminateEvaluation:
         proposal=proposal,
         cause=failure.cause,
         failure=failure,
+        static=static,
     )
 
 
@@ -191,7 +216,7 @@ def _cell_success() -> CellSuccess:
     proposal = _proposal("floor", attempt=attempt, vector=vector)
     evaluation = PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=baseline.ty,
             baseline_digest=baseline.digest,
@@ -251,7 +276,7 @@ def _cell_success() -> CellSuccess:
         static_baseline=baseline,
         baseline=passed,
         candidate_snapshots=(candidate_snapshot,),
-        static_search=search,
+        search=search,
         final_vector=vector,
         final_evaluation=evaluation,
     )
@@ -479,7 +504,7 @@ class TestPlanningSchemas:
             CellSearchFailure(
                 reason="NO_PASS_IN_SEARCH_SPACE",
                 cell=baseline.proposal.cell,
-                phase="dynamic-search",
+                phase="runtime-search",
                 baseline_attempt=baseline_attempt,
                 static_baseline=baseline,
                 baseline=passed,
@@ -504,6 +529,117 @@ class TestPlanningSchemas:
 
 
 class TestSearchSchemas:
+    def test_static_region_cannot_merge_an_a_b_a_transition(self) -> None:
+        observations: list[ProbeObservation] = []
+        baseline_digest = ty_diagnostic_digest(())
+        for version in ("1", "2", "3"):
+            vector = (VersionPin(name="demo", version=version),)
+            attempt = _attempt(resolution="exact-vector", vector=vector)
+            proposal = _proposal(
+                f"demo={version}", attempt=attempt, vector=vector
+            )
+            if version == "2":
+                diagnostic = _diagnostic()
+                static = StaticRegressionEvaluation(
+                    proposal=proposal,
+                    ty=TyCheck(
+                        process=_successful_process(exit_code=1),
+                        diagnostics=(diagnostic,),
+                    ),
+                    baseline_digest=baseline_digest,
+                    incremental=(diagnostic,),
+                    static_fingerprint=static_fingerprint(
+                        (diagnostic.identity,)
+                    ),
+                    classifications=_general_classifications(diagnostic),
+                )
+            else:
+                static = StaticUnchangedEvaluation(
+                    proposal=proposal,
+                    ty=TyCheck(process=_successful_process(), diagnostics=()),
+                    baseline_digest=baseline_digest,
+                )
+            evaluation = PassEvaluation(
+                proposal=proposal,
+                static=static,
+                test=TestPass(process=_successful_process()),
+            )
+            observations.append(
+                ProbeObservation(
+                    dependency="demo",
+                    candidate_version=version,
+                    vector=vector,
+                    evidence=ProbePass(
+                        attempt=attempt,
+                        proposal_id=proposal.proposal_id,
+                        evaluation=evaluation,
+                    ),
+                )
+            )
+        region_slice = StaticRegionSlice(
+            cell=observations[0].evidence.attempt.identity.cell,
+            source_snapshot_digest="snapshot",
+            policy_identity="policy",
+            baseline_digest=baseline_digest,
+            active_dependency="demo",
+            other_coordinates=(),
+            candidate_order=("1", "2", "3"),
+        )
+
+        with pytest.raises(ValidationError, match="backed by its observations"):
+            CoordinateSuccess(
+                vector=(VersionPin(name="demo", version="3"),),
+                observations=tuple(observations),
+                boundaries=(CoordinateBoundary(dependency="demo", floor="3"),),
+                regions=(
+                    StaticRegion(
+                        slice=region_slice,
+                        static_fingerprint=static_fingerprint(()),
+                        observed_versions=("1", "2", "3"),
+                        runtime_references=(
+                            StaticRegionRuntimeReference(
+                                proposal_id="demo=1", status="PASS"
+                            ),
+                            StaticRegionRuntimeReference(
+                                proposal_id="demo=3", status="PASS"
+                            ),
+                        ),
+                    ),
+                ),
+                sweeps=1,
+            )
+
+    def test_static_only_evidence_cannot_cross_slice_coordinates(self) -> None:
+        vector = (
+            VersionPin(name="a", version="1"),
+            VersionPin(name="b", version="1"),
+        )
+        attempt = _attempt(resolution="exact-vector", vector=vector)
+        proposal = _proposal("a=1;b=1", attempt=attempt, vector=vector)
+        static = StaticUnchangedEvaluation(
+            proposal=proposal,
+            ty=TyCheck(process=_successful_process(), diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+        )
+
+        with pytest.raises(ValidationError, match="vector must match its Slice"):
+            StaticOnlyEvidence(
+                attempt=attempt,
+                proposal_id=proposal.proposal_id,
+                static_evaluation=static,
+                guidance="PASS",
+                region_slice=StaticRegionSlice(
+                    cell=proposal.cell,
+                    source_snapshot_digest="snapshot",
+                    policy_identity="policy",
+                    baseline_digest=static.baseline_digest,
+                    active_dependency="a",
+                    other_coordinates=(VersionPin(name="b", version="2"),),
+                    candidate_order=("1", "2"),
+                ),
+                representative_proposal_id="a=2;b=2",
+            )
+
     @pytest.mark.parametrize("jobs", (True, 0))
     def test_smoke_request_rejects_invalid_scheduling(self, jobs: bool | int) -> None:
         with pytest.raises(ValidationError):
@@ -522,7 +658,7 @@ class TestSearchSchemas:
         )
 
         increment = _diagnostic()
-        static_failure = StaticFailEvaluation(
+        static_failure = StaticRegressionEvaluation(
             proposal=baseline.proposal,
             ty=TyCheck(
                 process=_successful_process(exit_code=1),
@@ -530,6 +666,8 @@ class TestSearchSchemas:
             ),
             baseline_digest=baseline.digest,
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=_general_classifications(increment),
         )
         with pytest.raises(ValidationError):
             HighestVersionPass.model_validate(
@@ -556,7 +694,7 @@ class TestSearchSchemas:
             CellSearchFailure(
                 reason="NO_PASS_IN_SEARCH_SPACE",
                 cell=baseline.proposal.cell,
-                phase="static-search",
+                phase="runtime-search",
                 baseline_attempt=baseline_attempt,
                 static_baseline=baseline,
                 baseline=passed,
@@ -584,7 +722,7 @@ class TestSearchSchemas:
         vector = (VersionPin(name="demo", version="1"),)
         attempt = _attempt(resolution="exact-vector", vector=vector)
         proposal = _proposal("candidate", attempt=attempt, vector=vector)
-        failed = StaticFailEvaluation(
+        failed = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(
                 process=_successful_process(exit_code=1),
@@ -592,6 +730,8 @@ class TestSearchSchemas:
             ),
             baseline_digest="baseline",
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=_general_classifications(increment),
         )
 
         with pytest.raises(ValidationError):
@@ -622,34 +762,39 @@ class TestSearchSchemas:
         evidence_attempt = other_attempt if mismatch == "attempt" else attempt
 
         if evidence_kind == "pass":
-            static = StaticPassEvaluation(
+            static = StaticUnchangedEvaluation(
                 proposal=indeterminate.proposal,
                 ty=TyCheck(process=_successful_process(), diagnostics=()),
                 baseline_digest=ty_diagnostic_digest(()),
+            )
+            evaluation = PassEvaluation(
+                proposal=indeterminate.proposal,
+                static=static,
+                test=TestPass(process=_successful_process()),
             )
             constructor = ProbePass
             payload: dict[str, object] = {
                 "attempt": evidence_attempt,
                 "proposal_id": proposal_id,
-                "evaluation": static,
+                "evaluation": evaluation,
             }
         elif evidence_kind == "rejection":
-            diagnostic = _diagnostic()
-            evaluation = StaticFailEvaluation(
+            static = StaticUnchangedEvaluation(
                 proposal=indeterminate.proposal,
-                ty=TyCheck(
-                    process=_successful_process(exit_code=1),
-                    diagnostics=(diagnostic,),
-                ),
+                ty=TyCheck(process=_successful_process(), diagnostics=()),
                 baseline_digest=ty_diagnostic_digest(()),
-                incremental=(diagnostic,),
+            )
+            evaluation = TestFailEvaluation(
+                proposal=indeterminate.proposal,
+                static=static,
+                test=TestFail(process=_successful_process(exit_code=1)),
             )
             constructor = ProbeRejection
             payload = {
                 "attempt": evidence_attempt,
                 "proposal_id": proposal_id,
                 "failure_id": "failure",
-                "cause": "STATIC_REGRESSION",
+                "cause": "TEST_FAILURE",
                 "evaluation": evaluation,
             }
         else:
@@ -669,7 +814,7 @@ class TestSearchSchemas:
         requested = (VersionPin(name="demo", version="1"),)
         attempt = _attempt(resolution="exact-vector", vector=requested)
         proposal = _proposal("candidate", attempt=attempt, vector=requested)
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=TyCheck(process=_successful_process(), diagnostics=()),
             baseline_digest=ty_diagnostic_digest(()),
@@ -683,7 +828,11 @@ class TestSearchSchemas:
                 evidence=ProbePass(
                     attempt=attempt,
                     proposal_id="candidate",
-                    evaluation=static,
+                    evaluation=PassEvaluation(
+                        proposal=proposal,
+                        static=static,
+                        test=TestPass(process=_successful_process()),
+                    ),
                 ),
             )
 
@@ -696,7 +845,7 @@ class TestSearchSchemas:
             ProbePass(
                 attempt=baseline_attempt,
                 proposal_id=passed.proposal.proposal_id,
-                evaluation=passed.static,
+                evaluation=passed,
             )
         exact_attempt = _attempt(resolution="exact-vector", vector=())
         with pytest.raises(ValidationError, match="evaluation"):
@@ -712,7 +861,7 @@ class TestSearchSchemas:
         actual = (VersionPin(name="demo", version="2"),)
         attempt = _attempt(resolution="exact-vector", vector=requested)
         proposal = _proposal("candidate", attempt=attempt, vector=actual)
-        static = StaticPassEvaluation(
+        static = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=TyCheck(process=_successful_process(), diagnostics=()),
             baseline_digest=ty_diagnostic_digest(()),
@@ -722,7 +871,11 @@ class TestSearchSchemas:
             ProbePass(
                 attempt=attempt,
                 proposal_id=proposal.proposal_id,
-                evaluation=static,
+                evaluation=PassEvaluation(
+                    proposal=proposal,
+                    static=static,
+                    test=TestPass(process=_successful_process()),
+                ),
             )
 
     def test_probe_rejection_cause_must_match_its_evaluation_kind(self) -> None:
@@ -730,7 +883,7 @@ class TestSearchSchemas:
         attempt = _attempt(resolution="exact-vector", vector=vector)
         proposal = _proposal("candidate", attempt=attempt, vector=vector)
         diagnostic = _diagnostic()
-        static = StaticFailEvaluation(
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(
                 process=_successful_process(exit_code=1),
@@ -738,6 +891,8 @@ class TestSearchSchemas:
             ),
             baseline_digest=ty_diagnostic_digest(()),
             incremental=(diagnostic,),
+            static_fingerprint=static_fingerprint((diagnostic.identity,)),
+            classifications=_general_classifications(diagnostic),
         )
 
         with pytest.raises(ValidationError, match="cause must match"):
@@ -745,8 +900,12 @@ class TestSearchSchemas:
                 attempt=attempt,
                 proposal_id=proposal.proposal_id,
                 failure_id="failure",
-                cause="TEST_FAILURE",
-                evaluation=static,
+                cause="RESOLUTION_CONFLICT",
+                evaluation=TestFailEvaluation(
+                    proposal=proposal,
+                    static=static,
+                    test=TestFail(process=_successful_process(exit_code=1)),
+                ),
             )
 
     def test_probe_indeterminate_cause_must_match_its_evaluation(self) -> None:
@@ -815,6 +974,102 @@ class TestSearchSchemas:
                 ),
             )
 
+    def test_probe_observation_candidate_must_match_its_vector(self) -> None:
+        vector = (VersionPin(name="demo", version="1"),)
+        attempt = _attempt(resolution="exact-vector", vector=vector)
+
+        with pytest.raises(ValidationError, match="candidate must match"):
+            ProbeObservation(
+                dependency="demo",
+                candidate_version="2",
+                vector=vector,
+                evidence=ProbeRejection(
+                    attempt=attempt,
+                    failure_id="failure",
+                    cause="RESOLUTION_CONFLICT",
+                ),
+            )
+
+    def test_non_monotonic_counterexample_requires_direct_same_slice_evidence(
+        self,
+    ) -> None:
+        low_vector = (
+            VersionPin(name="a", version="1"),
+            VersionPin(name="b", version="1"),
+        )
+        high_vector = (
+            VersionPin(name="a", version="2"),
+            VersionPin(name="b", version="1"),
+        )
+        low_attempt = _attempt(resolution="exact-vector", vector=low_vector)
+        low_proposal = _proposal("a=1;b=1", attempt=low_attempt, vector=low_vector)
+        low_static = StaticUnchangedEvaluation(
+            proposal=low_proposal,
+            ty=TyCheck(process=_successful_process(), diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+        )
+        low = ProbeObservation(
+            dependency="a",
+            candidate_version="1",
+            vector=low_vector,
+            evidence=ProbePass(
+                attempt=low_attempt,
+                proposal_id=low_proposal.proposal_id,
+                evaluation=PassEvaluation(
+                    proposal=low_proposal,
+                    static=low_static,
+                    test=TestPass(process=_successful_process()),
+                ),
+            ),
+        )
+        high_attempt = _attempt(resolution="exact-vector", vector=high_vector)
+        high = ProbeObservation(
+            dependency="a",
+            candidate_version="2",
+            vector=high_vector,
+            evidence=ProbeRejection(
+                attempt=high_attempt,
+                failure_id="failure-high",
+                cause="RESOLUTION_CONFLICT",
+            ),
+        )
+
+        result = CoordinateFailure(
+            status="NON_MONOTONIC",
+            dependency="a",
+            counterexample=("1", "2"),
+            observations=(low, high),
+        )
+
+        assert result.counterexample == ("1", "2")
+        cross_slice_vector = (
+            VersionPin(name="a", version="2"),
+            VersionPin(name="b", version="2"),
+        )
+        cross_slice_attempt = _attempt(
+            resolution="exact-vector",
+            vector=cross_slice_vector,
+        )
+        with pytest.raises(ValidationError, match="direct evidence in one Slice"):
+            CoordinateFailure(
+                status="NON_MONOTONIC",
+                dependency="a",
+                counterexample=("1", "2"),
+                observations=(
+                    low,
+                    high.model_copy(
+                        update={
+                            "vector": cross_slice_vector,
+                            "evidence": ProbeRejection(
+                                attempt=cross_slice_attempt,
+                                failure_id="failure-cross-slice",
+                                cause="RESOLUTION_CONFLICT",
+                            ),
+                        }
+                    ),
+                ),
+            )
+
     def test_coordinate_success_cannot_contain_indeterminate_evidence(self) -> None:
         attempt = _attempt(resolution="exact-vector", vector=())
 
@@ -838,8 +1093,9 @@ class TestSearchSchemas:
             )
 
     def test_coordinate_boundary_must_reference_its_rejection_observation(self) -> None:
-        vector = (VersionPin(name="demo", version="1"),)
-        attempt = _attempt(resolution="exact-vector", vector=vector)
+        rejected_vector = (VersionPin(name="demo", version="1"),)
+        vector = (VersionPin(name="demo", version="2"),)
+        attempt = _attempt(resolution="exact-vector", vector=rejected_vector)
 
         with pytest.raises(ValidationError, match="rejection observation"):
             CoordinateSuccess(
@@ -848,7 +1104,7 @@ class TestSearchSchemas:
                     ProbeObservation(
                         dependency="demo",
                         candidate_version="1",
-                        vector=vector,
+                        vector=rejected_vector,
                         evidence=ProbeRejection(
                             attempt=attempt,
                             failure_id="failure-observed",
@@ -935,6 +1191,11 @@ class TestSearchSchemas:
                     proposal=other_proposal,
                     cause=tool_failure.cause,
                     failure=tool_failure,
+                    static=StaticUnchangedEvaluation(
+                        proposal=other_proposal,
+                        ty=baseline.ty,
+                        baseline_digest=baseline.digest,
+                    ),
                 ),
             )
 
@@ -1007,7 +1268,7 @@ class TestSearchSchemas:
             attempt=candidate_attempt,
             vector=vector,
         )
-        candidate_static = StaticPassEvaluation(
+        candidate_static = StaticUnchangedEvaluation(
             proposal=candidate_proposal,
             ty=TyCheck(process=_successful_process(), diagnostics=()),
             baseline_digest=baseline.digest,
@@ -1022,7 +1283,7 @@ class TestSearchSchemas:
             CellSearchFailure(
                 reason="NO_PASS_IN_SEARCH_SPACE",
                 cell=baseline.proposal.cell,
-                phase="dynamic-search",
+                phase="runtime-search",
                 baseline_attempt=baseline_attempt,
                 static_baseline=baseline,
                 baseline=passed,
@@ -1195,41 +1456,56 @@ class TestEvaluationSchemas:
         with pytest.raises(ValidationError, match="baseline digest"):
             StaticBaseline(proposal=proposal, ty=check, digest="wrong")
         with pytest.raises(ValidationError, match="digest cannot be empty"):
-            StaticPassEvaluation(
+            StaticUnchangedEvaluation(
                 proposal=proposal,
                 ty=check,
                 baseline_digest="",
             )
         with pytest.raises(ValidationError, match="empty diagnostic increment"):
-            StaticPassEvaluation(
+            StaticUnchangedEvaluation(
                 proposal=proposal,
                 ty=check,
                 baseline_digest=digest,
                 incremental=(first,),
             )
         with pytest.raises(ValidationError, match="digest cannot be empty"):
-            StaticFailEvaluation(
+            StaticRegressionEvaluation(
                 proposal=proposal,
                 ty=check,
                 baseline_digest="",
                 incremental=(first,),
+                static_fingerprint=static_fingerprint((first.identity,)),
+                classifications=_general_classifications(first),
             )
         with pytest.raises(ValidationError, match="non-empty diagnostic increment"):
-            StaticFailEvaluation(
+            StaticRegressionEvaluation(
                 proposal=proposal,
                 ty=check,
                 baseline_digest=digest,
                 incremental=(),
+                static_fingerprint=static_fingerprint(()),
+                classifications=(),
             )
         with pytest.raises(ValidationError, match="sub-multiset"):
-            StaticFailEvaluation(
+            StaticRegressionEvaluation(
                 proposal=proposal,
                 ty=check,
                 baseline_digest=digest,
                 incremental=(second,),
+                static_fingerprint=static_fingerprint((second.identity,)),
+                classifications=_general_classifications(second),
+            )
+        with pytest.raises(ValidationError, match="fingerprint"):
+            StaticRegressionEvaluation(
+                proposal=proposal,
+                ty=check,
+                baseline_digest=digest,
+                incremental=(first,),
+                static_fingerprint="wrong",
+                classifications=_general_classifications(first),
             )
 
-        mismatched_proposal = StaticPassEvaluation(
+        mismatched_proposal = StaticUnchangedEvaluation(
             proposal=other_proposal,
             ty=check,
             baseline_digest=digest,
@@ -1237,7 +1513,7 @@ class TestEvaluationSchemas:
         with pytest.raises(ValidationError, match="proposal must match"):
             StaticBaselineCapture(baseline=baseline, static=mismatched_proposal)
 
-        mismatched_check = StaticPassEvaluation(
+        mismatched_check = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=other_check,
             baseline_digest=digest,
@@ -1245,7 +1521,7 @@ class TestEvaluationSchemas:
         with pytest.raises(ValidationError, match="reuse the baseline TyCheck"):
             StaticBaselineCapture(baseline=baseline, static=mismatched_check)
 
-        mismatched_digest = StaticPassEvaluation(
+        mismatched_digest = StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest="wrong",
@@ -1263,7 +1539,7 @@ class TestReportSchemas:
         vector = (VersionPin(name="demo", version="1"),)
         attempt = _attempt(resolution="exact-vector", vector=vector)
         candidate = _proposal("candidate", attempt=attempt, vector=vector)
-        wrong_static = StaticFailEvaluation(
+        wrong_static = StaticRegressionEvaluation(
             proposal=candidate,
             ty=TyCheck(
                 process=_successful_process(exit_code=1),
@@ -1271,19 +1547,26 @@ class TestReportSchemas:
             ),
             baseline_digest="another-baseline",
             incremental=(increment,),
+            static_fingerprint=static_fingerprint((increment.identity,)),
+            classifications=_general_classifications(increment),
+        )
+        evaluation = TestFailEvaluation(
+            proposal=candidate,
+            static=wrong_static,
+            test=TestFail(process=_successful_process(exit_code=1)),
         )
         rejection = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
-            process=wrong_static.ty.process,
+            cause="TEST_FAILURE",
+            stage="test",
+            process=evaluation.test.process,
         )
 
         with pytest.raises(ValidationError, match="frozen static baseline"):
             CellSearchFailure(
                 reason="NO_PASS_IN_SEARCH_SPACE",
                 cell=baseline.proposal.cell,
-                phase="static-search",
+                phase="runtime-search",
                 baseline_attempt=baseline_attempt,
                 static_baseline=baseline,
                 baseline=passed,
@@ -1299,8 +1582,8 @@ class TestReportSchemas:
                                 attempt=attempt,
                                 proposal_id=candidate.proposal_id,
                                 failure_id=rejection.failure_id,
-                                cause="STATIC_REGRESSION",
-                                evaluation=wrong_static,
+                                cause="TEST_FAILURE",
+                                evaluation=evaluation,
                             ),
                         ),
                     ),
@@ -1314,7 +1597,7 @@ class TestReportSchemas:
         vector = (VersionPin(name="demo", version="1"),)
         attempt = _attempt(resolution="exact-vector", vector=vector)
         proposal = _proposal("candidate", attempt=attempt, vector=vector)
-        static = StaticFailEvaluation(
+        static = StaticRegressionEvaluation(
             proposal=proposal,
             ty=TyCheck(
                 process=_successful_process(exit_code=1),
@@ -1322,17 +1605,24 @@ class TestReportSchemas:
             ),
             baseline_digest="baseline",
             incremental=(diagnostic,),
+            static_fingerprint=static_fingerprint((diagnostic.identity,)),
+            classifications=_general_classifications(diagnostic),
+        )
+        evaluation = TestFailEvaluation(
+            proposal=proposal,
+            static=static,
+            test=TestFail(process=_successful_process(exit_code=1)),
         )
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
-            cause="STATIC_REGRESSION",
-            stage="ty",
-            process=static.ty.process,
+            cause="TEST_FAILURE",
+            stage="test",
+            process=evaluation.test.process,
         )
         event = SearchFailureEvent(
             cell=proposal.cell,
             failure=failure,
-            evaluation=static,
+            evaluation=evaluation,
         )
 
         assert isinstance(event, ActivityEvent)
@@ -1474,13 +1764,13 @@ class TestReportSchemas:
                 dumped | {"final_vector": (VersionPin(name="demo", version="2"),)}
             )
 
-        search = dict(dumped["static_search"])
+        search = dict(dumped["search"])
         search["vector"] = (VersionPin(name="demo", version="2"),)
         with pytest.raises(ValidationError):
-            CellSuccess.model_validate(dumped | {"static_search": search})
+            CellSuccess.model_validate(dumped | {"search": search})
 
         dumped = success.model_dump(mode="python")
-        dumped["static_search"]["observations"][0]["vector"] = (
+        dumped["search"]["observations"][0]["vector"] = (
             VersionPin(name="demo", version="2"),
         )
         with pytest.raises(ValidationError):
@@ -1501,7 +1791,7 @@ class TestReportSchemas:
             CellSuccess.model_validate(dumped)
 
         dumped = success.model_dump(mode="python")
-        dumped["static_search"]["observations"][0]["evidence"]["attempt"]["identity"][
+        dumped["search"]["observations"][0]["evidence"]["attempt"]["identity"][
             "requested_managed_vector"
         ] = (VersionPin(name="demo", version="2"),)
         with pytest.raises(ValidationError):

@@ -9,8 +9,8 @@ from pf.schemas.evaluation import (
     FailureScope,
     PassEvaluation,
     ProcessResult,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessResult,
     TestFailEvaluation,
     rejection_is_supported,
 )
@@ -19,7 +19,7 @@ from pf.schemas.evaluation import (
 class FailurePolicy:
     """Turn scoped operation facts into one conservative search disposition."""
 
-    identity = "failure-v1"
+    identity = "failure-runtime-v1"
 
     def classify(
         self,
@@ -62,14 +62,20 @@ class FailurePolicy:
         scope: FailureScope,
         evaluation: Evaluation,
     ) -> FailureRecord | None:
-        if isinstance(evaluation, (PassEvaluation, StaticPassEvaluation)):
+        if isinstance(evaluation, PassEvaluation):
             return None
-        if isinstance(evaluation, StaticFailEvaluation):
+        if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+            confirmed = next(
+                attempt.outcome
+                for attempt in evaluation.witnesses
+                if isinstance(attempt.outcome, RuntimeWitnessResult)
+                and attempt.outcome.status == "CONFIRMED_MISSING"
+            )
             return self.classify(
                 scope=scope,
-                cause="STATIC_REGRESSION",
-                stage="ty",
-                process=evaluation.ty.process,
+                cause="RUNTIME_INTERFACE_MISSING",
+                stage="witness",
+                process=confirmed.process,
             )
         if isinstance(evaluation, TestFailEvaluation):
             return self.classify(

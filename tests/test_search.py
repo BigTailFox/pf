@@ -18,8 +18,12 @@ from pf.schemas.project import (
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    PassEvaluation,
     ProcessResult,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
+    TestFail,
+    TestFailEvaluation,
+    TestPass,
     TyCheck,
     ty_diagnostic_digest,
 )
@@ -31,6 +35,10 @@ from pf.schemas.report import (
     ProbeIndeterminate,
     ProbePass,
     ProbeRejection,
+    StaticOnlyEvidence,
+    StaticRegion,
+    StaticRegionRuntimeReference,
+    StaticRegionSlice,
 )
 from pf.coordinate_search import CoordinateSearch
 
@@ -133,7 +141,7 @@ def probe_pass(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbePass:
         resolved_graph=(),
         policy_identity="policy",
     )
-    static = StaticPassEvaluation(
+    static = StaticUnchangedEvaluation(
         proposal=proposal,
         ty=TyCheck(
             process=ProcessResult(
@@ -147,7 +155,49 @@ def probe_pass(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbePass:
         ),
         baseline_digest=ty_diagnostic_digest(()),
     )
-    return ProbePass(attempt=attempt, proposal_id=proposal_id, evaluation=static)
+    return ProbePass(
+        attempt=attempt,
+        proposal_id=proposal_id,
+        evaluation=PassEvaluation(
+            proposal=proposal,
+            static=static,
+            test=TestPass(
+                process=ProcessResult(
+                    exit_code=0,
+                    signal=None,
+                    duration_seconds=0,
+                    stdout="",
+                    stderr="",
+                )
+            ),
+        ),
+    )
+
+
+def probe_rejection(
+    vector: tuple[VersionPin, ...], proposal_id: str
+) -> ProbeRejection:
+    passed = probe_pass(vector, proposal_id)
+    evaluation = TestFailEvaluation(
+        proposal=passed.evaluation.proposal,
+        static=passed.evaluation.static,
+        test=TestFail(
+            process=ProcessResult(
+                exit_code=1,
+                signal=None,
+                duration_seconds=0,
+                stdout="",
+                stderr="failed",
+            )
+        ),
+    )
+    return ProbeRejection(
+        attempt=passed.attempt,
+        proposal_id=proposal_id,
+        failure_id=f"failure-{proposal_id}",
+        cause="TEST_FAILURE",
+        evaluation=evaluation,
+    )
 
 
 class InteractionEvaluator:
@@ -167,6 +217,107 @@ class InteractionEvaluator:
 
 
 class TestCoordinateSearch:
+    def test_static_frontier_is_promoted_and_rebounded_on_runtime_rejection(
+        self,
+    ) -> None:
+        candidates = snapshot_versions("a", ("1", "2", "3", "4", "5"))
+        vector_one = (VersionPin(name="a", version="1"),)
+        vector_two = (VersionPin(name="a", version="2"),)
+        passed_two = probe_pass(vector_two, "a=2")
+        rejected_one = probe_rejection(vector_one, "a=1")
+        region_slice = StaticRegionSlice(
+            cell=candidates.cell,
+            source_snapshot_digest="snapshot",
+            policy_identity="policy",
+            baseline_digest=ty_diagnostic_digest(()),
+            active_dependency="a",
+            other_coordinates=(),
+            candidate_order=("1", "2", "3", "4", "5"),
+        )
+        cheap_one = StaticOnlyEvidence(
+            attempt=rejected_one.attempt,
+            proposal_id="a=1",
+            static_evaluation=rejected_one.evaluation.static,
+            guidance="PASS",
+            region_slice=region_slice,
+            representative_proposal_id="a=2",
+        )
+
+        class RuntimeBacked:
+            evaluated: list[str] = []
+            promoted: list[str] = []
+
+            @property
+            def regions(self) -> tuple[StaticRegion, ...]:
+                return (
+                    StaticRegion(
+                        slice=region_slice,
+                        static_fingerprint=cheap_one.static_evaluation.static_fingerprint,
+                        observed_versions=("1", "2"),
+                        runtime_references=(
+                            StaticRegionRuntimeReference(
+                                proposal_id="a=1", status="REJECTED"
+                            ),
+                            StaticRegionRuntimeReference(
+                                proposal_id="a=2", status="PASS"
+                            ),
+                        ),
+                    ),
+                )
+
+            def evaluate(
+                self, vector: tuple[VersionPin, ...]
+            ) -> ProbeEvidence:
+                raise AssertionError("known highest must not be evaluated")
+
+            def evaluate_in_slice(
+                self,
+                vector: tuple[VersionPin, ...],
+                *,
+                dependency: str,
+            ) -> ProbeEvidence | StaticOnlyEvidence:
+                assert dependency == "a"
+                version = vector[0].version
+                self.evaluated.append(version)
+                return passed_two if version == "2" else cheap_one
+
+            def promote(
+                self,
+                vector: tuple[VersionPin, ...],
+                *,
+                dependency: str,
+            ) -> ProbeEvidence:
+                assert dependency == "a"
+                self.promoted.append(vector[0].version)
+                return rejected_one
+
+        evaluator = RuntimeBacked()
+        result = CoordinateSearch(small_threshold=2).minimize(
+            start=(VersionPin(name="a", version="5"),),
+            candidates=(candidates,),
+            evaluator=evaluator,
+            hints=(VersionPin(name="a", version="2"),),
+            start_is_known_pass=True,
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector == vector_two
+        assert evaluator.evaluated == ["2", "1"]
+        assert evaluator.promoted == ["1"]
+        assert any(
+            isinstance(observation.evidence, StaticOnlyEvidence)
+            for observation in result.observations
+        )
+        assert isinstance(
+            next(
+                observation.evidence
+                for observation in result.observations
+                if observation.candidate_version == "1"
+                and not isinstance(observation.evidence, StaticOnlyEvidence)
+            ),
+            ProbeRejection,
+        )
+
     def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal(
         self,
     ) -> None:

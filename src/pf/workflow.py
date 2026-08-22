@@ -871,14 +871,7 @@ class DiagnoseCommandWorkflow:
             return proposal_id, None
         searches = ()
         if isinstance(result, CellSuccess):
-            searches = (
-                result.static_search,
-                *(
-                    (result.dynamic_search,)
-                    if result.dynamic_search is not None
-                    else ()
-                ),
-            )
+            searches = (result.search,)
         elif isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
             result.coordinate_failure is not None
         ):

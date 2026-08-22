@@ -26,8 +26,10 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
+    RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessResult,
     SearchFailureEvent,
-    StaticFailEvaluation,
+    StaticRegressionEvaluation,
     TestFailEvaluation,
     ToolFailure,
     TyDiagnostic,
@@ -394,19 +396,25 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
             process=result.static.ty.process if diagnostics else None,
         )
 
-    if isinstance(result, StaticFailEvaluation):
+    if isinstance(result, RuntimeInterfaceMissingEvaluation):
+        confirmed = next(
+            attempt.outcome
+            for attempt in result.witnesses
+            if isinstance(attempt.outcome, RuntimeWitnessResult)
+            and attempt.outcome.status == "CONFIRMED_MISSING"
+        )
         return CellFailed(
             status=result.status,
-            phase="ty",
-            diagnostics=result.incremental,
-            process=result.ty.process,
+            phase="witness",
+            diagnostics=_static_diagnostics(result.static),
+            process=confirmed.process,
         )
 
     if isinstance(result, TestFailEvaluation):
         return CellFailed(
             status=result.status,
             phase="test",
-            diagnostics=result.static.ty.diagnostics,
+            diagnostics=_static_diagnostics(result.static),
             process=result.test.process,
         )
 
@@ -431,8 +439,25 @@ def _failed_evaluation_payload(
     evaluation: object,
     failure: FailureRecord | None,
 ) -> tuple[tuple[TyDiagnostic, ...], ProcessResult | None]:
-    if isinstance(evaluation, StaticFailEvaluation):
-        return evaluation.incremental, evaluation.ty.process
     if isinstance(evaluation, TestFailEvaluation):
-        return evaluation.static.ty.diagnostics, evaluation.test.process
+        return _static_diagnostics(evaluation.static), evaluation.test.process
+    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+        confirmed = next(
+            attempt.outcome
+            for attempt in evaluation.witnesses
+            if isinstance(attempt.outcome, RuntimeWitnessResult)
+            and attempt.outcome.status == "CONFIRMED_MISSING"
+        )
+        return _static_diagnostics(evaluation.static), confirmed.process
+    if isinstance(evaluation, IndeterminateEvaluation) and evaluation.static is not None:
+        return _static_diagnostics(evaluation.static), evaluation.failure.process
     return (), None if failure is None else failure.process
+
+
+def _static_diagnostics(
+    static: object,
+) -> tuple[TyDiagnostic, ...]:
+    if isinstance(static, StaticRegressionEvaluation):
+        return static.incremental
+    diagnostics = getattr(getattr(static, "ty", None), "diagnostics", ())
+    return tuple(diagnostics)

@@ -10,7 +10,7 @@ from pf.schemas.evaluation import (
     FailureRecord,
     ProcessResult,
     SearchFailureEvent,
-    StaticFailEvaluation,
+    StaticRegressionEvaluation,
     TyDiagnostic,
     VerificationRole,
 )
@@ -173,9 +173,10 @@ def _incremental_diagnostics(
     seen = {diagnostic.identity for diagnostic in diagnostics}
     for event in search_events:
         evaluation = event.evaluation
-        if not isinstance(evaluation, StaticFailEvaluation):
+        static = getattr(evaluation, "static", None)
+        if not isinstance(static, StaticRegressionEvaluation):
             continue
-        for diagnostic in evaluation.incremental:
+        for diagnostic in static.incremental:
             if diagnostic.identity in seen:
                 continue
             ordered.append(diagnostic)

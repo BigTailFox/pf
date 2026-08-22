@@ -19,6 +19,7 @@ from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    DiagnosticClassification,
     BaselineRejection,
     HighestVersionPass,
     PassEvaluation,
@@ -27,8 +28,8 @@ from pf.schemas.evaluation import (
     SearchFailureEvent,
     StaticBaseline,
     StaticBaselineCapture,
-    StaticFailEvaluation,
-    StaticPassEvaluation,
+    StaticRegressionEvaluation,
+    StaticUnchangedEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
@@ -53,10 +54,12 @@ from pf.schemas.project import (
 from pf.schemas.report import (
     CellIndeterminate,
     CellSuccess,
-    ProbeRejection,
+    ProbePass,
+    StaticOnlyEvidence,
 )
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
+from pf.static_transition import static_fingerprint
 
 
 def successful_process() -> ProcessResult:
@@ -216,7 +219,7 @@ class StaticPasses:
         )
         return StaticBaselineCapture(
             baseline=baseline,
-            static=StaticPassEvaluation(
+            static=StaticUnchangedEvaluation(
                 proposal=prepared.proposal,
                 ty=check,
                 baseline_digest=baseline.digest,
@@ -230,9 +233,9 @@ class StaticPasses:
         *,
         package: PackagePlan,
         baseline: StaticBaseline,
-    ) -> StaticPassEvaluation | StaticFailEvaluation:
+    ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation:
         self.baseline_digests.append(baseline.digest)
-        return StaticPassEvaluation(
+        return StaticUnchangedEvaluation(
             proposal=prepared.proposal,
             ty=TyCheck(
                 process=successful_process().model_copy(update={"exit_code": 1}),
@@ -255,15 +258,16 @@ class FullPasses:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: object | None = None,
-    ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation:
+    ) -> PassEvaluation | TestFailEvaluation:
         self.evaluated_vectors.append(prepared.proposal.managed_vector)
         static = (
             static_result
-            if isinstance(static_result, StaticPassEvaluation)
+            if isinstance(
+                static_result,
+                (StaticUnchangedEvaluation, StaticRegressionEvaluation),
+            )
             else self.static.evaluate(prepared, package=package, baseline=baseline)
         )
-        if isinstance(static, StaticFailEvaluation):
-            return static
         prepared.mark_tested()
         return PassEvaluation(
             proposal=prepared.proposal,
@@ -284,15 +288,16 @@ class FullThreshold:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: object | None = None,
-    ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation:
+    ) -> PassEvaluation | TestFailEvaluation:
         self.evaluated_vectors.append(prepared.proposal.managed_vector)
         static = (
             static_result
-            if isinstance(static_result, StaticPassEvaluation)
+            if isinstance(
+                static_result,
+                (StaticUnchangedEvaluation, StaticRegressionEvaluation),
+            )
             else self.static.evaluate(prepared, package=package, baseline=baseline)
         )
-        if isinstance(static, StaticFailEvaluation):
-            return static
         prepared.mark_tested()
         if int(prepared.proposal.managed_vector[0].version) >= 2:
             return PassEvaluation(
@@ -352,7 +357,7 @@ class FrozenCandidates:
 
 
 class TestSearchCoordinator:
-    def test_search_coordinator_requires_both_search_strategies(self) -> None:
+    def test_search_coordinator_requires_highest_and_coordinate_search(self) -> None:
         environments = ProposalFactory()
         candidates = FrozenCandidates()
         static = StaticPasses()
@@ -379,7 +384,7 @@ class TestSearchCoordinator:
                 highest=highest,
             )
 
-    def test_search_coordinator_returns_static_fast_path_with_full_evidence(
+    def test_search_coordinator_returns_runtime_backed_floor_with_full_evidence(
         self,
         tmp_path: Path,
     ) -> None:
@@ -414,7 +419,7 @@ class TestSearchCoordinator:
         assert isinstance(result, CellSuccess)
         assert result.status == "SUCCESS"
         assert result.final_vector == (VersionPin(name="a", version="1"),)
-        assert result.dynamic_search is None
+        assert result.search.status == "SUCCESS"
         assert result.final_evaluation.status == "PASS"
         assert result.static_baseline.proposal == result.baseline.proposal
         assert len(result.static_baseline.diagnostics) == 1
@@ -424,7 +429,7 @@ class TestSearchCoordinator:
         assert static.captures == 1
         assert full.evaluated_vectors.count(result.final_vector) == 1
 
-    def test_search_closes_static_pass_before_repreparing_for_full_evaluation(
+    def test_search_closes_static_transition_before_exact_runtime_promotion(
         self,
         tmp_path: Path,
     ) -> None:
@@ -461,7 +466,7 @@ class TestSearchCoordinator:
             for vector in environments.prepare_vectors
             if vector == result.final_vector
         ]
-        assert len(final_prepares) == 2
+        assert len(final_prepares) == 1
         assert environments.maximum_active == 1
         assert environments.active == 0
         assert set(static.baseline_digests) == {
@@ -559,7 +564,7 @@ class TestSearchCoordinator:
         assert isinstance(result, CellSuccess)
         assert "lowest-direct" not in resolutions
         assert result.baseline_attempt.identity.requested_resolution != "lowest-direct"
-        for observation in result.static_search.observations:
+        for observation in result.search.observations:
             assert (
                 observation.evidence.attempt.identity.requested_resolution
                 != "lowest-direct"
@@ -627,7 +632,7 @@ class TestSearchCoordinator:
 
         assert isinstance(result, CellSuccess)
 
-    def test_search_report_evidence_keeps_static_fail_incremental_diagnostics(
+    def test_search_report_keeps_static_regression_on_runtime_pass(
         self,
         tmp_path: Path,
     ) -> None:
@@ -656,7 +661,7 @@ class TestSearchCoordinator:
                 *,
                 package: PackagePlan,
                 baseline: StaticBaseline,
-            ) -> StaticPassEvaluation | StaticFailEvaluation:
+            ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation:
                 if prepared.proposal.managed_vector[0].version != "1":
                     return super().evaluate(
                         prepared,
@@ -673,7 +678,7 @@ class TestSearchCoordinator:
                     severity="major",
                     message="dependency API is unavailable",
                 )
-                return StaticFailEvaluation(
+                return StaticRegressionEvaluation(
                     proposal=prepared.proposal,
                     ty=TyCheck(
                         process=successful_process().model_copy(
@@ -683,6 +688,14 @@ class TestSearchCoordinator:
                     ),
                     baseline_digest=baseline.digest,
                     incremental=(increment,),
+                    static_fingerprint=static_fingerprint((increment.identity,)),
+                    classifications=(
+                        DiagnosticClassification(
+                            diagnostic_identity=increment.identity,
+                            classification="general",
+                            reason_code="test-fixture",
+                        ),
+                    ),
                 )
 
         static = StaticThreshold()
@@ -696,17 +709,19 @@ class TestSearchCoordinator:
         ).search(package=package, cell=cell, snapshot=snapshot)
 
         assert isinstance(result, CellSuccess)
-        failure = next(
+        passed = next(
             observation.evidence
-            for observation in result.static_search.observations
-            if isinstance(observation.evidence, ProbeRejection)
-            and observation.evidence.cause == "STATIC_REGRESSION"
+            for observation in result.search.observations
+            if isinstance(observation.evidence, ProbePass)
+            and isinstance(
+                observation.evidence.evaluation.static,
+                StaticRegressionEvaluation,
+            )
         )
-        assert isinstance(failure.evaluation, StaticFailEvaluation)
-        assert failure.evaluation.incremental[0].code == "dependency-regression"
-        assert diagnostics.events[0].failure.failure_id == failure.failure_id
+        assert passed.evaluation.static.incremental[0].code == "dependency-regression"
+        assert diagnostics.events == []
 
-    def test_search_coordinator_falls_back_to_dynamic_search_after_joint_test_failure(
+    def test_search_coordinator_rebounds_after_frontier_promotion_changes_status(
         self,
         tmp_path: Path,
     ) -> None:
@@ -743,13 +758,25 @@ class TestSearchCoordinator:
         assert isinstance(result, CellSuccess)
         assert result.status == "SUCCESS"
         assert result.final_vector == (VersionPin(name="a", version="2"),)
-        assert result.dynamic_search is not None
-        assert result.dynamic_search.boundaries[0].predecessor == "1"
+        assert result.search.boundaries[0].predecessor == "1"
         assert any(
             event.failure.cause == "TEST_FAILURE" for event in diagnostics.events
         )
         assert full.evaluated_vectors.count((VersionPin(name="a", version="1"),)) == 1
         assert full.evaluated_vectors.count(result.final_vector) == 1
+        cheap = next(
+            observation
+            for observation in result.search.observations
+            if isinstance(observation.evidence, StaticOnlyEvidence)
+        )
+        assert cheap.candidate_version == "2"
+        assert cheap.evidence.guidance == "REJECTED"
+        assert not hasattr(cheap.evidence, "status")
+        assert result.search.regions[0].observed_versions == ("1", "2")
+        assert {
+            reference.status
+            for reference in result.search.regions[0].runtime_references
+        } == {"PASS", "REJECTED"}
 
     def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
         self,
@@ -996,7 +1023,7 @@ class TestSearchCoordinator:
         rejection = result.failure_records[0]
         assert rejection.cause == "RESOLUTION_CONFLICT"
         assert rejection.disposition == "REJECTED"
-        assert result.static_search.boundaries[0].predecessor_failure_id == (
+        assert result.search.boundaries[0].predecessor_failure_id == (
             rejection.failure_id
         )
         assert recorder.events == [SearchFailureEvent(cell=cell, failure=rejection)]
@@ -1100,8 +1127,7 @@ class TestSearchCoordinator:
         assert isinstance(result, CellSuccess)
         assert all(
             observation.evidence.status != "PASS"
-            for search in (result.static_search, result.dynamic_search)
-            if search is not None
-            for observation in search.observations
+            for observation in result.search.observations
             if observation.vector == (VersionPin(name="a", version="1"),)
+            if hasattr(observation.evidence, "status")
         )

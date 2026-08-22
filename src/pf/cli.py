@@ -9,6 +9,7 @@ from cyclopts import App, Group, Parameter
 from cyclopts.exceptions import CycloptsError
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
+from pf.adapters.runtime_witness import RuntimeWitnessAdapter
 from pf.adapters.test_command import TestAdapter
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import RegistryAccess, UvAdapter
@@ -19,7 +20,7 @@ from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError, InvocationError, PfError
-from pf.evaluation import FullEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
@@ -346,7 +347,12 @@ def _assemble_context(
     )
     environments = EnvironmentFactory(uv, events=presenter)
     static = StaticEvaluator(TyAdapter(runner), events=presenter)
-    full = FullEvaluator(static=static, tests=TestAdapter(runner), events=presenter)
+    full = RuntimeEvaluator(
+        static=static,
+        tests=TestAdapter(runner),
+        witnesses=RuntimeWitnessAdapter(runner),
+        events=presenter,
+    )
     checker = CompatibilityChecker(
         environments=environments,
         static=static,

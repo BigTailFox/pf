@@ -2,14 +2,16 @@
 
 - **状态：** 现行
 - **日期：** 2026-08-22
+- **最后核对：** 2026-08-23
 - **来源：** [R002](../reviews/R002-pf-v1-architecture-review.md)（`af10d0c` 快照）
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **CLI 展示：** [D006](D006-pf-cli-enhancement.md)
 - **验证运行：** [D008](D008-pf-verification-run.md)
 - **前序重构：** [D009](D009-pf-v1-refactor.md)
+- **现行搜索决策：** [D011](D011-pf-runtime-backed-static-search.md)
 
-本文是 R002 全部架构改进的规范性所有者。它消除 resolution、activity event 与 production composition 中可表示的非法状态，继续加深 VerificationRunner，并把平台存储、终端 live 状态和搜索运行历史收回私有 implementation。本文不增加命令，不改变搜索算法、failure 分类、报告授权、安全约束或终端文案。
+本文是 R002 全部架构改进的规范性所有者。它消除 resolution、activity event 与 production composition 中可表示的非法状态，继续加深 VerificationRunner，并把平台存储、终端 live 状态和搜索运行历史收回私有 implementation。本文不增加命令，不改变 failure 分类、报告授权、安全约束或终端文案。D011 后续取代了本文当时依赖的 static/dynamic 双阶段搜索；当前 `_ProposalRunner` 生命周期保留，probe 顺序以 D003 为准。
 
 R002 是非规范性快照。本文已经落地；D002 已同步当前 module interface，D006、D008、D009 中与本文冲突的历史描述由 §13 明确取代。
 
@@ -42,7 +44,7 @@ D009 已经建立了正确的模块方向，但四个 interface 仍允许调用�
 ### 2.2 非目标
 
 - 不改变 D001 命令、参数、退出码、floor 或 apply 语义；
-- 不改变 D003 的 probe 顺序、hint、单调性与 fixpoint；
+- 不在本文重新定义 D003 的 probe 顺序、hint 与单调性；后续取代见 D011；
 - 不改变 D005/D008 的 cause、disposition、Verification Role、Journal 内容或写入授权；
 - 不改变 D006 的布局、颜色、stdout/stderr routing、文案或卡片信息层级；
 - 不拆分 RunLogStore 的 Process Log、Journal 和 diagnosis index 产品 interface；
@@ -236,7 +238,7 @@ class ProbeRun:
     evaluation: Evaluation | None
 ```
 
-`_ProposalRunner.evaluate_full(vector) -> ProbeRun`。同一 key 的缓存保存一个 ProbeRun；完整 Evaluation context 最多执行一次。`_FullVectorEvaluator` 只返回 `.evidence`，SearchCoordinator 的 static fast path 与 dynamic final 同时读取 `run.evidence` / `run.evaluation`。
+`_ProposalRunner.evaluate_full(vector) -> ProbeRun`。同一 key 的缓存保存一个 ProbeRun；完整 Evaluation context 最多执行一次。D011 落地后，`_RuntimeBackedVectorEvaluator.evaluate_in_slice` 可返回 static-only guidance，`promote` 则通过 `evaluate_full` 取得该精确 Proposal 的 `run.evidence` / `run.evaluation`。SearchCoordinator 只有这一条 runtime-backed 路径。
 
 删除 `full_evaluation(vector)` 及只为二次 lookup 存在的 `_evaluations` / `_full_evidence_by_key` 平行状态。`_ProposalRunner` 实现 context manager；`SearchCoordinator` 用 `with` 集中关闭仍存活的 PreparedEnvironment。取得 final Evaluation 不依赖此前调用顺序。
 
@@ -326,7 +328,7 @@ CLI 单命令测试使用共享 fixture：为目标 workflow 提供 recording ad
 | `VerificationRunner.run` | task/run identity、deadline outcome、Journal-before-completion、最终排序 |
 | ActivityEvent Schema | stage/completed discriminator、额外字段 forbid、无 package 重复 identity |
 | Scheduler internal interface | Barrier/Event 并发上限、fake clock deadline、actual started callback |
-| `_ProposalRunner` 经 SearchCoordinator | fast/dynamic final 同时得到 evaluation；同一 full context 一次 |
+| `_ProposalRunner` 经 SearchCoordinator | static-only 观察在提交前精确 promote；同一 full context 一次 |
 | SecureLogDirectory adapters | secure create/open、atomic write、有界 read、identity/regular-file guard、close |
 | `RunLogStore` | Process Log、Journal v1/v2、latest、association replace/lookup 行为不变 |
 | `TerminalPresenter` | D006 现有 TTY/non-TTY golden behavior；live 与 final 不重复 |
@@ -393,7 +395,7 @@ D001、D003、D004、D005、D006、D007 的产品、算法、诊断、展示和�
 - deadline 未提交 Cell 没有 started/stage 事实，但有 Runner 构造并持久化的 completion failure；
 - activity union 不含 `ProgressEvent`；Journal gate 只匹配 `CellCompletedEvent`；event 不重复 package identity；
 - fake clock 与 Barrier/Event 测试不调用 wall-clock sleep；生产 Clock 是 `time.monotonic`；
-- SearchCoordinator 不调用 `full_evaluation`；fast path 与 dynamic final 的 Evaluation 来自对应 ProbeRun；
+- SearchCoordinator 不调用 `full_evaluation`；static-only frontier 由 `promote` 得到对应 ProbeRun 后才能提交；
 - RunLogStore 产品流程不含平台条件；POSIX/Windows adapter 安全测试与现有 RunLogStore 行为测试通过；
 - `_print_cell_report` 只接收 CellPresentation；同一 outcome 只经 `completion_outcome` 转换；
 - TerminalPresenter 现有 D006 TTY/non-TTY 输出与 exit code 回归通过；

@@ -1,67 +1,59 @@
-# PF `ty` 增量静态证据
+# PF `ty` static transition 与 runtime witness
 
 - **状态：** 现行
-- **策略版本：** `increment-v2`
-- **最后核对：** 2026-08-21
+- **策略版本：** `static-transition-v1`
+- **最后核对：** 2026-08-23
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
-- **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **决策来源：** [D011](D011-pf-runtime-backed-static-search.md)
 
-本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线和增量比较的唯一契约。D001 只使用本文产生的静态结果；D002 只定义模块位置；D003 只消费搜索 disposition；工具 cause 到 Rejection/Indeterminate 的处置由 D005 定义；诊断在普通命令和 `explain` 中的展示层级由 D006 定义。需要完整工具输出才能分类时，完整性由 D007 的磁盘日志 `*_complete` 判定，而不是 Output Cache 是否装满。
-
-已确认但尚未落地的 static transition、runtime witness 与 runtime-only boundary 语义见 [D011](D011-pf-runtime-backed-static-search.md)；落地前本文仍是现行静态证据契约。
+本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线、增量 transition、diagnostic 分类和 runtime witness 的唯一契约。静态事实不决定 compatibility disposition；边界由 D003/D005 的 runtime evidence 决定。
 
 ## 1. 目标
 
-PF 定位依赖降级相对当前最高允许版本引入的静态回归，而不是替项目执行“必须 type-clean”的 CI。
+PF 识别依赖环境变化引入的静态状态变化，而不要求项目 type-clean，也不把 `ty` 的模型结论直接等同于 runtime incompatibility。
 
-项目源码在最高版本环境中已有的诊断被接受为参考状态。候选只要没有增加诊断身份或重数，就满足静态兼容性；完整兼容仍必须通过 D001 的完整测试。
+项目在最高版本环境已有的 diagnostic 被 `S_hi` 抵消。候选的新增 diagnostic 完整保存、分类并生成 fingerprint；它可以触发 witness 或 `test-command`，但自身不是 Rejection。
 
-## 2. `V_hi` 与 `S_hi`
+## 2. `V_hi`、`S_hi` 与 scope
 
-对每个 cell，PF 在当前源码快照和当前声明上按最高允许版本解析出精确 Proposal `V_hi`，运行一次 `ty`，并把规范化诊断多重集冻结为 `S_hi`。
+每个 cell 在当前源码快照和声明的 highest Proposal `V_hi` 上运行一次 `ty`：
 
 ```text
 S_hi : multiset[DiagnosticIdentity]
 ```
 
-`S_hi` 是该 cell、源码快照和 Evaluation 策略内的运行时证据，不是项目配置，也不跨运行复用。不同 cell 不共享基线。
+`S_hi` 只在相同 cell、source snapshot 和 Evaluation policy 内有效，不跨运行或 cell 复用。其 digest 是 Static/Test Evaluation key 的独立 context。
 
-`S_hi` 的 digest 是 D002 定义的 static/full Evaluation identity 的独立 context 部分；Proposal identity 本身不吸收 baseline。
+捕获 `S_hi` 的同一次 TyCheck 同时构成 `V_hi` 的空增量 `StaticUnchangedEvaluation`；不得重跑 `ty`。无法获得完整 TyCheck 时不能构造 baseline，结果为 Indeterminate。
 
-捕获 `S_hi` 的同一次 `TyCheck` 同时构成 `V_hi` 的自比较静态通过证据；不得再运行一次 `ty` “确认” baseline。
+## 3. Increment 与 static fingerprint
 
-无法获得完整合法 `TyCheck` 时，不能构造 `S_hi`；D005 将该 Baseline Attempt 分类为 Baseline Indeterminate。
-
-## 3. 增量语义
-
-对任意同 scope Proposal `P`：
+对同 scope Proposal `P`：
 
 ```text
 increment(P) = diagnostics(P) ⊖ S_hi
 
-increment(P) = ∅  -> STATIC_PASS
-increment(P) != ∅ -> STATIC_FAIL
+increment(P) = ∅  -> STATIC_UNCHANGED
+increment(P) != ∅ -> STATIC_REGRESSION
 ```
 
-`⊖` 是 multiset subtraction。相同 identity 在 candidate 中出现 `n` 次，只能由 `S_hi` 中同 identity 的 `n` 次逐一抵消；多出的重数进入 increment。
+`⊖` 是 multiset subtraction；相同 identity 按重数逐一抵消。Baseline diagnostic 消失或减少不进入 increment。Message、severity、GitLab fingerprint 与 `ty` exit code 不参与比较。
 
-以下情况通过：
+两种状态都是 transition evidence，不是 `PASS` / `REJECTED`。每个状态都保存非空 fingerprint：
 
-- candidate 与 baseline 的 identity 重数相同；
-- baseline 诊断在 candidate 中消失或重数减少；
-- 两边均为空。
+```text
+sha256(
+  "pf:ty-static-state:static-transition-v1\0"
+  + canonical ordered incremental identity list
+)
+```
 
-`S_hi` 为空时，candidate 的任意诊断都是增量。
-
-消息文本、severity、GitLab fingerprint 与 `ty` 退出码不参与 multiset 比较。`STATIC_FAIL` 当且仅当结构化增量非空。
+重复 identity 按实际重数进入列表。空增量有固定 digest，不能用空值替代。Schema 反算 fingerprint，并要求 regression 的 incremental 使用规范顺序且是 TyCheck diagnostics 的子多重集。
 
 ## 4. TyAdapter
-
-外部 interface：
 
 ```text
 check(
@@ -75,7 +67,7 @@ check(
 ) -> TyCheck | ToolFailure
 ```
 
-`TyAdapter` 固定并拥有：
+Adapter 固定拥有：
 
 ```text
 ty check
@@ -87,203 +79,162 @@ ty check
 --color never
 ```
 
-用户 `ty-args`、`--config-file`、`-c` / `--config` override，以及从包目录到 snapshot root 的 `[tool.ty.terminal]` 都不得改变 adapter-owned 选项或别名。冲突在启动进程前作为配置错误失败；不依赖“最后一个参数获胜”。
+用户 `ty-args`、config override 和 `[tool.ty.terminal]` 不得改变 owned options。冲突在进程启动前失败。
 
-### 4.1 工具完成与退出码
+### 4.1 工具完成
 
 ```text
-exit 0 或 1 + 未截断、合法 GitLab JSON -> TyCheck
-timeout                              -> TIMEOUT cause
-其他退出、启动失败、截断或非法输出   -> TOOL_FAILURE cause
+exit 0/1 + 完整合法 GitLab JSON -> TyCheck
+timeout                         -> TIMEOUT
+其他退出、signal、启动失败、
+截断或非法输出                  -> TOOL_FAILURE
 ```
 
-退出 `0` 的 JSON 可以含诊断，退出 `1` 的 JSON 也可以为空。退出码只说明本次工具执行是否可收集，不证明诊断数量或静态兼容性。
+Exit code 只说明 TyCheck 是否可收集，不证明 diagnostic 数量或 compatibility。
 
 ### 4.2 GitLab JSON
 
-stdout 必须是 JSON array；每条记录必须是对象并提供：
+stdout 必须是 JSON array。每条记录必须提供非空 `check_name`、`description`、`severity`、路径和正整数起始行；column 若存在也必须为正整数。任一记录残缺使整次检查失败，Adapter 不丢弃坏记录或从人类文本猜字段。
 
-- 非空 `check_name`；
-- 非空 `description`；
-- 非空 `severity`；
-- `location.path`；
-- `location.positions.begin.line`，或 GitLab 的 `location.lines.begin`；
-- 若提供 column，则必须是正整数。
+## 5. DiagnosticIdentity
 
-任一记录残缺会使整次检查成为 `TOOL_FAILURE` cause。Adapter 不静默丢弃坏记录，也不从人类输出猜测字段。`fingerprint` 被忽略。
+`TyDiagnostic` 保存 identity、origin、规范 path、line/column、code、severity 和 message；后两项只用于报告。
 
-## 5. 诊断身份
-
-规范记录：
+Snapshot 内：
 
 ```text
-TyDiagnostic
-  identity
-  origin      snapshot | external
-  path
-  line
-  column
-  code        check_name
-  severity    仅报告
-  message     仅报告
+identity = snapshot | posix-path | line | column? | code
 ```
 
-相对路径先以 `ty` 的 package cwd 解析，再判断是否位于 snapshot root。
-
-### 5.1 Snapshot 诊断
-
-快照内路径转为相对 snapshot root 的 POSIX 路径：
+External path 先 resolve，再依次规范到 `site-packages/`、`typeshed/` 或 `interpreter/` namespace：
 
 ```text
-identity = snapshot | path | line | column? | code
+identity = external | normalized-path | code
 ```
 
-line 必填；GitLab 没有 column 时不虚构空 column。
+无法得到稳定 external namespace 时整次检查为 TOOL_FAILURE。External identity 不保留 line/column，避免依赖内部行号漂移形成项目 regression。
 
-### 5.2 External 诊断
-
-路径先以 package cwd 补全相对路径，再用 `Path.resolve(strict=False)` 消解绝对形式和可解析的 symlink，最后按以下优先级分类：
-
-1. 位于 snapshot root：按 §5.1 处理；
-2. 路径中含 `site-packages` 或 `dist-packages`：统一为 `site-packages/<relative-path>`；
-3. 其余路径中含 `typeshed`：统一为 `typeshed/<relative-path>`；
-4. 位于所选解释器环境 root 的其他文件：统一为 `interpreter/<environment-relative-path>`；
-5. 其余快照外路径无法获得稳定 namespace，整次 `TyCheck` 产生 `TOOL_FAILURE` cause。
-
-`site-packages` 的判定先于 `typeshed`，因此 `site-packages/typeshed/foo.pyi` 与 `typeshed/foo.pyi` 不会 collision。运行时虚拟环境绝对前缀和 `dist-packages` / `site-packages` 差异不进入 identity。
-
-规范路径进入：
+`TyCheck.diagnostics` 按 identity，并以 severity/message 稳定打破相同 identity 的排序，保留重复项。Baseline digest 为：
 
 ```text
-identity = external | path | code
+sha256(
+  "pf:ty-diagnostic-baseline:static-transition-v1\0"
+  + canonical identity list
+)
 ```
 
-External identity 不保留 line/column。这是有意的保守策略：依赖内部文件位置漂移不会自动成为项目静态回归。
+## 6. Diagnostic 分类与 witness plan
 
-### 5.3 规范顺序与 digest
+每个 regression occurrence 必须有一条一一对应的 `DiagnosticClassification`。分类只使用 structured code、规范路径、源码 AST、Proposal vector/graph 与 active managed declaration，不使用 message、severity 或模糊字符串。
 
-`TyCheck.diagnostics` 按 identity（并以 severity/message 稳定打破相同 identity 的排序）保存，保留重复项。
+Strong eligibility 同时要求：
 
-基线 digest 对按顺序保存的 identity 列表计算：
+1. code 命中版本化 allowlist；
+2. AST 唯一恢复 module/symbol/member；
+3. import root 唯一映射到当前 active managed dependency；
+4. 能生成无歧义 RuntimeWitnessPlan。
+
+`strong-classifier-v1` allowlist 为 `unresolved-import` 与 `unresolved-attribute`。第一版 planner 支持：
+
+- `import module` -> `import-module`；
+- `from module import symbol` -> `import-symbol`；
+- 直接 imported module attribute -> `has-member`。
+
+相对导入、star import、复合/动态 owner、多义位置、非受管归因以及 allowlist 外 code 都降级为 general，并保存稳定 reason code。
+
+`RuntimeWitnessPlan` 保存 covered diagnostic identities、managed dependency、operation、module、owner/member 和 planner version。它属于当前 Proposal，不跨 Proposal 复用。重复 diagnostic occurrence 仍分别分类并进入 fingerprint；执行列表只对完全相同的 plan 保序去重。
+
+## 7. RuntimeWitnessAdapter
+
+Adapter 在当前 prepared environment 中执行：
 
 ```text
-sha256("pf:ty-diagnostic-baseline:increment-v2\0" + canonical identity list)
+<interpreter> -I -c <adapter-owned-harness> <canonical-plan-json>
 ```
 
-消息和 severity 不进入 digest。
+不使用 shell，也没有用户 witness command。Harness 只输出一行 canonical JSON result；adapter 要求 stdout 精确等于该行加换行且 stderr 为空：
 
-## 6. StaticEvaluator
+- `PRESENT`：目标 runtime 名称存在；
+- `CONFIRMED_MISSING`：精确目标 module/symbol/member 缺失；
+- `NOT_APPLICABLE`：执行完成但不能无歧义回答；
+- `ToolFailure`：timeout、signal、启动失败、非零退出、截断或非法输出。
 
-接口由 D002 定义。职责分为：
+ModuleNotFoundError 必须指向目标 module 或其前缀；AttributeError 必须携带目标 owner 对象和 member name。`import-symbol` 使用 Python `fromlist` 导入语义后再核对属性，不能把可导入的 package submodule 误判为缺失。Import side-effect exception、任意 traceback 或无关缺失不能解释为 confirmed missing。
 
-### 6.1 capture
+Witness result 必须完整正常 exit 0，并保留 plan 与 ProcessResult。Schema 要求 witness attempts 按本 Proposal 保序去重后的 classification plans 形成前缀；PASS/TestFail 不得保留 confirmed missing 或 tool failure，RuntimeInterfaceMissing 必须在首个 confirmed missing 停止，witness Indeterminate 必须在对应 ToolFailure 停止。
 
-1. 调用 `TyAdapter.check(V_hi)`；
-2. 构造 `StaticBaseline(proposal, ty, digest)`；
-3. 使用完全相同的 Proposal、TyCheck 和 digest 构造空 increment 的 `StaticPassEvaluation`；
-4. 返回 `StaticBaselineCapture`。
-
-### 6.2 evaluate
-
-运行 `ty` 前先验证 baseline 与 Proposal 的 cell、snapshot digest 和 policy identity 相同。不同 scope 直接违反调用契约，不能产生证据。
-
-成功 `TyCheck` 通过 multiset subtraction 产生：
-
-- `StaticPassEvaluation`：空 `incremental`；
-- `StaticFailEvaluation`：非空 `incremental`。
-
-工具失败产生 `IndeterminateEvaluation`，保留操作 cause、机械结果和 Proposal；D005 将它包装为 Probe Indeterminate。
-
-`FullEvaluator` 只接受 static pass 进入完整测试。`CoordinateSearch` 只看见 D005 的 Probe disposition、Attempt/Proposal identity 和 FailureRecord 引用，不读取诊断内容。
-
-## 7. check、smoke 与 search 的基线生命周期
-
-### 7.1 check
-
-`CompatibilityChecker`：
+## 8. RuntimeEvaluator 路由
 
 ```text
-prepare highest V_hi
-  -> StaticEvaluator.capture
-  -> close highest environment
-prepare lowest-direct V_check
-  -> FullEvaluator(V_check, same S_hi)
+run static transition
+  ├── Ty failure -> Indeterminate
+  ├── eligible strong plans
+  │     ├── CONFIRMED_MISSING -> RuntimeInterfaceMissingEvaluation
+  │     ├── PRESENT / NOT_APPLICABLE -> continue
+  │     └── ToolFailure -> Indeterminate
+  └── unchanged / general / no selected witness -> continue
+        ↓
+run configured test-command
+  ├── pass -> PassEvaluation
+  ├── configured failure exit -> TestFailEvaluation
+  └── incomplete/tool result -> IndeterminateEvaluation
 ```
 
-最高版本环境不运行测试。`check` 的兼容性对象是 `V_check`；`V_hi` 只建立参考静态状态。
+Witness 是内部负向优化，不产生正向 compatibility。未选择 witness 时直接运行 test-command。Pass/TestFail/RuntimeInterfaceMissing/Indeterminate 都保留本 Proposal 的 static evidence；运行过的 witness attempts 同样保留。
 
-### 7.2 search
+## 9. check、smoke 与 search
 
-`HighestVersionVerifier` 在 baseline 环境 capture 一次，复用捕获所得 static pass 运行 baseline 完整测试；`SearchCoordinator` 消费该结果，并把同一 `StaticBaseline` 注入 D003 的所有 static/full probe。
+- `check`：highest 只 capture `S_hi`；lowest-direct 使用同一 baseline 运行 RuntimeEvaluator。Static regression 不短路。
+- `smoke`：HighestVersionVerifier 复用 capture TyCheck 后只运行一次 test-command；不运行 witness、不发现候选。
+- `search`：baseline 必须直接完整 PASS；每个 candidate 先建立自己的 transition，随后按 D003 的 region/runtime 路由。
 
-项目既有诊断本身不会使 baseline 产生 Rejection；baseline 是否继续、两阶段 probe 顺序和终态由 D003/D005 定义。
+完整 PASS 当且仅当当前 Proposal 自身 test-command pass。Static unchanged、witness PRESENT 和 region representative pass 都不能授权另一个 Proposal。
 
-### 7.3 smoke
+## 10. Schema、cache 与报告
 
-`smoke` 直接消费 `HighestVersionVerifier` 的完整结果，不发现候选。capture 返回的同一个 `TyCheck` 同时作为最高版本 Proposal 的 static pass，随后进入完整测试；不得为了展示 warning 再运行 `ty`。
+公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。
 
-合法 `TyCheck` 的诊断数量可以为任意非负整数。每条诊断由 Presenter 按 D006 的短格式显示为 warning；这些展示规则不进入 `S_hi`、digest 或 Evaluation 分类。测试通过即为 smoke pass，测试正常失败形成 Baseline Rejection；不能产生合法 `TyCheck` 或完整测试结果时形成 Baseline Indeterminate。
-
-## 8. Schema 与报告
-
-公共证据保留：
-
-- `V_hi` Proposal；
-- 完整 `TyCheck` 机械结果和规范诊断；
-- `S_hi` digest；
-- 每个 static evaluation 的 baseline digest 与 increment；
-- static/full probe 与 cell baseline/final 之间的 Proposal、cell、snapshot、policy 一致性。
-
-Schema validator 双向检查分类和结构：static pass 必须空 increment，static fail 必须非空且是当前 TyCheck 的子多重集，baseline capture 必须复用同一个 TyCheck。缺失或跨 scope 的证据不能读成有效 Schema 1 报告。
-
-`check`、`smoke`、`search`、`explain` 和 `diagnose` 按 D006 复用同一个 `TyDiagnostic` 短摘要格式。它们分别展示与命令有关的 baseline/current 诊断或 candidate 新增诊断，不能把 baseline 既有错误描述成本次 Rejection 原因。Candidate 静态 Rejection 的增量诊断进入公共 FailureRecord/Evaluation 证据；本地日志引用不进入报告 Schema 或证据 identity。
-
-完整 `TyCheck` 继续保留 severity 和 message，因此 identity 命中但 message 改变仍可在报告中离线分析；这不改变 `STATIC_PASS` / `STATIC_FAIL`。
-
-## 9. 策略 identity
-
-Evaluation 策略 identity 包含实际 `ty` distribution 版本、影响 Evaluation 的有效配置，以及：
+概念 cache key：
 
 ```text
-policy        = increment-v2
-output_format = gitlab
-comparison    = multiset-subtraction
-identity_rule = snapshot-path-line-column-code+external-namespace-path-code
+TyCheckKey        = proposal_id
+StaticStateKey    = (proposal_id, S_hi digest, static policy identity)
+WitnessKey        = (proposal_id, witness plan identity)
+TestEvaluationKey = (proposal_id, S_hi digest, full policy identity)
 ```
 
-`jobs` 不进入 identity。改变诊断 identity、输出格式或比较代数时必须提升策略版本，使新旧报告不能 merge/apply。
+Proposal identity 已吸收 static/full policy；EvaluationCache 仍显式接收 baseline digest，并把 static 与 full evidence 分仓。Region 调度 cache 由 D003 拥有，不构造 Proposal-level Evaluation。没有跨运行 Evaluation cache。
 
-## 10. 所有权
+旧 `STATIC_PASS` / `STATIC_FAIL`、`StaticPassEvaluation` / `StaticFailEvaluation` 和 `increment-v2` 证据不兼容，不能 merge/apply。
 
-| 规则 | 唯一所有者 |
-| --- | --- |
-| ty argv、配置冲突、GitLab JSON、路径与 identity 规范化 | `TyAdapter` |
-| `S_hi`、scope 校验、digest 与 multiset subtraction | `StaticEvaluator` + Evaluation Schema |
-| check 的 highest/lowest-direct 生命周期 | `CompatibilityChecker` |
-| search 中一次 capture 和 baseline 注入 | `SearchCoordinator` |
-| probe 顺序与边界 | D003 / `CoordinateSearch` |
-| static cause 的 Rejection/Indeterminate 处置 | D005 / failure policy module |
-| 报告证据链一致性 | Report Schema |
+## 11. 策略 identity
 
-## 11. 不变量
+Evaluation policy 包含实际 `ty` distribution、有效 ty/test 配置及：
 
-1. 每个 static/full Evaluation 先拥有同 scope 的冻结 `S_hi`，否则为 Indeterminate 或调用错误。
-2. 成功 capture 后，`V_hi` 自比较必为 `STATIC_PASS` 且不重跑 `ty`。
-3. `STATIC_FAIL` 当且仅当 multiset increment 非空。
-4. baseline 诊断消失或减少不推进失败边界。
-5. check 与 search 共享同一 StaticEvaluator 语义。
-6. 完整 `PASS` 仍要求完整测试。
-7. 截断、坏 JSON、缺字段或 owned-option 冲突不能生成兼容性边界。
-8. `CoordinateSearch` 不解释诊断或 `ty` 退出码。
-9. 一个 cell 的 baseline 不能复用于另一个 cell、snapshot 或 policy。
+```text
+static_policy      = static-transition-v1
+output_format      = gitlab
+comparison         = multiset-subtraction
+fingerprint        = ordered-incremental-identity-multiset
+identity_rule      = snapshot-path-line-column-code+external-namespace-path-code
+region_scope       = fixed-slice-contiguous
+strong_classifier  = strong-classifier-v1
+witness_planner    = witness-planner-v1
+witness_harness    = witness-harness-v1
+boundary_rule      = runtime-evidence-only
+final_verification = direct-test-command-pass
+```
 
-## 12. 非目标
+改变 identity、multiset、allowlist、AST attribution、witness protocol、region scope 或 final rule 必须提升相应版本。
 
-- 要求仓库本身 type-clean；
-- 规则白名单或消息文本匹配；
-- 把增量诊断归因到某个依赖；
-- static-only floor；
-- 跨运行 `S_hi` cache；
-- 把 severity、message 或 fingerprint 纳入 identity；
-- 把 external line/column、message 或 severity 纳入 identity；
-- 在 `V_hi` 上运行测试来代替 `V_check` 测试。
+## 12. 不变量与非目标
+
+1. 同一 Evaluation 必须引用同 scope frozen `S_hi`。
+2. `V_hi` capture 是空增量 unchanged，不重跑 ty。
+3. Regression 当且仅当 multiset increment 非空；它没有 disposition。
+4. 每个 increment occurrence 有同序 classification 和显式 fingerprint。
+5. 只有 confirmed-missing witness 或 test failure 可从 static 路径形成 runtime negative evidence。
+6. 完整 PASS 必须含本 Proposal 的 TestPass。
+7. 截断、坏 JSON、side-effect exception 或归因歧义不能形成 compatibility boundary。
+
+非目标包括要求仓库 type-clean、为所有 unresolved 自动建 witness、解析 message、static-only floor、region runtime 等价证明和跨运行 baseline/evaluation cache。

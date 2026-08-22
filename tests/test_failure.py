@@ -17,7 +17,7 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
     TestPass,
     ToolFailure,
     TyCheck,
@@ -106,7 +106,7 @@ def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
     )
     passed = PassEvaluation(
         proposal=proposal,
-        static=StaticPassEvaluation(
+        static=StaticUnchangedEvaluation(
             proposal=proposal,
             ty=check,
             baseline_digest=baseline.digest,
@@ -157,7 +157,7 @@ class TestFailurePolicy:
             ("RESOLUTION_CONFLICT", "install-project"),
             ("BUILD_FAILURE", "install"),
             ("HARNESS_CONFLICT", "install-harness"),
-            ("STATIC_REGRESSION", "ty"),
+            ("RUNTIME_INTERFACE_MISSING", "witness"),
             ("TEST_FAILURE", "test"),
         ),
     )
@@ -176,15 +176,15 @@ class TestFailurePolicy:
         assert failure.disposition == "REJECTED"
         assert failure.cause == cause
 
-    def test_failure_policy_rejects_a_static_regression_when_ty_exits_zero(
+    def test_failure_policy_rejects_confirmed_missing_on_witness_exit_zero(
         self,
     ) -> None:
         process = _process().model_copy(update={"exit_code": 0, "stderr": ""})
 
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause="STATIC_REGRESSION",
-            stage="ty",
+            cause="RUNTIME_INTERFACE_MISSING",
+            stage="witness",
             process=process,
         )
 
@@ -193,7 +193,6 @@ class TestFailurePolicy:
     @pytest.mark.parametrize(
         ("attempt", "cause", "stage", "process"),
         (
-            (_highest_attempt(), "STATIC_REGRESSION", "ty", _process()),
             (_probe_attempt(), "TEST_FAILURE", "install", _process()),
             (
                 _probe_attempt(),

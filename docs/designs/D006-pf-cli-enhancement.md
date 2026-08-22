@@ -1,7 +1,7 @@
 # PF CLI 交互与展示增强
 
 - **状态：** 现行
-- **最后核对：** 2026-08-21
+- **最后核对：** 2026-08-23
 - **产品与命令：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
@@ -74,7 +74,7 @@ D005 已经禁止把 `UNRESOLVABLE`、`TOOL_ERROR`、cause Enum 或 Schema statu
 - 用户文案使用 `Python 3.11`、精确 target triple 和 `no-extra`，不使用无标签的 `3.11` / `none`；
 - `report` 指 `package-floor.json`，`project metadata` 指目标 `pyproject.toml`；
 - 一行命令说明避免 `highest-resolution`、`projection evidence` 等实现术语；详细帮助可以解释对应语义；
-- D005 的 cause/disposition Enum，以及 `STATIC_FAIL`、`BASELINE_REJECTION`、`BASELINE_INDETERMINATE`、`CELL_INDETERMINATE` 等 Schema status，只出现在 `diagnose` 的 `Technical details`。实时 cell 行、命令摘要和默认 `explain` 不得把它们当作结论。
+- D005 的 cause/disposition Enum，以及 `STATIC_REGRESSION`、`BASELINE_REJECTION`、`BASELINE_INDETERMINATE`、`CELL_INDETERMINATE` 等 Schema status，不得被实时 cell 行、命令摘要或默认 `explain` 当作用户结论；static regression 以 transition warning/新增诊断展示，failure Enum 只进入 `diagnose` 的 `Technical details`。
 
 ## 4. 顶层帮助信息架构
 

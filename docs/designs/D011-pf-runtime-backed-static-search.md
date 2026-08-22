@@ -1,6 +1,7 @@
 # PF runtime-backed 静态引导搜索
 
-- **状态：** 现行契约，待实现
+- **状态：** 现行
+- **归并：** 现行条款已归并 D001–D005、D008
 - **策略版本：** `static-transition-v1`
 - **日期：** 2026-08-23
 - **产品与命令：** [D001](D001-pf.md)
@@ -10,19 +11,17 @@
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文修正 PF 把新增 `ty` diagnostic 直接解释为 runtime incompatibility 的规则。主要变更属于 D003/D004：D004 的静态增量改为 transition evidence，D003 的搜索边界改由 runtime evidence 建立。D002、D005 和 D008 只同步由此改变的 interface、cause/disposition 与 Attempt 序列；不在本文复制它们的完整契约。
-
-落地前，D001–D008 仍描述当前行为。CLI、报告或实现不得把本文的待实现状态机描述成已经可用。
+本文记录 PF 不再把新增 `ty` diagnostic 直接解释为 runtime incompatibility 的决策。现行规则已归并到 D003/D004，并同步进入 D001、D002、D005 与 D008；本文保留决策背景、迁移范围和验收依据，不再作为“待实现”覆盖层。
 
 ## 1. 问题
 
-现行 D004 定义：
+落地前的 D004 定义：
 
 ```text
 increment(P) != ∅ -> STATIC_FAIL
 ```
 
-现行 D002/D005/D008 随后把 `StaticFailEvaluation` 直接变成 `STATIC_REGRESSION` Probe Rejection；D003 用该 Rejection 缩窄搜索空间，并以 static coordinate fixpoint 产生 `V_static`。
+当时的 D002/D005/D008 随后把 `StaticFailEvaluation` 直接变成 `STATIC_REGRESSION` Probe Rejection；D003 用该 Rejection 缩窄搜索空间，并以 static coordinate fixpoint 产生 `V_static`。
 
 这条推理过强。新增 diagnostic 可能来自：
 
@@ -393,9 +392,9 @@ final_verification     = direct-test-command-pass
 | `test-command`、命令结果与退出码 | D001 |
 | CLI 信息层级与文案组织 | D006 |
 
-## 14. 对现行契约的取代
+## 14. 已完成的契约取代
 
-本文落地时必须同步替换以下现行条款；在全部实现与 Schema migration 完成前，这些条款仍描述当前行为：
+本次落地已同步替换以下旧条款：
 
 | 文档 | 被取代的现行规则 |
 | --- | --- |

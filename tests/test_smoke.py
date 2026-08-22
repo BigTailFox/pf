@@ -22,7 +22,7 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
-    StaticPassEvaluation,
+    StaticUnchangedEvaluation,
     TestFail,
     TestFailEvaluation,
     TestPass,
@@ -133,7 +133,7 @@ class TestSmokeWorkflow:
                     ty=check,
                     digest=ty_diagnostic_digest(check.diagnostics),
                 )
-                static = StaticPassEvaluation(
+                static = StaticUnchangedEvaluation(
                     proposal=proposal,
                     ty=check,
                     baseline_digest=baseline.digest,
@@ -214,7 +214,7 @@ class TestSmokeWorkflow:
                     ty=check,
                     digest=ty_diagnostic_digest(check.diagnostics),
                 )
-                static = StaticPassEvaluation(
+                static = StaticUnchangedEvaluation(
                     proposal=proposal,
                     ty=check,
                     baseline_digest=baseline.digest,
@@ -375,7 +375,7 @@ class TestSmokeWorkflow:
                 )
                 evaluation = TestFailEvaluation(
                     proposal=proposal,
-                    static=StaticPassEvaluation(
+                    static=StaticUnchangedEvaluation(
                         proposal=proposal,
                         ty=check,
                         baseline_digest=baseline.digest,
