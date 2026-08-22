@@ -175,7 +175,7 @@ class CountingProposalFactory(ProposalFactory):
                 self.active -= 1
             original_close()
 
-        prepared.close = close  # type: ignore[method-assign]
+        cast(Any, prepared).close = close
         return prepared
 
 
@@ -348,21 +348,30 @@ class FrozenCandidates:
 
 class TestSearchCoordinator:
     def test_search_coordinator_requires_both_search_strategies(self) -> None:
-        dependencies = {
-            "environments": object(),
-            "candidates": object(),
-            "static": object(),
-            "full": object(),
-        }
+        environments = ProposalFactory()
+        candidates = FrozenCandidates()
+        static = StaticPasses()
+        full = FullPasses(static)
+        highest = HighestVersionVerifier(
+            environments=environments,
+            static=static,
+            full=full,
+        )
         with pytest.raises(TypeError, match="highest"):
-            SearchCoordinator(  # type: ignore[arg-type]
-                **dependencies,
+            SearchCoordinator(  # ty: ignore[missing-argument]
+                environments=environments,
+                candidates=candidates,
+                static=static,
+                full=full,
                 coordinate_search=CoordinateSearch(),
             )
         with pytest.raises(TypeError, match="coordinate_search"):
-            SearchCoordinator(  # type: ignore[arg-type]
-                **dependencies,
-                highest=object(),
+            SearchCoordinator(  # ty: ignore[missing-argument]
+                environments=environments,
+                candidates=candidates,
+                static=static,
+                full=full,
+                highest=highest,
             )
 
     def test_search_coordinator_returns_static_fast_path_with_full_evidence(

@@ -4,6 +4,7 @@ import hashlib
 from importlib.metadata import version as distribution_version
 import json
 from pathlib import Path
+from typing import cast
 
 from packaging.requirements import Requirement
 import pytest
@@ -283,7 +284,10 @@ class TestEnvironmentFactory:
             def install_editable(self, **kwargs: object) -> ToolOutcome:
                 installed = kwargs["selection"]
                 assert isinstance(installed, tuple)
-                self.installed_selection = installed
+                assert all(isinstance(item, SelectedCandidate) for item in installed)
+                self.installed_selection = cast(
+                    tuple[SelectedCandidate, ...], installed
+                )
                 return super().install_editable(**kwargs)
 
             def inspect_environment(self, **kwargs: object) -> GraphOutcome:

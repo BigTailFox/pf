@@ -129,7 +129,7 @@ class TestRunLogStoreJournal:
         )
 
         with pytest.raises(InfrastructureError, match="verification journal"):
-            store.write_journal(legacy)  # type: ignore[arg-type]
+            store.write_journal(legacy)  # ty: ignore[invalid-argument-type]
 
         assert not (tmp_path / ".pf/logs/v2-writer/journal.json").exists()
 

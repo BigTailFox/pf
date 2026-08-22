@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 import json
 from urllib.error import URLError
+from urllib.request import Request
 
 import pytest
 
@@ -396,7 +397,7 @@ class TestCandidateQuery:
         class Response(BytesIO):
             headers = {"Content-Length": str(len(document))}
 
-        def open_request(request: object, timeout: int) -> Response:
+        def open_request(request: Request, timeout: int) -> Response:
             assert timeout == 30
             observed_authorization.append(request.get_header("Authorization"))
             return Response(document)
