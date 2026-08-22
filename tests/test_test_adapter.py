@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 
 from pf.adapters.test_command import TestAdapter
-from pf.schemas.evaluation import ProcessResult, ProcessSpec, ToolFailure
+from pf.schemas.evaluation import (
+    ProcessResult,
+    ProcessSpec,
+    TestFail,
+    TestPass,
+    ToolFailure,
+)
 
 
 class FailingTestRunner:
@@ -18,10 +24,8 @@ class FailingTestRunner:
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary="1 failed\n",
-            stderr_summary="",
-            stdout_tail="1 failed\n",
-            stderr_tail="",
+            stdout="1 failed\n",
+            stderr="",
         )
 
 
@@ -64,10 +68,8 @@ def test_test_adapter_preserves_every_terminal_classification(
                 exit_code=exit_code,
                 signal=None if exit_code is not None else 9,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stdout="",
+                stderr="",
                 timed_out=timed_out,
             )
 
@@ -83,10 +85,17 @@ def test_test_adapter_preserves_every_terminal_classification(
     assert observed == expected
 
 
-@pytest.mark.parametrize("exit_code", (0, 1))
-def test_test_adapter_classifies_truncated_output_before_building_an_outcome(
+@pytest.mark.parametrize(
+    ("exit_code", "expected"),
+    (
+        (0, TestPass),
+        (1, TestFail),
+    ),
+)
+def test_test_adapter_classifies_exit_code_without_treating_cache_as_failure(
     tmp_path: Path,
     exit_code: int,
+    expected: type[TestPass] | type[TestFail],
 ) -> None:
     class Runner:
         def run(self, spec: ProcessSpec) -> ProcessResult:
@@ -94,11 +103,8 @@ def test_test_adapter_classifies_truncated_output_before_building_an_outcome(
                 exit_code=exit_code,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="bounded",
-                stderr_summary="",
-                stdout_tail="bounded",
-                stderr_tail="",
-                stdout_truncated=True,
+                stdout="bounded",
+                stderr="",
             )
 
     result = TestAdapter(Runner()).run(
@@ -109,5 +115,4 @@ def test_test_adapter_classifies_truncated_output_before_building_an_outcome(
         timeout_seconds=10,
     )
 
-    assert isinstance(result, ToolFailure)
-    assert result.cause == "TOOL_FAILURE"
+    assert isinstance(result, expected)

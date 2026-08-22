@@ -35,7 +35,7 @@ class HighestEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
-    ) -> PreparedEnvironment | PrepareFailure | ToolFailure: ...
+    ) -> PreparedEnvironment | PrepareFailure: ...
 
 
 class HighestStaticOperations(Protocol):
@@ -89,7 +89,7 @@ class HighestVersionVerifier:
             resolution="highest",
         )
         if isinstance(prepared, ToolFailure):
-            raise ValueError("highest prepare must establish an Attempt")
+            raise ValueError("highest-version prepare must establish an Attempt")
         if isinstance(prepared, PrepareFailure):
             failure = self._failures.classify(
                 scope=AttemptFailureScope(attempt=prepared.attempt),
@@ -107,8 +107,6 @@ class HighestVersionVerifier:
                 attempt=prepared.attempt,
                 failure=failure,
             )
-        if prepared.attempt is None:
-            raise ValueError("highest-version prepare must retain its attempt")
         try:
             capture = self._static.capture(prepared, package=package)
             if isinstance(capture, IndeterminateEvaluation):

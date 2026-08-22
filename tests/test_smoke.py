@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 
+import pytest
+from rich.console import Console
+
+from pf.errors import InfrastructureError
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import SmokeRequest
@@ -21,11 +26,13 @@ from pf.schemas.evaluation import (
     TestFailEvaluation,
     TestPass,
     TyCheck,
+    VerificationJournal,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.scheduling import Scheduler
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
+from pf.terminal import TerminalPresenter
 from pf.workflow import SmokeCommandWorkflow
 
 
@@ -100,10 +107,8 @@ test-command = ["python", "-c", "pass"]
                 exit_code=0,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="[]",
-                stderr_summary="",
-                stdout_tail="[]",
-                stderr_tail="",
+                stdout="[]",
+                stderr="",
             )
             attempt, proposal = attempt_and_proposal(cell=cell, snapshot=snapshot)
             check = TyCheck(process=process, diagnostics=())
@@ -174,14 +179,12 @@ test-command = ["python", "-c", "raise SystemExit(1)"]
                 exit_code=1,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="1 failed",
-                stderr_summary="",
-                stdout_tail="1 failed",
-                stderr_tail="",
+                stdout="1 failed",
+                stderr="",
             )
             attempt, proposal = attempt_and_proposal(cell=cell, snapshot=snapshot)
             check = TyCheck(
-                process=process.model_copy(update={"stdout_summary": "[]"}),
+                process=process.model_copy(update={"stdout": "[]"}),
                 diagnostics=(),
             )
             baseline = StaticBaseline(
@@ -248,10 +251,8 @@ test-command = ["python", "-c", "pass"]
         exit_code=2,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="ty crashed",
-        stdout_tail="",
-        stderr_tail="ty crashed",
+        stdout="",
+        stderr="ty crashed",
     )
 
     class Verifier:
@@ -283,3 +284,104 @@ test-command = ["python", "-c", "pass"]
     assert result.status == "INDETERMINATE"
     assert isinstance(result.outcomes[0], BaselineIndeterminate)
     assert result.outcomes[0].failure.process is process
+
+
+class FailingJournal:
+    run_id = "fail-run"
+
+    def write_journal(self, journal: VerificationJournal) -> Path:
+        raise InfrastructureError("could not write PF verification journal")
+
+
+def test_smoke_omits_diagnose_when_journal_write_fails(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "raise SystemExit(1)"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    failure_id = ""
+    stdout = StringIO()
+    stderr = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=stderr, force_terminal=False, color_system=None),
+    )
+
+    class Verifier:
+        def verify(
+            self,
+            *,
+            package: PackagePlan,
+            cell: Cell,
+            snapshot: SourceSnapshot,
+        ) -> HighestVersionOutcome:
+            nonlocal failure_id
+            process = ProcessResult(
+                exit_code=1,
+                signal=None,
+                duration_seconds=0.1,
+                stdout="1 failed",
+                stderr="",
+            )
+            attempt, proposal = attempt_and_proposal(cell=cell, snapshot=snapshot)
+            check = TyCheck(
+                process=process.model_copy(update={"stdout": "[]"}),
+                diagnostics=(),
+            )
+            baseline = StaticBaseline(
+                proposal=proposal,
+                ty=check,
+                digest=ty_diagnostic_digest(check.diagnostics),
+            )
+            evaluation = TestFailEvaluation(
+                proposal=proposal,
+                static=StaticPassEvaluation(
+                    proposal=proposal,
+                    ty=check,
+                    baseline_digest=baseline.digest,
+                ),
+                test=TestFail(process=process),
+            )
+            failure = FailurePolicy().classify(
+                scope=AttemptFailureScope(attempt=attempt),
+                cause="TEST_FAILURE",
+                stage="test",
+                process=process,
+            )
+            failure_id = failure.failure_id
+            return BaselineRejection(
+                attempt=attempt,
+                failure=failure,
+                static_baseline=baseline,
+                evaluation=evaluation,
+            )
+
+    with pytest.raises(InfrastructureError, match="verification journal"):
+        SmokeCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder(),
+            verifier=Verifier(),
+            scheduler=Scheduler(),
+            events=terminal,
+            logs=FailingJournal(),
+            host_target="x86_64-unknown-linux-gnu",
+        ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
+
+    output = stderr.getvalue()
+    assert "failed at testing" in output
+    assert "The full test command failed for this version combination." in output
+    assert "pf diagnose" not in output
+    assert failure_id not in output
+    assert "1 failed" in output

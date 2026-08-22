@@ -9,7 +9,7 @@ import shutil
 import stat
 import tempfile
 
-from pf.adapters.process import ProcessRunner, SubprocessRunner
+from pf.adapters.process import ProcessRunner, SubprocessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import ProcessSpec
@@ -249,9 +249,13 @@ class SnapshotBuilder:
                 "git could not enumerate the source snapshot",
                 detail=result.diagnostic() or None,
             )
-        if result.stdout_truncated:
-            raise InfrastructureError("git source manifest exceeded the capture limit")
-        paths = frozenset(path for path in result.stdout_summary.split("\0") if path)
+        if not result.stdout_complete:
+            raise InfrastructureError("git source manifest was not recorded completely")
+        paths = frozenset(
+            path
+            for path in read_process_output(self._runner, result).stdout.split("\0")
+            if path
+        )
         for path in paths:
             candidate = Path(path)
             if candidate.is_absolute() or ".." in candidate.parts:

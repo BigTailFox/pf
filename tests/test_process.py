@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
 import stat
 import sys
+from typing import TextIO
 
 import pytest
 
-from pf.adapters.process import SecretRedactor, SubprocessRunner
+from pf.adapters.process import (
+    SecretRedactor,
+    SubprocessRunner,
+    _STREAM_CHUNK_SIZE,
+)
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.runlog import RunLogStore
-from pf.schemas.evaluation import EnvironmentVariable, ProcessEvent, ProcessSpec
+from pf.schemas.evaluation import (
+    EnvironmentVariable,
+    ProcessEvent,
+    ProcessResult,
+    ProcessSpec,
+)
 
 
 def test_subprocess_runner_captures_and_redacts_external_output(tmp_path: Path) -> None:
@@ -31,10 +42,9 @@ def test_subprocess_runner_captures_and_redacts_external_output(tmp_path: Path) 
     assert result.exit_code == 0
     assert result.signal is None
     assert result.timed_out is False
-    assert result.stdout_summary == "token=***\n"
-    assert result.stdout_tail == "token=***\n"
-    assert result.stderr_tail == "problem\n"
-    assert "top-secret" not in result.stdout_summary
+    assert result.stdout == "token=***\n"
+    assert result.stderr == "problem\n"
+    assert "top-secret" not in result.stdout
     assert "top-secret" not in result.model_dump_json()
 
 
@@ -45,8 +55,7 @@ def test_subprocess_runner_records_redacted_bounded_process_logs(
     runner = SubprocessRunner(
         redactor=SecretRedactor(("top-secret",)),
         logs=logs,
-        summary_limit=32,
-        tail_limit=12,
+        cache_limit=32,
     )
     result = runner.run(
         ProcessSpec(
@@ -68,7 +77,7 @@ def test_subprocess_runner_records_redacted_bounded_process_logs(
     detail = log_path.read_text(encoding="utf-8")
     assert "DEMO_TOKEN" in detail
     assert "top-secret" not in detail
-    assert "stdout_truncated: true" in detail
+    assert "stdout_complete: true" in detail
     assert "token=***" in detail
     assert (tmp_path / ".pf/logs/test-run/run.log").is_file()
     assert stat.S_IMODE(log_path.stat().st_mode) == 0o600
@@ -92,8 +101,8 @@ def test_subprocess_runner_persists_complete_output_within_the_capture_limit(
     )
 
     log_path = logs.reference_for(result)
-    assert result.stdout_truncated is False
-    assert payload in result.stdout_summary
+    assert result.stdout_complete is True
+    assert payload in result.stdout
     assert log_path is not None
     detail = log_path.read_text(encoding="utf-8")
     assert payload in detail
@@ -370,6 +379,15 @@ def test_run_log_store_uses_a_platform_guard_without_dir_fd(
             path.write_text(content, encoding="utf-8")
             self.assert_intact()
 
+        def write_private_stream(
+            self, path: Path, write_body: Callable[[TextIO], None]
+        ) -> None:
+            from io import StringIO
+
+            buf = StringIO()
+            write_body(buf)
+            self.write_private(path, buf.getvalue())
+
         def read_bounded_text(self, path: Path, *, limit: int) -> str:
             self.assert_intact()
             return path.read_text(encoding="utf-8")[: limit + 1]
@@ -484,6 +502,15 @@ def test_run_log_store_uses_the_windows_guard_for_index_and_offline_lookup(
         def write_private(self, path: Path, content: str) -> None:
             self.assert_intact()
             path.write_text(content, encoding="utf-8")
+
+        def write_private_stream(
+            self, path: Path, write_body: Callable[[TextIO], None]
+        ) -> None:
+            from io import StringIO
+
+            buf = StringIO()
+            write_body(buf)
+            self.write_private(path, buf.getvalue())
 
         def read_bounded_text(self, path: Path, *, limit: int) -> str:
             self.assert_intact()
@@ -627,8 +654,13 @@ def test_subprocess_runner_reports_a_process_signal(tmp_path: Path) -> None:
     assert result.timed_out is False
 
 
-def test_subprocess_runner_bounds_summary_and_keeps_the_tail(tmp_path: Path) -> None:
-    result = SubprocessRunner(summary_limit=4, tail_limit=5).run(
+def test_subprocess_runner_cache_keeps_tails_without_marking_logs_incomplete(
+    tmp_path: Path,
+) -> None:
+    payload = "abcdefghij"
+    logs = RunLogStore(root=tmp_path, run_id="cache-run")
+    runner = SubprocessRunner(logs=logs, cache_limit=4)
+    result = runner.run(
         ProcessSpec(
             argv=(sys.executable, "-c", "print('abcdefghij', end='')"),
             cwd=tmp_path.as_posix(),
@@ -636,16 +668,40 @@ def test_subprocess_runner_bounds_summary_and_keeps_the_tail(tmp_path: Path) -> 
         )
     )
 
-    assert result.stdout_summary == "abcd"
-    assert result.stdout_tail == "fghij"
-    assert result.stdout_truncated is True
+    assert result.stdout_complete is True
+    assert result.stdout == "ghij"
+    assert len(result.stdout.encode()) <= 4
+    log_path = logs.reference_for(result)
+    assert log_path is not None
+    assert payload in log_path.read_text(encoding="utf-8")
+    assert runner.output(result).stdout == payload
 
 
-def test_subprocess_runner_honors_a_larger_process_spec_summary_limit(
+def test_subprocess_runner_output_without_logs_stays_within_cache_limit(
     tmp_path: Path,
 ) -> None:
     payload = "abcdefghij"
-    result = SubprocessRunner(summary_limit=4, tail_limit=5).run(
+    runner = SubprocessRunner(cache_limit=4)
+    result = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "print('abcdefghij', end='')"),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    cached = runner.output(result)
+    assert result.stdout == "ghij"
+    assert cached.stdout == "ghij"
+    assert len(cached.stdout.encode()) <= 4
+    assert payload not in cached.stdout
+
+
+def test_subprocess_runner_honors_a_larger_process_spec_cache_limit(
+    tmp_path: Path,
+) -> None:
+    payload = "abcdefghij"
+    result = SubprocessRunner(cache_limit=4).run(
         ProcessSpec(
             argv=(sys.executable, "-c", "print('abcdefghij', end='')"),
             cwd=tmp_path.as_posix(),
@@ -654,8 +710,164 @@ def test_subprocess_runner_honors_a_larger_process_spec_summary_limit(
         )
     )
 
-    assert result.stdout_summary == payload
-    assert result.stdout_truncated is False
+    assert result.stdout == payload
+    assert result.stdout_complete is True
+
+
+def test_subprocess_runner_streams_redacted_chunks_instead_of_joining_a_str(
+    tmp_path: Path,
+) -> None:
+    payload = "S" * (_STREAM_CHUNK_SIZE * 2 + 1_024)
+
+    class StreamRecorder:
+        def __init__(self) -> None:
+            self.stdout_chunks: list[str] = []
+            self.stderr_chunks: list[str] = []
+
+        def begin_record(self, process_id: int, spec: ProcessSpec) -> StreamRecorder:
+            return self
+
+        def write_stdout(self, chunk: str) -> None:
+            encoded = len(chunk.encode("utf-8"))
+            assert encoded <= _STREAM_CHUNK_SIZE
+            self.stdout_chunks.append(chunk)
+
+        def write_stderr(self, chunk: str) -> None:
+            encoded = len(chunk.encode("utf-8"))
+            assert encoded <= _STREAM_CHUNK_SIZE
+            self.stderr_chunks.append(chunk)
+
+        def finish(self, result: ProcessResult) -> Path:
+            return tmp_path / "unused.log"
+
+        def record(
+            self,
+            process_id: int,
+            spec: ProcessSpec,
+            result: ProcessResult,
+            stdout: str = "",
+            stderr: str = "",
+        ) -> Path:
+            raise AssertionError(
+                "Process Runner must stream chunks; "
+                f"record() received {len(stdout)}-char stdout"
+            )
+
+        def reference_for(self, result: ProcessResult) -> Path | None:
+            return None
+
+        def read_output(self, result: ProcessResult) -> tuple[str, str] | None:
+            return "".join(self.stdout_chunks), "".join(self.stderr_chunks)
+
+    data = tmp_path / "payload.txt"
+    data.write_text(payload, encoding="utf-8")
+    script = tmp_path / "emit.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.stdout.write(open({str(data)!r}, encoding='utf-8').read())\n",
+        encoding="utf-8",
+    )
+    logs = StreamRecorder()
+    runner = SubprocessRunner(logs=logs, cache_limit=32)
+    result = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, script.as_posix()),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.stdout_complete is True
+    assert result.stderr_complete is True
+    assert len(logs.stdout_chunks) >= 3
+    assert all(
+        len(chunk.encode("utf-8")) <= _STREAM_CHUNK_SIZE
+        for chunk in logs.stdout_chunks
+    )
+    assert "".join(logs.stdout_chunks) == payload
+    assert result.stdout == payload[-32:]
+    assert runner.output(result).stdout == payload
+
+
+def test_run_log_store_copies_process_body_in_fixed_size_buffers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = "B" * (_STREAM_CHUNK_SIZE * 2 + 1_024)
+    writes: list[str] = []
+    original = RunLogStore._write_private_stream
+
+    def spy(
+        directory_fd: int,
+        name: str,
+        write_body: Callable[[TextIO], None],
+    ) -> None:
+        def wrapped(stream: TextIO) -> None:
+            inner_write = stream.write
+
+            def counting_write(data: str) -> int:
+                writes.append(data)
+                if payload in data:
+                    raise AssertionError(
+                        "Process Log body was assembled into one Python str before writing"
+                    )
+                return inner_write(data)
+
+            setattr(stream, "write", counting_write)
+            write_body(stream)
+
+        original(directory_fd, name, wrapped)
+
+    monkeypatch.setattr(RunLogStore, "_write_private_stream", staticmethod(spy))
+    data = tmp_path / "payload.txt"
+    data.write_text(payload, encoding="utf-8")
+    script = tmp_path / "emit.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.stdout.write(open({str(data)!r}, encoding='utf-8').read())\n",
+        encoding="utf-8",
+    )
+    logs = RunLogStore(root=tmp_path, run_id="stream-run")
+    result = SubprocessRunner(logs=logs, cache_limit=32).run(
+        ProcessSpec(
+            argv=(sys.executable, script.as_posix()),
+            cwd=tmp_path.as_posix(),
+            timeout_seconds=5,
+        )
+    )
+
+    log_path = logs.reference_for(result)
+    assert log_path is not None
+    assert payload in log_path.read_text(encoding="utf-8")
+    assert writes
+    assert all(payload not in chunk for chunk in writes)
+    body_writes = [chunk for chunk in writes if chunk and set(chunk) <= {"B"}]
+    assert body_writes
+    assert all(len(chunk) <= _STREAM_CHUNK_SIZE for chunk in body_writes)
+    assert "".join(body_writes) == payload
+
+
+def test_run_log_store_patches_terminal_facts_without_dropping_streamed_body(
+    tmp_path: Path,
+) -> None:
+    logs = RunLogStore(root=tmp_path, run_id="patch-run")
+    spec = ProcessSpec(
+        argv=("tool",),
+        cwd=tmp_path.as_posix(),
+        timeout_seconds=5,
+    )
+    writer = logs.begin_record(1, spec)
+    writer.write_stdout("alpha" * 4_000)
+    writer.write_stderr("beta" * 4_000)
+    result = ProcessResult(exit_code=3, signal=None, duration_seconds=1.25)
+    path = writer.finish(result)
+    detail = path.read_text(encoding="utf-8")
+    assert "alpha" * 4_000 in detail
+    assert "beta" * 4_000 in detail
+    assert "exit_code: 3" in detail
+    assert "stdout_complete: true" in detail
+    assert "stderr_complete: true" in detail
+    assert logs.read_output(result) == ("alpha" * 4_000, "beta" * 4_000)
 
 
 def test_subprocess_runner_passes_the_host_terminal_size(
@@ -686,7 +898,7 @@ def test_subprocess_runner_passes_the_host_terminal_size(
     )
 
     assert result.exit_code == 0
-    assert result.stdout_summary == "120 40\n"
+    assert result.stdout == "120 40\n"
 
 
 def test_subprocess_runner_uses_stderr_width_when_stdout_is_not_a_terminal(
@@ -715,7 +927,7 @@ def test_subprocess_runner_uses_stderr_width_when_stdout_is_not_a_terminal(
     )
 
     assert result.exit_code == 0
-    assert result.stdout_summary == "100 30\n"
+    assert result.stdout == "100 30\n"
 
 
 def test_subprocess_runner_host_terminal_size_overrides_spec_columns(
@@ -741,7 +953,7 @@ def test_subprocess_runner_host_terminal_size_overrides_spec_columns(
     )
 
     assert result.exit_code == 0
-    assert result.stdout_summary == "120 40\n"
+    assert result.stdout == "120 40\n"
 
 
 class RecordingListener:

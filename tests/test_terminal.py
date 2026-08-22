@@ -29,6 +29,7 @@ from pf.schemas.evaluation import (
     ProgressEvent,
     FailureDetail,
     FailureCause,
+    FailureRecord,
     HighestVersionPass,
     SearchFailureEvent,
     SmokeBaselineRejection,
@@ -46,7 +47,14 @@ from pf.schemas.evaluation import (
     TyDiagnostic,
     ty_diagnostic_digest,
 )
-from pf.schemas.project import Cell, Proposal, SourceSnapshotIdentity, VersionPin
+from pf.schemas.project import (
+    Cell,
+    Proposal,
+    RequirementDeclaration,
+    SourceIdentity,
+    SourceSnapshotIdentity,
+    VersionPin,
+)
 from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
@@ -89,12 +97,35 @@ def process_result(
         exit_code=exit_code,
         signal=signal,
         duration_seconds=1,
-        stdout_summary=stdout,
-        stderr_summary=stderr,
-        stdout_tail=stdout,
-        stderr_tail=stderr,
+        stdout=stdout,
+        stderr=stderr,
         timed_out=timed_out,
         start_error=start_error,
+    )
+
+
+def recorded_failure(
+    *,
+    cause: FailureCause,
+    stage: str,
+    process: ProcessResult,
+) -> FailureRecord:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    return FailurePolicy().classify(
+        scope=CellFailureScope(
+            package=cell.package,
+            cell=cell,
+            source_snapshot_digest="snapshot",
+            evaluation_policy_identity="policy",
+        ),
+        cause=cause,
+        stage=stage,
+        process=process,
     )
 
 
@@ -115,6 +146,7 @@ def incomplete_report(
     *reasons: str,
     projections: tuple[ProjectionEvidence, ...] = (),
     cell_results: tuple[CellResult, ...] = (),
+    declarations: tuple[RequirementDeclaration, ...] = (),
 ) -> PackageFloorReportV1:
     generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
     package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
@@ -126,14 +158,14 @@ def incomplete_report(
             package=package,
             source_snapshot=snapshot,
             policy_identity="policy",
-            requirement_declarations=(),
+            requirement_declarations=declarations,
             target_cells=target_cells,
         ),
         generator=generator,
         package=package,
         source_snapshot=snapshot,
         policy_identity="policy",
-        requirement_declarations=(),
+        requirement_declarations=declarations,
         candidate_snapshots=(),
         target_cells=target_cells,
         cell_results=cell_results,
@@ -142,10 +174,29 @@ def incomplete_report(
     )
 
 
+def requirement_declaration(
+    declaration_id: str,
+    *,
+    name: str,
+    raw: str,
+) -> RequirementDeclaration:
+    return RequirementDeclaration(
+        declaration_id=declaration_id,
+        package="demo",
+        location="base",
+        name=name,
+        source=SourceIdentity(kind="registry"),
+        pyproject_path="pyproject.toml",
+        raw=raw,
+        kind="searchable",
+        managed=True,
+    )
+
+
 def attempt_for(
     cell: Cell,
     *,
-    resolution: Literal["highest", "exact-vector"] = "highest",
+    resolution: Literal["highest", "lowest-direct", "exact-vector"] = "highest",
     vector: tuple[VersionPin, ...] | None = None,
 ) -> Attempt:
     return Attempt.from_identity(
@@ -221,8 +272,10 @@ def test_render_error_lists_known_package_candidates() -> None:
     assert exit_code == 3
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ configuration: unknown package selection: other\n"
+        "Error: unknown package selection: other\n"
         "Known packages: alpha, beta, demo\n"
+        "Usage: pf COMMAND\n"
+        "Try 'pf --help' for more information.\n"
     )
 
 
@@ -235,9 +288,11 @@ def test_render_error_truncates_known_package_candidates_after_ten() -> None:
     )
 
     assert stderr.getvalue() == (
-        "✗ configuration: unknown package selection: other\n"
+        "Error: unknown package selection: other\n"
         "Known packages: pkg00, pkg01, pkg02, pkg03, pkg04, pkg05, pkg06, "
         "pkg07, pkg08, pkg09, ... and 2 more\n"
+        "Usage: pf COMMAND\n"
+        "Try 'pf --help' for more information.\n"
     )
 
 
@@ -364,6 +419,7 @@ def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
             total=1,
             message="STATIC_FAIL",
             detail="error: Unresolved import 'missing'",
+            stage="ty",
         )
     )
 
@@ -372,6 +428,126 @@ def test_completed_cell_log_includes_indented_status_and_diagnostic() -> None:
         "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at static checking\n"
         "error: Unresolved import 'missing'\n"
     )
+
+
+def test_completed_cell_with_failure_record_prints_diagnose_and_role_impact() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    attempt = attempt_for(cell, resolution="lowest-direct")
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="STATIC_REGRESSION",
+        stage="ty",
+        process=process_result(exit_code=1, stderr="error: Unresolved import 'missing'"),
+    )
+    terminal, stdout, stderr = presenter()
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="REJECTED",
+            failure=failure,
+            verification_role="declaration",
+            stage="ty",
+        )
+    )
+
+    output = stderr.getvalue()
+    assert stdout.getvalue() == ""
+    assert "failed at static checking" in output
+    assert "The declared lower bounds did not pass the required checks." in output
+    assert f"pf diagnose demo --failure {failure.failure_id}" in output
+    assert "STATIC_FAIL" not in output
+    assert "REJECTED" not in output
+
+
+def test_completed_cell_omits_diagnose_when_journal_is_unavailable() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    attempt = attempt_for(cell, resolution="highest")
+    process = process_result(
+        exit_code=1,
+        stderr="Failed to build `numpy==1.24.0`\nBecause cmake is missing",
+    )
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="BUILD_FAILURE",
+        stage="install-project",
+        process=process,
+    )
+    terminal, stdout, stderr = presenter()
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="REJECTED",
+            failure=failure,
+            process=process,
+            verification_role="declaration-capture",
+            stage="install-project",
+            diagnose_available=False,
+        )
+    )
+
+    output = stderr.getvalue()
+    assert stdout.getvalue() == ""
+    assert "failed at installing dependencies" in output
+    assert "This version combination could not be built." in output
+    assert "pf diagnose" not in output
+    assert failure.failure_id not in output
+    assert "Failed to build `numpy==1.24.0`" in output
+
+
+def test_successful_cell_does_not_print_probe_diagnose() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    attempt = attempt_for(cell, resolution="exact-vector", vector=())
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="TEST_FAILURE",
+        stage="test",
+        process=process_result(exit_code=1, stderr="1 failed"),
+    )
+    terminal, stdout, stderr = presenter()
+
+    terminal.consume(SearchFailureEvent(cell=cell, failure=failure))
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="SUCCESS",
+        )
+    )
+
+    output = stderr.getvalue()
+    assert stdout.getvalue() == ""
+    assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in output
+    assert "failed at" not in output
+    assert "pf diagnose" not in output
+    assert failure.failure_id not in output
 
 
 def test_completed_cell_log_collapses_multiline_diagnostics_to_a_summary() -> None:
@@ -392,6 +568,7 @@ def test_completed_cell_log_collapses_multiline_diagnostics_to_a_summary() -> No
             total=1,
             message="BUILD_UNAVAILABLE",
             detail="Failed to build `numpy==1.24.0`\nBecause cmake is missing",
+            stage="install-project",
         )
     )
 
@@ -706,8 +883,7 @@ def test_tty_frozen_failure_card_leads_with_diagnose_details_and_process_summary
     assert "for more information" in collapsed
     assert "The full test command failed for this version combination." in collapsed
     assert (
-        "The highest-version baseline did not pass, so PF did not start the floor "
-        "search for this cell."
+        "The highest-version resolution did not pass the required checks."
         in collapsed
     )
     assert ".pf/logs/tty-run/process-0002.log" in collapsed
@@ -1071,6 +1247,7 @@ def test_tty_completed_cell_freezes_into_the_log_immediately() -> None:
             total=2,
             message="STATIC_FAIL",
             detail="error: Unresolved import 'missing'",
+            stage="ty",
         )
     )
     table = tty_task_table(terminal)
@@ -1399,6 +1576,7 @@ def test_tty_completed_cell_log_keeps_dim_status_and_diagnostic() -> None:
             total=1,
             message="STATIC_FAIL",
             detail="error: Unresolved import 'missing'",
+            stage="ty",
         )
     )
 
@@ -1449,6 +1627,7 @@ def test_tty_failed_progress_uses_a_red_cross() -> None:
             completed=1,
             total=1,
             message="STATIC_FAIL",
+            stage="ty",
         )
     )
 
@@ -1513,11 +1692,11 @@ def test_tty_warning_progress_uses_a_warning_icon() -> None:
         (
             CheckCompatibilityFailure(evaluations=()),
             1,
-            "✗ check failed: current declarations are incompatible",
+            "✗ Check failed · declared lower bounds are incompatible · 0 cells",
         ),
         (
             CheckIndeterminate(
-                failure=ToolFailure(
+                failure=recorded_failure(
                     cause="TIMEOUT",
                     stage="test",
                     process=process_result(
@@ -1528,7 +1707,7 @@ def test_tty_warning_progress_uses_a_warning_icon() -> None:
                 )
             ),
             4,
-            "✗ check indeterminate: The operation timed out, so compatibility is unknown.",
+            "! Check indeterminate · The operation timed out, so compatibility is unknown.",
         ),
     ),
 )
@@ -1573,7 +1752,7 @@ def test_check_indeterminate_prints_a_short_reason_and_log_link(
 
     exit_code = terminal.render_check(
         CheckIndeterminate(
-            failure=ToolFailure(
+            failure=recorded_failure(
                 cause="RESOLUTION_CONFLICT",
                 stage="install-harness",
                 process=process,
@@ -1584,7 +1763,7 @@ def test_check_indeterminate_prints_a_short_reason_and_log_link(
     assert exit_code == 4
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "✗ check indeterminate: This version combination has conflicting dependency requirements and cannot be installed. (harness)\n"
+        "! Check indeterminate · This version combination has conflicting dependency requirements and cannot be installed. · 0 cells\n"
         "  No solution found when resolving dependencies: because tomli==2.0.0\n"
         "  details: .pf/logs/test-run/process-0001.log\n"
     )
@@ -1613,7 +1792,7 @@ def test_tty_process_log_path_is_a_local_file_hyperlink(tmp_path: Path) -> None:
 
     terminal.render_check(
         CheckIndeterminate(
-            failure=ToolFailure(
+            failure=recorded_failure(
                 cause="TOOL_FAILURE",
                 stage="test",
                 process=process,
@@ -1707,11 +1886,12 @@ def test_smoke_test_failure_prints_dynamic_summary_and_log_link(
     assert stderr.getvalue() == (
         "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
         "The full test command failed for this version combination.\n"
-        "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
+        "The highest-version resolution did not pass the required checks.\n"
         f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
         "1 failed\n"
         "2 passed\n"
         "-> see .pf/logs/smoke-run/process-0002.log for details.\n"
+        "✗ Smoke failed · highest-version resolution did not pass · 1 cell\n"
     )
 
 
@@ -1953,7 +2133,7 @@ def test_smoke_ty_diagnostics_are_warnings_with_one_line_summaries(
     )
 
     assert exit_code == 0
-    assert stdout.getvalue() == "✓ smoke passed (1 cells)\n"
+    assert stdout.getvalue() == "✓ Smoke passed · 1 cell\n"
     assert stderr.getvalue() == (
         "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
         "src/demo.py:4:7 [invalid-type] Expected str, found int\n"
@@ -2009,7 +2189,7 @@ def test_check_reuses_ty_warning_summaries() -> None:
     )
 
     assert exit_code == 0
-    assert stdout.getvalue() == "✓ check passed (1 cells)\n"
+    assert stdout.getvalue() == "✓ Check passed · 1 cell\n"
     assert stderr.getvalue() == (
         "⚠ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
         "site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
@@ -2068,7 +2248,7 @@ def test_check_static_failure_summarizes_only_incremental_diagnostics() -> None:
     assert stderr.getvalue() == (
         "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at static checking\n"
         "demo.py:9:2 [dependency-regression] new dependency regression\n"
-        "✗ check failed: current declarations are incompatible\n"
+        "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
     )
 
 
@@ -2128,7 +2308,7 @@ def test_check_does_not_repeat_diagnostics_already_frozen_from_progress() -> Non
     assert "STATIC_FAIL" not in output
     assert "ty: 1 new diagnostic" not in output
     assert output.endswith(
-        "✗ check failed: current declarations are incompatible\n"
+        "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
     )
 
 
@@ -2151,15 +2331,27 @@ def test_search_reasons_determine_the_exit_code(
     exit_code = terminal.render_search((incomplete_report(*reasons),))
 
     assert exit_code == expected_exit
-    assert stdout.getvalue() == "search completed (1 reports)\n"
     expected_stderr: dict[tuple[str, ...], str] = {
         (): "",
-        ("BASELINE_REJECTION",): "",
-        ("INDETERMINATE",): "",
-        ("BASELINE_REJECTION", "INDETERMINATE"): "",
-        ("NO_PASS_IN_SEARCH_SPACE",): "⚠ NO_PASS_IN_SEARCH_SPACE\n",
+        ("BASELINE_REJECTION",): (
+            "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
+        ),
+        ("INDETERMINATE",): (
+            "! Search stopped · compatibility is unknown · 1 report written\n"
+        ),
+        ("BASELINE_REJECTION", "INDETERMINATE"): (
+            "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
+        ),
+        ("NO_PASS_IN_SEARCH_SPACE",): (
+            "⚠ Search incomplete · 1 report written · no applicable floor\n"
+        ),
     }
-    assert stderr.getvalue() == expected_stderr[reasons]
+    if not reasons:
+        assert stderr.getvalue() == ""
+        assert stdout.getvalue() == "✓ Search complete · 1 report · package-floor.json\n"
+    else:
+        assert stdout.getvalue() == ""
+        assert stderr.getvalue() == expected_stderr[reasons]
 
 
 def test_search_baseline_rejection_prints_user_guidance() -> None:
@@ -2187,13 +2379,14 @@ def test_search_baseline_rejection_prints_user_guidance() -> None:
     exit_code = terminal.render_search((report,))
 
     assert exit_code == 1
-    assert stdout.getvalue() == "search completed (1 reports)\n"
+    assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
         "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at installing harness\n"
         "The test dependencies cannot be installed without changing the versions being checked.\n"
         "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
         f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
         "No solution found when resolving dependencies\n"
+        "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
     )
 
 
@@ -2218,12 +2411,13 @@ def test_search_infra_failure_prints_message_detail_without_a_process() -> None:
     exit_code = terminal.render_search((report,))
 
     assert exit_code == 4
-    assert stdout.getvalue() == "search completed (1 reports)\n"
+    assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
         "! [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at candidate discovery\n"
         "PF could not reach or read a configured package source.\n"
         "PF could not obtain the information needed to start or continue this cell.\n"
         f"-> run `pf diagnose demo --failure {terminal_result.failure_id}` for more information.\n"
+        "! Search stopped · compatibility is unknown · 1 report written\n"
     )
 
 
@@ -2261,13 +2455,14 @@ def test_search_probe_indeterminate_prints_candidate_unknown_impact() -> None:
     exit_code = terminal.render_search((report,))
 
     assert exit_code == 4
-    assert stdout.getvalue() == "search completed (1 reports)\n"
+    assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
         "! [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
         "The operation timed out, so compatibility is unknown.\n"
         "PF could not determine whether this candidate works, so it stopped this cell.\n"
         f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
         "process timed out\n"
+        "! Search stopped · compatibility is unknown · 1 report written\n"
     )
 
 
@@ -2339,7 +2534,7 @@ def test_search_reuses_highest_baseline_ty_warning_summaries() -> None:
     exit_code = terminal.render_search((report,))
 
     assert exit_code == 1
-    assert stdout.getvalue() == "search completed (1 reports)\n"
+    assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
         "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
         "The full test command failed for this version combination.\n"
@@ -2347,12 +2542,25 @@ def test_search_reuses_highest_baseline_ty_warning_summaries() -> None:
         f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
         "1 failed, 2 passed\n"
         "demo.py:3 [unresolved-reference] Name is not defined\n"
+        "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
     )
 
 
 def test_explain_renders_incomplete_reasons_and_projection_requirements() -> None:
     report = incomplete_report(
         "MISSING_CELL",
+        declarations=(
+            requirement_declaration(
+                "demo:dependencies:foo",
+                name="foo",
+                raw="foo>=1",
+            ),
+            requirement_declaration(
+                "demo:dependencies:bar",
+                name="bar",
+                raw="bar>=2",
+            ),
+        ),
         projections=(
             ProjectionEvidence(
                 declaration_id="demo:dependencies:foo",
@@ -2373,12 +2581,41 @@ def test_explain_renders_incomplete_reasons_and_projection_requirements() -> Non
     exit_code = terminal.render_explain((report,))
 
     assert exit_code == 0
-    assert stdout.getvalue() == (
-        "demo: incomplete\n"
-        "  reasons: MISSING_CELL\n"
-        "  demo:dependencies:foo: foo>=1\n"
-        "  demo:dependencies:bar: none\n"
+    rendered = stdout.getvalue()
+    assert "demo · package-floor.json" in rendered
+    assert "Status: incomplete" in rendered
+    assert "Apply: not authorized by this report" in rendered
+    assert "foo>=1" in rendered
+    assert "projection blocked" in rendered
+    assert "Summary: report is incomplete and cannot be applied." in rendered
+    assert "Apply: ready" not in rendered
+    assert "reasons: MISSING_CELL" not in rendered
+    assert "demo:dependencies:foo" not in rendered
+    assert "demo:dependencies:bar" not in rendered
+
+
+def test_explain_does_not_silently_use_declaration_digest() -> None:
+    digest = "a" * 64
+    report = incomplete_report(
+        "MISSING_CELL",
+        projections=(
+            ProjectionEvidence(
+                declaration_id=digest,
+                floors=(),
+                projected_requirements=("foo>=1",),
+                representable=True,
+            ),
+        ),
     )
+    terminal, stdout, _ = presenter()
+
+    with pytest.raises(
+        ConfigurationError,
+        match="report projection is missing its requirement declaration",
+    ):
+        terminal.render_explain((report,))
+
+    assert digest not in stdout.getvalue()
 
 
 def test_explain_distinguishes_baseline_diagnostics_from_static_increments() -> None:
@@ -2492,11 +2729,210 @@ def test_explain_distinguishes_baseline_diagnostics_from_static_increments() -> 
     exit_code = terminal.render_explain((report,))
 
     assert exit_code == 0
-    assert stdout.getvalue() == (
-        "demo: incomplete\n"
-        "  reasons: NO_PASS_IN_SEARCH_SPACE\n"
-        "  This version combination introduces new type-checking diagnostics.\n"
-        f"    Diagnose: pf diagnose demo --failure {rejection.failure_id}\n"
-        "  [py3.10][x86_64-unknown-linux-gnu][no-extra] ty baseline: 1 diagnostic\n"
-        "    + demo.py:2:1 [dependency-regression] dependency API is unavailable\n"
+    rendered = stdout.getvalue()
+    assert "Apply: not authorized by this report" in rendered
+    assert "What happened:" in rendered
+    assert f"Diagnose: pf diagnose demo --failure {rejection.failure_id}" in rendered
+    assert "ty baseline: 1 diagnostic" in rendered
+    assert "+ demo.py:2:1 [dependency-regression] dependency API is unavailable" in rendered
+    assert "NO_PASS_IN_SEARCH_SPACE" not in rendered
+    assert "Apply: ready" not in rendered
+
+
+def test_explain_folds_repeated_diagnostics_and_caps_unique_lines() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
     )
+    baseline_attempt = attempt_for(cell)
+    baseline_proposal = Proposal(
+        proposal_id="highest",
+        attempt_id=baseline_attempt.attempt_id,
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    candidate_attempt = attempt_for(cell, resolution="exact-vector", vector=())
+    proposal = Proposal(
+        proposal_id="candidate",
+        attempt_id=candidate_attempt.attempt_id,
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    existing = TyDiagnostic(
+        identity="snapshot|demo.py|1|1|existing-error",
+        origin="snapshot",
+        path="demo.py",
+        line=1,
+        column=1,
+        code="existing-error",
+        severity="major",
+        message="existing project error",
+    )
+    process = process_result(stdout="[]")
+    baseline = StaticBaseline(
+        proposal=baseline_proposal,
+        ty=TyCheck(process=process, diagnostics=(existing,)),
+        digest=ty_diagnostic_digest((existing,)),
+    )
+    repeated = TyDiagnostic(
+        identity="snapshot|demo.py|2|1|dependency-regression",
+        origin="snapshot",
+        path="demo.py",
+        line=2,
+        column=1,
+        code="dependency-regression",
+        severity="major",
+        message="dependency API is unavailable",
+    )
+    extras = tuple(
+        TyDiagnostic(
+            identity=f"snapshot|demo.py|{index}|1|extra-{index}",
+            origin="snapshot",
+            path="demo.py",
+            line=index,
+            column=1,
+            code=f"extra-{index}",
+            severity="major",
+            message=f"extra diagnostic {index}",
+        )
+        for index in range(3, 14)
+    )
+    incremental = (repeated, repeated, repeated, *extras)
+    static = StaticFailEvaluation(
+        proposal=proposal,
+        ty=TyCheck(
+            process=process,
+            diagnostics=tuple(
+                sorted((existing, *incremental), key=lambda item: item.identity)
+            ),
+        ),
+        baseline_digest=baseline.digest,
+        incremental=incremental,
+    )
+    rejection = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=candidate_attempt),
+        cause="STATIC_REGRESSION",
+        stage="ty",
+        process=process,
+    )
+    baseline_static = StaticPassEvaluation(
+        proposal=baseline_proposal,
+        ty=baseline.ty,
+        baseline_digest=baseline.digest,
+    )
+    failure = CellSearchFailure(
+        reason="NO_PASS_IN_SEARCH_SPACE",
+        cell=cell,
+        phase="static-search",
+        baseline_attempt=baseline_attempt,
+        static_baseline=baseline,
+        baseline=PassEvaluation(
+            proposal=baseline_proposal,
+            static=baseline_static,
+            test=TestPass(process=process.model_copy(update={"exit_code": 0})),
+        ),
+        failure_records=(rejection,),
+        coordinate_failure=CoordinateFailure(
+            status="NO_PASS_IN_SEARCH_SPACE",
+            observations=(
+                ProbeObservation(
+                    dependency="demo-dep",
+                    candidate_version="1",
+                    vector=(),
+                    evidence=ProbeRejection(
+                        attempt=candidate_attempt,
+                        proposal_id=proposal.proposal_id,
+                        failure_id=rejection.failure_id,
+                        cause="STATIC_REGRESSION",
+                        evaluation=static,
+                    ),
+                ),
+            ),
+        ),
+    )
+    terminal, stdout, _ = presenter()
+
+    terminal.render_explain((incomplete_report("NO_PASS_IN_SEARCH_SPACE", cell_results=(failure,)),))
+
+    rendered = stdout.getvalue()
+    assert "×3" in rendered
+    assert "extra diagnostic 3" in rendered
+    assert "... and 2 more unique diagnostics" in rendered
+    assert "extra diagnostic 13" not in rendered
+    assert "Diagnose: pf diagnose demo" in rendered
+
+
+@pytest.mark.parametrize("width", (56, 80, 120))
+def test_explain_keeps_required_fields_readable_at_common_widths(width: int) -> None:
+    report = incomplete_report("MISSING_CELL")
+    stdout = StringIO()
+    terminal = TerminalPresenter(
+        stdout=Console(
+            file=stdout,
+            force_terminal=True,
+            color_system=None,
+            width=width,
+        ),
+        stderr=Console(
+            file=StringIO(),
+            force_terminal=True,
+            color_system=None,
+            width=width,
+        ),
+    )
+
+    terminal.render_explain((report,))
+
+    rendered = stdout.getvalue()
+    assert "demo · package-floor.json" in rendered
+    assert "Status: incomplete" in rendered
+    assert "Apply: not authorized by this report" in rendered
+    assert "Summary:" in rendered
+    for line in rendered.splitlines():
+        assert len(line) <= width
+
+
+def test_smoke_live_completion_uses_smoke_baseline_impact() -> None:
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    attempt = attempt_for(cell)
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="TEST_FAILURE",
+        stage="test",
+        process=process_result(exit_code=1, stderr="1 failed"),
+    )
+    terminal, _, stderr = presenter()
+    terminal.bind_command("smoke")
+
+    terminal.consume(
+        ProgressEvent(
+            package="demo",
+            cell=cell,
+            phase="complete",
+            completed=1,
+            total=1,
+            message="BASELINE_REJECTION",
+            failure=failure,
+            verification_role="baseline",
+            stage="test",
+        )
+    )
+
+    output = stderr.getvalue()
+    assert "The highest-version resolution did not pass the required checks." in output
+    assert "did not start the floor search" not in output

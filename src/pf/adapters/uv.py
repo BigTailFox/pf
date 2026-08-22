@@ -20,7 +20,7 @@ from packaging.utils import (
 from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
 
-from pf.adapters.process import ProcessRunner
+from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
     GraphOutcome,
@@ -60,13 +60,13 @@ class UvAdapter:
             )
         )
         outcome = self._classify(process, stage="python-list")
-        if isinstance(outcome, ToolFailure) or process.stdout_truncated:
+        if isinstance(outcome, ToolFailure) or not process.stdout_complete:
             raise InfrastructureError(
                 "uv could not list available Python versions",
                 detail=process.diagnostic() or None,
             )
         try:
-            records = json.loads(process.stdout_summary)
+            records = json.loads(read_process_output(self._runner, process).stdout)
             minors = {
                 f"{version.major}.{version.minor}"
                 for record in records
@@ -108,7 +108,7 @@ class UvAdapter:
             )
         )
         outcome = self._classify(process, stage="inspect-interpreter")
-        if isinstance(outcome, ToolFailure) or process.stdout_truncated:
+        if isinstance(outcome, ToolFailure) or not process.stdout_complete:
             return ToolFailure(
                 cause=(
                     outcome.cause
@@ -119,7 +119,7 @@ class UvAdapter:
                 process=process,
             )
         try:
-            document = json.loads(process.stdout_summary)
+            document = json.loads(read_process_output(self._runner, process).stdout)
             identity = InterpreterIdentity.model_validate(document)
             Version(identity.version)
         except (ValidationError, InvalidVersion, json.JSONDecodeError):
@@ -238,10 +238,10 @@ class UvAdapter:
         outcome = self._classify(process, stage="inspect")
         if isinstance(outcome, ToolFailure):
             return outcome
-        if process.stdout_truncated:
+        if not process.stdout_complete:
             return ToolFailure(cause="TOOL_FAILURE", stage="inspect", process=process)
         try:
-            raw_nodes = json.loads(process.stdout_summary)
+            raw_nodes = json.loads(read_process_output(self._runner, process).stdout)
             nodes: list[ResolvedNode] = []
             for raw_node in raw_nodes:
                 dependencies: set[str] = set()
@@ -427,20 +427,35 @@ class UvAdapter:
             return platform_tag == f"win_{windows_arch}"
         return False
 
-    @staticmethod
-    def _classify(result: ProcessResult, *, stage: str) -> ToolOutcome:
+    def _classify(self, result: ProcessResult, *, stage: str) -> ToolOutcome:
         if result.timed_out:
             return ToolFailure(cause="TIMEOUT", stage=stage, process=result)
         if result.exit_code == 0:
             return ToolSuccess(stage=stage, process=result)
-        if (
-            result.signal is not None
-            or result.start_error is not None
-            or result.stdout_truncated
-            or result.stderr_truncated
+        if result.signal is not None or result.start_error is not None:
+            return ToolFailure(cause="TOOL_FAILURE", stage=stage, process=result)
+        output = read_process_output(self._runner, result)
+        text = f"{output.stdout}\n{output.stderr}".lower()
+        if not result.stderr_complete and any(
+            phrase in text
+            for phrase in (
+                "failed to download",
+                "dns error",
+                "name or service not known",
+                "temporary failure in name resolution",
+                "connection refused",
+                "connection timed out",
+                "401 unauthorized",
+                "403 forbidden",
+                "no solution found",
+                "no matching distribution",
+                "failed to resolve",
+                "unsatisfiable",
+                "failed to build",
+                "build backend",
+            )
         ):
             return ToolFailure(cause="TOOL_FAILURE", stage=stage, process=result)
-        output = f"{result.stdout_summary}\n{result.stderr_summary}".lower()
         source_phrases = (
             "failed to download",
             "dns error",
@@ -457,15 +472,15 @@ class UvAdapter:
             "failed to resolve",
             "unsatisfiable",
         )
-        if any(phrase in output for phrase in source_phrases):
+        if any(phrase in text for phrase in source_phrases):
             cause = "SOURCE_FAILURE"
-        elif any(phrase in output for phrase in resolution_phrases):
+        elif any(phrase in text for phrase in resolution_phrases):
             cause = (
                 "HARNESS_CONFLICT"
                 if stage == "install-harness"
                 else "RESOLUTION_CONFLICT"
             )
-        elif "failed to build" in output or "build backend" in output:
+        elif "failed to build" in text or "build backend" in text:
             cause = "BUILD_FAILURE"
         else:
             cause = "TOOL_FAILURE"

@@ -7,10 +7,10 @@
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)（待实现）
-- **进程输出与日志：** [D007](D007-pf-process-output.md)（待实现）
+- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
+- **进程输出与日志：** [D007](D007-pf-process-output.md)
 
-本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线和增量比较的唯一契约。D001 只使用本文产生的静态结果；D002 只定义模块位置；D003 只消费搜索 disposition；工具 cause 到 Rejection/Indeterminate 的处置由 D005 定义；诊断在普通命令和 `explain` 中的展示层级由 D006 定义。现行完整性信号是 `stdout_truncated`；D007 落地后改由磁盘日志完整性判定，本文不提前改用 `stdout_complete`。
+本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线和增量比较的唯一契约。D001 只使用本文产生的静态结果；D002 只定义模块位置；D003 只消费搜索 disposition；工具 cause 到 Rejection/Indeterminate 的处置由 D005 定义；诊断在普通命令和 `explain` 中的展示层级由 D006 定义。需要完整工具输出才能分类时，完整性由 D007 的磁盘日志 `*_complete` 判定，而不是 Output Cache 是否装满。
 
 ## 1. 目标
 

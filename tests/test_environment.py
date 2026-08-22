@@ -36,10 +36,8 @@ def successful_process() -> ProcessResult:
         exit_code=0,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
     )
 
 
@@ -214,10 +212,8 @@ def test_environment_prepare_failure_retains_attempt_without_a_proposal(
                     exit_code=1,
                     signal=None,
                     duration_seconds=0.1,
-                    stdout_summary="",
-                    stderr_summary="No solution found",
-                    stdout_tail="",
-                    stderr_tail="No solution found",
+                    stdout="",
+                    stderr="No solution found",
                 ),
             )
 
@@ -508,10 +504,8 @@ def _failed_tool(cause: FailureCause, stage: str) -> ToolFailure:
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary="",
-            stderr_summary=f"{stage} failed",
-            stdout_tail="",
-            stderr_tail=f"{stage} failed",
+            stdout="",
+            stderr=f"{stage} failed",
         ),
     )
 
@@ -542,7 +536,7 @@ def test_environment_establishes_attempt_before_any_external_operation(
     snapshot.close()
 
 
-def test_environment_check_prepare_failure_has_no_attempt(tmp_path: Path) -> None:
+def test_environment_check_prepare_failure_keeps_a_lowest_direct_attempt(tmp_path: Path) -> None:
     class CreateFails(SuccessfulUv):
         def create_environment(self, **kwargs: object) -> ToolFailure:
             return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
@@ -558,8 +552,10 @@ def test_environment_check_prepare_failure_has_no_attempt(tmp_path: Path) -> Non
         resolution="lowest-direct",
     )
 
-    assert isinstance(result, ToolFailure)
-    assert result.cause == "ENVIRONMENT_FAILURE"
+    assert isinstance(result, PrepareFailure)
+    assert result.attempt.identity.requested_resolution == "lowest-direct"
+    assert result.attempt.identity.requested_managed_vector is None
+    assert result.failure.cause == "ENVIRONMENT_FAILURE"
     snapshot.close()
 
 

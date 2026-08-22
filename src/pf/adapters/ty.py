@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 import tomli
 
-from pf.adapters.process import ProcessRunner
+from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     ProcessSpec,
@@ -93,10 +93,10 @@ class TyAdapter:
         )
         if result.timed_out:
             return ToolFailure(cause="TIMEOUT", stage="ty", process=result)
-        if result.exit_code not in {0, 1} or result.stdout_truncated:
+        if result.exit_code not in {0, 1} or not result.stdout_complete:
             return ToolFailure(cause="TOOL_FAILURE", stage="ty", process=result)
         try:
-            document = json.loads(result.stdout_summary)
+            document = json.loads(read_process_output(self._runner, result).stdout)
             if not isinstance(document, list):
                 raise ValueError("ty GitLab output must be a JSON array")
             diagnostics = tuple(

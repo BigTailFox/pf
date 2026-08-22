@@ -9,6 +9,8 @@ from pf.environment import EnvironmentFactory, PreparedEnvironment
 from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptIdentity,
     GraphSuccess,
     IndeterminateEvaluation,
     InterpreterSuccess,
@@ -35,10 +37,8 @@ def process_result(*, exit_code: int = 0) -> ProcessResult:
         exit_code=exit_code,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
     )
 
 
@@ -62,16 +62,30 @@ def prepared_for_static(tmp_path: Path, proposal_id: str) -> PreparedEnvironment
     source = root / "source"
     environment = root / "environment"
     source.mkdir()
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest="snapshot",
+            cell=cell,
+            requested_resolution="highest",
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
     return PreparedEnvironment(
+        attempt=attempt,
         proposal=Proposal(
             proposal_id=proposal_id,
+            attempt_id=attempt.attempt_id,
             snapshot_digest="snapshot",
-            cell=Cell(
-                package="demo",
-                target="x86_64-unknown-linux-gnu",
-                python_minor="3.10",
-                extra_surface=(),
-            ),
+            cell=cell,
             managed_vector=(),
             fixed_declaration_ids=(),
             resolved_graph=(),
@@ -279,10 +293,8 @@ class PassingTy:
                     exit_code=None,
                     signal=9,
                     duration_seconds=1,
-                    stdout_summary="",
-                    stderr_summary="",
-                    stdout_tail="",
-                    stderr_tail="",
+                    stdout="",
+                    stderr="",
                     timed_out=True,
                 ),
             ),

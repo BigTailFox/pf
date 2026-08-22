@@ -44,11 +44,11 @@ uv run pf apply
 
 `smoke` 在当前声明约束内建立尽可能新的 fresh install，运行一次 `ty` 和完整测试。`ty` 诊断以 warning 摘要展示，测试失败才是兼容性失败。外部工具的脱敏详细记录写入 `.pf/logs/`，终端摘要在支持时链接到对应日志。
 
-`diagnose` 只读、离线地解释报告中的 Rejection 或 Indeterminate；它不访问网络、不创建环境，也不隐式重放失败。
+`diagnose` 只读、离线地解释报告或最近一次验证运行中的 Rejection / Indeterminate；它不访问网络、不创建环境，也不隐式重放失败。
 
 ## 文档
 
 - [工程文档索引](docs/README.md)：契约所有权、状态词和文档布局
 - [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
 
-D001–D005 已落地。D006–D008 是已确认、尚未实现的替换契约。实施记录不承担现行契约。
+D001–D008 已落地。实施记录不承担现行契约。

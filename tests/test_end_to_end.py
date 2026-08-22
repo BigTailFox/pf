@@ -63,16 +63,15 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     assert any(
         'ty", "check' in path.read_text(encoding="utf-8") for path in process_logs
     )
-    assert (
-        "demo: complete"
-        in subprocess.run(
-            [sys.executable, "-m", "pf", "explain"],
-            cwd=tmp_path,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    )
+    explained = subprocess.run(
+        [sys.executable, "-m", "pf", "explain"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "Status: complete" in explained
+    assert "Apply: authorized by this report" in explained
 
 
 def test_smoke_returns_compatibility_failure_when_full_tests_fail(

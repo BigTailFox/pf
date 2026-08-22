@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -26,13 +27,14 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from pf.errors import ConfigurationError, PfError
+from pf.errors import ConfigurationError, InvocationError, PfError
 from pf.schemas.evaluation import (
     ActivityEvent,
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
     CellMatrixEvent,
+    CheckCellOutcome,
     CheckResult,
     FailureCause,
     FailureRecord,
@@ -45,9 +47,10 @@ from pf.schemas.evaluation import (
     SmokeResult,
     StaticFailEvaluation,
     StatusEvent,
-    ToolFailure,
     TestFailEvaluation,
+    ToolFailure,
     TyDiagnostic,
+    VerificationRole,
 )
 from pf.schemas.project import Cell
 from pf.schemas.report import (
@@ -130,6 +133,7 @@ _FAILED_AT = {
     "test": "testing",
 }
 _PROCESS_TAIL_LINES = 3
+_EXPLAIN_UNIQUE_DIAGNOSTIC_LIMIT = 10
 
 _SUCCESS_STATUSES = frozenset({"SUCCESS", "PASS"})
 _WARNING_STATUSES = frozenset(
@@ -185,6 +189,71 @@ class FailurePresentation:
     technical_code: str
 
 
+def _impact_for(
+    failure: FailureRecord,
+    *,
+    role: VerificationRole | None = None,
+    command: str | None = None,
+) -> str:
+    if not isinstance(failure.scope, AttemptFailureScope):
+        return (
+            "PF could not obtain the information needed to start or continue "
+            "this cell."
+        )
+    resolved_role = role
+    if resolved_role is None:
+        resolution = failure.scope.attempt.identity.requested_resolution
+        if resolution == "exact-vector":
+            resolved_role = "probe"
+        elif resolution == "lowest-direct":
+            resolved_role = "declaration"
+        else:
+            resolved_role = "baseline"
+    rejected = failure.disposition == "REJECTED"
+    if resolved_role == "probe":
+        return (
+            "This candidate did not pass the required checks. "
+            "PF will continue searching."
+            if rejected
+            else (
+                "PF could not determine whether this candidate works, so it stopped "
+                "this cell."
+            )
+        )
+    if resolved_role == "declaration-capture":
+        return (
+            "PF could not capture a static baseline from the highest resolution of "
+            "the current declarations, so it did not verify the declared lower "
+            "bounds for this cell."
+            if rejected
+            else (
+                "PF could not determine whether a static baseline can be captured, "
+                "so it did not verify the declared lower bounds for this cell."
+            )
+        )
+    if resolved_role == "declaration":
+        return (
+            "The declared lower bounds did not pass the required checks."
+            if rejected
+            else "PF could not determine whether the declared lower bounds work."
+        )
+    if command == "smoke":
+        return (
+            "The highest-version resolution did not pass the required checks."
+            if rejected
+            else "PF could not determine whether the highest-version resolution works."
+        )
+    return (
+        "The highest-version baseline did not pass, so PF did not start "
+        "the floor search for this cell."
+        if rejected
+        else (
+            "PF could not determine whether the highest-version baseline "
+            "works, so it stopped this cell."
+        )
+    )
+
+
 class ProcessLogReferences(Protocol):
     def reference_for(self, result: ProcessResult) -> Path | None: ...
 
@@ -196,7 +265,7 @@ def _outcome_kind(status: str) -> OutcomeKind | None:
         return "success"
     if status in _WARNING_STATUSES:
         return "warning"
-    if status in {"CELL_INDETERMINATE", "BASELINE_INDETERMINATE"}:
+    if status in {"CELL_INDETERMINATE", "BASELINE_INDETERMINATE", "INDETERMINATE"}:
         return "indeterminate"
     return "failure"
 
@@ -395,10 +464,17 @@ def _process_output_tail(
     process: ProcessResult | None,
     *,
     detail: str = "",
+    logs: ProcessLogReferences | None = None,
 ) -> tuple[str, ...]:
     text = ""
     if process is not None:
-        text = process.stderr_tail.strip() or process.stdout_tail.strip()
+        text = process.stderr.strip() or process.stdout.strip()
+        if not text:
+            reader = getattr(logs, "read_output", None)
+            if callable(reader):
+                logged = reader(process)
+                if logged:
+                    text = (logged[1] or logged[0]).strip()
         if not text:
             text = process.diagnostic().strip()
     if not text:
@@ -418,6 +494,36 @@ def _ty_diagnostic_summary(diagnostic: TyDiagnostic) -> str:
     if diagnostic.column is not None:
         location += f":{diagnostic.column}"
     return f"{location} [{diagnostic.code}] {_single_line_summary(diagnostic.message)}"
+
+
+def _counted(count: int, singular: str, plural: str | None = None) -> str:
+    noun = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {noun}"
+
+
+def _report_path(report: PackageFloorReportV1) -> str:
+    parent = Path(report.package.pyproject_path).parent
+    relative = Path("package-floor.json") if parent == Path(".") else parent / "package-floor.json"
+    return relative.as_posix()
+
+
+def _search_reasons(reports: tuple[PackageFloorReportV1, ...]) -> set[str]:
+    return {
+        reason
+        for report in reports
+        if report.result.status == "incomplete"
+        for reason in report.result.reasons
+    }
+
+
+def _search_exit_code(reasons: set[str]) -> int:
+    if "BASELINE_REJECTION" in reasons:
+        return 1
+    if "INDETERMINATE" in reasons:
+        return 4
+    if reasons:
+        return 2
+    return 0
 
 
 def _format_elapsed(seconds: float | None) -> str:
@@ -507,6 +613,20 @@ def _incremental_diagnostics(
     return tuple(ordered)
 
 
+def command_usage_line(command: str | None) -> str:
+    """Return the D006 Usage operands for a top-level command."""
+    if command == "merge":
+        return "pf merge REPORT [REPORT ...] --output PATH"
+    if command:
+        return f"pf {command} [OPTIONS] [PACKAGE]"
+    return "pf COMMAND"
+
+
+def command_usage(command: str | None) -> str:
+    """Return the D006 Usage line for a top-level command."""
+    return f"Usage: {command_usage_line(command)}"
+
+
 class TerminalPresenter:
     """Own all user-facing Rich rendering and stdout/stderr routing."""
 
@@ -532,8 +652,16 @@ class TerminalPresenter:
         self._pending_outcome: OutcomeKind | None = None
         self._search_diagnostics: list[SearchFailureEvent] = []
         self._setup_lines: list[Text] = []
+        self._command: str | None = None
+
+    def bind_command(self, command: str) -> None:
+        self._command = command
 
     def render_error(self, error: PfError) -> int:
+        if isinstance(error, InvocationError) or (
+            isinstance(error, ConfigurationError) and error.candidates
+        ):
+            return self._render_invocation(error)
         self.close(abandon_pending=True)
         self.stderr.print(
             Text.assemble(
@@ -548,7 +676,12 @@ class TerminalPresenter:
                 Text(_single_line_summary(error.detail)),
                 soft_wrap=True,
             )
-        if isinstance(error, ConfigurationError) and error.candidates:
+        return int(error.exit_code)
+
+    def _render_invocation(self, error: ConfigurationError) -> int:
+        self.close(abandon_pending=True)
+        self.stderr.print(f"Error: {error}")
+        if error.candidates:
             shown = error.candidates[:10]
             remainder = len(error.candidates) - len(shown)
             suffix = f", ... and {remainder} more" if remainder else ""
@@ -556,28 +689,46 @@ class TerminalPresenter:
                 f"Known packages: {', '.join(shown)}{suffix}",
                 soft_wrap=True,
             )
+        command = self._command
+        self.stderr.print(command_usage(command))
+        help_target = f"pf {command}" if command else "pf"
+        self.stderr.print(f"Try '{help_target} --help' for more information.")
         return int(error.exit_code)
 
     def render_check(self, result: CheckResult) -> int:
         self.close()
-        self._render_check_evaluations(result.evaluations)
+        if result.outcomes:
+            for outcome in result.outcomes:
+                self._print_check_cell_outcome(outcome)
+        else:
+            self._render_check_evaluations(result.evaluations)
+        cell_count = len(result.outcomes) or len(result.evaluations)
         if result.status == "PASS":
             self._print_outcome(
                 "success",
-                f"check passed ({len(result.evaluations)} cells)",
+                f"Check passed · {_counted(cell_count, 'cell')}",
                 console=self.stdout,
             )
             return 0
         if result.status == "COMPATIBILITY_FAILED":
             self._print_outcome(
                 "failure",
-                "check failed: current declarations are incompatible",
+                (
+                    "Check failed · declared lower bounds are incompatible · "
+                    f"{_counted(cell_count, 'cell')}"
+                ),
             )
             return 1
-        self._print_tool_failure(
-            f"check indeterminate: {_FAILURE_TITLES[result.failure.cause]}",
-            result.failure,
+        self._print_outcome(
+            "indeterminate",
+            (
+                "Check indeterminate · "
+                f"{_FAILURE_TITLES[result.failure.cause]} · "
+                f"{_counted(cell_count, 'cell')}"
+            ),
         )
+        if result.failure.process is not None:
+            self._print_process_detail(result.failure.process)
         return 4
 
     def render_smoke(self, result: SmokeResult) -> int:
@@ -591,6 +742,7 @@ class TerminalPresenter:
                         kind="warning",
                         diagnostics=diagnostics,
                         process=outcome.baseline.ty.process,
+                    command="smoke",
                     )
                 continue
             kind: OutcomeKind = (
@@ -614,15 +766,69 @@ class TerminalPresenter:
                 detail=detail,
                 process=process,
                 failure=outcome.failure,
+                command="smoke",
             )
         if result.status == "PASS":
             self._print_outcome(
                 "success",
-                f"smoke passed ({len(result.outcomes)} cells)",
+                f"Smoke passed · {_counted(len(result.outcomes), 'cell')}",
                 console=self.stdout,
             )
             return 0
+        kind: OutcomeKind = (
+            "failure" if result.status == "BASELINE_REJECTION" else "indeterminate"
+        )
+        self._print_outcome(
+            kind,
+            (
+                "Smoke failed · highest-version resolution did not pass · "
+                f"{_counted(len(result.outcomes), 'cell')}"
+                if kind == "failure"
+                else (
+                    "Smoke indeterminate · compatibility is unknown · "
+                    f"{_counted(len(result.outcomes), 'cell')}"
+                )
+            ),
+        )
         return 1 if result.status == "BASELINE_REJECTION" else 4
+
+    def _print_check_cell_outcome(self, outcome: CheckCellOutcome) -> None:
+        evaluation = outcome.evaluation
+        if outcome.status == "PASS":
+            if not isinstance(evaluation, PassEvaluation):
+                return
+            diagnostics = evaluation.static.ty.diagnostics
+            if diagnostics:
+                self._print_cell_report(
+                    outcome.attempt.identity.cell,
+                    kind="warning",
+                    diagnostics=diagnostics,
+                    process=evaluation.static.ty.process,
+                    role=outcome.role,
+                    command="check",
+                )
+            return
+        kind: OutcomeKind = (
+            "failure" if outcome.status == "REJECTED" else "indeterminate"
+        )
+        diagnostics: tuple[TyDiagnostic, ...] = ()
+        process = outcome.failure.process if outcome.failure is not None else None
+        if isinstance(evaluation, StaticFailEvaluation):
+            diagnostics = evaluation.incremental
+            process = evaluation.ty.process
+        elif isinstance(evaluation, TestFailEvaluation):
+            diagnostics = evaluation.static.ty.diagnostics
+            process = evaluation.test.process
+        self._print_cell_report(
+            outcome.attempt.identity.cell,
+            kind=kind,
+            diagnostics=diagnostics,
+            process=process,
+            failure=outcome.failure,
+            stage=None if outcome.failure is None else outcome.failure.stage,
+            role=outcome.role,
+            command="check",
+        )
 
     def _render_check_evaluations(self, evaluations: tuple[object, ...]) -> None:
         for evaluation in evaluations:
@@ -656,7 +862,6 @@ class TerminalPresenter:
 
     def render_search(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
         self.close()
-        self.stdout.print(f"search completed ({len(reports)} reports)")
         leftover = self._take_search_diagnostics()
         events_by_cell: dict[
             tuple[str, str, str, tuple[str, ...]], list[SearchFailureEvent]
@@ -693,6 +898,14 @@ class TerminalPresenter:
                     process=process,
                     failures=failures,
                     search_events=events,
+                    role=(
+                        "baseline"
+                        if isinstance(
+                            result, (BaselineRejection, BaselineIndeterminate)
+                        )
+                        else "probe"
+                    ),
+                    command="search",
                 )
         for events in events_by_cell.values():
             first = events[0]
@@ -706,20 +919,7 @@ class TerminalPresenter:
                 kind=kind,
                 search_events=tuple(events),
             )
-        reasons = {
-            reason
-            for report in reports
-            if report.result.status == "incomplete"
-            for reason in report.result.reasons
-        }
-        self._print_search_outcome(reasons)
-        if not reasons:
-            return 0
-        if "BASELINE_REJECTION" in reasons:
-            return 1
-        if "INDETERMINATE" in reasons:
-            return 4
-        return 2
+        return self._print_search_summary(reports)
 
     def _print_cell_report(
         self,
@@ -734,6 +934,9 @@ class TerminalPresenter:
         elapsed: float | None = None,
         search_events: tuple[SearchFailureEvent, ...] = (),
         stage: str | None = None,
+        role: VerificationRole | None = None,
+        command: str | None = None,
+        diagnose_available: bool = True,
     ) -> None:
         key = _cell_key(cell)
         if key in self._emitted_cell_keys:
@@ -742,6 +945,9 @@ class TerminalPresenter:
             kind = "warning"
         records = _unique_failures(search_events, failure, failures)
         extra_diagnostics = _incremental_diagnostics(search_events, diagnostics)
+        if kind in {"success", "warning"}:
+            records = ()
+            extra_diagnostics = diagnostics
         failed_at = None
         if kind in {"failure", "indeterminate"}:
             failed_at = _failed_at_label(
@@ -756,6 +962,9 @@ class TerminalPresenter:
             diagnostics=extra_diagnostics,
             detail=detail,
             process=process,
+            role=role,
+            command=command if command is not None else self._command,
+            diagnose_available=diagnose_available,
         )
         if self.stderr.is_terminal:
             self._print_step(
@@ -782,6 +991,9 @@ class TerminalPresenter:
         diagnostics: tuple[TyDiagnostic, ...],
         detail: str,
         process: ProcessResult | None,
+        role: VerificationRole | None = None,
+        command: str | None = None,
+        diagnose_available: bool = True,
     ) -> list[Text]:
         body: list[Text] = [
             _cell_finished_line(
@@ -793,18 +1005,21 @@ class TerminalPresenter:
         ]
         if records:
             for record in records:
-                presentation = self.failure_presentation(record)
+                presentation = self.failure_presentation(
+                    record, role=role, command=command
+                )
                 body.append(_fold_text(Text(presentation.title)))
                 body.append(_fold_text(Text(presentation.impact)))
-                body.append(
-                    _hint_sentence(
-                        "run ",
-                        f"`pf diagnose {cell.package} --failure {record.failure_id}`",
-                        " for more information.",
-                        emphasis_style="bold",
+                if diagnose_available:
+                    body.append(
+                        _hint_sentence(
+                            "run ",
+                            f"`pf diagnose {cell.package} --failure {record.failure_id}`",
+                            " for more information.",
+                            emphasis_style="bold",
+                        )
                     )
-                )
-                tail = _process_output_tail(record.process)
+                tail = _process_output_tail(record.process, logs=self._logs)
                 if tail:
                     body.append(_fold_text(Text("\n".join(tail), style="dim")))
                 if record.process is not None:
@@ -816,7 +1031,7 @@ class TerminalPresenter:
             return body
         for diagnostic in diagnostics:
             body.append(_fold_text(Text(_ty_diagnostic_summary(diagnostic))))
-        tail = _process_output_tail(process, detail=detail)
+        tail = _process_output_tail(process, detail=detail, logs=self._logs)
         if tail:
             body.append(_fold_text(Text("\n".join(tail), style="dim")))
         if process is not None:
@@ -845,10 +1060,15 @@ class TerminalPresenter:
                 self._pending_outcome = None
             self._finish_progress()
 
-    def _print_tool_failure(self, heading: str, failure: ToolFailure) -> None:
+    def _print_tool_failure(
+        self,
+        heading: str,
+        failure: ToolFailure | FailureRecord,
+    ) -> None:
         stage = _USER_STAGES.get(failure.stage, failure.stage)
         self._print_outcome("failure", f"{heading} ({stage})")
-        self._print_process_detail(failure.process)
+        if failure.process is not None:
+            self._print_process_detail(failure.process)
 
     def _print_process_detail(self, process: ProcessResult) -> None:
         detail = _single_line_summary(process.diagnostic())
@@ -912,34 +1132,13 @@ class TerminalPresenter:
         return (*_cell_key(event.cell), event.failure.failure_id)
 
     @staticmethod
-    def failure_presentation(failure: FailureRecord) -> FailurePresentation:
-        if not isinstance(failure.scope, AttemptFailureScope):
-            impact = (
-                "PF could not obtain the information needed to start or continue "
-                "this cell."
-            )
-        elif failure.disposition == "REJECTED" and (
-            failure.scope.attempt.identity.requested_resolution == "exact-vector"
-        ):
-            impact = (
-                "This candidate did not pass the required checks. "
-                "PF will continue searching."
-            )
-        elif failure.disposition == "REJECTED":
-            impact = (
-                "The highest-version baseline did not pass, so PF did not start "
-                "the floor search for this cell."
-            )
-        elif failure.scope.attempt.identity.requested_resolution == "highest":
-            impact = (
-                "PF could not determine whether the highest-version baseline "
-                "works, so it stopped this cell."
-            )
-        else:
-            impact = (
-                "PF could not determine whether this candidate works, so it stopped "
-                "this cell."
-            )
+    def failure_presentation(
+        failure: FailureRecord,
+        *,
+        role: VerificationRole | None = None,
+        command: str | None = None,
+    ) -> FailurePresentation:
+        impact = _impact_for(failure, role=role, command=command)
         return FailurePresentation(
             title=_FAILURE_TITLES[failure.cause],
             impact=impact,
@@ -1061,11 +1260,7 @@ class TerminalPresenter:
             item for item in self._search_diagnostics if _cell_key(item.cell) != key
         ]
         display_kind = "warning" if event.diagnostics and kind == "success" else kind
-        stage = event.failure.stage if event.failure is not None else None
-        if stage is None and event.message == "STATIC_FAIL":
-            stage = "ty"
-        elif stage is None and event.message == "BUILD_UNAVAILABLE":
-            stage = "install"
+        stage = event.failure.stage if event.failure is not None else event.stage
         self._print_cell_report(
             event.cell,
             kind=display_kind,
@@ -1076,6 +1271,9 @@ class TerminalPresenter:
             elapsed=elapsed,
             search_events=search_events,
             stage=stage,
+            role=event.verification_role,
+            command=self._command,
+            diagnose_available=event.diagnose_available,
         )
         self._pending_outcome = _escalate_outcome(self._pending_outcome, display_kind)
 
@@ -1227,18 +1425,56 @@ class TerminalPresenter:
             soft_wrap=True,
         )
 
-    def _print_search_outcome(self, reasons: set[str]) -> None:
-        remaining = tuple(
-            reason for reason in sorted(reasons) if reason not in _INFRA_REASONS
+    def _print_search_summary(
+        self,
+        reports: tuple[PackageFloorReportV1, ...],
+    ) -> int:
+        reasons = _search_reasons(reports)
+        exit_code = _search_exit_code(reasons)
+        count = _counted(len(reports), "report")
+        paths = tuple(_report_path(report) for report in reports)
+        if exit_code == 0:
+            artifact = f" · {paths[0]}" if len(paths) == 1 else ""
+            if len(paths) > 1:
+                for path in paths:
+                    self.stdout.print(path)
+            self._print_outcome(
+                "success",
+                f"Search complete · {count}{artifact}",
+                console=self.stdout,
+            )
+            return 0
+        if exit_code == 1:
+            self._print_outcome(
+                "failure",
+                f"Search stopped · highest-version baseline did not pass · {count} written",
+            )
+            return 1
+        if exit_code == 4:
+            self._print_outcome(
+                "indeterminate",
+                f"Search stopped · compatibility is unknown · {count} written",
+            )
+            return 4
+        self._print_outcome(
+            "warning",
+            f"Search incomplete · {count} written · no applicable floor",
         )
-        if not remaining:
-            return
-        kind: OutcomeKind = (
-            "failure"
-            if any(reason not in _WARNING_STATUSES for reason in remaining)
-            else "warning"
-        )
-        self._print_outcome(kind, ", ".join(remaining))
+        return 2
+
+    def render_minimize(
+        self,
+        reports: tuple[PackageFloorReportV1, ...],
+        edits: tuple[ProjectEditResult, ...] | None,
+    ) -> int:
+        self.close()
+        if edits is None:
+            self._print_outcome(
+                "warning",
+                "Minimize stopped before apply · search report is incomplete",
+            )
+            return _search_exit_code(_search_reasons(reports)) or 2
+        return self.render_apply(edits, command="minimize")
 
     def _complete_pending_setup(self) -> None:
         if (
@@ -1300,22 +1536,111 @@ class TerminalPresenter:
         if not reports:
             self.stdout.print("explained 0 reports")
             return 0
-        for report in reports:
-            self.stdout.print(f"{report.package.name}: {report.result.status}")
-            if report.result.status == "incomplete":
-                self.stdout.print(f"  reasons: {', '.join(report.result.reasons)}")
-            for failure in report.failure_records:
-                presentation = self.failure_presentation(failure)
-                self.stdout.print(f"  {presentation.title}")
-                self.stdout.print(
-                    f"    Diagnose: pf diagnose {report.package.name} "
-                    f"--failure {failure.failure_id}"
-                )
-            self._render_static_diagnostics(report)
-            for projection in report.projection_evidence:
-                requirements = ", ".join(projection.projected_requirements) or "none"
-                self.stdout.print(f"  {projection.declaration_id}: {requirements}")
+        for index, report in enumerate(reports):
+            if index:
+                self.stdout.print()
+            self._render_explain_report(report)
         return 0
+
+    def _render_explain_report(self, report: PackageFloorReportV1) -> None:
+        declarations = {
+            item.declaration_id: item for item in report.requirement_declarations
+        }
+        if any(
+            projection.declaration_id not in declarations
+            for projection in report.projection_evidence
+        ):
+            raise ConfigurationError(
+                "report projection is missing its requirement declaration"
+            )
+        complete = report.result.status == "complete"
+        covered = sum(
+            1 for result in report.cell_results if isinstance(result, CellSuccess)
+        )
+        targets = len(report.target_cells) or len(report.cell_results)
+        self.stdout.print(f"{report.package.name} · {_report_path(report)}")
+        self.stdout.print(f"Status: {report.result.status}")
+        self.stdout.print(
+            "Apply: authorized by this report"
+            if complete
+            else "Apply: not authorized by this report"
+        )
+        self.stdout.print(f"Cells: {covered}/{targets} covered")
+        if report.requirement_declarations or report.projection_evidence:
+            self.stdout.print()
+            self.stdout.print("Requirements")
+            for projection in report.projection_evidence:
+                declaration = declarations[projection.declaration_id]
+                label = declaration.raw or declaration.name
+                if not projection.representable:
+                    detail = "projection blocked"
+                elif not projection.projected_requirements:
+                    detail = "no applicable floor"
+                else:
+                    projected = "; ".join(projection.projected_requirements)
+                    detail = f"-> {projected}"
+                self.stdout.print(f"  {label}   {detail}")
+            for declaration in report.requirement_declarations:
+                if declaration.declaration_id in {
+                    item.declaration_id for item in report.projection_evidence
+                }:
+                    continue
+                self.stdout.print(f"  {declaration.raw or declaration.name}")
+        failures = report.failure_records
+        if failures or (
+            report.result.status == "incomplete"
+            and "MISSING_CELL" in report.result.reasons
+        ):
+            self.stdout.print()
+            self.stdout.print("Blockers")
+            if failures:
+                grouped: dict[tuple[str, str], list[FailureRecord]] = {}
+                for failure in failures:
+                    presentation = self.failure_presentation(failure)
+                    grouped.setdefault(
+                        (presentation.title, presentation.impact), []
+                    ).append(failure)
+                for records in grouped.values():
+                    failure = records[0]
+                    presentation = self.failure_presentation(failure)
+                    cells = {
+                        (
+                            record.scope.attempt.identity.cell
+                            if isinstance(record.scope, AttemptFailureScope)
+                            else record.scope.cell
+                        )
+                        for record in records
+                    }
+                    if len(cells) > 1:
+                        pythons = ", ".join(
+                            f"Python {cell.python_minor}" for cell in cells
+                        )
+                        self.stdout.print(f"  {len(cells)} cells · {pythons}")
+                    self.stdout.print(f"  What happened: {presentation.title}")
+                    self.stdout.print(f"  Impact: {presentation.impact}")
+                    diagnose = f"pf diagnose {report.package.name}"
+                    unique_ids = {record.failure_id for record in records}
+                    if len(unique_ids) == 1:
+                        diagnose += f" --failure {failure.failure_id}"
+                    self.stdout.print(f"  Diagnose: {diagnose}")
+            elif "MISSING_CELL" in getattr(report.result, "reasons", ()):
+                self.stdout.print("  target cells are missing from this host run")
+        self._render_static_diagnostics(report)
+        self.stdout.print()
+        if complete:
+            managed = tuple(
+                item for item in report.requirement_declarations if item.managed
+            )
+            self.stdout.print(
+                "Summary: "
+                f"{_counted(len(managed) or len(report.projection_evidence), 'dependency declaration')} "
+                "have verified floors."
+            )
+            self.stdout.print(f"Next: pf apply {report.package.name}")
+        else:
+            self.stdout.print(
+                "Summary: report is incomplete and cannot be applied."
+            )
 
     def render_diagnose(
         self,
@@ -1329,7 +1654,11 @@ class TerminalPresenter:
             if index:
                 self.stdout.print()
             failure = diagnosis.failure
-            presentation = self.failure_presentation(failure)
+            presentation = self.failure_presentation(
+                failure,
+                role=diagnosis.verification_role,
+                command=diagnosis.command,
+            )
             scope = failure.scope
             cell = (
                 scope.attempt.identity.cell
@@ -1355,6 +1684,12 @@ class TerminalPresenter:
                 f"{_format_extra_surface(cell.extra_surface)}"
             )
             self.stdout.print(f"  stage: {failure.stage}")
+            source = (
+                "package-floor.json"
+                if diagnosis.source == "package-floor.json"
+                else f"latest pf {diagnosis.command or 'search'}"
+            )
+            self.stdout.print(f"  source: {source}")
             self.stdout.print()
             self.stdout.print("Technical details:")
             self.stdout.print(f"  disposition: {failure.disposition}")
@@ -1389,10 +1724,8 @@ class TerminalPresenter:
                     f"  process: {self._process_terminal(failure.process)}"
                 )
                 output = (
-                    failure.process.stderr_summary.strip()
-                    or failure.process.stdout_summary.strip()
-                    or failure.process.stderr_tail.strip()
-                    or failure.process.stdout_tail.strip()
+                    failure.process.stderr.strip()
+                    or failure.process.stdout.strip()
                     or (failure.process.start_error or "").strip()
                 )
                 summary = _single_line_summary(output)
@@ -1425,6 +1758,7 @@ class TerminalPresenter:
         return f"exited {process.exit_code}"
 
     def _render_static_diagnostics(self, report: PackageFloorReportV1) -> None:
+        incrementals: list[tuple[Cell, TyDiagnostic]] = []
         for result in report.cell_results:
             baseline = result.static_baseline
             if baseline is None:
@@ -1461,21 +1795,76 @@ class TerminalPresenter:
                     if evidence.proposal_id in seen_proposals:
                         continue
                     seen_proposals.add(evidence.proposal_id)
-                    for diagnostic in static.incremental:
-                        self.stdout.print(
-                            Text(f"    + {_ty_diagnostic_summary(diagnostic)}")
-                        )
+                    incrementals.extend(
+                        (result.cell, diagnostic)
+                        for diagnostic in static.incremental
+                    )
+        self._print_folded_diagnostics(
+            incrementals,
+            package=report.package.name,
+            failures=report.failure_records,
+        )
+
+    def _print_folded_diagnostics(
+        self,
+        incrementals: list[tuple[Cell, TyDiagnostic]],
+        *,
+        package: str,
+        failures: tuple[FailureRecord, ...],
+    ) -> None:
+        if not incrementals:
+            return
+        groups: OrderedDict[str, list[Cell]] = OrderedDict()
+        for cell, diagnostic in incrementals:
+            groups.setdefault(_ty_diagnostic_summary(diagnostic), []).append(cell)
+        unique = tuple(groups.items())
+        shown = unique[:_EXPLAIN_UNIQUE_DIAGNOSTIC_LIMIT]
+        for summary, cells in shown:
+            line = f"    + {summary}"
+            if len(cells) > 1:
+                line += f"  ×{len(cells)}"
+            cell_count = len({_cell_key(cell) for cell in cells})
+            if cell_count > 1:
+                line += f" · {cell_count} cells"
+            self.stdout.print(Text(line))
+        omitted = len(unique) - len(shown)
+        if omitted:
+            diagnose = f"pf diagnose {package}"
+            if len(failures) == 1:
+                diagnose += f" --failure {failures[0].failure_id}"
+            self.stdout.print(f"    ... and {omitted} more unique diagnostics")
+            self.stdout.print(f"    Diagnose: {diagnose}")
 
     def render_merge(self, report: PackageFloorReportV1, output: str) -> int:
         self.close()
-        self.stdout.print(
-            f"merged {report.package.name} report -> {output}",
-            soft_wrap=True,
+        self._print_outcome(
+            "success",
+            f"Merged {_counted(1, 'report')} · {output}",
+            console=self.stdout,
         )
         return 0
 
-    def render_apply(self, edits: tuple[ProjectEditResult, ...]) -> int:
+    def render_apply(
+        self,
+        edits: tuple[ProjectEditResult, ...],
+        *,
+        command: Literal["apply", "minimize"] = "apply",
+    ) -> int:
         self.close()
-        changed = sum(edit.changed for edit in edits)
-        self.stdout.print(f"apply completed ({changed} changed)")
+        changed = tuple(edit for edit in edits if edit.changed)
+        verb = "Minimized floors" if command == "minimize" else "Applied floors"
+        if not changed:
+            self._print_outcome(
+                "success",
+                f"{verb} · no metadata changes",
+                console=self.stdout,
+            )
+            return 0
+        path = changed[0].pyproject_path if len(changed) == 1 else ""
+        artifact = f" · {path}" if path else ""
+        self._print_outcome(
+            "success",
+            f"{verb} · {_counted(len(changed), 'project')} updated{artifact}",
+            console=self.stdout,
+        )
         return 0

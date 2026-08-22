@@ -39,8 +39,8 @@ class FailurePolicy:
             signal=process.signal,
             start_error=process.start_error,
             timed_out=process.timed_out,
-            stdout_truncated=process.stdout_truncated,
-            stderr_truncated=process.stderr_truncated,
+            stdout_complete=process.stdout_complete,
+            stderr_complete=process.stderr_complete,
         )
         return FailureRecord.from_facts(
             scope=scope,

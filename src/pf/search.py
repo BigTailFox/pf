@@ -365,7 +365,7 @@ class SearchEnvironmentOperations(Protocol):
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
         managed_vector: tuple[VersionPin, ...] | None = None,
-    ) -> PreparedEnvironment | PrepareFailure | ToolFailure: ...
+    ) -> PreparedEnvironment | PrepareFailure: ...
 
 
 class CandidateOperations(Protocol):
@@ -796,10 +796,7 @@ class _ProposalRunner:
             exit_code=None,
             signal=None,
             duration_seconds=0,
-            stdout_summary="",
-            stderr_summary="proposal vector drift",
-            stdout_tail="",
-            stderr_tail="proposal vector drift",
+            stderr="proposal vector drift",
             start_error="proposal vector drift",
         )
 

@@ -3,23 +3,29 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Literal, Protocol
 
 from pf.environment import PreparedEnvironment
-from pf.errors import ConfigurationError
+from pf.errors import ConfigurationError, InfrastructureError
 from pf.evaluation import require_full_evaluation_contract
 from pf.policy import evaluation_policy_identity
+from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
+    ActivityEvent,
+    Attempt,
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
     CellFailureScope,
     CellMatrixEvent,
+    CheckCellOutcome,
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
     CheckResult,
     Evaluation,
+    FailureCause,
     FailureRecord,
     HighestVersionOutcome,
     HighestVersionPass,
@@ -27,6 +33,8 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     PrepareFailure,
     ProcessResult,
+    ProgressEvent,
+    SearchFailureEvent,
     SmokeIndeterminate,
     SmokeBaselineRejection,
     SmokePass,
@@ -38,6 +46,9 @@ from pf.schemas.evaluation import (
     StatusEvent,
     TestFailEvaluation,
     ToolFailure,
+    VerificationJournal,
+    VerificationJournalEntry,
+    VerificationRole,
 )
 from pf.report import PackageReportBuilder, ReportStore
 from pf.scheduling import ProgressConsumer, ScheduledCellTask, Scheduler
@@ -78,6 +89,141 @@ def selected_host_cells(
     )
 
 
+def persist_verification_journal(
+    logs: JournalStore | None,
+    *,
+    command: Literal["smoke", "check", "search"],
+    packages: tuple[PackagePlan, ...],
+    snapshot: SourceSnapshot,
+    entries: tuple[VerificationJournalEntry, ...],
+) -> None:
+    if logs is None or not packages or not hasattr(logs, "write_journal"):
+        return
+    logs.write_journal(
+        VerificationJournal(
+            run_id=logs.run_id,
+            command=command,
+            packages=tuple(package.name for package in packages),
+            source_snapshot_digest=snapshot.identity.digest,
+            evaluation_policy_identity=evaluation_policy_identity(packages[0].config),
+            entries=entries,
+        )
+    )
+
+
+def _journal_entry_for_failure(
+    *,
+    package: str,
+    cell: Cell,
+    role: VerificationRole | None,
+    failure: FailureRecord,
+) -> VerificationJournalEntry:
+    attempt = (
+        failure.scope.attempt
+        if isinstance(failure.scope, AttemptFailureScope)
+        else None
+    )
+    resolved: VerificationRole
+    if role is not None:
+        resolved = role
+    elif attempt is None:
+        resolved = "probe"
+    elif attempt.identity.requested_resolution == "highest":
+        resolved = "baseline"
+    elif attempt.identity.requested_resolution == "lowest-direct":
+        resolved = "declaration"
+    else:
+        resolved = "probe"
+    return VerificationJournalEntry(
+        package=package,
+        cell=cell,
+        role=resolved,
+        attempt=attempt,
+        failure=failure,
+    )
+
+
+class _JournalGate:
+    """Persist journal entries before the presenter freezes a Diagnose card."""
+
+    def __init__(
+        self,
+        inner: ProgressConsumer,
+        *,
+        logs: JournalStore | None,
+        command: Literal["smoke", "check", "search"],
+        packages: tuple[PackagePlan, ...],
+        snapshot: SourceSnapshot,
+    ) -> None:
+        self._inner = inner
+        self._logs = logs
+        self._command = command
+        self._packages = packages
+        self._snapshot = snapshot
+        self._entries: list[VerificationJournalEntry] = []
+        self._cell_ok: dict[tuple[str, str, str, tuple[str, ...]], bool] = {}
+        self._lock = Lock()
+        self.error: InfrastructureError | None = None
+
+    def consume(self, event: ActivityEvent) -> None:
+        forwarded: ActivityEvent = event
+        if isinstance(event, (ProgressEvent, SearchFailureEvent)) and event.failure is not None:
+            available = self._persist(
+                _journal_entry_for_failure(
+                    package=event.package if isinstance(event, ProgressEvent) else event.cell.package,
+                    cell=event.cell,
+                    role=event.verification_role if isinstance(event, ProgressEvent) else None,
+                    failure=event.failure,
+                ),
+                cell=event.cell,
+            )
+            if isinstance(event, ProgressEvent):
+                forwarded = event.model_copy(
+                    update={"diagnose_available": available}
+                )
+        elif isinstance(event, ProgressEvent) and event.phase != "start":
+            key = _cell_identity(event.cell)
+            with self._lock:
+                available = self._cell_ok.get(key, True)
+            if not available:
+                forwarded = event.model_copy(update={"diagnose_available": False})
+        self._inner.consume(forwarded)
+
+    def _persist(self, entry: VerificationJournalEntry, *, cell: Cell) -> bool:
+        key = _cell_identity(cell)
+        with self._lock:
+            if all(
+                existing.failure.failure_id != entry.failure.failure_id
+                for existing in self._entries
+            ):
+                self._entries.append(entry)
+            if self.error is not None:
+                self._cell_ok[key] = False
+                return False
+            try:
+                persist_verification_journal(
+                    self._logs,
+                    command=self._command,
+                    packages=self._packages,
+                    snapshot=self._snapshot,
+                    entries=tuple(self._entries),
+                )
+            except InfrastructureError as error:
+                self.error = error
+                self._cell_ok[key] = False
+                return False
+            self._cell_ok[key] = self._cell_ok.get(key, True)
+            return self._cell_ok[key]
+
+    def raise_if_failed(self) -> None:
+        if self.error is not None:
+            raise self.error
+
+
+def _cell_identity(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
+    return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
+
+
 class CheckEnvironmentOperations(Protocol):
     def prepare(
         self,
@@ -86,7 +232,7 @@ class CheckEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
-    ) -> PreparedEnvironment | PrepareFailure | ToolFailure: ...
+    ) -> PreparedEnvironment | PrepareFailure: ...
 
 
 class CheckStaticOperations(Protocol):
@@ -116,7 +262,7 @@ class CheckCellOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Evaluation | ToolFailure: ...
+    ) -> CheckCellOutcome: ...
 
 
 class CompatibilityChecker:
@@ -128,10 +274,12 @@ class CompatibilityChecker:
         environments: CheckEnvironmentOperations,
         static: CheckStaticOperations,
         full: CheckFullOperations,
+        failures: FailurePolicy | None = None,
     ) -> None:
         self._environments = environments
         self._static = static
         self._full = full
+        self._failures = failures or FailurePolicy()
 
     def check(
         self,
@@ -139,7 +287,7 @@ class CompatibilityChecker:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Evaluation | ToolFailure:
+    ) -> CheckCellOutcome:
         require_full_evaluation_contract(package, "check")
         highest = self._environments.prepare(
             package=package,
@@ -147,32 +295,118 @@ class CompatibilityChecker:
             snapshot=snapshot,
             resolution="highest",
         )
-        if not isinstance(highest, PreparedEnvironment):
-            return highest.failure if isinstance(highest, PrepareFailure) else highest
+        if isinstance(highest, ToolFailure):
+            raise ValueError("check prepare must establish an Attempt")
+        if isinstance(highest, PrepareFailure):
+            return self._prepare_outcome(highest, role="declaration-capture")
         try:
             capture = self._static.capture(highest, package=package)
         finally:
             highest.close()
         if isinstance(capture, IndeterminateEvaluation):
-            return capture
+            return self._evaluation_outcome(
+                attempt=highest.attempt,
+                role="declaration-capture",
+                evaluation=capture,
+                static_baseline=None,
+            )
         prepared = self._environments.prepare(
             package=package,
             cell=cell,
             snapshot=snapshot,
             resolution="lowest-direct",
         )
-        if not isinstance(prepared, PreparedEnvironment):
-            return (
-                prepared.failure if isinstance(prepared, PrepareFailure) else prepared
-            )
+        if isinstance(prepared, ToolFailure):
+            raise ValueError("check prepare must establish an Attempt")
+        if isinstance(prepared, PrepareFailure):
+            return self._prepare_outcome(prepared, role="declaration")
         try:
-            return self._full.evaluate(
+            evaluation = self._full.evaluate(
                 prepared,
                 package=package,
                 baseline=capture.baseline,
             )
         finally:
             prepared.close()
+        return self._evaluation_outcome(
+            attempt=prepared.attempt,
+            role="declaration",
+            evaluation=evaluation,
+            static_baseline=capture.baseline,
+        )
+
+    def _prepare_outcome(
+        self,
+        prepared: PrepareFailure,
+        *,
+        role: Literal["declaration-capture", "declaration"],
+    ) -> CheckCellOutcome:
+        failure = self._failures.classify(
+            scope=AttemptFailureScope(attempt=prepared.attempt),
+            cause=prepared.failure.cause,
+            stage=prepared.failure.stage,
+            process=prepared.failure.process,
+            summary_code=prepared.failure.summary_code,
+        )
+        return CheckCellOutcome(
+            status=failure.disposition,
+            role=role,
+            attempt=prepared.attempt,
+            failure=failure,
+        )
+
+    def _evaluation_outcome(
+        self,
+        *,
+        attempt: Attempt,
+        role: Literal["declaration-capture", "declaration"],
+        evaluation: Evaluation,
+        static_baseline: StaticBaseline | None,
+    ) -> CheckCellOutcome:
+        if isinstance(evaluation, PassEvaluation):
+            return CheckCellOutcome(
+                status="PASS",
+                role=role,
+                attempt=attempt,
+                evaluation=evaluation,
+                static_baseline=static_baseline,
+            )
+        if isinstance(evaluation, StaticFailEvaluation):
+            cause: FailureCause = "STATIC_REGRESSION"
+            stage = "ty"
+            process = evaluation.ty.process
+            summary_code = None
+        elif isinstance(evaluation, TestFailEvaluation):
+            cause = "TEST_FAILURE"
+            stage = "test"
+            process = evaluation.test.process
+            summary_code = None
+        else:
+            cause = evaluation.cause
+            stage = evaluation.failure.stage
+            process = evaluation.failure.process
+            summary_code = evaluation.failure.summary_code
+        failure = self._failures.classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause=cause,
+            stage=stage,
+            process=process,
+            summary_code=summary_code,
+        )
+        return CheckCellOutcome(
+            status=failure.disposition,
+            role=role,
+            attempt=attempt,
+            failure=failure,
+            evaluation=evaluation,
+            static_baseline=static_baseline,
+        )
+
+
+class JournalStore(Protocol):
+    run_id: str
+
+    def write_journal(self, journal: VerificationJournal) -> Path: ...
 
 
 class CheckCommandWorkflow:
@@ -186,6 +420,7 @@ class CheckCommandWorkflow:
         checker: CheckCellOperations,
         scheduler: Scheduler,
         events: ProgressConsumer,
+        logs: JournalStore | None = None,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
@@ -193,6 +428,7 @@ class CheckCommandWorkflow:
         self._checker = checker
         self._scheduler = scheduler
         self._events = events
+        self._logs = logs
         self._host_target = host_target or current_host_target()
 
     def run(self, request: CheckRequest) -> CheckResult:
@@ -215,6 +451,13 @@ class CheckCommandWorkflow:
                     f"no configured cell matches host target: {self._host_target}"
                 )
             package_by_name = {package.name: package for package in project.packages}
+            gate = _JournalGate(
+                self._events,
+                logs=self._logs,
+                command="check",
+                packages=project.packages,
+                snapshot=snapshot,
+            )
             outcomes = self._scheduler.run(
                 tuple(
                     ScheduledCellTask(
@@ -229,9 +472,28 @@ class CheckCommandWorkflow:
                 ),
                 jobs=request.jobs,
                 max_duration_seconds=None,
-                events=self._events,
+                events=gate,
             )
-            return self._aggregate(outcomes)
+            result = self._aggregate(outcomes)
+            persist_verification_journal(
+                self._logs,
+                command="check",
+                packages=project.packages,
+                snapshot=snapshot,
+                entries=tuple(
+                    VerificationJournalEntry(
+                        package=outcome.attempt.identity.cell.package,
+                        cell=outcome.attempt.identity.cell,
+                        role=outcome.role,
+                        attempt=outcome.attempt,
+                        failure=outcome.failure,
+                    )
+                    for outcome in outcomes
+                    if outcome.failure is not None
+                ),
+            )
+            gate.raise_if_failed()
+            return result
         finally:
             snapshot.close()
 
@@ -240,8 +502,8 @@ class CheckCommandWorkflow:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Callable[[], Evaluation | ToolFailure]:
-        def run() -> Evaluation | ToolFailure:
+    ) -> Callable[[], CheckCellOutcome]:
+        def run() -> CheckCellOutcome:
             return self._checker.check(
                 package=package,
                 cell=cell,
@@ -252,33 +514,36 @@ class CheckCommandWorkflow:
 
     @staticmethod
     def _aggregate(
-        outcomes: tuple[Evaluation | ToolFailure, ...],
+        outcomes: tuple[CheckCellOutcome, ...],
     ) -> CheckResult:
-        evaluations: list[Evaluation] = []
-        infra: list[ToolFailure] = []
-        for outcome in outcomes:
-            if isinstance(outcome, ToolFailure):
-                infra.append(outcome)
-                continue
-            evaluations.append(outcome)
-            if isinstance(outcome, IndeterminateEvaluation):
-                infra.append(outcome.failure)
-        if any(
-            isinstance(item, (StaticFailEvaluation, TestFailEvaluation))
-            for item in evaluations
-        ):
-            return CheckCompatibilityFailure(evaluations=tuple(evaluations))
-        if infra:
+        evaluations = tuple(
+            outcome.evaluation
+            for outcome in outcomes
+            if outcome.evaluation is not None
+        )
+        if any(outcome.status == "REJECTED" for outcome in outcomes):
+            return CheckCompatibilityFailure(
+                evaluations=evaluations,
+                outcomes=outcomes,
+            )
+        failed = next(
+            (outcome for outcome in outcomes if outcome.status == "INDETERMINATE"),
+            None,
+        )
+        if failed is not None:
+            assert failed.failure is not None
             return CheckIndeterminate(
                 evaluations=tuple(
                     item for item in evaluations if isinstance(item, PassEvaluation)
                 ),
-                failure=infra[0],
+                failure=failed.failure,
+                outcomes=outcomes,
             )
         return CheckPass(
             evaluations=tuple(
                 item for item in evaluations if isinstance(item, PassEvaluation)
-            )
+            ),
+            outcomes=outcomes,
         )
 
     def _emit(self, event: StatusEvent | CellMatrixEvent) -> None:
@@ -306,6 +571,7 @@ class SmokeCommandWorkflow:
         verifier: SmokeCellOperations,
         scheduler: Scheduler,
         events: ProgressConsumer,
+        logs: JournalStore | None = None,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
@@ -313,6 +579,7 @@ class SmokeCommandWorkflow:
         self._verifier = verifier
         self._scheduler = scheduler
         self._events = events
+        self._logs = logs
         self._host_target = host_target or current_host_target()
 
     def run(self, request: SmokeRequest) -> SmokeResult:
@@ -335,6 +602,13 @@ class SmokeCommandWorkflow:
                     f"no configured cell matches host target: {self._host_target}"
                 )
             package_by_name = {package.name: package for package in project.packages}
+            gate = _JournalGate(
+                self._events,
+                logs=self._logs,
+                command="smoke",
+                packages=project.packages,
+                snapshot=snapshot,
+            )
             outcomes = self._scheduler.run(
                 tuple(
                     ScheduledCellTask(
@@ -349,9 +623,30 @@ class SmokeCommandWorkflow:
                 ),
                 jobs=request.jobs,
                 max_duration_seconds=None,
-                events=self._events,
+                events=gate,
             )
-            return self._aggregate(outcomes)
+            result = self._aggregate(outcomes)
+            persist_verification_journal(
+                self._logs,
+                command="smoke",
+                packages=project.packages,
+                snapshot=snapshot,
+                entries=tuple(
+                    VerificationJournalEntry(
+                        package=outcome.cell.package,
+                        cell=outcome.cell,
+                        role="baseline",
+                        attempt=outcome.attempt,
+                        failure=outcome.failure,
+                    )
+                    for outcome in outcomes
+                    if isinstance(
+                        outcome, (BaselineRejection, BaselineIndeterminate)
+                    )
+                ),
+            )
+            gate.raise_if_failed()
+            return result
         finally:
             snapshot.close()
 
@@ -414,6 +709,10 @@ class FailureLogAssociations(Protocol):
     ) -> None: ...
 
 
+class SearchLogStore(JournalStore, FailureLogAssociations, Protocol):
+    pass
+
+
 class SearchCommandWorkflow:
     """Own load, snapshot, bounded cell scheduling, and report persistence."""
 
@@ -427,7 +726,7 @@ class SearchCommandWorkflow:
         reports: ReportStore,
         report_builder: PackageReportBuilder,
         events: ProgressConsumer,
-        logs: FailureLogAssociations | None = None,
+        logs: SearchLogStore | None = None,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
@@ -471,11 +770,18 @@ class SearchCommandWorkflow:
             self._events.consume(
                 CellMatrixEvent(cells=tuple(task.cell for task in tasks))
             )
+            gate = _JournalGate(
+                self._events,
+                logs=self._logs,
+                command="search",
+                packages=project.packages,
+                snapshot=snapshot,
+            )
             results = self._scheduler.run(
                 tasks,
                 jobs=request.jobs,
                 max_duration_seconds=request.max_duration_seconds,
-                events=self._events,
+                events=gate,
             )
             reports = []
             for package in project.packages:
@@ -523,6 +829,14 @@ class SearchCommandWorkflow:
                         remove_failure_ids=remove_failure_ids,
                     )
                 reports.append(report)
+            persist_verification_journal(
+                self._logs,
+                command="search",
+                packages=project.packages,
+                snapshot=snapshot,
+                entries=self._journal_entries(results),
+            )
+            gate.raise_if_failed()
             return tuple(reports)
         finally:
             snapshot.close()
@@ -541,6 +855,37 @@ class SearchCommandWorkflow:
             )
 
         return run
+
+    @classmethod
+    def _journal_entries(
+        cls,
+        results: tuple[CellResult, ...],
+    ) -> tuple[VerificationJournalEntry, ...]:
+        entries: list[VerificationJournalEntry] = []
+        for result in results:
+            for failure in cls._failure_records(result):
+                if isinstance(failure.scope, AttemptFailureScope):
+                    attempt = failure.scope.attempt
+                    role: VerificationRole = (
+                        "baseline"
+                        if attempt.identity.requested_resolution == "highest"
+                        else "probe"
+                    )
+                    cell = attempt.identity.cell
+                else:
+                    role = "probe"
+                    attempt = None
+                    cell = failure.scope.cell
+                entries.append(
+                    VerificationJournalEntry(
+                        package=cell.package,
+                        cell=cell,
+                        role=role,
+                        attempt=attempt,
+                        failure=failure,
+                    )
+                )
+        return tuple(entries)
 
     @staticmethod
     def _failure_records(result: CellResult) -> tuple[FailureRecord, ...]:
@@ -577,6 +922,10 @@ class DiagnosisLogLocator(Protocol):
         failure_id: str,
     ) -> Path | None: ...
 
+    def lookup_run(self, run_id: str, failure_id: str) -> Path | None: ...
+
+    def read_latest_journal(self, package: str) -> VerificationJournal | None: ...
+
 
 @dataclass(frozen=True)
 class FailureDiagnosis:
@@ -586,6 +935,9 @@ class FailureDiagnosis:
     proposal_id: str | None
     boundary_role: Literal["predecessor"] | None
     log_path: Path | None
+    source: Literal["package-floor.json", "journal"] = "package-floor.json"
+    verification_role: VerificationRole | None = None
+    command: Literal["smoke", "check", "search"] | None = None
 
 
 class DiagnoseCommandWorkflow:
@@ -610,33 +962,71 @@ class DiagnoseCommandWorkflow:
         )
         entries: list[FailureDiagnosis] = []
         for package in project.packages:
-            report = self._reports.read(
+            report_path = (
                 root / Path(package.pyproject_path).parent / "package-floor.json"
             )
-            for result in report.cell_results:
-                for failure in self._failure_records(result):
-                    if (
-                        request.failure_id is not None
-                        and failure.failure_id != request.failure_id
-                    ):
-                        continue
-                    proposal_id, boundary_role = self._search_context(
-                        result,
-                        failure.failure_id,
-                    )
-                    entries.append(
-                        FailureDiagnosis(
-                            report_generation_id=report.report_generation_id,
-                            package=report.package.name,
-                            failure=failure,
-                            proposal_id=proposal_id,
-                            boundary_role=boundary_role,
-                            log_path=self._logs.lookup(
-                                report.report_generation_id,
-                                failure.failure_id,
-                            ),
+            seen: set[str] = set()
+            if report_path.is_file():
+                report = self._reports.read(report_path)
+                for result in report.cell_results:
+                    for failure in self._failure_records(result):
+                        if (
+                            request.failure_id is not None
+                            and failure.failure_id != request.failure_id
+                        ):
+                            continue
+                        seen.add(failure.failure_id)
+                        proposal_id, boundary_role = self._search_context(
+                            result,
+                            failure.failure_id,
                         )
+                        entries.append(
+                            FailureDiagnosis(
+                                report_generation_id=report.report_generation_id,
+                                package=report.package.name,
+                                failure=failure,
+                                proposal_id=proposal_id,
+                                boundary_role=boundary_role,
+                                log_path=self._logs.lookup(
+                                    report.report_generation_id,
+                                    failure.failure_id,
+                                ),
+                                source="package-floor.json",
+                            )
+                        )
+            reader = getattr(self._logs, "read_latest_journal", None)
+            journal = reader(package.name) if callable(reader) else None
+            if journal is None:
+                continue
+            for item in journal.entries:
+                if item.failure.failure_id in seen:
+                    continue
+                if (
+                    request.failure_id is not None
+                    and item.failure.failure_id != request.failure_id
+                ):
+                    continue
+                seen.add(item.failure.failure_id)
+                entries.append(
+                    FailureDiagnosis(
+                        report_generation_id=journal.run_id,
+                        package=item.package,
+                        failure=item.failure,
+                        proposal_id=None,
+                        boundary_role=None,
+                        log_path=(
+                            self._logs.lookup_run(
+                                journal.run_id,
+                                item.failure.failure_id,
+                            )
+                            if hasattr(self._logs, "lookup_run")
+                            else None
+                        ),
+                        source="journal",
+                        verification_role=item.role,
+                        command=journal.command,
                     )
+                )
         if request.failure_id is not None and not entries:
             raise ConfigurationError(f"failure ID not found: {request.failure_id}")
         return tuple(sorted(entries, key=self._sort_key))

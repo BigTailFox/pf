@@ -37,10 +37,8 @@ class DiagnosticRunner:
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=output,
-            stderr_summary="",
-            stdout_tail=output,
-            stderr_tail="",
+            stdout=output,
+            stderr="",
         )
 
 
@@ -135,10 +133,8 @@ def test_ty_adapter_preserves_external_diagnostic_multiplicity_on_exit_zero(
             exit_code=0,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=output,
-            stderr_summary="",
-            stdout_tail=output,
-            stderr_tail="",
+            stdout=output,
+            stderr="",
         )
     )
 
@@ -182,10 +178,8 @@ def test_ty_adapter_namespaces_environment_paths_as_interpreter_files(
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=document,
-            stderr_summary="",
-            stdout_tail=document,
-            stderr_tail="",
+            stdout=document,
+            stderr="",
         )
     )
 
@@ -222,10 +216,8 @@ def test_ty_adapter_accepts_gitlab_lines_begin_without_a_column(tmp_path: Path) 
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=document,
-            stderr_summary="",
-            stdout_tail=document,
-            stderr_tail="",
+            stdout=document,
+            stderr="",
         )
     )
 
@@ -266,10 +258,8 @@ def test_ty_adapter_resolves_relative_diagnostics_from_nested_package_cwd(
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=document,
-            stderr_summary="",
-            stdout_tail=document,
-            stderr_tail="",
+            stdout=document,
+            stderr="",
         )
     )
 
@@ -443,10 +433,8 @@ def test_ty_adapter_preserves_non_diagnostic_terminal_states(
                 exit_code=exit_code,
                 signal=None if exit_code is not None else 9,
                 duration_seconds=0.1,
-                stdout_summary="[]",
-                stderr_summary="",
-                stdout_tail="[]",
-                stderr_tail="",
+                stdout="[]",
+                stderr="",
                 timed_out=timed_out,
             )
 
@@ -553,11 +541,9 @@ def test_ty_adapter_rejects_incomplete_or_malformed_gitlab_output(
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=document,
-            stderr_summary="",
-            stdout_tail=document,
-            stderr_tail="",
-            stdout_truncated=truncated,
+            stdout=document,
+            stderr="",
+            stdout_complete=not truncated,
         )
     )
 
@@ -599,10 +585,8 @@ def test_ty_adapter_namespaces_external_paths_outside_the_environment(
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=document,
-            stderr_summary="",
-            stdout_tail=document,
-            stderr_tail="",
+            stdout=document,
+            stderr="",
         )
     )
 
@@ -644,10 +628,8 @@ def test_ty_adapter_rejects_an_external_path_without_a_stable_namespace(
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary=document,
-            stderr_summary="",
-            stdout_tail=document,
-            stderr_tail="",
+            stdout=document,
+            stderr="",
         )
     )
 

@@ -180,10 +180,8 @@ test-command = ["python", "-c", "pass"]
         exit_code=124,
         signal=None,
         duration_seconds=1,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
         timed_out=True,
     )
     logs.record(
@@ -222,6 +220,13 @@ test-command = ["python", "-c", "pass"]
         replacement.report_generation_id,
         replacement_failure.failure_id,
     ) == Path(".pf/logs/search-run/process-0001.log")
+    journal = logs.read_latest_journal("demo")
+    assert journal is not None
+    assert journal.command == "search"
+    assert journal.run_id == "search-run"
+    assert {entry.failure.failure_id for entry in journal.entries} == {
+        replacement_failure.failure_id
+    }
 
 
 def test_search_replaces_a_report_from_an_incompatible_policy_generation(
@@ -283,12 +288,10 @@ test-command = ["python", "-c", "pass"]
                         "exit_code": 1,
                         "signal": None,
                         "duration_seconds": 0.1,
-                        "stdout_summary": "",
-                        "stderr_summary": "",
-                        "stdout_tail": "",
-                        "stderr_tail": "",
-                        "stdout_truncated": False,
-                        "stderr_truncated": False,
+                        "stdout": "",
+                        "stderr": "",
+                        "stdout_complete": True,
+                        "stderr_complete": True,
                         "timed_out": False,
                         "start_error": None,
                     },

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 
-from pf.baseline import HighestVersionVerifier
+from pf.baseline import HighestEnvironmentOperations, HighestVersionVerifier
 from pf.environment import PreparedEnvironment
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
@@ -42,10 +42,8 @@ def successful_process() -> ProcessResult:
         exit_code=0,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="[]",
-        stderr_summary="",
-        stdout_tail="[]",
-        stderr_tail="",
+        stdout="[]",
+        stderr="",
     )
 
 
@@ -221,10 +219,8 @@ test-command = ["python", "-c", "pass"]
                 exit_code=1,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="failed to build wheel",
-                stdout_tail="",
-                stderr_tail="failed to build wheel",
+                stdout="",
+                stderr="failed to build wheel",
             ),
         ),
     )
@@ -398,7 +394,7 @@ def test_highest_version_verifier_rejects_prepare_without_attempt(
 
     with pytest.raises(ValueError, match="must establish an Attempt"):
         HighestVersionVerifier(
-            environments=Environments(),
+            environments=cast(HighestEnvironmentOperations, Environments()),
             static=_NeverStatic(),
             full=_NeverFull(),
         ).verify(package=package, cell=package.cells[0], snapshot=snapshot)

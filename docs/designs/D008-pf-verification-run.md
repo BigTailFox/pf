@@ -1,6 +1,6 @@
 # PF 统一运行语义
 
-- **状态：** 现行契约，待实现
+- **状态：** 现行
 - **最后核对：** 2026-08-21
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -302,7 +302,7 @@ D005 的 locator 从“只键到报告世代”扩展为同时键到验证运行
 
 ### 8.4 impact 选择
 
-落地前，现行 impact 以 D005 §12.3 为准（由 `requested_resolution` 决定）。落地后本文取代该表：impact 由 disposition、scope 和 **Verification Role** 决定，不再只由 `requested_resolution` 决定（否则 check 的 highest 会误用 Baseline 的“未开始 floor 搜索”）。
+落地后，impact 由 disposition、scope 和 **Verification Role** 决定，不再只由 `requested_resolution` 决定（否则 check 的 highest 会误用 Baseline 的“未开始 floor 搜索”）。D005 §12.3 的 Baseline/Probe 表只覆盖没有 Role 的默认路径。
 
 | Role | REJECTED | INDETERMINATE |
 | --- | --- | --- |

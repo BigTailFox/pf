@@ -41,10 +41,8 @@ def _process() -> ProcessResult:
         exit_code=1,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="No solution found",
-        stdout_tail="",
-        stderr_tail="No solution found",
+        stdout="",
+        stderr="No solution found",
     )
 
 
@@ -117,13 +115,13 @@ def test_failure_record_identity_ignores_captured_process_output() -> None:
         scope=scope,
         cause="TEST_FAILURE",
         stage="test",
-        process=_process().model_copy(update={"stdout_summary": "first run"}),
+        process=_process().model_copy(update={"stdout": "first run"}),
     )
     second = policy.classify(
         scope=scope,
         cause="TEST_FAILURE",
         stage="test",
-        process=_process().model_copy(update={"stdout_summary": "second run"}),
+        process=_process().model_copy(update={"stdout": "second run"}),
     )
 
     assert first.failure_id == second.failure_id
@@ -158,7 +156,7 @@ def test_failure_policy_rejects_complete_probe_contract_failures(
 
 def test_failure_policy_rejects_a_static_regression_when_ty_exits_zero() -> None:
     process = _process().model_copy(
-        update={"exit_code": 0, "stderr_summary": "", "stderr_tail": ""}
+        update={"exit_code": 0, "stderr": ""}
     )
 
     failure = FailurePolicy().classify(
@@ -186,7 +184,7 @@ def test_failure_policy_rejects_a_static_regression_when_ty_exits_zero() -> None
             _probe_attempt(),
             "TEST_FAILURE",
             "test",
-            _process().model_copy(update={"stderr_truncated": True}),
+            _process().model_copy(update={"stderr_complete": False}),
         ),
     ),
 )
@@ -210,7 +208,7 @@ def test_failure_policy_does_not_reject_an_invalid_role_stage_or_incomplete_fact
     "process",
     (
         _process().model_copy(update={"timed_out": True}),
-        _process().model_copy(update={"stdout_truncated": True}),
+        _process().model_copy(update={"stdout_complete": False}),
     ),
 )
 def test_failure_record_rejects_forged_rejection_dispositions(

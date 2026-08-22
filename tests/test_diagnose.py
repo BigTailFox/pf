@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from io import StringIO
+from typing import Literal
 
 import pytest
 from rich.console import Console
@@ -11,6 +12,7 @@ from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
+from pf.runlog import RunLogStore
 from pf.schemas.config import DiagnoseRequest
 from pf.schemas.evaluation import (
     Attempt,
@@ -27,6 +29,8 @@ from pf.schemas.evaluation import (
     TestFailEvaluation,
     TestPass,
     TyCheck,
+    VerificationJournal,
+    VerificationJournalEntry,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, Proposal, VersionPin
@@ -52,6 +56,12 @@ class RecordingLogLocator:
     def lookup(self, report_generation_id: str, failure_id: str) -> Path | None:
         self.lookups.append((report_generation_id, failure_id))
         return self.path
+
+    def lookup_run(self, run_id: str, failure_id: str) -> Path | None:
+        return None
+
+    def read_latest_journal(self, package: str) -> VerificationJournal | None:
+        return None
 
 
 def _write_indeterminate_report(root: Path) -> tuple[str, str]:
@@ -211,12 +221,16 @@ def _attempt(
     snapshot_digest: str,
     vector: tuple[VersionPin, ...] | None,
     policy_identity: str,
+    requested_resolution: Literal["highest", "lowest-direct", "exact-vector"] | None = None,
 ) -> Attempt:
+    resolution = requested_resolution or (
+        "highest" if vector is None else "exact-vector"
+    )
     return Attempt.from_identity(
         AttemptIdentity(
             source_snapshot_digest=snapshot_digest,
             cell=cell,
-            requested_resolution="highest" if vector is None else "exact-vector",
+            requested_resolution=resolution,
             requested_managed_vector=vector,
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
@@ -260,10 +274,8 @@ def _process(exit_code: int = 0) -> ProcessResult:
         exit_code=exit_code,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="tests failed" if exit_code else "",
-        stdout_tail="",
-        stderr_tail="tests failed" if exit_code else "",
+        stdout="",
+        stderr="tests failed" if exit_code else "",
     )
 
 
@@ -470,10 +482,8 @@ def _diagnosis(
                 exit_code=1,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stdout="",
+                stderr="",
                 timed_out=True,
             ),
             "timed out",
@@ -483,10 +493,8 @@ def _diagnosis(
                 exit_code=None,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="uv missing",
-                stdout_tail="",
-                stderr_tail="uv missing",
+                stdout="",
+                stderr="uv missing",
                 start_error="Executable not found",
             ),
             "could not start",
@@ -496,10 +504,8 @@ def _diagnosis(
                 exit_code=None,
                 signal=9,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stdout="",
+                stderr="",
             ),
             "terminated by signal 9",
         ),
@@ -508,10 +514,8 @@ def _diagnosis(
                 exit_code=None,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stdout="",
+                stderr="",
                 start_error="",
             ),
             "could not start",
@@ -593,3 +597,126 @@ def test_diagnose_separates_multiple_failures(tmp_path: Path) -> None:
     assert f"Failure: {second_failure.failure_id}\n" in rendered
     assert "\n\nFailure: " in rendered
     assert first_generation and first_id
+
+
+def test_diagnose_reads_a_check_journal_without_a_floor_report(tmp_path: Path) -> None:
+    _write_managed_project(tmp_path)
+    project = ProjectLoader().load(root=tmp_path, package_selection=None)
+    cell = project.packages[0].cells[0]
+    attempt = _attempt(
+        cell=cell,
+        snapshot_digest="snapshot",
+        vector=None,
+        policy_identity="policy",
+        requested_resolution="lowest-direct",
+    )
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="STATIC_REGRESSION",
+        stage="ty",
+        process=_process(exit_code=1),
+    )
+    logs = RunLogStore(root=tmp_path, run_id="check-run")
+    logs.write_journal(
+        VerificationJournal(
+            run_id="check-run",
+            command="check",
+            packages=("demo",),
+            source_snapshot_digest="snapshot",
+            evaluation_policy_identity="policy",
+            entries=(
+                VerificationJournalEntry(
+                    package="demo",
+                    cell=cell,
+                    role="declaration",
+                    attempt=attempt,
+                    failure=failure,
+                ),
+            ),
+        )
+    )
+
+    diagnoses = DiagnoseCommandWorkflow(
+        projects=ProjectLoader(),
+        reports=ReportStore(),
+        logs=logs,
+    ).run(
+        DiagnoseRequest(
+            root=tmp_path.as_posix(),
+            package="demo",
+            failure_id=failure.failure_id,
+        )
+    )
+
+    assert len(diagnoses) == 1
+    assert diagnoses[0].source == "journal"
+    assert diagnoses[0].command == "check"
+    assert diagnoses[0].verification_role == "declaration"
+    stdout = StringIO()
+    exit_code = TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+        root=tmp_path,
+    ).render_diagnose(diagnoses)
+    rendered = stdout.getvalue()
+    assert exit_code == 0
+    assert "source: latest pf check" in rendered
+    assert "The declared lower bounds did not pass the required checks." in rendered
+
+
+def test_diagnose_uses_declaration_capture_impact_for_highest_check_failures(
+    tmp_path: Path,
+) -> None:
+    _write_managed_project(tmp_path)
+    project = ProjectLoader().load(root=tmp_path, package_selection=None)
+    cell = project.packages[0].cells[0]
+    attempt = _attempt(
+        cell=cell,
+        snapshot_digest="snapshot",
+        vector=None,
+        policy_identity="policy",
+        requested_resolution="highest",
+    )
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="BUILD_FAILURE",
+        stage="install-project",
+        process=_process(exit_code=1),
+    )
+    logs = RunLogStore(root=tmp_path, run_id="check-capture")
+    logs.write_journal(
+        VerificationJournal(
+            run_id="check-capture",
+            command="check",
+            packages=("demo",),
+            source_snapshot_digest="snapshot",
+            evaluation_policy_identity="policy",
+            entries=(
+                VerificationJournalEntry(
+                    package="demo",
+                    cell=cell,
+                    role="declaration-capture",
+                    attempt=attempt,
+                    failure=failure,
+                ),
+            ),
+        )
+    )
+
+    diagnoses = DiagnoseCommandWorkflow(
+        projects=ProjectLoader(),
+        reports=ReportStore(),
+        logs=logs,
+    ).run(DiagnoseRequest(root=tmp_path.as_posix(), package="demo"))
+
+    assert diagnoses[0].verification_role == "declaration-capture"
+    stdout = StringIO()
+    TerminalPresenter(
+        stdout=Console(file=stdout, force_terminal=False, color_system=None),
+        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+        root=tmp_path,
+    ).render_diagnose(diagnoses)
+    rendered = stdout.getvalue()
+    assert "could not capture a static baseline" in rendered
+    assert "declared lower bounds" in rendered
+    assert "did not start the floor search" not in rendered

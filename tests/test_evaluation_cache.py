@@ -23,10 +23,8 @@ def process(exit_code: int = 0) -> ProcessResult:
         exit_code=exit_code,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
     )
 
 

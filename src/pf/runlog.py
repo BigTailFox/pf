@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 import json
 import os
@@ -7,20 +8,30 @@ from pathlib import Path
 import re
 import secrets
 import stat
-from threading import Lock
+import tempfile
+from threading import RLock
+from typing import TextIO
 
 from pf.errors import ConfigurationError, InfrastructureError
-from pf.schemas.evaluation import ProcessResult, ProcessSpec
+from pf.schemas.evaluation import (
+    ProcessResult,
+    ProcessSpec,
+    VerificationJournal,
+)
 from pf.windows_runlog import WindowsRunDirectory
 
 
 class RunLogStore:
-    """Persist bounded process facts and retain runtime-only result references."""
+    """Persist process logs and retain runtime-only result references."""
 
     _METADATA_LIMIT = 4_096
-    _OUTPUT_LIMIT = 32 * 1024 * 1024
     _INDEX_LIMIT = 8 * 1024 * 1024
     _INDEX_NAME = "diagnosis-index.json"
+    _JOURNAL_NAME = "journal.json"
+    _LATEST_JOURNAL_KEY = "__latest_journal__"
+    _STDOUT_SECTION = "--- stdout ---"
+    _STDERR_SECTION = "--- stderr ---"
+    _STREAM_CHUNK_SIZE = 65_536
 
     def __init__(self, *, root: Path, run_id: str | None = None) -> None:
         self._root = root.resolve()
@@ -29,31 +40,59 @@ class RunLogStore:
             raise ValueError("run id must contain only safe filename characters")
         self._run_root = self._root / ".pf" / "logs" / self._run_id
         self._references: dict[int, Path] = {}
-        self._lock = Lock()
+        self._lock = RLock()
         self._initialized = False
         self._run_identity: tuple[int, int] | None = None
         self._windows_run: WindowsRunDirectory | None = None
+
+    def begin_record(self, process_id: int, spec: ProcessSpec) -> "_ProcessLogWriter":
+        """Open a streaming Process Log body; call finish() to patch terminal facts."""
+        return _ProcessLogWriter(self, process_id, spec)
 
     def record(
         self,
         process_id: int,
         spec: ProcessSpec,
         result: ProcessResult,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> Path:
+        writer = self.begin_record(process_id, spec)
+        if stdout:
+            writer.write_stdout(stdout)
+        if stderr:
+            writer.write_stderr(stderr)
+        return writer.finish(result)
+
+    def _commit_process_log(
+        self,
+        process_id: int,
+        spec: ProcessSpec,
+        result: ProcessResult,
+        stdout_file: TextIO,
+        stderr_file: TextIO,
     ) -> Path:
         try:
             with self._lock:
                 self._ensure_run()
                 path = self._run_root / f"process-{process_id:04d}.log"
-                content = self._render(process_id, spec, result)
+
+                def write_body(stream: TextIO) -> None:
+                    stream.write(self._render_header(process_id, spec, result))
+                    stream.write(f"\n{self._STDOUT_SECTION}\n")
+                    self._copy_text(stdout_file, stream)
+                    stream.write(f"\n{self._STDERR_SECTION}\n")
+                    self._copy_text(stderr_file, stream)
+
                 if self._supports_secure_dir_fd():
                     run_fd = self._open_run()
                     try:
-                        self._write_private_at(run_fd, path.name, content)
+                        self._write_private_stream(run_fd, path.name, write_body)
                     finally:
                         os.close(run_fd)
                 elif self._windows_run is not None:
                     self._windows_run.assert_intact()
-                    self._write_private_path(path, content)
+                    self._windows_run.write_private_stream(path, write_body)
                     self._windows_run.assert_intact()
                 else:
                     raise OSError("secure PF run logs are unsupported on this platform")
@@ -68,6 +107,163 @@ class RunLogStore:
     def reference_for(self, result: ProcessResult) -> Path | None:
         with self._lock:
             return self._references.get(id(result))
+
+    def read_output(self, result: ProcessResult) -> tuple[str, str] | None:
+        path = self.reference_for(result)
+        if path is None:
+            return None
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return self._parse_output(text)
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    def write_journal(self, journal: VerificationJournal) -> Path:
+        """Write this run's Verification Journal and index its failure locators."""
+        try:
+            with self._lock:
+                self._ensure_run()
+                path = self._run_root / self._JOURNAL_NAME
+                payload = journal.model_dump(mode="json")
+                payload["schema"] = payload.pop("schema_version")
+                content = (
+                    json.dumps(
+                        payload,
+                        sort_keys=True,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+                if self._supports_secure_dir_fd():
+                    run_fd = self._open_run()
+                    try:
+                        self._write_private_at(run_fd, path.name, content)
+                    finally:
+                        os.close(run_fd)
+                elif self._windows_run is not None:
+                    self._windows_run.assert_intact()
+                    self._write_private_path(path, content)
+                    self._windows_run.assert_intact()
+                else:
+                    raise OSError("secure PF run logs are unsupported on this platform")
+            located = tuple(
+                (entry.failure.failure_id, entry.failure.process)
+                for entry in journal.entries
+                if entry.failure.process is None
+                or self.reference_for(entry.failure.process) is not None
+            )
+            self.replace_associations(
+                f"journal:{journal.run_id}",
+                located,
+                replace_generation=True,
+            )
+            self._write_latest_journal(
+                {package: journal.run_id for package in journal.packages}
+            )
+            return path
+        except (OSError, NotImplementedError, ValueError) as error:
+            raise InfrastructureError(
+                "could not write PF verification journal",
+                detail=str(error),
+            ) from error
+
+    def read_latest_journal(self, package: str) -> VerificationJournal | None:
+        run_id = self.latest_journal_id(package)
+        if run_id is None:
+            return None
+        return self.read_journal(run_id)
+
+    def latest_journal_id(self, package: str) -> str | None:
+        try:
+            with self._lock:
+                entries = self._read_index_entries()
+                latest = entries.get(self._LATEST_JOURNAL_KEY, {})
+                run_id = latest.get(package)
+                return run_id if isinstance(run_id, str) else None
+        except (OSError, NotImplementedError, ValueError, ConfigurationError):
+            return None
+
+    def read_journal(self, run_id: str) -> VerificationJournal | None:
+        path = self._root / ".pf" / "logs" / run_id / self._JOURNAL_NAME
+        if not path.is_file():
+            return None
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(document, dict):
+            return None
+        schema = document.pop("schema", None)
+        if schema:
+            document["schema_version"] = schema
+        try:
+            return VerificationJournal.model_validate(document)
+        except Exception:
+            return None
+
+    def lookup_run(self, run_id: str, failure_id: str) -> Path | None:
+        return self.lookup(f"journal:{run_id}", failure_id)
+
+    def _write_latest_journal(self, latest: dict[str, str]) -> None:
+        with self._lock:
+            if self._supports_secure_dir_fd():
+                logs_fd = self._open_existing_logs()
+                if logs_fd is None:
+                    return
+                try:
+                    entries = self._read_index_at(logs_fd)
+                    current = dict(entries.get(self._LATEST_JOURNAL_KEY, {}))
+                    current.update(latest)
+                    entries[self._LATEST_JOURNAL_KEY] = current
+                    self._write_private_at(
+                        logs_fd,
+                        self._INDEX_NAME,
+                        self._index_content(entries),
+                    )
+                finally:
+                    os.close(logs_fd)
+                return
+            if not self._supports_windows_guard():
+                raise OSError(
+                    "secure PF diagnosis indexes are unsupported on this platform"
+                )
+            self._replace_associations_windows(
+                self._LATEST_JOURNAL_KEY,
+                latest,
+                replace_generation=False,
+                remove_failure_ids=(),
+            )
+
+    def _read_index_entries(self) -> dict[str, dict[str, str]]:
+        if not self._supports_secure_dir_fd():
+            if not self._supports_windows_guard():
+                return {}
+            try:
+                guard = WindowsRunDirectory.open_existing(root=self._root)
+            except FileNotFoundError:
+                return {}
+            try:
+                index_path = guard.logs_root / self._INDEX_NAME
+                try:
+                    return self._parse_index(
+                        guard.read_bounded_text(index_path, limit=self._INDEX_LIMIT)
+                    )
+                except FileNotFoundError:
+                    return {}
+            finally:
+                guard.close()
+        logs_fd = self._open_existing_logs()
+        if logs_fd is None:
+            return {}
+        try:
+            return self._read_index_at(logs_fd)
+        finally:
+            os.close(logs_fd)
 
     def associate(
         self,
@@ -329,6 +525,16 @@ class RunLogStore:
         for generation, failures in entries.items():
             if not isinstance(generation, str) or not isinstance(failures, dict):
                 raise ValueError("PF diagnosis index generation is invalid")
+            if generation == RunLogStore._LATEST_JOURNAL_KEY:
+                validated_latest: dict[str, str] = {}
+                for package, run_id in failures.items():
+                    if not isinstance(package, str) or not isinstance(run_id, str):
+                        raise ValueError("PF diagnosis index latest journal is invalid")
+                    if re.fullmatch(r"[A-Za-z0-9._-]+", run_id) is None:
+                        raise ValueError("PF diagnosis index latest journal is invalid")
+                    validated_latest[package] = run_id
+                validated[generation] = validated_latest
+                continue
             validated_failures: dict[str, str] = {}
             for indexed_failure, relative in failures.items():
                 if not isinstance(indexed_failure, str) or not isinstance(
@@ -522,6 +728,18 @@ class RunLogStore:
 
     @staticmethod
     def _write_private_at(directory_fd: int, name: str, content: str) -> None:
+        def write_content(stream: TextIO) -> None:
+            stream.write(content)
+
+        RunLogStore._write_private_stream(directory_fd, name, write_content)
+
+    @classmethod
+    def _write_private_stream(
+        cls,
+        directory_fd: int,
+        name: str,
+        write_body: Callable[[TextIO], None],
+    ) -> None:
         temporary = f".{name}.{secrets.token_hex(4)}.tmp"
         descriptor: int | None = None
         flags = (
@@ -534,9 +752,14 @@ class RunLogStore:
         try:
             descriptor = os.open(temporary, flags, 0o600, dir_fd=directory_fd)
             os.fchmod(descriptor, 0o600)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            with os.fdopen(
+                descriptor,
+                "w",
+                encoding="utf-8",
+                buffering=cls._STREAM_CHUNK_SIZE,
+            ) as stream:
                 descriptor = None
-                stream.write(content)
+                write_body(stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(
@@ -558,6 +781,60 @@ class RunLogStore:
             raise OSError("Windows run directory guard is unavailable")
         self._windows_run.write_private(path, content)
 
+    @classmethod
+    def _copy_text(cls, source: TextIO, dest: TextIO) -> None:
+        source.seek(0)
+        while True:
+            piece = source.read(cls._STREAM_CHUNK_SIZE)
+            if not piece:
+                break
+            dest.write(piece)
+
+    @classmethod
+    def _render_header(
+        cls,
+        process_id: int,
+        spec: ProcessSpec,
+        result: ProcessResult,
+    ) -> str:
+        environment_names = sorted(variable.name for variable in spec.environment)
+        return (
+            "format: pf-process-log-v1\n"
+            f"process_id: {process_id}\n"
+            f"argv: {cls._bounded_json(spec.argv)}\n"
+            f"cwd: {cls._bounded_json(spec.cwd)}\n"
+            f"environment_names: {cls._bounded_json(environment_names)}\n"
+            f"timeout_seconds: {json.dumps(spec.timeout_seconds)}\n"
+            f"start_new_session: {json.dumps(spec.start_new_session)}\n"
+            "redaction_policy_identity: "
+            f"{cls._bounded_json(spec.redaction_policy_identity)}\n"
+            f"exit_code: {json.dumps(result.exit_code)}\n"
+            f"signal: {json.dumps(result.signal)}\n"
+            f"start_error: {cls._bounded_json(result.start_error)}\n"
+            f"timed_out: {json.dumps(result.timed_out)}\n"
+            f"duration_seconds: {result.duration_seconds}\n"
+            f"stdout_complete: {json.dumps(result.stdout_complete)}\n"
+            f"stderr_complete: {json.dumps(result.stderr_complete)}\n"
+        )
+
+    @classmethod
+    def _render(
+        cls,
+        process_id: int,
+        spec: ProcessSpec,
+        result: ProcessResult,
+        *,
+        stdout: str,
+        stderr: str,
+    ) -> str:
+        output = cls._render_header(process_id, spec, result)
+        for heading, value in (
+            (cls._STDOUT_SECTION, stdout),
+            (cls._STDERR_SECTION, stderr),
+        ):
+            output += f"\n{heading}\n{value}"
+        return output
+
     @staticmethod
     def _supports_secure_dir_fd() -> bool:
         return os.name != "nt" and hasattr(os, "O_NOFOLLOW")
@@ -566,47 +843,17 @@ class RunLogStore:
     def _supports_windows_guard() -> bool:
         return os.name == "nt"
 
-    @staticmethod
-    def _render(
-        process_id: int,
-        spec: ProcessSpec,
-        result: ProcessResult,
-    ) -> str:
-        environment_names = sorted(variable.name for variable in spec.environment)
-        terminal = (
-            f"exit_code: {json.dumps(result.exit_code)}\n"
-            f"signal: {json.dumps(result.signal)}\n"
-            f"start_error: {RunLogStore._bounded_json(result.start_error)}\n"
-            f"timed_out: {json.dumps(result.timed_out)}\n"
-            f"duration_seconds: {result.duration_seconds}\n"
-            f"stdout_truncated: {json.dumps(result.stdout_truncated)}\n"
-            f"stderr_truncated: {json.dumps(result.stderr_truncated)}\n"
-        )
-        sections = (
-            ("stdout summary", result.stdout_summary),
-            ("stdout tail", result.stdout_tail),
-            ("stderr summary", result.stderr_summary),
-            ("stderr tail", result.stderr_tail),
-        )
-        output = (
-            "format: pf-process-log-v1\n"
-            f"process_id: {process_id}\n"
-            f"argv: {RunLogStore._bounded_json(spec.argv)}\n"
-            f"cwd: {RunLogStore._bounded_json(spec.cwd)}\n"
-            f"environment_names: {RunLogStore._bounded_json(environment_names)}\n"
-            f"timeout_seconds: {json.dumps(spec.timeout_seconds)}\n"
-            f"start_new_session: {json.dumps(spec.start_new_session)}\n"
-            f"summary_limit: {json.dumps(spec.summary_limit)}\n"
-            "redaction_policy_identity: "
-            f"{RunLogStore._bounded_json(spec.redaction_policy_identity)}\n"
-            f"{terminal}"
-        )
-        for heading, value in sections:
-            bounded = RunLogStore._bounded(value, RunLogStore._OUTPUT_LIMIT)
-            output += f"\n--- {heading} ---\n{bounded}"
-            if bounded and not bounded.endswith("\n"):
-                output += "\n"
-        return output
+    @classmethod
+    def _parse_output(cls, text: str) -> tuple[str, str]:
+        stdout_mark = f"\n{cls._STDOUT_SECTION}\n"
+        stderr_mark = f"\n{cls._STDERR_SECTION}\n"
+        stdout_at = text.find(stdout_mark)
+        stderr_at = text.find(stderr_mark)
+        if stdout_at < 0 or stderr_at < 0 or stderr_at < stdout_at:
+            return "", ""
+        stdout = text[stdout_at + len(stdout_mark) : stderr_at]
+        stderr = text[stderr_at + len(stderr_mark) :]
+        return stdout, stderr
 
     @staticmethod
     def _bounded(value: str, limit: int) -> str:
@@ -626,3 +873,42 @@ class RunLogStore:
     def _new_run_id() -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         return f"{timestamp}-{os.getpid()}-{secrets.token_hex(4)}"
+
+
+class _ProcessLogWriter:
+    """Stream redacted stdout/stderr to anonymous temps, then patch terminal facts."""
+
+    def __init__(
+        self, store: RunLogStore, process_id: int, spec: ProcessSpec
+    ) -> None:
+        self._store = store
+        self._process_id = process_id
+        self._spec = spec
+        self._stdout = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        self._stderr = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        self._closed = False
+
+    def write_stdout(self, chunk: str) -> None:
+        self._stdout.write(chunk)
+
+    def write_stderr(self, chunk: str) -> None:
+        self._stderr.write(chunk)
+
+    def finish(self, result: ProcessResult) -> Path:
+        try:
+            return self._store._commit_process_log(
+                self._process_id,
+                self._spec,
+                result,
+                self._stdout,
+                self._stderr,
+            )
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._stdout.close()
+        self._stderr.close()

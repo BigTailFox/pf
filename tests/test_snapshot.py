@@ -93,10 +93,8 @@ def test_git_snapshot_failure_includes_process_diagnostic(tmp_path: Path) -> Non
                 exit_code=128,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="fatal: not a git repository",
-                stdout_tail="",
-                stderr_tail="fatal: not a git repository",
+                stdout="",
+                stderr="fatal: not a git repository",
             )
 
     with pytest.raises(InfrastructureError) as caught:

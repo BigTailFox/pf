@@ -6,11 +6,11 @@
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)（待实现）
-- **进程输出与日志：** [D007](D007-pf-process-output.md)（待实现）
-- **验证运行语义：** [D008](D008-pf-verification-run.md)（待实现）
+- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
+- **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文的替换契约见 D007；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 的替换契约见 D008。本文描述已落地接口，不把待实现规则写成现行 Schema。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有。本文描述已落地接口，不复制其他契约的业务规则。
 
 ## 1. 设计原则
 
@@ -152,7 +152,7 @@ Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解�
 - `CheckResult`、`HighestVersionPass`、`BaselineRejection`、`BaselineIndeterminate`、`SmokeResult`、`CacheConflict`；
 - `ProgressEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`、`SearchFailureEvent`。
 
-`ProcessResult` 只包含脱敏、有界的可移植机械事实（含 `stdout_truncated` / `stderr_truncated`），不包含详细日志引用。`FailureRecord` 可以保存该 `ProcessResult`，公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005 定义的项目本地 diagnosis index；索引或日志丢失不能改变已经记录的 disposition。D007 落地后替换截断字段与有界输出语义。
+`ProcessResult` 只包含脱敏的可移植机械终态（含 `stdout_complete` / `stderr_complete`），不包含详细日志引用或输出文本。运行期 Output Cache 若挂在同一对象上，不得进入 `model_dump` / 报告 / `failure_id`。`FailureRecord` 可以保存该 `ProcessResult`，公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005/D008 定义的项目本地 diagnosis index 与 Verification Journal；索引或日志丢失不能改变已经记录的 disposition。磁盘日志原文与缓存上限由 D007 拥有。
 
 `schemas/report.py`：
 
@@ -177,7 +177,7 @@ main() -> None
 
 `pf` 入口为 `pf.cli:main`；`pf/__main__.py` 调用同一个 `main()`。`pf/__init__.py` 不导入 CLI。
 
-每个 command docstring 使用 Cyclopts 可解析的 NumPy-style `Parameters` 章节。typing annotation 只表达类型；文案不放在 `Annotated[..., Parameter(help=...)]` 或重复常量中。
+每个 command docstring 使用 Cyclopts 可解析说明。位置性由 `/` 表达；帮助字符串由 D006 规定，实现放在 `Parameter(help=)` 中作为唯一文案源，不另维护第二套 help 页面。
 
 除 `minimize` 外，handler 只构造 request、调用一个 workflow、交给 `TerminalPresenter` 渲染并返回 D001 退出码。领域异常继承 `PfError`，只在 `main()` 最外层映射；内部模块不调用 `sys.exit()`。
 
@@ -189,7 +189,7 @@ main() -> None
 | `SmokeCommandWorkflow` | load → snapshot → 选择宿主 cell → Scheduler → HighestVersionVerifier | `.pf/logs`、临时环境 |
 | `SearchCommandWorkflow` | load → snapshot → 宿主 cell 搜索 → report build/update/write | `.pf/logs`、`package-floor.json` |
 | `ExplainCommandWorkflow` | load → 定位并读取报告 | 无 |
-| `DiagnoseCommandWorkflow` | load → 定位并读取报告 → 解析 FailureRecord → 可选读取本地 locator/log | 无 |
+| `DiagnoseCommandWorkflow` | load → 定位并读取报告 ∪ `latest_journal` → 解析 FailureRecord → 可选读取本地 locator/log | 无 |
 | `MergeCommandWorkflow` | read → merge → write | 显式 output |
 | `ApplyCommandWorkflow` | load → 读取并核对报告 → `ProjectEditor.apply_many` | `pyproject.toml`、`.pf` 日志 |
 
@@ -241,10 +241,10 @@ build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 
 ```text
 prepare(package, cell, snapshot, resolution, managed_vector=None)
-  -> PreparedEnvironment | PrepareFailure | ToolFailure
+  -> PreparedEnvironment | PrepareFailure
 ```
 
-`resolution=highest` 或带 `managed_vector` 的精确向量会在任何外部操作前构造 Attempt。`check` 的 `lowest-direct` 不创建 Attempt；此时 prepare 失败直接返回 `ToolFailure`。`CompatibilityChecker` 现行会把 highest 的 `PrepareFailure` unwrap 成 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，不进入公共报告。D008 落地后为 `lowest-direct` 建立 Attempt，并禁止 unwrap `PrepareFailure`。
+`resolution=highest`、`lowest-direct` 或带 `managed_vector` 的精确向量都会在任何外部操作前构造 Attempt。prepare 失败返回 `PrepareFailure(attempt, failure)`；调用方不得 unwrap 成裸 `ToolFailure`。随后创建独立源码副本和虚拟环境，物化受管向量，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，必含 `attempt`，不进入公共报告。Attempt 序列与 Role 由 D008 拥有。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -391,7 +391,7 @@ PREPARED -> PROJECT_REPLACED -> REPORT_CONFIRMED -> COMMITTED
 
 ## 12. TerminalPresenter
 
-`terminal.py` 是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果：stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。D006 尚未完全落地，现行终端布局以实现为准，但不能在 D002 另写一套展示规则。
+`terminal.py` 是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果：stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
 
 adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 
@@ -402,10 +402,10 @@ adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保�
 测试以模块 interface 为表面：
 
 - Schema：严格/冻结、union、证据链 validator、JSON round-trip；
-- CLI：两个入口、八命令、参数默认值和 D001 退出码；D006 落地后按 D006 验证 help 分组、调用错误和结果摘要；
+- CLI：两个入口、八命令、参数默认值、D001 退出码，以及 D006 的 help 分组、调用错误和结果摘要；
 - 核心：真实临时项目/快照、fake adapter、D003 focused algorithm、D004 增量证据、D005 failure 分类；
-- adapter：recording ProcessRunner、argv、状态、timeout、truncation 与脱敏；
+- adapter：recording ProcessRunner、argv、状态、timeout、`*_complete` 与脱敏；
 - 持久化：canonical JSON、merge/update、投影、恢复日志、幂等 apply；
 - 端到端：安装 wheel 后执行真实 `smoke -> check -> search -> explain -> diagnose -> apply`；另测 `diagnose` 不启动进程、不访问网络、不修改项目。
 
-需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../plans/P001-pf-v1.md)、[P002](../plans/P002-pf-ty-enhancement.md)、[P003](../plans/P003-pf-smoke-observability.md) 与 [P004](../plans/P004-pf-failure-and-diagnose.md)。
+需要网络、其他 CPython minor 或非宿主平台的验证必须单独标注，不能由 fake 或契约测试冒充。历史验证证据见 [P001](../plans/P001-pf-v1.md)、[P002](../plans/P002-pf-ty-enhancement.md)、[P003](../plans/P003-pf-smoke-observability.md)、[P004](../plans/P004-pf-failure-and-diagnose.md)、[P005](../plans/P005-pf-process-output.md)、[P006](../plans/P006-pf-verification-run.md) 与 [P007](../plans/P007-pf-cli-enhancement.md)。

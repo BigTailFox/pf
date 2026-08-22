@@ -176,22 +176,20 @@ def test_process_result_omits_captured_output_from_portable_facts() -> None:
         exit_code=1,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="484 passed in 11.12s",
-        stderr_summary="tool noise",
-        stdout_tail="484 passed in 11.12s",
-        stderr_tail="tool noise",
+        stdout="484 passed in 11.12s",
+        stderr="tool noise",
     )
 
     dumped = process.model_dump(mode="json")
     restored = ProcessResult.model_validate(dumped)
 
-    assert "stdout_summary" not in dumped
-    assert "stderr_summary" not in dumped
+    assert "stdout" not in dumped
+    assert "stderr" not in dumped
     assert "stdout_tail" not in dumped
     assert "stderr_tail" not in dumped
     assert restored.exit_code == 1
-    assert restored.stdout_summary == ""
-    assert restored.stderr_summary == ""
+    assert restored.stdout == ""
+    assert restored.stderr == ""
 
 
 @pytest.mark.parametrize(
@@ -277,10 +275,8 @@ def _successful_process(*, exit_code: int = 0) -> ProcessResult:
         exit_code=exit_code,
         signal=None,
         duration_seconds=0,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
     )
 
 
@@ -296,7 +292,7 @@ def _successful_process(*, exit_code: int = 0) -> ProcessResult:
         (
             TestFail,
             _successful_process(exit_code=1).model_copy(
-                update={"stderr_truncated": True}
+                update={"stderr_complete": False}
             ),
         ),
     ),
@@ -395,7 +391,7 @@ def test_ty_diagnostic_rejects_noncanonical_identity_fields(
     (
         {"exit_code": 2},
         {"timed_out": True},
-        {"stdout_truncated": True},
+        {"stdout_complete": False},
     ),
 )
 def test_ty_check_rejects_noncomparable_process_results(

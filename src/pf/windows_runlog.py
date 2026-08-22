@@ -141,6 +141,12 @@ class WindowsRunDirectory:
 
     def write_private(self, path: Path, content: str) -> None:  # pragma: no cover
         """Atomically replace a guarded file created with an owner-only DACL."""
+        self.write_private_stream(path, lambda stream: stream.write(content))
+
+    def write_private_stream(
+        self, path: Path, write_body: Any
+    ) -> None:  # pragma: no cover
+        """Atomically replace a guarded file from a bounded streaming writer."""
         self.assert_intact()
         self._require_guarded_parent(path)
         temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
@@ -155,7 +161,7 @@ class WindowsRunDirectory:
             handle = None
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 descriptor = None
-                stream.write(content)
+                write_body(stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             self.assert_intact()

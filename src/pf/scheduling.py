@@ -13,6 +13,7 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     CellFailureScope,
+    CheckCellOutcome,
     FailureDetail,
     FailureRecord,
     HighestVersionPass,
@@ -192,6 +193,11 @@ def _completion_progress(
     phase: str | None = None,
 ) -> ProgressEvent:
     diagnostics, process, failure, detail = _completion_payload(result)
+    role = getattr(result, "role", None)
+    if role is None and isinstance(
+        result, (HighestVersionPass, BaselineRejection, BaselineIndeterminate)
+    ):
+        role = "baseline"
     return ProgressEvent(
         package=cell.package,
         cell=cell,
@@ -203,6 +209,8 @@ def _completion_progress(
         diagnostics=diagnostics,
         process=process,
         failure=failure,
+        verification_role=role,
+        stage=None if failure is None else failure.stage,
     )
 
 
@@ -214,6 +222,28 @@ def _completion_payload(
     FailureRecord | None,
     str,
 ]:
+    if isinstance(result, CheckCellOutcome):
+        evaluation = result.evaluation
+        if isinstance(evaluation, StaticFailEvaluation):
+            return evaluation.incremental, evaluation.ty.process, result.failure, ""
+        if isinstance(evaluation, TestFailEvaluation):
+            return (
+                evaluation.static.ty.diagnostics,
+                evaluation.test.process,
+                result.failure,
+                evaluation.test.process.diagnostic(),
+            )
+        if isinstance(evaluation, PassEvaluation):
+            diagnostics = evaluation.static.ty.diagnostics
+            return (
+                diagnostics,
+                evaluation.static.ty.process if diagnostics else None,
+                None,
+                "",
+            )
+        process = result.failure.process if result.failure is not None else None
+        detail = process.diagnostic() if process is not None else ""
+        return (), process, result.failure, detail
     if isinstance(result, StaticFailEvaluation):
         return result.incremental, result.ty.process, None, ""
     if isinstance(result, TestFailEvaluation):

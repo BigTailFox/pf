@@ -47,6 +47,10 @@ class ConfigurationError(PfError):
         self.candidates = candidates
 
 
+class InvocationError(ConfigurationError):
+    """A user-correctable CLI usage error rendered as Error/Usage/Try."""
+
+
 class InfrastructureError(PfError):
     category = "infrastructure"
     exit_code = ExitCode.INDETERMINATE

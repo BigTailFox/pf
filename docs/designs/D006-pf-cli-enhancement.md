@@ -1,6 +1,6 @@
 # PF CLI 交互与展示增强
 
-- **状态：** 现行契约，待实现
+- **状态：** 现行
 - **最后核对：** 2026-08-21
 - **产品与命令：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
@@ -11,7 +11,7 @@
 
 本文是 PF CLI 帮助信息架构、调用错误反馈、终端信息层级、命令结果摘要和 `explain` 展示的唯一契约。D001 继续定义命令、参数语义、产品结果和退出码；D002 继续定义 `cli.py` / `TerminalPresenter` 的模块位置；D004 定义静态诊断事实；D005 定义 failure 的 title、next step、技术信息；D007 定义 Process Log 与 Output Cache；D008 定义 Verification Role、Journal 以及 check 也产生 FailureRecord。本文只组织这些事实，不重新分类证据或改变产品语义。impact 句子由 D005 拥有；Role 相关 impact 由 D008 拥有，Presenter 只渲染。
 
-本文描述目标 CLI。check 的 FailureRecord、Journal 与 Role→impact 以 D008 落地为前提；D008 落地前 check 兼容性失败仍可能只是 Evaluation。进程输出末几行的数据源以 D007 为前提；D007 落地前仍从有界 `ProcessResult` 摘要取末尾。
+本文描述现行 CLI。check 的 FailureRecord、Journal 与 Role→impact 以 D008 为数据源；进程输出末几行以 D007 的 Output Cache / Process Log 为数据源。
 
 ## 1. 问题
 
@@ -311,7 +311,7 @@ FAILED tests/test_cli.py::test_example
 
 cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan，live 进度与冻结结果相同。
 
-`smoke` / `check` / `search` 的非成功完成块只要有 FailureRecord 就提供 Diagnose 入口。D008 落地后 check 不再有无 FailureRecord 的兼容性失败路径。
+`smoke` / `check` / `search` 的非成功完成块只要有 FailureRecord 就提供 Diagnose 入口。check 不再有无 FailureRecord 的兼容性失败路径。
 
 成功 cell 只有图标、标题和耗时，不写 `failed at`：
 
@@ -445,7 +445,7 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 | workflow 业务编排和 artifact 写入 | `workflow.py` 与对应深模块 |
 | 未知 package 的候选名称 | `ProjectLoader` via `ConfigurationError.candidates` |
 | failure title、next step、technical code | D005；`TerminalPresenter` 只渲染 |
-| Role → impact | D008；落地前现行 impact 见 D005 §12.3 |
+| Role → impact | D008；Presenter 只渲染 |
 | help 分组、结果摘要、cell/diagnostic/explain 布局 | D006；`TerminalPresenter` 只渲染 |
 | `render_minimize` | `TerminalPresenter` |
 | TTY event、Rich renderable、stdout/stderr | `TerminalPresenter` |
@@ -485,7 +485,7 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 - 冻结 cell 第一行不含 Schema status 或 cause Enum；
 - `smoke` / `check` / `search` 的 FailureRecord 路径包含 D005 title、impact 和 `Diagnose:`；
 - baseline Indeterminate 的 impact 不得把 baseline 说成 candidate；
-- D008 落地前 check 的 Evaluation 失败路径没有 Diagnose；落地后按 D008 区分 `declaration-capture` 与 `declaration` impact，不得共用 search Baseline 句子。
+- check 按 D008 区分 `declaration-capture` 与 `declaration` impact，不得共用 search Baseline 句子；smoke 的 baseline 使用 D008 smoke 文案。
 
 ### 13.4 `explain`
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Callable
+from dataclasses import dataclass
 from itertools import count
 import os
 from pathlib import Path
@@ -19,8 +22,14 @@ from pf.schemas.evaluation import (
     ProcessSpec,
 )
 
-DEFAULT_CAPTURE_LIMIT = 32 * 1024 * 1024
-DEFAULT_TAIL_LIMIT = 16_384
+OUTPUT_CACHE_LIMIT = 16 * 1024 * 1024
+_STREAM_CHUNK_SIZE = 65_536
+
+
+@dataclass(frozen=True)
+class ProcessOutput:
+    stdout: str
+    stderr: str
 
 
 class ProcessRunner(Protocol):
@@ -31,13 +40,29 @@ class ProcessListener(Protocol):
     def consume(self, event: ProcessEvent) -> None: ...
 
 
+class ProcessLogWriter(Protocol):
+    def write_stdout(self, chunk: str) -> None: ...
+
+    def write_stderr(self, chunk: str) -> None: ...
+
+    def finish(self, result: ProcessResult) -> Path: ...
+
+
 class ProcessLogRecorder(Protocol):
+    def begin_record(self, process_id: int, spec: ProcessSpec) -> ProcessLogWriter: ...
+
     def record(
         self,
         process_id: int,
         spec: ProcessSpec,
         result: ProcessResult,
+        stdout: str = "",
+        stderr: str = "",
     ) -> Path: ...
+
+    def reference_for(self, result: ProcessResult) -> Path | None: ...
+
+    def read_output(self, result: ProcessResult) -> tuple[str, str] | None: ...
 
 
 class SecretRedactor:
@@ -58,9 +83,139 @@ class SecretRedactor:
             redacted = redacted.replace(secret, "***")
         return redacted
 
+    def overlap_bytes(self) -> int:
+        longest = max((len(secret.encode("utf-8")) for secret in self._secrets), default=0)
+        return max(longest, 256)
+
+
+def read_process_output(runner: object, result: ProcessResult) -> ProcessOutput:
+    """Return stdout/stderr from a runner cache, Process Log, or result projection."""
+    reader = getattr(runner, "output", None)
+    if callable(reader):
+        return reader(result)
+    return ProcessOutput(stdout=result.stdout, stderr=result.stderr)
+
+
+def project_output_cache(
+    stdout: str,
+    stderr: str,
+    *,
+    limit: int = OUTPUT_CACHE_LIMIT,
+) -> tuple[str, str]:
+    """Keep a tail-preferring projection whose UTF-8 size is at most *limit*."""
+    stdout_bytes = stdout.encode("utf-8")
+    stderr_bytes = stderr.encode("utf-8")
+    stdout_budget, stderr_budget = _cache_budgets(
+        len(stdout_bytes),
+        len(stderr_bytes),
+        limit,
+    )
+    return (
+        _decode_tail(stdout_bytes, stdout_budget),
+        _decode_tail(stderr_bytes, stderr_budget),
+    )
+
+
+def _cache_budgets(stdout_len: int, stderr_len: int, limit: int) -> tuple[int, int]:
+    if stdout_len + stderr_len <= limit:
+        return stdout_len, stderr_len
+    stderr_budget = min(stderr_len, limit if stdout_len == 0 else limit // 2)
+    stdout_budget = min(stdout_len, limit - stderr_budget)
+    stderr_budget = min(stderr_len, limit - stdout_budget)
+    return stdout_budget, stderr_budget
+
+
+class _OutputCacheBuilder:
+    """Accumulate a ≤16 MiB tail projection from streamed chunks."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._stdout_chunks: deque[bytes] = deque()
+        self._stderr_chunks: deque[bytes] = deque()
+        self._stdout_size = 0
+        self._stderr_size = 0
+        self._stdout_total = 0
+        self._stderr_total = 0
+
+    def consume_stdout(self, text: str) -> None:
+        self._consume(self._stdout_chunks, "_stdout_size", "_stdout_total", text)
+
+    def consume_stderr(self, text: str) -> None:
+        self._consume(self._stderr_chunks, "_stderr_size", "_stderr_total", text)
+
+    def project(self) -> tuple[str, str]:
+        return (
+            _decode_tail(b"".join(self._stdout_chunks), self._stdout_size),
+            _decode_tail(b"".join(self._stderr_chunks), self._stderr_size),
+        )
+
+    def covered_full(self) -> tuple[bool, bool]:
+        return (
+            self._stdout_size == self._stdout_total,
+            self._stderr_size == self._stderr_total,
+        )
+
+    def _consume(
+        self,
+        chunks: deque[bytes],
+        size_attr: str,
+        total_attr: str,
+        text: str,
+    ) -> None:
+        data = text.encode("utf-8")
+        chunks.append(data)
+        setattr(self, size_attr, getattr(self, size_attr) + len(data))
+        setattr(self, total_attr, getattr(self, total_attr) + len(data))
+        self._trim()
+
+    def _trim(self) -> None:
+        stdout_budget, stderr_budget = _cache_budgets(
+            self._stdout_size,
+            self._stderr_size,
+            self._limit,
+        )
+        self._drop(self._stdout_chunks, "_stdout_size", stdout_budget)
+        self._drop(self._stderr_chunks, "_stderr_size", stderr_budget)
+
+    def _drop(self, chunks: deque[bytes], size_attr: str, budget: int) -> None:
+        size = getattr(self, size_attr)
+        while size > budget and chunks:
+            extra = size - budget
+            first = chunks[0]
+            if len(first) <= extra:
+                chunks.popleft()
+                size -= len(first)
+            else:
+                chunks[0] = first[extra:]
+                size -= extra
+        setattr(self, size_attr, size)
+
+
+def _decode_tail(payload: bytes, budget: int) -> str:
+    if budget >= len(payload):
+        return payload.decode("utf-8", errors="replace")
+    return payload[-budget:].decode("utf-8", errors="replace")
+
+
+class _StreamSink:
+    """Fan a redacted chunk into the Output Cache and, when present, the log."""
+
+    def __init__(
+        self,
+        cache: Callable[[str], None],
+        write: Callable[[str], None] | None,
+    ) -> None:
+        self._cache = cache
+        self._write = write
+
+    def __call__(self, text: str) -> None:
+        self._cache(text)
+        if self._write is not None:
+            self._write(text)
+
 
 class SubprocessRunner:
-    """Run argv without a shell and return bounded, redacted mechanical facts."""
+    """Run argv without a shell and return portable facts plus an output cache."""
 
     def __init__(
         self,
@@ -68,17 +223,18 @@ class SubprocessRunner:
         redactor: SecretRedactor | None = None,
         listener: ProcessListener | None = None,
         logs: ProcessLogRecorder | None = None,
-        summary_limit: int = DEFAULT_CAPTURE_LIMIT,
-        tail_limit: int = DEFAULT_TAIL_LIMIT,
+        cache_limit: int = OUTPUT_CACHE_LIMIT,
+        summary_limit: int | None = None,
         terminate_grace_seconds: float = 1.0,
     ) -> None:
         self._redactor = redactor or SecretRedactor()
         self._listener = listener
         self._logs = logs
         self._process_ids = count(1)
-        self._summary_limit = summary_limit
-        self._tail_limit = tail_limit
+        self._cache_limit = summary_limit if summary_limit is not None else cache_limit
         self._terminate_grace_seconds = terminate_grace_seconds
+        self._outputs: dict[int, ProcessOutput] = {}
+        self._output_full: dict[int, tuple[bool, bool]] = {}
 
     def run(self, spec: ProcessSpec) -> ProcessResult:
         started = time.monotonic()
@@ -94,6 +250,11 @@ class SubprocessRunner:
             tempfile.TemporaryFile() as stdout_file,
             tempfile.TemporaryFile() as stderr_file,
         ):
+            cache_limit = (
+                spec.summary_limit
+                if spec.summary_limit is not None
+                else self._cache_limit
+            )
             try:
                 process = subprocess.Popen(
                     spec.argv,
@@ -110,13 +271,10 @@ class SubprocessRunner:
                     exit_code=None,
                     signal=None,
                     duration_seconds=time.monotonic() - started,
-                    stdout_summary="",
-                    stderr_summary="",
-                    stdout_tail="",
-                    stderr_tail="",
                     start_error=self._redactor.redact(str(error)),
                 )
-                self._record(process_id, spec, result, argv)
+                self._store_output(result, (True, True))
+                self._commit_log(process_id, spec, result, argv)
                 self._emit(
                     ProcessEvent(
                         process_id=process_id,
@@ -135,35 +293,37 @@ class SubprocessRunner:
                 self._terminate(process, spec.start_new_session)
                 process.communicate()
 
-            summary_limit = (
-                spec.summary_limit
-                if spec.summary_limit is not None
-                else self._summary_limit
-            )
-            stdout_summary, stdout_tail, stdout_truncated = self._capture(
+            cache = _OutputCacheBuilder(cache_limit)
+            writer = self._begin_log(process_id, spec, argv)
+            self._redact_stream(
                 stdout_file,
-                summary_limit=summary_limit,
+                _StreamSink(
+                    cache.consume_stdout,
+                    None if writer is None else writer.write_stdout,
+                ),
             )
-            stderr_summary, stderr_tail, stderr_truncated = self._capture(
+            self._redact_stream(
                 stderr_file,
-                summary_limit=summary_limit,
+                _StreamSink(
+                    cache.consume_stderr,
+                    None if writer is None else writer.write_stderr,
+                ),
             )
         return_code = process.returncode
         exit_code = return_code if return_code >= 0 else None
         process_signal = -return_code if return_code < 0 else None
+        cached_stdout, cached_stderr = cache.project()
         result = ProcessResult(
             exit_code=exit_code,
             signal=process_signal,
             duration_seconds=time.monotonic() - started,
-            stdout_summary=stdout_summary,
-            stderr_summary=stderr_summary,
-            stdout_tail=stdout_tail,
-            stderr_tail=stderr_tail,
-            stdout_truncated=stdout_truncated,
-            stderr_truncated=stderr_truncated,
+            stdout=cached_stdout,
+            stderr=cached_stderr,
             timed_out=timed_out,
         )
-        self._record(process_id, spec, result, argv)
+        self._store_output(result, cache.covered_full())
+        if writer is not None:
+            writer.finish(result)
         self._emit(
             ProcessEvent(
                 process_id=process_id,
@@ -174,16 +334,30 @@ class SubprocessRunner:
         )
         return result
 
-    def _record(
-        self,
-        process_id: int,
-        spec: ProcessSpec,
-        result: ProcessResult,
-        argv: tuple[str, ...],
+    def output(self, result: ProcessResult) -> ProcessOutput:
+        cached = self._outputs.get(id(result))
+        full = self._output_full.get(id(result))
+        if cached is not None and full == (True, True):
+            return cached
+        if self._logs is not None:
+            logged = self._logs.read_output(result)
+            if logged is not None:
+                return ProcessOutput(stdout=logged[0], stderr=logged[1])
+        if cached is not None:
+            return cached
+        return ProcessOutput(stdout=result.stdout, stderr=result.stderr)
+
+    def _store_output(
+        self, result: ProcessResult, covered_full: tuple[bool, bool]
     ) -> None:
-        if self._logs is None:
-            return
-        redacted_spec = spec.model_copy(
+        self._outputs[id(result)] = ProcessOutput(
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+        self._output_full[id(result)] = covered_full
+
+    def _redacted_spec(self, spec: ProcessSpec, argv: tuple[str, ...]) -> ProcessSpec:
+        return spec.model_copy(
             update={
                 "argv": argv,
                 "cwd": self._redactor.redact(spec.cwd),
@@ -193,11 +367,51 @@ class SubprocessRunner:
                 ),
             }
         )
-        self._logs.record(process_id, redacted_spec, result)
+
+    def _begin_log(
+        self,
+        process_id: int,
+        spec: ProcessSpec,
+        argv: tuple[str, ...],
+    ) -> ProcessLogWriter | None:
+        if self._logs is None:
+            return None
+        return self._logs.begin_record(process_id, self._redacted_spec(spec, argv))
+
+    def _commit_log(
+        self,
+        process_id: int,
+        spec: ProcessSpec,
+        result: ProcessResult,
+        argv: tuple[str, ...],
+    ) -> None:
+        writer = self._begin_log(process_id, spec, argv)
+        if writer is not None:
+            writer.finish(result)
 
     def _emit(self, event: ProcessEvent) -> None:
         if self._listener is not None:
             self._listener.consume(event)
+
+    def _redact_stream(self, stream: BinaryIO, consume: Callable[[str], None]) -> None:
+        stream.flush()
+        stream.seek(0)
+        overlap = self._redactor.overlap_bytes()
+        pending = b""
+        while True:
+            chunk = stream.read(_STREAM_CHUNK_SIZE)
+            if not chunk:
+                break
+            data = pending + chunk
+            if len(data) <= overlap:
+                pending = data
+                continue
+            keep, pending = data[:-overlap], data[-overlap:]
+            keep, leftover = _split_utf8(keep)
+            pending = leftover + pending
+            consume(self._redactor.redact(keep.decode("utf-8", errors="replace")))
+        if pending:
+            consume(self._redactor.redact(pending.decode("utf-8", errors="replace")))
 
     @staticmethod
     def _terminal_size() -> os.terminal_size:
@@ -207,23 +421,6 @@ class SubprocessRunner:
             except (AttributeError, ValueError, OSError):
                 continue
         return shutil.get_terminal_size()
-
-    def _capture(
-        self,
-        stream: BinaryIO,
-        *,
-        summary_limit: int,
-    ) -> tuple[str, str, bool]:
-        stream.flush()
-        stream.seek(0, os.SEEK_END)
-        size = stream.tell()
-        stream.seek(0)
-        summary_bytes = stream.read(summary_limit)
-        stream.seek(max(0, size - self._tail_limit))
-        tail_bytes = stream.read(self._tail_limit)
-        summary = self._redactor.redact(summary_bytes.decode("utf-8", errors="replace"))
-        tail = self._redactor.redact(tail_bytes.decode("utf-8", errors="replace"))
-        return summary, tail, size > summary_limit
 
     def _terminate(self, process: subprocess.Popen[bytes], process_group: bool) -> None:
         try:
@@ -239,3 +436,21 @@ class SubprocessRunner:
                 process.kill()
         except ProcessLookupError:
             pass
+
+
+def _split_utf8(payload: bytes) -> tuple[bytes, bytes]:
+    """Keep incomplete UTF-8 sequences with the next chunk."""
+    if not payload:
+        return payload, b""
+    index = len(payload)
+    while index > 0 and payload[index - 1] & 0xC0 == 0x80:
+        index -= 1
+    if index == 0:
+        return b"", payload
+    lead = payload[index - 1]
+    if lead & 0x80 == 0:
+        return payload, b""
+    expected = 2 if lead & 0xE0 == 0xC0 else 3 if lead & 0xF0 == 0xE0 else 4
+    if len(payload) - (index - 1) < expected:
+        return payload[: index - 1], payload[index - 1 :]
+    return payload, b""

@@ -40,8 +40,6 @@ class TestAdapter:
         )
         if result.timed_out:
             return ToolFailure(cause="TIMEOUT", stage="test", process=result)
-        if result.stdout_truncated or result.stderr_truncated:
-            return ToolFailure(cause="TOOL_FAILURE", stage="test", process=result)
         if result.exit_code == 0:
             return TestPass(process=result)
         if result.exit_code in failure_exit_codes:

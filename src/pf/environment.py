@@ -101,7 +101,7 @@ class PreparedEnvironment:
     def __init__(
         self,
         *,
-        attempt: Attempt | None = None,
+        attempt: Attempt,
         proposal: Proposal,
         proposal_root: Path,
         package_root: Path,
@@ -142,7 +142,7 @@ class EnvironmentFactory:
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
         managed_vector: tuple[VersionPin, ...] | None = None,
-    ) -> PreparedEnvironment | PrepareFailure | ToolFailure:
+    ) -> PreparedEnvironment | PrepareFailure:
         attempt = self._attempt(
             package=package,
             cell=cell,
@@ -151,9 +151,7 @@ class EnvironmentFactory:
             managed_vector=managed_vector,
         )
 
-        def failed(failure: ToolFailure) -> PrepareFailure | ToolFailure:
-            if attempt is None:
-                return failure
+        def failed(failure: ToolFailure) -> PrepareFailure:
             return PrepareFailure(attempt=attempt, failure=failure)
 
         temporary_directory = tempfile.TemporaryDirectory(prefix="pf-proposal-")
@@ -317,7 +315,7 @@ class EnvironmentFactory:
             ).hexdigest()
             proposal = Proposal(
                 proposal_id=proposal_id,
-                attempt_id=attempt.attempt_id if attempt is not None else None,
+                attempt_id=attempt.attempt_id,
                 snapshot_digest=snapshot.identity.digest,
                 cell=cell,
                 managed_vector=actual_vector,
@@ -347,12 +345,12 @@ class EnvironmentFactory:
         snapshot: SourceSnapshot,
         resolution: Literal["highest", "lowest-direct"],
         managed_vector: tuple[VersionPin, ...] | None,
-    ) -> Attempt | None:
-        if resolution == "lowest-direct" and managed_vector is None:
-            return None
-        requested_resolution: Literal["highest", "exact-vector"] = (
-            "exact-vector" if managed_vector is not None else "highest"
-        )
+    ) -> Attempt:
+        requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
+        if managed_vector is not None:
+            requested_resolution = "exact-vector"
+        else:
+            requested_resolution = resolution
         source_plan = json.dumps(
             package.source_plan.model_dump(mode="json"),
             sort_keys=True,

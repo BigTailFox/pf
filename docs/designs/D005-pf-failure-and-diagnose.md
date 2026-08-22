@@ -7,11 +7,11 @@
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
-- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)（待实现）
-- **进程输出与日志：** [D007](D007-pf-process-output.md)（待实现）
-- **验证运行语义：** [D008](D008-pf-verification-run.md)（待实现）
+- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
+- **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级。现行完整性信号是输出截断；D007 落地后替换该判定。Declaration Attempt、Verification Journal 和 Role→impact 由 D008 拥有，落地前本文不把它们写成现行规则。
+本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级。完整性信号是磁盘日志 `stdout_complete` / `stderr_complete`（D007）。Declaration Attempt、Verification Journal 和 Role→impact 由 D008 拥有。
 
 ## 1. 问题
 
@@ -60,7 +60,8 @@ D001/D003 又把这些状态全部定义为非证据，因此 candidate probe �
 Attempt 分为：
 
 - **Baseline Attempt**：按当前声明解析 `highest`，目标是建立完整通过的搜索锚点；
-- **Probe Attempt**：物化一个精确 requested vector，目标是在当前 Evaluation context 中获得搜索证据。
+- **Probe Attempt**：物化一个精确 requested vector，目标是在当前 Evaluation context 中获得搜索证据；
+- **Declaration Attempt**：按当前声明做 `lowest-direct` 解析，目标是验证声明下界；其序列与 Verification Role 由 D008 拥有。
 
 ### 3.2 Proposal
 
@@ -88,7 +89,7 @@ Rejection 只拒绝当前完整 Attempt/Proposal。即使 Probe Attempt 只改�
 
 ### 4.1 机械事实
 
-`ProcessRunner` 只产生 `ProcessResult`：argv、cwd、环境变量名、exit/signal/start error、timeout、duration、截断标志和脱敏输出。它不知道兼容性。
+`ProcessRunner` 只产生 `ProcessResult`：exit/signal/start error、timeout、duration 和磁盘完整性标志（`stdout_complete` / `stderr_complete`）。输出文本不进入可移植终态。它不知道兼容性。
 
 ### 4.2 操作原因
 
@@ -114,7 +115,7 @@ Cause 回答“发生了什么”，不回答搜索是否继续。Adapter 不知
 
 失败策略只对失败事实产生 `REJECTED` 或 `INDETERMINATE`。`PASS` 来自完整成功的 Evaluation，不经过 `FailurePolicy`。
 
-分类根据 FailureScope、stage、cause 和证据完整性作出。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），CellFailureScope 只能是 Indeterminate。
+分类根据 FailureScope、stage、cause 和证据完整性作出。Baseline、probe 与 declaration 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector` / `lowest-direct`），CellFailureScope 只能是 Indeterminate。`lowest-direct` 使用与 Probe 相同的 Rejection 资格，见 D008。
 
 `CoordinateSearch` 的二元兼容性关系为：
 
@@ -135,7 +136,7 @@ Attempt identity 覆盖：
 AttemptIdentity
   source_snapshot_digest
   cell
-  requested_resolution       highest | exact-vector
+  requested_resolution       highest | lowest-direct | exact-vector
   requested_managed_vector   exact-vector 时必填
   active declaration IDs
   source plan identity
@@ -155,7 +156,7 @@ Attempt identity 不包含进程时长、输出文本、本地路径或 run ID�
 一次失败只有同时满足以下条件，才可以成为 Rejection：
 
 1. scope 完整：cell、snapshot、policy 和 requested vector/解析方式明确；
-2. 结果完整：没有 timeout、signal、启动失败、关键输出截断或解析歧义；
+2. 结果完整：没有 timeout、signal、启动失败、关键流 `*_complete == false` 或解析歧义；
 3. 失败是 Attempt 局部且确定的，而不是 index、网络、缓存、磁盘或 PF 自身故障；
 4. cause 属于验证契约，例如不可解析、不可构建、harness 冲突、静态回归或测试正常失败；
 5. 若为 Probe Attempt，它与同一 Evaluation context 中已经完整通过的 baseline 共享 scope。
@@ -329,12 +330,12 @@ FailureRecord
 - `failure_id` 在一份报告内唯一且稳定，用于 boundary 和 `diagnose` 引用；
 - 人类摘要不进入 Schema；Presenter 根据结构化 scope、disposition、cause 和稳定细分类生成；
 - 公共报告不保存 secret、本地绝对日志路径或未脱敏环境值；
-- 输出截断标志必须保留，不能把截断内容冒充完整诊断；
+- 磁盘完整性标志必须保留，不能把不完整日志冒充完整诊断；
 - 日志不可用不改变 disposition，但会降低可展示的细节。
 
 ## 12. `pf diagnose` v1 interface
 
-命令表面由 D001 定义。`diagnose` 默认读取所选 package 的 `package-floor.json`：
+命令表面由 D001 定义。`diagnose` 读取所选 package 的 `package-floor.json` 与最近一次 Verification Journal：
 
 - 未指定 `--failure` 时，按 cell、attempt 顺序列出全部 Rejection 和 Indeterminate；
 - 指定后展示一个 FailureRecord 的完整可移植诊断；
@@ -378,11 +379,11 @@ FailurePresentation
   technical_code
 ```
 
-`title` 由 cause 决定，`impact` 由 scope、Attempt `requested_resolution` 和 disposition 决定。已识别的 `summary_code` 可以细化标题；未知细分类必须退回 cause 的通用文案，不能回退为裸 Enum 或原始 stderr。
+`title` 由 cause 决定。落地后 `impact` 由 D008 按 Verification Role、disposition 和 scope 选择；Presenter 只渲染。已识别的 `summary_code` 可以细化标题；未知细分类必须退回 cause 的通用文案，不能回退为裸 Enum 或原始 stderr。
 
-`smoke` / `search` 的 Rejection 与 Indeterminate 使用上述 title、impact、failure ID 和诊断入口。`explain` 使用同一 title。`diagnose` 再展开 context、next step 和 technical details。这些字段在普通命令、TTY 和非 TTY 中的出现层级由 D006 定义。
+`smoke` / `check` / `search` 的 Rejection 与 Indeterminate 使用上述 title、D008 impact、failure ID 和诊断入口。`explain` 使用同一 title。`diagnose` 再展开 context、next step 和 technical details。这些字段在普通命令、TTY 和非 TTY 中的出现层级由 D006 定义。
 
-`check` 验证当前声明，结果是 Evaluation 而不是 FailureRecord；它不能 `diagnose`，也不走本节省略模型。D008 落地后 check 的非成功 cell 也会产生 FailureRecord。
+`check` 的非成功 cell 同样产生 FailureRecord，写入 Verification Journal，可以 `diagnose`。
 
 ### 12.2 Cause 的默认用户文案
 
@@ -405,6 +406,8 @@ FailurePresentation
 下一步是调查建议，不是自动修复承诺。Presenter 不得根据 stderr 自由生成建议，也不得暗示用户仅靠重试就能把 Indeterminate 变成 Rejection 或 PASS。
 
 ### 12.3 Disposition 与 scope 的影响文案
+
+默认 impact 句子仍按 Baseline / Probe / Cell-scoped 列出，供没有 Verification Role 的展示路径使用。命令相关 impact（smoke vs search 的 baseline，以及 `declaration-capture` / `declaration`）由 [D008 §8.4](D008-pf-verification-run.md) 拥有，不再只由 `requested_resolution` 决定。
 
 | 结果 | 默认 impact |
 | --- | --- |
@@ -487,18 +490,18 @@ Technical details:
 
 | 规则 | 唯一所有者 |
 | --- | --- |
-| 进程终态、截断与脱敏机械事实 | `ProcessRunner` |
+| 进程终态、完整性与脱敏机械事实 | `ProcessRunner` / D007 |
 | uv/ty/test 操作 cause | 对应 Adapter |
 | Attempt 构造与 prepare stage | `EnvironmentFactory` / highest verifier |
 | scope + cause -> disposition | `FailurePolicy` |
 | baseline/probe 生命周期 | `SearchCoordinator` |
 | `PASS/REJECTED` 边界与 `INDETERMINATE` 停止 | D003 / `CoordinateSearch` |
 | FailureScope、FailureRecord 结构与交叉引用 | Evaluation/Report Schema |
-| 本地详细日志与 diagnosis index | `RunLogStore` |
-| `diagnose` 读取报告与组织展示 | `DiagnoseCommandWorkflow` |
+| 本地详细日志、Journal 与 diagnosis index | `RunLogStore` |
+| `diagnose` 读取报告 ∪ Journal 并组织展示 | `DiagnoseCommandWorkflow` |
 | 人类摘要、日志链接与 remediation 文案 | `TerminalPresenter` |
-| 进程输出原文与磁盘日志完整性 | D007（待实现） |
-| 验证运行、Journal、Role、check Attempt 序列 | D008（待实现） |
+| 进程输出原文与磁盘日志完整性 | D007 |
+| 验证运行、Journal、Role、check Attempt 序列 | D008 |
 
 Failure policy 是深模块 `FailurePolicy`：调用方只提交结构化 FailureScope 和操作失败，module 隐藏分类矩阵。Adapter、搜索和 Presenter 都不得复制矩阵或使用 stderr substring 决定 disposition。
 
@@ -587,7 +590,7 @@ candidate query 发生在精确 Probe Attempt 建立前。结果使用 `CellFail
 
 ### D1：Candidate `BUILD_FAILURE` 形成 Rejection（已确认）
 
-完整、明确归属到当前 Attempt 的 build backend/wheel 构建失败形成 Rejection。generic exit、截断输出、signal 和启动失败仍为 Indeterminate。
+完整、明确归属到当前 Attempt 的 build backend/wheel 构建失败形成 Rejection。generic exit、不完整日志、signal 和启动失败仍为 Indeterminate。
 
 因此，旧版本只能从源码构建且构建失败时可以建立 FAIL 点；搜索不因该 candidate 提前终止。
 

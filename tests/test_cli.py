@@ -82,6 +82,74 @@ def test_module_help_lists_every_v1_command() -> None:
         "merge",
     ):
         assert command in result.stdout
+    assert "Verify" in result.stdout
+    assert "Find and apply floors" in result.stdout
+    assert "Inspect and combine reports" in result.stdout
+    assert "Typical workflow: pf smoke -> pf search -> pf explain -> pf apply" in result.stdout
+    stdout = result.stdout
+    assert stdout.index("Verify") < stdout.index("Find and apply floors")
+    assert stdout.index("smoke") < stdout.index("check") or "smoke" in stdout
+
+
+def test_package_is_positional_only_on_command_help() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "check", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--package" not in result.stdout
+    assert "PACKAGE" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "command",
+    ("smoke", "check", "search", "explain", "apply", "minimize", "diagnose"),
+)
+def test_command_help_usage_names_package_instead_of_args(command: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", command, "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"Usage: pf {command} [OPTIONS] [PACKAGE]" in result.stdout
+    assert "[ARGS]" not in result.stdout
+
+
+def test_merge_help_usage_names_reports_and_hides_report_option() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "merge", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Usage: pf merge REPORT [REPORT ...] --output PATH" in result.stdout
+    assert "[ARGS]" not in result.stdout
+    assert "--report" not in result.stdout
+    assert "--package" not in result.stdout
+
+
+def test_merge_without_reports_is_a_usage_error() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "merge", "--output", "merged.json"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 3
+    assert "Error:" in result.stderr
+    assert "Usage: pf merge REPORT [REPORT ...] --output PATH" in result.stderr
+    assert "Try 'pf merge --help'" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "\x1b" not in result.stderr
 
 
 def test_search_help_documents_scheduling_options_and_defaults() -> None:
@@ -96,6 +164,120 @@ def test_search_help_documents_scheduling_options_and_defaults() -> None:
     assert "--jobs" in result.stdout
     assert "auto" in result.stdout
     assert "--max-duration" in result.stdout
+    assert "s, m, or h" in result.stdout or "followed by" in result.stdout
+    assert "none" in result.stdout
+
+
+def test_console_script_help_matches_module_help() -> None:
+    module = subprocess.run(
+        [sys.executable, "-m", "pf", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    script = subprocess.run(
+        ["uv", "run", "--no-sync", "pf", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert module.returncode == 0, module.stderr
+    assert script.returncode == 0, script.stderr
+    assert module.stdout == script.stdout
+
+
+def test_unknown_option_is_an_invocation_error() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "check", "--not-a-flag"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 3
+    assert result.stdout == ""
+    assert "Error:" in result.stderr
+    assert "Usage:" in result.stderr
+    assert "Try 'pf check --help'" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "\x1b" not in result.stderr
+
+
+def test_illegal_jobs_is_an_invocation_error() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "check", "--jobs", "nope"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 3
+    assert "Error:" in result.stderr
+    assert "positive integer" in result.stderr
+    assert "Usage: pf check [OPTIONS] [PACKAGE]" in result.stderr
+    assert "Try 'pf check --help'" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "\x1b" not in result.stderr
+
+
+def test_illegal_duration_restates_accepted_format() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "search", "--max-duration", "10minutes"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 3
+    assert "Error:" in result.stderr
+    assert "30s" in result.stderr
+    assert "10m" in result.stderr
+    assert "2h" in result.stderr
+    assert "none" in result.stderr
+    assert "Usage:" in result.stderr
+    assert "Try 'pf search --help'" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_unknown_package_is_an_invocation_error(tmp_path: Path) -> None:
+    (tmp_path / "src" / "demo").mkdir(parents=True)
+    (tmp_path / "src" / "demo" / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+managed-deps = []
+test-command = ["python", "-c", "pass"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", "check", "other"],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 3
+    assert "Error:" in result.stderr
+    assert "unknown package selection: other" in result.stderr
+    assert "Known packages: demo" in result.stderr
+    assert "Usage:" in result.stderr
+    assert "Try 'pf check --help'" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "\x1b" not in result.stderr
 
 
 def test_diagnose_help_documents_offline_failure_inspection() -> None:
@@ -205,7 +387,7 @@ def test_check_command_builds_a_request_and_renders_the_workflow_result(
     assert workflow.request.package == "demo"
     assert workflow.request.root == tmp_path.as_posix()
     assert workflow.request.jobs == "auto"
-    assert stdout.getvalue() == "✓ check passed (0 cells)\n"
+    assert stdout.getvalue() == "✓ Check passed · 0 cells\n"
     assert stderr.getvalue() == ""
 
 
@@ -246,7 +428,7 @@ def test_smoke_command_builds_a_request_and_renders_the_workflow_result(
         package="demo",
         jobs=2,
     )
-    assert stdout.getvalue() == "✓ smoke passed (0 cells)\n"
+    assert stdout.getvalue() == "✓ Smoke passed · 0 cells\n"
     assert stderr.getvalue() == ""
 
 
@@ -288,7 +470,7 @@ def test_search_command_normalizes_jobs_and_duration_before_workflow(
         jobs=2,
         max_duration_seconds=60,
     )
-    assert stdout.getvalue() == "search completed (0 reports)\n"
+    assert stdout.getvalue() == "✓ Search complete · 0 reports\n"
     assert stderr.getvalue() == ""
 
 
@@ -401,7 +583,7 @@ def test_merge_command_passes_explicit_inputs_and_output_to_workflow(
         reports=(source.as_posix(),),
         output=output.as_posix(),
     )
-    assert stdout.getvalue() == f"merged demo report -> {output.as_posix()}\n"
+    assert stdout.getvalue() == f"✓ Merged 1 report · {output.as_posix()}\n"
 
 
 def test_apply_command_uses_report_only_workflow(
@@ -442,7 +624,7 @@ def test_apply_command_uses_report_only_workflow(
 
     assert exit_code == 0
     assert workflow.request == ApplyRequest(root=tmp_path.as_posix(), package="demo")
-    assert stdout.getvalue() == "apply completed (1 changed)\n"
+    assert stdout.getvalue() == "✓ Applied floors · 1 project updated · pyproject.toml\n"
 
 
 def test_apply_failure_does_not_claim_floors_were_applied(
@@ -503,13 +685,14 @@ def test_minimize_does_not_apply_when_search_report_is_incomplete(
 
     monkeypatch.chdir(tmp_path)
     stdout = StringIO()
+    stderr = StringIO()
     context = CliContext(
         check_workflow=NeverCheck(),
         search_workflow=SearchWorkflow(),
         apply_workflow=ApplyWorkflow(),
         presenter=TerminalPresenter(
             stdout=Console(file=stdout, force_terminal=False, color_system=None),
-            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
         ),
     )
 
@@ -520,7 +703,10 @@ def test_minimize_does_not_apply_when_search_report_is_incomplete(
     )
 
     assert exit_code == 2
-    assert stdout.getvalue() == "search completed (1 reports)\n"
+    assert stdout.getvalue() == ""
+    assert "Minimize stopped before apply" in stderr.getvalue()
+    assert "search completed" not in stderr.getvalue()
+    assert "Search complete" not in stdout.getvalue()
 
 
 def test_minimize_applies_after_a_complete_search(
@@ -573,9 +759,7 @@ def test_minimize_applies_after_a_complete_search(
     assert exit_code == 0
     assert search.request == SearchRequest(root=expected_root, package="demo")
     assert apply.request == ApplyRequest(root=expected_root, package="demo")
-    assert stdout.getvalue() == (
-        "search completed (0 reports)\napply completed (0 changed)\n"
-    )
+    assert stdout.getvalue() == "✓ Minimized floors · no metadata changes\n"
 
 
 @pytest.mark.parametrize(
@@ -587,7 +771,7 @@ def test_minimize_applies_after_a_complete_search(
         ("minimize",),
         ("explain",),
         ("diagnose",),
-        ("merge", "--output", "merged.json"),
+        ("merge", "report.json", "--output", "merged.json"),
     ),
 )
 def test_commands_reject_an_unassembled_workflow(argv: tuple[str, ...]) -> None:

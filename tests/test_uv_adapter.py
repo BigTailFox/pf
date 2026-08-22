@@ -30,10 +30,8 @@ class RecordingRunner:
             exit_code=0,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary="installed\n",
-            stderr_summary="",
-            stdout_tail="installed\n",
-            stderr_tail="",
+            stdout="installed\n",
+            stderr="",
         )
 
 
@@ -49,11 +47,9 @@ def process_result(
         exit_code=exit_code,
         signal=None if exit_code is not None else 9,
         duration_seconds=0.1,
-        stdout_summary=stdout,
-        stderr_summary=stderr,
-        stdout_tail=stdout,
-        stderr_tail=stderr,
-        stdout_truncated=truncated,
+        stdout=stdout,
+        stderr=stderr,
+        stdout_complete=not truncated,
         timed_out=timed_out,
     )
 
@@ -94,14 +90,12 @@ def test_uv_adapter_inspects_a_canonical_installed_graph(tmp_path: Path) -> None
                 exit_code=0,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary=(
+                stdout=(
                     '[{"name":"Requests","version":"2.32.5",'
                     '"requires":["urllib3>=1.21", "Certifi"]},'
                     '{"name":"certifi","version":"2026.1.1","requires":[]}]\n'
                 ),
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stderr="",
             )
 
     graph = UvAdapter(GraphRunner()).inspect_environment(
@@ -169,7 +163,7 @@ def test_uv_adapter_lists_only_default_stable_cpython_minors(tmp_path: Path) -> 
                 exit_code=0,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary=json.dumps(
+                stdout=json.dumps(
                     [
                         {
                             "version": "3.12.4",
@@ -198,9 +192,7 @@ def test_uv_adapter_lists_only_default_stable_cpython_minors(tmp_path: Path) -> 
                         },
                     ]
                 ),
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stderr="",
             )
 
     runner = PythonRunner()

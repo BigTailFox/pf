@@ -169,10 +169,8 @@ def test_scheduler_copies_process_diagnostic_onto_completion_progress() -> None:
                 exit_code=1,
                 signal=None,
                 duration_seconds=0.1,
-                stdout_summary="",
-                stderr_summary="Because numpy==1.24.0 depends on wheel",
-                stdout_tail="",
-                stderr_tail="Because numpy==1.24.0 depends on wheel",
+                stdout="",
+                stderr="Because numpy==1.24.0 depends on wheel",
             ),
         )
 

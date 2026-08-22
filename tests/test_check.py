@@ -14,12 +14,18 @@ from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import UvAdapter
 from pf.environment import EnvironmentFactory, PreparedEnvironment
 from pf.evaluation import FullEvaluator, StaticEvaluator
+from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import CheckRequest
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptFailureScope,
+    AttemptIdentity,
     CellMatrixEvent,
+    CheckCellOutcome,
     Evaluation,
     PassEvaluation,
+    PrepareFailure,
     ProcessResult,
     ProgressEvent,
     StaticBaseline,
@@ -63,10 +69,8 @@ def tool_failure() -> ToolFailure:
             exit_code=1,
             signal=None,
             duration_seconds=0,
-            stdout_summary="",
-            stderr_summary="failure",
-            stdout_tail="",
-            stderr_tail="failure",
+            stdout="",
+            stderr="failure",
         ),
     )
 
@@ -76,10 +80,8 @@ def passing_check(cell: Cell) -> PassEvaluation:
         exit_code=0,
         signal=None,
         duration_seconds=0,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
     )
     proposal = Proposal(
         proposal_id="proposal",
@@ -99,6 +101,50 @@ def passing_check(cell: Cell) -> PassEvaluation:
             incremental=(),
         ),
         test=TestPass(process=process),
+    )
+
+
+def attempt_for(
+    cell: Cell,
+    *,
+    resolution: Literal["highest", "lowest-direct"] = "lowest-direct",
+) -> Attempt:
+    return Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest="snapshot",
+            cell=cell,
+            requested_resolution=resolution,
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
+
+
+def passing_outcome(cell: Cell) -> CheckCellOutcome:
+    evaluation = passing_check(cell)
+    return CheckCellOutcome(
+        status="PASS",
+        role="declaration",
+        attempt=attempt_for(cell),
+        evaluation=evaluation,
+    )
+
+
+def indeterminate_outcome(cell: Cell) -> CheckCellOutcome:
+    attempt = attempt_for(cell)
+    failure = FailurePolicy().classify(
+        scope=AttemptFailureScope(attempt=attempt),
+        cause="TOOL_FAILURE",
+        stage="prepare",
+        process=tool_failure().process,
+    )
+    return CheckCellOutcome(
+        status=failure.disposition,
+        role="declaration",
+        attempt=attempt,
+        failure=failure,
     )
 
 
@@ -124,9 +170,22 @@ def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
             source = root / "source"
             environment = root / "environment"
             source.mkdir()
+            attempt = Attempt.from_identity(
+                AttemptIdentity(
+                    source_snapshot_digest=snapshot.identity.digest,
+                    cell=cell,
+                    requested_resolution=resolution,
+                    requested_managed_vector=None,
+                    active_declaration_ids=cell.active_declaration_ids,
+                    source_plan_identity="sources",
+                    evaluation_policy_identity="policy",
+                )
+            )
             value = PreparedEnvironment(
+                attempt=attempt,
                 proposal=Proposal(
                     proposal_id=resolution,
+                    attempt_id=attempt.attempt_id,
                     snapshot_digest=snapshot.identity.digest,
                     cell=cell,
                     managed_vector=(),
@@ -147,10 +206,8 @@ def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
         exit_code=1,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="[]",
-        stderr_summary="",
-        stdout_tail="[]",
-        stderr_tail="",
+        stdout="[]",
+        stderr="",
     )
 
     class Static:
@@ -211,6 +268,83 @@ def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
     assert resolutions == ["highest", "lowest-direct"]
     assert prepared["highest"].tested is False
     assert prepared["lowest-direct"].tested is True
+
+
+def test_check_highest_prepare_failure_does_not_start_lowest_direct(
+    tmp_path: Path,
+) -> None:
+    package, snapshot = write_check_project(tmp_path)
+    resolutions: list[str] = []
+    cell = package.cells[0]
+    attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest=snapshot.identity.digest,
+            cell=cell,
+            requested_resolution="highest",
+            requested_managed_vector=None,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+        )
+    )
+    process = ProcessResult(
+        exit_code=1,
+        signal=None,
+        duration_seconds=0.1,
+        stdout="",
+        stderr="Failed to build `numpy==1.24.0`",
+    )
+
+    class Environments:
+        def prepare(
+            self,
+            *,
+            package: PackagePlan,
+            cell: Cell,
+            snapshot: SourceSnapshot,
+            resolution: Literal["highest", "lowest-direct"],
+        ) -> PrepareFailure:
+            resolutions.append(resolution)
+            return PrepareFailure(
+                attempt=attempt
+                if resolution == "highest"
+                else Attempt.from_identity(
+                    attempt.identity.model_copy(
+                        update={"requested_resolution": resolution}
+                    )
+                ),
+                failure=ToolFailure(
+                    cause="BUILD_FAILURE",
+                    stage="install-project",
+                    process=process,
+                ),
+            )
+
+    class NeverStatic:
+        def capture(
+            self, *args: object, **kwargs: object
+        ) -> StaticBaselineCapture | IndeterminateEvaluation:
+            raise AssertionError("capture must not run after highest prepare failure")
+
+    class NeverFull:
+        def evaluate(
+            self, *args: object, **kwargs: object
+        ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation | IndeterminateEvaluation:
+            raise AssertionError("lowest-direct must not start after capture failure")
+
+    result = CompatibilityChecker(
+        environments=Environments(),
+        static=NeverStatic(),
+        full=NeverFull(),
+    ).check(package=package, cell=cell, snapshot=snapshot)
+
+    assert resolutions == ["highest"]
+    assert result.status == "REJECTED"
+    assert result.role == "declaration-capture"
+    assert result.attempt.identity.requested_resolution == "highest"
+    assert result.failure is not None
+    assert result.failure.cause == "BUILD_FAILURE"
+    assert result.failure.stage == "install-project"
 
 
 def test_check_passes_a_minimal_local_package(tmp_path: Path) -> None:
@@ -291,9 +425,9 @@ test-command = ["python", "-c", "pass"]
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> ToolFailure:
+        ) -> CheckCellOutcome:
             seen.append(cell.target)
-            return tool_failure()
+            return indeterminate_outcome(cell)
 
     CheckCommandWorkflow(
         projects=ProjectLoader(),
@@ -317,8 +451,8 @@ def test_check_reports_progress_for_each_host_cell(tmp_path: Path) -> None:
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> ToolFailure:
-            return tool_failure()
+        ) -> CheckCellOutcome:
+            return indeterminate_outcome(cell)
 
     events = Events()
     CheckCommandWorkflow(
@@ -333,7 +467,7 @@ def test_check_reports_progress_for_each_host_cell(tmp_path: Path) -> None:
     progress = [event for event in events.items if isinstance(event, ProgressEvent)]
     assert [(event.message, event.completed, event.total) for event in progress] == [
         ("running", 0, 1),
-        ("FAILURE", 1, 1),
+        ("INDETERMINATE", 1, 1),
     ]
 
 
@@ -427,9 +561,22 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
         ) -> PreparedEnvironment:
             directory = tempfile.TemporaryDirectory(prefix="pf-check-test-")
             root = Path(directory.name)
+            attempt = Attempt.from_identity(
+                AttemptIdentity(
+                    source_snapshot_digest=snapshot.identity.digest,
+                    cell=cell,
+                    requested_resolution=resolution,
+                    requested_managed_vector=None,
+                    active_declaration_ids=cell.active_declaration_ids,
+                    source_plan_identity="sources",
+                    evaluation_policy_identity="policy",
+                )
+            )
             return PreparedEnvironment(
+                attempt=attempt,
                 proposal=Proposal(
                     proposal_id="proposal",
+                    attempt_id=attempt.attempt_id,
                     snapshot_digest=snapshot.identity.digest,
                     cell=cell,
                     managed_vector=(),
@@ -455,10 +602,8 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
                 exit_code=1,
                 signal=None,
                 duration_seconds=0,
-                stdout_summary="[]",
-                stderr_summary="",
-                stdout_tail="[]",
-                stderr_tail="",
+                stdout="[]",
+                stderr="",
             )
             check = TyCheck(process=process, diagnostics=())
             baseline = StaticBaseline(
@@ -489,10 +634,8 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
                 exit_code=1,
                 signal=None,
                 duration_seconds=0,
-                stdout_summary="",
-                stderr_summary="",
-                stdout_tail="",
-                stderr_tail="",
+                stdout="",
+                stderr="",
             )
             if evaluation_status == "STATIC_FAIL":
                 increment = TyDiagnostic(
@@ -540,7 +683,24 @@ def test_check_preserves_compatibility_and_indeterminate_outcomes(
         full=Full(),
     ).check(package=package, cell=package.cells[0], snapshot=snapshot)
 
-    assert result.status == evaluation_status
+    assert result.status == {
+        "STATIC_FAIL": "REJECTED",
+        "TEST_FAIL": "REJECTED",
+        "INDETERMINATE": "INDETERMINATE",
+    }[evaluation_status]
+    assert result.role == "declaration"
+    assert result.attempt.identity.requested_resolution == "lowest-direct"
+    assert result.failure is not None
+    assert result.failure.cause == {
+        "STATIC_FAIL": "STATIC_REGRESSION",
+        "TEST_FAIL": "TEST_FAILURE",
+        "INDETERMINATE": "TOOL_FAILURE",
+    }[evaluation_status]
+    assert result.failure.stage == {
+        "STATIC_FAIL": "ty",
+        "TEST_FAIL": "test",
+        "INDETERMINATE": "ty",
+    }[evaluation_status]
 
 
 @pytest.mark.parametrize("indeterminate", (False, True))
@@ -557,10 +717,10 @@ def test_check_workflow_returns_the_aggregate_or_first_failure(
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> PassEvaluation | ToolFailure:
+        ) -> CheckCellOutcome:
             if indeterminate:
-                return tool_failure()
-            return passing_check(cell)
+                return indeterminate_outcome(cell)
+            return passing_outcome(cell)
 
     events = Events()
     result = CheckCommandWorkflow(
@@ -609,8 +769,8 @@ test-command = ["python", "-c", "pass"]
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> ToolFailure:
-            return tool_failure()
+        ) -> CheckCellOutcome:
+            return indeterminate_outcome(cell)
 
     events = Events()
     CheckCommandWorkflow(
@@ -663,7 +823,7 @@ test-command = ["python", "-c", "pass"]
             package: PackagePlan,
             cell: Cell,
             snapshot: SourceSnapshot,
-        ) -> ToolFailure:
+        ) -> CheckCellOutcome:
             nonlocal active, maximum_active
             with lock:
                 active += 1
@@ -672,19 +832,7 @@ test-command = ["python", "-c", "pass"]
             time.sleep(0.05)
             with lock:
                 active -= 1
-            return ToolFailure(
-                cause="TOOL_FAILURE",
-                stage="prepare",
-                process=ProcessResult(
-                    exit_code=1,
-                    signal=None,
-                    duration_seconds=0,
-                    stdout_summary="",
-                    stderr_summary="failure",
-                    stdout_tail="",
-                    stderr_tail="failure",
-                ),
-            )
+            return indeterminate_outcome(cell)
 
     class Events:
         def __init__(self) -> None:

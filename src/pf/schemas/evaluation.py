@@ -46,12 +46,10 @@ class ProcessResult(FrozenSchema):
     exit_code: int | None
     signal: int | None
     duration_seconds: float
-    stdout_summary: str = Field(default="", exclude=True)
-    stderr_summary: str = Field(default="", exclude=True)
-    stdout_tail: str = Field(default="", exclude=True)
-    stderr_tail: str = Field(default="", exclude=True)
-    stdout_truncated: bool = False
-    stderr_truncated: bool = False
+    stdout: str = Field(default="", exclude=True)
+    stderr: str = Field(default="", exclude=True)
+    stdout_complete: bool = True
+    stderr_complete: bool = True
     timed_out: bool = False
     start_error: str | None = None
 
@@ -69,9 +67,7 @@ class ProcessResult(FrozenSchema):
         parts: list[str] = []
         if self.start_error:
             parts.append(self.start_error)
-        text = self.stderr_summary.strip() or self.stdout_summary.strip()
-        if not text:
-            text = self.stderr_tail.strip() or self.stdout_tail.strip()
+        text = self.stderr.strip() or self.stdout.strip()
         if text and text not in parts:
             parts.append(text)
         if parts:
@@ -118,11 +114,11 @@ def rejection_is_supported(
     signal: int | None,
     start_error: str | None,
     timed_out: bool,
-    stdout_truncated: bool,
-    stderr_truncated: bool,
+    stdout_complete: bool,
+    stderr_complete: bool,
 ) -> bool:
     """Return whether portable facts are sufficient for a v1 Rejection."""
-    if requested_resolution not in {"highest", "exact-vector"}:
+    if requested_resolution not in {"highest", "exact-vector", "lowest-direct"}:
         return False
     if stage not in _REJECTION_STAGES.get(cause, ()):
         return False
@@ -133,8 +129,8 @@ def rejection_is_supported(
         or signal is not None
         or start_error is not None
         or timed_out
-        or stdout_truncated
-        or stderr_truncated
+        or not stdout_complete
+        or not stderr_complete
     ):
         return False
     return exit_code != 0 or cause in {"HARNESS_CONFLICT", "STATIC_REGRESSION"}
@@ -143,7 +139,7 @@ def rejection_is_supported(
 class AttemptIdentity(FrozenSchema):
     source_snapshot_digest: str
     cell: Cell
-    requested_resolution: Literal["highest", "exact-vector"]
+    requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
     requested_managed_vector: tuple[VersionPin, ...] | None
     active_declaration_ids: tuple[str, ...]
     source_plan_identity: str
@@ -157,9 +153,11 @@ class AttemptIdentity(FrozenSchema):
             raise ValueError("attempt source and policy identities cannot be empty")
         if self.active_declaration_ids != self.cell.active_declaration_ids:
             raise ValueError("attempt declarations must match its cell")
-        if self.requested_resolution == "highest":
+        if self.requested_resolution in {"highest", "lowest-direct"}:
             if self.requested_managed_vector is not None:
-                raise ValueError("highest attempt cannot contain an exact vector")
+                raise ValueError(
+                    f"{self.requested_resolution} attempt cannot contain an exact vector"
+                )
         elif self.requested_managed_vector is None:
             raise ValueError("exact-vector attempt requires a managed vector")
         if self.requested_managed_vector is not None:
@@ -340,8 +338,8 @@ class FailureRecord(FrozenSchema):
                 signal=process.signal,
                 start_error=process.start_error,
                 timed_out=process.timed_out,
-                stdout_truncated=process.stdout_truncated,
-                stderr_truncated=process.stderr_truncated,
+                stdout_complete=process.stdout_complete,
+                stderr_complete=process.stderr_complete,
             ):
                 raise ValueError("REJECTED disposition is not supported by its facts")
         return self
@@ -424,7 +422,7 @@ class TyCheck(FrozenSchema):
         if (
             self.process.exit_code not in {0, 1}
             or self.process.timed_out
-            or self.process.stdout_truncated
+            or not self.process.stdout_complete
         ):
             raise ValueError(
                 "TyCheck requires complete output from successful exit 0 or 1"
@@ -476,8 +474,8 @@ class TestPass(FrozenSchema):
             or process.signal is not None
             or process.start_error is not None
             or process.timed_out
-            or process.stdout_truncated
-            or process.stderr_truncated
+            or not process.stdout_complete
+            or not process.stderr_complete
         ):
             raise ValueError("TEST_PASS requires a complete normal exit 0")
         return self
@@ -496,8 +494,8 @@ class TestFail(FrozenSchema):
             or process.signal is not None
             or process.start_error is not None
             or process.timed_out
-            or process.stdout_truncated
-            or process.stderr_truncated
+            or not process.stdout_complete
+            or not process.stderr_complete
         ):
             raise ValueError("TEST_FAIL requires a complete normal non-zero exit")
         return self
@@ -622,23 +620,75 @@ Evaluation = Annotated[
 class CheckPass(FrozenSchema):
     status: Literal["PASS"] = "PASS"
     evaluations: tuple[PassEvaluation, ...]
+    outcomes: tuple["CheckCellOutcome", ...] = ()
 
 
 class CheckCompatibilityFailure(FrozenSchema):
     status: Literal["COMPATIBILITY_FAILED"] = "COMPATIBILITY_FAILED"
     evaluations: tuple[Evaluation, ...]
+    outcomes: tuple["CheckCellOutcome", ...] = ()
 
 
 class CheckIndeterminate(FrozenSchema):
     status: Literal["INDETERMINATE"] = "INDETERMINATE"
     evaluations: tuple[Evaluation, ...] = ()
-    failure: ToolFailure
+    failure: FailureRecord
+    outcomes: tuple["CheckCellOutcome", ...] = ()
 
 
 CheckResult = Annotated[
     Union[CheckPass, CheckCompatibilityFailure, CheckIndeterminate],
     Field(discriminator="status"),
 ]
+
+
+VerificationRole = Literal[
+    "baseline",
+    "declaration-capture",
+    "declaration",
+    "probe",
+]
+
+
+class CheckCellOutcome(FrozenSchema):
+    status: Literal["PASS", "REJECTED", "INDETERMINATE"]
+    role: Literal["declaration-capture", "declaration"]
+    attempt: Attempt
+    failure: FailureRecord | None = None
+    evaluation: Evaluation | None = None
+    static_baseline: StaticBaseline | None = None
+
+    @model_validator(mode="after")
+    def validate_check_cell_outcome(self) -> "CheckCellOutcome":
+        if self.status == "PASS":
+            if self.failure is not None:
+                raise ValueError("passing check cell cannot carry a failure")
+            if not isinstance(self.evaluation, PassEvaluation):
+                raise ValueError("passing check cell requires a pass evaluation")
+        else:
+            if self.failure is None:
+                raise ValueError("non-passing check cell requires a FailureRecord")
+            if self.failure.disposition != self.status:
+                raise ValueError("check cell status must match failure disposition")
+        return self
+
+
+class VerificationJournalEntry(FrozenSchema):
+    package: str
+    cell: Cell
+    role: VerificationRole
+    attempt: Attempt | None = None
+    failure: FailureRecord
+
+
+class VerificationJournal(FrozenSchema):
+    schema_version: Literal["verification-journal-v1"] = "verification-journal-v1"
+    run_id: str
+    command: Literal["smoke", "check", "search"]
+    packages: tuple[str, ...]
+    source_snapshot_digest: str
+    evaluation_policy_identity: str
+    entries: tuple[VerificationJournalEntry, ...]
 
 
 class HighestVersionPass(FrozenSchema):
@@ -835,6 +885,9 @@ class ProgressEvent(FrozenSchema):
     diagnostics: tuple[TyDiagnostic, ...] = ()
     process: ProcessResult | None = None
     failure: FailureRecord | None = None
+    verification_role: VerificationRole | None = None
+    stage: str | None = None
+    diagnose_available: bool = True
 
 
 class StatusEvent(FrozenSchema):

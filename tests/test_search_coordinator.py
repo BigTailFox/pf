@@ -53,10 +53,8 @@ def successful_process() -> ProcessResult:
         exit_code=0,
         signal=None,
         duration_seconds=0.1,
-        stdout_summary="",
-        stderr_summary="",
-        stdout_tail="",
-        stderr_tail="",
+        stdout="",
+        stderr="",
     )
 
 
@@ -316,6 +314,48 @@ def test_search_coordinator_returns_static_fast_path_with_full_evidence(
     assert set(static.baseline_digests) == {
         ty_diagnostic_digest(result.static_baseline.diagnostics)
     }
+
+
+def test_search_coordinator_never_requests_lowest_direct(tmp_path: Path) -> None:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    resolutions: list[str] = []
+
+    class SpyFactory(ProposalFactory):
+        def prepare(self, **kwargs: Any) -> PreparedEnvironment:
+            resolutions.append(str(kwargs["resolution"]))
+            return super().prepare(**kwargs)
+
+    static = StaticPasses()
+    result = SearchCoordinator(
+        environments=SpyFactory(),
+        candidates=FrozenCandidates(),
+        static=static,
+        full=FullPasses(static),
+    ).search(package=package, cell=cell, snapshot=snapshot)
+
+    assert isinstance(result, CellSuccess)
+    assert "lowest-direct" not in resolutions
+    assert result.baseline_attempt.identity.requested_resolution != "lowest-direct"
+    for observation in result.static_search.observations:
+        assert (
+            observation.evidence.attempt.identity.requested_resolution != "lowest-direct"
+        )
 
 
 def test_search_coordinator_consumes_shared_highest_version_verification(
@@ -607,10 +647,8 @@ def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
             exit_code=1,
             signal=None,
             duration_seconds=0.1,
-            stdout_summary="",
-            stderr_summary="No solution found",
-            stdout_tail="",
-            stderr_tail="No solution found",
+            stdout="",
+            stderr="No solution found",
         ),
     )
     attempt = Attempt.from_identity(
@@ -690,7 +728,7 @@ def test_search_coordinator_emits_candidate_prepare_failure_diagnostic(
         cause="RESOLUTION_CONFLICT",
         stage="install-project",
         process=successful_process().model_copy(
-            update={"exit_code": 1, "stderr_summary": "No solution found"}
+            update={"exit_code": 1, "stderr": "No solution found"}
         ),
     )
 

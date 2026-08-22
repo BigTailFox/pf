@@ -132,11 +132,9 @@ def test_report_store_omits_captured_process_output(tmp_path: Path) -> None:
             exit_code=0,
             signal=None,
             duration_seconds=11.12,
-            stdout_summary="484 passed in 11.12s",
-            stderr_summary="secret-noise",
-            stdout_tail="484 passed in 11.12s",
-            stderr_tail="secret-noise",
-            stdout_truncated=True,
+            stdout="484 passed in 11.12s",
+            stderr="secret-noise",
+            stdout_complete=False,
         ),
     )
     generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
@@ -176,17 +174,17 @@ def test_report_store_omits_captured_process_output(tmp_path: Path) -> None:
     loaded = store.read(path)
     process = loaded.failure_records[0].process
 
-    assert "stdout_summary" not in content
-    assert "stderr_summary" not in content
+    assert '"stdout":' not in content
+    assert '"stderr":' not in content
     assert "stdout_tail" not in content
     assert "stderr_tail" not in content
     assert "484 passed" not in content
     assert "secret-noise" not in content
     assert process is not None
     assert process.exit_code == 0
-    assert process.stdout_truncated is True
-    assert process.stdout_summary == ""
-    assert process.stderr_summary == ""
+    assert process.stdout_complete is False
+    assert process.stdout == ""
+    assert process.stderr == ""
 
 
 def test_report_merge_is_deterministic_and_rejects_conflicting_cells() -> None:
