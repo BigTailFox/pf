@@ -14,7 +14,7 @@ README.md                 # 使用入口：能力摘要，链接到本页与 D00
 CONTEXT.md                # 领域词汇；不定义产品或实现规则
 docs/
 ├── README.md             # 本页：所有权、状态、导航
-├── designs/              # 规范性契约 D001–D011
+├── designs/              # 规范性契约与设计草案 D001–D012
 ├── plans/                # 非规范性实施记录 P001–P009
 └── reviews/              # 非规范性评审快照 R001–
 ```
@@ -25,6 +25,7 @@ docs/
 
 | 状态 | 含义 |
 | --- | --- |
+| 草案 | 尚在讨论的设计，不取代现行契约，也不能作为实现依据 |
 | 现行 | 规范性契约，已作为实现依据落地 |
 | 现行契约，待实现 | 规范性契约已确认，实现尚未完成 |
 | 已完成 | 非规范性实施记录，只提供历史证据 |
@@ -45,6 +46,12 @@ docs/
 | 契约修复、模块加深与内部 seam | [D009](designs/D009-pf-v1-refactor.md) | 日志保密、证据/apply 授权、离线 discovery、验证编排、search 拆分、测试面与全量门禁 | 现行 | [P008](plans/P008-pf-v1-refactor.md) |
 | 架构加深 | [D010](designs/D010-pf-v1-architecture.md) | 判别 resolution/event、Runner 内部调度、平台日志 seam、终端私有视图与完整 composition | 现行 | [P009](plans/P009-pf-v1-architecture.md) |
 | runtime-backed 静态引导搜索 | [D011](designs/D011-pf-runtime-backed-static-search.md) | static fingerprint/region、runtime witness、动态边界与最终直接验证 | 现行契约，待实现 | — |
+
+## 设计草案
+
+| 草案 | 内容 | 状态 |
+| --- | --- | --- |
+| [D012 Harness Relaxation](designs/D012-pf-harness-relaxation.md) | baseline 保持原始 harness；probe/check 放宽直接 harness 下限、冻结 resolver universe，并保持 project graph 不变 | 草案 |
 
 职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D008 拥有各命令的 Attempt 序列、Evaluation → cause/stage、Journal 条目语义和 diagnose 工件来源，但不复制 D005 的 cause 矩阵；D007 拥有进程输出、日志保密与完整性标志，但不复制 D005 的 disposition；D002 列出模块位置但不复制 D004–D009 的业务或展示规则；D001 承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出语义只在 D007，验证运行条目语义只在 D008，现行契约修复、cell identity、验证运行编排、Journal package identity / 写入时机只在 D009。
 
