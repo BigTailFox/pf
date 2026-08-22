@@ -9,8 +9,9 @@
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
+- **契约修复、模块加深与内部 seam：** 落地前见 [D009](D009-pf-v1-refactor.md)
 
-本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有。本文描述已落地接口，不复制其他契约的业务规则。
+本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有。D009 落地前，本文仍是现行模块接口，不得把待实现拆分写成当前布局。本文描述已落地接口，不复制其他契约的业务规则。
 
 ## 1. 设计原则
 

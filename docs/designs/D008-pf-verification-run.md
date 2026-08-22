@@ -272,7 +272,7 @@ entries[]
   failure             FailureRecord
 ```
 
-Journal 不保存 stdout/stderr 正文、绝对路径或完整 Evaluation。`STATIC_REGRESSION` 的诊断原文以对应 Process Log 为准。权限、脱敏、原子写与 `.pf/logs` 的其余规则由 D002 / D007 拥有。
+Journal 不保存 stdout/stderr 正文、绝对路径或完整 Evaluation。`STATIC_REGRESSION` 的诊断原文以对应 Process Log 为准。权限、脱敏、原子写与 `.pf/logs` 的其余规则由 D002 / D007 拥有。Journal 的目标 identity 与写入时机见 [D009](D009-pf-v1-refactor.md) §4.7 / §6；落地前仍以本节和现行实现为准。
 
 search 成功写入 `package-floor.json` 之后，Journal 与报告中的 FailureRecord 必须能按 `failure_id` 对上。报告仍不保存 `run_id`。
 

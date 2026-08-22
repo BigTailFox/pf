@@ -14,7 +14,7 @@ README.md                 # 使用入口：能力摘要，链接到本页与 D00
 CONTEXT.md                # 领域词汇；不定义产品或实现规则
 docs/
 ├── README.md             # 本页：所有权、状态、导航
-├── designs/              # 规范性契约 D001–D008
+├── designs/              # 规范性契约 D001–D009
 ├── plans/                # 非规范性实施记录 P001–P007
 └── reviews/              # 非规范性评审快照 R001–
 ```
@@ -42,14 +42,15 @@ docs/
 | CLI 交互与展示 | [D006](designs/D006-pf-cli-enhancement.md) | help 信息架构、调用错误、结果摘要、终端层级和 `pf explain` 展示 | 现行 | [P007](plans/P007-pf-cli-enhancement.md) |
 | 进程输出与日志 | [D007](designs/D007-pf-process-output.md) | 磁盘日志原文、每进程 16 MiB 输出缓存、`stdout_complete` / `stderr_complete` | 现行 | [P005](plans/P005-pf-process-output.md) |
 | 验证运行语义 | [D008](designs/D008-pf-verification-run.md) | smoke/check/search 如何实例化 Attempt、统一错误链路、Verification Journal、`diagnose` 读取面 | 现行 | [P006](plans/P006-pf-verification-run.md) |
+| 契约修复、模块加深与内部 seam | [D009](designs/D009-pf-v1-refactor.md) | 日志保密、证据/apply 授权、离线 discovery、验证编排、search 拆分、测试面与全量门禁 | 现行契约，待实现 | |
 
-职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D008 拥有各命令的 Attempt 序列和 diagnose 的工件来源，但不复制 D005 的 cause 矩阵；D007 拥有磁盘日志原文与完整性标志，但不复制 D005 的 disposition；D002 可以列出模块位置但不复制 D004–D008 的业务或展示规则；D001 可以承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出与日志完整性只在 D007，验证运行与 Journal 只在 D008。
+职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D008 拥有各命令的 Attempt 序列、Evaluation → cause/stage、Journal 条目语义和 diagnose 工件来源，但不复制 D005 的 cause 矩阵；D007 拥有进程输出、日志保密与完整性标志，但不复制 D005 的 disposition；D002 可以列出模块位置但不复制 D004–D009 的业务或展示规则；D001 可以承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出语义只在 D007，验证运行条目语义只在 D008，现行契约修复、cell identity、验证运行编排、Journal package identity / 写入时机只在 D009。落地前 D009 不得被写成当前模块 interface。
 
 ## 非规范性文档
 
 - 根目录 [README](../README.md) 是使用入口，只摘要能力并链接 D001 与本页。
 - 根目录 [CONTEXT.md](../CONTEXT.md) 是领域词汇表。它固定术语与避免用法，不定义命令、算法或模块接口。不收录字节上限、文件格式或命令规则。
 - [P001](plans/P001-pf-v1.md)、[P002](plans/P002-pf-ty-enhancement.md)、[P003](plans/P003-pf-smoke-observability.md)、[P004](plans/P004-pf-failure-and-diagnose.md)、[P005](plans/P005-pf-process-output.md)、[P006](plans/P006-pf-verification-run.md) 和 [P007](plans/P007-pf-cli-enhancement.md) 是已经完成的实施与验证记录。它们提供历史证据，不定义现行行为；其中 P003 的运行时-only failure 诊断结构已经由 D005 取代，D005 的实施证据见 P004。D007/D008/D006 的实施证据分别见 P005、P006、P007。
-- [R001](reviews/R001-pf-v1-review.md) 是 2026-08-22 对照当时 `main` 的 v1 仓库评审。它提供优化意见，不定义现行行为。
+- [R001](reviews/R001-pf-v1-review.md) 是 2026-08-22 对照当时 `main` 的 v1 仓库评审。它提供优化意见，不定义现行行为。落地前的重构契约见 [D009](designs/D009-pf-v1-refactor.md)。
 
 若实施记录、README 或代码注释与规范性文档冲突，以对应契约所有者为准，并在同一变更中修复实现或所有者文档。改变契约时只修改所有者；其他文档最多更新链接、状态或非规范性证据。

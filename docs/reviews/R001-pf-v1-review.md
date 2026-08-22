@@ -1,205 +1,207 @@
 # R001 — PF v1 仓库评审
 
-- **状态：** 快照
+- **状态：** 快照，已按独立复核修订
 - **日期：** 2026-08-22
 - **性质：** 非规范性评审；不定义命令、算法、Schema 或模块接口
 - **对照：** 当时 `main` / `d1b8614`（`feat: implement D006, D007, D008`），远程 `origin` 为 `git@github.com:BigTailFox/pf.git`
-- **契约所有者：** [D001](../designs/D001-pf.md)–[D008](../designs/D008-pf-verification-run.md)；实现结构以 [D002](../designs/D002-pf-implementation.md) 为准
+- **契约所有者：** [D001](../designs/D001-pf.md)–[D008](../designs/D008-pf-verification-run.md)；整改与重构以 [D009](../designs/D009-pf-v1-refactor.md) 为准
 
-本文记录一次对照现行契约与源码的架构评审，回答「v1 落地之后下一步优化什么」。它不取代 D001–D008，也不把 D001 §10 的非目标改写成待办。行数与测试计数来自同日对 `src/pf`、`tests` 的统计。
+本文记录一次对照现行契约与源码的架构评审，回答「v1 主路径落地之后下一步修什么、再优化什么」。它不取代 D001–D008，也不把 D001 §10 的非目标改写成待办。行数与测试计数来自同日对 `src/pf`、`tests` 的统计。
+
+初次评审之后，又启动了一轮不注入初次发现的独立仓库 review。独立 review 重新读取源码、契约和测试，并单独运行全量测试、`ty check src` 与构建。本文已把经源码交叉核验的结果合并进同一快照。
 
 ## 1. 结论
 
-D001–D008 已全部落地。当前杠杆不在再加命令，而在加深已有模块、收回泄漏的内部 seam、补上测试面和工程门禁。
+D001–D008 的命令、主要状态机和展示主路径已经落地，但不能再写成「已全部落地」。现行实现至少有五个高风险契约缺口：流式脱敏可泄露跨分块 secret；CandidateSnapshot 的 artifact/hash 没有约束实际 probe 安装；complete report 没把 `final_vector` 绑定到 PASS Proposal；apply 写后校验失败不回滚；workspace 重名包会在 workflow 中静默覆盖或混合。
 
-仓库约 13,473 行源码、16,523 行测试。`failure.py`、`ProjectLoader.load`、`CoordinateSearch.minimize`、`EvaluationCache` 已经是小接口、深实现。税主要在三个过宽文件：`workflow.py`（1175）、`search.py`（1097）、`terminal.py`（1870，对应测试 2938 行）。
+这些是当前契约的实现缺口，不是新产品范围。它们优先于模块加深、文件拆分和新工程能力。
 
-D002 规定文件变长不是拆分条件，只在已经存在两个可独立描述、测试和演进的深模块时再拆。下文按这条原则取舍，不按行数机械切文件。
+仓库约 13,473 行源码、16,523 行测试。全量 `pytest --no-testmon` 为 522 个用例，`ty check src` 与 sdist/wheel 构建通过。现有门禁能证明主路径稳定，但没有覆盖上述跨 seam 的保密性、证据绑定、恢复和 workspace identity。
 
-## 2. 模块健康
+架构税仍集中在 `workflow.py`、`search.py`、`terminal.py`，但修复顺序必须是：先收紧证据和写入授权，再加深模块，最后处理展示内部结构与 I/O 优化。
 
-| 模块 | 行数 | 判断 | 建议 |
-| --- | ---: | --- | --- |
-| `terminal.py` | 1870 | Presenter 过宽：每个命令一个 `render_*`，外加进度消费与诊断折叠 | 后置；先把 `explain` / `diagnose` 挪到同包私有模块，对外仍 `render_X(result) -> exit_code` |
-| `workflow.py` | 1175 | 七个命令叠在一起；Check / Smoke / Search 复制同一条验证运行编排 | 抽出验证运行编排，三个命令变薄 |
-| `search.py` | 1097 | `CoordinateSearch` 与 `SearchCoordinator` 已是两个模块，挤在一个文件里 | 按已有边界拆；`minimize` 改为局部状态，接口可重入 |
-| `schemas/evaluation.py` / `schemas/report.py` | 941 / 903 | Schema 把 complete 授权压在 validator 里，形状对 | 不优先拆 |
-| `runlog.py` | 914 | 深，但没有独立测试面 | 以 store interface 为表面补 `test_runlog.py` |
-| `project.py` | 771 | 深：`load(root, package_selection) -> ProjectPlan` | 优先不动 |
-| `report.py` | 658 | Builder 与 Store 在 complete/incomplete 上重叠；Store 调用 Builder 私有方法 | 收回 `_failure_reason` / `_cell_key` |
-| `environment.py` | 449 | `prepare()` 深；受管向量的 TOML 改写与 `ProjectEditor` 同类 | 后置 |
-| `cli.py` | 405 | composition root 合格；`diagnose` 单独构造了不带 `pythons=uv` 的 `ProjectLoader` | 复用同一个 `projects` |
-| `evaluation.py` | 325 | 深 | `FullEvaluator` 构造与别处 Protocol 对齐 |
-| `candidates.py` | 243 | 深 | 优先不动 |
-| `failure.py` | 53 | 深：`classify(...)` 一个 seam | 让更多调用方只走这里 |
+## 2. 高风险契约缺口
 
-## 3. 建议顺序
+### 2.1 流式脱敏跨分块泄露
 
-| 优先级 | 项 | 类别 |
+`SubprocessRunner._redact_stream` 保留 overlap 后，把已确定前缀和 pending 尾部分别交给 `SecretRedactor.redact`。若 secret 或 URL userinfo 横跨两段的切点，两次调用都看不到完整值，最终拼接的 Output Cache / Process Log 仍可出现明文。
+
+生产 `cli.build_context` 还没有向 `SubprocessRunner` 注入实际 credential literals；正常装配主要依赖 URL userinfo 正则，不能覆盖工具输出中的裸 token/password。
+
+**影响：** 违反 D001 / D007 的日志、终端和报告不得保存凭据契约。
+
+**下一步：** 流式脱敏必须在任意 byte 分块下与一次性脱敏等价；composition root 注入本次运行实际使用的 secret，但 secret 不进入 Schema、ProcessSpec、日志或 identity。测试覆盖 64 KiB 临界点前后、UTF-8、多 secret 和 URL userinfo。
+
+### 2.2 Candidate artifact 与实际安装脱节
+
+`CandidateBuilder` 为每个版本选择并冻结一个 `AvailableArtifact`，保存 filename、kind、locator 和 hash。Probe 只把受管声明改为 `==version`，随后执行普通 `uv pip install --editable`；安装命令没有消费已选 artifact、hash 或 distribution kind。
+
+**影响：** 报告可声称候选来自某个 wheel/sdist，实际验证同版本的另一个 artifact；索引变化、私有索引或同版本多构件会破坏可重复性和证据含义。
+
+**下一步：** exact-vector probe 必须从 CandidateSnapshot 唯一映射到 artifact selection，并按 locator + hash 安装，禁止 resolver 改选同版本其他构件；安装后核验实际图与 selection。公共报告不需要新增第二套候选模型，但 CellResult validator 必须验证 vector、candidate 和 PASS Proposal 的闭环。
+
+### 2.3 Complete report 未绑定真实 PASS vector
+
+`CellSuccess` 会检查 final Proposal ID 出现在 observation 中，却没有要求：
+
+- `final_vector == final_evaluation.proposal.managed_vector`；
+- `final_vector` 等于 terminal coordinate search 的成功向量；
+- 对应 observation 的 vector / Attempt 与 final Evaluation 完全一致。
+
+`PackageFloorReportV1.validate_completion_authority` 随后把可独立修改的 `final_vector` 当作已验证 floor，并只检查 projection floor 与它相等。
+
+**影响：** 修改 report 的 `final_vector` 和 projection floors 后，可以保留另一份真实 PASS Evaluation 并通过 Schema，从而让 apply 写入未经验证的版本。
+
+**下一步：** 在 `CellSuccess` 一次性绑定 terminal search、final vector、ProbePass Attempt、Proposal managed vector 与 final Evaluation；complete validator 只消费这个已经闭合的结果。新增只改 vector、只改 observation、只改 Proposal、只改 projection 的防篡改矩阵。
+
+### 2.4 Apply 失败不回滚
+
+`ProjectEditor.apply` 先把目标 TOML 原子替换，再重新解析并调用 `ProjectLoader`。写后校验失败时只抛 `ConfigurationError`，没有恢复 backup。下一次 `_recover` 只要当前 digest 等于 original 或 target，就直接把 journal 标成 `COMMITTED`；目标内容不会重新验证，也不会回滚。
+
+`apply_many` 逐包调用 `apply`，后续包失败时前面已经提交的包不会回滚，workspace 可进入半应用状态。
+
+**影响：** CLI 报告失败但用户元数据已改变；重试还可能把未经确认的 target 当作已提交。
+
+**下一步：** `apply_many` 成为 workspace 级事务 interface：先为全部文件计算和验证目标，再统一写 recovery journal 和 backup；任一写后校验失败恢复全部已替换文件并 `fsync`。重启恢复遇到 target digest 时保守回滚，不能直接提交。
+
+### 2.5 Workspace 重名包
+
+`ProjectLoader._discover_packages` 按 path 去重，但不拒绝两个成员使用相同 canonical distribution name。Check 随后建立 `{package.name: package}`，后者覆盖前者；Search 按 package name 聚合 cell results，也会把同名成员证据混在一起。
+
+**影响：** 一个成员可能没按自己的配置或源码验证，却得到另一个成员的结果或报告。
+
+**下一步：** package discovery 在 selection 和 planning 前拒绝 canonical name 重复，并列出全部冲突路径；所有 workflow 继续把 package name 当唯一 key，但不再负责兜底检测。
+
+## 3. 中风险实现缺口
+
+### 3.1 离线读取命令仍会做完整项目规划
+
+`explain` 使用带 `pythons=uv` 的完整 `ProjectLoader`。未显式配置 Python minor 时，单纯定位现有报告也会启动 `uv python list` 并写 Process Log。现行 `diagnose` 用单独的 `ProjectLoader()` 避开了外部进程；若把它改成复用同一个 `projects`，会直接违反 D001 / D008 的严格离线读取契约。
+
+**下一步：** 抽出只负责 workspace/member discovery、selection、canonical name 唯一性和 report path 的 `ProjectDiscovery`。ProjectLoader 在它之上做 config/cell planning；Explain / Diagnose 只依赖 discovery，不依赖 Python provider、uv 或 SnapshotBuilder。
+
+### 3.2 多包 Journal 顶层 policy identity 不成立
+
+Verification Journal 可以包含多个 package，但 `persist_verification_journal` 只写 `packages[0].config` 的 policy identity。D001 允许 root override 和成员 `[tool.pf]`，同一次 workspace 运行可以有多套有效策略。
+
+**下一步：** Journal 保存按 canonical package 排序的 `(package, evaluation_policy_identity)`，不再用单个顶层 identity 代表整个运行。FailureRecord scope 仍保留自身 identity。
+
+### 3.3 私有 registry 的运行时凭据丢失
+
+ProjectLoader 正确地从可移植 SourceIdentity 中删除 URL userinfo/query，但 Candidate query 随后直接对公开 locator 发起 HTTP 请求，没有可单独注入的运行时 credential，也不复用 uv 的认证能力。
+
+**影响：** baseline 安装可通过 uv 登录私有索引，候选发现却对同一来源返回 401。
+
+**下一步：** 明确区分可序列化 `SourceIdentity` 与进程内 `RegistryAccess`；credential 只交给 registry adapter 和 redactor，不进入报告、日志或 identity。
+
+### 3.4 Registry adapter 对畸形 JSON fail open 到 traceback
+
+`Content-Length` 直接 `int()`；`files` 元素、`hashes` 和 `requires-python` 没有在 adapter seam 完整验证。例如 `files=[null]` 会抛 `AttributeError`，非法长度会抛 `ValueError`，没有包装成 InfrastructureError / Indeterminate。
+
+**下一步：** 在 registry adapter seam 验证完整 PEP 691 输入形状，把 `ValueError`、`TypeError`、`AttributeError` 和解析错误统一转为受控 infrastructure failure。
+
+### 3.5 静态 PASS 环境生命周期过长
+
+`_ProposalRunner` 在静态 PASS 后保留 PreparedEnvironment，直到整个 cell 搜索结束；大量候选和并行 jobs 会同时保留源码副本、venv、inode 和文件句柄。
+
+**下一步：** 静态阶段只缓存 Evaluation；非最终环境立即关闭。确定 final vector 后重新 prepare 一次做 full evaluation。该策略允许重复环境准备，但不重复相同 context 的完整测试。
+
+## 4. 模块设计评审
+
+### 4.1 Cell identity 与排序是两件事
+
+现行代码至少有五套 cell key、三套 FailureRecord 提取；收成单一所有者仍然正确。但 `terminal.py` 的 key 顺序是 `(package, python, target, extras)`，Scheduler 的规范排序是 `(package, target, python, extras)`。前者同时承担 map identity 和诊断排序。
+
+**下一步：** `cell_identity(cell)` 只用于 equality / lookup / dedup，不把它机械复用为展示或调度排序；需要排序的模块使用对应契约所有的显式 order key。`failure_records_for_result` 继续升为报告、search journal、diagnose 的单一入口。
+
+### 4.2 验证运行编排值得加深，但不能做成参数搬运
+
+Check / Smoke / Search 都有 Journal gate + Scheduler + final Journal 的共同循环。这个 locality 值得收进一个模块。
+
+原提案把 scheduler、events、logs、packages、snapshot、tasks、jobs、deadline 和 journal callback 全部放进 `run_verification`，interface 几乎和 implementation 一样宽。删除该 wrapper 后，复杂度只回到少量调用，不满足深模块的删除测试。
+
+**下一步：** 生产 composition root 构造一个 `VerificationRunner(scheduler, events, logs)`；调用方只交一个 `VerificationRun`，每个 task 自己提供执行与 outcome → journal entry 投影。Runner 隐藏 gate、并发、完成时写入、最终写入和基础设施错误。
+
+### 4.3 Protocol 应按调用方保持窄 interface
+
+Check static 只需要 `capture`，Search static 需要 `capture + evaluate`，FullEvaluator 只需要 static `evaluate`。把三者合成一个宽 Protocol 会迫使调用方和测试 adapter 知道无关方法。
+
+**下一步：** 保留 consumer-owned 的窄 Protocol；只有方法集合与语义都相同时才复用。`FullEvaluator` 依赖窄的 `StaticEvaluateOperations`，不绑具体 `StaticEvaluator`，也不要求 `capture`。
+
+### 4.4 CoordinateSearch 拆分成立，验收必须覆盖真重入
+
+`CoordinateSearch` 与 `SearchCoordinator` 已是两个可独立描述、测试和演进的模块，按已有 seam 分文件成立。`minimize` 的 evaluator/cache/observations 必须改成调用局部状态，以便一个注入实例被并发 cell 共用。
+
+「同实例连续调用两次」不足以验收：现行代码每次入口重置实例字段，本来就会通过。测试必须包含 evaluator 在外层 `minimize` 中嵌套调用同实例，以及 barrier 控制的双线程交错。
+
+### 4.5 ProjectEditor 不需要注入无状态 Builder
+
+`PackageReportBuilder.project` 已是同一个纯投影所有者。把同一个无状态 Builder 实例同时注入 Search 和 Editor 不会新增一致性保证，只会增加一个假 seam。现有 editor 测试已覆盖篡改 projected requirements 后不写回，只是与幂等断言混在同一测试。
+
+**下一步：** 保持 projection 单一实现；把现有防篡改断言拆成独立测试，再补 complete authority、recovery 和 workspace transaction 测试。
+
+### 4.6 RunLogStore 需要独立测试面
+
+`runlog.py` 的 journal、diagnosis index、原子写、脱敏和权限行为主要寄生在 process / diagnose 测试上。新增 `test_runlog.py` 仍有价值，测试面是 `write_journal` / `read_latest_journal` / `replace_associations` / `lookup` / `lookup_run`，安全原语细节留在平台测试。
+
+## 5. 建议顺序
+
+| 优先级 | 项 | 完成标准 |
 | --- | --- | --- |
-| P0 | 立 CI 与全量测试门禁 | 基建 |
-| P0 | 统一 Cell identity 与 Failure 提取 | 架构 |
-| P0 | 抽出验证运行编排 | 架构 |
-| P1 | 把 Evaluation → FailureRecord 收进 FailurePolicy 附近 | 架构 |
-| P1 | 加厚 `CoordinateSearch` 表驱动测试 | 测试 |
-| P1 | 按已有边界拆 `search.py` | 架构 |
-| P1 | 补 editor / apply 授权测试 | 测试 |
-| P1 | 给 `RunLogStore` 独立测试面 | 测试 |
-| P1 | 收紧 Protocol，去掉 `hasattr` 探测 | 架构 |
-| P2 | 收窄 `TerminalPresenter` 内部视图 | 架构 |
-| P2 | Journal 改为 cell 完成后再写 | 架构 |
-| P2 | 产品范围继续守住 D001 §10 | 产品 |
+| P0 | 流式脱敏 | 任意分块与一次性脱敏等价；生产 credential 已注入但不落盘 |
+| P0 | Report authority | final vector、ProbePass、Proposal、Evaluation、projection 闭环 |
+| P0 | Apply transaction | 单包与 workspace 写后失败均自动回滚 |
+| P0 | Workspace package identity | canonical name 重复在 discovery 阶段失败 |
+| P0 | Candidate artifact binding | exact-vector 安装精确 artifact + hash |
+| P0 | 全量工程门禁 | Python 3.10–3.12；Ruff、ty、pytest、build |
+| P1 | 离线 ProjectDiscovery | Explain / Diagnose 不启动工具、不联网、不写日志 |
+| P1 | Journal package policies | 多包运行不再伪装成第一包 policy |
+| P1 | Registry adapter | 私有认证可用；畸形响应保守失败 |
+| P1 | Cell identity / Failure 提取 | equality 与 order 分离；单一提取入口 |
+| P1 | VerificationRunner | 三工作流共享深 interface，不复制 gate/schedule/journal |
+| P1 | FailurePolicy 输入 | Evaluation → classify 的机械映射只有一个实现 |
+| P1 | CoordinateSearch | 真重入、并发安全、表驱动算法测试、按 seam 分文件 |
+| P1 | RunLogStore 测试 | 独立覆盖 journal 与 index interface |
+| P2 | 静态 PASS 环境释放 | 不随候选数长期保留 PreparedEnvironment |
+| P2 | TerminalPresenter 内部视图 | 包内拆 explain / diagnose，不改视觉契约 |
+| P2 | Journal 写入时机 | 每个 cell 完成时至多一次，最终再写完整 Journal |
 
-从门禁和 cell identity 开始。这两步不改产品语义，但会让后面每一项都更便宜。
+## 6. 已经很好、不必先动
 
-## 4. 分项
+- `FailurePolicy.classify`、`EvaluationCache`、Candidate filtering 和 SourceSnapshot 的核心形状仍然清晰；修复应加深它们的证据闭环，不重写算法。
+- D003 的 CoordinateSearch probe 顺序与状态模型没有在本次 review 中发现契约偏差。
+- `PackageFloorReportV1` 已有大量 complete/incomplete 不变量；问题是 final evidence 链缺一段，不是整个 Schema 需要拆散。
+- `cli.build_context` 作为生产 composition root 的方向正确，但离线 discovery 与 credential/redactor 装配需要修正。
+- D001 §10 的非目标继续保持；以上整改都属于既有承诺，不引入上界搜索、attribution、static-only floor、跨运行 cache 或非宿主执行。
 
-### 4.1 立 CI 与全量测试门禁
+## 7. 测试与验证
 
-仓库是 git 仓库，`main` 跟踪 `origin/main`。缺的是可重复门禁：没有 `.github/` workflow、没有落地的 ruff / mypy / pyright 配置、没有 LICENSE / CHANGELOG。`.gitignore` 里有 `.ruff_cache/`，像是打算用 Ruff 但未写入 `pyproject.toml`。
+当前验证结果：
 
-`[tool.pytest.ini_options].addopts` 默认 `["--testmon"]`。本地增量快，全量回归若忘关会假绿。`[tool.pf].test-command` 反而写了 `--no-testmon`，说明作者知道这一点。
+- `uv run pytest --no-testmon`：522 passed；
+- `uv run ty check src`：通过；
+- `uv build`：sdist 与 wheel 构建成功；
+- `git diff --check`：通过。
 
-覆盖率 `fail_under = 90` 只在开发者机器上有意义。
+现有薄面：
 
-**下一步：** 在已有 GitHub 远程上加最小 workflow：`uv sync --group test && uv run pytest --no-testmon`。Ruff 先开错误级。类型检查从 `pf.failure` / `pf.candidates` 这类深小模块开始，不要先喂 `terminal.py`。
-
-### 4.2 统一 Cell identity 与 Failure 提取
-
-至少五套 cell key、三套 failure 提取。有的含 `package`，有的是 `"|"` 拼接。合并、进度、诊断只要一套算错就会静默丢 cell。
-
-| 位置 | 形状 |
+| 面 | 当前判断 |
 | --- | --- |
-| `workflow.py` `_cell_identity` | `(package, target, python, extras)` 四元组 |
-| `scheduling.py` `_cell_key` | 同四元组 |
-| `terminal.py` `_cell_key` | 同四元组 |
-| `report.py` Builder / Store 各一份 `_cell_key` | `target\|python\|extras` 字符串，无 package |
-| `schemas/report.py` `_cell_key` | 又一种四元组 |
-| `workflow.py` Search / Diagnose 各一份 `_failure_records` | 与 `schemas/report.py` `_failure_records_for_result` 重复 |
-| `ReportStore.update` | 调用 `PackageReportBuilder._failure_reason` |
-
-**下一步：** identity 收成 `Cell` 或 `schemas/project.py` 旁的一个纯函数；failure 提取放进 report schema 旁的单一函数；删除 Store 对 Builder 私有方法的跨模块调用。
-
-### 4.3 抽出验证运行编排
-
-`CheckCommandWorkflow.run`（约 434–498）与 `SmokeCommandWorkflow.run`（约 585–651）结构平行：load → snapshot → `selected_host_cells` → `_JournalGate` → `scheduler.run` → 再写一遍 journal → `gate.raise_if_failed`。Search 同一骨架再加 report persist。
-
-D008 的统一运行模型在代码里是复制出来的，不是一个接口。改 journal 或宿主 cell 规则要改三处。
-
-**下一步：** 先写 `run_verification(command, cells, task_factory) -> outcomes` 的测试，再让三个 workflow 变薄。不要按行数把七个命令切成七个文件。
-
-### 4.4 把 Evaluation → FailureRecord 收进 FailurePolicy 附近
-
-D002 规定失败分类只有一个所有者。Adapter cause 已经走 `FailurePolicy`，但「从哪种 Evaluation 取出 cause / stage / process」复制了两遍：
-
-- `CompatibilityChecker._evaluation_outcome`（`workflow.py`）
-- `_ProposalRunner._static_evidence` / `_full_evidence`（`search.py`）
-
-`STATIC_REGRESSION` / `TEST_FAILURE` 分支各写一份。新加一种 Evaluation 类型会漏改。
-
-`workflow.py` 与 `search.py` 还各自声明几乎同签名的 `CheckEnvironmentOperations` / `SearchEnvironmentOperations` 等 Protocol。这是假 seam：没有第二个真实 adapter。
-
-**下一步：** 一个函数，两个调用方；共用 `EnvironmentOperations` / `StaticOperations` / `FullOperations`。
-
-### 4.5 加厚 CoordinateSearch 表驱动测试
-
-`CoordinateSearch.minimize` 是仓库里最干净的算法模块：只吃冻结向量和 `VectorEvaluator`。`tests/test_search.py` 只有 6 个用例，覆盖不了 hint、`small_threshold`、`NON_MONOTONIC`、`start_is_known_pass`、空切片的组合。Coordinator 测试替代不了「给定假 evaluator 的向量序列」。
-
-**下一步：** 纯函数式 fixture evaluator，不碰文件系统。
-
-### 4.6 按已有边界拆 search.py
-
-D002 的拆分条件已经满足：`CoordinateSearch`（约 79–356）零依赖 coordinator；`SearchCoordinator.search` 是另一套生命周期。
-
-`SearchCoordinator` 把 `coordinate_search` 参数降级成只偷 `small_threshold`（约 831–833），传入的实例不被使用。`HighestVersionVerifier` 缺省时在构造函数里新建，和 `cli.build_context` 已有装配不一致。`CoordinateSearch.minimize` 把 evaluator 写到 `self` 上，接口上看不出来不可重入。
-
-**下一步：** 先移动文件，不改行为；`HighestVersionVerifier` 改为必注入；`minimize` 的可变状态改为局部变量。
-
-### 4.7 补 editor / apply 授权测试
-
-`ProjectEditor` 只有 2 个测试（注释保留且幂等、workspace 批量 apply），却在 apply 时现场 `PackageReportBuilder().project(...)` 复核投影，并与 `environment.py` 分享 TOML 改写知识。apply 是唯一写用户 `pyproject.toml` 的路径。
-
-**下一步：** 投影复核走注入的 Builder 实例；补漂移、不完整报告、recovery journal 的表驱动测试。
-
-### 4.8 给 RunLogStore 独立测试面
-
-`runlog.py` 914 行（journal、diagnosis-index、脱敏、Windows ACL）没有 `test_runlog.py`。行为寄生在 `test_process` / `test_diagnose` 上。`windows_runlog.py` 在非 Windows 跳过。
-
-D007 / D008 的本机调查入口是产品差异点。改存储布局容易漏。
-
-**下一步：** 以 `write_journal` / `replace_associations` / `lookup` 为唯一测试面，用临时目录测原子写和 index。不测 ctypes 细节。
-
-### 4.9 收紧 Protocol，去掉 hasattr 探测
-
-`persist_verification_journal` 在已声明 `JournalStore` 之后仍 `hasattr(logs, "write_journal")`。缺方法的假对象会 silently no-op，journal 丢失不会失败。`DiagnoseCommandWorkflow` 对 `read_latest_journal` / `lookup_run` 再做 `getattr` / `hasattr`。
-
-`cli.build_context` 里 `diagnose_workflow` 单独 `ProjectLoader()`，不共享带 `pythons=uv` 的 loader。
-
-**下一步：** 让 `RunLogStore` 满足一个完整 Protocol；`build_context` 复用同一个 `projects`。
-
-### 4.10 收窄 TerminalPresenter 内部视图
-
-1870 行实现 + 2938 行测试。D002 要求只有 `terminal.py` 创建业务 Rich renderable，这条约束保留。但对维护者，接口已经和实现一样宽。
-
-**下一步：** 不要先重写视觉。先把 `render_explain` / `render_diagnose` 挪到同包私有模块，测试跟走。
-
-### 4.11 Journal 改为 cell 完成后再写
-
-`_JournalGate._persist` 每次失败都把整个 journal 重写。跨运行 Evaluation cache 是 D001 非目标，不要做。单次运行内的 O(n) 写盘是合法优化。
-
-**下一步：** 延迟到 cell 完成或运行结束写一次。D008 允许本机工件。
-
-### 4.12 产品范围继续守住 D001 §10
-
-上界搜索、attribution、static-only、跨机 check、部分 apply、`--json` 都写在非目标里。工程债（4.1–4.9）比新能力更能降低后续产品成本。
-
-若做产品，用户痛点更可能是：多宿主 merge 工作流、日志膨胀、GNU/musl 同 marker 投影失败、`project.dynamic` 元数据项目用不了。这些是保守失败面，不是算法野心。
-
-文档上把 D001 §10 保持为拒绝清单，避免计划文档把非目标写成待办。
-
-## 5. 已经很好、不必先动
-
-- `failure.py`、`candidates.py`、`ProjectLoader.load`、`CoordinateSearch.minimize`、`EvaluationCache` 已经是深模块。
-- `PackageFloorReportV1.validate_completion_authority` 把 complete-report 不变量压在 Schema 里。
-- `cli.build_context` 作为唯一 composition root 符合 D002。
-- Schema / terminal / process / project 测试护栏强。
-- 设计文档所有权清楚，不要再写一份平行架构说明。
-
-## 6. 不要当下一版产品做
-
-D001 §10 的非目标不是半截实现：
-
-- 传递依赖最小化或直接依赖笛卡尔积搜索
-- 非单调区间细化、version hole 认证或自动 `!=`
-- 不兼容上界发现
-- failure attribution、partial tests 或测试用例选择
-- 没有完整测试的 static-only floor
-- flaky 自动重试
-- `diagnose` 隐式重放或自动修复
-- 跨运行 Proposal / Evaluation 环境缓存
-- 非宿主平台执行
-- 无法表示或不完整证据的部分 apply
-
-其它 v1 边界同样保持：不支持 PyPy / free-threaded / debug；受管 marker 仅 `python_version` / `sys_platform` / `platform_machine`；不自动删除 `.pf/logs`；无 `--verbose` / `--json` / 本地化。
-
-`ProcessSpec.summary_limit` 仍在 Schema 里。D007 说生产路径作废、只许测试注入。这是小债务，不是产品缺口。
-
-## 7. 测试缺口摘要
-
-| 源模块 | 主要测试 | 判断 |
-| --- | --- | --- |
-| `schemas/*` / `terminal.py` / `adapters/process.py` / `project.py` / `cli.py` | 厚 | 护栏扎实，terminal 维护贵 |
-| Check / Diagnose / SearchCoordinator | 中 | 状态机仍有边角 |
-| `CoordinateSearch` | `test_search.py` 6 个用例 | 薄 |
-| `evaluation.py` | 6 + cache 3 | 薄 |
-| `candidates.py` / `snapshot.py` | 5 / 4 | 薄 |
-| `scheduling.py` | 3，含 `time.sleep` | 薄 |
-| `editor.py` | 2 | 很薄 |
-| `runlog.py` | 无 `test_runlog.py` | 缺口 |
-| 端到端 | 2，真跑 `python -m pf`，`timeout=60` | 冒烟 |
-
-全库几乎没有 `@pytest.mark.skip` / `xfail` / network。唯一 skip：`tests/test_windows_runlog.py` 在非 Windows。e2e 依赖本机 uv/ty，不是录制网络。
+| 流式 redaction | 缺跨 chunk / URL userinfo / production secret tests |
+| Report authority | 缺 final vector 与 PASS Proposal 防篡改矩阵 |
+| ProjectEditor | 2 个测试；缺 rollback / restart recovery / workspace atomicity |
+| Project discovery | 缺 canonical duplicate package names |
+| Candidate install | 缺 snapshot artifact 与实际安装一致性 |
+| Registry adapter | 缺认证私有索引和畸形 PEP 691 矩阵 |
+| CoordinateSearch | 6 个直接算法用例；缺 hint/threshold/non-monotonic/真重入组合 |
+| RunLogStore | 无独立 `test_runlog.py` |
+| Scheduling | 3 个测试，含真实 `time.sleep` |
+| 端到端 | 2 个本机冒烟；不替代上述 seam 测试 |
 
 ## 8. 勘误
 
-初稿曾根据会话元数据写「工作区不是 git 仓库」。核验后作废：`/home/llh/pf` 是 git 仓库，`main` 跟踪 `origin/main`。门禁建议改为在已有远程上加 workflow，不必再初始化仓库。
+- 初稿「D001–D008 已全部落地」改为「命令与主要状态机已落地，但仍有契约缺口」。
+- `terminal.py._cell_key` 不是与 Scheduler 相同顺序的四元组；它是 package/python/target/extra，并同时参与诊断排序。
+- `tests/test_windows_runlog.py` 的条件 skip 发生在 Windows，用来跳过“拒绝非 Windows”这一测试；不是在非 Windows skip 整个文件。
+- `ProjectEditor` 现有首个测试已经覆盖 unauthorized projected requirement 不写回；待补的是 final evidence、rollback 和 workspace transaction。
+- `/home/llh/pf` 是 git 仓库，`main` 跟踪 `origin/main`；无需初始化仓库。
