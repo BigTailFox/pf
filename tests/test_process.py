@@ -15,6 +15,7 @@ from pf.adapters.process import (
     SecretRedactor,
     SubprocessRunner,
 )
+from pf._secure_runlog import WindowsDirectoryAdapter
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
@@ -678,14 +679,8 @@ class TestRunLogStoreProcessOutput:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(
-            RunLogStore,
-            "_supports_secure_dir_fd",
-            staticmethod(lambda: False),
-        )
-        monkeypatch.setattr(
-            RunLogStore,
-            "_supports_windows_guard",
-            staticmethod(lambda: True),
+            "pf.runlog.secure_log_directory",
+            lambda **kwargs: WindowsDirectoryAdapter(**kwargs),
         )
 
         class FakeWindowsRunDirectory:
@@ -756,7 +751,7 @@ class TestRunLogStoreProcessOutput:
                 pass
 
         monkeypatch.setattr(
-            "pf.runlog.WindowsRunDirectory",
+            "pf._secure_runlog.WindowsRunDirectory",
             FakeWindowsRunDirectory,
         )
         logs = RunLogStore(root=tmp_path, run_id="portable-run")
@@ -801,14 +796,8 @@ class TestRunLogStoreProcessOutput:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(
-            RunLogStore,
-            "_supports_secure_dir_fd",
-            staticmethod(lambda: False),
-        )
-        monkeypatch.setattr(
-            RunLogStore,
-            "_supports_windows_guard",
-            staticmethod(lambda: True),
+            "pf.runlog.secure_log_directory",
+            lambda **kwargs: WindowsDirectoryAdapter(**kwargs),
         )
         guard_events: list[str] = []
 
@@ -881,7 +870,10 @@ class TestRunLogStoreProcessOutput:
                     "run-close" if self.run_id is not None else "logs-close"
                 )
 
-        monkeypatch.setattr("pf.runlog.WindowsRunDirectory", FakeWindowsRunDirectory)
+        monkeypatch.setattr(
+            "pf._secure_runlog.WindowsRunDirectory",
+            FakeWindowsRunDirectory,
+        )
         logs = RunLogStore(root=tmp_path, run_id="windows-run")
         runner = SubprocessRunner(logs=logs)
         result = runner.run(
@@ -900,22 +892,20 @@ class TestRunLogStoreProcessOutput:
         assert offline.lookup("generation-a", "failure-a") == Path(
             ".pf/logs/windows-run/process-0001.log"
         )
-        assert guard_events == ["logs-open", "run-open", "run-close", "logs-close"]
+        assert guard_events == ["logs-open", "logs-close", "run-open", "run-close"]
 
     def test_run_log_store_fails_closed_without_a_secure_platform_backend(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        class UnsupportedDirectory:
+            def ensure_run(self, manifest: str) -> None:
+                raise OSError("secure PF run logs are unsupported")
+
         monkeypatch.setattr(
-            RunLogStore,
-            "_supports_secure_dir_fd",
-            staticmethod(lambda: False),
-        )
-        monkeypatch.setattr(
-            RunLogStore,
-            "_supports_windows_guard",
-            staticmethod(lambda: False),
+            "pf.runlog.secure_log_directory",
+            lambda **kwargs: UnsupportedDirectory(),
         )
         logs = RunLogStore(root=tmp_path, run_id="unsupported-run")
         result = SubprocessRunner().run(

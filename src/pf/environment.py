@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -20,7 +21,7 @@ from pf.schemas.evaluation import (
     GraphOutcome,
     InterpreterOutcome,
     InterpreterSuccess,
-    ProgressEvent,
+    CellStageEvent,
     PrepareFailure,
     ToolFailure,
     ToolOutcome,
@@ -35,21 +36,36 @@ from pf.schemas.project import (
 from pf.snapshot import SourceSnapshot
 
 
+@dataclass(frozen=True)
+class HighestResolution:
+    kind: Literal["highest"] = "highest"
+
+
+@dataclass(frozen=True)
+class LowestDirectResolution:
+    kind: Literal["lowest-direct"] = "lowest-direct"
+
+
+@dataclass(frozen=True)
+class ExactSelection:
+    selection: tuple[SelectedCandidate, ...]
+    kind: Literal["exact-selection"] = "exact-selection"
+
+
+ResolutionRequest = HighestResolution | LowestDirectResolution | ExactSelection
+
+
 class StageConsumer(Protocol):
-    def consume(self, event: ProgressEvent) -> None: ...
+    def consume(self, event: CellStageEvent) -> None: ...
 
 
 def emit_cell_stage(events: StageConsumer | None, cell: Cell, stage: str) -> None:
     if events is None:
         return
     events.consume(
-        ProgressEvent(
-            package=cell.package,
+        CellStageEvent(
             cell=cell,
-            phase=stage,
-            completed=0,
-            total=1,
-            message="running",
+            stage=stage,
         )
     )
 
@@ -70,9 +86,8 @@ class UvOperations(Protocol):
         interpreter: Path,
         package: Path,
         extra_surface: tuple[str, ...],
-        resolution: Literal["highest", "lowest-direct"],
+        resolution: ResolutionRequest,
         timeout_seconds: int | None,
-        selection: tuple[SelectedCandidate, ...] | None = None,
     ) -> ToolOutcome: ...
 
     def inspect_interpreter(
@@ -147,16 +162,13 @@ class EnvironmentFactory:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        resolution: Literal["highest", "lowest-direct"],
-        managed_vector: tuple[VersionPin, ...] | None = None,
-        selection: tuple[SelectedCandidate, ...] | None = None,
+        resolution: ResolutionRequest,
     ) -> PreparedEnvironment | PrepareFailure:
-        if managed_vector is not None and selection is not None:
-            raise ConfigurationError(
-                "exact-vector prepare cannot receive both vector and selection"
-            )
-        if selection is not None:
-            managed_vector = self._selection_vector(selection)
+        managed_vector = (
+            self._selection_vector(resolution.selection)
+            if isinstance(resolution, ExactSelection)
+            else None
+        )
         attempt = self._attempt(
             package=package,
             cell=cell,
@@ -220,7 +232,6 @@ class EnvironmentFactory:
                 package=package_root,
                 extra_surface=cell.extra_surface,
                 resolution=resolution,
-                selection=selection,
                 timeout_seconds=package.config.resolve_timeout,
             )
             if isinstance(install, ToolFailure):
@@ -381,14 +392,16 @@ class EnvironmentFactory:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        resolution: Literal["highest", "lowest-direct"],
+        resolution: ResolutionRequest,
         managed_vector: tuple[VersionPin, ...] | None,
     ) -> Attempt:
         requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
-        if managed_vector is not None:
+        if isinstance(resolution, ExactSelection):
             requested_resolution = "exact-vector"
+        elif isinstance(resolution, HighestResolution):
+            requested_resolution = "highest"
         else:
-            requested_resolution = resolution
+            requested_resolution = "lowest-direct"
         source_plan = json.dumps(
             package.source_plan.model_dump(mode="json"),
             sort_keys=True,

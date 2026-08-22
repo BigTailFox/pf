@@ -939,20 +939,49 @@ class CacheConflict(FrozenSchema):
     observed_statuses: tuple[str, str]
 
 
-class ProgressEvent(FrozenSchema):
-    package: str
+class CellStageEvent(FrozenSchema):
+    kind: Literal["stage"] = "stage"
     cell: Cell
+    stage: str
+
+
+class CellSucceeded(FrozenSchema):
+    kind: Literal["succeeded"] = "succeeded"
+    status: str
     phase: str
-    completed: int
-    total: int
-    message: str
-    detail: str = ""
     diagnostics: tuple[TyDiagnostic, ...] = ()
     process: ProcessResult | None = None
-    failure: FailureRecord | None = None
+
+
+class CellFailed(FrozenSchema):
+    kind: Literal["failed"] = "failed"
+    status: str
+    phase: str
+    diagnostics: tuple[TyDiagnostic, ...] = ()
+    process: ProcessResult | None = None
+    failures: tuple[FailureRecord, ...] = ()
     verification_role: VerificationRole | None = None
-    stage: str | None = None
-    diagnose_available: bool = True
+
+
+CellCompletionOutcome = Annotated[
+    Union[CellSucceeded, CellFailed],
+    Field(discriminator="kind"),
+]
+
+
+class CellCompletedEvent(FrozenSchema):
+    kind: Literal["completed"] = "completed"
+    cell: Cell
+    completed: int
+    total: int
+    outcome: CellCompletionOutcome
+    diagnose_available: bool = False
+
+    @model_validator(mode="after")
+    def validate_progress(self) -> "CellCompletedEvent":
+        if self.total <= 0 or self.completed <= 0 or self.completed > self.total:
+            raise ValueError("cell completion counters must satisfy 0 < completed <= total")
+        return self
 
 
 class StatusEvent(FrozenSchema):
@@ -1002,5 +1031,10 @@ class SearchFailureEvent(FrozenSchema):
 
 
 ActivityEvent = (
-    ProgressEvent | StatusEvent | CellMatrixEvent | ProcessEvent | SearchFailureEvent
+    CellStageEvent
+    | CellCompletedEvent
+    | StatusEvent
+    | CellMatrixEvent
+    | ProcessEvent
+    | SearchFailureEvent
 )

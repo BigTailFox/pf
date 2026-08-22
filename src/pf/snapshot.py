@@ -9,7 +9,7 @@ import shutil
 import stat
 import tempfile
 
-from pf.adapters.process import ProcessRunner, SubprocessRunner, read_process_output
+from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import ProcessSpec
@@ -59,14 +59,25 @@ class SourceSnapshot:
 class SnapshotBuilder:
     """Own safe source traversal, identity hashing, and immutable staging."""
 
-    def __init__(self, runner: ProcessRunner | None = None) -> None:
-        self._runner = runner or SubprocessRunner()
+    def __init__(self, runner: ProcessRunner) -> None:
+        self._runner: ProcessRunner | None = runner
+
+    @classmethod
+    def without_processes(cls) -> "SnapshotBuilder":
+        builder = cls.__new__(cls)
+        builder._runner = None
+        return builder
 
     def build(self, root: Path) -> SourceSnapshot:
         root = root.resolve()
         temporary_directory = tempfile.TemporaryDirectory(prefix="pf-source-")
         staged_root = Path(temporary_directory.name)
         entries: list[SnapshotEntry] = []
+        if (root / ".git").exists() and self._runner is None:
+            temporary_directory.cleanup()
+            raise ConfigurationError(
+                "Git source snapshots require an explicit process runner"
+            )
         manifest = self._git_manifest(root) if (root / ".git").exists() else None
         ignore_patterns = () if manifest is not None else self._ignore_patterns(root)
         try:
@@ -223,7 +234,12 @@ class SnapshotBuilder:
         )
 
     def _git_manifest(self, root: Path) -> frozenset[str]:
-        result = self._runner.run(
+        runner = self._runner
+        if runner is None:
+            raise ConfigurationError(
+                "Git source snapshots require an explicit process runner"
+            )
+        result = runner.run(
             ProcessSpec(
                 argv=(
                     "git",
@@ -253,7 +269,7 @@ class SnapshotBuilder:
             raise InfrastructureError("git source manifest was not recorded completely")
         paths = frozenset(
             path
-            for path in read_process_output(self._runner, result).stdout.split("\0")
+            for path in read_process_output(runner, result).stdout.split("\0")
             if path
         )
         for path in paths:

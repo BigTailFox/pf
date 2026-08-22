@@ -21,7 +21,10 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     BaselineIndeterminate,
     BaselineRejection,
+    CellCompletedEvent,
     CellFailureScope,
+    CellStageEvent,
+    CellSucceeded,
     FailureDetail,
     HighestVersionPass,
     IndeterminateEvaluation,
@@ -1334,6 +1337,30 @@ class TestReportSchemas:
 
         assert isinstance(event, ActivityEvent)
         assert event.failure == failure
+
+    def test_cell_activity_events_reject_progress_sentinel_fields(self) -> None:
+        cell = _attempt().identity.cell
+        stage = CellStageEvent(cell=cell, stage="install")
+        completed = CellCompletedEvent(
+            cell=cell,
+            completed=1,
+            total=1,
+            outcome=CellSucceeded(status="PASS", phase="complete"),
+        )
+
+        assert isinstance(stage, ActivityEvent)
+        assert isinstance(completed, ActivityEvent)
+        assert "completed" not in stage.model_dump()
+        assert "phase" not in completed.model_dump()
+        with pytest.raises(ValidationError, match="Extra inputs"):
+            CellStageEvent(cell=cell, stage="install", completed=0)
+        with pytest.raises(ValidationError, match="completion counters"):
+            CellCompletedEvent(
+                cell=cell,
+                completed=0,
+                total=1,
+                outcome=CellSucceeded(status="PASS", phase="complete"),
+            )
 
     def test_search_diagnostic_event_rejects_a_mismatched_cell(self) -> None:
         attempt = _attempt()

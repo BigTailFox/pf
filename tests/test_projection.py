@@ -236,7 +236,7 @@ class TestReportProjection:
         package = (
             ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
         )
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         report = PackageReportBuilder().build(
             package=package,
             source_snapshot=snapshot.identity,
@@ -302,7 +302,7 @@ class TestReportProjection:
         package = (
             ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
         )
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         floors = {"3.10": "2.0", "3.11": "3.0"}
 
         report = PackageReportBuilder().build(
@@ -357,7 +357,7 @@ class TestReportProjection:
         package = (
             ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
         )
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         builder = PackageReportBuilder()
         first = builder.build(
             package=package,

@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pf.environment import PreparedEnvironment
+from pf.environment import (
+    HighestResolution,
+    LowestDirectResolution,
+    PreparedEnvironment,
+    ResolutionRequest,
+)
 from pf.errors import ConfigurationError
 from pf.evaluation import require_full_evaluation_contract
 from pf.policy import evaluation_policy_identity
@@ -44,7 +49,6 @@ from pf.schemas.evaluation import (
     VerificationRole,
 )
 from pf.report import PackageReportBuilder, ReportStore
-from pf.scheduling import ProgressConsumer
 from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.config import (
     ApplyRequest,
@@ -71,7 +75,12 @@ from pf.project import ProjectLoader, host_target as current_host_target
 from pf.project_discovery import ProjectDiscovery
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
-from pf.verification import VerificationRun, VerificationRunner, VerificationTask
+from pf.verification import (
+    ActivityConsumer,
+    VerificationRun,
+    VerificationRunner,
+    VerificationTask,
+)
 
 
 def selected_host_cells(
@@ -92,7 +101,7 @@ class CheckEnvironmentOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        resolution: Literal["highest", "lowest-direct"],
+        resolution: ResolutionRequest,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -154,7 +163,7 @@ class CompatibilityChecker:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
         if isinstance(highest, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -175,7 +184,7 @@ class CompatibilityChecker:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="lowest-direct",
+            resolution=LowestDirectResolution(),
         )
         if isinstance(prepared, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -257,7 +266,7 @@ class CheckCommandWorkflow:
         snapshots: SnapshotBuilder,
         checker: CheckCellOperations,
         verification: VerificationRunner,
-        events: ProgressConsumer,
+        events: ActivityConsumer,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
@@ -402,7 +411,7 @@ class SmokeCommandWorkflow:
         snapshots: SnapshotBuilder,
         verifier: SmokeCellOperations,
         verification: VerificationRunner,
-        events: ProgressConsumer,
+        events: ActivityConsumer,
         host_target: str | None = None,
     ) -> None:
         self._projects = projects
@@ -545,7 +554,7 @@ class SearchCommandWorkflow:
         verification: VerificationRunner,
         reports: ReportStore,
         report_builder: PackageReportBuilder,
-        events: ProgressConsumer,
+        events: ActivityConsumer,
         associations: FailureLogAssociations | None = None,
         host_target: str | None = None,
     ) -> None:
@@ -949,7 +958,7 @@ class ApplyCommandWorkflow:
         projects: ProjectLoader,
         reports: ReportStore,
         editor: ProjectEditOperations,
-        events: ProgressConsumer | None = None,
+        events: ActivityConsumer | None = None,
     ) -> None:
         self._projects = projects
         self._reports = reports

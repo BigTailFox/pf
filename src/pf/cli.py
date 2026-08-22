@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
@@ -24,7 +24,6 @@ from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
 from pf.runlog import RunLogStore
-from pf.scheduling import Scheduler
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -81,17 +80,31 @@ class ApplyWorkflow(Protocol):
     def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]: ...
 
 
-@dataclass(frozen=True)
+@dataclass
 class CliContext:
     check_workflow: CheckWorkflow
+    smoke_workflow: SmokeWorkflow
+    search_workflow: SearchWorkflow
+    explain_workflow: ExplainWorkflow
+    diagnose_workflow: DiagnoseWorkflow
+    merge_workflow: MergeWorkflow
+    apply_workflow: ApplyWorkflow
     presenter: TerminalPresenter
-    smoke_workflow: SmokeWorkflow | None = None
-    search_workflow: SearchWorkflow | None = None
-    explain_workflow: ExplainWorkflow | None = None
-    diagnose_workflow: DiagnoseWorkflow | None = None
-    merge_workflow: MergeWorkflow | None = None
-    apply_workflow: ApplyWorkflow | None = None
-    run_logs: RunLogStore | None = None
+    run_logs: RunLogStore
+    _closed: bool = field(default=False, init=False, repr=False)
+
+    def __enter__(self) -> "CliContext":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.presenter.close()
+        self.run_logs.close()
 
 
 _PACKAGE_HELP = (
@@ -160,8 +173,6 @@ def create_app(context: CliContext) -> App:
     ) -> int:
         """Verify a fresh install with the newest versions allowed by current declarations."""
         context.presenter.bind_command("smoke")
-        if context.smoke_workflow is None:
-            raise ConfigurationError("smoke workflow is not assembled")
         request = SmokeRequest(
             root=Path.cwd().as_posix(),
             package=package,
@@ -196,8 +207,6 @@ def create_app(context: CliContext) -> App:
     ) -> int:
         """Find verified floors and write package-floor.json."""
         context.presenter.bind_command("search")
-        if context.search_workflow is None:
-            raise ConfigurationError("search workflow is not assembled")
         request = SearchRequest(
             root=Path.cwd().as_posix(),
             package=package,
@@ -210,8 +219,6 @@ def create_app(context: CliContext) -> App:
     def explain(package: _PACKAGE = None, /) -> int:
         """Show verified floors, coverage, and apply blockers in an existing report."""
         context.presenter.bind_command("explain")
-        if context.explain_workflow is None:
-            raise ConfigurationError("explain workflow is not assembled")
         request = ReportRequest(root=Path.cwd().as_posix(), package=package)
         return context.presenter.render_explain(context.explain_workflow.run(request))
 
@@ -219,8 +226,6 @@ def create_app(context: CliContext) -> App:
     def apply(package: _PACKAGE = None, /) -> int:
         """Update project metadata from a complete, current floor report."""
         context.presenter.bind_command("apply")
-        if context.apply_workflow is None:
-            raise ConfigurationError("apply workflow is not assembled")
         request = ApplyRequest(root=Path.cwd().as_posix(), package=package)
         return context.presenter.render_apply(context.apply_workflow.run(request))
 
@@ -234,8 +239,6 @@ def create_app(context: CliContext) -> App:
     ) -> int:
         """Search for floors, then apply only a complete result."""
         context.presenter.bind_command("minimize")
-        if context.search_workflow is None or context.apply_workflow is None:
-            raise ConfigurationError("minimize workflows are not assembled")
         root = Path.cwd().as_posix()
         reports = context.search_workflow.run(
             SearchRequest(
@@ -267,8 +270,6 @@ def create_app(context: CliContext) -> App:
     ) -> int:
         """Explain a recorded rejection or indeterminate result."""
         context.presenter.bind_command("diagnose")
-        if context.diagnose_workflow is None:
-            raise ConfigurationError("diagnose workflow is not assembled")
         request = DiagnoseRequest(
             root=Path.cwd().as_posix(),
             package=package,
@@ -294,8 +295,6 @@ def create_app(context: CliContext) -> App:
     ) -> int:
         """Combine compatible reports produced on different hosts."""
         context.presenter.bind_command("merge")
-        if context.merge_workflow is None:
-            raise ConfigurationError("merge workflow is not assembled")
         request = MergeRequest(
             reports=tuple(path.as_posix() for path in (report, *reports)),
             output=output.as_posix(),
@@ -320,7 +319,23 @@ def create_app(context: CliContext) -> App:
 def build_context() -> CliContext:
     root = Path.cwd()
     logs = RunLogStore(root=root)
-    presenter = TerminalPresenter(logs=logs, root=root)
+    presenter: TerminalPresenter | None = None
+    try:
+        presenter = TerminalPresenter(logs=logs, root=root)
+        return _assemble_context(root=root, logs=logs, presenter=presenter)
+    except BaseException:
+        if presenter is not None:
+            presenter.close(abandon_pending=True)
+        logs.close()
+        raise
+
+
+def _assemble_context(
+    *,
+    root: Path,
+    logs: RunLogStore,
+    presenter: TerminalPresenter,
+) -> CliContext:
     registry_access = RegistryAccess.from_environment(os.environ)
     redactor = SecretRedactor(registry_access.secret_literals)
     runner = SubprocessRunner(redactor=redactor, listener=presenter, logs=logs)
@@ -346,9 +361,7 @@ def build_context() -> CliContext:
     projects = ProjectLoader(pythons=uv, discovery=discovery)
     snapshots = SnapshotBuilder(runner)
     reports = ReportStore()
-    scheduler = Scheduler()
     verification = VerificationRunner(
-        scheduler=scheduler,
         events=presenter,
         logs=logs,
     )
@@ -407,14 +420,10 @@ def build_context() -> CliContext:
 
 
 def main() -> None:
-    context = build_context()
-    try:
-        create_app(context)()
-    except PfError as error:
-        raise SystemExit(context.presenter.render_error(error)) from error
-    except CycloptsError:
-        raise SystemExit(3)
-    finally:
-        context.presenter.close()
-        if context.run_logs is not None:
-            context.run_logs.close()
+    with build_context() as context:
+        try:
+            create_app(context)()
+        except PfError as error:
+            raise SystemExit(context.presenter.render_error(error)) from error
+        except CycloptsError:
+            raise SystemExit(3)

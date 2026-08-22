@@ -5,6 +5,8 @@ import subprocess
 
 import pytest
 
+from pf.adapters.process import SubprocessRunner
+from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import ProcessResult, ProcessSpec
 from pf.snapshot import SnapshotBuilder
@@ -24,7 +26,7 @@ class TestSnapshotBuilder:
             (directory / "state.txt").write_text("runtime\n", encoding="utf-8")
         (root / "package-floor.json").write_text("{}\n", encoding="utf-8")
 
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         destination = tmp_path / "proposal"
         snapshot.materialize(destination)
 
@@ -48,7 +50,7 @@ class TestSnapshotBuilder:
         (root / "ignored").mkdir()
         (root / "ignored" / "secret.txt").write_text("secret\n", encoding="utf-8")
 
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         paths = {entry.path for entry in snapshot.identity.entries}
         assert {".gitignore", "keep.py"} <= paths
@@ -74,7 +76,7 @@ class TestSnapshotBuilder:
         (root / "untracked.py").write_text("UNTRACKED = True\n", encoding="utf-8")
         (root / "ignored.txt").write_text("ignored\n", encoding="utf-8")
 
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder(SubprocessRunner()).build(root)
 
         paths = {entry.path for entry in snapshot.identity.entries}
         assert {".gitignore", "tracked.py", "staged.py", "untracked.py"} <= paths
@@ -106,3 +108,14 @@ class TestSnapshotBuilder:
 
         assert str(caught.value) == "git could not enumerate the source snapshot"
         assert caught.value.detail == "fatal: not a git repository"
+
+    def test_no_process_snapshot_fails_closed_for_git_root(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / ".git").mkdir()
+
+        with pytest.raises(ConfigurationError, match="explicit process runner"):
+            SnapshotBuilder.without_processes().build(root)

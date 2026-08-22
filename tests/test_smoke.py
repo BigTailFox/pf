@@ -31,7 +31,6 @@ from pf.schemas.evaluation import (
     ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal
-from pf.scheduling import Scheduler
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.terminal import TerminalPresenter
 from pf.verification import VerificationRunner
@@ -151,10 +150,10 @@ class TestSmokeWorkflow:
 
         result = SmokeCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=Events(), logs=None
+                events=Events(), logs=None
             ),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
@@ -240,10 +239,10 @@ class TestSmokeWorkflow:
 
         result = SmokeCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=Events(), logs=None
+                events=Events(), logs=None
             ),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
@@ -303,10 +302,10 @@ class TestSmokeWorkflow:
 
         result = SmokeCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=Events(), logs=None
+                events=Events(), logs=None
             ),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
@@ -401,10 +400,10 @@ class TestSmokeWorkflow:
             journal = FailingJournal()
             SmokeCommandWorkflow(
                 projects=ProjectLoader(),
-                snapshots=SnapshotBuilder(),
+                snapshots=SnapshotBuilder.without_processes(),
                 verifier=Verifier(),
                 verification=VerificationRunner(
-                    scheduler=Scheduler(), events=terminal, logs=journal
+                    events=terminal, logs=journal
                 ),
                 events=terminal,
                 host_target="x86_64-unknown-linux-gnu",

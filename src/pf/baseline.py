@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Protocol
 
-from pf.environment import PreparedEnvironment
+from pf.environment import HighestResolution, PreparedEnvironment, ResolutionRequest
 from pf.evaluation import require_full_evaluation_contract
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
@@ -34,7 +34,7 @@ class HighestEnvironmentOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        resolution: Literal["highest", "lowest-direct"],
+        resolution: ResolutionRequest,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -86,7 +86,7 @@ class HighestVersionVerifier:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
         if isinstance(prepared, ToolFailure):
             raise ValueError("highest-version prepare must establish an Attempt")

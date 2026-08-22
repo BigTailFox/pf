@@ -135,7 +135,7 @@ test-command = ["python", "-c", "pass"]
     )
     project = ProjectLoader().load(root=root, package_selection=None)
     package = project.packages[0]
-    snapshot = SnapshotBuilder().build(root)
+    snapshot = SnapshotBuilder.without_processes().build(root)
     try:
         cell = package.cells[0]
         failure = FailurePolicy().classify(
@@ -262,7 +262,7 @@ def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
     _write_managed_project(root)
     project = ProjectLoader().load(root=root, package_selection=None)
     package = project.packages[0]
-    snapshot = SnapshotBuilder().build(root)
+    snapshot = SnapshotBuilder.without_processes().build(root)
     try:
         cell = package.cells[0]
         policy_identity = evaluation_policy_identity(package.config)

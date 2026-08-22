@@ -12,7 +12,13 @@ from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import TestAdapter
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import UvAdapter
-from pf.environment import EnvironmentFactory, PreparedEnvironment
+from pf.environment import (
+    EnvironmentFactory,
+    HighestResolution,
+    LowestDirectResolution,
+    PreparedEnvironment,
+    ResolutionRequest,
+)
 from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
@@ -21,13 +27,13 @@ from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
+    CellCompletedEvent,
     CellMatrixEvent,
     CheckCellOutcome,
     Evaluation,
     PassEvaluation,
     PrepareFailure,
     ProcessResult,
-    ProgressEvent,
     StaticBaseline,
     StaticBaselineCapture,
     StatusEvent,
@@ -49,7 +55,6 @@ from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.errors import ConfigurationError
-from pf.scheduling import Scheduler
 from pf.verification import VerificationRunner
 from pf.workflow import CheckCommandWorkflow, CompatibilityChecker
 
@@ -123,6 +128,11 @@ def attempt_for(
     )
 
 
+def resolution_kind(resolution: ResolutionRequest) -> Literal["highest", "lowest-direct"]:
+    assert isinstance(resolution, (HighestResolution, LowestDirectResolution))
+    return resolution.kind
+
+
 def passing_outcome(cell: Cell) -> CheckCellOutcome:
     evaluation = passing_check(cell)
     return CheckCellOutcome(
@@ -173,7 +183,7 @@ platform = ["x86_64-unknown-linux-gnu"]
         encoding="utf-8",
     )
     package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-    return package, SnapshotBuilder().build(tmp_path)
+    return package, SnapshotBuilder.without_processes().build(tmp_path)
 
 
 class TestCompatibilityChecker:
@@ -192,11 +202,12 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                resolution: Literal["highest", "lowest-direct"],
+                resolution: ResolutionRequest,
             ) -> PreparedEnvironment:
-                resolutions.append(resolution)
+                kind = resolution_kind(resolution)
+                resolutions.append(kind)
                 temporary = tempfile.TemporaryDirectory(
-                    prefix=f"pf-check-{resolution}-"
+                    prefix=f"pf-check-{kind}-"
                 )
                 root = Path(temporary.name)
                 source = root / "source"
@@ -206,7 +217,7 @@ class TestCompatibilityChecker:
                     AttemptIdentity(
                         source_snapshot_digest=snapshot.identity.digest,
                         cell=cell,
-                        requested_resolution=resolution,
+                        requested_resolution=kind,
                         requested_managed_vector=None,
                         active_declaration_ids=cell.active_declaration_ids,
                         source_plan_identity="sources",
@@ -216,7 +227,7 @@ class TestCompatibilityChecker:
                 value = PreparedEnvironment(
                     attempt=attempt,
                     proposal=Proposal(
-                        proposal_id=resolution,
+                        proposal_id=kind,
                         attempt_id=attempt.attempt_id,
                         snapshot_digest=snapshot.identity.digest,
                         cell=cell,
@@ -231,7 +242,7 @@ class TestCompatibilityChecker:
                     interpreter=environment / "bin" / "python",
                     temporary_directory=temporary,
                 )
-                prepared[resolution] = value
+                prepared[kind] = value
                 return value
 
         process = ProcessResult(
@@ -334,15 +345,16 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                resolution: Literal["highest", "lowest-direct"],
+                resolution: ResolutionRequest,
             ) -> PrepareFailure:
-                resolutions.append(resolution)
+                kind = resolution_kind(resolution)
+                resolutions.append(kind)
                 return PrepareFailure(
                     attempt=attempt
-                    if resolution == "highest"
+                    if kind == "highest"
                     else Attempt.from_identity(
                         attempt.identity.model_copy(
-                            update={"requested_resolution": resolution}
+                            update={"requested_resolution": kind}
                         )
                     ),
                     failure=ToolFailure(
@@ -472,10 +484,10 @@ class TestCompatibilityChecker:
 
         CheckCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=Events(), logs=None
+                events=Events(), logs=None
             ),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
@@ -501,20 +513,21 @@ class TestCheckWorkflow:
         events = Events()
         CheckCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=events, logs=None
+                events=events, logs=None
             ),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
-        progress = [event for event in events.items if isinstance(event, ProgressEvent)]
+        progress = [
+            event for event in events.items if isinstance(event, CellCompletedEvent)
+        ]
         assert [
-            (event.message, event.completed, event.total) for event in progress
+            (event.outcome.status, event.completed, event.total) for event in progress
         ] == [
-            ("running", 0, 1),
             ("INDETERMINATE", 1, 1),
         ]
 
@@ -560,10 +573,10 @@ class TestCheckWorkflow:
         with pytest.raises(ConfigurationError, match=message):
             CheckCommandWorkflow(
                 projects=ProjectLoader(),
-                snapshots=SnapshotBuilder(),
+                snapshots=SnapshotBuilder.without_processes(),
                 checker=cast(CompatibilityChecker, NeverChecker()),
                 verification=VerificationRunner(
-                    scheduler=Scheduler(), events=Events(), logs=None
+                    events=Events(), logs=None
                 ),
                 events=Events(),
                 host_target=host,
@@ -587,15 +600,16 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                resolution: Literal["highest", "lowest-direct"],
+                resolution: ResolutionRequest,
             ) -> PreparedEnvironment:
+                kind = resolution_kind(resolution)
                 directory = tempfile.TemporaryDirectory(prefix="pf-check-test-")
                 root = Path(directory.name)
                 attempt = Attempt.from_identity(
                     AttemptIdentity(
                         source_snapshot_digest=snapshot.identity.digest,
                         cell=cell,
-                        requested_resolution=resolution,
+                        requested_resolution=kind,
                         requested_managed_vector=None,
                         active_declaration_ids=cell.active_declaration_ids,
                         source_plan_identity="sources",
@@ -764,10 +778,10 @@ class TestCheckWorkflow:
         events = Events()
         result = CheckCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=events, logs=None
+                events=events, logs=None
             ),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
@@ -819,10 +833,10 @@ class TestCheckWorkflow:
         events = Events()
         CheckCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=events, logs=None
+                events=events, logs=None
             ),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
@@ -892,10 +906,10 @@ class TestCheckWorkflow:
         events = Events()
         result = CheckCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=events, logs=None
+                events=events, logs=None
             ),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
@@ -904,9 +918,10 @@ class TestCheckWorkflow:
         assert maximum_active == 2
         assert sorted(seen) == ["3.10", "3.11"]
         assert result.status == "INDETERMINATE"
-        progress = [event for event in events.items if isinstance(event, ProgressEvent)]
-        assert [event.phase for event in progress[:2]] == ["start", "start"]
-        assert sorted(event.cell.python_minor for event in progress[:2]) == [
+        progress = [
+            event for event in events.items if isinstance(event, CellCompletedEvent)
+        ]
+        assert sorted(event.cell.python_minor for event in progress) == [
             "3.10",
             "3.11",
         ]

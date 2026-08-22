@@ -5,17 +5,17 @@ import tempfile
 
 import pytest
 
-from pf.environment import EnvironmentFactory, PreparedEnvironment
+from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
 from pf.evaluation import FullEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    CellStageEvent,
     GraphSuccess,
     IndeterminateEvaluation,
     InterpreterSuccess,
     ProcessResult,
-    ProgressEvent,
     StaticBaseline,
     StaticBaselineCapture,
     StaticFailEvaluation,
@@ -262,12 +262,12 @@ class TestEvaluators:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
         evaluator = FullEvaluator(
@@ -335,8 +335,8 @@ class TestEvaluators:
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
-            snapshot=SnapshotBuilder().build(root),
-            resolution="highest",
+            snapshot=SnapshotBuilder.without_processes().build(root),
+            resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
 
@@ -381,8 +381,8 @@ class TestEvaluators:
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
-            snapshot=SnapshotBuilder().build(root),
-            resolution="highest",
+            snapshot=SnapshotBuilder.without_processes().build(root),
+            resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
 
@@ -414,8 +414,8 @@ class TestEvaluators:
             def __init__(self) -> None:
                 self.phases: list[str] = []
 
-            def consume(self, event: ProgressEvent) -> None:
-                self.phases.append(event.phase)
+            def consume(self, event: CellStageEvent) -> None:
+                self.phases.append(event.stage)
 
         class Tests:
             def run(self, **kwargs: object) -> TestOutcome:
@@ -441,8 +441,8 @@ class TestEvaluators:
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
-            snapshot=SnapshotBuilder().build(root),
-            resolution="highest",
+            snapshot=SnapshotBuilder.without_processes().build(root),
+            resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
         events = Events()

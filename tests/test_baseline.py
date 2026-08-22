@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
-from typing import Literal, cast
+from typing import cast
 
 import pytest
 
 from pf.baseline import HighestEnvironmentOperations, HighestVersionVerifier
-from pf.environment import PreparedEnvironment
+from pf.environment import HighestResolution, PreparedEnvironment, ResolutionRequest
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     Attempt,
@@ -66,7 +66,7 @@ test-command = ["python", "-c", "pass"]
         encoding="utf-8",
     )
     package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-    return package, SnapshotBuilder().build(tmp_path)
+    return package, SnapshotBuilder.without_processes().build(tmp_path)
 
 
 def _prepared(
@@ -171,8 +171,8 @@ class TestHighestVersionVerifier:
         package = (
             ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
         )
-        snapshot = SnapshotBuilder().build(tmp_path)
-        resolutions: list[str] = []
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+        resolutions: list[ResolutionRequest] = []
         prepared_items: list[PreparedEnvironment] = []
         capture_calls = 0
 
@@ -183,7 +183,7 @@ class TestHighestVersionVerifier:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                resolution: Literal["highest", "lowest-direct"],
+                resolution: ResolutionRequest,
             ) -> PreparedEnvironment:
                 resolutions.append(resolution)
                 temporary = tempfile.TemporaryDirectory(prefix="pf-highest-test-")
@@ -276,7 +276,7 @@ class TestHighestVersionVerifier:
         assert isinstance(result.evaluation, PassEvaluation)
         assert result.evaluation.status == "PASS"
         assert result.baseline.ty is result.evaluation.static.ty
-        assert resolutions == ["highest"]
+        assert resolutions == [HighestResolution()]
         assert capture_calls == 1
         assert prepared_items[0].tested is True
         assert not prepared_items[0].proposal_root.exists()
@@ -305,7 +305,7 @@ class TestHighestVersionVerifier:
         package = (
             ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
         )
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         identity = AttemptIdentity(
             source_snapshot_digest=snapshot.identity.digest,
             cell=package.cells[0],

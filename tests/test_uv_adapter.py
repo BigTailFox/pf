@@ -10,6 +10,7 @@ import pytest
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.uv import RegistryAccess, UvAdapter
+from pf.environment import ExactSelection, HighestResolution, LowestDirectResolution
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
     GraphSuccess,
@@ -61,6 +62,25 @@ def process_result(
 
 
 class TestUvAdapter:
+    def test_uv_adapter_owns_highest_editable_install_argv(
+        self, tmp_path: Path
+    ) -> None:
+        runner = RecordingRunner()
+        adapter = UvAdapter(runner)
+        interpreter = tmp_path / ".venv" / "bin" / "python"
+        package = tmp_path / "demo"
+
+        adapter.install_editable(
+            interpreter=interpreter,
+            package=package,
+            extra_surface=(),
+            resolution=HighestResolution(),
+            timeout_seconds=600,
+        )
+
+        assert runner.specs[0].argv[5:7] == ("--resolution", "highest")
+        assert runner.specs[0].argv[-2:] == ("--editable", package.as_posix())
+
     def test_uv_adapter_owns_lowest_direct_editable_install_argv(
         self, tmp_path: Path
     ) -> None:
@@ -73,7 +93,7 @@ class TestUvAdapter:
             interpreter=interpreter,
             package=package,
             extra_surface=("cuda", "arrow"),
-            resolution="lowest-direct",
+            resolution=LowestDirectResolution(),
             timeout_seconds=600,
         )
 
@@ -105,20 +125,24 @@ class TestUvAdapter:
             interpreter=interpreter,
             package=package,
             extra_surface=(),
-            resolution="highest",
-            timeout_seconds=600,
-            selection=(
-                SelectedCandidate(
-                    dependency="idna",
-                    version="3.1",
-                    artifact=AvailableArtifact(
-                        filename="idna-3.1-py3-none-any.whl",
-                        kind="wheel",
-                        content_hash=f"sha256:{digest}",
-                        locator="https://files.example/idna-3.1-py3-none-any.whl",
+            resolution=ExactSelection(
+                (
+                    SelectedCandidate(
+                        dependency="idna",
+                        version="3.1",
+                        artifact=AvailableArtifact(
+                            filename="idna-3.1-py3-none-any.whl",
+                            kind="wheel",
+                            content_hash=f"sha256:{digest}",
+                            locator=(
+                                "https://files.example/"
+                                "idna-3.1-py3-none-any.whl"
+                            ),
+                        ),
                     ),
-                ),
+                )
             ),
+            timeout_seconds=600,
         )
 
         assert result.status == "SUCCESS"

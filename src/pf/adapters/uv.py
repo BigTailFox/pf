@@ -5,7 +5,6 @@ from collections.abc import Mapping
 import json
 from pathlib import Path
 import re
-from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
@@ -25,6 +24,11 @@ from pydantic import ValidationError
 
 from pf.adapters.process import ProcessRunner, SecretRedactor, read_process_output
 from pf.errors import InfrastructureError
+from pf.environment import (
+    ExactSelection,
+    LowestDirectResolution,
+    ResolutionRequest,
+)
 from pf.schemas.evaluation import (
     GraphOutcome,
     GraphSuccess,
@@ -231,16 +235,23 @@ class UvAdapter:
         interpreter: Path,
         package: Path,
         extra_surface: tuple[str, ...],
-        resolution: Literal["highest", "lowest-direct"],
+        resolution: ResolutionRequest,
         timeout_seconds: int | None,
-        selection: tuple[SelectedCandidate, ...] | None = None,
     ) -> ToolOutcome:
         extras = ",".join(sorted(set(extra_surface)))
         editable = package.as_posix()
         if extras:
             editable = f"{editable}[{extras}]"
         selected_requirements = tuple(
-            self._selected_requirement(item) for item in selection or ()
+            self._selected_requirement(item)
+            for item in (
+                resolution.selection if isinstance(resolution, ExactSelection) else ()
+            )
+        )
+        resolver_mode = (
+            "lowest-direct"
+            if isinstance(resolution, LowestDirectResolution)
+            else "highest"
         )
         result = self._runner.run(
             ProcessSpec(
@@ -251,7 +262,7 @@ class UvAdapter:
                     "--python",
                     interpreter.as_posix(),
                     "--resolution",
-                    resolution,
+                    resolver_mode,
                     "--editable",
                     editable,
                     *selected_requirements,

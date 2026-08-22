@@ -9,15 +9,14 @@ from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
 from pf.runlog import RunLogStore
-from pf.scheduling import Scheduler
 from pf.schemas.config import SearchRequest
 from pf.schemas.evaluation import (
+    CellCompletedEvent,
     CellFailureScope,
     CellMatrixEvent,
     FailureDetail,
     ProcessResult,
     ProcessSpec,
-    ProgressEvent,
 )
 from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.report import CellIndeterminate
@@ -98,10 +97,10 @@ class TestSearchWorkflow:
         store = ReportStore()
         workflow = SearchCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=events, logs=None
+                events=events, logs=None
             ),
             reports=store,
             report_builder=PackageReportBuilder(),
@@ -125,7 +124,7 @@ class TestSearchWorkflow:
         completions = [
             event
             for event in events.items
-            if isinstance(event, ProgressEvent) and event.phase != "start"
+            if isinstance(event, CellCompletedEvent)
         ]
         assert len(completions) == 2
         matrix = next(
@@ -202,10 +201,10 @@ class TestSearchWorkflow:
         )
         workflow = SearchCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(process),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=Events(), logs=logs
+                events=Events(), logs=logs
             ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
@@ -262,10 +261,10 @@ class TestSearchWorkflow:
         store = ReportStore()
         workflow = SearchCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(),
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=Events(), logs=None
+                events=Events(), logs=None
             ),
             reports=store,
             report_builder=PackageReportBuilder(),
@@ -343,10 +342,10 @@ class TestSearchWorkflow:
         events = Events()
         workflow = SearchCommandWorkflow(
             projects=ProjectLoader(),
-            snapshots=SnapshotBuilder(),
+            snapshots=SnapshotBuilder.without_processes(),
             coordinator=coordinator,
             verification=VerificationRunner(
-                scheduler=Scheduler(), events=events, logs=None
+                events=events, logs=None
             ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),

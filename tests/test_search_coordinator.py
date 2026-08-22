@@ -8,7 +8,12 @@ import pytest
 
 from pf.baseline import HighestVersionVerifier
 from pf.coordinate_search import CoordinateSearch
-from pf.environment import PreparedEnvironment
+from pf.environment import (
+    ExactSelection,
+    HighestResolution,
+    PreparedEnvironment,
+    ResolutionRequest,
+)
 from pf.errors import InfrastructureError
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
@@ -104,22 +109,18 @@ class ProposalFactory:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        resolution: str,
-        managed_vector: tuple[VersionPin, ...] | None = None,
-        selection: tuple[SelectedCandidate, ...] | None = None,
+        resolution: ResolutionRequest,
     ) -> PreparedEnvironment:
         selected_vector = (
             tuple(
                 VersionPin(name=item.dependency, version=item.version)
-                for item in selection
+                for item in resolution.selection
             )
-            if selection is not None
+            if isinstance(resolution, ExactSelection)
             else None
         )
-        vector = (
-            selected_vector or managed_vector or (VersionPin(name="a", version="3"),)
-        )
-        exact = selection is not None or managed_vector is not None
+        vector = selected_vector or (VersionPin(name="a", version="3"),)
+        exact = isinstance(resolution, ExactSelection)
         attempt = Attempt.from_identity(
             AttemptIdentity(
                 source_snapshot_digest=snapshot.identity.digest,
@@ -245,6 +246,7 @@ class StaticPasses:
 class FullPasses:
     def __init__(self, static: StaticPasses) -> None:
         self.static = static
+        self.evaluated_vectors: list[tuple[VersionPin, ...]] = []
 
     def evaluate(
         self,
@@ -254,6 +256,7 @@ class FullPasses:
         baseline: StaticBaseline,
         static_result: object | None = None,
     ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation:
+        self.evaluated_vectors.append(prepared.proposal.managed_vector)
         static = (
             static_result
             if isinstance(static_result, StaticPassEvaluation)
@@ -272,6 +275,7 @@ class FullPasses:
 class FullThreshold:
     def __init__(self, static: StaticPasses) -> None:
         self.static = static
+        self.evaluated_vectors: list[tuple[VersionPin, ...]] = []
 
     def evaluate(
         self,
@@ -281,6 +285,7 @@ class FullThreshold:
         baseline: StaticBaseline,
         static_result: object | None = None,
     ) -> PassEvaluation | StaticFailEvaluation | TestFailEvaluation:
+        self.evaluated_vectors.append(prepared.proposal.managed_vector)
         static = (
             static_result
             if isinstance(static_result, StaticPassEvaluation)
@@ -379,7 +384,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -396,11 +401,12 @@ class TestSearchCoordinator:
             test_group_present=True,
         )
         static = StaticPasses()
+        full = FullPasses(static)
         coordinator = search_coordinator(
             environments=ProposalFactory(),
             candidates=FrozenCandidates(),
             static=static,
-            full=FullPasses(static),
+            full=full,
         )
 
         result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
@@ -416,13 +422,14 @@ class TestSearchCoordinator:
             result.static_baseline.diagnostics
         )
         assert static.captures == 1
+        assert full.evaluated_vectors.count(result.final_vector) == 1
 
     def test_search_closes_static_pass_before_repreparing_for_full_evaluation(
         self,
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -466,7 +473,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -488,11 +495,9 @@ class TestSearchCoordinator:
                 self.selections: list[tuple[SelectedCandidate, ...]] = []
 
             def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                selection = kwargs.get("selection")
-                if selection is not None:
-                    self.selections.append(
-                        cast(tuple[SelectedCandidate, ...], selection)
-                    )
+                resolution = kwargs["resolution"]
+                if isinstance(resolution, ExactSelection):
+                    self.selections.append(resolution.selection)
                 return super().prepare(**kwargs)
 
         environments = SelectionFactory()
@@ -519,7 +524,7 @@ class TestSearchCoordinator:
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -539,7 +544,8 @@ class TestSearchCoordinator:
 
         class SpyFactory(ProposalFactory):
             def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                resolutions.append(str(kwargs["resolution"]))
+                resolution = cast(ResolutionRequest, kwargs["resolution"])
+                resolutions.append(resolution.kind)
                 return super().prepare(**kwargs)
 
         static = StaticPasses()
@@ -564,7 +570,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -585,7 +591,7 @@ class TestSearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
         capture = static.capture(prepared, package=package)
         baseline_evaluation = FullPasses(static).evaluate(
@@ -608,7 +614,7 @@ class TestSearchCoordinator:
 
         class CandidateOnlyEnvironments(ProposalFactory):
             def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                assert kwargs.get("selection") is not None
+                assert isinstance(kwargs["resolution"], ExactSelection)
                 return super().prepare(**kwargs)
 
         result = search_coordinator(
@@ -626,7 +632,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -705,7 +711,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -723,11 +729,12 @@ class TestSearchCoordinator:
         )
         static = StaticPasses()
         diagnostics = RecordingDiagnostics()
+        full = FullThreshold(static)
         coordinator = search_coordinator(
             environments=ProposalFactory(),
             candidates=FrozenCandidates(),
             static=static,
-            full=FullThreshold(static),
+            full=full,
             diagnostics=diagnostics,
         )
 
@@ -741,6 +748,8 @@ class TestSearchCoordinator:
         assert any(
             event.failure.cause == "TEST_FAILURE" for event in diagnostics.events
         )
+        assert full.evaluated_vectors.count((VersionPin(name="a", version="1"),)) == 1
+        assert full.evaluated_vectors.count(result.final_vector) == 1
 
     def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
         self,
@@ -751,7 +760,7 @@ class TestSearchCoordinator:
                 raise InfrastructureError("index unavailable")
 
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -795,7 +804,7 @@ class TestSearchCoordinator:
                 )
 
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -832,7 +841,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -899,7 +908,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -920,7 +929,7 @@ class TestSearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
         capture = static.capture(prepared, package=package)
         baseline = FullPasses(static).evaluate(
@@ -950,7 +959,9 @@ class TestSearchCoordinator:
 
         class CandidateFailure:
             def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
-                selection = cast(tuple[SelectedCandidate, ...], kwargs["selection"])
+                resolution = kwargs["resolution"]
+                assert isinstance(resolution, ExactSelection)
+                selection = resolution.selection
                 vector = tuple(
                     VersionPin(name=item.dependency, version=item.version)
                     for item in selection
@@ -995,7 +1006,7 @@ class TestSearchCoordinator:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -1016,7 +1027,7 @@ class TestSearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
         capture = static.capture(highest_prepared, package=package)
         baseline = FullPasses(static).evaluate(
@@ -1042,7 +1053,9 @@ class TestSearchCoordinator:
                 self.version_one_calls = 0
 
             def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
-                selection = cast(tuple[SelectedCandidate, ...], kwargs["selection"])
+                resolution = kwargs["resolution"]
+                assert isinstance(resolution, ExactSelection)
+                selection = resolution.selection
                 vector = tuple(
                     VersionPin(name=item.dependency, version=item.version)
                     for item in selection

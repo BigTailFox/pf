@@ -216,7 +216,7 @@ def _report_for_package(package, source_snapshot) -> PackageFloorReportV1:
 
 def _single_package_report(root: Path) -> PackageFloorReportV1:
     package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-    snapshot = SnapshotBuilder().build(root)
+    snapshot = SnapshotBuilder.without_processes().build(root)
     try:
         return _report_for_package(package, snapshot.identity)
     finally:
@@ -253,7 +253,7 @@ class TestProjectEditor:
         package = (
             ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
         )
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = package.cells[0]
         vector = (VersionPin(name="idna", version="3.0"),)
         final_attempt = Attempt.from_identity(
@@ -327,7 +327,7 @@ class TestProjectEditor:
             source_snapshot=snapshot.identity,
             cell_results=(result,),
         )
-        editor = ProjectEditor(snapshots=SnapshotBuilder())
+        editor = ProjectEditor(snapshots=SnapshotBuilder.without_processes())
 
         malicious_document = report.model_dump(mode="python")
         malicious_document["projection_evidence"][0]["projected_requirements"] = (
@@ -393,7 +393,7 @@ class TestProjectEditor:
                 encoding="utf-8",
             )
         project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         reports = []
         for package in project.packages:
             cell = package.cells[0]
@@ -475,7 +475,7 @@ class TestProjectEditor:
                 )
             )
 
-        edits = ProjectEditor(snapshots=SnapshotBuilder()).apply_many(
+        edits = ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply_many(
             reports=tuple(reports),
             root=tmp_path,
         )
@@ -514,7 +514,7 @@ class TestProjectEditor:
         before = pyproject.read_bytes()
 
         with pytest.raises(ConfigurationError, match="recovery"):
-            ProjectEditor(snapshots=SnapshotBuilder()).apply(
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
                 report=report, root=tmp_path
             )
         assert pyproject.read_bytes() == before
@@ -540,7 +540,7 @@ class TestProjectEditor:
         )
         pyproject.write_text(original, encoding="utf-8")
         report = _single_package_report(tmp_path)
-        editor = ProjectEditor(snapshots=SnapshotBuilder())
+        editor = ProjectEditor(snapshots=SnapshotBuilder.without_processes())
         editor.apply(report=report, root=tmp_path)
         target = pyproject.read_bytes()
         backup = tmp_path / ".pf" / "apply-target.toml.backup"
@@ -571,7 +571,7 @@ class TestProjectEditor:
                 raise ConfigurationError("stop after recover")
 
         with pytest.raises(ConfigurationError, match="stop after recover"):
-            ProjectEditor(snapshots=StopAfterRecover()).apply(
+            ProjectEditor(snapshots=StopAfterRecover.without_processes()).apply(
                 report=report, root=tmp_path
             )
         assert pyproject.read_bytes() == original.encode()
@@ -610,7 +610,7 @@ class TestProjectEditor:
             (package_root / "pyproject.toml").write_bytes(content)
             originals[name] = content
         project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        snapshot = SnapshotBuilder().build(tmp_path)
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         reports = tuple(
             _report_for_package(package, snapshot.identity)
             for package in project.packages
@@ -626,7 +626,7 @@ class TestProjectEditor:
             ProjectEditor, "_atomic_write", staticmethod(fail_second_project)
         )
         with pytest.raises(OSError, match="disk full"):
-            ProjectEditor(snapshots=SnapshotBuilder()).apply_many(
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply_many(
                 reports=reports,
                 root=tmp_path,
             )
@@ -662,5 +662,5 @@ class TestProjectEditor:
             raise AssertionError("apply must not call ProjectLoader.load")
 
         monkeypatch.setattr(ProjectLoader, "load", forbidden_load)
-        ProjectEditor(snapshots=SnapshotBuilder()).apply(report=report, root=tmp_path)
+        ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(report=report, root=tmp_path)
         assert "idna<4,>=3.0" in pyproject.read_text(encoding="utf-8")

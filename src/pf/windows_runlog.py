@@ -107,7 +107,7 @@ class WindowsRunDirectory:
         return self._paths[2]
 
     def read_bounded_text(  # pragma: no cover
-        self, path: Path, *, limit: int
+        self, path: Path, *, limit: int | None
     ) -> str:
         """Read a guarded regular file while its native handle prevents replacement."""
         self.assert_intact()
@@ -121,11 +121,11 @@ class WindowsRunDirectory:
             descriptor = open_osfhandle(handle, os.O_RDONLY)
             handle = None
             opened = os.fstat(descriptor)
-            if opened.st_size > limit:
+            if limit is not None and opened.st_size > limit:
                 raise ValueError("PF diagnosis index exceeds its size limit")
             with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
                 descriptor = None
-                return stream.read(limit + 1)
+                return stream.read() if limit is None else stream.read(limit + 1)
         finally:
             if descriptor is not None:
                 os.close(descriptor)

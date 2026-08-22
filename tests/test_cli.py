@@ -9,7 +9,7 @@ import pytest
 from rich.console import Console
 
 from pf.cli import CliContext, build_context, create_app
-from pf.errors import ConfigurationError, NoApplicableFloorError, PfError
+from pf.errors import NoApplicableFloorError, PfError
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -35,6 +35,41 @@ from pf.terminal import TerminalPresenter
 class NeverCheck:
     def run(self, request: CheckRequest) -> CheckPass:
         raise AssertionError("check should not run")
+
+
+class NeverCalledWorkflow:
+    def run(self, request: object) -> object:
+        raise AssertionError("unselected workflow should not run")
+
+
+class NoOpRunLogs:
+    def close(self) -> None:
+        return
+
+
+def make_context(
+    *,
+    presenter: TerminalPresenter,
+    check_workflow: object | None = None,
+    smoke_workflow: object | None = None,
+    search_workflow: object | None = None,
+    explain_workflow: object | None = None,
+    diagnose_workflow: object | None = None,
+    merge_workflow: object | None = None,
+    apply_workflow: object | None = None,
+    run_logs: object | None = None,
+) -> CliContext:
+    return CliContext(  # ty: ignore[invalid-argument-type]
+        check_workflow=check_workflow or NeverCalledWorkflow(),
+        smoke_workflow=smoke_workflow or NeverCalledWorkflow(),
+        search_workflow=search_workflow or NeverCalledWorkflow(),
+        explain_workflow=explain_workflow or NeverCalledWorkflow(),
+        diagnose_workflow=diagnose_workflow or NeverCalledWorkflow(),
+        merge_workflow=merge_workflow or NeverCalledWorkflow(),
+        apply_workflow=apply_workflow or NeverCalledWorkflow(),
+        presenter=presenter,
+        run_logs=run_logs or NoOpRunLogs(),
+    )
 
 
 def minimal_report() -> PackageFloorReportV1:
@@ -259,7 +294,7 @@ class TestCliInterface:
                 presenter.consume(StatusEvent(message="applying floors"))
                 raise NoApplicableFloorError("cannot apply an incomplete floor report")
 
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             apply_workflow=ApplyWorkflow(),
             presenter=presenter,
@@ -337,7 +372,7 @@ class TestCommandDispatch:
         stdout = StringIO()
         stderr = StringIO()
         workflow = CheckWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=workflow,
             presenter=TerminalPresenter(
                 stdout=Console(file=stdout, force_terminal=False, color_system=None),
@@ -375,7 +410,7 @@ class TestCommandDispatch:
         stdout = StringIO()
         stderr = StringIO()
         workflow = CheckWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=workflow,
             presenter=TerminalPresenter(
                 stdout=Console(file=stdout, force_terminal=False, color_system=None),
@@ -414,7 +449,7 @@ class TestCommandDispatch:
         stdout = StringIO()
         stderr = StringIO()
         workflow = SmokeWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             smoke_workflow=workflow,
             presenter=TerminalPresenter(
@@ -455,7 +490,7 @@ class TestCommandDispatch:
         stdout = StringIO()
         stderr = StringIO()
         workflow = SearchWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             search_workflow=workflow,
             presenter=TerminalPresenter(
@@ -496,7 +531,7 @@ class TestCommandDispatch:
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
         workflow = ExplainWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             explain_workflow=workflow,
             presenter=TerminalPresenter(
@@ -535,7 +570,7 @@ class TestCommandDispatch:
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
         workflow = DiagnoseWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             diagnose_workflow=workflow,
             presenter=TerminalPresenter(
@@ -574,7 +609,7 @@ class TestCommandDispatch:
 
         stdout = StringIO()
         workflow = MergeWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             merge_workflow=workflow,
             presenter=TerminalPresenter(
@@ -622,7 +657,7 @@ class TestCommandDispatch:
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
         workflow = ApplyWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             apply_workflow=workflow,
             presenter=TerminalPresenter(
@@ -648,39 +683,49 @@ class TestCommandDispatch:
             == "✓ Applied floors · 1 project updated · pyproject.toml\n"
         )
 
-    @pytest.mark.parametrize(
-        "argv",
-        (
-            ("smoke",),
-            ("search",),
-            ("apply",),
-            ("minimize",),
-            ("explain",),
-            ("diagnose",),
-            ("merge", "report.json", "--output", "merged.json"),
-        ),
-    )
-    def test_commands_reject_an_unassembled_workflow(
-        self, argv: tuple[str, ...]
-    ) -> None:
-        context = CliContext(
-            check_workflow=NeverCheck(),
-            presenter=TerminalPresenter(
-                stdout=Console(
-                    file=StringIO(), force_terminal=False, color_system=None
+    def test_cli_context_requires_the_complete_object_graph(self) -> None:
+        with pytest.raises(TypeError, match="required positional argument"):
+            CliContext(  # ty: ignore[missing-argument]
+                check_workflow=NeverCheck(),
+                presenter=TerminalPresenter(
+                    stdout=Console(
+                        file=StringIO(), force_terminal=False, color_system=None
+                    ),
+                    stderr=Console(
+                        file=StringIO(), force_terminal=False, color_system=None
+                    ),
                 ),
-                stderr=Console(
-                    file=StringIO(), force_terminal=False, color_system=None
-                ),
-            ),
+            )
+
+    def test_cli_context_closes_presenter_then_logs_once(self) -> None:
+        events: list[str] = []
+
+        class Presenter:
+            def close(self) -> None:
+                events.append("presenter")
+
+        class Logs:
+            def close(self) -> None:
+                events.append("logs")
+
+        never = NeverCalledWorkflow()
+        context = CliContext(  # ty: ignore[invalid-argument-type]
+            check_workflow=never,
+            smoke_workflow=never,
+            search_workflow=never,
+            explain_workflow=never,
+            diagnose_workflow=never,
+            merge_workflow=never,
+            apply_workflow=never,
+            presenter=Presenter(),
+            run_logs=Logs(),
         )
 
-        with pytest.raises(ConfigurationError, match="workflow.*not assembled"):
-            create_app(context)(
-                list(argv),
-                exit_on_error=False,
-                result_action="return_value",
-            )
+        with context:
+            pass
+        context.close()
+
+        assert events == ["presenter", "logs"]
 
 
 class TestMinimizeCommand:
@@ -700,7 +745,7 @@ class TestMinimizeCommand:
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
         stderr = StringIO()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             search_workflow=SearchWorkflow(),
             apply_workflow=ApplyWorkflow(),
@@ -753,7 +798,7 @@ class TestMinimizeCommand:
         stdout = StringIO()
         search = SearchWorkflow()
         apply = ApplyWorkflow()
-        context = CliContext(
+        context = make_context(
             check_workflow=NeverCheck(),
             search_workflow=search,
             apply_workflow=apply,
@@ -789,3 +834,36 @@ class TestDefaultContext:
         assert context.explain_workflow is not None
         assert context.diagnose_workflow is not None
         assert context.merge_workflow is not None
+        context.close()
+
+    def test_build_context_cleans_created_resources_when_assembly_fails(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[str] = []
+
+        class Logs:
+            def __init__(self, *, root: Path) -> None:
+                return
+
+            def close(self) -> None:
+                events.append("logs")
+
+        class Presenter:
+            def __init__(self, *, logs: object, root: Path) -> None:
+                return
+
+            def close(self, *, abandon_pending: bool = False) -> None:
+                events.append(f"presenter:{abandon_pending}")
+
+        monkeypatch.setattr("pf.cli.RunLogStore", Logs)
+        monkeypatch.setattr("pf.cli.TerminalPresenter", Presenter)
+        monkeypatch.setattr(
+            "pf.cli.RegistryAccess.from_environment",
+            lambda environment: (_ for _ in ()).throw(RuntimeError("assembly failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="assembly failed"):
+            build_context()
+
+        assert events == ["presenter:True", "logs"]

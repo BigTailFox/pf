@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
-from typing import Literal, Protocol
+from typing import Protocol
 
 from pf.coordinate_search import CoordinateSearch
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
-from pf.environment import PreparedEnvironment
+from pf.environment import ExactSelection, PreparedEnvironment, ResolutionRequest
 from pf.evaluation import EvaluationCache, require_full_evaluation_contract
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
@@ -108,8 +109,7 @@ class SearchEnvironmentOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        resolution: Literal["highest", "lowest-direct"],
-        selection: tuple[SelectedCandidate, ...] | None = None,
+        resolution: ResolutionRequest,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -165,6 +165,12 @@ class SearchDiagnosticConsumer(Protocol):
     def consume(self, event: SearchFailureEvent) -> None: ...
 
 
+@dataclass(frozen=True)
+class ProbeRun:
+    evidence: ProbeEvidence
+    evaluation: Evaluation | None
+
+
 class _StaticVectorEvaluator:
     def __init__(self, runner: "_ProposalRunner") -> None:
         self._runner = runner
@@ -178,7 +184,7 @@ class _FullVectorEvaluator:
         self._runner = runner
 
     def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-        return self._runner.evaluate_full(vector)
+        return self._runner.evaluate_full(vector).evidence
 
 
 class _ProposalRunner:
@@ -211,20 +217,19 @@ class _ProposalRunner:
         self._cache = EvaluationCache()
         self._prepared: dict[tuple[tuple[str, str], ...], PreparedEnvironment] = {}
         self._prepare_failures: dict[tuple[tuple[str, str], ...], PrepareFailure] = {}
-        self._attempts: dict[tuple[tuple[str, str], ...], Attempt] = {}
-        self._evaluations: dict[tuple[tuple[str, str], ...], Evaluation] = {}
-        self._full_evidence_by_key: dict[
-            tuple[tuple[str, str], ...], ProbeEvidence
-        ] = {}
+        self._full_runs: dict[tuple[tuple[str, str], ...], ProbeRun] = {}
+
+    def __enter__(self) -> "_ProposalRunner":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     def evaluate_static(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
         key = self._key(vector)
-        full = self._evaluations.get(key)
-        if isinstance(full, PassEvaluation):
-            return self._pass_evidence(
-                self._attempts[key],
-                full,
-            )
+        full = self._full_runs.get(key)
+        if full is not None and isinstance(full.evaluation, PassEvaluation):
+            return full.evidence
         prepared = self._prepare(vector)
         if isinstance(prepared, PrepareFailure):
             return self._prepare_evidence(prepared)
@@ -264,14 +269,19 @@ class _ProposalRunner:
             prepared.close()
             self._prepared.pop(key, None)
 
-    def evaluate_full(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+    def evaluate_full(self, vector: tuple[VersionPin, ...]) -> ProbeRun:
         key = self._key(vector)
-        existing = self._full_evidence_by_key.get(key)
+        existing = self._full_runs.get(key)
         if existing is not None:
             return existing
         prepared = self._prepare(vector)
         if isinstance(prepared, PrepareFailure):
-            return self._prepare_evidence(prepared)
+            run = ProbeRun(
+                evidence=self._prepare_evidence(prepared),
+                evaluation=None,
+            )
+            self._full_runs[key] = run
+            return run
         assert prepared.attempt is not None
         try:
             static = self._cache.get_static(
@@ -289,26 +299,30 @@ class _ProposalRunner:
                 baseline_digest=self._static_baseline.digest,
             )
             if isinstance(stored, CacheConflict):
-                evidence = self._indeterminate_evidence(
-                    attempt=prepared.attempt,
-                    proposal_id=prepared.proposal.proposal_id,
-                    stage="full-cache",
-                    detail=FailureDetail(
-                        code="conflicting-full-evaluation",
-                        message="the same proposal produced conflicting full results",
+                run = ProbeRun(
+                    evidence=self._indeterminate_evidence(
+                        attempt=prepared.attempt,
+                        proposal_id=prepared.proposal.proposal_id,
+                        stage="full-cache",
+                        detail=FailureDetail(
+                            code="conflicting-full-evaluation",
+                            message=(
+                                "the same proposal produced conflicting full results"
+                            ),
+                        ),
                     ),
+                    evaluation=None,
                 )
             else:
-                self._evaluations[key] = stored
-                evidence = self._full_evidence(prepared, stored)
-            self._full_evidence_by_key[key] = evidence
-            return evidence
+                run = ProbeRun(
+                    evidence=self._full_evidence(prepared, stored),
+                    evaluation=stored,
+                )
+            self._full_runs[key] = run
+            return run
         finally:
             prepared.close()
             self._prepared.pop(key, None)
-
-    def full_evaluation(self, vector: tuple[VersionPin, ...]) -> Evaluation | None:
-        return self._evaluations.get(self._key(vector))
 
     @property
     def failure_records(self) -> tuple[FailureRecord, ...]:
@@ -361,8 +375,9 @@ class _ProposalRunner:
             package=self._package,
             cell=self._cell,
             snapshot=self._snapshot,
-            resolution="highest",
-            selection=select_probe(vector, self._candidate_snapshots),
+            resolution=ExactSelection(
+                select_probe(vector, self._candidate_snapshots)
+            ),
         )
         if isinstance(prepared, PrepareFailure):
             self._prepare_failures[key] = prepared
@@ -383,7 +398,6 @@ class _ProposalRunner:
                 ),
             )
         self._prepared[key] = prepared
-        self._attempts[key] = prepared.attempt
         return prepared
 
     def _prepare_evidence(self, prepared: PrepareFailure) -> ProbeEvidence:
@@ -617,7 +631,7 @@ class SearchCoordinator:
                 static_baseline=capture.baseline,
                 baseline=baseline_evaluation,
             )
-        runner = _ProposalRunner(
+        with _ProposalRunner(
             environments=self._environments,
             static=self._static,
             full=self._full,
@@ -628,8 +642,7 @@ class SearchCoordinator:
             candidate_snapshots=candidate_snapshots,
             diagnostics=self._diagnostics,
             failures=self._failures,
-        )
-        try:
+        ) as runner:
             static_search = self._coordinate_search.minimize(
                 start=baseline_evaluation.proposal.managed_vector,
                 candidates=candidate_snapshots,
@@ -647,13 +660,14 @@ class SearchCoordinator:
                     runner=runner,
                     baseline_attempt=capture.attempt,
                 )
-            fast_evidence = runner.evaluate_full(static_search.vector)
+            fast_run = runner.evaluate_full(static_search.vector)
+            fast_evidence = fast_run.evidence
             static_search = self._append_observation(
                 static_search,
                 vector=static_search.vector,
                 evidence=fast_evidence,
             )
-            fast_evaluation = runner.full_evaluation(static_search.vector)
+            fast_evaluation = fast_run.evaluation
             if fast_evidence.status == "PASS" and isinstance(
                 fast_evaluation, PassEvaluation
             ):
@@ -720,13 +734,14 @@ class SearchCoordinator:
                     runner=runner,
                     baseline_attempt=capture.attempt,
                 )
-            final_evidence = runner.evaluate_full(dynamic_search.vector)
+            final_run = runner.evaluate_full(dynamic_search.vector)
+            final_evidence = final_run.evidence
             dynamic_search = self._append_observation(
                 dynamic_search,
                 vector=dynamic_search.vector,
                 evidence=final_evidence,
             )
-            final_evaluation = runner.full_evaluation(dynamic_search.vector)
+            final_evaluation = final_run.evaluation
             if not isinstance(final_evidence, ProbePass) or not isinstance(
                 final_evaluation, PassEvaluation
             ):
@@ -752,8 +767,6 @@ class SearchCoordinator:
                 final_evaluation=final_evaluation,
                 failure_records=runner.failure_records,
             )
-        finally:
-            runner.close()
 
     @staticmethod
     def _append_observation(

@@ -4,18 +4,24 @@ import hashlib
 from importlib.metadata import version as distribution_version
 import json
 from pathlib import Path
-from typing import cast
 
 from packaging.requirements import Requirement
 import pytest
 import tomli
 
-from pf.environment import EnvironmentFactory, PreparedEnvironment
+from pf.environment import (
+    EnvironmentFactory,
+    ExactSelection,
+    HighestResolution,
+    LowestDirectResolution,
+    PreparedEnvironment,
+)
 from pf.errors import ConfigurationError
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
+    CellStageEvent,
     FailureCause,
     GraphOutcome,
     GraphSuccess,
@@ -23,7 +29,6 @@ from pf.schemas.evaluation import (
     InterpreterSuccess,
     PrepareFailure,
     ProcessResult,
-    ProgressEvent,
     ToolFailure,
     ToolOutcome,
     ToolSuccess,
@@ -45,6 +50,27 @@ def successful_process() -> ProcessResult:
         duration_seconds=0.1,
         stdout="",
         stderr="",
+    )
+
+
+def exact_selection(*pins: VersionPin) -> ExactSelection:
+    return ExactSelection(
+        tuple(
+            SelectedCandidate(
+                dependency=pin.name,
+                version=pin.version,
+                artifact=AvailableArtifact(
+                    filename=f"{pin.name}-{pin.version}-py3-none-any.whl",
+                    kind="wheel",
+                    content_hash=f"sha256:{'a' * 64}",
+                    locator=(
+                        f"https://files.example/{pin.name}-{pin.version}"
+                        "-py3-none-any.whl"
+                    ),
+                ),
+            )
+            for pin in pins
+        )
     )
 
 
@@ -154,13 +180,13 @@ class TestEnvironmentFactory:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         prepared = EnvironmentFactory(SuccessfulUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(prepared, PreparedEnvironment)
@@ -242,15 +268,14 @@ class TestEnvironmentFactory:
         )
         (root / "pyproject.toml").write_text(original, encoding="utf-8")
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         uv = ReplicaInspectingUv()
 
         prepared = EnvironmentFactory(uv).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
-            managed_vector=(VersionPin(name="idna", version="3.1"),),
+            resolution=exact_selection(VersionPin(name="idna", version="3.1")),
         )
 
         assert isinstance(prepared, PreparedEnvironment)
@@ -282,12 +307,9 @@ class TestEnvironmentFactory:
                 self.installed_selection: tuple[SelectedCandidate, ...] | None = None
 
             def install_editable(self, **kwargs: object) -> ToolOutcome:
-                installed = kwargs["selection"]
-                assert isinstance(installed, tuple)
-                assert all(isinstance(item, SelectedCandidate) for item in installed)
-                self.installed_selection = cast(
-                    tuple[SelectedCandidate, ...], installed
-                )
+                resolution = kwargs["resolution"]
+                assert isinstance(resolution, ExactSelection)
+                self.installed_selection = resolution.selection
                 return super().install_editable(**kwargs)
 
             def inspect_environment(self, **kwargs: object) -> GraphOutcome:
@@ -317,15 +339,14 @@ class TestEnvironmentFactory:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         uv = ExactUv()
 
         prepared = EnvironmentFactory(uv).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
-            selection=selection,
+            resolution=ExactSelection(selection),
         )
 
         assert isinstance(prepared, PreparedEnvironment)
@@ -334,6 +355,38 @@ class TestEnvironmentFactory:
             VersionPin(name="idna", version="3.1"),
         )
         prepared.close()
+        snapshot.close()
+
+    @pytest.mark.parametrize(
+        "pins",
+        (
+            (
+                VersionPin(name="urllib3", version="2.0"),
+                VersionPin(name="idna", version="3.1"),
+            ),
+            (
+                VersionPin(name="idna", version="3.1"),
+                VersionPin(name="idna", version="3.2"),
+            ),
+        ),
+        ids=("unsorted", "duplicate"),
+    )
+    def test_environment_rejects_a_noncanonical_artifact_selection(
+        self,
+        tmp_path: Path,
+        pins: tuple[VersionPin, ...],
+    ) -> None:
+        root = _write_demo(tmp_path)
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(root)
+
+        with pytest.raises(ConfigurationError, match="sorted and unique"):
+            EnvironmentFactory(SuccessfulUv()).prepare(
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                resolution=exact_selection(*pins),
+            )
         snapshot.close()
 
     def test_environment_rejects_an_installed_graph_that_drifted_from_selection(
@@ -368,14 +421,14 @@ class TestEnvironmentFactory:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(DriftingUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
-            selection=(
+            resolution=ExactSelection(
+                (
                 SelectedCandidate(
                     dependency="idna",
                     version="3.1",
@@ -386,6 +439,7 @@ class TestEnvironmentFactory:
                         locator="https://files.example/idna-3.1.tar.gz",
                     ),
                 ),
+                )
             ),
         )
 
@@ -433,15 +487,14 @@ class TestEnvironmentFactory:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         requested = (VersionPin(name="idna", version="3.1"),)
 
         result = EnvironmentFactory(ResolutionConflictUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
-            managed_vector=requested,
+            resolution=exact_selection(*requested),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -533,15 +586,14 @@ class TestEnvironmentFactory:
             .packages[0]
         )
         cell = next(cell for cell in package.cells if cell.extra_surface == ("http",))
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         uv = ReplicaInspectingUv()
 
         prepared = EnvironmentFactory(uv).prepare(
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution="highest",
-            managed_vector=(
+            resolution=exact_selection(
                 VersionPin(name="certifi", version="2024.2"),
                 VersionPin(name="idna", version="2.1"),
             ),
@@ -605,13 +657,13 @@ class TestEnvironmentFactory:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(ChangingGraphUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -623,8 +675,8 @@ class TestEnvironmentFactory:
             def __init__(self) -> None:
                 self.phases: list[str] = []
 
-            def consume(self, event: ProgressEvent) -> None:
-                self.phases.append(event.phase)
+            def consume(self, event: CellStageEvent) -> None:
+                self.phases.append(event.stage)
 
         root = tmp_path / "project"
         root.mkdir()
@@ -647,14 +699,14 @@ class TestEnvironmentFactory:
             encoding="utf-8",
         )
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
         events = Events()
 
         prepared = EnvironmentFactory(SuccessfulUv(), events=events).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(prepared, PreparedEnvironment)
@@ -676,13 +728,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(CreateFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -701,13 +753,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(CreateFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="lowest-direct",
+            resolution=LowestDirectResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -737,13 +789,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(StageFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -769,13 +821,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(WrongInterpreter()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -796,13 +848,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(MissingManaged()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -820,13 +872,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path, harness=True)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(HarnessFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -850,13 +902,13 @@ class TestEnvironmentFactory:
 
         root = _write_demo(tmp_path, harness=True)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(HarnessInspectFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution="highest",
+            resolution=HighestResolution(),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -870,14 +922,13 @@ class TestEnvironmentFactory:
     ) -> None:
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
-        snapshot = SnapshotBuilder().build(root)
+        snapshot = SnapshotBuilder.without_processes().build(root)
 
         with pytest.raises(ConfigurationError, match="exactly cover"):
             EnvironmentFactory(SuccessfulUv()).prepare(
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                resolution="highest",
-                managed_vector=(),
+                resolution=ExactSelection(()),
             )
         snapshot.close()
