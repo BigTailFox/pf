@@ -11,6 +11,7 @@ from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
+from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
 from pf.runlog import RunLogStore
 from pf.schemas.config import DiagnoseRequest
@@ -31,9 +32,19 @@ from pf.schemas.evaluation import (
     TyCheck,
     VerificationJournal,
     VerificationJournalEntry,
+    VerificationPackagePolicy,
     ty_diagnostic_digest,
 )
-from pf.schemas.project import Cell, Proposal, VersionPin
+from pf.schemas.project import (
+    AvailableArtifact,
+    Candidate,
+    CandidateSnapshot,
+    Cell,
+    Proposal,
+    SourceIdentity,
+    VersionPin,
+    candidate_snapshot_digest,
+)
 from pf.schemas.report import (
     CellIndeterminate,
     CellSuccess,
@@ -62,6 +73,45 @@ class RecordingLogLocator:
 
     def read_latest_journal(self, package: str) -> VerificationJournal | None:
         return None
+
+
+def candidate_snapshot(
+    cell: Cell,
+    vector: tuple[VersionPin, ...],
+) -> tuple[CandidateSnapshot, ...]:
+    pin = vector[0]
+    source = SourceIdentity(kind="registry")
+    candidates = (
+        Candidate(
+            version=pin.version,
+            series_key=pin.version,
+            artifact=AvailableArtifact(
+                filename=f"{pin.name}-{pin.version}.whl",
+                kind="wheel",
+                content_hash=f"sha256:{'a' * 64}",
+                locator=f"https://files.example/{pin.name}-{pin.version}.whl",
+            ),
+        ),
+    )
+    representatives = ((pin.version, pin.version),)
+    return (
+        CandidateSnapshot(
+            dependency=pin.name,
+            cell=cell,
+            policy_identity="candidate-policy",
+            source=source,
+            candidates=candidates,
+            series_representatives=representatives,
+            digest=candidate_snapshot_digest(
+                dependency=pin.name,
+                cell=cell,
+                policy_identity="candidate-policy",
+                source=source,
+                candidates=candidates,
+                series_representatives=representatives,
+            ),
+        ),
+    )
 
 
 def _write_indeterminate_report(root: Path) -> tuple[str, str]:
@@ -121,78 +171,6 @@ test-command = ["python", "-c", "pass"]
         snapshot.close()
 
 
-def test_diagnose_reads_portable_failure_facts_without_execution_capabilities(
-    tmp_path: Path,
-) -> None:
-    generation, failure_id = _write_indeterminate_report(tmp_path)
-    logs = RecordingLogLocator()
-    workflow = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=logs,
-    )
-
-    result = workflow.run(DiagnoseRequest(root=tmp_path.as_posix()))
-
-    assert len(result) == 1
-    assert result[0].failure.failure_id == failure_id
-    assert result[0].proposal_id is None
-    assert result[0].boundary_role is None
-    assert result[0].log_path is None
-    assert logs.lookups == [(generation, failure_id)]
-
-
-def test_diagnose_rejects_an_unknown_failure_id(tmp_path: Path) -> None:
-    _write_indeterminate_report(tmp_path)
-    workflow = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=RecordingLogLocator(),
-    )
-
-    with pytest.raises(ConfigurationError, match="failure ID not found"):
-        workflow.run(
-            DiagnoseRequest(
-                root=tmp_path.as_posix(),
-                failure_id="failure-missing",
-            )
-        )
-
-
-def test_diagnose_presents_user_guidance_before_technical_enums(
-    tmp_path: Path,
-) -> None:
-    _write_indeterminate_report(tmp_path)
-    diagnoses = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=RecordingLogLocator(),
-    ).run(DiagnoseRequest(root=tmp_path.as_posix()))
-    stdout = StringIO()
-    presenter = TerminalPresenter(
-        stdout=Console(file=stdout, force_terminal=False, color_system=None),
-        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
-        root=tmp_path,
-    )
-
-    exit_code = presenter.render_diagnose(diagnoses)
-
-    rendered = stdout.getvalue()
-    assert exit_code == 0
-    assert "Outcome: Compatibility is unknown" in rendered
-    assert (
-        "What happened: PF could not reach or read a configured package source."
-        in rendered
-    )
-    assert "Next step: Check the index URL" in rendered
-    assert "attempt: not available" in rendered
-    assert "requested vector: not applicable" in rendered
-    assert "detail code: candidate-discovery-failed" in rendered
-    assert "detail: the configured index was unavailable" in rendered
-    assert "Detailed local log is unavailable." in rendered
-    assert rendered.index("What happened:") < rendered.index("cause: SOURCE_FAILURE")
-
-
 def _write_managed_project(root: Path) -> None:
     (root / "pyproject.toml").write_text(
         """
@@ -221,7 +199,8 @@ def _attempt(
     snapshot_digest: str,
     vector: tuple[VersionPin, ...] | None,
     policy_identity: str,
-    requested_resolution: Literal["highest", "lowest-direct", "exact-vector"] | None = None,
+    requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
+    | None = None,
 ) -> Attempt:
     resolution = requested_resolution or (
         "highest" if vector is None else "exact-vector"
@@ -397,7 +376,7 @@ def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
                     baseline_attempt=baseline_attempt,
                     static_baseline=baseline,
                     baseline=baseline_evaluation,
-                    candidate_snapshots=(),
+                    candidate_snapshots=candidate_snapshot(cell, final_vector),
                     static_search=search,
                     final_vector=final_vector,
                     final_evaluation=final_evaluation,
@@ -409,53 +388,6 @@ def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
         return report.report_generation_id, failure.failure_id
     finally:
         snapshot.close()
-
-
-def test_diagnose_resolves_a_successful_floor_predecessor_and_local_log(
-    tmp_path: Path,
-) -> None:
-    generation, failure_id = _write_success_with_predecessor_report(tmp_path)
-    logs = RecordingLogLocator(Path(".pf/logs/run/process-0001.log"))
-    diagnoses = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=logs,
-    ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
-
-    assert len(diagnoses) == 1
-    diagnosis = diagnoses[0]
-    assert diagnosis.proposal_id == "idna=2.0"
-    assert diagnosis.boundary_role == "predecessor"
-    assert diagnosis.log_path == Path(".pf/logs/run/process-0001.log")
-    assert logs.lookups == [(generation, failure_id)]
-
-    stdout = StringIO()
-    presenter = TerminalPresenter(
-        stdout=Console(file=stdout, force_terminal=False, color_system=None),
-        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
-        root=tmp_path,
-    )
-    assert presenter.render_diagnose(diagnoses) == 0
-    rendered = stdout.getvalue()
-    assert "Outcome: The verification attempt was rejected" in rendered
-    assert "requested resolution: exact-vector" in rendered
-    assert "requested vector: idna==2.0" in rendered
-    assert "proposal: idna=2.0" in rendered
-    assert "boundary role: predecessor" in rendered
-    assert "process: exited 1" in rendered
-    assert "summary: tests failed" not in rendered
-    assert ".pf/logs/run/process-0001.log" in rendered
-
-
-def test_diagnose_presents_an_empty_result_set(tmp_path: Path) -> None:
-    presenter = TerminalPresenter(
-        stdout=Console(file=(stdout := StringIO()), force_terminal=False),
-        stderr=Console(file=StringIO(), force_terminal=False),
-        root=tmp_path,
-    )
-
-    assert presenter.render_diagnose(()) == 0
-    assert stdout.getvalue() == "diagnosed 0 failures\n"
 
 
 def _diagnosis(
@@ -474,249 +406,396 @@ def _diagnosis(
     )
 
 
-@pytest.mark.parametrize(
-    ("process", "expected"),
-    (
-        (
-            ProcessResult(
-                exit_code=1,
-                signal=None,
-                duration_seconds=0.1,
-                stdout="",
-                stderr="",
-                timed_out=True,
-            ),
-            "timed out",
-        ),
-        (
-            ProcessResult(
-                exit_code=None,
-                signal=None,
-                duration_seconds=0.1,
-                stdout="",
-                stderr="uv missing",
-                start_error="Executable not found",
-            ),
-            "could not start",
-        ),
-        (
-            ProcessResult(
-                exit_code=None,
-                signal=9,
-                duration_seconds=0.1,
-                stdout="",
-                stderr="",
-            ),
-            "terminated by signal 9",
-        ),
-        (
-            ProcessResult(
-                exit_code=None,
-                signal=None,
-                duration_seconds=0.1,
-                stdout="",
-                stderr="",
-                start_error="",
-            ),
-            "could not start",
-        ),
-    ),
-)
-def test_diagnose_describes_incomplete_process_terminals(
-    tmp_path: Path,
-    process: ProcessResult,
-    expected: str,
-) -> None:
-    cell = Cell(
-        package="demo",
-        target="x86_64-unknown-linux-gnu",
-        python_minor="3.10",
-        extra_surface=(),
-    )
-    failure = FailurePolicy().classify(
-        scope=AttemptFailureScope(
-            attempt=_attempt(
-                cell=cell,
-                snapshot_digest="snapshot",
-                vector=(VersionPin(name="idna", version="2.0"),),
-                policy_identity="policy",
-            )
-        ),
-        cause="TIMEOUT" if process.timed_out else "TOOL_FAILURE",
-        stage="test",
-        process=process,
-    )
-    stdout = StringIO()
-    presenter = TerminalPresenter(
-        stdout=Console(file=stdout, force_terminal=False, color_system=None),
-        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
-        root=tmp_path,
-    )
-
-    assert presenter.render_diagnose((_diagnosis(failure=failure),)) == 0
-    assert f"process: {expected}" in stdout.getvalue()
-
-
-def test_diagnose_separates_multiple_failures(tmp_path: Path) -> None:
-    first_generation, first_id = _write_indeterminate_report(tmp_path)
-    first = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=RecordingLogLocator(),
-    ).run(DiagnoseRequest(root=tmp_path.as_posix()))[0]
-    second_failure = FailurePolicy().classify(
-        scope=AttemptFailureScope(
-            attempt=_attempt(
-                cell=first.failure.scope.cell
-                if isinstance(first.failure.scope, CellFailureScope)
-                else first.failure.scope.attempt.identity.cell,
-                snapshot_digest="snapshot",
-                vector=None,
-                policy_identity="policy",
-            )
-        ),
-        cause="TEST_FAILURE",
-        stage="test",
-        process=_process(exit_code=1),
-    )
-    stdout = StringIO()
-    presenter = TerminalPresenter(
-        stdout=Console(file=stdout, force_terminal=False, color_system=None),
-        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
-        root=tmp_path,
-    )
-
-    exit_code = presenter.render_diagnose(
-        (first, _diagnosis(failure=second_failure, package=first.package))
-    )
-
-    rendered = stdout.getvalue()
-    assert exit_code == 0
-    assert rendered.count("Failure: ") == 2
-    assert f"Failure: {first.failure.failure_id}\n" in rendered
-    assert f"Failure: {second_failure.failure_id}\n" in rendered
-    assert "\n\nFailure: " in rendered
-    assert first_generation and first_id
-
-
-def test_diagnose_reads_a_check_journal_without_a_floor_report(tmp_path: Path) -> None:
-    _write_managed_project(tmp_path)
-    project = ProjectLoader().load(root=tmp_path, package_selection=None)
-    cell = project.packages[0].cells[0]
-    attempt = _attempt(
-        cell=cell,
-        snapshot_digest="snapshot",
-        vector=None,
-        policy_identity="policy",
-        requested_resolution="lowest-direct",
-    )
-    failure = FailurePolicy().classify(
-        scope=AttemptFailureScope(attempt=attempt),
-        cause="STATIC_REGRESSION",
-        stage="ty",
-        process=_process(exit_code=1),
-    )
-    logs = RunLogStore(root=tmp_path, run_id="check-run")
-    logs.write_journal(
-        VerificationJournal(
-            run_id="check-run",
-            command="check",
-            packages=("demo",),
-            source_snapshot_digest="snapshot",
-            evaluation_policy_identity="policy",
-            entries=(
-                VerificationJournalEntry(
-                    package="demo",
-                    cell=cell,
-                    role="declaration",
-                    attempt=attempt,
-                    failure=failure,
-                ),
-            ),
+class TestDiagnoseWorkflow:
+    def test_diagnose_reads_portable_failure_facts_without_execution_capabilities(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        generation, failure_id = _write_indeterminate_report(tmp_path)
+        logs = RecordingLogLocator()
+        workflow = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
         )
-    )
 
-    diagnoses = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=logs,
-    ).run(
-        DiagnoseRequest(
-            root=tmp_path.as_posix(),
+        result = workflow.run(DiagnoseRequest(root=tmp_path.as_posix()))
+
+        assert len(result) == 1
+        assert result[0].failure.failure_id == failure_id
+        assert result[0].proposal_id is None
+        assert result[0].boundary_role is None
+        assert result[0].log_path is None
+        assert logs.lookups == [(generation, failure_id)]
+
+    def test_diagnose_remains_offline_when_no_python_minor_can_be_planned(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _, failure_id = _write_indeterminate_report(tmp_path)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\nrequires-python = ">=9"\n',
+            encoding="utf-8",
+        )
+
+        diagnoses = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=RecordingLogLocator(),
+        ).run(DiagnoseRequest(root=tmp_path.as_posix()))
+
+        assert [item.failure.failure_id for item in diagnoses] == [failure_id]
+
+    def test_diagnose_rejects_an_unknown_failure_id(self, tmp_path: Path) -> None:
+        _write_indeterminate_report(tmp_path)
+        workflow = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=RecordingLogLocator(),
+        )
+
+        with pytest.raises(ConfigurationError, match="failure ID not found"):
+            workflow.run(
+                DiagnoseRequest(
+                    root=tmp_path.as_posix(),
+                    failure_id="failure-missing",
+                )
+            )
+
+    def test_diagnose_presents_user_guidance_before_technical_enums(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_indeterminate_report(tmp_path)
+        diagnoses = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=RecordingLogLocator(),
+        ).run(DiagnoseRequest(root=tmp_path.as_posix()))
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        )
+
+        exit_code = presenter.render_diagnose(diagnoses)
+
+        rendered = stdout.getvalue()
+        assert exit_code == 0
+        assert "Outcome: Compatibility is unknown" in rendered
+        assert (
+            "What happened: PF could not reach or read a configured package source."
+            in rendered
+        )
+        assert "Next step: Check the index URL" in rendered
+        assert "attempt: not available" in rendered
+        assert "requested vector: not applicable" in rendered
+        assert "detail code: candidate-discovery-failed" in rendered
+        assert "detail: the configured index was unavailable" in rendered
+        assert "Detailed local log is unavailable." in rendered
+        assert rendered.index("What happened:") < rendered.index(
+            "cause: SOURCE_FAILURE"
+        )
+
+    def test_diagnose_resolves_a_successful_floor_predecessor_and_local_log(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        generation, failure_id = _write_success_with_predecessor_report(tmp_path)
+        logs = RecordingLogLocator(Path(".pf/logs/run/process-0001.log"))
+        diagnoses = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
+        ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
+
+        assert len(diagnoses) == 1
+        diagnosis = diagnoses[0]
+        assert diagnosis.proposal_id == "idna=2.0"
+        assert diagnosis.boundary_role == "predecessor"
+        assert diagnosis.log_path == Path(".pf/logs/run/process-0001.log")
+        assert logs.lookups == [(generation, failure_id)]
+
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        )
+        assert presenter.render_diagnose(diagnoses) == 0
+        rendered = stdout.getvalue()
+        assert "Outcome: The verification attempt was rejected" in rendered
+        assert "requested resolution: exact-vector" in rendered
+        assert "requested vector: idna==2.0" in rendered
+        assert "proposal: idna=2.0" in rendered
+        assert "boundary role: predecessor" in rendered
+        assert "process: exited 1" in rendered
+        assert "summary: tests failed" not in rendered
+        assert ".pf/logs/run/process-0001.log" in rendered
+
+    def test_diagnose_presents_an_empty_result_set(self, tmp_path: Path) -> None:
+        presenter = TerminalPresenter(
+            stdout=Console(file=(stdout := StringIO()), force_terminal=False),
+            stderr=Console(file=StringIO(), force_terminal=False),
+            root=tmp_path,
+        )
+
+        assert presenter.render_diagnose(()) == 0
+        assert stdout.getvalue() == "diagnosed 0 failures\n"
+
+    @pytest.mark.parametrize(
+        ("process", "expected"),
+        (
+            (
+                ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                    stdout="",
+                    stderr="",
+                    timed_out=True,
+                ),
+                "timed out",
+            ),
+            (
+                ProcessResult(
+                    exit_code=None,
+                    signal=None,
+                    duration_seconds=0.1,
+                    stdout="",
+                    stderr="uv missing",
+                    start_error="Executable not found",
+                ),
+                "could not start",
+            ),
+            (
+                ProcessResult(
+                    exit_code=None,
+                    signal=9,
+                    duration_seconds=0.1,
+                    stdout="",
+                    stderr="",
+                ),
+                "terminated by signal 9",
+            ),
+            (
+                ProcessResult(
+                    exit_code=None,
+                    signal=None,
+                    duration_seconds=0.1,
+                    stdout="",
+                    stderr="",
+                    start_error="",
+                ),
+                "could not start",
+            ),
+        ),
+    )
+    def test_diagnose_describes_incomplete_process_terminals(
+        self,
+        tmp_path: Path,
+        process: ProcessResult,
+        expected: str,
+    ) -> None:
+        cell = Cell(
             package="demo",
-            failure_id=failure.failure_id,
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
         )
-    )
-
-    assert len(diagnoses) == 1
-    assert diagnoses[0].source == "journal"
-    assert diagnoses[0].command == "check"
-    assert diagnoses[0].verification_role == "declaration"
-    stdout = StringIO()
-    exit_code = TerminalPresenter(
-        stdout=Console(file=stdout, force_terminal=False, color_system=None),
-        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
-        root=tmp_path,
-    ).render_diagnose(diagnoses)
-    rendered = stdout.getvalue()
-    assert exit_code == 0
-    assert "source: latest pf check" in rendered
-    assert "The declared lower bounds did not pass the required checks." in rendered
-
-
-def test_diagnose_uses_declaration_capture_impact_for_highest_check_failures(
-    tmp_path: Path,
-) -> None:
-    _write_managed_project(tmp_path)
-    project = ProjectLoader().load(root=tmp_path, package_selection=None)
-    cell = project.packages[0].cells[0]
-    attempt = _attempt(
-        cell=cell,
-        snapshot_digest="snapshot",
-        vector=None,
-        policy_identity="policy",
-        requested_resolution="highest",
-    )
-    failure = FailurePolicy().classify(
-        scope=AttemptFailureScope(attempt=attempt),
-        cause="BUILD_FAILURE",
-        stage="install-project",
-        process=_process(exit_code=1),
-    )
-    logs = RunLogStore(root=tmp_path, run_id="check-capture")
-    logs.write_journal(
-        VerificationJournal(
-            run_id="check-capture",
-            command="check",
-            packages=("demo",),
-            source_snapshot_digest="snapshot",
-            evaluation_policy_identity="policy",
-            entries=(
-                VerificationJournalEntry(
-                    package="demo",
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(
+                attempt=_attempt(
                     cell=cell,
-                    role="declaration-capture",
-                    attempt=attempt,
-                    failure=failure,
-                ),
+                    snapshot_digest="snapshot",
+                    vector=(VersionPin(name="idna", version="2.0"),),
+                    policy_identity="policy",
+                )
             ),
+            cause="TIMEOUT" if process.timed_out else "TOOL_FAILURE",
+            stage="test",
+            process=process,
         )
-    )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        )
 
-    diagnoses = DiagnoseCommandWorkflow(
-        projects=ProjectLoader(),
-        reports=ReportStore(),
-        logs=logs,
-    ).run(DiagnoseRequest(root=tmp_path.as_posix(), package="demo"))
+        assert presenter.render_diagnose((_diagnosis(failure=failure),)) == 0
+        assert f"process: {expected}" in stdout.getvalue()
 
-    assert diagnoses[0].verification_role == "declaration-capture"
-    stdout = StringIO()
-    TerminalPresenter(
-        stdout=Console(file=stdout, force_terminal=False, color_system=None),
-        stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
-        root=tmp_path,
-    ).render_diagnose(diagnoses)
-    rendered = stdout.getvalue()
-    assert "could not capture a static baseline" in rendered
-    assert "declared lower bounds" in rendered
-    assert "did not start the floor search" not in rendered
+    def test_diagnose_separates_multiple_failures(self, tmp_path: Path) -> None:
+        first_generation, first_id = _write_indeterminate_report(tmp_path)
+        first = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=RecordingLogLocator(),
+        ).run(DiagnoseRequest(root=tmp_path.as_posix()))[0]
+        second_failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(
+                attempt=_attempt(
+                    cell=first.failure.scope.cell
+                    if isinstance(first.failure.scope, CellFailureScope)
+                    else first.failure.scope.attempt.identity.cell,
+                    snapshot_digest="snapshot",
+                    vector=None,
+                    policy_identity="policy",
+                )
+            ),
+            cause="TEST_FAILURE",
+            stage="test",
+            process=_process(exit_code=1),
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        )
+
+        exit_code = presenter.render_diagnose(
+            (first, _diagnosis(failure=second_failure, package=first.package))
+        )
+
+        rendered = stdout.getvalue()
+        assert exit_code == 0
+        assert rendered.count("Failure: ") == 2
+        assert f"Failure: {first.failure.failure_id}\n" in rendered
+        assert f"Failure: {second_failure.failure_id}\n" in rendered
+        assert "\n\nFailure: " in rendered
+        assert first_generation and first_id
+
+    def test_diagnose_reads_a_check_journal_without_a_floor_report(
+        self, tmp_path: Path
+    ) -> None:
+        _write_managed_project(tmp_path)
+        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        cell = project.packages[0].cells[0]
+        attempt = _attempt(
+            cell=cell,
+            snapshot_digest="snapshot",
+            vector=None,
+            policy_identity="policy",
+            requested_resolution="lowest-direct",
+        )
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="STATIC_REGRESSION",
+            stage="ty",
+            process=_process(exit_code=1),
+        )
+        logs = RunLogStore(root=tmp_path, run_id="check-run")
+        logs.write_journal(
+            VerificationJournal(
+                run_id="check-run",
+                command="check",
+                source_snapshot_digest="snapshot",
+                package_policies=(
+                    VerificationPackagePolicy(
+                        package="demo",
+                        evaluation_policy_identity="policy",
+                    ),
+                ),
+                entries=(
+                    VerificationJournalEntry(
+                        package="demo",
+                        cell=cell,
+                        role="declaration",
+                        attempt=attempt,
+                        failure=failure,
+                    ),
+                ),
+            )
+        )
+
+        diagnoses = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
+        ).run(
+            DiagnoseRequest(
+                root=tmp_path.as_posix(),
+                package="demo",
+                failure_id=failure.failure_id,
+            )
+        )
+
+        assert len(diagnoses) == 1
+        assert diagnoses[0].source == "journal"
+        assert diagnoses[0].command == "check"
+        assert diagnoses[0].verification_role == "declaration"
+        stdout = StringIO()
+        exit_code = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        ).render_diagnose(diagnoses)
+        rendered = stdout.getvalue()
+        assert exit_code == 0
+        assert "source: latest pf check" in rendered
+        assert "The declared lower bounds did not pass the required checks." in rendered
+
+    def test_diagnose_uses_declaration_capture_impact_for_highest_check_failures(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_managed_project(tmp_path)
+        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        cell = project.packages[0].cells[0]
+        attempt = _attempt(
+            cell=cell,
+            snapshot_digest="snapshot",
+            vector=None,
+            policy_identity="policy",
+            requested_resolution="highest",
+        )
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="BUILD_FAILURE",
+            stage="install-project",
+            process=_process(exit_code=1),
+        )
+        logs = RunLogStore(root=tmp_path, run_id="check-capture")
+        logs.write_journal(
+            VerificationJournal(
+                run_id="check-capture",
+                command="check",
+                source_snapshot_digest="snapshot",
+                package_policies=(
+                    VerificationPackagePolicy(
+                        package="demo",
+                        evaluation_policy_identity="policy",
+                    ),
+                ),
+                entries=(
+                    VerificationJournalEntry(
+                        package="demo",
+                        cell=cell,
+                        role="declaration-capture",
+                        attempt=attempt,
+                        failure=failure,
+                    ),
+                ),
+            )
+        )
+
+        diagnoses = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
+        ).run(DiagnoseRequest(root=tmp_path.as_posix(), package="demo"))
+
+        assert diagnoses[0].verification_role == "declaration-capture"
+        stdout = StringIO()
+        TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        ).render_diagnose(diagnoses)
+        rendered = stdout.getvalue()
+        assert "could not capture a static baseline" in rendered
+        assert "declared lower bounds" in rendered
+        assert "did not start the floor search" not in rendered

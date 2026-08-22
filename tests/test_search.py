@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
+import pytest
+
 from pf.schemas.project import (
     AvailableArtifact,
     Candidate,
@@ -8,6 +13,7 @@ from pf.schemas.project import (
     Proposal,
     SourceIdentity,
     VersionPin,
+    candidate_snapshot_digest,
 )
 from pf.schemas.evaluation import (
     Attempt,
@@ -19,13 +25,14 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.report import (
     CoordinateFailure,
+    CoordinateOutcome,
     CoordinateSuccess,
     ProbeEvidence,
     ProbeIndeterminate,
     ProbePass,
     ProbeRejection,
 )
-from pf.search import CoordinateSearch
+from pf.coordinate_search import CoordinateSearch
 
 
 def snapshot(name: str) -> CandidateSnapshot:
@@ -46,25 +53,41 @@ def snapshot(name: str) -> CandidateSnapshot:
         Candidate(version=version, series_key=version, artifact=artifact)
         for version in ("1", "2", "3")
     )
+    source = SourceIdentity(kind="registry")
+    representatives = tuple(
+        (candidate.series_key, candidate.version) for candidate in candidates
+    )
     return CandidateSnapshot(
         dependency=name,
         cell=cell,
         policy_identity="policy",
-        source=SourceIdentity(kind="registry"),
+        source=source,
         candidates=candidates,
-        series_representatives=tuple(
-            (candidate.series_key, candidate.version) for candidate in candidates
+        series_representatives=representatives,
+        digest=candidate_snapshot_digest(
+            dependency=name,
+            cell=cell,
+            policy_identity="policy",
+            source=source,
+            candidates=candidates,
+            series_representatives=representatives,
         ),
-        digest=f"digest-{name}",
     )
 
 
 def wide_snapshot(name: str) -> CandidateSnapshot:
+    return snapshot_versions(name, tuple(str(version) for version in range(1, 10)))
+
+
+def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot:
     base = snapshot(name)
     artifact = base.candidates[0].artifact
     candidates = tuple(
-        Candidate(version=str(version), series_key=str(version), artifact=artifact)
-        for version in range(1, 10)
+        Candidate(version=version, series_key=version, artifact=artifact)
+        for version in versions
+    )
+    representatives = tuple(
+        (candidate.series_key, candidate.version) for candidate in candidates
     )
     return CandidateSnapshot(
         dependency=name,
@@ -72,10 +95,15 @@ def wide_snapshot(name: str) -> CandidateSnapshot:
         policy_identity=base.policy_identity,
         source=base.source,
         candidates=candidates,
-        series_representatives=tuple(
-            (candidate.series_key, candidate.version) for candidate in candidates
+        series_representatives=representatives,
+        digest=candidate_snapshot_digest(
+            dependency=name,
+            cell=base.cell,
+            policy_identity=base.policy_identity,
+            source=base.source,
+            candidates=candidates,
+            series_representatives=representatives,
         ),
-        digest="wide-digest",
     )
 
 
@@ -138,146 +166,292 @@ class InteractionEvaluator:
         )
 
 
-def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal() -> None:
-    result = CoordinateSearch(small_threshold=4).minimize(
-        start=(VersionPin(name="a", version="3"), VersionPin(name="b", version="3")),
-        candidates=(snapshot("a"), snapshot("b")),
-        evaluator=InteractionEvaluator(),
-    )
+class TestCoordinateSearch:
+    def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal(
+        self,
+    ) -> None:
+        result = CoordinateSearch(small_threshold=4).minimize(
+            start=(
+                VersionPin(name="a", version="3"),
+                VersionPin(name="b", version="3"),
+            ),
+            candidates=(snapshot("a"), snapshot("b")),
+            evaluator=InteractionEvaluator(),
+        )
 
-    assert isinstance(result, CoordinateSuccess)
-    assert result.status == "SUCCESS"
-    assert [(pin.name, pin.version) for pin in result.vector] == [
-        ("a", "1"),
-        ("b", "1"),
-    ]
-    assert [
-        (boundary.dependency, boundary.floor) for boundary in result.boundaries
-    ] == [
-        ("a", "1"),
-        ("b", "1"),
-    ]
-    assert result.sweeps == 3
+        assert isinstance(result, CoordinateSuccess)
+        assert result.status == "SUCCESS"
+        assert [(pin.name, pin.version) for pin in result.vector] == [
+            ("a", "1"),
+            ("b", "1"),
+        ]
+        assert [
+            (boundary.dependency, boundary.floor) for boundary in result.boundaries
+        ] == [
+            ("a", "1"),
+            ("b", "1"),
+        ]
+        assert result.sweeps == 3
 
+    def test_coordinate_search_uses_hint_then_lower_bound_binary_search(self) -> None:
+        class ThresholdEvaluator:
+            def __init__(self) -> None:
+                self.probed: list[str] = []
 
-def test_coordinate_search_uses_hint_then_lower_bound_binary_search() -> None:
-    class ThresholdEvaluator:
-        def __init__(self) -> None:
-            self.probed: list[str] = []
-
-        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-            version = vector[0].version
-            self.probed.append(version)
-            if int(version) >= 4:
-                return probe_pass(vector, version)
-            return ProbeRejection(
-                attempt=probe_attempt(vector),
-                failure_id=f"failure-{version}",
-                cause="RESOLUTION_CONFLICT",
-            )
-
-    evaluator = ThresholdEvaluator()
-    result = CoordinateSearch(small_threshold=2).minimize(
-        start=(VersionPin(name="a", version="9"),),
-        candidates=(wide_snapshot("a"),),
-        evaluator=evaluator,
-        hints=(VersionPin(name="a", version="5"),),
-    )
-
-    assert isinstance(result, CoordinateSuccess)
-    assert result.status == "SUCCESS"
-    assert result.vector[0].version == "4"
-    assert result.boundaries[0].predecessor == "3"
-    assert result.boundaries[0].predecessor_failure_id == "failure-3"
-    assert evaluator.probed[:5] == ["9", "5", "1", "3", "4"]
-
-
-def test_coordinate_search_does_not_use_an_out_of_space_baseline_as_floor() -> None:
-    class BaselineOnlyPasses:
-        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-            version = vector[0].version
-            if version == "4":
-                return probe_pass(vector, version)
-            return ProbeRejection(
-                attempt=probe_attempt(vector),
-                failure_id=f"failure-{version}",
-                cause="RESOLUTION_CONFLICT",
-            )
-
-    result = CoordinateSearch(small_threshold=4).minimize(
-        start=(VersionPin(name="a", version="4"),),
-        candidates=(snapshot("a"),),
-        evaluator=BaselineOnlyPasses(),
-    )
-
-    assert isinstance(result, CoordinateFailure)
-    assert result.status == "NO_PASS_IN_SEARCH_SPACE"
-
-
-def test_coordinate_search_binary_searches_below_a_virtual_pass_sentinel() -> None:
-    class ThresholdEvaluator:
-        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-            version = int(vector[0].version)
-            identity = str(version)
-            if version >= 8:
-                return probe_pass(vector, identity)
-            return ProbeRejection(
-                attempt=probe_attempt(vector),
-                failure_id=f"failure-{identity}",
-                cause="RESOLUTION_CONFLICT",
-            )
-
-    result = CoordinateSearch(small_threshold=2).minimize(
-        start=(VersionPin(name="a", version="10"),),
-        candidates=(wide_snapshot("a"),),
-        evaluator=ThresholdEvaluator(),
-    )
-
-    assert isinstance(result, CoordinateSuccess)
-    assert result.vector[0].version == "8"
-    assert result.boundaries[0].predecessor == "7"
-
-
-def test_coordinate_search_never_returns_a_virtual_pass_sentinel() -> None:
-    class BaselineOnlyPasses:
-        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-            version = vector[0].version
-            if version == "10":
-                return probe_pass(vector, version)
-            return ProbeRejection(
-                attempt=probe_attempt(vector),
-                failure_id=f"failure-{version}",
-                cause="RESOLUTION_CONFLICT",
-            )
-
-    result = CoordinateSearch(small_threshold=2).minimize(
-        start=(VersionPin(name="a", version="10"),),
-        candidates=(wide_snapshot("a"),),
-        evaluator=BaselineOnlyPasses(),
-    )
-
-    assert isinstance(result, CoordinateFailure)
-    assert result.status == "NO_PASS_IN_SEARCH_SPACE"
-
-
-def test_coordinate_search_stops_at_an_indeterminate_probe() -> None:
-    class UnknownAtLowest:
-        def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-            version = vector[0].version
-            if version == "1":
-                return ProbeIndeterminate(
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                version = vector[0].version
+                self.probed.append(version)
+                if int(version) >= 4:
+                    return probe_pass(vector, version)
+                return ProbeRejection(
                     attempt=probe_attempt(vector),
-                    failure_id="failure-timeout",
-                    cause="TIMEOUT",
+                    failure_id=f"failure-{version}",
+                    cause="RESOLUTION_CONFLICT",
                 )
-            return probe_pass(vector, version)
 
-    result = CoordinateSearch().minimize(
-        start=(VersionPin(name="a", version="3"),),
-        candidates=(snapshot("a"),),
-        evaluator=UnknownAtLowest(),
+        evaluator = ThresholdEvaluator()
+        result = CoordinateSearch(small_threshold=2).minimize(
+            start=(VersionPin(name="a", version="9"),),
+            candidates=(wide_snapshot("a"),),
+            evaluator=evaluator,
+            hints=(VersionPin(name="a", version="5"),),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert result.status == "SUCCESS"
+        assert result.vector[0].version == "4"
+        assert result.boundaries[0].predecessor == "3"
+        assert result.boundaries[0].predecessor_failure_id == "failure-3"
+        assert evaluator.probed[:5] == ["9", "5", "1", "3", "4"]
+
+    def test_coordinate_search_does_not_use_an_out_of_space_baseline_as_floor(
+        self,
+    ) -> None:
+        class BaselineOnlyPasses:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                version = vector[0].version
+                if version == "4":
+                    return probe_pass(vector, version)
+                return ProbeRejection(
+                    attempt=probe_attempt(vector),
+                    failure_id=f"failure-{version}",
+                    cause="RESOLUTION_CONFLICT",
+                )
+
+        result = CoordinateSearch(small_threshold=4).minimize(
+            start=(VersionPin(name="a", version="4"),),
+            candidates=(snapshot("a"),),
+            evaluator=BaselineOnlyPasses(),
+        )
+
+        assert isinstance(result, CoordinateFailure)
+        assert result.status == "NO_PASS_IN_SEARCH_SPACE"
+
+    def test_coordinate_search_binary_searches_below_a_virtual_pass_sentinel(
+        self,
+    ) -> None:
+        class ThresholdEvaluator:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                version = int(vector[0].version)
+                identity = str(version)
+                if version >= 8:
+                    return probe_pass(vector, identity)
+                return ProbeRejection(
+                    attempt=probe_attempt(vector),
+                    failure_id=f"failure-{identity}",
+                    cause="RESOLUTION_CONFLICT",
+                )
+
+        result = CoordinateSearch(small_threshold=2).minimize(
+            start=(VersionPin(name="a", version="10"),),
+            candidates=(wide_snapshot("a"),),
+            evaluator=ThresholdEvaluator(),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector[0].version == "8"
+        assert result.boundaries[0].predecessor == "7"
+
+    def test_coordinate_search_never_returns_a_virtual_pass_sentinel(self) -> None:
+        class BaselineOnlyPasses:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                version = vector[0].version
+                if version == "10":
+                    return probe_pass(vector, version)
+                return ProbeRejection(
+                    attempt=probe_attempt(vector),
+                    failure_id=f"failure-{version}",
+                    cause="RESOLUTION_CONFLICT",
+                )
+
+        result = CoordinateSearch(small_threshold=2).minimize(
+            start=(VersionPin(name="a", version="10"),),
+            candidates=(wide_snapshot("a"),),
+            evaluator=BaselineOnlyPasses(),
+        )
+
+        assert isinstance(result, CoordinateFailure)
+        assert result.status == "NO_PASS_IN_SEARCH_SPACE"
+
+    def test_coordinate_search_stops_at_an_indeterminate_probe(self) -> None:
+        class UnknownAtLowest:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                version = vector[0].version
+                if version == "1":
+                    return ProbeIndeterminate(
+                        attempt=probe_attempt(vector),
+                        failure_id="failure-timeout",
+                        cause="TIMEOUT",
+                    )
+                return probe_pass(vector, version)
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"),),
+            candidates=(snapshot("a"),),
+            evaluator=UnknownAtLowest(),
+        )
+
+        assert isinstance(result, CoordinateFailure)
+        assert result.status == "INDETERMINATE"
+        assert result.failure_id == "failure-timeout"
+
+    @pytest.mark.parametrize(
+        ("small_threshold", "versions", "floor"),
+        [
+            (4, ("1", "2", "3"), "2"),
+            (2, ("1", "2", "3"), "2"),
+            (2, ("1", "2", "3", "4", "5"), "2"),
+        ],
     )
+    def test_coordinate_search_finds_the_same_floor_across_slice_strategies(
+        self,
+        small_threshold: int,
+        versions: tuple[str, ...],
+        floor: str,
+    ) -> None:
+        class Threshold:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                version = vector[0].version
+                if int(version) >= int(floor):
+                    return probe_pass(vector, version)
+                return ProbeRejection(
+                    attempt=probe_attempt(vector),
+                    failure_id=f"failure-{version}",
+                    cause="RESOLUTION_CONFLICT",
+                )
 
-    assert isinstance(result, CoordinateFailure)
-    assert result.status == "INDETERMINATE"
-    assert result.failure_id == "failure-timeout"
+        result = CoordinateSearch(small_threshold=small_threshold).minimize(
+            start=(VersionPin(name="a", version=versions[-1]),),
+            candidates=(snapshot_versions("a", versions),),
+            evaluator=Threshold(),
+            hints=(VersionPin(name="missing", version="99"),),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector == (VersionPin(name="a", version=floor),)
+
+    def test_coordinate_search_known_start_is_not_evaluated(self) -> None:
+        calls: list[str] = []
+
+        class AlwaysPasses:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                calls.append(vector[0].version)
+                return probe_pass(vector, vector[0].version)
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"),),
+            candidates=(snapshot("a"),),
+            evaluator=AlwaysPasses(),
+            start_is_known_pass=True,
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert "3" not in calls
+
+    def test_coordinate_search_same_instance_supports_nested_minimize(self) -> None:
+        search = CoordinateSearch()
+        inner_results: list[CoordinateOutcome] = []
+
+        class Inner:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                return probe_pass(vector, f"inner-{vector[0].version}")
+
+        class Outer:
+            nested = False
+
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                if not self.nested:
+                    self.nested = True
+                    inner_results.append(
+                        search.minimize(
+                            start=(VersionPin(name="inner", version="3"),),
+                            candidates=(snapshot("inner"),),
+                            evaluator=Inner(),
+                        )
+                    )
+                version = vector[0].version
+                if int(version) >= 2:
+                    return probe_pass(vector, f"outer-{version}")
+                return ProbeRejection(
+                    attempt=probe_attempt(vector),
+                    failure_id=f"outer-failure-{version}",
+                    cause="RESOLUTION_CONFLICT",
+                )
+
+        outer = search.minimize(
+            start=(VersionPin(name="outer", version="3"),),
+            candidates=(snapshot("outer"),),
+            evaluator=Outer(),
+        )
+
+        assert isinstance(outer, CoordinateSuccess)
+        assert outer.vector == (VersionPin(name="outer", version="2"),)
+        assert all(
+            observation.vector[0].name == "outer" for observation in outer.observations
+        )
+        assert isinstance(inner_results[0], CoordinateSuccess)
+        assert inner_results[0].vector == (VersionPin(name="inner", version="1"),)
+
+    def test_coordinate_search_same_instance_supports_barrier_interleaving(
+        self,
+    ) -> None:
+        search = CoordinateSearch()
+        barrier = Barrier(2)
+
+        class Threshold:
+            def __init__(self, floor: int) -> None:
+                self.floor = floor
+                self.first = True
+
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                if self.first:
+                    self.first = False
+                    barrier.wait(timeout=2)
+                version = vector[0].version
+                if int(version) >= self.floor:
+                    return probe_pass(vector, f"{vector[0].name}-{version}")
+                return ProbeRejection(
+                    attempt=probe_attempt(vector),
+                    failure_id=f"{vector[0].name}-failure-{version}",
+                    cause="RESOLUTION_CONFLICT",
+                )
+
+        def run(name: str, floor: int) -> CoordinateOutcome:
+            return search.minimize(
+                start=(VersionPin(name=name, version="3"),),
+                candidates=(snapshot(name),),
+                evaluator=Threshold(floor),
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(run, "a", 1)
+            second = pool.submit(run, "b", 2)
+            results = (first.result(), second.result())
+
+        assert all(isinstance(result, CoordinateSuccess) for result in results)
+        assert [
+            result.vector for result in results if isinstance(result, CoordinateSuccess)
+        ] == [
+            (VersionPin(name="a", version="1"),),
+            (VersionPin(name="b", version="2"),),
+        ]

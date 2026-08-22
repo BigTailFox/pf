@@ -8,241 +8,203 @@ from pf.config import ConfigLoader, parse_jobs, parse_max_duration
 from pf.errors import ConfigurationError
 
 
-def test_package_config_overrides_root_override_and_replaces_lists(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "workspace-root"
-version = "0.1.0"
+class TestConfiguration:
+    def test_package_config_overrides_root_override_and_replaces_lists(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "workspace-root"
+    version = "0.1.0"
 
-[tool.pf]
-python = ["3.10"]
-ty-args = ["--root"]
+    [tool.pf]
+    python = ["3.10"]
+    ty-args = ["--root"]
 
-[tool.pf.package.demo]
-python = ["3.11"]
-ty-args = ["--override"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    package = tmp_path / "packages" / "demo"
-    package.mkdir(parents=True)
-    (package / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
+    [tool.pf.package.demo]
+    python = ["3.11"]
+    ty-args = ["--override"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = tmp_path / "packages" / "demo"
+        package.mkdir(parents=True)
+        (package / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
 
-[tool.pf]
-python = ["3.12"]
-ty-args = []
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
+    [tool.pf]
+    python = ["3.12"]
+    ty-args = []
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
 
-    config = ConfigLoader().load(root=tmp_path, package=package)
+        config = ConfigLoader().load(root=tmp_path, package=package)
 
-    assert config.python == ("3.12",)
-    assert config.ty_args == ()
+        assert config.python == ("3.12",)
+        assert config.ty_args == ()
 
+    def test_config_supplies_the_v1_evaluation_defaults(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
 
-def test_config_rejects_unknown_keys(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
+        config = ConfigLoader().load(root=tmp_path, package=tmp_path)
 
-[tool.pf]
-surprise = true
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
+        assert config.release_granularity == "minor"
+        assert config.search_space == "all"
+        assert config.distribution == "wheel"
+        assert config.allow_prereleases is False
+        assert config.test_group == "test"
+        assert config.test_failure_exit_codes == (1,)
+        assert config.command_cwd == "package"
+        assert config.resolve_timeout == 600
+        assert config.ty_timeout == 600
+        assert config.test_timeout == 1800
 
-    with pytest.raises(ConfigurationError, match=r"unknown \[tool.pf\] key: surprise"):
-        ConfigLoader().load(root=tmp_path, package=tmp_path)
+    def test_config_normalizes_explicit_policy_values(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
 
+    [tool.pf]
+    platform = ["x86_64-unknown-linux-gnu"]
+    extras = "all"
+    release-granularity = "patch"
+    search-space = ["NumPy>=1.0,<2"]
+    distribution = "any"
+    allow-prereleases = true
+    managed-deps = []
+    test-command = ["pytest", "tests"]
+    jobs = 2
+    resolve-timeout = "2m"
+    ty-timeout = "none"
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
 
-def test_config_rejects_managed_and_unmanaged_lists_together(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
+        config = ConfigLoader().load(root=tmp_path, package=tmp_path)
 
-[tool.pf]
-managed-deps = ["numpy"]
-unmanaged-deps = ["torch"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
+        assert config.platform == ("x86_64-unknown-linux-gnu",)
+        assert config.extras == "all"
+        assert config.release_granularity == "patch"
+        assert config.search_space == ("numpy<2,>=1.0",)
+        assert config.distribution == "any"
+        assert config.allow_prereleases is True
+        assert config.managed_deps == ()
+        assert config.test_command == ("pytest", "tests")
+        assert config.jobs == 2
+        assert config.resolve_timeout == 120
+        assert config.ty_timeout is None
 
-    with pytest.raises(
-        ConfigurationError,
-        match="managed-deps and unmanaged-deps are mutually exclusive",
-    ):
-        ConfigLoader().load(root=tmp_path, package=tmp_path)
-
-
-def test_config_supplies_the_v1_evaluation_defaults(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "demo"\nversion = "0.1.0"\n',
-        encoding="utf-8",
-    )
-
-    config = ConfigLoader().load(root=tmp_path, package=tmp_path)
-
-    assert config.release_granularity == "minor"
-    assert config.search_space == "all"
-    assert config.distribution == "wheel"
-    assert config.allow_prereleases is False
-    assert config.test_group == "test"
-    assert config.test_failure_exit_codes == (1,)
-    assert config.command_cwd == "package"
-    assert config.resolve_timeout == 600
-    assert config.ty_timeout == 600
-    assert config.test_timeout == 1800
-
-
-def test_config_normalizes_explicit_policy_values(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-
-[tool.pf]
-platform = ["x86_64-unknown-linux-gnu"]
-extras = "all"
-release-granularity = "patch"
-search-space = ["NumPy>=1.0,<2"]
-distribution = "any"
-allow-prereleases = true
-managed-deps = []
-test-command = ["pytest", "tests"]
-jobs = 2
-resolve-timeout = "2m"
-ty-timeout = "none"
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-
-    config = ConfigLoader().load(root=tmp_path, package=tmp_path)
-
-    assert config.platform == ("x86_64-unknown-linux-gnu",)
-    assert config.extras == "all"
-    assert config.release_granularity == "patch"
-    assert config.search_space == ("numpy<2,>=1.0",)
-    assert config.distribution == "any"
-    assert config.allow_prereleases is True
-    assert config.managed_deps == ()
-    assert config.test_command == ("pytest", "tests")
-    assert config.jobs == 2
-    assert config.resolve_timeout == 120
-    assert config.ty_timeout is None
-
-
-def test_config_rejects_granularity_coarser_than_scalar_search_space(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-
-[tool.pf]
-search-space = "current-major"
-release-granularity = "major"
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        ConfigurationError,
-        match="current-major search-space requires minor or patch granularity",
-    ):
-        ConfigLoader().load(root=tmp_path, package=tmp_path)
-
-
-def test_cli_config_parsers_accept_explicit_none_and_reject_invalid_jobs() -> None:
-    assert parse_jobs("auto") == "auto"
-    assert parse_jobs("3") == 3
-    assert parse_max_duration(None) is None
-    assert parse_max_duration("none") is None
-    assert parse_max_duration("2h") == 7200
-    with pytest.raises(ConfigurationError, match="jobs must be"):
-        parse_jobs("0")
-
-
-@pytest.mark.parametrize(
-    ("body", "message"),
-    (
+    @pytest.mark.parametrize(
+        ("body", "message"),
         (
-            'extras = "each"\nextra-surfaces = [["gpu"]]',
-            "extras and extra-surfaces are mutually exclusive",
+            (
+                'extras = "each"\nextra-surfaces = [["gpu"]]',
+                "extras and extra-surfaces are mutually exclusive",
+            ),
+            (
+                'search-space = "current-minor"\nrelease-granularity = "minor"',
+                "current-minor search-space requires patch granularity",
+            ),
+            ('test-command = ["uv", "run", "pytest"]', "cannot start with 'uv run'"),
+            ("jobs = true", "valid integer"),
+            ("resolve-timeout = 10", "resolve-timeout must be a duration"),
+            ('resolve-timeout = "zero"', "invalid resolve-timeout"),
+            ('search-space = "future"', "invalid search-space"),
+            ('search-space = ["not [valid"]', "invalid search-space entry"),
+            (
+                'search-space = ["demo[extra]>=1"]',
+                "must contain only a name and specifier",
+            ),
+            (
+                'search-space = ["Demo>=1", "demo<3"]',
+                "duplicate search-space dependency",
+            ),
+            ("surprise = true", r"unknown \[tool.pf\] key: surprise"),
+            (
+                'managed-deps = ["numpy"]\nunmanaged-deps = ["torch"]',
+                "managed-deps and unmanaged-deps are mutually exclusive",
+            ),
+            (
+                'search-space = "current-major"\nrelease-granularity = "major"',
+                "current-major search-space requires minor or patch granularity",
+            ),
         ),
-        (
-            'search-space = "current-minor"\nrelease-granularity = "minor"',
-            "current-minor search-space requires patch granularity",
-        ),
-        ('test-command = ["uv", "run", "pytest"]', "cannot start with 'uv run'"),
-        ('jobs = true', "valid integer"),
-        ('resolve-timeout = 10', "resolve-timeout must be a duration"),
-        ('resolve-timeout = "zero"', "invalid resolve-timeout"),
-        ('search-space = "future"', "invalid search-space"),
-        ('search-space = ["not [valid"]', "invalid search-space entry"),
-        (
-            'search-space = ["demo[extra]>=1"]',
-            "must contain only a name and specifier",
-        ),
-        (
-            'search-space = ["Demo>=1", "demo<3"]',
-            "duplicate search-space dependency",
-        ),
-    ),
-)
-def test_config_rejects_each_ambiguous_policy_form(
-    tmp_path: Path,
-    body: str,
-    message: str,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        f'[project]\nname = "demo"\nversion = "0.1.0"\n\n[tool.pf]\n{body}\n',
-        encoding="utf-8",
     )
+    def test_load_rejects_invalid_policy(
+        self,
+        tmp_path: Path,
+        body: str,
+        message: str,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            f'[project]\nname = "demo"\nversion = "0.1.0"\n\n[tool.pf]\n{body}\n',
+            encoding="utf-8",
+        )
 
-    with pytest.raises(ConfigurationError, match=message):
-        ConfigLoader().load(root=tmp_path, package=tmp_path)
+        with pytest.raises(ConfigurationError, match=message):
+            ConfigLoader().load(root=tmp_path, package=tmp_path)
+
+    def test_config_normalizes_explicit_extra_surfaces(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [tool.pf]
+    extra-surfaces = [["gpu", "fast"], ["fast", "gpu"], []]
+    unmanaged-deps = ["Requests", "requests"]
+    test-timeout = "1s"
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        config = ConfigLoader().load(root=tmp_path, package=tmp_path)
+
+        assert config.extras is None
+        assert config.extra_surfaces == ((), ("fast", "gpu"))
+        assert config.unmanaged_deps == ("requests",)
+        assert config.test_timeout == 1
 
 
-def test_config_normalizes_explicit_extra_surfaces(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-
-[tool.pf]
-extra-surfaces = [["gpu", "fast"], ["fast", "gpu"], []]
-unmanaged-deps = ["Requests", "requests"]
-test-timeout = "1s"
-""".strip()
-        + "\n",
-        encoding="utf-8",
+class TestCliConfigParsers:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        (("auto", "auto"), ("3", 3)),
     )
+    def test_parse_jobs_returns_normalized_value(
+        self,
+        value: str,
+        expected: str | int,
+    ) -> None:
+        assert parse_jobs(value) == expected
 
-    config = ConfigLoader().load(root=tmp_path, package=tmp_path)
+    def test_parse_jobs_rejects_non_positive_value(self) -> None:
+        with pytest.raises(ConfigurationError, match="jobs must be"):
+            parse_jobs("0")
 
-    assert config.extras is None
-    assert config.extra_surfaces == ((), ("fast", "gpu"))
-    assert config.unmanaged_deps == ("requests",)
-    assert config.test_timeout == 1
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        ((None, None), ("none", None), ("2h", 7200)),
+    )
+    def test_parse_max_duration_returns_seconds_or_none(
+        self,
+        value: str | None,
+        expected: int | None,
+    ) -> None:
+        assert parse_max_duration(value) == expected

@@ -21,11 +21,15 @@ from pf.schemas.evaluation import (
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
+    AvailableArtifact,
+    Candidate,
+    CandidateSnapshot,
     Cell,
     Proposal,
     RequirementDeclaration,
     SourceIdentity,
     VersionPin,
+    candidate_snapshot_digest,
 )
 from pf.schemas.report import (
     CellSuccess,
@@ -47,6 +51,45 @@ def successful_process() -> ProcessResult:
         duration_seconds=0.1,
         stdout="",
         stderr="",
+    )
+
+
+def candidate_snapshot(
+    cell: Cell,
+    vector: tuple[VersionPin, ...],
+) -> tuple[CandidateSnapshot, ...]:
+    pin = vector[0]
+    source = SourceIdentity(kind="registry")
+    candidates = (
+        Candidate(
+            version=pin.version,
+            series_key=pin.version,
+            artifact=AvailableArtifact(
+                filename=f"{pin.name}-{pin.version}.whl",
+                kind="wheel",
+                content_hash=f"sha256:{'a' * 64}",
+                locator=f"https://files.example/{pin.name}-{pin.version}.whl",
+            ),
+        ),
+    )
+    representatives = ((pin.version, pin.version),)
+    return (
+        CandidateSnapshot(
+            dependency=pin.name,
+            cell=cell,
+            policy_identity="candidate-policy",
+            source=source,
+            candidates=candidates,
+            series_representatives=representatives,
+            digest=candidate_snapshot_digest(
+                dependency=pin.name,
+                cell=cell,
+                policy_identity="candidate-policy",
+                source=source,
+                candidates=candidates,
+                series_representatives=representatives,
+            ),
+        ),
     )
 
 
@@ -160,216 +203,224 @@ def successful_cell(
             digest=ty_diagnostic_digest(baseline.static.ty.diagnostics),
         ),
         baseline=baseline,
-        candidate_snapshots=(),
+        candidate_snapshots=candidate_snapshot(cell, vector),
         static_search=search,
         final_vector=vector,
         final_evaluation=final_evaluation,
     )
 
 
-def test_report_builder_projects_exact_floor_and_preserves_constraints(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-dependencies = ["idna>2,!=2.5,<4; python_version >= '3.10'"]
+class TestReportProjection:
+    def test_report_builder_projects_exact_floor_and_preserves_constraints(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    dependencies = ["idna>2,!=2.5,<4; python_version >= '3.10'"]
 
-[dependency-groups]
-test = ["pytest"]
+    [dependency-groups]
+    test = ["pytest"]
 
-[tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
-test-command = ["pytest"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-    snapshot = SnapshotBuilder().build(tmp_path)
-    report = PackageReportBuilder().build(
-        package=package,
-        source_snapshot=snapshot.identity,
-        cell_results=(
-            successful_cell(
-                package.cells[0],
-                "3.0",
-                snapshot_digest=snapshot.identity.digest,
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["pytest"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = (
+            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        )
+        snapshot = SnapshotBuilder().build(tmp_path)
+        report = PackageReportBuilder().build(
+            package=package,
+            source_snapshot=snapshot.identity,
+            cell_results=(
+                successful_cell(
+                    package.cells[0],
+                    "3.0",
+                    snapshot_digest=snapshot.identity.digest,
+                ),
             ),
-        ),
-    )
+        )
 
-    assert report.result.status == "complete"
-    projected = Requirement(report.projection_evidence[0].projected_requirements[0])
-    assert str(projected.specifier) == "!=2.5,<4,>=3.0"
-    assert str(projected.marker) == 'python_version >= "3.10"'
+        assert report.result.status == "complete"
+        projected = Requirement(report.projection_evidence[0].projected_requirements[0])
+        assert str(projected.specifier) == "!=2.5,<4,>=3.0"
+        assert str(projected.marker) == 'python_version >= "3.10"'
 
-    incomplete_coverage = report.model_dump(mode="python")
-    incomplete_coverage["target_cells"] = (
-        *report.target_cells,
-        Cell(
+        incomplete_coverage = report.model_dump(mode="python")
+        incomplete_coverage["target_cells"] = (
+            *report.target_cells,
+            Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor="3.11",
+                extra_surface=(),
+            ),
+        )
+        incomplete_coverage["report_generation_id"] = report_generation_id(
+            generator=report.generator,
+            package=report.package,
+            source_snapshot=report.source_snapshot,
+            policy_identity=report.policy_identity,
+            requirement_declarations=report.requirement_declarations,
+            target_cells=incomplete_coverage["target_cells"],
+        )
+        with pytest.raises(
+            ValidationError, match="complete report requires exact cell coverage"
+        ):
+            PackageFloorReportV1.model_validate(incomplete_coverage)
+
+    def test_report_builder_represents_different_python_floors_with_markers(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    dependencies = ["idna<4"]
+
+    [dependency-groups]
+    test = ["pytest"]
+
+    [tool.pf]
+    python = ["3.10", "3.11"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["pytest"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = (
+            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        )
+        snapshot = SnapshotBuilder().build(tmp_path)
+        floors = {"3.10": "2.0", "3.11": "3.0"}
+
+        report = PackageReportBuilder().build(
+            package=package,
+            source_snapshot=snapshot.identity,
+            cell_results=tuple(
+                successful_cell(
+                    cell,
+                    floors[cell.python_minor],
+                    snapshot_digest=snapshot.identity.digest,
+                )
+                for cell in package.cells
+            ),
+        )
+
+        assert report.result.status == "complete"
+        projected = tuple(
+            Requirement(raw)
+            for raw in report.projection_evidence[0].projected_requirements
+        )
+        assert {str(requirement.specifier) for requirement in projected} == {
+            "<4,>=2.0",
+            "<4,>=3.0",
+        }
+        assert {str(requirement.marker) for requirement in projected} == {
+            'python_version == "3.10"',
+            'python_version == "3.11"',
+        }
+
+    def test_merge_recomputes_projection_after_partial_host_reports_cover_all_cells(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    dependencies = ["idna<4"]
+
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    python = ["3.10", "3.11"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = (
+            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        )
+        snapshot = SnapshotBuilder().build(tmp_path)
+        builder = PackageReportBuilder()
+        first = builder.build(
+            package=package,
+            source_snapshot=snapshot.identity,
+            cell_results=(
+                successful_cell(
+                    package.cells[0],
+                    "2.0",
+                    snapshot_digest=snapshot.identity.digest,
+                ),
+            ),
+        )
+        second = builder.build(
+            package=package,
+            source_snapshot=snapshot.identity,
+            cell_results=(
+                successful_cell(
+                    package.cells[1],
+                    "3.0",
+                    snapshot_digest=snapshot.identity.digest,
+                ),
+            ),
+        )
+
+        merged = ReportStore().merge((first, second))
+
+        assert merged.result.status == "complete"
+        assert merged.projection_evidence[0].representable is True
+        assert len(merged.projection_evidence[0].projected_requirements) == 2
+
+    def test_projection_requires_exact_cell_set_equivalence(self) -> None:
+        declaration = RequirementDeclaration(
+            declaration_id="demo:base:idna",
+            package="demo",
+            pyproject_path="pyproject.toml",
+            location="base",
+            extra=None,
+            name="idna",
+            raw="idna",
+            source=SourceIdentity(kind="registry"),
+            kind="searchable",
+            managed=True,
+        )
+        gnu = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
-            python_minor="3.11",
+            python_minor="3.10",
             extra_surface=(),
-        ),
-    )
-    incomplete_coverage["report_generation_id"] = report_generation_id(
-        generator=report.generator,
-        package=report.package,
-        source_snapshot=report.source_snapshot,
-        policy_identity=report.policy_identity,
-        requirement_declarations=report.requirement_declarations,
-        target_cells=incomplete_coverage["target_cells"],
-    )
-    with pytest.raises(
-        ValidationError, match="complete report requires exact cell coverage"
-    ):
-        PackageFloorReportV1.model_validate(incomplete_coverage)
+            active_declaration_ids=(declaration.declaration_id,),
+        )
+        musl = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-musl",
+            python_minor="3.10",
+            extra_surface=(),
+        )
 
+        projection = PackageReportBuilder().project(
+            declaration=declaration,
+            target_cells=(gnu, musl),
+            active_cells=(gnu,),
+            floors=(FloorProjection(cell=gnu, version="1.5"),),
+        )
 
-def test_report_builder_represents_different_python_floors_with_markers(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-dependencies = ["idna<4"]
-
-[dependency-groups]
-test = ["pytest"]
-
-[tool.pf]
-python = ["3.10", "3.11"]
-platform = ["x86_64-unknown-linux-gnu"]
-test-command = ["pytest"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-    snapshot = SnapshotBuilder().build(tmp_path)
-    floors = {"3.10": "2.0", "3.11": "3.0"}
-
-    report = PackageReportBuilder().build(
-        package=package,
-        source_snapshot=snapshot.identity,
-        cell_results=tuple(
-            successful_cell(
-                cell,
-                floors[cell.python_minor],
-                snapshot_digest=snapshot.identity.digest,
-            )
-            for cell in package.cells
-        ),
-    )
-
-    assert report.result.status == "complete"
-    projected = tuple(
-        Requirement(raw) for raw in report.projection_evidence[0].projected_requirements
-    )
-    assert {str(requirement.specifier) for requirement in projected} == {
-        "<4,>=2.0",
-        "<4,>=3.0",
-    }
-    assert {str(requirement.marker) for requirement in projected} == {
-        'python_version == "3.10"',
-        'python_version == "3.11"',
-    }
-
-
-def test_merge_recomputes_projection_after_partial_host_reports_cover_all_cells(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-dependencies = ["idna<4"]
-
-[dependency-groups]
-test = []
-
-[tool.pf]
-python = ["3.10", "3.11"]
-platform = ["x86_64-unknown-linux-gnu"]
-test-command = ["python", "-c", "pass"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-    snapshot = SnapshotBuilder().build(tmp_path)
-    builder = PackageReportBuilder()
-    first = builder.build(
-        package=package,
-        source_snapshot=snapshot.identity,
-        cell_results=(
-            successful_cell(
-                package.cells[0],
-                "2.0",
-                snapshot_digest=snapshot.identity.digest,
-            ),
-        ),
-    )
-    second = builder.build(
-        package=package,
-        source_snapshot=snapshot.identity,
-        cell_results=(
-            successful_cell(
-                package.cells[1],
-                "3.0",
-                snapshot_digest=snapshot.identity.digest,
-            ),
-        ),
-    )
-
-    merged = ReportStore().merge((first, second))
-
-    assert merged.result.status == "complete"
-    assert merged.projection_evidence[0].representable is True
-    assert len(merged.projection_evidence[0].projected_requirements) == 2
-
-
-def test_projection_requires_exact_cell_set_equivalence() -> None:
-    declaration = RequirementDeclaration(
-        declaration_id="demo:base:idna",
-        package="demo",
-        pyproject_path="pyproject.toml",
-        location="base",
-        extra=None,
-        name="idna",
-        raw="idna",
-        source=SourceIdentity(kind="registry"),
-        kind="searchable",
-        managed=True,
-    )
-    gnu = Cell(
-        package="demo",
-        target="x86_64-unknown-linux-gnu",
-        python_minor="3.10",
-        extra_surface=(),
-        active_declaration_ids=(declaration.declaration_id,),
-    )
-    musl = Cell(
-        package="demo",
-        target="x86_64-unknown-linux-musl",
-        python_minor="3.10",
-        extra_surface=(),
-    )
-
-    projection = PackageReportBuilder().project(
-        declaration=declaration,
-        target_cells=(gnu, musl),
-        active_cells=(gnu,),
-        floors=(FloorProjection(cell=gnu, version="1.5"),),
-    )
-
-    assert projection.representable is False
-    assert projection.projected_requirements == ()
+        assert projection.representable is False
+        assert projection.projected_requirements == ()

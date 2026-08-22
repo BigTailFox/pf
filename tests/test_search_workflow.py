@@ -22,6 +22,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
+from pf.verification import VerificationRunner
 from pf.workflow import SearchCommandWorkflow
 
 
@@ -70,280 +71,297 @@ class Events:
         self.items.append(event)
 
 
-def test_search_workflow_schedules_cells_and_writes_incomplete_report(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-dependencies = ["idna"]
+class TestSearchWorkflow:
+    def test_search_workflow_schedules_cells_and_writes_incomplete_report(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    dependencies = ["idna"]
 
-[dependency-groups]
-test = ["pytest"]
+    [dependency-groups]
+    test = ["pytest"]
 
-[tool.pf]
-python = ["3.10", "3.11"]
-platform = ["x86_64-unknown-linux-gnu"]
-test-command = ["pytest"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    events = Events()
-    store = ReportStore()
-    workflow = SearchCommandWorkflow(
-        projects=ProjectLoader(),
-        snapshots=SnapshotBuilder(),
-        coordinator=FailedSearch(),
-        scheduler=Scheduler(),
-        reports=store,
-        report_builder=PackageReportBuilder(),
-        events=events,
-    )
-
-    output = workflow.run(
-        SearchRequest(
-            root=tmp_path.as_posix(),
-            package=None,
-            jobs=2,
-            max_duration_seconds=None,
+    [tool.pf]
+    python = ["3.10", "3.11"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["pytest"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
         )
-    )
-
-    assert output[0].result.status == "incomplete"
-    assert output[0].result.reasons == (
-        "INDETERMINATE",
-        "UNREPRESENTABLE_PROJECTION",
-    )
-    completions = [
-        event
-        for event in events.items
-        if isinstance(event, ProgressEvent) and event.phase != "start"
-    ]
-    assert len(completions) == 2
-    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
-    assert [(cell.python_minor, cell.target) for cell in matrix.cells] == [
-        ("3.10", "x86_64-unknown-linux-gnu"),
-        ("3.11", "x86_64-unknown-linux-gnu"),
-    ]
-    assert store.read(tmp_path / "package-floor.json") == output[0]
-
-    repeated = workflow.run(
-        SearchRequest(
-            root=tmp_path.as_posix(),
-            package=None,
-            jobs=2,
-            max_duration_seconds=None,
+        events = Events()
+        store = ReportStore()
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder(),
+            coordinator=FailedSearch(),
+            verification=VerificationRunner(
+                scheduler=Scheduler(), events=events, logs=None
+            ),
+            reports=store,
+            report_builder=PackageReportBuilder(),
+            events=events,
         )
-    )
-    assert repeated[0].source_snapshot == output[0].source_snapshot
-    assert repeated[0].cell_results != output[0].cell_results
 
-    (tmp_path / "new-source.py").write_text("VALUE = 1\n", encoding="utf-8")
-    refreshed = workflow.run(
-        SearchRequest(
-            root=tmp_path.as_posix(),
-            package=None,
-            jobs=2,
-            max_duration_seconds=None,
+        output = workflow.run(
+            SearchRequest(
+                root=tmp_path.as_posix(),
+                package=None,
+                jobs=2,
+                max_duration_seconds=None,
+            )
         )
-    )
-    assert refreshed[0].source_snapshot != output[0].source_snapshot
-    assert store.read(tmp_path / "package-floor.json") == refreshed[0]
 
+        assert output[0].result.status == "incomplete"
+        assert output[0].result.reasons == (
+            "INDETERMINATE",
+            "UNREPRESENTABLE_PROJECTION",
+        )
+        completions = [
+            event
+            for event in events.items
+            if isinstance(event, ProgressEvent) and event.phase != "start"
+        ]
+        assert len(completions) == 2
+        matrix = next(
+            event for event in events.items if isinstance(event, CellMatrixEvent)
+        )
+        assert [(cell.python_minor, cell.target) for cell in matrix.cells] == [
+            ("3.10", "x86_64-unknown-linux-gnu"),
+            ("3.11", "x86_64-unknown-linux-gnu"),
+        ]
+        assert store.read(tmp_path / "package-floor.json") == output[0]
 
-def test_search_workflow_indexes_failure_logs_after_writing_the_report(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
+        repeated = workflow.run(
+            SearchRequest(
+                root=tmp_path.as_posix(),
+                package=None,
+                jobs=2,
+                max_duration_seconds=None,
+            )
+        )
+        assert repeated[0].source_snapshot == output[0].source_snapshot
+        assert repeated[0].cell_results != output[0].cell_results
 
-[dependency-groups]
-test = []
+        (tmp_path / "new-source.py").write_text("VALUE = 1\n", encoding="utf-8")
+        refreshed = workflow.run(
+            SearchRequest(
+                root=tmp_path.as_posix(),
+                package=None,
+                jobs=2,
+                max_duration_seconds=None,
+            )
+        )
+        assert refreshed[0].source_snapshot != output[0].source_snapshot
+        assert store.read(tmp_path / "package-floor.json") == refreshed[0]
 
-[tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
-managed-deps = []
-test-command = ["python", "-c", "pass"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    logs = RunLogStore(root=tmp_path, run_id="search-run")
-    process = ProcessResult(
-        exit_code=124,
-        signal=None,
-        duration_seconds=1,
-        stdout="",
-        stderr="",
-        timed_out=True,
-    )
-    logs.record(
-        1,
-        ProcessSpec(
-            argv=(sys.executable, "-c", "pass"),
-            cwd=tmp_path.as_posix(),
-            timeout_seconds=1,
-        ),
-        process,
-    )
-    workflow = SearchCommandWorkflow(
-        projects=ProjectLoader(),
-        snapshots=SnapshotBuilder(),
-        coordinator=FailedSearch(process),
-        scheduler=Scheduler(),
-        reports=ReportStore(),
-        report_builder=PackageReportBuilder(),
-        events=Events(),
-        logs=logs,
-    )
+    def test_search_workflow_indexes_failure_logs_after_writing_the_report(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
 
-    report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
-    failure = report.failure_records[0]
+    [dependency-groups]
+    test = []
 
-    assert logs.lookup(report.report_generation_id, failure.failure_id) == Path(
-        ".pf/logs/search-run/process-0001.log"
-    )
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        logs = RunLogStore(root=tmp_path, run_id="search-run")
+        process = ProcessResult(
+            exit_code=124,
+            signal=None,
+            duration_seconds=1,
+            stdout="",
+            stderr="",
+            timed_out=True,
+        )
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=(sys.executable, "-c", "pass"),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            process,
+        )
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder(),
+            coordinator=FailedSearch(process),
+            verification=VerificationRunner(
+                scheduler=Scheduler(), events=Events(), logs=logs
+            ),
+            reports=ReportStore(),
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+            associations=logs,
+        )
 
-    replacement = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
-    replacement_failure = replacement.failure_records[0]
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        failure = report.failure_records[0]
 
-    assert replacement_failure.failure_id != failure.failure_id
-    assert logs.lookup(report.report_generation_id, failure.failure_id) is None
-    assert logs.lookup(
-        replacement.report_generation_id,
-        replacement_failure.failure_id,
-    ) == Path(".pf/logs/search-run/process-0001.log")
-    journal = logs.read_latest_journal("demo")
-    assert journal is not None
-    assert journal.command == "search"
-    assert journal.run_id == "search-run"
-    assert {entry.failure.failure_id for entry in journal.entries} == {
-        replacement_failure.failure_id
-    }
+        assert logs.lookup(report.report_generation_id, failure.failure_id) == Path(
+            ".pf/logs/search-run/process-0001.log"
+        )
 
+        replacement = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        replacement_failure = replacement.failure_records[0]
 
-def test_search_replaces_a_report_from_an_incompatible_policy_generation(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
+        assert replacement_failure.failure_id != failure.failure_id
+        assert logs.lookup(report.report_generation_id, failure.failure_id) is None
+        assert logs.lookup(
+            replacement.report_generation_id,
+            replacement_failure.failure_id,
+        ) == Path(".pf/logs/search-run/process-0001.log")
+        journal = logs.read_latest_journal("demo")
+        assert journal is not None
+        assert journal.command == "search"
+        assert journal.run_id == "search-run"
+        assert {entry.failure.failure_id for entry in journal.entries} == {
+            replacement_failure.failure_id
+        }
 
-[dependency-groups]
-test = []
+    def test_search_replaces_a_report_from_an_incompatible_policy_generation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
 
-[tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
-managed-deps = []
-test-command = ["python", "-c", "pass"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    store = ReportStore()
-    workflow = SearchCommandWorkflow(
-        projects=ProjectLoader(),
-        snapshots=SnapshotBuilder(),
-        coordinator=FailedSearch(),
-        scheduler=Scheduler(),
-        reports=store,
-        report_builder=PackageReportBuilder(),
-        events=Events(),
-    )
-    request = SearchRequest(root=tmp_path.as_posix())
-    current = workflow.run(request)[0]
-    report_path = tmp_path / "package-floor.json"
-    document = json.loads(report_path.read_text(encoding="utf-8"))
-    legacy_policy = "pre-diagnostic-baseline-policy"
-    cell_result = document["cell_results"][0]
-    cell_result.update(
-        {
-            "status": "BASELINE_FAILED",
-            "phase": "baseline-evaluation",
-            "baseline": {
-                "status": "STATIC_FAIL",
-                "proposal": {
-                    "proposal_id": "legacy-baseline",
-                    "snapshot_digest": document["source_snapshot"]["digest"],
-                    "cell": cell_result["cell"],
-                    "managed_vector": [],
-                    "fixed_declaration_ids": [],
-                    "resolved_graph": [],
-                    "policy_identity": legacy_policy,
-                    "interpreter": None,
-                },
-                "ty": {
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        store = ReportStore()
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder(),
+            coordinator=FailedSearch(),
+            verification=VerificationRunner(
+                scheduler=Scheduler(), events=Events(), logs=None
+            ),
+            reports=store,
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+        )
+        request = SearchRequest(root=tmp_path.as_posix())
+        current = workflow.run(request)[0]
+        report_path = tmp_path / "package-floor.json"
+        document = json.loads(report_path.read_text(encoding="utf-8"))
+        legacy_policy = "pre-diagnostic-baseline-policy"
+        cell_result = document["cell_results"][0]
+        cell_result.update(
+            {
+                "status": "BASELINE_FAILED",
+                "phase": "baseline-evaluation",
+                "baseline": {
                     "status": "STATIC_FAIL",
-                    "process": {
-                        "exit_code": 1,
-                        "signal": None,
-                        "duration_seconds": 0.1,
-                        "stdout": "",
-                        "stderr": "",
-                        "stdout_complete": True,
-                        "stderr_complete": True,
-                        "timed_out": False,
-                        "start_error": None,
+                    "proposal": {
+                        "proposal_id": "legacy-baseline",
+                        "snapshot_digest": document["source_snapshot"]["digest"],
+                        "cell": cell_result["cell"],
+                        "managed_vector": [],
+                        "fixed_declaration_ids": [],
+                        "resolved_graph": [],
+                        "policy_identity": legacy_policy,
+                        "interpreter": None,
+                    },
+                    "ty": {
+                        "status": "STATIC_FAIL",
+                        "process": {
+                            "exit_code": 1,
+                            "signal": None,
+                            "duration_seconds": 0.1,
+                            "stdout": "",
+                            "stderr": "",
+                            "stdout_complete": True,
+                            "stderr_complete": True,
+                            "timed_out": False,
+                            "start_error": None,
+                        },
                     },
                 },
-            },
-        }
-    )
-    document["policy_identity"] = legacy_policy
-    report_path.write_text(json.dumps(document), encoding="utf-8")
+            }
+        )
+        document["policy_identity"] = legacy_policy
+        report_path.write_text(json.dumps(document), encoding="utf-8")
 
-    refreshed = workflow.run(request)[0]
+        refreshed = workflow.run(request)[0]
 
-    assert refreshed.policy_identity == current.policy_identity
-    assert store.read(report_path) == refreshed
+        assert refreshed.policy_identity == current.policy_identity
+        assert store.read(report_path) == refreshed
 
+    def test_search_workflow_never_executes_a_non_host_target(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
 
-def test_search_workflow_never_executes_a_non_host_target(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
+    [dependency-groups]
+    test = []
 
-[dependency-groups]
-test = []
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        coordinator = FailedSearch()
+        events = Events()
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder(),
+            coordinator=coordinator,
+            verification=VerificationRunner(
+                scheduler=Scheduler(), events=events, logs=None
+            ),
+            reports=ReportStore(),
+            report_builder=PackageReportBuilder(),
+            events=events,
+            host_target="x86_64-unknown-linux-gnu",
+        )
 
-[tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
-managed-deps = []
-test-command = ["python", "-c", "pass"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    coordinator = FailedSearch()
-    events = Events()
-    workflow = SearchCommandWorkflow(
-        projects=ProjectLoader(),
-        snapshots=SnapshotBuilder(),
-        coordinator=coordinator,
-        scheduler=Scheduler(),
-        reports=ReportStore(),
-        report_builder=PackageReportBuilder(),
-        events=events,
-        host_target="x86_64-unknown-linux-gnu",
-    )
+        reports = workflow.run(SearchRequest(root=tmp_path.as_posix()))
 
-    reports = workflow.run(SearchRequest(root=tmp_path.as_posix()))
-
-    assert [cell.target for cell in coordinator.cells] == ["x86_64-unknown-linux-gnu"]
-    matrix = next(event for event in events.items if isinstance(event, CellMatrixEvent))
-    assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
-    assert reports[0].result.status == "incomplete"
-    assert "MISSING_CELL" in reports[0].result.reasons
+        assert [cell.target for cell in coordinator.cells] == [
+            "x86_64-unknown-linux-gnu"
+        ]
+        matrix = next(
+            event for event in events.items if isinstance(event, CellMatrixEvent)
+        )
+        assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
+        assert reports[0].result.status == "incomplete"
+        assert "MISSING_CELL" in reports[0].result.reasons
