@@ -86,6 +86,16 @@ class ProcessResult(FrozenSchema):
         return ""
 
 
+def process_facts_match(
+    left: ProcessResult | None,
+    right: ProcessResult | None,
+) -> bool:
+    """Return whether two results have the same report-portable process facts."""
+    if left is None or right is None:
+        return left is right
+    return left.model_dump(mode="json") == right.model_dump(mode="json")
+
+
 FailureCause = Literal[
     "RESOLUTION_CONFLICT",
     "BUILD_FAILURE",
@@ -1145,7 +1155,10 @@ class BaselineRejection(FrozenSchema):
             raise ValueError("baseline test rejection cause must match evaluation")
         if isinstance(self.evaluation, TestFailEvaluation) and (
             self.failure.stage != "test"
-            or self.failure.process != self.evaluation.test.process
+            or not process_facts_match(
+                self.failure.process,
+                self.evaluation.test.process,
+            )
         ):
             raise ValueError("baseline test diagnosis must match its evaluation")
         if self.evaluation is not None and (
@@ -1208,7 +1221,10 @@ class BaselineIndeterminate(FrozenSchema):
         if self.evaluation is not None and (
             self.failure.cause != self.evaluation.cause
             or self.failure.stage != self.evaluation.failure.stage
-            or self.failure.process != self.evaluation.failure.process
+            or not process_facts_match(
+                self.failure.process,
+                self.evaluation.failure.process,
+            )
         ):
             raise ValueError(
                 "baseline indeterminate diagnosis must match its evaluation"

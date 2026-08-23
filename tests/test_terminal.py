@@ -711,7 +711,10 @@ class TestProgressRendering:
         assert "extra surfaces: no-extra" in output
         terminal.close()
 
-    def test_tty_live_lifecycle_renders_through_public_events(self) -> None:
+    def test_tty_live_lifecycle_renders_through_public_events(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
         cell_a = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -740,7 +743,10 @@ class TestProgressRendering:
         assert "1/2" in output
         assert "╭" in output
 
-    def test_tty_stage_and_known_total_render_without_private_state(self) -> None:
+    def test_tty_stage_and_known_total_render_without_private_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",

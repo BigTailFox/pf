@@ -1374,6 +1374,75 @@ class TestEvaluationSchemas:
         assert restored.stdout == ""
         assert restored.stderr == ""
 
+    def test_cell_indeterminate_accepts_portable_process_facts_after_search_round_trip(
+        self,
+    ) -> None:
+        baseline_attempt, baseline, passed = _baseline_evidence()
+        attempt = _attempt(resolution="exact-vector", vector=())
+        proposal = _proposal("candidate", attempt=attempt)
+        process = ProcessResult(
+            exit_code=2,
+            signal=None,
+            duration_seconds=0.1,
+            stdout="captured test output",
+            stderr="captured tool output",
+        )
+        tool_failure = ToolFailure(
+            cause="TOOL_FAILURE",
+            stage="test",
+            process=process,
+        )
+        evaluation = IndeterminateEvaluation(
+            proposal=proposal,
+            cause=tool_failure.cause,
+            failure=tool_failure,
+            static=StaticUnchangedEvaluation(
+                proposal=proposal,
+                ty=baseline.ty,
+                baseline_digest=baseline.digest,
+            ),
+        )
+        failure = FailurePolicy().classify_evaluation(
+            AttemptFailureScope(attempt=attempt),
+            evaluation,
+        )
+        assert failure is not None
+        search = CoordinateFailure(
+            status="INDETERMINATE",
+            failure_id=failure.failure_id,
+            observations=(
+                ProbeObservation(
+                    dependency=None,
+                    candidate_version=None,
+                    vector=(),
+                    evidence=ProbeIndeterminate(
+                        attempt=attempt,
+                        proposal_id=proposal.proposal_id,
+                        failure_id=failure.failure_id,
+                        cause=tool_failure.cause,
+                        evaluation=evaluation,
+                    ),
+                ),
+            ),
+        )
+
+        restored_search = CoordinateFailure.model_validate(
+            search.model_dump(mode="json")
+        )
+
+        result = CellIndeterminate(
+            cell=baseline.proposal.cell,
+            phase="runtime-search",
+            failure_id=failure.failure_id,
+            failure_records=(failure,),
+            baseline_attempt=baseline_attempt,
+            static_baseline=baseline,
+            baseline=passed,
+            coordinate_failure=restored_search,
+        )
+
+        assert result.failure_id == failure.failure_id
+
     @pytest.mark.parametrize(
         ("outcome", "process"),
         (

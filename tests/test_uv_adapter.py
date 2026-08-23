@@ -812,6 +812,49 @@ class TestCandidateQuery:
             ("2.0", False),
         ]
 
+    def test_candidate_query_skips_unparseable_legacy_distribution_filename(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        document = json.dumps(
+            {
+                "files": [
+                    {
+                        "filename": "pydantic-0.18-py36+-none-any.whl",
+                        "url": "pydantic-0.18-py36+-none-any.whl",
+                        "hashes": {"sha256": "a" * 64},
+                    },
+                    {
+                        "filename": "pydantic-1.0-py3-none-any.whl",
+                        "url": "pydantic-1.0-py3-none-any.whl",
+                        "hashes": {"sha256": "b" * 64},
+                    },
+                ]
+            }
+        ).encode()
+
+        class Response(BytesIO):
+            headers = {}
+
+        monkeypatch.setattr(
+            "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
+        )
+
+        candidates = UvAdapter(RecordingRunner()).query(
+            dependency="pydantic",
+            source=SourceIdentity(
+                kind="registry", locator="https://index.example/simple"
+            ),
+            cell=Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor="3.10",
+                extra_surface=(),
+            ),
+        )
+
+        assert [candidate.version for candidate in candidates] == ["1.0"]
+
     @pytest.mark.parametrize(
         "document",
         [
@@ -883,15 +926,6 @@ class TestCandidateQuery:
                         "url": "demo.tar.gz",
                         "hashes": {"sha256": "a" * 64},
                         "yanked": 42,
-                    }
-                ]
-            },
-            {
-                "files": [
-                    {
-                        "filename": "not-an-artifact.txt",
-                        "url": "artifact",
-                        "hashes": {"sha256": "a" * 64},
                     }
                 ]
             },

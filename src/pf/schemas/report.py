@@ -25,6 +25,7 @@ from pf.schemas.evaluation import (
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     TestFailEvaluation,
+    process_facts_match,
 )
 from pf.schemas.project import (
     CandidateSnapshot,
@@ -551,7 +552,8 @@ def _require_failure_matches_evidence(
         raise ValueError("probe evidence must match its FailureRecord")
     evaluation = evidence.evaluation
     if isinstance(evaluation, TestFailEvaluation) and (
-        failure.stage != "test" or failure.process != evaluation.test.process
+        failure.stage != "test"
+        or not process_facts_match(failure.process, evaluation.test.process)
     ):
         raise ValueError("test rejection diagnosis must match its evaluation")
     if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
@@ -561,11 +563,14 @@ def _require_failure_matches_evidence(
             if isinstance(attempt.outcome, RuntimeWitnessResult)
             and attempt.outcome.status == "CONFIRMED_MISSING"
         )
-        if failure.stage != "witness" or failure.process != confirmed.process:
+        if failure.stage != "witness" or not process_facts_match(
+            failure.process,
+            confirmed.process,
+        ):
             raise ValueError("runtime rejection diagnosis must match its witness")
     if isinstance(evaluation, IndeterminateEvaluation) and (
         failure.stage != evaluation.failure.stage
-        or failure.process != evaluation.failure.process
+        or not process_facts_match(failure.process, evaluation.failure.process)
     ):
         raise ValueError("indeterminate diagnosis must match its evaluation")
 

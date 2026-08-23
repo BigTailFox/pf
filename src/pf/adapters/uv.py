@@ -941,7 +941,10 @@ class UvAdapter:
                     targets=(cell.target,),
                 )
             except InvalidWheelFilename:
-                _, version = parse_sdist_filename(filename)
+                try:
+                    _, version = parse_sdist_filename(filename)
+                except InvalidSdistFilename:
+                    continue
                 artifact = AvailableArtifact(
                     filename=filename,
                     kind="sdist",
