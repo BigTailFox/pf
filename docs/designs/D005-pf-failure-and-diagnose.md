@@ -29,7 +29,7 @@ TIMEOUT
 D001/D003 又把这些状态全部定义为非证据，因此 candidate probe 在项目或 harness 安装失败时立即终止整个 cell。这个模型有三个问题：
 
 1. 同一机械失败在 baseline 和 candidate probe 中具有不同搜索含义，却被同一个 status 决定；
-2. candidate 的确定性安装失败无法作为 `FAIL* PASS*` 中的失败点，搜索被不必要地中止；
+2. resolver 已完整证明的 requirement incompatibility 与普通安装失败没有分开，前者应成为 `FAIL* PASS*` 的失败点，后者必须保守停止；
 3. prepare 失败发生在 Proposal 建立之前，落地前的实现会虚构 `prepare:<status>` Proposal ID，也会丢失底层 `ToolFailure`，使报告不能解释失败。
 
 新的模型必须把以下三个问题分开：
@@ -42,7 +42,7 @@ D001/D003 又把这些状态全部定义为非证据，因此 candidate probe �
 
 ## 2. 目标
 
-- candidate probe 的确定性项目/harness 安装失败形成负向兼容性证据，而不是强行停止 cell；
+- candidate probe 中由受支持 resolver profile 认证的 project/harness incompatibility 形成负向兼容性证据；普通安装、artifact 或 build failure 保持 Indeterminate；
 - baseline 没有完整 `PASS` 时不启动坐标搜索；
 - timeout、来源故障、工具崩溃和内部不变量错误绝不伪装成兼容性失败；
 - 每个可报告的 Rejection/Indeterminate 保留完整 scope、stage、脱敏机械事实和可用日志引用；Attempt 已建立时还必须保留 requested resolution/vector；
@@ -196,10 +196,10 @@ Probe Attempt 的 Indeterminate 仍立即终止当前 cell。PF 不跳过 unknow
 
 | 场景 | Cause | Baseline | Probe | 搜索含义 |
 | --- | --- | --- | --- | --- |
-| 精确依赖图无解 | `RESOLUTION_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 不可安装 |
-| wheel/build backend 确定失败 | `BUILD_FAILURE` | Rejected，终止 | Rejected，继续 | 当前 attempt 不可构建 |
-| harness 在目标图约束下无解 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 无法满足测试契约 |
-| harness 安装改变目标依赖图 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前 attempt 无法保持被测图 |
+| 受支持 profile 认证 project request 逻辑无解 | `RESOLUTION_CONFLICT` | Rejected，终止 | Rejected，继续 | 当前完整 project request 不可满足 |
+| 受支持 profile 认证 final environment request 逻辑无解 | `HARNESS_CONFLICT` | Rejected，终止 | Rejected，继续 | 精确 project graph 与 relaxed/original harness contract 不可同时满足 |
+| wheel/sdist/build backend 失败 | `BUILD_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 未取得可运行环境，不证明 request 无解 |
+| final plan 安装失败或安装后 graph 漂移 | `SOURCE_FAILURE` / `BUILD_FAILURE` / `TOOL_FAILURE` / `INTERNAL_INVARIANT` | Indeterminate，终止 | Indeterminate，终止 | plan 后执行失败，不是 resolver proof |
 | D004 增量诊断非空 | 无 cause/disposition | 不适用 | 按 D003/D004 继续 witness/test | 仅 static transition |
 | witness 精确确认 runtime 名称缺失 | `RUNTIME_INTERFACE_MISSING` | 不适用 | Rejected，继续 | runtime 接口不可达 |
 | 测试以配置的失败码退出 | `TEST_FAILURE` | Rejected，终止 | Rejected，继续 | 动态兼容性失败 |
@@ -210,35 +210,35 @@ Probe Attempt 的 Indeterminate 仍立即终止当前 cell。PF 不跳过 unknow
 | 实际受管向量偏离 requested vector | `INTERNAL_INVARIANT` | Indeterminate，终止 | Indeterminate，终止 | PF/adapter 契约被违反 |
 | 同 context 结果冲突 | `NONDETERMINISTIC` | Indeterminate，终止 | Indeterminate，终止 | 不允许选择一个结果 |
 
-矩阵中的 `BUILD_FAILURE` 作为 Rejection 是已确认决策。前提是 adapter 已经获得完整、可归属到当前 attempt 的构建失败；含糊的非零退出仍是 `TOOL_FAILURE`。
+只有 `resolve-project` 的 certified `RESOLUTION_CONFLICT`、`resolve-environment` 的 certified `HARNESS_CONFLICT`、runtime witness confirmed missing 和配置内 test failure 可以成为 Rejection。普通非零退出、stderr substring、candidate unavailable、source、artifact、build、安装与未知诊断均不能从“未完成”推导逻辑无解。
 
-## 9. 项目安装与 harness 安装
+## 9. Resolution 与 final-plan installation
 
-### 9.1 项目安装
+### 9.1 Project 与 environment resolution
 
-项目 editable install、受管精确向量、固定声明和传递解析共同定义 Attempt 的可安装性。确定的 resolution/build failure 拒绝整个 Attempt，而不是归因到当前被移动的 dependency。
+PF 先在当前 request 下取得完整 `ProjectResolutionPlan(P)`，再在 `Exact(G(P))` 和 original/relaxed direct harness contract 下取得完整 `EnvironmentResolutionPlan(P)`。只有 adapter qualification profile 从完整、受支持的 resolver diagnostic 认证的 requirement incompatibility 才形成 `RESOLUTION_CONFLICT` 或 `HARNESS_CONFLICT`，并拒绝整个 Attempt；它不归因到当前被移动的单个 dependency。
 
-Baseline 已通过只能证明相同 scope 的 highest Attempt 可安装；它不把 candidate 的任意异常自动变成 Rejection。分类仍必须满足 §6。
+Baseline 已通过只提供同 cell 原始 direct harness selection 与 ceiling evidence；它不把后续 candidate、source、build 或 install 异常自动变成 Rejection。package/version unavailable、wheel unavailable、`requires-python` mismatch、offline miss、截断或未知 resolver shape 都是 Indeterminate，除非该精确 uv profile 明确认证其无 source/tool 歧义的 UNSAT。
 
-### 9.2 Harness 安装
+### 9.2 Final-plan installation
 
-Harness 是 PF 完整验证契约的一部分，但不是产品运行时依赖图的一部分。安装前后的目标图必须完全一致。
+Harness 是 PF 完整验证契约的一部分，但不是 project coordinate。PF 只安装已验证的 final native environment plan，不存在“先安装 project、再开放安装 harness”的中间态。安装前必须有 `G(P) ⊆exact E(P)`；安装后 inspect 的实际 graph 必须等于 final plan。
 
 以下结果是 `HARNESS_CONFLICT`：
 
-- harness requirements 在冻结目标图约束下无解；
-- harness 安装成功但新增解析改变目标图中的任一既有版本；
-- harness 的要求与 candidate 的精确受管向量冲突。
+- `resolve-environment` 的完整 outcome 证明 `Exact(G(P))`、全部 direct harness declaration 与 baseline ceiling 逻辑不相容；
+- diagnostic、uv version 与 completeness 均匹配该版本 qualification profile。
 
 以下结果不是 `HARNESS_CONFLICT`：
 
-- uv 进程 crash 或输出无法分类；
-- index、网络、凭据或 artifact 下载故障；
-- timeout；
-- graph inspection 本身失败；
-- PF 检测到 requested vector 与实际图不一致。
+- uv 进程 crash、timeout、截断或输出无法分类；
+- package/version/artifact candidate unavailable；
+- index、网络、凭据、metadata、cache miss、artifact 下载/空文件/损坏/hash mismatch；
+- build backend failure；
+- final sync 或 graph inspection 失败；
+- PF 检测到 project/final/actual graph 或 requested vector 不一致。
 
-v1 把确定的 harness 冲突记为 `HARNESS_CONFLICT`，把无法分类的工具或来源故障记为 `TOOL_FAILURE` 或 `SOURCE_FAILURE`。
+这些结果分别保留 `TOOL_FAILURE`、`SOURCE_FAILURE`、`BUILD_FAILURE`、`TIMEOUT` 或 `INTERNAL_INVARIANT`，disposition 为 Indeterminate；安装不得返回 resolution/harness conflict。
 
 ## 10. Probe 与边界 Schema
 
@@ -322,11 +322,14 @@ FailureRecord
   process?          ProcessResult
   summary_code?     adapter 提供的稳定细分类
   detail?           无进程时的结构化说明
+  project_plan_digest?      失败前已取得时保存
+  environment_plan_digest?  失败前已取得时保存；存在时必须同时有 project plan
 ```
 
 要求：
 
 - candidate prepare failure 保留原始 `ToolFailure`/`ProcessResult`，不能只保留 status；
+- resolution/installation/evaluation failure 保存发生前已经取得的 plan identity；project resolution 尚未成功时不得填 project plan，environment resolution 尚未成功时不得填 environment plan；
 - candidate discovery 或未启动 deadline 保留 cell scope，不能虚构 requested vector 或 Attempt ID；
 - `failure_id` 在一份报告内唯一且稳定，用于 boundary 和 `diagnose` 引用；
 - 人类摘要不进入 Schema；Presenter 根据结构化 scope、disposition、cause 和稳定细分类生成；
@@ -589,17 +592,15 @@ candidate query 发生在精确 Probe Attempt 建立前。结果使用 `CellFail
 
 ## 18. 决策记录
 
-### D1：Candidate `BUILD_FAILURE` 形成 Rejection（已确认）
+### D1：只有 certified resolver conflict 可从 prepare 建立 Rejection（已确认）
 
-完整、明确归属到当前 Attempt 的 build backend/wheel 构建失败形成 Rejection。generic exit、不完整日志、signal 和启动失败仍为 Indeterminate。
-
-因此，旧版本只能从源码构建且构建失败时可以建立 FAIL 点；搜索不因该 candidate 提前终止。
+`BUILD_FAILURE`、artifact/source failure 和 plan installation failure 即使明确归属到当前 Attempt，也只证明环境没有建立，不能证明 resolution request 无解。prepare 阶段只有受支持 profile 从完整 outcome 认证的 `resolve-project / RESOLUTION_CONFLICT` 或 `resolve-environment / HARNESS_CONFLICT` 可以形成 Rejection；generic exit、不完整日志、signal、启动失败和未知 shape 均为 Indeterminate。
 
 ### D2：Harness conflict 属于 PF 验证兼容性（已确认）
 
 Harness conflict 属于 PF 的验证兼容性，因为 floor 只有在配置的完整 test contract 下才有意义。文案必须说“该 Proposal 不满足 harness contract”，不能说运行时项目本身必然坏。
 
-Candidate harness conflict 形成 Rejection 并继续搜索；baseline harness conflict 形成 baseline Rejection 并终止，因为没有 PASS 锚点。
+Certified candidate harness resolution conflict 形成 Rejection 并继续搜索；certified baseline harness resolution conflict 形成 baseline Rejection 并终止，因为没有 PASS 锚点。final-plan 安装或 graph verification failure 不借用该 cause。
 
 ### D3：`diagnose` 首版严格离线（已确认）
 

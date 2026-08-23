@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 from urllib.parse import parse_qs, urlsplit
 
 import tomli
@@ -21,6 +22,9 @@ from pf.project_discovery import ProjectDiscovery
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.project import (
     Cell,
+    HarnessGroupProvenance,
+    HarnessRequirement,
+    HarnessSpecifierClause,
     PackagePlan,
     ProjectPlan,
     RequirementDeclaration,
@@ -50,6 +54,13 @@ _MARKER_VARIABLES = frozenset(
 _PROJECTABLE_MARKER_VARIABLES = frozenset(
     {"python_version", "sys_platform", "platform_machine"}
 )
+
+
+@dataclass(frozen=True)
+class _ExpandedGroupRequirement:
+    raw: str
+    group_path: tuple[str, ...]
+    item_path: tuple[int, ...]
 
 
 def host_target() -> str:
@@ -156,6 +167,10 @@ class ProjectLoader:
         config = self._config_loader.load(root=root, package=package_path)
         pyproject_path = (package_path / "pyproject.toml").relative_to(root).as_posix()
         root_document = self._read(root / "pyproject.toml")
+        workspace_paths = self._workspace_paths(
+            root=root,
+            root_document=root_document,
+        )
         registry = self._default_registry(
             root_document=root_document,
             package_document=document,
@@ -165,6 +180,7 @@ class ProjectLoader:
             package_path=package_path,
             root_document=root_document,
             package_document=document,
+            workspace_paths=workspace_paths,
         )
         declarations: list[RequirementDeclaration] = []
         for raw in project.get("dependencies", ()):
@@ -279,17 +295,32 @@ class ProjectLoader:
         package_groups = document.get("dependency-groups", {})
         group_name = config.test_group
         test_group_present = group_name in root_groups or group_name in package_groups
-        test_requirements = tuple(
-            dict.fromkeys(
-                (
-                    *self._expand_group(root_groups, group_name),
-                    *(
-                        ()
-                        if package_path == root
-                        else self._expand_group(package_groups, group_name)
-                    ),
+        expanded_harness = (
+            *(
+                ("root", root / "pyproject.toml", item)
+                for item in self._expand_group(root_groups, group_name)
+            ),
+            *(
+                ()
+                if package_path == root
+                else (
+                    ("package", package_path / "pyproject.toml", item)
+                    for item in self._expand_group(package_groups, group_name)
                 )
+            ),
+        )
+        harness_requirements = tuple(
+            self._harness_requirement(
+                package=package_name,
+                root=root,
+                owner=owner,
+                pyproject_path=group_pyproject,
+                expanded=item,
+                sources=sources,
+                registry=registry,
+                allow_prereleases=config.allow_prereleases,
             )
+            for owner, group_pyproject, item in expanded_harness
         )
         return PackagePlan(
             name=package_name,
@@ -300,13 +331,106 @@ class ProjectLoader:
             source_plan=SourcePlan(
                 identities=tuple(
                     sorted(
-                        {declaration.source for declaration in declarations},
+                        {
+                            *(declaration.source for declaration in declarations),
+                            *(
+                                requirement.source
+                                for requirement in harness_requirements
+                            ),
+                        },
                         key=lambda item: item.model_dump_json(),
                     )
                 )
             ),
-            test_requirements=test_requirements,
+            harness_requirements=harness_requirements,
             test_group_present=test_group_present,
+        )
+
+    @staticmethod
+    def _harness_requirement(
+        *,
+        package: str,
+        root: Path,
+        owner: Literal["root", "package"],
+        pyproject_path: Path,
+        expanded: _ExpandedGroupRequirement,
+        sources: dict[str, SourceIdentity],
+        registry: SourceIdentity,
+        allow_prereleases: bool,
+    ) -> HarnessRequirement:
+        raw = expanded.raw
+        try:
+            requirement = Requirement(raw)
+        except InvalidRequirement as error:
+            raise ConfigurationError(
+                f"invalid harness dependency declaration: {raw}"
+            ) from error
+        name = canonicalize_name(requirement.name)
+        source = sources.get(name, registry)
+        if requirement.url is not None:
+            parsed_url = urlsplit(requirement.url)
+            hashes = parse_qs(parsed_url.fragment).get("sha256", ())
+            if (
+                parsed_url.scheme != "https"
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+                or len(hashes) != 1
+                or re.fullmatch(r"[0-9a-fA-F]{64}", hashes[0]) is None
+            ):
+                raise ConfigurationError(
+                    f"direct URL harness dependency requires an HTTPS sha256 hash: {name}"
+                )
+            source = SourceIdentity(
+                kind="url",
+                locator=ProjectLoader._public_url(requirement.url),
+                content_hash=f"sha256:{hashes[0].lower()}",
+            )
+        specifier = tuple(
+            sorted(
+                (
+                    HarnessSpecifierClause(
+                        operator=cast(
+                            Literal["~=", "==", "!=", "<=", ">=", "<", ">", "==="],
+                            item.operator,
+                        ),
+                        version=item.version,
+                    )
+                    for item in requirement.specifier
+                ),
+                key=lambda item: (item.operator, item.version),
+            )
+        )
+        provenance = HarnessGroupProvenance(
+            owner=owner,
+            pyproject_path=pyproject_path.relative_to(root).as_posix(),
+            group_path=expanded.group_path,
+            item_path=expanded.item_path,
+        )
+        marker = str(requirement.marker) if requirement.marker else None
+        extras = tuple(sorted(requirement.extras))
+        declaration_id = HarnessRequirement.identity_digest(
+            package=package,
+            provenance=provenance,
+            name=name,
+            requested_extras=extras,
+            specifier=specifier,
+            marker=marker,
+            source=source,
+            original_text=raw,
+        )
+        return HarnessRequirement(
+            declaration_id=declaration_id,
+            package=package,
+            provenance=provenance,
+            name=name,
+            requested_extras=extras,
+            specifier=specifier,
+            marker=marker,
+            source=source,
+            prerelease_allowed=(
+                allow_prereleases or requirement.specifier.prereleases is True
+            ),
+            original_text=raw,
         )
 
     @staticmethod
@@ -406,6 +530,7 @@ class ProjectLoader:
         package_path: Path,
         root_document: dict[str, Any],
         package_document: dict[str, Any],
+        workspace_paths: dict[str, str],
     ) -> dict[str, SourceIdentity]:
         root_sources = root_document.get("tool", {}).get("uv", {}).get("sources", {})
         package_sources = (
@@ -447,6 +572,7 @@ class ProjectLoader:
                     root=root,
                     declaration_root=declaration_root,
                     index_urls=index_urls,
+                    workspace_paths=workspace_paths,
                 )
                 previous = result.get(name)
                 if previous is not None and previous != identity:
@@ -511,6 +637,7 @@ class ProjectLoader:
         root: Path,
         declaration_root: Path,
         index_urls: dict[str, str],
+        workspace_paths: dict[str, str],
     ) -> SourceIdentity:
         if isinstance(value, list):
             raise ConfigurationError(
@@ -519,7 +646,12 @@ class ProjectLoader:
         if not isinstance(value, dict):
             raise ConfigurationError(f"invalid uv source for dependency: {name}")
         if value.get("workspace") is True:
-            return SourceIdentity(kind="workspace", locator=name)
+            locator = workspace_paths.get(name)
+            if locator is None:
+                raise ConfigurationError(
+                    f"workspace source does not name a workspace package: {name}"
+                )
+            return SourceIdentity(kind="workspace", locator=locator)
         if "path" in value:
             resolved = (declaration_root / value["path"]).resolve()
             if root not in resolved.parents and resolved != root:
@@ -542,14 +674,17 @@ class ProjectLoader:
             )
         if "url" in value:
             content_hash = value.get("hash")
-            if not isinstance(content_hash, str) or not content_hash:
+            if (
+                not isinstance(content_hash, str)
+                or re.fullmatch(r"sha256:[0-9a-fA-F]{64}", content_hash) is None
+            ):
                 raise ConfigurationError(
                     f"URL source requires integrity information: {name}"
                 )
             return SourceIdentity(
                 kind="url",
                 locator=ProjectLoader._public_url(value["url"]),
-                content_hash=content_hash,
+                content_hash=content_hash.lower(),
             )
         if "index" in value:
             index = str(value["index"])
@@ -558,6 +693,63 @@ class ProjectLoader:
                 raise ConfigurationError(f"unknown uv index for dependency: {name}")
             return SourceIdentity(kind="registry", index=index, locator=locator)
         raise ConfigurationError(f"unsupported uv source for dependency: {name}")
+
+    @staticmethod
+    def _workspace_paths(
+        *,
+        root: Path,
+        root_document: dict[str, Any],
+    ) -> dict[str, str]:
+        candidates = {root}
+        workspace = (
+            root_document.get("tool", {}).get("uv", {}).get("workspace", {})
+        )
+        if not isinstance(workspace, dict):
+            raise ConfigurationError("tool.uv.workspace must be a table")
+        members = workspace.get("members", [])
+        if not isinstance(members, list) or any(
+            not isinstance(pattern, str) for pattern in members
+        ):
+            raise ConfigurationError("workspace members must be an array of strings")
+        excludes = workspace.get("exclude", [])
+        if not isinstance(excludes, list) or any(
+            not isinstance(pattern, str) for pattern in excludes
+        ):
+            raise ConfigurationError("workspace exclude must be an array of strings")
+        excluded: set[Path] = set()
+        for pattern in excludes:
+            for path in root.glob(pattern):
+                resolved = path.resolve()
+                if root not in resolved.parents and resolved != root:
+                    raise ConfigurationError("workspace exclude escapes project root")
+                excluded.add(resolved)
+        for pattern in members:
+            for path in root.glob(pattern):
+                resolved = path.resolve()
+                if root not in resolved.parents and resolved != root:
+                    raise ConfigurationError("workspace member escapes project root")
+                if resolved in excluded:
+                    continue
+                candidates.add(resolved)
+        result: dict[str, str] = {}
+        for candidate in sorted(candidates):
+            pyproject = candidate / "pyproject.toml"
+            if not pyproject.is_file():
+                continue
+            project = ProjectLoader._read(pyproject).get("project")
+            if not isinstance(project, dict) or not isinstance(
+                project.get("name"), str
+            ):
+                continue
+            name = canonicalize_name(project["name"])
+            locator = candidate.relative_to(root).as_posix()
+            previous = result.get(name)
+            if previous is not None and previous != locator:
+                raise ConfigurationError(
+                    f"duplicate canonical workspace package name: {name}"
+                )
+            result[name] = locator
+        return result
 
     @staticmethod
     def _public_url(value: Any) -> str:
@@ -679,21 +871,29 @@ class ProjectLoader:
         groups: dict[str, Any],
         name: str,
         stack: tuple[str, ...] = (),
-    ) -> tuple[str, ...]:
+        item_stack: tuple[int, ...] = (),
+    ) -> tuple[_ExpandedGroupRequirement, ...]:
         if name not in groups:
             return ()
         if name in stack:
             raise ConfigurationError(f"dependency group include cycle: {name}")
-        expanded: list[str] = []
-        for item in groups[name]:
+        expanded: list[_ExpandedGroupRequirement] = []
+        for index, item in enumerate(groups[name]):
             if isinstance(item, str):
-                expanded.append(item)
+                expanded.append(
+                    _ExpandedGroupRequirement(
+                        raw=item,
+                        group_path=(*stack, name),
+                        item_path=(*item_stack, index),
+                    )
+                )
             elif isinstance(item, dict) and set(item) == {"include-group"}:
                 expanded.extend(
                     ProjectLoader._expand_group(
                         groups,
                         item["include-group"],
                         (*stack, name),
+                        (*item_stack, index),
                     )
                 )
             else:

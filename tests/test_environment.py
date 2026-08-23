@@ -4,6 +4,7 @@ import hashlib
 from importlib.metadata import version as distribution_version
 import json
 from pathlib import Path
+from typing import cast, Literal
 
 from packaging.requirements import Requirement
 import pytest
@@ -19,6 +20,18 @@ from pf.environment import (
 from pf.errors import ConfigurationError
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
+from pf.resolution import (
+    InstalledResolution,
+    InstallFailure,
+    InstallOutcome,
+    NativeResolutionPlan,
+    ResolutionContext,
+    ResolutionOutcome,
+    ResolutionPackage,
+    ResolutionPlan,
+    ResolutionRunContext,
+    ResolutionUnsat,
+)
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     CellStageEvent,
@@ -35,9 +48,13 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     AvailableArtifact,
+    HarnessBaseline,
+    HarnessSelection,
+    HarnessResolutionRequirement,
     InterpreterIdentity,
     ResolvedNode,
     SelectedCandidate,
+    SourceIdentity,
     VersionPin,
 )
 from pf.snapshot import SnapshotBuilder
@@ -53,7 +70,15 @@ def successful_process() -> ProcessResult:
     )
 
 
-def exact_selection(*pins: VersionPin) -> ExactSelection:
+def empty_harness_baseline(cell) -> HarnessBaseline:
+    return HarnessBaseline.from_evidence(
+        cell=cell,
+        declaration_ids=(),
+        selections=(),
+    )
+
+
+def exact_selection(cell, *pins: VersionPin) -> ExactSelection:
     return ExactSelection(
         tuple(
             SelectedCandidate(
@@ -70,16 +95,116 @@ def exact_selection(*pins: VersionPin) -> ExactSelection:
                 ),
             )
             for pin in pins
-        )
+        ),
+        harness_baseline=empty_harness_baseline(cell),
     )
 
 
 class SuccessfulUv:
+    def resolution_run_context(self, **kwargs: object) -> ResolutionRunContext:
+        return ResolutionRunContext(
+            uv_version="0.12.5",
+            release_cutoff="2026-08-23T00:00:00+00:00",
+        )
+
+    def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+        resolution = kwargs["resolution"]
+        assert isinstance(
+            resolution, (HighestResolution, LowestDirectResolution, ExactSelection)
+        )
+        packages = (
+            tuple(
+                ResolutionPackage(
+                    name=item.dependency,
+                    version=item.version,
+                    source=SourceIdentity(kind="registry"),
+                )
+                for item in resolution.selection
+            )
+            if isinstance(resolution, ExactSelection)
+            else (
+                ResolutionPackage(
+                    name="idna",
+                    version="3.10",
+                    source=SourceIdentity(kind="registry"),
+                ),
+            )
+        )
+        return self._plan("project", packages=packages, kwargs=kwargs)
+
+    def resolve_environment(self, **kwargs: object) -> ResolutionOutcome:
+        project = kwargs["project_plan"]
+        assert isinstance(project, ResolutionPlan)
+        harness = cast(
+            tuple[HarnessResolutionRequirement, ...], kwargs["harness"]
+        )
+        packages = list(project.packages)
+        selections: list[HarnessSelection] = []
+        for requirement in harness:
+            name = requirement.declaration.name
+            if name in {item.name for item in packages}:
+                package = next(item for item in packages if item.name == name)
+            else:
+                package = ResolutionPackage(
+                    name=name,
+                    version=requirement.ceiling or "8.4",
+                    source=requirement.declaration.source,
+                )
+                packages.append(package)
+            assert package.version is not None
+            if name not in {item.name for item in selections}:
+                selections.append(
+                    HarnessSelection(
+                        name=name,
+                        version=package.version,
+                        source=package.source,
+                        ceiling_bound=requirement.ceiling is not None
+                        or requirement.declaration.source.kind == "registry",
+                    )
+                )
+        return self._plan(
+            "environment",
+            packages=tuple(sorted(packages, key=lambda item: item.name)),
+            direct_harness=tuple(sorted(selections, key=lambda item: item.name)),
+            kwargs=kwargs,
+        )
+
+    @staticmethod
+    def _plan(
+        kind: Literal["project", "environment"],
+        *,
+        packages: tuple[ResolutionPackage, ...],
+        kwargs: dict[str, object],
+        direct_harness: tuple[HarnessSelection, ...] = (),
+    ) -> ResolutionPlan:
+        context = kwargs["context"]
+        request_digest = kwargs["request_digest"]
+        assert isinstance(context, ResolutionContext)
+        assert isinstance(request_digest, str)
+        native = NativeResolutionPlan.from_content(
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = []\n'
+        )
+        return ResolutionPlan.from_evidence(
+            kind=kind,
+            request_digest=request_digest,
+            context=context,
+            packages=packages,
+            direct_harness=direct_harness,
+            native=native,
+            process=successful_process(),
+        )
+
     def create_environment(self, **kwargs: object) -> ToolOutcome:
         return ToolSuccess(stage="create-environment", process=successful_process())
 
-    def install_editable(self, **kwargs: object) -> ToolOutcome:
-        return ToolSuccess(stage="install", process=successful_process())
+    def install_resolution(self, **kwargs: object) -> InstallOutcome:
+        plan = kwargs["plan"]
+        assert isinstance(plan, ResolutionPlan)
+        self._installed_plan = plan
+        return InstalledResolution(
+            plan_digest=plan.digest,
+            process=successful_process(),
+        )
 
     def inspect_interpreter(self, **kwargs: object) -> InterpreterOutcome:
         return InterpreterSuccess(
@@ -92,16 +217,35 @@ class SuccessfulUv:
         )
 
     def inspect_environment(self, **kwargs: object) -> GraphOutcome:
+        plan = getattr(self, "_installed_plan", None)
+        packages = (
+            plan.packages
+            if isinstance(plan, ResolutionPlan)
+            else (
+                ResolutionPackage(
+                    name="idna",
+                    version="3.10",
+                    source=SourceIdentity(kind="registry"),
+                ),
+            )
+        )
         return GraphSuccess(
             process=successful_process(),
-            nodes=(
-                ResolvedNode(name="demo", version="0.1.0"),
-                ResolvedNode(name="idna", version="3.10"),
+            nodes=tuple(
+                sorted(
+                    (
+                        ResolvedNode(name="demo", version="0.1.0"),
+                        *(
+                            ResolvedNode(name=item.name, version=item.version)
+                            for item in packages
+                            if item.version is not None
+                        ),
+                    ),
+                    key=lambda item: item.name,
+                )
             ),
         )
 
-    def install_requirements(self, **kwargs: object) -> ToolOutcome:
-        return ToolSuccess(stage="install-harness", process=successful_process())
 
 
 def _write_demo(root: Path, *, harness: bool = False) -> Path:
@@ -197,6 +341,12 @@ class TestEnvironmentFactory:
             version="3.10.18",
             abi="cpython-310-x86_64-linux-gnu",
         )
+        assert prepared.attempt.identity.identity_version == "attempt-v2"
+        assert prepared.attempt.identity.resolution_context_digest
+        assert prepared.attempt.identity.harness_policy_identity == (
+            "original-harness-v1"
+        )
+        assert prepared.proposal.proposal_id == prepared.environment_identity.digest
         policy_document = {
             "config": package.config.model_dump(mode="json", exclude={"jobs"}),
             "tool_versions": {"ty": distribution_version("ty")},
@@ -233,6 +383,52 @@ class TestEnvironmentFactory:
             .startswith("[project]")
         )
 
+    def test_environment_factory_resolves_identical_inputs_only_once(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class CountingUv(SuccessfulUv):
+            def __init__(self) -> None:
+                self.project_resolutions = 0
+                self.environment_resolutions = 0
+
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+                self.project_resolutions += 1
+                return super().resolve_project(**kwargs)
+
+            def resolve_environment(self, **kwargs: object) -> ResolutionOutcome:
+                self.environment_resolutions += 1
+                return super().resolve_environment(**kwargs)
+
+        root = _write_demo(tmp_path, harness=True)
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        uv = CountingUv()
+        factory = EnvironmentFactory(uv)
+
+        first = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution=HighestResolution(),
+        )
+        assert isinstance(first, PreparedEnvironment)
+        first.close()
+        second = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution=HighestResolution(),
+        )
+
+        assert isinstance(second, PreparedEnvironment)
+        assert uv.project_resolutions == 1
+        assert uv.environment_resolutions == 1
+        assert first.project_plan is second.project_plan
+        assert first.environment_plan is second.environment_plan
+        second.close()
+        snapshot.close()
+
     def test_environment_materializes_requested_vector_in_replica_metadata(
         self,
         tmp_path: Path,
@@ -241,12 +437,12 @@ class TestEnvironmentFactory:
             def __init__(self) -> None:
                 self.requirement: Requirement | None = None
 
-            def install_editable(self, **kwargs: object) -> ToolOutcome:
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
                 package = kwargs["package"]
                 assert isinstance(package, Path)
                 replica = ProjectLoader().load(root=package, package_selection=None)
                 self.requirement = Requirement(replica.packages[0].declarations[0].raw)
-                return super().install_editable(**kwargs)
+                return super().resolve_project(**kwargs)
 
             def inspect_environment(self, **kwargs: object) -> GraphSuccess:
                 return GraphSuccess(
@@ -282,7 +478,9 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution=exact_selection(VersionPin(name="idna", version="3.1")),
+            resolution=exact_selection(
+                package.cells[0], VersionPin(name="idna", version="3.1")
+            ),
         )
 
         assert isinstance(prepared, PreparedEnvironment)
@@ -313,11 +511,11 @@ class TestEnvironmentFactory:
             def __init__(self) -> None:
                 self.installed_selection: tuple[SelectedCandidate, ...] | None = None
 
-            def install_editable(self, **kwargs: object) -> ToolOutcome:
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
                 resolution = kwargs["resolution"]
                 assert isinstance(resolution, ExactSelection)
                 self.installed_selection = resolution.selection
-                return super().install_editable(**kwargs)
+                return super().resolve_project(**kwargs)
 
             def inspect_environment(self, **kwargs: object) -> GraphOutcome:
                 return GraphSuccess(
@@ -353,7 +551,10 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution=ExactSelection(selection),
+            resolution=ExactSelection(
+                selection,
+                harness_baseline=empty_harness_baseline(package.cells[0]),
+            ),
         )
 
         assert isinstance(prepared, PreparedEnvironment)
@@ -392,7 +593,7 @@ class TestEnvironmentFactory:
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                resolution=exact_selection(*pins),
+                resolution=exact_selection(package.cells[0], *pins),
             )
         snapshot.close()
 
@@ -446,7 +647,8 @@ class TestEnvironmentFactory:
                         locator="https://files.example/idna-3.1.tar.gz",
                     ),
                 ),
-                )
+                ),
+                harness_baseline=empty_harness_baseline(package.cells[0]),
             ),
         )
 
@@ -455,7 +657,7 @@ class TestEnvironmentFactory:
             VersionPin(name="idna", version="3.1"),
         )
         assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "proposal-vector"
+        assert result.failure.stage == "inspect-environment-plan"
         snapshot.close()
 
     def test_environment_prepare_failure_retains_attempt_without_a_proposal(
@@ -463,17 +665,20 @@ class TestEnvironmentFactory:
         tmp_path: Path,
     ) -> None:
         class ResolutionConflictUv(SuccessfulUv):
-            def install_editable(self, **kwargs: object) -> ToolFailure:
-                return ToolFailure(
-                    cause="RESOLUTION_CONFLICT",
-                    stage="install-project",
-                    process=ProcessResult(
-                        exit_code=1,
-                        signal=None,
-                        duration_seconds=0.1,
-                        stdout="",
-                        stderr="No solution found",
-                    ),
+            def resolve_project(self, **kwargs: object) -> ResolutionUnsat:
+                context = kwargs["context"]
+                request_digest = kwargs["request_digest"]
+                assert isinstance(context, ResolutionContext)
+                assert isinstance(request_digest, str)
+                return ResolutionUnsat(
+                    stage="resolve-project",
+                    request_digest=request_digest,
+                    context=context,
+                    proof_code="direct-version-contradiction",
+                    diagnostic_digest="diagnostic",
+                    process=_failed_tool(
+                        "RESOLUTION_CONFLICT", "resolve-project"
+                    ).process,
                 )
 
         root = tmp_path / "project"
@@ -501,13 +706,15 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution=exact_selection(*requested),
+            resolution=exact_selection(package.cells[0], *requested),
         )
 
         assert isinstance(result, PrepareFailure)
         assert result.attempt.identity.requested_resolution == "exact-vector"
         assert result.attempt.identity.requested_managed_vector == requested
         assert result.failure.cause == "RESOLUTION_CONFLICT"
+        assert result.project_plan_digest is None
+        assert result.environment_plan_digest is None
         assert not hasattr(result, "proposal")
 
     def test_environment_only_materializes_declarations_active_for_cell(
@@ -520,7 +727,7 @@ class TestEnvironmentFactory:
                 self.optional: tuple[str, ...] = ()
                 self.sibling: str = ""
 
-            def install_editable(self, **kwargs: object) -> ToolOutcome:
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
                 package = kwargs["package"]
                 assert isinstance(package, Path)
                 with (package / "pyproject.toml").open("rb") as stream:
@@ -532,14 +739,14 @@ class TestEnvironmentFactory:
                 self.sibling = (
                     package.parent / "sibling" / "pyproject.toml"
                 ).read_text(encoding="utf-8")
-                return super().install_editable(**kwargs)
+                return super().resolve_project(**kwargs)
 
             def inspect_environment(self, **kwargs: object) -> GraphSuccess:
                 return GraphSuccess(
                     process=successful_process(),
                     nodes=(
-                        ResolvedNode(name="demo", version="0.1.0"),
                         ResolvedNode(name="certifi", version="2024.2"),
+                        ResolvedNode(name="demo", version="0.1.0"),
                         ResolvedNode(name="idna", version="2.1"),
                     ),
                 )
@@ -601,6 +808,7 @@ class TestEnvironmentFactory:
             cell=cell,
             snapshot=snapshot,
             resolution=exact_selection(
+                cell,
                 VersionPin(name="certifi", version="2024.2"),
                 VersionPin(name="idna", version="2.1"),
             ),
@@ -624,23 +832,25 @@ class TestEnvironmentFactory:
         prepared.close()
         snapshot.close()
 
-    def test_environment_rejects_test_harness_that_changes_target_graph(
+    def test_environment_maps_certified_harness_unsat_before_installation(
         self,
         tmp_path: Path,
     ) -> None:
-        class ChangingGraphUv(SuccessfulUv):
-            def __init__(self) -> None:
-                self.inspections = 0
-
-            def inspect_environment(self, **kwargs: object) -> GraphSuccess:
-                self.inspections += 1
-                version = "3.10" if self.inspections == 1 else "3.11"
-                return GraphSuccess(
-                    process=successful_process(),
-                    nodes=(
-                        ResolvedNode(name="demo", version="0.1.0"),
-                        ResolvedNode(name="idna", version=version),
-                    ),
+        class HarnessConflictUv(SuccessfulUv):
+            def resolve_environment(self, **kwargs: object) -> ResolutionUnsat:
+                context = kwargs["context"]
+                request_digest = kwargs["request_digest"]
+                assert isinstance(context, ResolutionContext)
+                assert isinstance(request_digest, str)
+                return ResolutionUnsat(
+                    stage="resolve-environment",
+                    request_digest=request_digest,
+                    context=context,
+                    proof_code="transitive-version-contradiction",
+                    diagnostic_digest="diagnostic",
+                    process=_failed_tool(
+                        "HARNESS_CONFLICT", "resolve-environment"
+                    ).process,
                 )
 
         root = tmp_path / "project"
@@ -666,7 +876,7 @@ class TestEnvironmentFactory:
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
         snapshot = SnapshotBuilder.without_processes().build(root)
 
-        result = EnvironmentFactory(ChangingGraphUv()).prepare(
+        result = EnvironmentFactory(HarnessConflictUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
@@ -675,7 +885,76 @@ class TestEnvironmentFactory:
 
         assert isinstance(result, PrepareFailure)
         assert result.failure.cause == "HARNESS_CONFLICT"
-        assert result.failure.stage == "install-harness"
+        assert result.failure.stage == "resolve-environment"
+
+    def test_environment_allows_harness_only_transitive_graph_to_change(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class ChangingHarnessGraphUv(SuccessfulUv):
+            def resolve_environment(self, **kwargs: object) -> ResolutionOutcome:
+                outcome = super().resolve_environment(**kwargs)
+                assert isinstance(outcome, ResolutionPlan)
+                resolution = kwargs["resolution"]
+                transitive = (
+                    ResolutionPackage(
+                        name="pluggy",
+                        version="1.6.0",
+                        source=SourceIdentity(kind="registry"),
+                    )
+                    if isinstance(resolution, HighestResolution)
+                    else ResolutionPackage(
+                        name="iniconfig",
+                        version="2.1.0",
+                        source=SourceIdentity(kind="registry"),
+                    )
+                )
+                return self._plan(
+                    "environment",
+                    packages=tuple(
+                        sorted((*outcome.packages, transitive), key=lambda item: item.name)
+                    ),
+                    direct_harness=outcome.direct_harness,
+                    kwargs=kwargs,
+                )
+
+        root = _write_demo(tmp_path, harness=True)
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        factory = EnvironmentFactory(ChangingHarnessGraphUv())
+
+        original = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution=HighestResolution(),
+        )
+        assert isinstance(original, PreparedEnvironment)
+        relaxed = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution=LowestDirectResolution(original.harness_baseline),
+        )
+
+        assert isinstance(relaxed, PreparedEnvironment)
+        assert original.project_plan.packages == relaxed.project_plan.packages
+        assert {item.name for item in original.environment_plan.packages} == {
+            "idna",
+            "pluggy",
+            "pytest",
+        }
+        assert {item.name for item in relaxed.environment_plan.packages} == {
+            "idna",
+            "iniconfig",
+            "pytest",
+        }
+        assert original.proposal.managed_vector == relaxed.proposal.managed_vector
+        assert original.environment_identity != relaxed.environment_identity
+        assert original.proposal.proposal_id != relaxed.proposal.proposal_id
+        original.close()
+        relaxed.close()
+        snapshot.close()
 
     def test_environment_reports_prepare_stages(self, tmp_path: Path) -> None:
         class Events:
@@ -718,9 +997,10 @@ class TestEnvironmentFactory:
 
         assert isinstance(prepared, PreparedEnvironment)
         assert events.phases == [
+            "resolving project",
+            "resolving environment",
             "preparing environment",
-            "installing dependencies",
-            "installing harness",
+            "installing environment plan",
         ]
         prepared.close()
         snapshot.close()
@@ -766,7 +1046,9 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution=LowestDirectResolution(),
+            resolution=LowestDirectResolution(
+                empty_harness_baseline(package.cells[0])
+            ),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -779,7 +1061,7 @@ class TestEnvironmentFactory:
         ("method", "cause", "stage"),
         (
             ("inspect_interpreter", "ENVIRONMENT_FAILURE", "inspect-interpreter"),
-            ("install_editable", "BUILD_FAILURE", "install-project"),
+            ("install_resolution", "BUILD_FAILURE", "install-environment"),
             ("inspect_environment", "TOOL_FAILURE", "inspect"),
         ),
     )
@@ -792,7 +1074,19 @@ class TestEnvironmentFactory:
     ) -> None:
         class StageFails(SuccessfulUv):
             def __init__(self) -> None:
-                setattr(self, method, lambda **kwargs: _failed_tool(cause, stage))
+                if method != "install_resolution":
+                    setattr(self, method, lambda **kwargs: _failed_tool(cause, stage))
+
+            def install_resolution(self, **kwargs: object) -> InstallOutcome:
+                if method != "install_resolution":
+                    return super().install_resolution(**kwargs)
+                plan = kwargs["plan"]
+                assert isinstance(plan, ResolutionPlan)
+                return InstallFailure(
+                    plan_digest=plan.digest,
+                    cause=cause,
+                    process=_failed_tool(cause, stage).process,
+                )
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
@@ -809,6 +1103,8 @@ class TestEnvironmentFactory:
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure.cause == cause
         assert result.failure.stage == stage
+        assert result.project_plan_digest
+        assert result.environment_plan_digest
         snapshot.close()
 
     def test_environment_rejects_an_interpreter_that_does_not_match_the_cell(
@@ -866,16 +1162,60 @@ class TestEnvironmentFactory:
 
         assert isinstance(result, PrepareFailure)
         assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect"
+        assert result.failure.stage == "inspect-environment-plan"
         snapshot.close()
 
-    def test_environment_prepare_keeps_attempt_when_harness_install_fails(
+    def test_environment_rejects_a_graph_with_packages_outside_the_final_plan(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class ExtraPackage(SuccessfulUv):
+            def inspect_environment(self, **kwargs: object) -> GraphSuccess:
+                return GraphSuccess(
+                    process=successful_process(),
+                    nodes=(
+                        ResolvedNode(name="demo", version="0.1.0"),
+                        ResolvedNode(name="idna", version="3.10"),
+                        ResolvedNode(name="pluggy", version="1.6.0"),
+                    ),
+                )
+
+        root = _write_demo(tmp_path)
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(root)
+
+        result = EnvironmentFactory(ExtraPackage()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution=HighestResolution(),
+        )
+
+        assert isinstance(result, PrepareFailure)
+        assert result.failure.cause == "INTERNAL_INVARIANT"
+        assert result.failure.stage == "inspect-environment-plan"
+        snapshot.close()
+
+    def test_environment_prepare_keeps_attempt_when_harness_resolution_fails(
         self,
         tmp_path: Path,
     ) -> None:
         class HarnessFails(SuccessfulUv):
-            def install_requirements(self, **kwargs: object) -> ToolFailure:
-                return _failed_tool("HARNESS_CONFLICT", "install-harness")
+            def resolve_environment(self, **kwargs: object) -> ResolutionUnsat:
+                context = kwargs["context"]
+                request_digest = kwargs["request_digest"]
+                assert isinstance(context, ResolutionContext)
+                assert isinstance(request_digest, str)
+                return ResolutionUnsat(
+                    stage="resolve-environment",
+                    request_digest=request_digest,
+                    context=context,
+                    proof_code="direct-version-contradiction",
+                    diagnostic_digest="diagnostic",
+                    process=_failed_tool(
+                        "HARNESS_CONFLICT", "resolve-environment"
+                    ).process,
+                )
 
         root = _write_demo(tmp_path, harness=True)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
@@ -890,22 +1230,18 @@ class TestEnvironmentFactory:
 
         assert isinstance(result, PrepareFailure)
         assert result.failure.cause == "HARNESS_CONFLICT"
-        assert result.failure.stage == "install-harness"
+        assert result.failure.stage == "resolve-environment"
+        assert result.project_plan_digest
+        assert result.environment_plan_digest is None
         snapshot.close()
 
-    def test_environment_prepare_keeps_attempt_when_harness_graph_inspection_fails(
+    def test_environment_prepare_keeps_attempt_when_final_graph_inspection_fails(
         self,
         tmp_path: Path,
     ) -> None:
         class HarnessInspectFails(SuccessfulUv):
-            def __init__(self) -> None:
-                self.inspections = 0
-
             def inspect_environment(self, **kwargs: object) -> GraphOutcome:
-                self.inspections += 1
-                if self.inspections == 2:
-                    return _failed_tool("TOOL_FAILURE", "inspect")
-                return super().inspect_environment(**kwargs)
+                return _failed_tool("TOOL_FAILURE", "inspect")
 
         root = _write_demo(tmp_path, harness=True)
         package = ProjectLoader().load(root=root, package_selection=None).packages[0]
@@ -936,6 +1272,9 @@ class TestEnvironmentFactory:
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                resolution=ExactSelection(()),
+                resolution=ExactSelection(
+                    (),
+                    harness_baseline=empty_harness_baseline(package.cells[0]),
+                ),
             )
         snapshot.close()

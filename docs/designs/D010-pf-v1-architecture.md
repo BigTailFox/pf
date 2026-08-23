@@ -102,11 +102,13 @@ class HighestResolution:
 
 @dataclass(frozen=True)
 class LowestDirectResolution:
+    harness_baseline: HarnessBaseline
     kind: Literal["lowest-direct"] = "lowest-direct"
 
 @dataclass(frozen=True)
 class ExactSelection:
     selection: tuple[SelectedCandidate, ...]
+    harness_baseline: HarnessBaseline
     kind: Literal["exact-selection"] = "exact-selection"
 
 ResolutionRequest = HighestResolution | LowestDirectResolution | ExactSelection
@@ -124,7 +126,7 @@ prepare(
 ) -> PreparedEnvironment | PrepareFailure
 ```
 
-不得保留 `managed_vector`、可空 `selection` 或 string resolution 兼容参数。三个调用意图必须在类型层面互斥；新增调用方不能表达 `highest + selection`、`lowest-direct + vector` 或 `vector + selection`。
+不得保留 `managed_vector`、可空 `selection` 或 string resolution 兼容参数。三个调用意图必须在类型层面互斥；`HighestResolution` 固定使用原始 harness，两个 relaxed 变体必须携带同 cell `HarnessBaseline`，因此调用方不能表达 `highest + relaxed`、`exact/lowest + original harness` 或缺 baseline 的 relaxed Attempt。
 
 ### 5.2 唯一投影
 
@@ -133,12 +135,12 @@ EnvironmentFactory 在一次私有解析中从同一个 request 导出：
 | Request | Attempt `requested_resolution` | requested managed vector | uv resolver mode | selected artifacts |
 | --- | --- | --- | --- | --- |
 | `HighestResolution` | `highest` | `None` | `highest` | 无 |
-| `LowestDirectResolution` | `lowest-direct` | `None` | `lowest-direct` | 无 |
-| `ExactSelection` | `exact-vector` | 由 selection 投影 | `highest` | request 中冻结 selection |
+| `LowestDirectResolution` | `lowest-direct` | `None` | `lowest-direct` | 无；携带 baseline harness ceiling |
+| `ExactSelection` | `exact-vector` | 由 selection 投影 | `highest` | request 中冻结 selection；携带 baseline harness ceiling |
 
 `ExactSelection.selection` 的 dependency 必须排序且唯一；managed vector 只在 EnvironmentFactory implementation 内投影。项目声明 materialization、Attempt identity、安装后的 graph 校验和 Proposal managed vector 都消费该投影。
 
-`UvOperations.install_editable` 接收同一个 `ResolutionRequest`，不得再接 `Literal resolution + selection | None`。UvAdapter 只负责把变体机械翻译为 argv；它不重新推断 Attempt 语义。exact selection 继续强制 locator/hash/kind 并在安装后由 EnvironmentFactory 核对实际 managed graph。
+EnvironmentFactory 从同一 request 建立 request-level `AttemptIdentity`，再依次取得 project plan 与 `Exact(G(P)) + original/relaxed harness` 的 environment plan。`UvOperations.install_resolution` 只接收经校验的 final plan，不再开放依赖解析；UvAdapter 只负责把 request/plan 机械翻译为 argv，不重新推断 Attempt 语义。exact selection 继续强制 locator/hash/kind，EnvironmentFactory 在安装前后核对 project graph、final graph 与实际 managed vector；post-resolution evidence 只进入 `EnvironmentIdentity`。
 
 ## 6. VerificationRunner、Scheduler 与 activity event
 
@@ -324,7 +326,7 @@ CLI 单命令测试使用共享 fixture：为目标 workflow 提供 recording ad
 | --- | --- |
 | `cell_identity` / `cell_schedule_key` | equality 与 order 独立；order 不委托 identity |
 | `EnvironmentFactory.prepare` | 三变体、Attempt identity、uv request、Proposal vector、非法 selection |
-| `UvAdapter.install_editable` | 三变体 argv；exact locator/hash/kind；无可空 selection 组合 |
+| `UvAdapter.resolve_project/resolve_environment/install_resolution` | 三变体 request；exact locator/hash/kind；relaxed baseline；两份 validated plan；一次 final-plan sync |
 | `VerificationRunner.run` | task/run identity、deadline outcome、Journal-before-completion、最终排序 |
 | ActivityEvent Schema | stage/completed discriminator、额外字段 forbid、无 package 重复 identity |
 | Scheduler internal interface | Barrier/Event 并发上限、fake clock deadline、actual started callback |

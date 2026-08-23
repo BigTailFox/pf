@@ -179,12 +179,14 @@ class CompatibilityChecker:
                 role="declaration-capture",
                 evaluation=capture,
                 static_baseline=None,
+                project_plan_digest=highest.project_plan.semantic_digest,
+                environment_plan_digest=highest.environment_plan.semantic_digest,
             )
         prepared = self._environments.prepare(
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution=LowestDirectResolution(),
+            resolution=LowestDirectResolution(highest.harness_baseline),
         )
         if isinstance(prepared, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -203,6 +205,8 @@ class CompatibilityChecker:
             role="declaration",
             evaluation=evaluation,
             static_baseline=capture.baseline,
+            project_plan_digest=prepared.project_plan.semantic_digest,
+            environment_plan_digest=prepared.environment_plan.semantic_digest,
         )
 
     def _prepare_outcome(
@@ -217,6 +221,8 @@ class CompatibilityChecker:
             stage=prepared.failure.stage,
             process=prepared.failure.process,
             summary_code=prepared.failure.summary_code,
+            project_plan_digest=prepared.project_plan_digest,
+            environment_plan_digest=prepared.environment_plan_digest,
         )
         return CheckCellOutcome(
             status=failure.disposition,
@@ -232,6 +238,8 @@ class CompatibilityChecker:
         role: Literal["declaration-capture", "declaration"],
         evaluation: Evaluation,
         static_baseline: StaticBaseline | None,
+        project_plan_digest: str,
+        environment_plan_digest: str,
     ) -> CheckCellOutcome:
         if isinstance(evaluation, PassEvaluation):
             return CheckCellOutcome(
@@ -244,6 +252,8 @@ class CompatibilityChecker:
         failure = self._failures.classify_evaluation(
             AttemptFailureScope(attempt=attempt),
             evaluation,
+            project_plan_digest=project_plan_digest,
+            environment_plan_digest=environment_plan_digest,
         )
         assert failure is not None
         return CheckCellOutcome(

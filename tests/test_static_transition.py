@@ -5,6 +5,8 @@ import tempfile
 
 import pytest
 
+from conftest import prepared_resolution_evidence
+
 from pf.environment import PreparedEnvironment
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import Attempt, AttemptIdentity, TyDiagnostic
@@ -67,6 +69,7 @@ test-command = ["pytest"]
         package_root=proposal_root,
         environment_root=Path(temporary.name) / "environment",
         interpreter=Path(temporary.name) / "environment" / "bin" / "python",
+        **prepared_resolution_evidence(cell=cell),
         temporary_directory=temporary,
     )
     return prepared, package

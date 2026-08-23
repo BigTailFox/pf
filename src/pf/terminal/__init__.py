@@ -77,21 +77,28 @@ _ICON_WIDTH = 2
 _SUMMARY_WIDTH = 240
 
 _USER_STAGES = {
+    "resolve-project": "project resolution",
+    "resolve-environment": "environment resolution",
     "create-environment": "install",
     "inspect-interpreter": "install",
     "install": "install",
     "inspect": "install",
     "install-harness": "harness",
+    "install-environment": "install",
     "ty": "static",
     "test": "dynamic",
 }
 _FAILED_AT = {
+    "resolve-project": "resolving project dependencies",
+    "resolve-environment": "resolving the test environment",
     "create-environment": "installing dependencies",
     "inspect-interpreter": "installing dependencies",
     "install": "installing dependencies",
     "install-project": "installing dependencies",
     "inspect": "installing dependencies",
     "install-harness": "installing harness",
+    "install-environment": "installing the environment plan",
+    "inspect-environment-plan": "verifying the environment plan",
     "ty": "static checking",
     "test": "testing",
 }

@@ -30,6 +30,8 @@ class FailurePolicy:
         process: ProcessResult | None,
         summary_code: str | None = None,
         detail: FailureDetail | None = None,
+        project_plan_digest: str | None = None,
+        environment_plan_digest: str | None = None,
     ) -> FailureRecord:
         requested_resolution = (
             scope.attempt.identity.requested_resolution
@@ -55,12 +57,17 @@ class FailurePolicy:
             process=process,
             summary_code=summary_code,
             detail=detail,
+            project_plan_digest=project_plan_digest,
+            environment_plan_digest=environment_plan_digest,
         )
 
     def classify_evaluation(
         self,
         scope: FailureScope,
         evaluation: Evaluation,
+        *,
+        project_plan_digest: str | None = None,
+        environment_plan_digest: str | None = None,
     ) -> FailureRecord | None:
         if isinstance(evaluation, PassEvaluation):
             return None
@@ -76,6 +83,8 @@ class FailurePolicy:
                 cause="RUNTIME_INTERFACE_MISSING",
                 stage="witness",
                 process=confirmed.process,
+                project_plan_digest=project_plan_digest,
+                environment_plan_digest=environment_plan_digest,
             )
         if isinstance(evaluation, TestFailEvaluation):
             return self.classify(
@@ -83,6 +92,8 @@ class FailurePolicy:
                 cause="TEST_FAILURE",
                 stage="test",
                 process=evaluation.test.process,
+                project_plan_digest=project_plan_digest,
+                environment_plan_digest=environment_plan_digest,
             )
         return self.classify(
             scope=scope,
@@ -90,4 +101,6 @@ class FailurePolicy:
             stage=evaluation.failure.stage,
             process=evaluation.failure.process,
             summary_code=evaluation.failure.summary_code,
+            project_plan_digest=project_plan_digest,
+            environment_plan_digest=environment_plan_digest,
         )

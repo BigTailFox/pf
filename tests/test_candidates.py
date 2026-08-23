@@ -68,6 +68,71 @@ test-command = ["pytest"]
 
 
 class TestCandidateBuilder:
+    def test_candidate_builder_queries_only_active_managed_project_dependencies(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class RecordingIndex:
+            def __init__(self) -> None:
+                self.queries: list[str] = []
+
+            def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
+                dependency = kwargs["dependency"]
+                assert isinstance(dependency, str)
+                self.queries.append(dependency)
+                return (
+                    AvailableCandidate(
+                        version="3.10",
+                        artifacts=(
+                            AvailableArtifact(
+                                filename="idna-3.10-py3-none-any.whl",
+                                kind="wheel",
+                                content_hash="sha256:idna",
+                                python_minors=("3.10",),
+                                targets=("x86_64-unknown-linux-gnu",),
+                            ),
+                        ),
+                    ),
+                )
+
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna"]
+
+[dependency-groups]
+test = ["pytest"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        index = RecordingIndex()
+
+        builder = CandidateBuilder(index)
+        snapshots = builder.build(
+            package=package,
+            cell=package.cells[0],
+            baseline=(VersionPin(name="idna", version="3.10"),),
+        )
+
+        assert index.queries == ["idna"]
+        assert [snapshot.dependency for snapshot in snapshots] == ["idna"]
+
+        builder.build(
+            package=package,
+            cell=package.cells[0],
+            baseline=(VersionPin(name="idna", version="3.10"),),
+        )
+        assert index.queries == ["idna"]
+
     def test_candidate_builder_freezes_filtered_minor_representatives(
         self, tmp_path: Path
     ) -> None:

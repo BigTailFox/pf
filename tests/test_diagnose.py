@@ -800,6 +800,8 @@ class TestDiagnoseWorkflow:
             root=tmp_path,
         ).render_diagnose(diagnoses)
         rendered = stdout.getvalue()
-        assert "could not capture a static baseline" in rendered
+        assert (
+            "could not determine whether a static baseline can be captured" in rendered
+        )
         assert "declared lower bounds" in rendered
         assert "did not start the floor search" not in rendered

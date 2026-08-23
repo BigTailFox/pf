@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from typing import Protocol
 
 from packaging.requirements import Requirement
@@ -19,6 +20,7 @@ from pf.schemas.project import (
     SourceIdentity,
     VersionPin,
     candidate_snapshot_digest,
+    cell_identity,
 )
 
 
@@ -37,6 +39,11 @@ class CandidateBuilder:
 
     def __init__(self, provider: CandidateProvider) -> None:
         self._provider = provider
+        self._query_lock = threading.Lock()
+        self._queries: dict[
+            tuple[str, SourceIdentity, tuple[str, str, str, tuple[str, ...]]],
+            tuple[AvailableCandidate, ...],
+        ] = {}
 
     def build(
         self,
@@ -81,11 +88,16 @@ class CandidateBuilder:
                     f"ambiguous source for dependency: {dependency}"
                 )
             source = next(iter(sources))
-            available = self._provider.query(
-                dependency=dependency,
-                source=source,
-                cell=cell,
-            )
+            query_key = (dependency, source, cell_identity(cell))
+            with self._query_lock:
+                available = self._queries.get(query_key)
+                if available is None:
+                    available = self._provider.query(
+                        dependency=dependency,
+                        source=source,
+                        cell=cell,
+                    )
+                    self._queries[query_key] = available
             restrictions = tuple(
                 specifier
                 for declaration in declarations

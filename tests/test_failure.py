@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+
+from conftest import empty_harness_baseline
 from pydantic import ValidationError
 
 from pf.failure import FailurePolicy
@@ -117,13 +119,37 @@ def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
 
 
 class TestFailurePolicy:
+    def test_failure_record_retains_only_acquired_resolution_plan_evidence(
+        self,
+    ) -> None:
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=_probe_attempt()),
+            cause="SOURCE_FAILURE",
+            stage="install-environment",
+            process=_process(),
+            project_plan_digest="project-plan",
+            environment_plan_digest="environment-plan",
+        )
+
+        assert failure.project_plan_digest == "project-plan"
+        assert failure.environment_plan_digest == "environment-plan"
+        with pytest.raises(ValidationError, match="requires a project plan"):
+            FailureRecord.from_facts(
+                scope=AttemptFailureScope(attempt=_probe_attempt()),
+                disposition="INDETERMINATE",
+                cause="TOOL_FAILURE",
+                stage="resolve-environment",
+                process=_process(),
+                environment_plan_digest="invented-environment-plan",
+            )
+
     def test_failure_policy_requires_an_attempt_before_it_can_reject(self) -> None:
         policy = FailurePolicy()
 
         rejected = policy.classify(
             scope=AttemptFailureScope(attempt=_probe_attempt()),
             cause="RESOLUTION_CONFLICT",
-            stage="install-project",
+            stage="resolve-project",
             process=_process(),
         )
         indeterminate = policy.classify(
@@ -154,9 +180,8 @@ class TestFailurePolicy:
     @pytest.mark.parametrize(
         ("cause", "stage"),
         (
-            ("RESOLUTION_CONFLICT", "install-project"),
-            ("BUILD_FAILURE", "install"),
-            ("HARNESS_CONFLICT", "install-harness"),
+            ("RESOLUTION_CONFLICT", "resolve-project"),
+            ("HARNESS_CONFLICT", "resolve-environment"),
             ("RUNTIME_INTERFACE_MISSING", "witness"),
             ("TEST_FAILURE", "test"),
         ),
@@ -175,6 +200,16 @@ class TestFailurePolicy:
 
         assert failure.disposition == "REJECTED"
         assert failure.cause == cause
+
+    def test_install_or_build_failure_does_not_prove_unsat(self) -> None:
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=_probe_attempt()),
+            cause="BUILD_FAILURE",
+            stage="install-environment",
+            process=_process(),
+        )
+
+        assert failure.disposition == "INDETERMINATE"
 
     def test_failure_policy_rejects_confirmed_missing_on_witness_exit_zero(
         self,
@@ -270,6 +305,7 @@ class TestFailurePolicy:
             HighestVersionPass(
                 attempt=attempt,
                 baseline=baseline,
+                harness_baseline=empty_harness_baseline(attempt.identity.cell),
                 evaluation=passed,
             )
 

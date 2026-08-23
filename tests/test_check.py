@@ -8,6 +8,8 @@ from typing import Literal, cast
 
 import pytest
 
+from conftest import prepared_resolution_evidence
+
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import TestAdapter
 from pf.adapters.ty import TyAdapter
@@ -239,6 +241,7 @@ class TestCompatibilityChecker:
                     package_root=source,
                     environment_root=environment,
                     interpreter=environment / "bin" / "python",
+                    **prepared_resolution_evidence(cell=cell),
                     temporary_directory=temporary,
                 )
                 prepared[kind] = value
@@ -391,7 +394,7 @@ class TestCompatibilityChecker:
         ).check(package=package, cell=cell, snapshot=snapshot)
 
         assert resolutions == ["highest"]
-        assert result.status == "REJECTED"
+        assert result.status == "INDETERMINATE"
         assert result.role == "declaration-capture"
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure is not None
@@ -446,7 +449,10 @@ class TestCompatibilityChecker:
             snapshot=snapshot,
         )
 
-        assert result.status == "PASS", result
+        assert result.status == "PASS", (
+            result,
+            result.failure.process.diagnostic() if result.failure else None,
+        )
 
     def test_check_only_evaluates_cells_for_the_exact_host_target(
         self, tmp_path: Path
@@ -631,6 +637,7 @@ class TestCheckWorkflow:
                     package_root=root,
                     environment_root=root,
                     interpreter=root / "python",
+                    **prepared_resolution_evidence(cell=cell),
                     temporary_directory=directory,
                 )
 

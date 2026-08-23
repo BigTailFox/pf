@@ -76,6 +76,7 @@ class TestProjectDiscovery:
             ("torch", "searchable"),
         ]
         assert len({item.declaration_id for item in package.declarations}) == 4
+        assert [item.name for item in package.harness_requirements] == ["pytest"]
         assert [cell.extra_surface for cell in package.cells] == [
             (),
             ("gpu",),
@@ -167,6 +168,12 @@ class TestProjectPlanning:
         self,
         tmp_path: Path,
     ) -> None:
+        local = tmp_path / "packages" / "local-lib"
+        local.mkdir(parents=True)
+        (local / "pyproject.toml").write_text(
+            '[project]\nname = "local-lib"\nversion = "1.0"\n',
+            encoding="utf-8",
+        )
         (tmp_path / "pyproject.toml").write_text(
             """
     [project]
@@ -177,6 +184,9 @@ class TestProjectPlanning:
     [tool.uv.sources]
     local-lib = { workspace = true }
     git-lib = { git = "https://token@example.test/repo.git", rev = "0123456789abcdef0123456789abcdef01234567" }
+
+    [tool.uv.workspace]
+    members = ["packages/*"]
 
     [tool.pf]
     python = ["3.10"]
@@ -200,7 +210,41 @@ class TestProjectPlanning:
         assert package.declarations[1].source.commit == (
             "0123456789abcdef0123456789abcdef01234567"
         )
+        assert package.declarations[0].source.locator == "packages/local-lib"
         assert "token" not in package.source_plan.model_dump_json()
+
+    def test_harness_source_is_owned_by_the_package_source_plan(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vendor" / "pytest").mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+
+[dependency-groups]
+test = ["pytest"]
+
+[tool.uv.sources]
+pytest = { path = "vendor/pytest" }
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        package = ProjectLoader().load(
+            root=tmp_path, package_selection=None
+        ).packages[0]
+
+        assert package.source_plan.identities == (
+            SourceIdentity(kind="path", locator="vendor/pytest"),
+        )
 
     def test_overlapping_same_location_declarations_are_rejected(
         self, tmp_path: Path
@@ -602,10 +646,14 @@ class TestProjectLoader:
                 '[tool.uv.sources]\nidna = { url = "https://example.test/idna.whl" }',
                 "integrity information",
             ),
+            (
+                '[tool.uv.sources]\nidna = { url = "https://example.test/idna.whl", hash = "sha256:abc" }',
+                "integrity information",
+            ),
             ('[tool.uv.sources]\nidna = { index = "missing" }', "unknown uv index"),
             ("[tool.uv.sources]\nidna = { editable = true }", "unsupported uv source"),
             (
-                '[tool.uv.sources]\nidna = { url = "relative.whl", hash = "sha256:abc" }',
+                '[tool.uv.sources]\nidna = { url = "relative.whl", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }',
                 "source URL must be absolute",
             ),
         ),

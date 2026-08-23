@@ -4,6 +4,8 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+
+from conftest import empty_harness_baseline
 from rich.console import Console
 
 from pf.errors import InfrastructureError
@@ -141,6 +143,7 @@ class TestSmokeWorkflow:
                 return HighestVersionPass(
                     attempt=attempt,
                     baseline=baseline,
+                    harness_baseline=empty_harness_baseline(cell),
                     evaluation=PassEvaluation(
                         proposal=proposal,
                         static=static,

@@ -1,6 +1,6 @@
-# PF Harness Relaxation
+# PF Harness Resolution
 
-- **状态：** 草案
+- **状态：** 现行
 - **日期：** 2026-08-23
 - **适用范围：** search probe 与 `check` Declaration Attempt 的环境准备
 - **产品与命令：** [D001](D001-pf.md)
@@ -10,8 +10,11 @@
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
 - **架构接口：** [D010](D010-pf-v1-architecture.md)
 - **现行搜索契约：** [D011](D011-pf-runtime-backed-static-search.md)
+- **实施计划：** [P011](../plans/P011-pf-harness-relaxation.md)
 
-本文定义 PF 如何在不把 test harness 变成搜索坐标的前提下，防止 harness 自身的最低版本要求错误提高 project dependency floor。本文仍是草案，不取代现行契约，也不能被 CLI、报告或实现描述成已经可用。
+本文定义 PF 如何在不把 test harness 变成搜索坐标的前提下，放宽直接 harness requirement 的最低版本压力，并以 uv 的结构化 resolution plan 建立、安装和识别验证环境。本文同时限定 candidate catalog、resolver、安装和 failure 分类的职责，避免为负向证明提前建立完整 package catalog。
+
+本文已经落地；D001/D002/D003/D005/D008/D010/D011 已按 §17 归并相应现行条款，代码、CLI 与报告以本文及这些所有者文档共同定义的契约为准。
 
 ## 1. 问题
 
@@ -25,21 +28,31 @@ B >= 2.0 requires A >= 1.5
 
 若每个 probe 都原样安装 `B>=2.0`，则 `A<1.5` 无法形成测试环境。该结果只证明当前 harness floor 与 probe 冲突，不能证明 package 自身不支持 `A>=1.0`。
 
-PF 必须保留 harness 的直接 package identity、来源和非下限语义，同时允许 resolver 在 baseline 已验证版本以下选择与当前 project graph 兼容的 harness configuration。
+当前 uv 安装路径还把 resolution 和 installation 合并在一次命令中。普通非零退出既可能表示依赖约束无解，也可能来自网络、index、artifact、build 或 uv 自身。若 PF 把这些失败统一解释成 `HARNESS_CONFLICT`，就会用不完整事实错误拒绝 project vector。
+
+PF 因而需要同时解决四件事：
+
+1. 保留 harness 的直接 package identity、固定版本和来源契约，只解除允许放宽的最低版本压力；
+2. 让 uv 继续作为唯一 dependency resolver，不在 PF 中复制传递依赖求解；
+3. 把 resolution 与 installation 分开，以 resolution plan 作为安装和环境 identity 的依据；
+4. 只有确定的逻辑无解才能产生 Rejection，来源、构件和工具故障保持 Indeterminate。
 
 ## 2. 决策
 
 PF 采用以下规则：
 
-1. search baseline、`pf smoke` 和 `check` 的 declaration-capture 使用用户原始 harness requirements；
-2. search 的 exact probe 和 `check` 的 `lowest-direct` Declaration Attempt 使用 relaxed harness requirements；
+1. search baseline、`pf smoke` 和 `check` declaration-capture 使用用户原始 harness requirements；
+2. search exact probe 和 `check` 的 `lowest-direct` Declaration Attempt 使用 relaxed harness requirements；
 3. PF 只搜索受管 project dependency vector `P`，不搜索 harness version；
-4. 只对用户直接声明的 harness requirements 解除 minimum-version pressure，并以 baseline 中对应直接 distribution 的实际版本作为 ceiling；
-5. project graph 在安装 harness 前独立解析，随后逐节点 exact constrain；harness 不得改变其中任何节点的版本；
-6. harness-only 间接依赖由 resolver 的默认 highest 策略选择，可以随 `P` 出现、消失或改变版本；它们没有 baseline ceiling，也不是 PF 搜索坐标；
-7. baseline 通过后、正式 probe 前冻结 resolver 可见的来源 universe；probe 不从变化中的 index 重新发现候选；
-8. 在该冻结 universe 和 relaxation 契约内确定无解的 harness resolution 是 `HARNESS_CONFLICT`，可以拒绝完整 Probe Attempt；
-9. 单个已选 harness configuration 的下载、构建或工具失败不证明所有 `H(P)` 都不可安装，在不进行 harness search 的前提下只能是不确定结果。
+4. 只从 eligible direct registry harness declaration 中删除显式 `>X` / `>=X` clause；其他 operator 与固定 source 原样保留；
+5. 是否删除 minimum、是否追加 baseline ceiling 和 declaration 是否固定是三个独立判定；允许 resolver 自由选择版本的 direct registry harness distribution 均受 baseline ceiling 约束；
+6. PF 先解析 project 得到 `G(P)`，再解析 `Exact(G(P)) + Relax(D_H,U_B)` 得到完整 environment plan，最后只安装该 environment plan；
+7. 最终 environment plan 必须 exact 包含 project graph；harness 不得改变其中任何节点；
+8. harness-only 间接依赖由 uv 的既定 highest 策略选择，可以随 `P` 出现、消失或改变版本；它们没有 baseline ceiling，也不是 PF 搜索坐标；
+9. 现有 `CandidateBuilder` 只建立受管 project dependency 的有限搜索空间并缓存重复 source 查询，不递归建立 harness 或传递依赖的完整 catalog；
+10. 同一 Verification Run 固定 uv 版本、resolution policy、source 配置、cell 环境和 release cutoff，并复用 cache；不要求 probe 严格离线；
+11. 只有 adapter 从完整、受支持的 resolver outcome 建立的逻辑无解才能成为 `RESOLUTION_CONFLICT` 或 `HARNESS_CONFLICT`；
+12. resolution 未完成、安装失败或输出无法可靠分类时，不从“未安装成功”推导无解；受支持 uv 版本及其分类能力由 adapter-owned qualification matrix 决定。
 
 ## 3. 模型
 
@@ -49,39 +62,51 @@ PF 采用以下规则：
 P = {d1: v1, d2: v2, ...}
 ```
 
-对一个精确 `P`，PF 先按 project 声明和正常 resolver 策略得到完整 project graph：
-
-```text
-G(P) = ResolveProject(P)
-```
-
-`P` 只 exact pin 受管直接依赖。固定和非受管直接依赖保持声明语义；project 的间接依赖仍由 resolver 默认选择。`G(P)` 包含安装 project 后实际存在的全部直接和间接节点。
-
 令：
 
 ```text
 D_H       = 当前 cell 中活跃的直接 harness requirements
-U_B       = baseline 对每个可放宽直接 harness distribution 得到的版本 ceiling
-R_cell    = baseline 后为当前 cell 冻结的 resolver source universe
-Relax(D_H, U_B) = 放宽下限并加入 ceiling 后的直接 harness requirements
+U_B       = baseline 对每个 ceiling-bound direct harness distribution 得到的版本 ceiling
+C_run     = 当前 Verification Run 的 ResolutionContext
+Relax(D_H, U_B) = 删除 eligible 显式 minimum 并施加适用 ceiling 后的直接 harness requirements
 ```
 
-probe 的 harness configuration 定义为：
+`C_run` 固定 resolver 与来源策略，不声称保存一个完整、离线的 package universe。它至少覆盖：
+
+- PF 支持的精确 uv 版本与 adapter protocol identity；
+- secret-free source/index 配置 identity；
+- resolution strategy、prerelease/yanked 规则和规范输入顺序；
+- Python、platform、marker 和 wheel tag 环境；
+- Verification Run 开始时建立的 release cutoff；
+- cache policy identity。
+
+对一个精确 `P`，PF 先得到 project resolution plan：
 
 ```text
-H(P) = ResolveCanonicalHighest(
-         project_graph = Exact(G(P)),
-         harness = Relax(D_H, U_B),
-         universe = R_cell,
-       )
+ProjectResolutionPlan(P) = ResolveProject(P, C_run)
+G(P)                     = ProjectResolutionPlan(P).graph
 ```
 
-`ResolveCanonicalHighest` 表示固定 resolver 版本、策略和规范输入顺序下的确定结果，不承诺在多包偏序中求一个数学上的逐坐标全局最大值。
+`P` 只 exact pin 受管直接依赖。对 `ExactSelection`，project request 携带 `SelectedCandidate` 的 version 与 artifact evidence；它们不把 artifact 扩展成独立搜索坐标。固定和非受管直接依赖保持声明语义；project 的间接依赖仍由 uv 选择。
 
-最终执行环境为：
+随后解析完整最终环境：
 
 ```text
-E(P) = Install(G(P), H(P))
+EnvironmentResolutionPlan(P) = ResolveEnvironment(
+                                 project = current source snapshot,
+                                 project_graph = Exact(G(P)),
+                                 harness = Relax(D_H, U_B),
+                                 context = C_run,
+                               )
+E(P) = EnvironmentResolutionPlan(P).graph
+```
+
+resolver 的既定 highest 策略表示固定 uv 版本、策略和规范输入顺序下的选择，不承诺在多包偏序中求数学上的逐坐标全局最大值。
+
+PF 只安装最终 environment plan：
+
+```text
+Install(EnvironmentResolutionPlan(P))
 ```
 
 PF 的显式搜索空间仍然只有 `P`：
@@ -90,75 +115,131 @@ PF 的显式搜索空间仍然只有 `P`：
 min P
 ```
 
-`H(P)` 是环境准备模块隐藏的辅助结果，不进入 `CoordinateSearch` interface。
+`ProjectResolutionPlan(P)` 和 `EnvironmentResolutionPlan(P)` 都是环境准备 module 隐藏的辅助结果，不进入 `CoordinateSearch` interface。
+
+### 3.1 Resolution outcome
+
+resolver adapter 只返回以下判别结果：
+
+```text
+ResolutionPlan
+ResolutionUnsat
+ResolutionIndeterminate
+```
+
+`ResolutionPlan` 是结构化成功结果。`ResolutionUnsat` 是 adapter 已确认的逻辑约束无解。`ResolutionIndeterminate` 表示没有取得足以判断 satisfiability 的事实，包括 source、tool、输出完整性和无法分类的候选可用性问题。
+
+普通非零退出、退出码或单个 stderr substring 都不能单独构造 `ResolutionUnsat`。
+
+`ResolutionUnsat` identity 覆盖 resolution request、`C_run`、规范化 incompatibility proof 和完整诊断 digest；它不依赖预先存在的完整 catalog digest。
+
+### 3.2 Artifact identity
+
+`ResolutionPlan` 中的 registry distribution entry 保存：
+
+```text
+canonical name
+version
+source identity
+selected artifact evidence, when uv exposes it reliably
+```
+
+selected artifact evidence 包含 locator、filename、kind 和 SHA-256。PF 不从人类输出或 artifact alternatives 猜测实际选择；uv 没有可靠暴露时，该字段可以缺失。
+
+uv structured output 中的 raw/available artifact alternatives 可以作为 diagnostics 与 plan provenance 保留，但不进入 PF coordinate model，也不要求 `CandidateBuilder` 建立 artifact-set abstraction。v1 搜索坐标仍是 package version；同版本多 artifact 搜索属于未来设计。
+
+URL、Git、path、workspace 或 editable source 使用各自稳定的 source/revision/content identity，不伪装成 registry artifact。
 
 ## 4. Attempt 适用规则
 
-| Verification Role | Resolution | Harness requirements | 是否运行 `test-command` |
-| --- | --- | --- | --- |
-| search baseline | `highest` | 原始 | 是 |
-| smoke baseline | `highest` | 原始 | 是 |
-| check declaration-capture | `highest` | 原始 | 否；只捕获静态基线 |
-| check declaration | `lowest-direct` | relaxed | 是 |
-| search probe | `exact-vector` | relaxed | 由 D003/D011 决定 |
+<table>
+  <thead>
+    <tr>
+      <th>Verification Role</th>
+      <th>Project resolution</th>
+      <th>Harness requirements</th>
+      <th>是否运行 <code>test-command</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>search baseline</td><td><code>highest</code></td><td>原始</td><td>是</td></tr>
+    <tr><td>smoke baseline</td><td><code>highest</code></td><td>原始</td><td>是</td></tr>
+    <tr><td>check declaration-capture</td><td><code>highest</code></td><td>原始</td><td>否；只捕获静态基线</td></tr>
+    <tr><td>check declaration</td><td><code>lowest-direct</code></td><td>relaxed</td><td>是</td></tr>
+    <tr><td>search probe</td><td><code>exact-vector</code></td><td>relaxed</td><td>由 D003/D011 决定</td></tr>
+  </tbody>
+</table>
 
-Baseline 不进行 relaxation。若原始 harness 无法安装，search/smoke 的 baseline 或 check 的 declaration-capture 按现行 Verification Role 终止；PF 不使用 relaxed harness 修复用户当前声明的验证锚点。
+Baseline 不进行 relaxation。若原始 harness 无法解析或安装，search/smoke baseline 或 check declaration-capture 按现行 Verification Role 终止；PF 不使用 relaxed harness 修复用户当前声明的验证锚点。
 
 空 testing dependency group 等价于 `D_H = {}`。此时 relaxation 和 harness ceiling 均为空，环境准备不增加 harness 节点。
 
-## 5. Baseline 与冻结
+## 5. Baseline 与 ResolutionContext
 
-### 5.1 Baseline harness evidence
+### 5.1 Run context
+
+`C_run` 在任何 baseline 或 probe resolution 前建立。同一 Verification Run 的所有 cell 和 Attempt 使用同一受支持 uv 版本与 release cutoff；cell-specific marker 和 tag 环境作为其判别字段。
+
+release cutoff 防止运行开始后发布的新版本进入后续 resolution。配置 source 无法可靠执行 cutoff 时，adapter 必须返回 Indeterminate，不能静默忽略。PF 不宣称 cutoff 能阻止删除、yank、凭据变化、可变 metadata 或 source 故障；这些变化导致的缺失或冲突不能成为负向兼容性事实。
+
+PF 为整个运行复用一个 uv cache，且不主动 refresh 已取得的记录。`CandidateBuilder` 自己的 query cache 与 uv cache 分别由所属 module 管理；本设计不要求 PF 写入或解释 uv 的私有 cache 格式。
+
+严格离线不是正确性的前提。probe 可以按需访问 source；访问失败、hash 不符或得到冲突的可变内容时，adapter 返回 `SOURCE_FAILURE / INDETERMINATE`，而不是假定 package 不存在或 graph 无解。
+
+### 5.2 Baseline harness evidence
 
 Baseline 环境准备顺序为：
 
 ```text
-resolve and install project
-  -> inspect G(B)
-  -> install original D_H under Exact(G(B))
+resolve original project plan
+  -> obtain exact G(B)
+  -> resolve original environment under Exact(G(B))
+  -> install final environment plan once
   -> inspect E(B)
-  -> record baseline direct harness versions U_B
+  -> record HarnessBaseline and U_B
   -> static contract
   -> role 要求时运行 test-command
 ```
 
-对每个在当前 cell 中活跃、来自 registry 且可排序的直接 harness distribution，`U_B` 保存 baseline 实际安装的规范名称、版本、来源 identity 和 artifact identity。多个 requirement 指向同一规范名称时仍分别保留声明 identity，但共享该 distribution 的实际 ceiling。
+对每个当前 cell 中活跃、来自 registry 且允许 resolver 在多个版本中选择的 direct harness distribution，`U_B` 保存 baseline 实际选择的规范名称、版本、source identity 和可得的 selected artifact evidence。是否进入 `U_B` 与 declaration 是否包含可删除的 lower-bound clause 无关。
 
-URL、Git、path 或 workspace source 不转换成 registry 候选集合；它们保持固定来源和构件 identity。
+精确 `==X`、`===X` 和固定来源本身已经固定，不追加 ceiling；其 declaration、source 和可得的 selected artifact evidence 仍进入 `HarnessBaseline`。多个 requirement 指向同一规范名称时分别保留 declaration identity，并由 resolver 求交集。
 
-### 5.2 Resolver source universe
-
-search baseline 完整通过后，或 check declaration-capture 成功后，PF 在任何 relaxed Attempt 前建立一次 `R_cell`。它至少冻结：
-
-- project 受管直接依赖的 CandidateSnapshot；
-- 可放宽直接 harness distribution 在 `U_B` 以下的候选版本、artifact locator 和 hash；
-- resolver 为这些候选进行传递解析和构建所需的 index response、metadata、artifact 及 build requirement；
-- resolver 版本、resolution strategy、prerelease/yanked 规则、cell marker 环境和来源 identity。
-
-冻结阶段可以访问网络。完成后，probe resolution 和安装只消费 `R_cell` 与其中的本地构件，不刷新 index，也不接受运行中新发布或发生变化的 artifact。
-
-`R_cell` 是 resolver 输入快照，不把其中的间接 distribution 变成 PF 的受管依赖或搜索坐标。间接依赖仍由 resolver 在该有限 universe 中按默认策略选择。
-
-无法完整建立 `R_cell` 是 Attempt 前的 `SOURCE_FAILURE / INDETERMINATE`。probe 期间发现快照缺失、hash 不符或必须访问未冻结来源，是 `SOURCE_FAILURE` 或 `INTERNAL_INVARIANT`，不能伪装成 `HARNESS_CONFLICT`。
-
-`R_cell` 具有稳定 digest。相同 cell search 的全部 probe 必须引用同一 digest；不同 digest 下的结果不是相同 Evaluation context。
+Baseline 成功只证明原始输入在当时形成了有效环境；它不把后续的网络、source 或工具故障转换成 Rejection。
 
 ## 6. Relaxation 变换
 
 Relaxation 对展开 `include-group` 后的每条活跃直接 harness requirement 独立执行，再把同名 requirement 的结果交给 resolver 求交集。
 
-| 原 specifier 语义 | Relaxed 语义 |
-| --- | --- |
-| 无 specifier | 不变 |
-| `>X`、`>=X` | 删除 |
-| `==X`，其中 `X` 是可排序的精确版本 | `<=X` |
-| `~=X` | 删除其下限，保留 compatible-release 隐含上界 |
-| `==X.*` | 删除 prefix 下限，保留该 prefix 的隐含上界 |
-| `<X`、`<=X` | 原样保留 |
-| `!=X`、`!=X.*` | 原样保留 |
-| `===X` | 原样保留；任意相等值不能安全定义“向下” |
+<table>
+  <thead>
+    <tr><th>原 specifier 语义</th><th>Relaxed 语义</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>无 specifier</td><td>不变</td></tr>
+    <tr><td><code>&gt;X</code>、<code>&gt;=X</code></td><td>删除该下限</td></tr>
+    <tr><td><code>&lt;X</code>、<code>&lt;=X</code></td><td>原样保留</td></tr>
+    <tr><td><code>!=X</code>、<code>!=X.*</code></td><td>原样保留</td></tr>
+    <tr><td><code>~=X</code></td><td>原样保留</td></tr>
+    <tr><td><code>==X</code>、<code>==X.*</code></td><td>原样保留</td></tr>
+    <tr><td><code>===X</code></td><td>原样保留</td></tr>
+    <tr><td>URL、Git、path、workspace</td><td>原样保留</td></tr>
+  </tbody>
+</table>
 
-完成上述变换后，PF 对每个可放宽直接 distribution 追加：
+PF 只删除显式 ordered lower-bound clause（`>` 和 `>=`）。compound 或 equality-like specifier 被视为不可拆分的用户意图；PF 不把 `~=` 或 `==X.*` 展开为数学上下界，也不通过字符串删除符号。
+
+每条 direct harness declaration 分别具有三个判定：
+
+```text
+relaxable       是否删除显式 > / >= clause
+ceiling-bound   是否追加 <= U_B
+fixed           是否完全不可变
+```
+
+v1 使用 syntax-based classification：精确 `==X`、`===X` 与固定 source 是 fixed；其他 direct registry declaration 全部是 ceiling-bound。非 fixed declaration 含显式 `>` / `>=` clause 时同时是 relaxable。fixed 优先，不需要 PF 判断一个任意 specifier set 在数学上是否只剩单一版本。
+
+完成 minimum 变换后，PF 对 ceiling-bound distribution 追加：
 
 ```text
 <= U_B[name]
@@ -166,82 +247,132 @@ Relaxation 对展开 `include-group` 后的每条活跃直接 harness requiremen
 
 其他 requirement 语义全部保留：
 
-- 规范 package name 与原声明 identity；
+- 规范 package name 与 declaration identity；
 - requested extras；
 - environment marker；
 - named/default index；
 - URL、Git、path、workspace source 与 integrity 信息；
 - upper bound 和 exclusions。
 
-Prerelease admission 是独立的候选策略，不能因删除一个含 prerelease 的下限而意外改变。PF 必须在变换前确定原 requirement 与 resolver policy 的 prerelease 资格，并把结果写入 `R_cell`；relaxed specifier 只改变版本区间，不重新推断 admission policy。
+Prerelease admission 是独立的候选策略，不能因删除一个显式下限而意外改变。PF 必须在变换前确定原 requirement 与 resolver policy 的 prerelease 资格；relaxed specifier 只删除 eligible clause，不重新解释其余 syntax。
 
-PF 不增加、删除、替换或重命名直接 harness requirement。若固定来源无法与 `G(P)` 共存，它可以形成 `HARNESS_CONFLICT`，但 PF 不替换为同名 registry package。
+PF 不增加、删除、替换或重命名直接 harness requirement。固定来源保持同一 source identity；PF 不替换为同名 registry package。
 
-该变换必须由一个纯函数实现并具有版本化 identity；不能通过字符串删除符号。`~=`、wildcard equality、epoch、pre/dev/local version 等语义统一由 `packaging` 的 PEP 440 模型解释。
+该变换必须由一个纯函数实现并具有版本化 identity。PEP 440 parsing 由 `packaging` 完成，但 PF 不成为第二个 requirement semantics engine。
 
-## 7. Project graph 与 harness graph
+## 7. Candidate catalog
 
-PF 分开记录：
+现有 `CandidateBuilder` interface 保持聚焦于 PF 搜索：
 
 ```text
-ProjectGraph       G(P)   安装 harness 前的完整 graph
-EnvironmentGraph   E(P)   安装 harness 后的完整 graph
-DirectHarness      当前 Attempt 实际选择的直接 harness distribution
+build(package, cell, baseline)
+  -> tuple[CandidateSnapshot, ...] | CellFailure
 ```
 
-必须满足：
+它负责：
+
+- 为每个受管 project direct dependency 建立有限、稳定的 coordinate search space；
+- 应用 source、specifier、prerelease/yanked、artifact compatibility、baseline cap、granularity 和 series representative 规则；
+- 保存 search candidate 的 locator、kind 和 SHA-256；
+- 按 source identity 与规范 package name memoize 原始 source response，再按 cell 投影 compatibility，避免跨 cell 重复 source 请求。
+
+它不负责：
+
+- 递归抓取 project 或 harness 的传递依赖闭包；
+- 枚举全部 harness version；
+- 模拟 uv 的 marker、extras 或 dependency resolution；
+- 为 uv 生成完整本地 index；
+- 证明某个 resolution request 无解；
+- 决定 `EnvironmentResolutionPlan(P)` 或 environment artifact selection。
+
+`CandidateBuilder` query 失败是 Attempt 前的 `SOURCE_FAILURE / INDETERMINATE`。空的 search candidate set 只能按 D001/D003 的 CandidateSnapshot 规则处置；它不能替代 uv 对完整 project 或 harness request 的 resolution outcome。
+
+`CandidateBuilder` 与 uv 可能各自读取同一直接 package 的 source metadata。本设计优先保持两个 module 的 locality，不要求 PF 适配 uv 私有 cache 来消除这一小段重复访问。各自 module 内的重复请求必须合并；完整跨 module source proxy 或本地 mirror 不属于 v1 必需工作。
+
+## 8. Resolution 与 installation
+
+环境准备执行两次 resolution、一次 installation：
 
 ```text
-for every node n in G(P):
-    E(P)[n.name].version == n.version
-```
-
-因此：
-
-- harness 可以增加 `G(P)` 中不存在的间接节点；
-- 某个 baseline harness-only 节点可以在 probe 中消失；
-- 不同 `H(P)` 的 harness-only 间接节点可以使用不同版本；
-- 新出现的 harness-only 间接节点没有 baseline ceiling；
-- 若一个 distribution 已属于 `G(P)`，无论它是否也被 harness 直接或间接引用，其 project version 都不得被 harness 改动；
-- 直接 harness ceiling 约束的是用户声明的直接 harness distribution，不扩散到完整 harness 闭包。
-
-集合差 `E(P) - G(P)` 不能完整表达 harness identity：直接 harness distribution 可能已经存在于 `G(P)`。因此证据必须同时保存 DirectHarness selection 和两个完整 graph，不能只保存新增节点集合。
-
-这延续当前 PF 的 project graph 保护语义：PF 只搜索受管直接 project dependency，但安装 harness 时 exact constrain 已解析出的整个 project graph。
-
-## 8. Resolver 与安装语义
-
-relaxed Attempt 的环境准备顺序固定为：
-
-```text
-1. 从 R_cell 安装精确 P 与 project
-2. inspect 并建立 G(P)
-3. 以 Exact(G(P)) + Relax(D_H, U_B) 在 R_cell 中解析 H(P)
-4. 安装 resolver 选出的精确 H(P)
-5. inspect E(P)，复证 G(P) 未漂移
+1. resolve ProjectResolutionPlan(P)
+2. 从 project plan 得到 G(P)，不安装
+3. resolve EnvironmentResolutionPlan(P)
+     from project + Exact(G(P)) + Relax(D_H,U_B)
+4. 只安装 EnvironmentResolutionPlan(P)
+5. inspect E(P)，复证实际 graph 等于 environment plan 且 exact 包含 G(P)
 6. 运行静态检查及本 Attempt 要求的 test-command
 ```
 
-Resolver 负责在一次正常求解中选择 canonical highest compatible `H(P)`。PF 不：
+resolution success 使用 uv 产生的机器可读 plan；v1 使用 `pylock.toml`。adapter 必须先验证 plan 完整性和输入 identity，再将其投影为 PF 的 `ResolutionPlan`。成功命令的人类输出不作为 plan。
 
-- 把 harness version 传给 `CoordinateSearch`；
-- 为 harness 建立二分、线性或坐标搜索；
-- 在 test failure 后尝试其他 harness version；
-- 因单个已选 harness artifact 构建失败而枚举更旧 harness configuration；
-- 把 `H(P)` 写成独立 lower-bound 结果。
+每个已验证的 `ResolutionPlan` 同时保留 normalized semantic projection 与 validated native uv plan。前者用于 PF graph/identity，只包含 name、version、source 和可靠可得的 selected artifact evidence；后者保留 `pylock.toml`、hash 与 installer 所需 artifact material。
 
-相同 `P`、`R_cell`、relaxation policy 和 baseline ceiling 在一次 Verification Run 内只能解析一次。后续 static、witness、test 或重复 observation 必须复用同一 `H(P)` 和环境 evidence。
+第一次 resolution 只建立 project graph，不创建实际 Python environment。第二次 resolution 把同一 project、`Exact(G(P))` 和 harness declaration 一次性求解成完整最终环境；因此不存在 project install 后再由 harness install 修改环境的中间态。
+
+installation 消费 `EnvironmentResolutionPlan(P)` 表示的 validated native plan。normalized semantic identity 不需要编码 installer 所需的全部 raw artifact alternatives；这些 alternatives 可以存在于 native plan，但不因此成为 PF coordinate 或 EnvironmentIdentity 字段。安装可以从共享 cache 或 source 下载 native plan 中有完整 integrity evidence 的 artifact，但不得重新进行开放式 dependency resolution。editable project 作为 final plan 的一部分安装。
+
+uv 是唯一 resolver。PF 不为 resolution 构造第二套 PubGrub/SAT 求解，不遍历 harness version，也不因安装或测试失败尝试另一个 `EnvironmentResolutionPlan(P)`。
+
+相同 project 或 environment resolution input 在一次 Verification Run 内最多解析一次。static、witness、test 和重复 observation 复用同一 final plan 与 PreparedEnvironment；不因重复检查再次访问 source。
 
 ## 9. Module interface 与 identity
 
-冻结来源 universe 属于候选/环境准备集群的内部深模块。建议 interface 为：
+### 9.1 UvOperations 与 UvAdapter
+
+现有 `UvOperations` interface 增加判别的 resolution/install 操作；`UvAdapter` 把 uv 命令、plan 格式、版本特定诊断和 cache 行为隐藏在该 module 内：
 
 ```text
-freeze(package, cell, baseline_environment)
-  -> CellResolutionSnapshot | CellFailure
+resolve(request, context)
+  -> ResolutionPlan | ResolutionUnsat | ResolutionIndeterminate
+
+install(plan, environment)
+  -> InstalledResolution | InstallFailure
 ```
 
-`CellResolutionSnapshot` 同时提供现有 project CandidateSnapshot、direct harness candidate snapshot、`R_cell` runtime handle 和 portable digest。SearchCoordinator 与 CompatibilityChecker 只请求一次冻结结果，不自行读取 index、变换 requirement 或拼 resolver constraints。
+PF 必须固定并验证 adapter 支持的精确 uv 版本。更换 uv 版本必须显式更新 protocol identity、诊断 fixtures 和 conformance tests；未支持版本不能继续沿用旧 parser。
+
+当前 uv 没有稳定的结构化 failure format。v1 adapter 因此按对应 `UvDiagnosticProfile` 对完整诊断做保守、版本化解析：
+
+- qualification profile 已认证的 requirement incompatibility 可以形成 `ResolutionUnsat`；
+- package/version unavailable、artifact unavailable、`requires-python` mismatch 等 candidate-availability diagnostic 默认形成 `ResolutionIndeterminate`；只有对应 profile 已认证其完整 outcome 是无 source/tool 歧义的逻辑 UNSAT 时例外；
+- source/auth/transport/index/metadata 失败映射为 `SOURCE_FAILURE`；
+- crash、timeout、截断输出、未知形状或 parser 失败映射为 `TOOL_FAILURE`。
+
+退出码只参与诊断校验，不能独立决定 domain outcome。
+
+adapter qualification runner 在受控 package/index/artifact fixtures 下，对每个候选支持的 uv 版本运行相同命令矩阵，嗅探 resolution failure 与 abnormal failure 的完整输出。该阶段不经过 `EnvironmentFactory`、CoordinateSearch、真实项目或 PF 端到端 workflow。
+
+截至 2026-08-23，现行 profile 精确支持 uv `0.12.5`、`0.12.4`、`0.12.3`、`0.12.2`、`0.12.1`、`0.12.0`、`0.11.33`、`0.11.32`、`0.11.31` 与 `0.11.30`。Linux x86_64 qualification 对每版本运行 13 个 case，共 130 次完整输出；未登记版本 fail closed。十版本仅认证 pure/transitive version contradiction 为 UNSAT，其余 candidate/source/build case 均保持 Indeterminate。
+
+matrix 至少覆盖：
+
+- pure version contradiction；
+- transitive version contradiction；
+- package/version 不存在；
+- 当前 platform 没有 wheel；
+- `requires-python` 不匹配；
+- index 401 / 403 与 timeout；
+- metadata failure；
+- hash mismatch；
+- sdist build failure；
+- offline cache miss。
+
+adapter-owned fixture/feature table 为每个 case 记录：
+
+```text
+uv version
+command
+exit code
+stdout/stderr shape and completeness
+structured output availability
+diagnostic signature
+PF classification
+classifier confidence
+```
+
+`UvDiagnosticProfile` 可以是 adapter 私有值或 fixture table，不新增通用 resolver interface。只有 matrix 已确认的 incompatibility signature 才能返回 `ResolutionUnsat`；已知 source/tool ambiguity 和任何未知 shape 都返回 `ResolutionIndeterminate`。
+
+### 9.2 Structured harness declarations
 
 现有 `PackagePlan.test_requirements: tuple[str, ...]` 不足以表达本设计。ProjectLoader 必须把展开后的每条直接 harness requirement 投影为结构化 `HarnessRequirement`，至少保存：
 
@@ -256,97 +387,171 @@ source identity
 original text
 ```
 
-Relaxation、baseline ceiling、候选冻结和报告都消费该记录；其他模块不得重新解析原始 dependency group 字符串或重新解释 harness source。
+Relaxation、baseline ceiling、resolution request 和报告都消费该记录；其他 module 不得重新解析 dependency group 字符串或重新解释 harness source。
 
-现有单一 `ResolutionRequest` interface 保留判别结构，但 relaxed 变体必须携带冻结上下文：
+### 9.3 Request、plan 与 environment identity
 
-```text
-HighestResolution
-  -> original harness
+Identity 分成两个时点，不能把 post-resolution evidence 反向塞入 Attempt identity：
 
-LowestDirectResolution(relaxed_harness_context)
-  -> check declaration
+1. `AttemptIdentity` 在任何外部操作前建立，覆盖 package source snapshot、cell、`ResolutionRequest`、selected project candidates、`C_run`、relaxation policy、原始 `D_H` 和可用时的 `U_B`；
+2. `EnvironmentIdentity` 在 prepare 成功后建立，另行覆盖两个 normalized plan identity、最终 graph、可靠可得的 selected artifact evidence 和 `E(P)` digest。
 
-ExactSelection(selection, relaxed_harness_context)
-  -> search probe
-```
+`PreparedEnvironment` 必须持有两个 resolution plan 和 `EnvironmentIdentity`。raw plan digest 与 artifact alternatives 可以保留在 provenance/diagnostics 中，但不定义 coordinate，也不进入 normalized semantic identity。static、witness 和 full Evaluation cache key 使用 `EnvironmentIdentity`，不能只按 `proposal_id` 或 request-level Attempt identity 在不同 harness environment 之间复用。
 
-`EnvironmentFactory.prepare(...)` 仍是唯一外部 method。类型层面不得表达 `highest + relaxed harness`、`exact probe + original harness` 或没有 baseline ceiling/snapshot 的 relaxed Attempt。
+FailureRecord 保存失败发生前已经取得的 identity 和 plan evidence；resolution 尚未成功时不得虚构 plan 或 artifact identity。
 
-Baseline outcome 或 declaration-capture outcome 必须提供建立 relaxed context 所需的 `HarnessBaseline` evidence。`PreparedEnvironment` 必须同时持有：
+`ResolutionRequest` 保留 D010 的判别结构。relaxed 变体必须携带建立 harness request 所需的结构化 context，且类型层面不得表达 `highest + relaxed harness`、`exact probe + original harness` 或缺少 `HarnessBaseline` 的 relaxed Attempt。
 
-- project `Proposal`；
-- `HarnessResolution`；
-- 由二者共同确定的 environment identity。
-
-Harness 仍不是 `Proposal.managed_vector` 的一部分。由于不同 `H(P)` 可以改变静态或动态结果，下列 identity 必须覆盖 relaxation policy、`U_B`、`R_cell.digest`、DirectHarness selection 和 `E(P)` digest：
-
-- Attempt / Evaluation context identity；
-- static、witness 和 full Evaluation cache key；
-- FailureRecord 与报告中的可移植环境 evidence。
-
-不得只按现有 `proposal_id + S_B digest` 复用在不同 harness environment 中取得的 Evaluation。
+`EnvironmentFactory.prepare(...)` 仍是上层唯一环境准备 method；requirement relaxation、uv resolution、installation 和 graph verification 隐藏在其 implementation 与现有 `UvOperations` seam 后面。`CandidateBuilder` 仍是独立的 search-input module；workflow 先取得 CandidateSnapshot，`CoordinateSearch` 不直接访问 source、catalog 或 uv。
 
 ## 10. Failure 分类
 
-| 场景 | Cause / disposition | 搜索含义 |
-| --- | --- | --- |
-| `G(P)` 自身在 `R_cell` 中无解 | `RESOLUTION_CONFLICT / REJECTED` | 拒绝完整 project probe |
-| `G(P)` 可解析，但 `Exact(G(P)) + Relax(D_H,U_B)` 被 resolver 确定证明无解 | `HARNESS_CONFLICT / REJECTED` | 拒绝完整 project probe，并继续定界 |
-| harness 安装后改变或移除 `G(P)` 节点 | `INTERNAL_INVARIANT / INDETERMINATE` | 环境准备实现违反契约，停止 cell |
-| 冻结来源缺失、下载或 hash/source 失败 | `SOURCE_FAILURE / INDETERMINATE` | 未获得兼容性事实，停止 cell |
-| probe 选中的 harness configuration 构建失败 | `BUILD_FAILURE / INDETERMINATE` | 未证明其他合法 `H(P)` 都失败，停止 cell |
-| test command 以配置失败码正常退出 | `TEST_FAILURE / REJECTED` | 用户动态契约拒绝完整 probe |
-| test command 启动失败、timeout、signal 或输出不完整 | 现行 tool cause / `INDETERMINATE` | 停止 cell |
+<table>
+  <thead>
+    <tr><th>阶段与场景</th><th>Cause / disposition</th><th>搜索含义</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>project resolver 返回确定的 <code>ResolutionUnsat</code></td>
+      <td><code>RESOLUTION_CONFLICT / REJECTED</code></td>
+      <td>拒绝完整 project Attempt</td>
+    </tr>
+    <tr>
+      <td>project plan 成功，但 environment resolver 在 <code>Exact(G(P)) + Relax(D_H,U_B)</code> 下返回确定 incompatibility</td>
+      <td><code>HARNESS_CONFLICT / REJECTED</code></td>
+      <td>拒绝完整 project Attempt，并继续定界</td>
+    </tr>
+    <tr>
+      <td>resolution 中发生 index、DNS、凭据、metadata 或 transport failure</td>
+      <td><code>SOURCE_FAILURE / INDETERMINATE</code></td>
+      <td>未取得 satisfiability 事实，停止 cell</td>
+    </tr>
+    <tr>
+      <td>resolution 输出截断、未知、parser 不支持或 uv 自身失败</td>
+      <td><code>TOOL_FAILURE / INDETERMINATE</code></td>
+      <td>分类不可靠，停止 cell</td>
+    </tr>
+    <tr>
+      <td>plan 成功，安装时 artifact 缺失、为空、hash 不符、损坏或下载失败</td>
+      <td><code>SOURCE_FAILURE / INDETERMINATE</code></td>
+      <td>plan 未能实例化，不能反推无解</td>
+    </tr>
+    <tr>
+      <td>final plan 安装中可确定归属到 <code>G(P)</code> 节点的 build failure</td>
+      <td>按 D005 的 <code>BUILD_FAILURE</code> 规则</td>
+      <td>当前 project Attempt 不可构建</td>
+    </tr>
+    <tr>
+      <td>final plan 安装中 harness-only 节点的 build failure</td>
+      <td><code>BUILD_FAILURE / INDETERMINATE</code></td>
+      <td>未证明其他合法 environment plan 都不可构建</td>
+    </tr>
+    <tr>
+      <td>安装后实际 graph 不等于 environment plan</td>
+      <td><code>INTERNAL_INVARIANT / INDETERMINATE</code></td>
+      <td>adapter 违反 plan 契约，停止 cell</td>
+    </tr>
+    <tr>
+      <td>test command 以配置失败码正常退出</td>
+      <td><code>TEST_FAILURE / REJECTED</code></td>
+      <td>用户动态契约拒绝完整 Attempt</td>
+    </tr>
+    <tr>
+      <td>test command 启动失败、timeout、signal 或输出不完整</td>
+      <td>现行 tool cause / <code>INDETERMINATE</code></td>
+      <td>停止 cell</td>
+    </tr>
+  </tbody>
+</table>
 
-Baseline 继续使用原始 harness：其确定 resolution/build/harness/test failure 按 D005/D008 的 Baseline 规则终止。`check` declaration 上的 `HARNESS_CONFLICT` 是 Declaration Rejection，表示当前声明下界不能形成用户要求的验证环境；它不进入 CoordinateSearch。
+Baseline 继续使用原始 harness。其确定 resolution、build、harness 或 test failure 按 D005/D008 的 Baseline 规则终止。`check` declaration 上的 `HARNESS_CONFLICT` 是 Declaration Rejection，表示当前声明下界不能形成用户要求的验证环境；它不进入 CoordinateSearch。
 
-`HARNESS_CONFLICT` 的前提是 resolver 对完整 frozen feasible set 给出确定无解，而不是“当前选中的某个 harness version 安装失败”。这使其可以安全成为 Probe Rejection，同时避免引入隐含的 harness search。
-
-Adapter 必须从 resolver 的结构化、完整 resolution outcome 建立该事实。stderr substring、截断输出或普通非零退出不足以证明 frozen feasible set 无解；这些结果按 `TOOL_FAILURE / INDETERMINATE` 处理。
+`HARNESS_CONFLICT` 证明的是：在当前精确 `G(P)`、完整 relaxed direct harness contract、baseline ceilings 和 resolver policy 下存在明确的 requirement incompatibility。source、build、tool、artifact 和未分类失败都不是 `HARNESS_CONFLICT`。
 
 ## 11. 搜索流程
 
 ```text
-BASELINE / DECLARATION CAPTURE
-  project + original harness
+ESTABLISH C_run
+  exact uv version + source policy + cutoff + cache
             |
             v
-  resolve, inspect, verify role contract
+BASELINE / DECLARATION CAPTURE
+  ResolveProject -> G(B)
+            |
+            v
+  ResolveEnvironment(Exact(G(B)) + original harness)
+            |
+            v
+  install once, inspect, verify role contract
             |
             v
   capture HarnessBaseline U_B
             |
             v
-  freeze CellResolutionSnapshot R_cell
+  build project CandidateSnapshots
             |
             v
 SEARCH PROBE / DECLARATION
   exact P or lowest-direct request
             |
             v
-  resolve G(P) from R_cell
+  ResolveProject(P)
             |
             v
-  resolve H(P) from Exact(G(P))
-      + Relax(D_H,U_B)
-      + R_cell
+  ProjectResolutionPlan(P) -> G(P)
             |
-       +----+----------------+
-       |                     |
-       v                     v
-  HARNESS_CONFLICT       prepared E(P)
-  REJECTED               static/runtime contract
-                             |
-                        PASS / TEST_FAILURE /
-                        INDETERMINATE
+            v
+  ResolveEnvironment(
+      project + Exact(G(P)) + Relax(D_H,U_B))
+            |
+       +----+-----------------------+------------------+
+       |                            |                  |
+       v                            v                  v
+  ResolutionUnsat       ResolutionIndeterminate   ResolutionPlan
+  HARNESS_CONFLICT      SOURCE/TOOL failure            |
+  REJECTED              INDETERMINATE                   v
+                                           EnvironmentResolutionPlan(P)
+                                                        |
+                                                        v
+                                                install once + inspect
+                                                        |
+                                               static/runtime contract
 ```
 
-Harness Relaxation 不构成新的 search phase。冻结是 Attempt 前的输入准备；`H(P)` resolution 是 `EnvironmentFactory.prepare` implementation；`CoordinateSearch` 仍只观察 project vector 对应的 `ProbePass | ProbeRejection | ProbeIndeterminate`。
+Environment resolution 不构成新的 search phase。`EnvironmentResolutionPlan(P)` 是 `EnvironmentFactory.prepare` implementation；`CoordinateSearch` 仍只观察 project vector 对应的 `ProbePass | ProbeRejection | ProbeIndeterminate`。
 
-D011 已落地；static region、runtime witness 和最终直接测试规则保持不变。`HARNESS_CONFLICT` 是 prepare 阶段对完整 Attempt 的确定 resolution Rejection，不是 static-only boundary。
+D011 的 static region、runtime witness 和最终直接测试规则保持不变。`HARNESS_CONFLICT` 是 prepare 阶段对完整 Attempt 的确定 resolution Rejection，不是 static observation。
 
-## 12. 动态测试契约
+## 12. Project graph 与 harness graph
+
+PF 分开记录：
+
+```text
+ProjectGraph       G(P)   ProjectResolutionPlan(P).graph
+EnvironmentGraph   E(P)   EnvironmentResolutionPlan(P).graph，并由安装后 inspect 复证
+DirectHarness      EnvironmentResolutionPlan(P) 中的直接 harness distributions
+```
+
+必须满足：
+
+```text
+G(P) ⊆exact E(P)
+```
+
+`⊆exact` 表示 `G(P)` 的每个 distribution 都在 `E(P)` 中保持同一规范名称、版本和 source contract；exact project candidate 的 selected artifact evidence 在 uv 可靠暴露时一并保持。
+
+因此：
+
+- harness 可以增加 `G(P)` 中不存在的间接节点；
+- baseline harness-only 节点可以在 probe 中消失；
+- 不同 `EnvironmentResolutionPlan(P)` 的 harness-only 间接节点可以使用不同版本；
+- 新出现的 harness-only 间接节点没有 baseline ceiling；
+- distribution 已属于 `G(P)` 时，无论是否也被 harness 引用，都必须保持 project version；
+- 直接 harness ceiling 不扩散到完整 harness 闭包。
+
+集合差 `E(P) - G(P)` 不能完整表达 harness identity：直接 harness distribution 可能已经存在于 `G(P)`。证据必须同时保存 DirectHarness selection、两个完整 graph 和两个 resolution plan。Harness-only transitive graph 完全由 uv 决定，不冻结、不施加 ceiling，也不进入 PF floor。
+
+## 13. 动态测试契约
 
 PF 不区分 full test、smoke test 或其他用户测试形式。`[tool.pf].test-command` 本身就是动态兼容性契约：
 
@@ -361,132 +566,150 @@ environment prepared + configured failure exit code
 PF 不要求 relaxed environment 与 baseline：
 
 - 收集相同数量的 tests；
-- 加载相同版本的测试工具；
+- 加载相同版本的可放宽测试工具；
 - 保持相同 harness-only 间接 graph；
 - 保持测试工具内部实现一致。
 
 PF 不对正常 test failure 猜测是 package、test code 还是 relaxed harness 行为造成。用户应提供快速、稳定并覆盖关键 dependency-facing behavior 的命令；不同测试规模不改变分类规则。
 
-## 13. Correctness Invariants
+## 14. Correctness Invariants
 
-### H1 — Project candidate immutable
+### H1 — Project coordinates only
 
-Harness resolution 不得修改当前受管 project dependency vector。
+PF 只搜索 project direct dependency vector `P`。Harness version、transitive dependency 和 artifact alternatives 都不是搜索坐标或 floor 结果。
 
-### H2 — Baseline unchanged
+### H2 — Baseline declarations unchanged
 
-Baseline 和 declaration-capture 始终使用用户原始 harness requirements。
+Baseline 和 declaration-capture 始终使用用户原始 harness declarations。
 
-### H3 — Relaxation is direct-harness-only
+### H3 — Explicit minimum only
 
-只有用户直接声明的 harness requirements 可以变换；project requirements 与 harness 间接 requirement 不被 PF 改写。
+Probe relaxation 只从 eligible direct registry harness declaration 删除显式 `>` / `>=` clause。其他 specifier 与固定 source 原样保留；ceiling-bound declaration 独立追加 `<=U_B`。
 
-### H4 — Direct harness downward only
+### H4 — Resolve twice, install once
 
-每个可放宽直接 harness distribution 的版本不得高于同 cell baseline 的实际版本。该 ceiling 不扩散到 harness-only 间接闭包。
+PF 先 resolve project 得到精确 `G(P)`，再 resolve project + `Exact(G(P))` + relaxed harness 得到 `EnvironmentResolutionPlan(P)`，并且只安装 final plan。必须满足 `G(P) ⊆exact E(P)`。
 
-### H5 — Project graph preserved
+### H5 — Certified conflict only
 
-安装 harness 后，`G(P)` 的 package 集合和每个版本均保持不变。
+只有 adapter qualification matrix 支持、完整 resolver outcome 确认的 relaxed harness incompatibility 才能形成 `HARNESS_CONFLICT / REJECTED`。source、build、tool、artifact 和未分类失败不能形成该结论。
 
-### H6 — Exhausted relaxed set is probe evidence
+### H6 — Harness transitive resolution belongs to uv
 
-只有在同一冻结 universe 中确定证明 `Exact(G(P)) + Relax(D_H,U_B)` 无解，才可形成 `HARNESS_CONFLICT / REJECTED` 并推动搜索边界。
+Harness transitive graph 完全由 uv 解析，可以出现、消失或改变版本；它不继承 baseline ceiling，不进入 candidate catalog、PF search 或 floor。
 
-### H7 — No harness search
+## 15. 非目标
 
-Harness 不进入显式搜索空间，不产生独立 lower-bound 结果，也不因 build/test failure 枚举替代版本。
-
-### H8 — Frozen resolver universe
-
-同一 cell 的 baseline 后 probe 共享同一个 `R_cell`；probe 不刷新 index 或接收新构件。
-
-### H9 — Environment-scoped evidence
-
-任何 static、witness 或 test evidence 必须绑定产生它的 `Proposal + HarnessResolution`，不能跨 `H(P)` 复用。
-
-## 14. 非目标
-
-Harness Relaxation 不试图：
+本文不试图：
 
 - 求直接或间接测试依赖的最低版本；
 - 对 harness-only 间接依赖建立 baseline ceiling；
+- 提前构造完整 project/harness transitive catalog；
+- 实现本地 package mirror 或 source proxy；
+- 解释、修改或跨 module 复用 uv 私有 cache 格式；
+- 在 PF 中实现第二个 dependency resolver；
 - 证明不同 harness version 行为完全一致；
 - 隔离两套 Python dependency namespace；
 - 修改用户 dependency group；
 - 修复测试或为失败做因果归因；
 - 搜索一个能让失败测试通过的 harness version；
 - 在 selected harness build failure 后枚举其他 configuration；
+- 把 `package version × artifact` 引入 v1 search；
 - 把 transitive resolver selection 写成 PF floor 结果；
-- 允许 probe 从动态 index 获得未冻结候选。
+- 把当前 uv 尚未提供的通用结构化 failure protocol 提前抽象成多 resolver interface。
 
-## 15. 所有权
+## 16. 所有权
 
-| 规则 | 唯一所有者 |
-| --- | --- |
-| 用户结果承诺、test group、test command 与退出码 | D001 |
-| `EnvironmentFactory`、ResolutionRequest、environment identity 与 cache seam | D002/D010；本文确认后归并 |
-| project coordinate search、Probe Rejection 与边界 | D003/D011 |
-| cause、disposition、FailureRecord 与 diagnose 文案 | D005 |
-| Attempt Role、check/search/smoke 序列与 Journal | D008 |
-| relaxation transform、direct ceiling、resolver snapshot 与 graph invariants | 本文；确认后归并 D001/D002/D005/D008 |
+<table>
+  <thead>
+    <tr><th>规则</th><th>唯一所有者</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>用户结果承诺、test group、test command 与退出码</td><td>D001</td></tr>
+    <tr><td><code>EnvironmentFactory</code>、<code>ResolutionRequest</code>、environment identity 与 cache seam</td><td>D002/D010；本文定义的 harness 语义已归并</td></tr>
+    <tr><td>project coordinate search、Probe Rejection 与搜索边界</td><td>D003/D011</td></tr>
+    <tr><td>cause、disposition、FailureRecord 与 diagnose 文案</td><td>D005</td></tr>
+    <tr><td>Attempt Role、check/search/smoke 序列与 Journal</td><td>D008</td></tr>
+    <tr><td>harness relaxation、两次 resolution/一次 installation、artifact evidence 与 <code>UvOperations</code> / <code>UvAdapter</code> 契约</td><td>本文；D001/D002/D005/D008/D010 保存各自消费面的现行条款</td></tr>
+    <tr><td>project CandidateSnapshot 与 <code>CandidateBuilder</code> 搜索规则</td><td>D001/D002；本文只限制其不承担 transitive resolution</td></tr>
+  </tbody>
+</table>
 
-## 16. 对现行契约的取代
+## 17. 与现行契约的归并
 
-本文确认并落地时必须同步替换以下现行条款；此前仍以现行文档和代码为准：
+本文落地时已经同步以下所有者文档；本表记录归并结果，不保留落地前行为：
 
-| 文档 | 被取代或扩展的规则 |
-| --- | --- |
-| D001 §5.2 | 所有 Attempt 都安装原始测试支撑 requirement；没有 direct harness relaxation/ceiling/source freeze |
-| D002 §7.1、§8.1–§8.2 | PackagePlan 只保存原始 test requirement 字符串；CandidateBuilder 只冻结 project 受管直接候选；EnvironmentFactory 的 ResolutionRequest 不携带 relaxed context，PreparedEnvironment 不记录 HarnessResolution |
-| D003 §3 | baseline 后只冻结 project CandidateSnapshot；不冻结 harness/resolver universe |
-| D005 §8–§9.2 | harness conflict 没有区分 relaxed feasible-set 无解与单个 selected harness configuration 失败 |
-| D008 §5.2 | check 的 `lowest-direct` 使用与 highest 相同的原始 harness requirements |
-| D010 §5 | `LowestDirectResolution` / `ExactSelection` 不携带判别的 relaxed harness context |
-| D011 §7、§16 | 泛称 harness error 为 UNKNOWN、并整体保留现行 harness rejection 资格；本文改为按 frozen resolution proof 精确区分 |
+<table>
+  <thead>
+    <tr><th>文档</th><th>归并后的现行规则</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>D001 §5.2</td><td>baseline 使用原始 harness；relaxed Attempt 使用 direct ceiling；每个 Attempt 两次 resolution、一次 final-plan installation</td></tr>
+    <tr><td>D002 §7.1、§8.1–§8.2</td><td>PackagePlan 保存结构化 harness；EnvironmentFactory 拥有双 plan、精确 graph 校验与 EnvironmentIdentity</td></tr>
+    <tr><td>D003 §3</td><td>CandidateSnapshot 仍只描述 project search；ResolutionContext 固定运行级 resolver 输入</td></tr>
+    <tr><td>D005 §8–§9.2</td><td>只有 certified resolution conflict 可拒绝；source、build、tool 与 installation failure 保持 Indeterminate</td></tr>
+    <tr><td>D008 §5.2</td><td>check declaration-capture 使用原始 harness，<code>lowest-direct</code> 使用携带 baseline 的 relaxation</td></tr>
+    <tr><td>D010 §5</td><td>relaxed ResolutionRequest 强制携带 HarnessBaseline；Attempt 与 post-resolution EnvironmentIdentity 分离</td></tr>
+    <tr><td>D011 §7、§16</td><td>只有 certified project/harness conflict 形成 resolution rejection；static-only observation 资格不变</td></tr>
+  </tbody>
+</table>
 
-## 17. 验收标准
+## 18. 验收标准
 
-1. search/smoke baseline 与 check declaration-capture 的 resolver 输入逐字使用原始展开后 harness requirements；
+1. search/smoke baseline 与 check declaration-capture 使用原始展开后的 harness requirements；
 2. `pytest>=8,<9,!=8.2` 在 baseline `8.4` 下变为等价于 `pytest<9,!=8.2,<=8.4` 的结构化 requirement；
-3. `~=1.4.5` 和 `==1.4.*` 的隐含 `<1.5` 上界保留，minimum pressure 被删除；`===`、marker、extras 与来源不变；
-4. 删除 prerelease lower bound 不改变该 requirement 已确定的 prerelease admission policy；
-5. relaxed resolver 不能选择高于 `U_B` 的直接 harness version；
-6. baseline harness-only 间接节点可以在 probe 消失，新间接节点可以出现；两者都不进入 project vector；
-7. harness 直接或间接引用 `G(P)` 节点时只能使用 `G(P)` 的精确版本；任何 graph drift 为 Indeterminate；
-8. 同一 cell 的所有 probe 使用同一 `R_cell.digest`，冻结后发布的新版本不参与本次运行；
-9. probe 期间禁止 index refresh；source snapshot miss 不能分类成 `HARNESS_CONFLICT`；
-10. relaxed requirement 在 frozen universe 中得到结构化、完整的确定无解结果时产生 `HARNESS_CONFLICT / ProbeRejection`，CoordinateSearch 可以据此继续提高当前坐标；
-11. stderr substring、截断输出或普通 resolver 非零退出不能形成 `HARNESS_CONFLICT`；
-12. selected harness configuration 的构建失败产生 Indeterminate，不触发隐含 harness version 枚举；
-13. 相同 `P` 只解析一次 `H(P)`；缓存不得跨 HarnessResolution identity 命中；
-14. `check` lowest-direct 使用 relaxation，HARNESS_CONFLICT 成为 Declaration Rejection；
-15. normal `test-command` failure 仍是 `TEST_FAILURE`，不因 harness 版本变化改写 cause；
-16. 报告能复证 direct harness selection、两个 graph、relaxation policy、baseline ceiling 和 resolver snapshot digest 的闭环；
-17. D011 的 static-only observation 不能因本设计变成 Rejection，final floor 仍由其自身完整 test pass 授权。
+3. `~=1.4.5`、`==1.4.*`、`==1.4.5`、`===vendor` 和 URL/Git/path/workspace source 在 relaxed Attempt 中逐 clause 保持原样；
+4. 无 specifier、仅 upper/exclusion、`~=` 和 wildcard equality 的 direct registry distribution 虽不删除 clause，仍记录 `U_B` 并追加 ceiling；精确 equality 和固定 source 不追加；
+5. 删除显式 prerelease lower bound 不改变该 declaration 已确定的 prerelease admission policy；
+6. ceiling-bound direct harness distribution 不能选择高于 `U_B` 的版本；
+7. PF 对每个 Attempt 先 resolve project 得到 `G(P)`，再 resolve 完整 `EnvironmentResolutionPlan(P)`；第一次 resolution 不创建环境；
+8. 每个 Attempt 只安装 final environment plan 一次；安装后 inspect 复证实际 `E(P)` 等于 plan 且 `G(P) ⊆exact E(P)`；
+9. 两次 resolution success 都产生经 Schema 校验的 machine-readable plan；installation 不进行 plan 外 resolution；
+10. registry plan entry 保存 package identity、version、source 和 uv 可靠暴露的 selected artifact evidence；raw artifact alternatives 只作 diagnostics/provenance，不形成 PF coordinate 或强制 semantic identity；
+11. baseline harness-only transitive 节点可以在 probe 消失，新节点可以出现且版本可以变化；它们不进入 project vector、candidate catalog 或 floor；
+12. 同一 Verification Run 固定受支持的精确 uv 版本、adapter protocol、source policy 和 release cutoff；
+13. `CandidateBuilder` 只查询受管 project direct dependencies，并按 source/package memoize 原始 response；测试证明它不会递归读取 harness/transitive package；
+14. uv resolution 复用运行级 cache；相同 resolution input 只解析一次，不因 static/witness/test 重复访问 source；
+15. 独立 qualification runner 对每个候选支持的 uv 版本运行相同的 resolution/abnormal failure fixture matrix，并形成 §9.1 定义的 versioned diagnostic profile；该验收不依赖真实项目或 PF 端到端 workflow；
+16. matrix 已确认的完整 requirement incompatibility 产生 `HARNESS_CONFLICT / ProbeRejection`；CoordinateSearch 可以据此继续提高当前坐标；
+17. 普通非零退出、stderr substring、package/version not found、wheel unavailable、`requires-python` mismatch、offline/cache miss 和未知 shape 不能形成 `HARNESS_CONFLICT`，除非对应版本 profile 明确认证为无 source/tool 歧义的 UNSAT；
+18. resolution 的网络、index、凭据或 metadata 故障产生 `SOURCE_FAILURE / Indeterminate`；未知 uv 诊断产生 `TOOL_FAILURE / Indeterminate`；
+19. plan 成功后的 artifact 空文件、缺失、hash mismatch、损坏或下载失败产生 `SOURCE_FAILURE / Indeterminate`；
+20. harness-only build failure 产生 `BUILD_FAILURE / Indeterminate`，不触发隐含 harness version 枚举；
+21. `check` lowest-direct 使用 relaxation，确定的 HARNESS_CONFLICT 成为 Declaration Rejection；normal `test-command` failure 仍是 `TEST_FAILURE`；
+22. AttemptIdentity 不依赖 post-resolution evidence；EnvironmentIdentity 覆盖两个 plan、最终 graph、relaxation policy、baseline ceiling、ResolutionContext 和可靠可得的 selected artifact evidence；
+23. Evaluation cache 不得跨 EnvironmentIdentity 命中；FailureRecord 不虚构尚未得到的 plan/artifact evidence；D011 的 static-only observation 仍不能单独形成 Rejection。
 
-## 18. 决策记录
+## 19. 决策记录
 
 ### D1：Relaxation 同时用于 search probe 与 check declaration
 
-两者都在验证 project dependency lower bound。只修 search 会让 `pf check` 继续把原始 harness floor 误报为声明下界不兼容。
+两者都在验证 project dependency lower bound。只修 search 会让 `pf check` 继续把可放宽的 harness floor 误报为声明下界不兼容。
 
-### D2：确定无解的 relaxed harness 是 Probe Rejection
+### D2：只删除显式 minimum，ceiling 独立判定
 
-Baseline 已证明原始环境可运行；relaxation 扩大了直接 harness requirement 的可行集合。若 resolver 在同一冻结 universe、精确 `G(P)` 和 direct ceilings 下仍确定无解，则该完整 project vector 不能形成用户要求的开发/测试环境，可以作为局部 Rejection。PF 不把该结论全局归因到某一个 dependency version。
+PF 只识别并删除 `>` / `>=` clause，不展开 `~=`、wildcard equality 或其他结构性语义。是否追加 `U_B` 只取决于 direct registry declaration 是否允许版本选择，与是否删除 lower bound 无关。该划分尊重用户意图，并防止 PF 成为第二个 requirement semantics engine。
 
-### D3：Ceiling 只约束直接 harness distribution
+### D3：两次 resolution，一次 installation
 
-完整 harness 闭包会随 direct harness version 和 project graph 改变，baseline 中不存在的节点没有可定义的 ceiling。PF 只对用户声明的直接 requirement 承担变换责任；间接节点交给 resolver 默认策略，保持产品模型简洁。
+第一次 resolution 只确定 project graph `G(P)`。第二次在 `Exact(G(P))` 下加入 harness 并定义完整 `EnvironmentResolutionPlan(P)`；PF 只安装该 final plan。这同时保留 project graph 契约，并删除两次安装及其中间 artifact drift 状态。
 
-### D4：Project graph 整体 exact constrain
+### D4：确定 requirement incompatibility 才是 HARNESS_CONFLICT
 
-PF 虽然只搜索受管直接 project dependency，但被测试对象是 independently resolved `G(P)`。Harness 可以增加辅助节点，不能改写被测 graph。该规则延续现行 EnvironmentFactory 行为。
+“无法安装”不是 satisfiability 证明。只有 adapter qualification matrix 能在受支持 uv 版本的完整 outcome 中排除 source、tool、artifact 和 build 歧义时，resolution 无解才可以成为 Rejection。保守地漏掉一个可拒绝 conflict 只会少做搜索剪枝；错误拒绝可行 vector 会破坏 floor 正确性。
 
-### D5：冻结 resolver universe，而不是把 transitive dependency 变成坐标
+### D5：Candidate catalog 不承担负向证明
 
-只冻结直接候选仍会让 transitive resolution 读取变化中的 index，无法使 `H(P)` 确定。`R_cell` 冻结 resolver 输入，但 transitive selection 仍由默认策略决定，不进入 PF 搜索结果。
+完整 catalog 需要提前抓取大量未必使用的传递 metadata 和 artifact，并会逐步复制 uv 的候选与 marker 语义。即使建立 catalog，普通 uv 非零退出仍不能区分求解无解和工具故障。现有 `CandidateBuilder` 因此只拥有 project search space 和查询缓存。
 
-### D6：Selected harness build failure 不建立边界（待确认）
+### D6：固定运行输入并按需访问 source，不建立完整离线 universe
 
-Resolver 选出的 canonical configuration 构建失败，只否定该具体构件执行；在不枚举其他 `H` 的前提下不能证明 relaxed feasible set 全部失败。把它作为 Rejection 会重新引入错误 floor。
+精确 uv 版本、source policy、cell 环境、release cutoff 和共享 cache 提供一次运行内需要的稳定性。删除、yank、凭据或网络变化无法由预取彻底消除，遇到它们时保持 Indeterminate 即可保护正确性。严格离线 mirror 不是 v1 必需工作。
+
+### D7：Artifact identity 属于 resolution/environment evidence
+
+现有 graph 只有 name/version，无法区分同版本的不同来源或构件。ResolutionPlan 因而保存 uv 可靠暴露的 selected artifact evidence；raw alternatives 只作诊断和 provenance。Artifact 不是 v1 搜索维度，是否需要多 artifact model 必须由后续实验另行证明。
+
+### D8：Harness transitive graph 完全属于 uv
+
+PF 只拥有 direct project coordinates 与 direct harness declaration relaxation。Harness-only transitive 节点不继承 baseline ceiling、不进入 catalog 或 floor，也不因 build/test failure 触发枚举；这些选择全部由 uv 完成。

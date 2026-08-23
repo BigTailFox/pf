@@ -6,6 +6,8 @@ from typing import cast
 
 import pytest
 
+from conftest import prepared_resolution_evidence
+
 from pf.baseline import HighestEnvironmentOperations, HighestVersionVerifier
 from pf.environment import HighestResolution, PreparedEnvironment, ResolutionRequest
 from pf.project import ProjectLoader
@@ -101,6 +103,7 @@ def _prepared(
         package_root=root,
         environment_root=root,
         interpreter=root / "python",
+        **prepared_resolution_evidence(cell=cell),
         temporary_directory=temporary,
     )
 
@@ -213,6 +216,7 @@ class TestHighestVersionVerifier:
                     package_root=root,
                     environment_root=root,
                     interpreter=root / "python",
+                    **prepared_resolution_evidence(cell=cell),
                     temporary_directory=temporary,
                 )
                 prepared_items.append(prepared)
@@ -279,7 +283,7 @@ class TestHighestVersionVerifier:
         assert prepared_items[0].tested is True
         assert not prepared_items[0].proposal_root.exists()
 
-    def test_highest_version_verifier_distinguishes_baseline_rejection(
+    def test_highest_version_verifier_keeps_install_build_failure_indeterminate(
         self,
         tmp_path: Path,
     ) -> None:
@@ -346,8 +350,8 @@ class TestHighestVersionVerifier:
             full=NeverFull(),
         ).verify(package=package, cell=package.cells[0], snapshot=snapshot)
 
-        assert isinstance(result, BaselineRejection)
-        assert result.failure.disposition == "REJECTED"
+        assert isinstance(result, BaselineIndeterminate)
+        assert result.failure.disposition == "INDETERMINATE"
         assert result.failure.cause == "BUILD_FAILURE"
         assert result.evaluation is None
 

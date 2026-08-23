@@ -11,6 +11,8 @@
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
 - **契约修复、模块加深与内部 seam：** [D009](D009-pf-v1-refactor.md)
 - **架构加深：** [D010](D010-pf-v1-architecture.md)
+- **runtime-backed 搜索：** [D011](D011-pf-runtime-backed-static-search.md)
+- **harness resolution：** [D012](D012-pf-harness-relaxation.md)
 
 本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有；前序契约修复由 D009 拥有；判别 resolution/event、Runner 内部调度、平台日志 seam、终端私有视图和完整 composition 由 D010 拥有。本文描述已落地接口，不复制其他契约的业务规则。
 
@@ -60,7 +62,9 @@ src/pf/
 ├── _secure_runlog.py    # POSIX/Windows 安全日志目录原语
 ├── windows_runlog.py    # Windows reparse-safe directory handle 与私有 DACL
 ├── candidates.py        # CandidateBuilder
-├── environment.py       # EnvironmentFactory 与 PreparedEnvironment
+├── harness.py           # direct harness active/original/relaxed 纯变换
+├── resolution.py        # uv protocol、plan/outcome 与 EnvironmentIdentity
+├── environment.py       # 两次 resolution、一次 installation 与 PreparedEnvironment
 ├── static_transition.py # fingerprint、diagnostic classifier 与 witness planner
 ├── evaluation.py        # StaticEvaluator、RuntimeEvaluator、EvaluationCache
 ├── baseline.py          # HighestVersionVerifier 的最高版本完整验证生命周期
@@ -81,6 +85,8 @@ src/pf/
 └── adapters/
     ├── process.py
     ├── uv.py
+    ├── uv_diagnostics.py
+    ├── uv_lock.py
     ├── ty.py
     ├── runtime_witness.py
     └── test_command.py
@@ -224,7 +230,8 @@ load(root: Path, package_selection: str | None) -> ProjectPlan
 - 三层配置加载；
 - PEP 508 声明解析、固定/可搜索/受管分类；
 - marker 投影、extra surface 与有序 cell；
-- uv index/source 解释和测试 dependency group 展开。
+- uv index/source 解释，以及 root/package 测试 dependency group 的递归展开；
+- 每条 direct harness declaration 的 group/item provenance、规范名称、extras、structured specifier、marker、source、prerelease policy 与原文。
 
 调用方只消费 `ProjectPlan`，不得再次读取 `[tool.pf]` / `[tool.uv.sources]` 或重新解释 marker。
 
@@ -249,7 +256,7 @@ Git 项目通过显式注入的唯一 `ProcessRunner` 执行 `git ls-files --cac
 build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
 ```
 
-候选策略值由 D001 定义。`CandidateBuilder` 是 source、artifact、prerelease/yanked、specifier、search-space、granularity、baseline cap、排序和 series representative 的唯一实现所有者；`schemas.project.candidate_snapshot_digest` 拥有并校验冻结证据 identity。它不决定 probe 顺序，也不把来源失败解释为版本失败。
+候选策略值由 D001 定义。`CandidateBuilder` 是受管 project direct dependency 的 source、artifact、prerelease/yanked、specifier、search-space、granularity、baseline cap、排序和 series representative 的唯一实现所有者；`schemas.project.candidate_snapshot_digest` 拥有并校验冻结证据 identity。它不查询 harness 或 transitive package，不构造完整 resolver catalog，不决定 probe 顺序，也不把来源失败解释为版本失败。同一 source/package 的原始 query 在 module 内 memoize。
 
 ### 8.2 EnvironmentFactory
 
@@ -258,7 +265,11 @@ prepare(package, cell, snapshot, resolution: ResolutionRequest)
   -> PreparedEnvironment | PrepareFailure
 ```
 
-`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`；只有 exact 变体携带冻结的 `SelectedCandidate` selection。EnvironmentFactory 从同一 request 投影 Attempt、安装请求、受管向量与安装后 graph 核对，接口不接受 string resolution、nullable selection 或外部 managed vector。每个变体都会在任何外部操作前构造 Attempt。精确路径使用 artifact locator 与完整 SHA-256，并在安装后核对 managed vector。prepare 失败返回 `PrepareFailure(attempt, failure)`；调用方不得 unwrap 成裸 `ToolFailure`。随后创建独立源码副本和虚拟环境，安装 editable 包，记录实际解释器与解析图，合并测试支撑依赖并复查目标图。`PrepareFailure` 保留 Attempt、stage、adapter cause 和机械事实；`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，必含 `attempt`，不进入公共报告。Attempt 序列与 Role 由 D008 拥有。
+`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。exact 变体携带冻结的 `SelectedCandidate` selection；`LowestDirectResolution` 与 `ExactSelection` 还必须携带同 cell `HarnessBaseline`，而 highest 固定使用原始 harness。接口不接受 string resolution、nullable selection 或外部 managed vector。
+
+EnvironmentFactory 在运行级 `ResolutionContext` 下从 request 建立 Attempt，然后执行：materialize source → resolve `ProjectResolutionPlan(P)` → 生成 original/relaxed direct harness → resolve `EnvironmentResolutionPlan(P)` with `Exact(G(P))` → 校验 `G(P) ⊆exact E(P)` → 创建 venv → 只安装 final plan → inspect 并复证实际 graph 等于 final plan。第一次 resolution 不创建环境；同一 resolution input 在一次 Verification Run 内 memoize。精确 project candidate 使用 artifact locator 与完整 SHA-256；harness-only transitive graph 不进入 managed vector。
+
+prepare 失败返回 `PrepareFailure(attempt, failure, acquired plan digests)`；调用方不得 unwrap 成裸 `ToolFailure`，也不得虚构失败发生后尚未取得的 plan。`PreparedEnvironment` 是带 `close()` 生命周期的内部资源对象，必含 `attempt`、两个 validated `ResolutionPlan`、`EnvironmentIdentity`、baseline harness evidence 和 final interpreter/root；它不进入公共报告。Proposal ID 使用 EnvironmentIdentity，因此 static/witness/full Evaluation cache 不跨不同 final environment plan 命中。Attempt 序列与 Role 由 D008 拥有。
 
 不同 Proposal 不通过原地升级/降级依赖复用。运行完整测试后环境标记为已测试并视为可能污染；只复用下载/build cache 和同一 Proposal、同一 Evaluation context 已有的静态证据。
 
@@ -316,7 +327,7 @@ classify(scope, cause, stage, process, summary_code=None, detail=None)
   -> FailureRecord
 ```
 
-该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause 与机械事实构造 `FailureRecord`。Baseline 与 probe 的区分来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector`），没有单独的 role 参数。Cell scope 只允许 Indeterminate。PASS 与 static transition 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-runtime-v1` 是 Evaluation policy identity 的组成部分。
+该深模块唯一实现 D005 的 REJECTED / INDETERMINATE 分类：它验证 `AttemptFailureScope | CellFailureScope` 和证据完整性，再由 scope、stage、cause、机械事实与失败前已取得的 plan digest 构造 `FailureRecord`。Baseline、probe 与 declaration request 来自 Attempt 的 `requested_resolution`（`highest` / `exact-vector` / `lowest-direct`）；展示 Role 仍不进入分类。Cell scope 只允许 Indeterminate。PASS 与 static transition 不经过本模块。Adapter 只提供稳定 cause，搜索只消费 disposition；二者都不得按 stderr substring 或裸退出码复制分类规则。`failure-runtime-v1` 是 Evaluation policy identity 的组成部分。
 
 ## 9. 搜索与调度
 
@@ -371,7 +382,8 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 
 ### 10.2 UvAdapter、TyAdapter、RuntimeWitnessAdapter、TestAdapter
 
-- `UvAdapter` 唯一构造解释器发现、venv、editable install、harness install、graph inspection 和候选查询的 uv argv，并把机械结果分类为 D005 的稳定 operation cause，例如 `RESOLUTION_CONFLICT`、`BUILD_FAILURE`、`HARNESS_CONFLICT`、`SOURCE_FAILURE` 或 `TOOL_FAILURE`。
+- `UvAdapter` 唯一固定受支持的精确 uv version/profile，构造 project/environment `uv pip compile --format pylock.toml`、venv、final-plan sync、graph inspection 和 direct candidate query 的 argv。`uv_lock.py` 校验并投影 native/normalized plan；`uv_diagnostics.py` 只对 qualification matrix 认证的完整 contradiction 产生 `ResolutionUnsat`。安装返回绑定 plan digest 的 `InstalledResolution | InstallFailure`，不能产生 resolution/harness conflict；source/build/tool cause 保持 Indeterminate。
+- 当前 `uv-pip-compile-pylock-v1` 精确支持 `0.12.5`、`0.12.4`、`0.12.3`、`0.12.2`、`0.12.1`、`0.12.0`、`0.11.33`、`0.11.32`、`0.11.31`、`0.11.30`；其他版本在建立 resolver context 时 fail closed。每个版本有独立 qualification profile identity，当前十个 profile 共享经 130-case 矩阵认证的 diagnostic shape set。
 - `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。
 - `RuntimeWitnessAdapter` 只执行 D004 的 owned、无 shell、结构化名称可达性 harness；它不决定 disposition。
 - `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与失败退出码策略。

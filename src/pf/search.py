@@ -38,6 +38,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     CandidateSnapshot,
     Cell,
+    HarnessBaseline,
     PackagePlan,
     SelectedCandidate,
     VersionPin,
@@ -223,6 +224,7 @@ class _ProposalRunner:
         cell: Cell,
         snapshot: SourceSnapshot,
         static_baseline: StaticBaseline,
+        harness_baseline: HarnessBaseline,
         candidate_snapshots: tuple[CandidateSnapshot, ...],
         diagnostics: SearchDiagnosticConsumer | None = None,
         failures: FailurePolicy | None = None,
@@ -234,6 +236,7 @@ class _ProposalRunner:
         self._cell = cell
         self._snapshot = snapshot
         self._static_baseline = static_baseline
+        self._harness_baseline = harness_baseline
         self._candidate_snapshots = candidate_snapshots
         self._diagnostics = diagnostics
         self._failures = failures or FailurePolicy()
@@ -646,7 +649,8 @@ class _ProposalRunner:
             cell=self._cell,
             snapshot=self._snapshot,
             resolution=ExactSelection(
-                select_probe(vector, self._candidate_snapshots)
+                select_probe(vector, self._candidate_snapshots),
+                harness_baseline=self._harness_baseline,
             ),
         )
         if isinstance(prepared, PrepareFailure):
@@ -666,6 +670,8 @@ class _ProposalRunner:
                     stage="proposal-vector",
                     process=self._synthetic_process(),
                 ),
+                project_plan_digest=prepared.project_plan.semantic_digest,
+                environment_plan_digest=prepared.environment_plan.semantic_digest,
             )
         self._prepared[key] = prepared
         return prepared
@@ -678,6 +684,8 @@ class _ProposalRunner:
             stage=prepared.failure.stage,
             process=prepared.failure.process,
             summary_code=prepared.failure.summary_code,
+            project_plan_digest=prepared.project_plan_digest,
+            environment_plan_digest=prepared.environment_plan_digest,
             evaluation=None,
         )
 
@@ -690,6 +698,8 @@ class _ProposalRunner:
         failure = self._failures.classify_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             result,
+            project_plan_digest=prepared.project_plan.semantic_digest,
+            environment_plan_digest=prepared.environment_plan.semantic_digest,
         )
         assert failure is not None
         return self._failure_evidence(
@@ -714,6 +724,8 @@ class _ProposalRunner:
         failure = self._failures.classify_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             result,
+            project_plan_digest=prepared.project_plan.semantic_digest,
+            environment_plan_digest=prepared.environment_plan.semantic_digest,
         )
         assert failure is not None
         return self._failure_evidence(
@@ -756,6 +768,8 @@ class _ProposalRunner:
         summary_code: str | None = None,
         detail: FailureDetail | None = None,
         record: FailureRecord | None = None,
+        project_plan_digest: str | None = None,
+        environment_plan_digest: str | None = None,
     ) -> ProbeEvidence:
         failure = record or self._failures.classify(
             scope=AttemptFailureScope(attempt=attempt),
@@ -764,6 +778,8 @@ class _ProposalRunner:
             process=process,
             summary_code=summary_code,
             detail=detail,
+            project_plan_digest=project_plan_digest,
+            environment_plan_digest=environment_plan_digest,
         )
         self._record(failure, evaluation=evaluation)
         if failure.disposition == "REJECTED":
@@ -907,6 +923,7 @@ class SearchCoordinator:
             cell=cell,
             snapshot=snapshot,
             static_baseline=capture.baseline,
+            harness_baseline=capture.harness_baseline,
             candidate_snapshots=candidate_snapshots,
             diagnostics=self._diagnostics,
             failures=self._failures,

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Mapping
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import shutil
+import threading
+from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
@@ -23,6 +27,15 @@ from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
 
 from pf.adapters.process import ProcessRunner, SecretRedactor, read_process_output
+from pf.adapters.uv_diagnostics import (
+    classify_resolution_diagnostic,
+    diagnostic_digest,
+)
+from pf.adapters.uv_lock import (
+    UvLockError,
+    normalize_uv_pylock_paths,
+    parse_uv_pylock,
+)
 from pf.errors import InfrastructureError
 from pf.environment import (
     ExactSelection,
@@ -40,10 +53,26 @@ from pf.schemas.evaluation import (
     ToolOutcome,
     ToolSuccess,
 )
+from pf.harness import harness_requirement_policy, render_harness_requirement
+from pf.resolution import (
+    InstalledResolution,
+    InstallFailure,
+    InstallOutcome,
+    NativeResolutionPlan,
+    ResolutionContext,
+    ResolutionIndeterminate,
+    ResolutionOutcome,
+    ResolutionPackage,
+    ResolutionPlan,
+    ResolutionRunContext,
+    ResolutionUnsat,
+)
 from pf.schemas.project import (
     AvailableArtifact,
     AvailableCandidate,
     Cell,
+    HarnessResolutionRequirement,
+    HarnessSelection,
     InterpreterIdentity,
     ResolvedNode,
     SelectedCandidate,
@@ -143,17 +172,479 @@ class UvAdapter:
         *,
         registry_access: RegistryAccess | None = None,
         redactor: SecretRedactor | None = None,
+        uv_executable: str | Path | None = None,
     ) -> None:
         self._runner = runner
         self._registry_access = registry_access or RegistryAccess()
         self._redactor = redactor or SecretRedactor(
             self._registry_access.secret_literals
         )
+        requested_executable = str(uv_executable or "uv")
+        discovered = shutil.which(requested_executable)
+        self._uv_executable = (
+            Path(discovered).resolve().as_posix()
+            if discovered is not None
+            else requested_executable
+        )
+        self._resolution_lock = threading.Lock()
+        self._resolution_run: ResolutionRunContext | ToolFailure | None = None
+        self._candidate_lock = threading.Lock()
+        self._candidate_responses: dict[tuple[str, SourceIdentity], bytes] = {}
+
+    def resolution_run_context(
+        self,
+        *,
+        root: Path,
+        timeout_seconds: int | None,
+    ) -> ResolutionRunContext | ToolFailure:
+        """Establish the exact uv protocol once for this verification run."""
+        with self._resolution_lock:
+            if self._resolution_run is not None:
+                return self._resolution_run
+            cutoff = datetime.now(timezone.utc).isoformat()
+            process = self._runner.run(
+                ProcessSpec(
+                    argv=(self._uv_executable, "--version"),
+                    cwd=root.as_posix(),
+                    timeout_seconds=timeout_seconds,
+                )
+            )
+            output = read_process_output(self._runner, process)
+            match = re.fullmatch(
+                r"uv (?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?: \([^\n]+\))?\s*",
+                output.stdout,
+            )
+            if (
+                process.exit_code != 0
+                or not process.stdout_complete
+                or not process.stderr_complete
+                or match is None
+            ):
+                self._resolution_run = ToolFailure(
+                    cause="TOOL_FAILURE",
+                    stage="resolver-context",
+                    process=process,
+                )
+                return self._resolution_run
+            try:
+                self._resolution_run = ResolutionRunContext(
+                    uv_version=match.group("version"),
+                    release_cutoff=cutoff,
+                )
+            except ValidationError:
+                self._resolution_run = ToolFailure(
+                    cause="TOOL_FAILURE",
+                    stage="resolver-context",
+                    process=process,
+                )
+            return self._resolution_run
+
+    def resolve_project(
+        self,
+        *,
+        package: Path,
+        package_name: str,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        context: ResolutionContext,
+        request_digest: str,
+        work_directory: Path,
+        allow_prereleases: bool,
+        timeout_seconds: int | None,
+    ) -> ResolutionOutcome:
+        return self._resolve(
+            kind="project",
+            package=package,
+            package_name=package_name,
+            cell=cell,
+            resolution=resolution,
+            context=context,
+            request_digest=request_digest,
+            project_plan=None,
+            harness=(),
+            work_directory=work_directory,
+            allow_prereleases=allow_prereleases,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def resolve_environment(
+        self,
+        *,
+        package: Path,
+        package_name: str,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        context: ResolutionContext,
+        request_digest: str,
+        project_plan: ResolutionPlan,
+        harness: tuple[HarnessResolutionRequirement, ...],
+        work_directory: Path,
+        allow_prereleases: bool,
+        timeout_seconds: int | None,
+    ) -> ResolutionOutcome:
+        return self._resolve(
+            kind="environment",
+            package=package,
+            package_name=package_name,
+            cell=cell,
+            resolution=resolution,
+            context=context,
+            request_digest=request_digest,
+            project_plan=project_plan,
+            harness=harness,
+            work_directory=work_directory,
+            allow_prereleases=allow_prereleases,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _resolve(
+        self,
+        *,
+        kind: Literal["project", "environment"],
+        package: Path,
+        package_name: str,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        context: ResolutionContext,
+        request_digest: str,
+        project_plan: ResolutionPlan | None,
+        harness: tuple[HarnessResolutionRequirement, ...],
+        work_directory: Path,
+        allow_prereleases: bool,
+        timeout_seconds: int | None,
+    ) -> ResolutionOutcome:
+        stage: Literal["resolve-project", "resolve-environment"] = (
+            "resolve-project" if kind == "project" else "resolve-environment"
+        )
+        request_file = work_directory / f"{kind}-requirements.in"
+        output_file = work_directory / f"pylock.pf-{kind}.toml"
+        source_root = work_directory / "source"
+        if not source_root.is_dir():
+            source_root = package
+        output_file.unlink(missing_ok=True)
+        request_file.write_text(
+            self._resolution_requirements(
+                package=package,
+                cell=cell,
+                resolution=resolution,
+                harness=harness,
+                source_root=source_root,
+            ),
+            encoding="utf-8",
+        )
+        argv: list[str] = [
+            self._uv_executable,
+            "pip",
+            "compile",
+            "pyproject.toml",
+            request_file.as_posix(),
+            "--format",
+            "pylock.toml",
+            "--output-file",
+            output_file.as_posix(),
+            "--python-version",
+            cell.python_minor,
+            "--python-platform",
+            cell.target,
+            "--resolution",
+            (
+                "lowest-direct"
+                if isinstance(resolution, LowestDirectResolution)
+                else "highest"
+            ),
+            "--exclude-newer",
+            context.run.release_cutoff,
+            "--no-header",
+            "--no-progress",
+            "--color",
+            "never",
+        ]
+        for extra in cell.extra_surface:
+            argv.extend(("--extra", extra))
+        if allow_prereleases or any(
+            item.declaration.prerelease_allowed for item in harness
+        ):
+            argv.extend(("--prerelease", "allow"))
+        if project_plan is not None:
+            constraints = work_directory / "project-constraints.in"
+            constraints.write_text(
+                self._project_constraints(project_plan.packages),
+                encoding="utf-8",
+            )
+            argv.extend(("--constraints", constraints.as_posix()))
+        process = self._runner.run(
+            ProcessSpec(
+                argv=tuple(argv),
+                cwd=package.as_posix(),
+                timeout_seconds=timeout_seconds,
+            )
+        )
+        output = read_process_output(self._runner, process)
+        if process.exit_code != 0:
+            classification = classify_resolution_diagnostic(
+                uv_version=context.run.uv_version,
+                process=process,
+                stdout=output.stdout,
+                stderr=output.stderr,
+            )
+            if classification.kind == "unsat":
+                assert classification.proof_code is not None
+                return ResolutionUnsat(
+                    stage=stage,
+                    request_digest=request_digest,
+                    context=context,
+                    proof_code=classification.proof_code,
+                    diagnostic_digest=diagnostic_digest(
+                        output.stdout, output.stderr
+                    ),
+                    process=process,
+                )
+            assert classification.cause is not None
+            assert classification.summary_code is not None
+            return ResolutionIndeterminate(
+                stage=stage,
+                request_digest=request_digest,
+                context=context,
+                cause=classification.cause,
+                summary_code=classification.summary_code,
+                process=process,
+            )
+        if not process.stdout_complete or not process.stderr_complete:
+            return ResolutionIndeterminate(
+                stage=stage,
+                request_digest=request_digest,
+                context=context,
+                cause="TOOL_FAILURE",
+                summary_code="resolution-output-incomplete",
+                process=process,
+            )
+        try:
+            native_content = output_file.read_text(encoding="utf-8")
+            source_root = source_root.resolve()
+            try:
+                package_locator = package.resolve().relative_to(source_root).as_posix()
+            except ValueError:
+                package_locator = "."
+            packages = tuple(
+                item
+                for item in parse_uv_pylock(
+                    native_content,
+                    python_minor=cell.python_minor,
+                    source_root=source_root,
+                    lock_root=output_file.parent,
+                )
+                if not (
+                    item.name == package_name
+                    and item.source.kind == "path"
+                    and item.source.locator in {".", package_locator}
+                )
+            )
+            if any(item.version is None for item in packages):
+                raise ValueError("resolution plan omitted a package version")
+            direct_harness = (
+                self._direct_harness(packages=packages, requirements=harness)
+                if kind == "environment"
+                else ()
+            )
+            native_content = normalize_uv_pylock_paths(
+                native_content,
+                source_root=source_root,
+                lock_root=output_file.parent,
+            )
+        except (OSError, UnicodeError, UvLockError, ValueError):
+            return ResolutionIndeterminate(
+                stage=stage,
+                request_digest=request_digest,
+                context=context,
+                cause="TOOL_FAILURE",
+                summary_code="resolution-plan-invalid",
+                process=process,
+            )
+        native = NativeResolutionPlan.from_content(native_content)
+        return ResolutionPlan.from_evidence(
+            kind=kind,
+            request_digest=request_digest,
+            context=context,
+            packages=packages,
+            direct_harness=direct_harness,
+            native=native,
+            process=process,
+        )
+
+    def install_resolution(
+        self,
+        *,
+        plan: ResolutionPlan,
+        interpreter: Path,
+        cwd: Path,
+        work_directory: Path,
+        timeout_seconds: int | None,
+    ) -> InstallOutcome:
+        lock_file = work_directory / "pylock.pf-install.toml"
+        lock_file.write_text(plan.native.content, encoding="utf-8")
+        process = self._runner.run(
+            ProcessSpec(
+                argv=(
+                    self._uv_executable,
+                    "pip",
+                    "sync",
+                    "--python",
+                    interpreter.as_posix(),
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    lock_file.as_posix(),
+                ),
+                cwd=cwd.as_posix(),
+                timeout_seconds=timeout_seconds,
+            )
+        )
+        outcome = self._classify(process, stage="install-environment")
+        if isinstance(outcome, ToolFailure):
+            return InstallFailure(
+                plan_digest=plan.digest,
+                cause=outcome.cause,
+                process=outcome.process,
+                summary_code=outcome.summary_code,
+            )
+        return InstalledResolution(plan_digest=plan.digest, process=outcome.process)
+
+    @staticmethod
+    def _resolution_requirements(
+        *,
+        package: Path,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        harness: tuple[HarnessResolutionRequirement, ...],
+        source_root: Path,
+    ) -> str:
+        del package
+        extras = f"[{','.join(cell.extra_surface)}]" if cell.extra_surface else ""
+        requirements = [f"-e .{extras}"]
+        if isinstance(resolution, ExactSelection):
+            requirements.extend(
+                UvAdapter._selected_requirement(item)
+                for item in resolution.selection
+            )
+        for item in harness:
+            requirements.extend(
+                UvAdapter._render_harness_requirements(
+                    item,
+                    source_root=source_root,
+                )
+            )
+        return "".join(f"{item}\n" for item in requirements)
+
+    @staticmethod
+    def _render_harness_requirements(
+        requirement: HarnessResolutionRequirement,
+        *,
+        source_root: Path,
+    ) -> tuple[str, ...]:
+        rendered = render_harness_requirement(requirement)
+        declaration = requirement.declaration
+        source = declaration.source
+        if source.kind == "registry":
+            return (rendered,)
+        extras = (
+            f"[{','.join(declaration.requested_extras)}]"
+            if declaration.requested_extras
+            else ""
+        )
+        marker = f"; {declaration.marker}" if declaration.marker else ""
+        if source.kind == "url":
+            assert source.locator is not None and source.content_hash is not None
+            digest = source.content_hash.removeprefix("sha256:")
+            direct = (
+                f"{declaration.name}{extras} @ "
+                f"{source.locator}#sha256={digest}{marker}"
+            )
+        elif source.kind == "git":
+            assert source.locator is not None and source.commit is not None
+            direct = (
+                f"{declaration.name}{extras} @ "
+                f"git+{source.locator}@{source.commit}{marker}"
+            )
+        else:
+            assert source.locator is not None
+            target = (source_root / source.locator).resolve()
+            root = source_root.resolve()
+            if target != root and root not in target.parents:
+                raise ValueError("harness source path escapes the source snapshot")
+            direct = f"{declaration.name}{extras} @ {target.as_uri()}{marker}"
+        return (rendered, direct)
+
+    @staticmethod
+    def _project_constraints(packages: tuple[ResolutionPackage, ...]) -> str:
+        constraints: list[str] = []
+        for package in packages:
+            if package.source.kind == "registry" and package.version is not None:
+                constraints.append(f"{package.name}=={package.version}")
+            elif package.source.kind == "url" and package.selected_artifact is not None:
+                digest = package.selected_artifact.content_hash.removeprefix("sha256:")
+                constraints.append(
+                    f"{package.name} @ {package.selected_artifact.locator}#sha256={digest}"
+                )
+            elif (
+                package.source.kind == "git"
+                and package.source.locator is not None
+                and package.source.commit is not None
+            ):
+                constraints.append(
+                    f"{package.name} @ git+{package.source.locator}@{package.source.commit}"
+                )
+        return "".join(f"{item}\n" for item in sorted(constraints))
+
+    @staticmethod
+    def _direct_harness(
+        *,
+        packages: tuple[ResolutionPackage, ...],
+        requirements: tuple[HarnessResolutionRequirement, ...],
+    ) -> tuple[HarnessSelection, ...]:
+        by_name = {item.name: item for item in packages}
+        selections: list[HarnessSelection] = []
+        for name in sorted({item.declaration.name for item in requirements}):
+            package = by_name.get(name)
+            if package is None or package.version is None:
+                raise ValueError(f"resolved harness package is missing: {name}")
+            declarations = tuple(
+                item.declaration
+                for item in requirements
+                if item.declaration.name == name
+            )
+            selections.append(
+                HarnessSelection(
+                    name=name,
+                    version=package.version,
+                    source=package.source,
+                    selected_artifact=(
+                        AvailableArtifact(
+                            filename=package.selected_artifact.filename,
+                            kind=package.selected_artifact.kind,
+                            content_hash=package.selected_artifact.content_hash,
+                            locator=package.selected_artifact.locator,
+                        )
+                        if package.selected_artifact is not None
+                        else None
+                    ),
+                    ceiling_bound=any(
+                        harness_requirement_policy(item).ceiling_bound
+                        for item in declarations
+                    ),
+                )
+            )
+        return tuple(selections)
 
     def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]:
         process = self._runner.run(
             ProcessSpec(
-                argv=("uv", "python", "list", "--output-format", "json"),
+                argv=(
+                    self._uv_executable,
+                    "python",
+                    "list",
+                    "--output-format",
+                    "json",
+                ),
                 cwd=root.as_posix(),
                 timeout_seconds=30,
             )
@@ -229,50 +720,6 @@ class UvAdapter:
             )
         return InterpreterSuccess(process=process, interpreter=identity)
 
-    def install_editable(
-        self,
-        *,
-        interpreter: Path,
-        package: Path,
-        extra_surface: tuple[str, ...],
-        resolution: ResolutionRequest,
-        timeout_seconds: int | None,
-    ) -> ToolOutcome:
-        extras = ",".join(sorted(set(extra_surface)))
-        editable = package.as_posix()
-        if extras:
-            editable = f"{editable}[{extras}]"
-        selected_requirements = tuple(
-            self._selected_requirement(item)
-            for item in (
-                resolution.selection if isinstance(resolution, ExactSelection) else ()
-            )
-        )
-        resolver_mode = (
-            "lowest-direct"
-            if isinstance(resolution, LowestDirectResolution)
-            else "highest"
-        )
-        result = self._runner.run(
-            ProcessSpec(
-                argv=(
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    interpreter.as_posix(),
-                    "--resolution",
-                    resolver_mode,
-                    "--editable",
-                    editable,
-                    *selected_requirements,
-                ),
-                cwd=package.as_posix(),
-                timeout_seconds=timeout_seconds,
-            )
-        )
-        return self._classify(result, stage="install")
-
     @staticmethod
     def _selected_requirement(selected: SelectedCandidate) -> str:
         assert selected.artifact.locator is not None
@@ -290,7 +737,7 @@ class UvAdapter:
         result = self._runner.run(
             ProcessSpec(
                 argv=(
-                    "uv",
+                    self._uv_executable,
                     "venv",
                     "--python",
                     python_minor,
@@ -305,33 +752,6 @@ class UvAdapter:
             )
         )
         return self._classify(result, stage="create-environment")
-
-    def install_requirements(
-        self,
-        *,
-        interpreter: Path,
-        requirements: tuple[str, ...],
-        constraints: Path,
-        cwd: Path,
-        timeout_seconds: int | None,
-    ) -> ToolOutcome:
-        result = self._runner.run(
-            ProcessSpec(
-                argv=(
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    interpreter.as_posix(),
-                    "--constraint",
-                    constraints.as_posix(),
-                    *requirements,
-                ),
-                cwd=cwd.as_posix(),
-                timeout_seconds=timeout_seconds,
-            )
-        )
-        return self._classify(result, stage="install-harness")
 
     def inspect_environment(
         self,
@@ -408,29 +828,36 @@ class UvAdapter:
             project_url,
             headers=headers,
         )
-        try:
-            with urlopen(request, timeout=30) as response:
-                length = response.headers.get("Content-Length")
-                if length is not None:
-                    if not isinstance(length, str) or not length.isdecimal():
-                        raise ValueError("Content-Length is not a non-negative decimal")
-                    if int(length) > _JSON_SUMMARY_LIMIT:
-                        raise InfrastructureError(
-                            "registry candidate response is too large"
-                        )
-                payload = response.read(_JSON_SUMMARY_LIMIT + 1)
-        except (HTTPError, URLError, TimeoutError, OSError) as error:
-            raise InfrastructureError(
-                f"registry candidate query failed for: {dependency}",
-                detail=self._redactor.redact(str(error)),
-            ) from error
-        except (ValueError, TypeError, AttributeError) as error:
-            raise InfrastructureError(
-                "registry returned invalid Simple JSON",
-                detail=self._redactor.redact(str(error)),
-            ) from error
-        if len(payload) > _JSON_SUMMARY_LIMIT:
-            raise InfrastructureError("registry candidate response is too large")
+        query_key = (canonicalize_name(dependency), source)
+        with self._candidate_lock:
+            payload = self._candidate_responses.get(query_key)
+            if payload is None:
+                try:
+                    with urlopen(request, timeout=30) as response:
+                        length = response.headers.get("Content-Length")
+                        if length is not None:
+                            if not isinstance(length, str) or not length.isdecimal():
+                                raise ValueError(
+                                    "Content-Length is not a non-negative decimal"
+                                )
+                            if int(length) > _JSON_SUMMARY_LIMIT:
+                                raise InfrastructureError(
+                                    "registry candidate response is too large"
+                                )
+                        payload = response.read(_JSON_SUMMARY_LIMIT + 1)
+                except (HTTPError, URLError, TimeoutError, OSError) as error:
+                    raise InfrastructureError(
+                        f"registry candidate query failed for: {dependency}",
+                        detail=self._redactor.redact(str(error)),
+                    ) from error
+                except (ValueError, TypeError, AttributeError) as error:
+                    raise InfrastructureError(
+                        "registry returned invalid Simple JSON",
+                        detail=self._redactor.redact(str(error)),
+                    ) from error
+                if len(payload) > _JSON_SUMMARY_LIMIT:
+                    raise InfrastructureError("registry candidate response is too large")
+                self._candidate_responses[query_key] = payload
         try:
             return self._available_candidates(
                 payload=payload,
@@ -603,28 +1030,13 @@ class UvAdapter:
             return ToolFailure(cause="TOOL_FAILURE", stage=stage, process=result)
         output = read_process_output(self._runner, result)
         text = f"{output.stdout}\n{output.stderr}".lower()
-        if not result.stderr_complete and any(
-            phrase in text
-            for phrase in (
-                "failed to download",
-                "dns error",
-                "name or service not known",
-                "temporary failure in name resolution",
-                "connection refused",
-                "connection timed out",
-                "401 unauthorized",
-                "403 forbidden",
-                "no solution found",
-                "no matching distribution",
-                "failed to resolve",
-                "unsatisfiable",
-                "failed to build",
-                "build backend",
-            )
-        ):
+        if not result.stdout_complete or not result.stderr_complete:
             return ToolFailure(cause="TOOL_FAILURE", stage=stage, process=result)
         source_phrases = (
+            "failed to fetch",
             "failed to download",
+            "failed to read",
+            "request failed",
             "dns error",
             "name or service not known",
             "temporary failure in name resolution",
@@ -632,21 +1044,15 @@ class UvAdapter:
             "connection timed out",
             "401 unauthorized",
             "403 forbidden",
-        )
-        resolution_phrases = (
-            "no solution found",
-            "no matching distribution",
-            "failed to resolve",
-            "unsatisfiable",
+            "hash mismatch",
+            "does not match the expected hash",
+            "invalid package format",
+            "metadata is invalid",
+            "network connectivity is disabled",
+            "wasn't found in the cache",
         )
         if any(phrase in text for phrase in source_phrases):
             cause = "SOURCE_FAILURE"
-        elif any(phrase in text for phrase in resolution_phrases):
-            cause = (
-                "HARNESS_CONFLICT"
-                if stage == "install-harness"
-                else "RESOLUTION_CONFLICT"
-            )
         elif "failed to build" in text or "build backend" in text:
             cause = "BUILD_FAILURE"
         else:

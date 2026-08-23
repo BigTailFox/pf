@@ -6,6 +6,8 @@ from typing import Any, NoReturn, cast
 
 import pytest
 
+from conftest import empty_harness_baseline, prepared_resolution_evidence
+
 from pf.baseline import HighestVersionVerifier
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import (
@@ -154,6 +156,7 @@ class ProposalFactory:
             package_root=root,
             environment_root=root / "environment",
             interpreter=root / "environment" / "bin" / "python",
+            **prepared_resolution_evidence(cell=cell),
             temporary_directory=temporary,
         )
 
@@ -614,6 +617,7 @@ class TestSearchCoordinator:
                 return HighestVersionPass(
                     attempt=baseline_attempt,
                     baseline=capture.baseline,
+                    harness_baseline=empty_harness_baseline(cell),
                     evaluation=baseline_evaluation,
                 )
 
@@ -886,7 +890,7 @@ class TestSearchCoordinator:
         )
         failure = ToolFailure(
             cause="HARNESS_CONFLICT",
-            stage="install-harness",
+            stage="resolve-environment",
             process=ProcessResult(
                 exit_code=1,
                 signal=None,
@@ -970,7 +974,7 @@ class TestSearchCoordinator:
         assert baseline_attempt is not None
         failure = ToolFailure(
             cause="RESOLUTION_CONFLICT",
-            stage="install-project",
+            stage="resolve-project",
             process=successful_process().model_copy(
                 update={"exit_code": 1, "stderr": "No solution found"}
             ),
@@ -981,6 +985,7 @@ class TestSearchCoordinator:
                 return HighestVersionPass(
                     attempt=baseline_attempt,
                     baseline=capture.baseline,
+                    harness_baseline=empty_harness_baseline(cell),
                     evaluation=baseline,
                 )
 
@@ -1072,6 +1077,7 @@ class TestSearchCoordinator:
                 return HighestVersionPass(
                     attempt=baseline_attempt,
                     baseline=capture.baseline,
+                    harness_baseline=empty_harness_baseline(cell),
                     evaluation=baseline,
                 )
 
@@ -1107,7 +1113,7 @@ class TestSearchCoordinator:
                     attempt=attempt,
                     failure=ToolFailure(
                         cause="RESOLUTION_CONFLICT",
-                        stage="install-project",
+                        stage="resolve-project",
                         process=successful_process().model_copy(
                             update={"exit_code": 1}
                         ),

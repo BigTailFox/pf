@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 from typing import Literal, Protocol
 
 from packaging.requirements import Requirement
@@ -14,7 +15,20 @@ import tomlkit
 from tomlkit.items import Array
 
 from pf.errors import ConfigurationError
+from pf.harness import active_harness_requirements, original_harness, relax_harness
 from pf.policy import evaluation_policy_identity
+from pf.resolution import (
+    EnvironmentIdentity,
+    InstalledResolution,
+    InstallFailure,
+    InstallOutcome,
+    ResolutionContext,
+    ResolutionIndeterminate,
+    ResolutionOutcome,
+    ResolutionPlan,
+    ResolutionRunContext,
+    ResolutionUnsat,
+)
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
@@ -28,6 +42,8 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     Cell,
+    HarnessBaseline,
+    HarnessResolutionRequirement,
     PackagePlan,
     Proposal,
     SelectedCandidate,
@@ -43,12 +59,14 @@ class HighestResolution:
 
 @dataclass(frozen=True)
 class LowestDirectResolution:
+    harness_baseline: HarnessBaseline
     kind: Literal["lowest-direct"] = "lowest-direct"
 
 
 @dataclass(frozen=True)
 class ExactSelection:
     selection: tuple[SelectedCandidate, ...]
+    harness_baseline: HarnessBaseline
     kind: Literal["exact-selection"] = "exact-selection"
 
 
@@ -71,6 +89,43 @@ def emit_cell_stage(events: StageConsumer | None, cell: Cell, stage: str) -> Non
 
 
 class UvOperations(Protocol):
+    def resolution_run_context(
+        self,
+        *,
+        root: Path,
+        timeout_seconds: int | None,
+    ) -> ResolutionRunContext | ToolFailure: ...
+
+    def resolve_project(
+        self,
+        *,
+        package: Path,
+        package_name: str,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        context: ResolutionContext,
+        request_digest: str,
+        work_directory: Path,
+        allow_prereleases: bool,
+        timeout_seconds: int | None,
+    ) -> ResolutionOutcome: ...
+
+    def resolve_environment(
+        self,
+        *,
+        package: Path,
+        package_name: str,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        context: ResolutionContext,
+        request_digest: str,
+        project_plan: ResolutionPlan,
+        harness: tuple[HarnessResolutionRequirement, ...],
+        work_directory: Path,
+        allow_prereleases: bool,
+        timeout_seconds: int | None,
+    ) -> ResolutionOutcome: ...
+
     def create_environment(
         self,
         *,
@@ -80,15 +135,15 @@ class UvOperations(Protocol):
         timeout_seconds: int | None,
     ) -> ToolOutcome: ...
 
-    def install_editable(
+    def install_resolution(
         self,
         *,
+        plan: ResolutionPlan,
         interpreter: Path,
-        package: Path,
-        extra_surface: tuple[str, ...],
-        resolution: ResolutionRequest,
+        cwd: Path,
+        work_directory: Path,
         timeout_seconds: int | None,
-    ) -> ToolOutcome: ...
+    ) -> InstallOutcome: ...
 
     def inspect_interpreter(
         self,
@@ -106,17 +161,6 @@ class UvOperations(Protocol):
         timeout_seconds: int | None,
     ) -> GraphOutcome: ...
 
-    def install_requirements(
-        self,
-        *,
-        interpreter: Path,
-        requirements: tuple[str, ...],
-        constraints: Path,
-        cwd: Path,
-        timeout_seconds: int | None,
-    ) -> ToolOutcome: ...
-
-
 class PreparedEnvironment:
     """Runtime resources for one exact Proposal."""
 
@@ -129,6 +173,10 @@ class PreparedEnvironment:
         package_root: Path,
         environment_root: Path,
         interpreter: Path,
+        project_plan: ResolutionPlan,
+        environment_plan: ResolutionPlan,
+        environment_identity: EnvironmentIdentity,
+        harness_baseline: HarnessBaseline,
         temporary_directory: tempfile.TemporaryDirectory[str],
     ) -> None:
         self.attempt = attempt
@@ -137,6 +185,10 @@ class PreparedEnvironment:
         self.package_root = package_root
         self.environment_root = environment_root
         self.interpreter = interpreter
+        self.project_plan = project_plan
+        self.environment_plan = environment_plan
+        self.environment_identity = environment_identity
+        self.harness_baseline = harness_baseline
         self._temporary_directory = temporary_directory
         self.tested = False
 
@@ -155,6 +207,8 @@ class EnvironmentFactory:
     ) -> None:
         self._uv = uv
         self._events = events
+        self._plan_lock = threading.Lock()
+        self._plans: dict[tuple[str, str], ResolutionOutcome] = {}
 
     def prepare(
         self,
@@ -164,6 +218,18 @@ class EnvironmentFactory:
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
     ) -> PreparedEnvironment | PrepareFailure:
+        run = self._uv.resolution_run_context(
+            root=Path.cwd(),
+            timeout_seconds=package.config.resolve_timeout,
+        )
+        if isinstance(run, ToolFailure):
+            raise ConfigurationError("uv resolver protocol could not be established")
+        context = ResolutionContext.from_inputs(
+            run=run,
+            cell=cell,
+            source_policy_identity=self._source_policy_identity(package),
+            allow_prereleases=package.config.allow_prereleases,
+        )
         managed_vector = (
             self._selection_vector(resolution.selection)
             if isinstance(resolution, ExactSelection)
@@ -175,10 +241,19 @@ class EnvironmentFactory:
             snapshot=snapshot,
             resolution=resolution,
             managed_vector=managed_vector,
+            context=context,
         )
 
+        project_plan_digest: str | None = None
+        environment_plan_digest: str | None = None
+
         def failed(failure: ToolFailure) -> PrepareFailure:
-            return PrepareFailure(attempt=attempt, failure=failure)
+            return PrepareFailure(
+                attempt=attempt,
+                failure=failure,
+                project_plan_digest=project_plan_digest,
+                environment_plan_digest=environment_plan_digest,
+            )
 
         temporary_directory = tempfile.TemporaryDirectory(prefix="pf-proposal-")
         runtime_root = Path(temporary_directory.name)
@@ -193,6 +268,84 @@ class EnvironmentFactory:
                 package_root=package_root,
                 managed_vector=managed_vector,
             )
+            project_request = self._request_digest(
+                kind="project",
+                package=package,
+                snapshot=snapshot,
+                cell=cell,
+                resolution=resolution,
+                context=context,
+                project_plan=None,
+                harness=(),
+            )
+            emit_cell_stage(self._events, cell, "resolving project")
+            project_outcome = self._resolve_once(
+                key=("project", project_request),
+                resolve=lambda: self._uv.resolve_project(
+                    package=package_root,
+                    package_name=package.name,
+                    cell=cell,
+                    resolution=resolution,
+                    context=context,
+                    request_digest=project_request,
+                    work_directory=runtime_root,
+                    allow_prereleases=package.config.allow_prereleases,
+                    timeout_seconds=package.config.resolve_timeout,
+                ),
+            )
+            if not isinstance(project_outcome, ResolutionPlan):
+                temporary_directory.cleanup()
+                return failed(self._resolution_failure(project_outcome))
+            project_plan_digest = project_outcome.semantic_digest
+
+            harness = self._harness_for_resolution(
+                package=package,
+                cell=cell,
+                resolution=resolution,
+            )
+            environment_request = self._request_digest(
+                kind="environment",
+                package=package,
+                snapshot=snapshot,
+                cell=cell,
+                resolution=resolution,
+                context=context,
+                project_plan=project_outcome,
+                harness=harness,
+            )
+            emit_cell_stage(self._events, cell, "resolving environment")
+            environment_outcome = self._resolve_once(
+                key=("environment", environment_request),
+                resolve=lambda: self._uv.resolve_environment(
+                    package=package_root,
+                    package_name=package.name,
+                    cell=cell,
+                    resolution=resolution,
+                    context=context,
+                    request_digest=environment_request,
+                    project_plan=project_outcome,
+                    harness=harness,
+                    work_directory=runtime_root,
+                    allow_prereleases=package.config.allow_prereleases,
+                    timeout_seconds=package.config.resolve_timeout,
+                ),
+            )
+            if not isinstance(environment_outcome, ResolutionPlan):
+                temporary_directory.cleanup()
+                return failed(self._resolution_failure(environment_outcome))
+            environment_plan_digest = environment_outcome.semantic_digest
+            if not self._project_graph_is_exact(
+                project_outcome, environment_outcome
+            ):
+                temporary_directory.cleanup()
+                return failed(
+                    ToolFailure(
+                        cause="INTERNAL_INVARIANT",
+                        stage="resolve-environment",
+                        process=environment_outcome.process,
+                    )
+                )
+
             emit_cell_stage(self._events, cell, "preparing environment")
             create = self._uv.create_environment(
                 environment=environment_root,
@@ -226,17 +379,26 @@ class EnvironmentFactory:
                         process=interpreter_result.process,
                     )
                 )
-            emit_cell_stage(self._events, cell, "installing dependencies")
-            install = self._uv.install_editable(
+            emit_cell_stage(self._events, cell, "installing environment plan")
+            install = self._uv.install_resolution(
+                plan=environment_outcome,
                 interpreter=interpreter,
-                package=package_root,
-                extra_surface=cell.extra_surface,
-                resolution=resolution,
+                cwd=package_root,
+                work_directory=runtime_root,
                 timeout_seconds=package.config.resolve_timeout,
             )
-            if isinstance(install, ToolFailure):
+            if isinstance(install, InstallFailure):
                 temporary_directory.cleanup()
-                return failed(install)
+                return failed(
+                    ToolFailure(
+                        cause=install.cause,
+                        stage=install.stage,
+                        process=install.process,
+                        summary_code=install.summary_code,
+                    )
+                )
+            if not isinstance(install, InstalledResolution):
+                raise TypeError("uv install returned an unsupported outcome")
             graph = self._uv.inspect_environment(
                 interpreter=interpreter,
                 cwd=package_root,
@@ -247,6 +409,23 @@ class EnvironmentFactory:
                 return failed(graph)
 
             installed = {node.name: node.version for node in graph.nodes}
+            expected = {
+                item.name: item.version
+                for item in environment_outcome.packages
+                if item.version is not None
+            }
+            expected_names = set(expected) | {package.name}
+            if set(installed) != expected_names or any(
+                installed.get(name) != version for name, version in expected.items()
+            ):
+                temporary_directory.cleanup()
+                return failed(
+                    ToolFailure(
+                        cause="INTERNAL_INVARIANT",
+                        stage="inspect-environment-plan",
+                        process=graph.process,
+                    )
+                )
             active_ids = set(cell.active_declaration_ids)
             managed_names = tuple(
                 sorted(
@@ -268,47 +447,6 @@ class EnvironmentFactory:
                         process=graph.process,
                     )
                 )
-            if package.test_requirements:
-                constraints = runtime_root / "target-constraints.txt"
-                constraints.write_text(
-                    "".join(f"{node.name}=={node.version}\n" for node in graph.nodes),
-                    encoding="utf-8",
-                )
-                emit_cell_stage(self._events, cell, "installing harness")
-                harness = self._uv.install_requirements(
-                    interpreter=interpreter,
-                    requirements=package.test_requirements,
-                    constraints=constraints,
-                    cwd=package_root,
-                    timeout_seconds=package.config.resolve_timeout,
-                )
-                if isinstance(harness, ToolFailure):
-                    temporary_directory.cleanup()
-                    return failed(harness)
-                harness_graph = self._uv.inspect_environment(
-                    interpreter=interpreter,
-                    cwd=package_root,
-                    timeout_seconds=package.config.resolve_timeout,
-                )
-                if isinstance(harness_graph, ToolFailure):
-                    temporary_directory.cleanup()
-                    return failed(harness_graph)
-                target_versions = {node.name: node.version for node in graph.nodes}
-                after_versions = {
-                    node.name: node.version for node in harness_graph.nodes
-                }
-                if any(
-                    after_versions.get(name) != version
-                    for name, version in target_versions.items()
-                ):
-                    temporary_directory.cleanup()
-                    return failed(
-                        ToolFailure(
-                            cause="HARNESS_CONFLICT",
-                            stage="install-harness",
-                            process=harness_graph.process,
-                        )
-                    )
             actual_vector = tuple(
                 VersionPin(name=name, version=installed[name]) for name in managed_names
             )
@@ -322,39 +460,38 @@ class EnvironmentFactory:
                     )
                 )
             policy_identity = evaluation_policy_identity(package.config)
-            proposal_data = {
-                "snapshot_digest": snapshot.identity.digest,
-                "cell": cell.model_dump(mode="json"),
-                "managed_vector": [
-                    pin.model_dump(mode="json") for pin in actual_vector
-                ],
-                "fixed_declaration_ids": sorted(
+            fixed_declaration_ids = tuple(
+                sorted(
                     declaration.declaration_id
                     for declaration in package.declarations
                     if not declaration.managed
                     and declaration.declaration_id in active_ids
-                ),
-                "resolved_graph": [
-                    node.model_dump(mode="json") for node in graph.nodes
-                ],
-                "policy_identity": policy_identity,
-                "interpreter": interpreter_result.interpreter.model_dump(mode="json"),
-            }
-            proposal_id = hashlib.sha256(
-                b"pf:proposal:v1\0"
-                + json.dumps(
-                    proposal_data,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode()
-            ).hexdigest()
+                )
+            )
+            environment_identity = EnvironmentIdentity.from_plans(
+                project_plan=project_outcome,
+                environment_plan=environment_outcome,
+                graph=graph.nodes,
+            )
+            active_harness_ids = tuple(
+                item.declaration.declaration_id for item in harness
+            )
+            harness_baseline = (
+                HarnessBaseline.from_evidence(
+                    cell=cell,
+                    declaration_ids=tuple(sorted(active_harness_ids)),
+                    selections=environment_outcome.direct_harness,
+                )
+                if isinstance(resolution, HighestResolution)
+                else resolution.harness_baseline
+            )
             proposal = Proposal(
-                proposal_id=proposal_id,
+                proposal_id=environment_identity.digest,
                 attempt_id=attempt.attempt_id,
                 snapshot_digest=snapshot.identity.digest,
                 cell=cell,
                 managed_vector=actual_vector,
-                fixed_declaration_ids=tuple(proposal_data["fixed_declaration_ids"]),
+                fixed_declaration_ids=fixed_declaration_ids,
                 resolved_graph=graph.nodes,
                 policy_identity=policy_identity,
                 interpreter=interpreter_result.interpreter,
@@ -366,11 +503,129 @@ class EnvironmentFactory:
                 package_root=package_root,
                 environment_root=environment_root,
                 interpreter=interpreter,
+                project_plan=project_outcome,
+                environment_plan=environment_outcome,
+                environment_identity=environment_identity,
+                harness_baseline=harness_baseline,
                 temporary_directory=temporary_directory,
             )
         except Exception:
             temporary_directory.cleanup()
             raise
+
+    def _resolve_once(
+        self,
+        *,
+        key: tuple[str, str],
+        resolve: Callable[[], ResolutionOutcome],
+    ) -> ResolutionOutcome:
+        with self._plan_lock:
+            existing = self._plans.get(key)
+            if existing is not None:
+                return existing
+            outcome = resolve()
+            self._plans[key] = outcome
+            return outcome
+
+    @staticmethod
+    def _source_policy_identity(package: PackagePlan) -> str:
+        payload = json.dumps(
+            package.source_plan.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return hashlib.sha256(b"pf:source-policy:v1\0" + payload).hexdigest()
+
+    @staticmethod
+    def _request_digest(
+        *,
+        kind: Literal["project", "environment"],
+        package: PackagePlan,
+        snapshot: SourceSnapshot,
+        cell: Cell,
+        resolution: ResolutionRequest,
+        context: ResolutionContext,
+        project_plan: ResolutionPlan | None,
+        harness: tuple[HarnessResolutionRequirement, ...],
+    ) -> str:
+        payload = {
+            "kind": kind,
+            "package": package.name,
+            "snapshot_digest": snapshot.identity.digest,
+            "cell": cell.model_dump(mode="json"),
+            "resolution": resolution.kind,
+            "selection": (
+                [item.model_dump(mode="json") for item in resolution.selection]
+                if isinstance(resolution, ExactSelection)
+                else None
+            ),
+            "baseline_digest": (
+                resolution.harness_baseline.digest
+                if isinstance(resolution, (ExactSelection, LowestDirectResolution))
+                else None
+            ),
+            "context": context.digest,
+            "project_plan": (
+                project_plan.semantic_digest if project_plan is not None else None
+            ),
+            "harness": [item.model_dump(mode="json") for item in harness],
+        }
+        return hashlib.sha256(
+            b"pf:resolution-request:v1\0"
+            + json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    @staticmethod
+    def _harness_for_resolution(
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        resolution: ResolutionRequest,
+    ) -> tuple[HarnessResolutionRequirement, ...]:
+        if isinstance(resolution, HighestResolution):
+            return original_harness(package.harness_requirements, cell)
+        if resolution.harness_baseline.cell != cell:
+            raise ConfigurationError("harness baseline must match the requested cell")
+        return relax_harness(
+            package.harness_requirements,
+            resolution.harness_baseline,
+        ).requirements
+
+    @staticmethod
+    def _resolution_failure(
+        outcome: ResolutionUnsat | ResolutionIndeterminate,
+    ) -> ToolFailure:
+        if isinstance(outcome, ResolutionUnsat):
+            return ToolFailure(
+                cause=(
+                    "RESOLUTION_CONFLICT"
+                    if outcome.stage == "resolve-project"
+                    else "HARNESS_CONFLICT"
+                ),
+                stage=outcome.stage,
+                process=outcome.process,
+                summary_code=outcome.proof_code,
+            )
+        return ToolFailure(
+            cause=outcome.cause,
+            stage=outcome.stage,
+            process=outcome.process,
+            summary_code=outcome.summary_code,
+        )
+
+    @staticmethod
+    def _project_graph_is_exact(
+        project: ResolutionPlan,
+        environment: ResolutionPlan,
+    ) -> bool:
+        environment_packages = {item.name: item for item in environment.packages}
+        return all(
+            (resolved := environment_packages.get(item.name)) is not None
+            and resolved.version == item.version
+            and resolved.source == item.source
+            and resolved.selected_artifact == item.selected_artifact
+            for item in project.packages
+        )
 
     @staticmethod
     def _selection_vector(
@@ -394,6 +649,7 @@ class EnvironmentFactory:
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
         managed_vector: tuple[VersionPin, ...] | None,
+        context: ResolutionContext,
     ) -> Attempt:
         requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
         if isinstance(resolution, ExactSelection):
@@ -410,8 +666,37 @@ class EnvironmentFactory:
         source_plan_identity = hashlib.sha256(
             b"pf:source-plan:v1\0" + source_plan
         ).hexdigest()
+        harness_declaration_ids = tuple(
+            sorted(
+                item.declaration_id
+                for item in active_harness_requirements(
+                    package.harness_requirements, cell
+                )
+            )
+        )
+        baseline_digest = (
+            resolution.harness_baseline.digest
+            if isinstance(resolution, (ExactSelection, LowestDirectResolution))
+            else None
+        )
+        selected_digest = (
+            hashlib.sha256(
+                b"pf:selected-candidates:v1\0"
+                + json.dumps(
+                    [
+                        item.model_dump(mode="json")
+                        for item in resolution.selection
+                    ],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            if isinstance(resolution, ExactSelection)
+            else None
+        )
         return Attempt.from_identity(
             AttemptIdentity(
+                identity_version="attempt-v2",
                 source_snapshot_digest=snapshot.identity.digest,
                 cell=cell,
                 requested_resolution=requested_resolution,
@@ -419,6 +704,15 @@ class EnvironmentFactory:
                 active_declaration_ids=cell.active_declaration_ids,
                 source_plan_identity=source_plan_identity,
                 evaluation_policy_identity=evaluation_policy_identity(package.config),
+                resolution_context_digest=context.digest,
+                harness_policy_identity=(
+                    "original-harness-v1"
+                    if isinstance(resolution, HighestResolution)
+                    else "harness-relaxation-v1"
+                ),
+                harness_declaration_ids=harness_declaration_ids,
+                harness_baseline_digest=baseline_digest,
+                selected_candidate_evidence_digest=selected_digest,
             )
         )
 

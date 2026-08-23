@@ -5,9 +5,19 @@ import tempfile
 
 import pytest
 
+from conftest import prepared_resolution_evidence
+
 from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
 from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
+from pf.resolution import (
+    InstalledResolution,
+    NativeResolutionPlan,
+    ResolutionContext,
+    ResolutionOutcome,
+    ResolutionPlan,
+    ResolutionRunContext,
+)
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
@@ -100,6 +110,7 @@ def prepared_for_static(tmp_path: Path, proposal_id: str) -> PreparedEnvironment
         package_root=source,
         environment_root=environment,
         interpreter=environment / "bin" / "python",
+        **prepared_resolution_evidence(cell=cell),
         temporary_directory=temporary,
     )
 
@@ -114,11 +125,43 @@ def empty_baseline(prepared: PreparedEnvironment) -> StaticBaseline:
 
 
 class PreparedUv:
+    def resolution_run_context(self, **kwargs: object) -> ResolutionRunContext:
+        return ResolutionRunContext(
+            uv_version="0.12.5",
+            release_cutoff="2026-08-23T00:00:00+00:00",
+        )
+
+    def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+        return self._plan("project", kwargs)
+
+    def resolve_environment(self, **kwargs: object) -> ResolutionOutcome:
+        return self._plan("environment", kwargs)
+
+    @staticmethod
+    def _plan(kind: str, kwargs: dict[str, object]) -> ResolutionPlan:
+        context = kwargs["context"]
+        request_digest = kwargs["request_digest"]
+        assert isinstance(context, ResolutionContext)
+        assert isinstance(request_digest, str)
+        return ResolutionPlan.from_evidence(
+            kind="project" if kind == "project" else "environment",
+            request_digest=request_digest,
+            context=context,
+            packages=(),
+            direct_harness=(),
+            native=NativeResolutionPlan.from_content(
+                'lock-version = "1.0"\ncreated-by = "uv"\npackages = []\n'
+            ),
+            process=process_result(),
+        )
+
     def create_environment(self, **kwargs: object) -> ToolSuccess:
         return ToolSuccess(stage="create-environment", process=process_result())
 
-    def install_editable(self, **kwargs: object) -> ToolSuccess:
-        return ToolSuccess(stage="install", process=process_result())
+    def install_resolution(self, **kwargs: object) -> InstalledResolution:
+        plan = kwargs["plan"]
+        assert isinstance(plan, ResolutionPlan)
+        return InstalledResolution(plan_digest=plan.digest, process=process_result())
 
     def inspect_interpreter(self, **kwargs: object) -> InterpreterSuccess:
         return InterpreterSuccess(
@@ -135,10 +178,6 @@ class PreparedUv:
             process=process_result(),
             nodes=(ResolvedNode(name="demo", version="0.1.0"),),
         )
-
-    def install_requirements(self, **kwargs: object) -> ToolSuccess:
-        return ToolSuccess(stage="install-harness", process=process_result())
-
 
 class FailingTy:
     def check(self, **kwargs: object) -> TyCheck:

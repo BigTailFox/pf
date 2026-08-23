@@ -10,8 +10,17 @@ import pytest
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.uv import RegistryAccess, UvAdapter
-from pf.environment import ExactSelection, HighestResolution, LowestDirectResolution
+from pf.environment import HighestResolution
 from pf.errors import InfrastructureError
+from pf.harness import original_harness
+from pf.project import ProjectLoader
+from pf.resolution import (
+    ResolutionContext,
+    ResolutionIndeterminate,
+    ResolutionPlan,
+    ResolutionRunContext,
+    ResolutionUnsat,
+)
 from pf.schemas.evaluation import (
     GraphSuccess,
     InterpreterSuccess,
@@ -20,9 +29,7 @@ from pf.schemas.evaluation import (
     ToolFailure,
 )
 from pf.schemas.project import (
-    AvailableArtifact,
     Cell,
-    SelectedCandidate,
     SourceIdentity,
 )
 
@@ -62,93 +69,336 @@ def process_result(
 
 
 class TestUvAdapter:
-    def test_uv_adapter_owns_highest_editable_install_argv(
+    def test_uv_adapter_resolves_two_pylocks_and_syncs_only_the_final_plan(
         self, tmp_path: Path
     ) -> None:
-        runner = RecordingRunner()
-        adapter = UvAdapter(runner)
-        interpreter = tmp_path / ".venv" / "bin" / "python"
-        package = tmp_path / "demo"
+        project_lock = f"""
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.11"
 
-        adapter.install_editable(
-            interpreter=interpreter,
-            package=package,
-            extra_surface=(),
+[[packages]]
+name = "demo"
+directory = {{ path = "demo", editable = true }}
+
+[[packages]]
+name = "idna"
+version = "3.10"
+index = "https://pypi.org/simple"
+wheels = [{{ name = "idna-3.10-py3-none-any.whl", url = "https://files.example/idna.whl", hashes = {{ sha256 = "{'a' * 64}" }} }}]
+"""
+        environment_lock = project_lock + f"""
+
+[[packages]]
+name = "pytest"
+version = "8.4.2"
+index = "https://pypi.org/simple"
+wheels = [{{ name = "pytest-8.4.2-py3-none-any.whl", url = "https://files.example/pytest.whl", hashes = {{ sha256 = "{'b' * 64}" }} }}]
+"""
+
+        class ResolutionRunner:
+            def __init__(self) -> None:
+                self.specs: list[ProcessSpec] = []
+                self.compiles = 0
+
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                self.specs.append(spec)
+                if spec.argv[1:] == ("--version",):
+                    return process_result(stdout="uv 0.12.5 (test)\n")
+                if spec.argv[1:3] == ("pip", "compile"):
+                    output = Path(spec.argv[spec.argv.index("--output-file") + 1])
+                    output.write_text(
+                        project_lock if self.compiles == 0 else environment_lock,
+                        encoding="utf-8",
+                    )
+                    self.compiles += 1
+                return process_result()
+
+        package_root = tmp_path / "demo"
+        package_root.mkdir()
+        (package_root / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna"]
+
+[dependency-groups]
+test = ["pytest>=8.0a1"]
+
+[tool.pf]
+python = ["3.11"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=package_root, package_selection=None
+        ).packages[0]
+        runner = ResolutionRunner()
+        adapter = UvAdapter(runner)
+        run = adapter.resolution_run_context(root=package_root, timeout_seconds=30)
+        assert isinstance(run, ResolutionRunContext)
+        assert adapter.resolution_run_context(
+            root=package_root, timeout_seconds=30
+        ) is run
+        context = ResolutionContext.from_inputs(
+            run=run,
+            cell=package.cells[0],
+            source_policy_identity="source-policy",
+            allow_prereleases=False,
+        )
+        project = adapter.resolve_project(
+            package=package_root,
+            package_name=package.name,
+            cell=package.cells[0],
             resolution=HighestResolution(),
-            timeout_seconds=600,
+            context=context,
+            request_digest="project-request",
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
+        )
+        assert isinstance(project, ResolutionPlan)
+        environment = adapter.resolve_environment(
+            package=package_root,
+            package_name=package.name,
+            cell=package.cells[0],
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="environment-request",
+            project_plan=project,
+            harness=original_harness(
+                package.harness_requirements, package.cells[0]
+            ),
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
+        )
+        assert isinstance(environment, ResolutionPlan)
+        installed = adapter.install_resolution(
+            plan=environment,
+            interpreter=tmp_path / "venv" / "bin" / "python",
+            cwd=package_root,
+            work_directory=tmp_path,
+            timeout_seconds=30,
         )
 
-        assert runner.specs[0].argv[5:7] == ("--resolution", "highest")
-        assert runner.specs[0].argv[-2:] == ("--editable", package.as_posix())
+        assert installed.status == "INSTALLED"
+        assert installed.plan_digest == environment.digest
+        assert [item.name for item in project.packages] == ["idna"]
+        assert [item.name for item in environment.direct_harness] == ["pytest"]
+        assert (tmp_path / "project-constraints.in").read_text() == "idna==3.10\n"
+        assert (tmp_path / "environment-requirements.in").read_text().endswith(
+            "pytest>=8.0a1\n"
+        )
+        compile_argv = runner.specs[1].argv
+        assert Path(compile_argv[0]).is_absolute()
+        assert compile_argv[1:3] == ("pip", "compile")
+        assert compile_argv[compile_argv.index("--python-platform") + 1] == (
+            "x86_64-unknown-linux-gnu"
+        )
+        assert runner.specs[-1].argv[1:3] == ("pip", "sync")
+        assert "--prerelease" in runner.specs[2].argv
+        assert runner.specs[2].argv[runner.specs[2].argv.index("--prerelease") + 1] == (
+            "allow"
+        )
+        assert not any(
+            spec.argv[1:3] == ("pip", "install") for spec in runner.specs
+        )
 
-    def test_uv_adapter_owns_lowest_direct_editable_install_argv(
+    def test_resolution_failure_uses_the_qualified_diagnostic_profile(
         self, tmp_path: Path
     ) -> None:
-        runner = RecordingRunner()
-        adapter = UvAdapter(runner)
-        interpreter = tmp_path / ".venv" / "bin" / "python"
-        package = tmp_path / "packages" / "demo"
-
-        result = adapter.install_editable(
-            interpreter=interpreter,
-            package=package,
-            extra_surface=("cuda", "arrow"),
-            resolution=LowestDirectResolution(),
-            timeout_seconds=600,
+        stderr = (
+            "× No solution found when resolving dependencies: "
+            "Because you require demo==1 and demo==2, we can conclude that your "
+            "requirements are unsatisfiable."
         )
 
-        assert result.status == "SUCCESS"
-        assert runner.specs[0].argv == (
-            "uv",
-            "pip",
-            "install",
-            "--python",
-            interpreter.as_posix(),
-            "--resolution",
-            "lowest-direct",
-            "--editable",
-            f"{package.as_posix()}[arrow,cuda]",
-        )
-        assert runner.specs[0].cwd == package.as_posix()
+        class Runner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                return process_result(exit_code=1, stderr=stderr)
 
-    def test_uv_adapter_installs_the_selected_artifact_with_its_sha256(
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-23T00:00:00+00:00",
+            ),
+            cell=Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor="3.11",
+                extra_surface=(),
+            ),
+            source_policy_identity="source-policy",
+            allow_prereleases=False,
+        )
+        outcome = UvAdapter(Runner()).resolve_project(
+            package=tmp_path,
+            package_name="demo",
+            cell=context.cell,
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="request",
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
+        )
+
+        assert isinstance(outcome, ResolutionUnsat)
+        assert outcome.proof_code == "direct-version-contradiction"
+
+    def test_environment_resolution_materializes_a_fixed_path_harness_source(
         self,
         tmp_path: Path,
     ) -> None:
-        runner = RecordingRunner()
-        adapter = UvAdapter(runner)
-        interpreter = tmp_path / ".venv" / "bin" / "python"
-        package = tmp_path / "demo"
-        digest = "a" * 64
+        source = tmp_path / "source"
+        dependency = source / "vendor" / "tool"
+        dependency.mkdir(parents=True)
+        (dependency / "pyproject.toml").write_text(
+            '[project]\nname = "tool"\nversion = "1.0"\n',
+            encoding="utf-8",
+        )
+        source.mkdir(exist_ok=True)
+        (source / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
 
-        result = adapter.install_editable(
-            interpreter=interpreter,
-            package=package,
-            extra_surface=(),
-            resolution=ExactSelection(
-                (
-                    SelectedCandidate(
-                        dependency="idna",
-                        version="3.1",
-                        artifact=AvailableArtifact(
-                            filename="idna-3.1-py3-none-any.whl",
-                            kind="wheel",
-                            content_hash=f"sha256:{digest}",
-                            locator=(
-                                "https://files.example/"
-                                "idna-3.1-py3-none-any.whl"
-                            ),
-                        ),
-                    ),
-                )
+[dependency-groups]
+test = ["tool>=1"]
+
+[tool.uv.sources]
+tool = { path = "vendor/tool" }
+
+[tool.pf]
+python = ["3.11"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        project_lock = '''\
+lock-version = "1.0"
+created-by = "uv"
+packages = [{ name = "demo", directory = { path = "source", editable = true } }]
+'''
+        environment_lock = f'''\
+lock-version = "1.0"
+created-by = "uv"
+packages = [
+  {{ name = "demo", directory = {{ path = "source", editable = true }} }},
+  {{ name = "tool", directory = {{ path = "{dependency.as_posix()}" }} }},
+]
+'''
+
+        class Runner:
+            def __init__(self) -> None:
+                self.compiles = 0
+
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                if spec.argv[1:3] == ("pip", "compile"):
+                    output = Path(spec.argv[spec.argv.index("--output-file") + 1])
+                    output.write_text(
+                        project_lock if self.compiles == 0 else environment_lock,
+                        encoding="utf-8",
+                    )
+                    self.compiles += 1
+                return process_result()
+
+        package = ProjectLoader().load(root=source, package_selection=None).packages[0]
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-23T00:00:00+00:00",
             ),
-            timeout_seconds=600,
+            cell=package.cells[0],
+            source_policy_identity="source-policy",
+            allow_prereleases=False,
+        )
+        adapter = UvAdapter(Runner())
+        project = adapter.resolve_project(
+            package=source,
+            package_name=package.name,
+            cell=package.cells[0],
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="project-request",
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
+        )
+        assert isinstance(project, ResolutionPlan)
+        environment = adapter.resolve_environment(
+            package=source,
+            package_name=package.name,
+            cell=package.cells[0],
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="environment-request",
+            project_plan=project,
+            harness=original_harness(
+                package.harness_requirements,
+                package.cells[0],
+            ),
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
         )
 
-        assert result.status == "SUCCESS"
-        assert runner.specs[0].argv[-1] == (
-            f"idna @ https://files.example/idna-3.1-py3-none-any.whl#sha256={digest}"
+        assert isinstance(environment, ResolutionPlan)
+        assert environment.direct_harness[0].source == SourceIdentity(
+            kind="path",
+            locator="vendor/tool",
         )
+        assert dependency.as_posix() not in environment.native.content
+        assert "source/vendor/tool" in environment.native.content
+        assert (tmp_path / "environment-requirements.in").read_text() == (
+            f"-e .\ntool>=1\ntool @ {dependency.as_uri()}\n"
+        )
+
+    def test_success_with_an_invalid_native_plan_is_indeterminate(
+        self, tmp_path: Path
+    ) -> None:
+        class Runner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                output = Path(spec.argv[spec.argv.index("--output-file") + 1])
+                output.write_text("not a pylock", encoding="utf-8")
+                return process_result()
+
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-23T00:00:00+00:00",
+            ),
+            cell=Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor="3.11",
+                extra_surface=(),
+            ),
+            source_policy_identity="source-policy",
+            allow_prereleases=False,
+        )
+        outcome = UvAdapter(Runner()).resolve_project(
+            package=tmp_path,
+            package_name="demo",
+            cell=context.cell,
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="request",
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
+        )
+
+        assert isinstance(outcome, ResolutionIndeterminate)
+        assert outcome.summary_code == "resolution-plan-invalid"
 
     def test_uv_adapter_inspects_a_canonical_installed_graph(
         self, tmp_path: Path
@@ -182,48 +432,6 @@ class TestUvAdapter:
             ("requests", "2.32.5", ("certifi", "urllib3")),
         ]
 
-    def test_uv_adapter_owns_environment_and_harness_install_argv(
-        self, tmp_path: Path
-    ) -> None:
-        runner = RecordingRunner()
-        adapter = UvAdapter(runner)
-        interpreter = tmp_path / ".venv" / "bin" / "python"
-        constraints = tmp_path / "constraints.txt"
-
-        created = adapter.create_environment(
-            environment=tmp_path / ".venv",
-            python_minor="3.11",
-            cwd=tmp_path,
-            timeout_seconds=30,
-        )
-        installed = adapter.install_requirements(
-            interpreter=interpreter,
-            requirements=("pytest", "coverage"),
-            constraints=constraints,
-            cwd=tmp_path,
-            timeout_seconds=60,
-        )
-
-        assert created.status == installed.status == "SUCCESS"
-        assert runner.specs[0].argv[:5] == (
-            "uv",
-            "venv",
-            "--python",
-            "3.11",
-            "--no-project",
-        )
-        assert runner.specs[1].argv == (
-            "uv",
-            "pip",
-            "install",
-            "--python",
-            interpreter.as_posix(),
-            "--constraint",
-            constraints.as_posix(),
-            "pytest",
-            "coverage",
-        )
-
     @pytest.mark.parametrize(
         ("result", "expected"),
         (
@@ -234,10 +442,32 @@ class TestUvAdapter:
             ),
             (
                 process_result(exit_code=1, stderr="No solution found"),
-                "RESOLUTION_CONFLICT",
+                "TOOL_FAILURE",
             ),
             (
                 process_result(exit_code=1, stderr="failed to download: DNS error"),
+                "SOURCE_FAILURE",
+            ),
+            (
+                process_result(exit_code=1, stderr="Failed to read archive: Hash mismatch"),
+                "SOURCE_FAILURE",
+            ),
+            (
+                process_result(exit_code=1, stderr="Failed to read archive: file is empty"),
+                "SOURCE_FAILURE",
+            ),
+            (
+                process_result(
+                    exit_code=1,
+                    stderr="Failed to read artifact: No such file or directory",
+                ),
+                "SOURCE_FAILURE",
+            ),
+            (
+                process_result(
+                    exit_code=1,
+                    stderr="Failed to read archive: invalid package format",
+                ),
                 "SOURCE_FAILURE",
             ),
             (process_result(exit_code=1, stderr="unexpected"), "TOOL_FAILURE"),
@@ -361,6 +591,53 @@ class TestUvAdapter:
 
 
 class TestCandidateQuery:
+    def test_candidate_query_memoizes_raw_source_response_across_cells(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        document = json.dumps(
+            {
+                "files": [
+                    {
+                        "filename": "demo-1.0.tar.gz",
+                        "url": "demo-1.0.tar.gz",
+                        "hashes": {"sha256": "a" * 64},
+                    }
+                ]
+            }
+        ).encode()
+        opens = 0
+
+        class Response(BytesIO):
+            headers = {"Content-Length": str(len(document))}
+
+        def open_request(request: Request, timeout: int) -> Response:
+            nonlocal opens
+            opens += 1
+            return Response(document)
+
+        monkeypatch.setattr("pf.adapters.uv.urlopen", open_request)
+        adapter = UvAdapter(RecordingRunner())
+        source = SourceIdentity(
+            kind="registry",
+            locator="https://index.example/simple",
+        )
+
+        for python_minor in ("3.10", "3.11"):
+            candidates = adapter.query(
+                dependency="demo",
+                source=source,
+                cell=Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor=python_minor,
+                    extra_surface=(),
+                ),
+            )
+            assert [candidate.version for candidate in candidates] == ["1.0"]
+
+        assert opens == 1
+
     def test_candidate_query_accepts_arm64_wheel_for_aarch64_darwin_target(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -855,8 +1132,7 @@ class TestPythonInventory:
 
         assert minors == ("3.11", "3.12")
         assert runner.spec is not None
-        assert runner.spec.argv == (
-            "uv",
+        assert runner.spec.argv[1:] == (
             "python",
             "list",
             "--output-format",

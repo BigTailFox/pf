@@ -150,17 +150,19 @@ Role 写入 Journal，供 diagnose 与 impact 使用。它不进入 `attempt_id`
 ```text
 1. declaration-capture    prepare(highest) → capture S_hi → close
 2. declaration            仅当捕获得到合法 S_hi
-                          prepare(lowest-direct) → 相对该 S_hi 做 full → close
+                          prepare(lowest-direct, HarnessBaseline from step 1)
+                          → 相对该 S_hi 做 full → close
 ```
 
 规则：
 
 - 第 1 步失败则 **不** 启动第 2 步。没有 `S_hi` 就不能对下界做 D004 增量。
 - 第 1 步的合法 `TyCheck` 诊断构成 `S_hi`，其本身不是 FailureRecord；捕获过程的工具失败才分类。
+- 第 1 步的 original final environment plan 同时捕获 direct `HarnessBaseline/U_B`；第 2 步在 request 类型层面必须携带它，并使用 relaxed direct harness。没有该 baseline 不能构造 `lowest-direct` Attempt。
 - 第 2 步的增量非空是 `STATIC_REGRESSION` transition，但它不是 FailureCause 或 Rejection；eligible witness confirmed missing 是 `RUNTIME_INTERFACE_MISSING`，测试以配置失败码退出是 `TEST_FAILURE`，二者在证据完整时是 Declaration Attempt 上的 Rejection。
 - `CoordinateSearch` 不得看见这两次 Attempt。
 
-第 1 步 Rejection（例如当前声明在 highest 下无解或不能构建）表示 **当前声明在该 cell 的最高解析上确定不满足验证契约**，命令级仍是 D001 的兼容性失败。它还不是“下界不兼容”——下界尚未被问到。diagnose 必须用 `declaration-capture` 的 impact，不得写成 Baseline“因此未开始 floor 搜索”，也不得写成 Declaration“下界未通过”。
+第 1 步 Rejection（例如受支持 profile 认证当前 highest project/environment request 无解）表示 **当前声明在该 cell 的最高解析上确定不满足验证契约**，命令级仍是 D001 的兼容性失败。build、source、artifact、安装或未知诊断是 Indeterminate。它还不是“下界不兼容”——下界尚未被问到。diagnose 必须用 `declaration-capture` 的 impact，不得写成 Baseline“因此未开始 floor 搜索”，也不得写成 Declaration“下界未通过”。
 
 第 1 步 Indeterminate 表示 **无法捕获 `S_hi`**，下界问题未回答，命令级为不确定结果。
 
@@ -184,7 +186,7 @@ Adapter cause + stage + process
 
 ### 6.1 prepare
 
-`EnvironmentFactory` 对 `highest` 和 `lowest-direct` 都在创建 venv 之前构造 Attempt。prepare 失败返回 `PrepareFailure(attempt, failure)`。`CompatibilityChecker`、`HighestVersionVerifier` 和 probe runner 都必须保留该对象直到 `classify`。
+`EnvironmentFactory` 在创建 venv 和两次 resolution 前构造 request-level Attempt；run-level uv protocol setup 先于所有 Attempt。prepare 失败返回 `PrepareFailure(attempt, failure, acquired plan digests)`。`CompatibilityChecker`、`HighestVersionVerifier` 和 probe runner 都必须保留该对象直到 `classify`，并把失败发生前已经取得的 plan identity 传入 FailureRecord。
 
 禁止：
 
@@ -210,7 +212,7 @@ StaticUnchanged/StaticRegression 不是本表的 failure Evaluation。check 不�
 
 ```text
 kind          success | warning | failure | indeterminate
-stage         非成功时必填，adapter 名（install / ty / test / …）
+stage         非成功时必填，adapter 名（resolve-project / resolve-environment / install-environment / ty / test / …）
 failure       非成功时必填 FailureRecord
 process       若有
 diagnostics   D004 增量或 warning 基线诊断
@@ -224,14 +226,14 @@ diagnostics   D004 增量或 warning 基线诊断
 
 cause 集合、Rejection 资格和 Baseline/Probe 列仍由 D005 §8 唯一拥有，本文不复制该矩阵。本文只增加：
 
-- `requested_resolution = lowest-direct` 使用与 Probe 相同的 Rejection 资格（证据完整且 cause/stage 属于验证契约时 Reject）；
+- `requested_resolution = lowest-direct` 使用与 Probe 相同的 Rejection 资格；prepare 阶段只有 `resolve-project / RESOLUTION_CONFLICT` 与 `resolve-environment / HARNESS_CONFLICT` 的 certified complete outcome 可 Reject；
 - 搜索含义固定为“终止该 check cell”——check 没有后续 probe；
 - `rejection_is_supported` 必须接受 `lowest-direct`；
 - 任意 role 的 `STATIC_REGRESSION` 都没有 disposition；只有 runtime witness/test 或既有 prepare cause 进入 D005。
 
 Declaration Attempt 不要求事先存在一次 **完整通过测试的** Baseline。它要求本 cell 在同一次 check 运行中已经得到合法 `S_hi`。这是 D004 静态基线，不是 D005 搜索锚点。不得把 Declaration Attempt 解释为 Probe，也不得因此要求 smoke 式的 highest `PASS`。
 
-check 的 `declaration-capture` 使用 D005 的 Baseline/`highest` 行：确定性安装/构建/harness 失败是 Rejection；工具/来源/超时是 Indeterminate。捕获成功后的 `TyCheck` 诊断不是 Rejection。
+check 的 `declaration-capture` 使用 D005 的 Baseline/`highest` 行：certified project/harness resolution conflict 是 Rejection；build、安装、artifact、工具、来源与超时是 Indeterminate。捕获成功后的 `TyCheck` 诊断不是 Rejection。
 
 ## 7. 命令终态
 
@@ -376,7 +378,7 @@ P004 中“check 兼容性失败仍走 Evaluation”是历史实施记录，不�
 
 ## 13. 验证契约
 
-- `lowest-direct` prepare 失败保留 Attempt，`failure.stage` 为 `install` / `install-harness` 等 adapter 名；TTY 第一行是 `failed at installing dependencies`（或 harness），并有 Diagnose；
+- `lowest-direct` prepare 失败保留 Attempt 和已取得的 plan identity；`failure.stage` 为 `resolve-project` / `resolve-environment` / `install-environment` / inspect 等 adapter 名，TTY 展示对应阶段并有 Diagnose；
 - check 的 lowest-direct static regression 继续运行 witness/test；confirmed missing 或 test failure 才产生 Declaration FailureRecord；
 - check 的 highest 安装失败不启动 `lowest-direct`，diagnose impact 使用 `declaration-capture` 文案；
 - Journal 不出现在 `explain` / `apply` 路径；把 Journal 误当作报告必须失败；

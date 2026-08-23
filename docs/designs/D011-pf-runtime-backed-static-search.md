@@ -225,7 +225,7 @@ UNKNOWN
 
 完整测试通过产生 PASS Evaluation；Probe 上的 PASS 再投影为 ProbePass。D005 按 Attempt role 和证据完整性把 `INCOMPATIBLE` / `UNKNOWN` 分别映射为 Rejection 或 Indeterminate。Witness `CONFIRMED_MISSING` 使用新的 runtime cause `RUNTIME_INTERFACE_MISSING`；不得继续用 `STATIC_REGRESSION` 表示该 Rejection。
 
-本节只限制由 static/`ty` 路径引出的边界。D005 已定义的确定 resolution、build 或 harness conflict 仍可拒绝 Attempt；本文不撤销这些 prepare/runtime contract。
+本节只限制由 static/`ty` 路径引出的边界。D005 已定义的、由受支持 adapter profile 认证的 project/harness resolution conflict 仍可拒绝 Attempt；build、installation、artifact、source 与未分类 failure 保持 Indeterminate。
 
 最终通过定义为：
 
@@ -436,5 +436,5 @@ final_verification     = direct-test-command-pass
 - 新增用户定义的 witness command 或第二个 smoke command；
 - 任意非单调搜索、hole certification 或 exhaustive version testing；
 - flaky retry、跨运行 Evaluation cache 或 failure attribution 到单个版本的全局结论；
-- 改变 deterministic resolution/build/harness rejection 的既有资格；
+- 改变 certified project/harness resolution rejection 的既有资格；
 - 改变 `pf smoke`、`check`、`search`、`apply` 的用户命令表面。

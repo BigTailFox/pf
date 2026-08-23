@@ -59,6 +59,8 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 8. static、witness 和 test 共享同一 cell/snapshot/policy/baseline context。
 9. 非单调判断只读取相同 Slice 中的直接 runtime observation，不读取 region guidance。
 10. 同一精确 Proposal 的完整 Evaluation 在一次 search 内最多执行一次。
+11. `CandidateSnapshot` 只冻结受管 project direct dependency 的搜索候选；harness 与任意 transitive distribution 完全属于 uv resolution，不建立 PF catalog、coordinate 或 floor。
+12. 一次 Verification Run 固定精确 uv profile、source policy、release cutoff 与共享 cache；相同 project/environment resolution input 最多解析一次，但 source 访问失败仍为 Indeterminate，不把 cache miss 解释为候选不存在。
 
 ## 4. SearchCoordinator 状态机
 

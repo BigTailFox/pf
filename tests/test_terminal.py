@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+
+from conftest import empty_harness_baseline
 from rich.console import Console
 
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
@@ -1466,6 +1468,9 @@ class TestVerificationRendering:
                 outcomes=(
                     HighestVersionPass(
                         attempt=attempt,
+                        harness_baseline=empty_harness_baseline(
+                            attempt.identity.cell
+                        ),
                         baseline=StaticBaseline(
                             proposal=proposal,
                             ty=check,
@@ -1872,7 +1877,7 @@ class TestSearchRendering:
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause="HARNESS_CONFLICT",
-            stage="install-harness",
+            stage="resolve-environment",
             process=process_result(
                 stderr="No solution found when resolving dependencies",
             ),
@@ -1888,7 +1893,7 @@ class TestSearchRendering:
         assert exit_code == 1
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at installing harness\n"
+            "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at resolving the test environment\n"
             "The test dependencies cannot be installed without changing the versions being checked.\n"
             "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
             f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"

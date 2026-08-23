@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
+
+from conftest import empty_harness_baseline
 from pydantic import ValidationError
 
 from pf.failure import FailurePolicy
@@ -652,6 +654,7 @@ class TestSearchSchemas:
             HighestVersionPass(
                 attempt=attempt,
                 baseline=baseline,
+                harness_baseline=empty_harness_baseline(attempt.identity.cell),
                 evaluation=passed,
             ).evaluation
             is passed
@@ -681,7 +684,12 @@ class TestSearchSchemas:
             SmokeBaselineRejection(
                 outcomes=(
                     HighestVersionPass(
-                        attempt=attempt, baseline=baseline, evaluation=passed
+                        attempt=attempt,
+                        baseline=baseline,
+                        harness_baseline=empty_harness_baseline(
+                            attempt.identity.cell
+                        ),
+                        evaluation=passed,
                     ),
                 )
             )
@@ -1132,6 +1140,9 @@ class TestSearchSchemas:
                     HighestVersionPass(
                         attempt=attempt,
                         baseline=baseline,
+                        harness_baseline=empty_harness_baseline(
+                            attempt.identity.cell
+                        ),
                         evaluation=passed,
                     ),
                 )

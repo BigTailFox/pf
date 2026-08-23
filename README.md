@@ -40,6 +40,8 @@ uv run pf apply
 
 项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
 
+当前 resolver protocol 精确支持 uv `0.12.5`–`0.12.0` 与 `0.11.33`–`0.11.30`；其他 uv 版本会 fail closed，不沿用未经 qualification 的诊断 parser。
+
 `search` 只写 `package-floor.json`。`apply` 只消费完整、未漂移且可表示的报告，不重新解析依赖、不运行 `ty` 或测试。
 
 `smoke` 在当前声明约束内建立尽可能新的 fresh install，运行一次 `ty` 和完整测试。`ty` 诊断以 warning 摘要展示，测试失败才是兼容性失败。外部工具的脱敏详细记录写入 `.pf/logs/`，终端摘要在支持时链接到对应日志。
@@ -51,4 +53,4 @@ uv run pf apply
 - [工程文档索引](docs/README.md)：契约所有权、状态词和文档布局
 - [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
 
-D001–D008 已落地。实施记录不承担现行契约。
+D001–D012 已落地。实施记录不承担现行契约。

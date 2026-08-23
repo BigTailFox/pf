@@ -6,6 +6,9 @@ import re
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
+from packaging.specifiers import InvalidSpecifier, Specifier
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 from pydantic import model_validator
 
 from pf.schemas.base import FrozenSchema
@@ -67,6 +70,101 @@ class RequirementDeclaration(FrozenSchema):
     managed: bool
 
 
+class HarnessGroupProvenance(FrozenSchema):
+    owner: Literal["root", "package"]
+    pyproject_path: str
+    group_path: tuple[str, ...]
+    item_path: tuple[int, ...]
+
+    @model_validator(mode="after")
+    def validate_group_path(self) -> "HarnessGroupProvenance":
+        if not self.pyproject_path or not self.group_path:
+            raise ValueError("harness provenance requires a pyproject and group")
+        if len(self.group_path) != len(self.item_path):
+            raise ValueError("harness group and item paths must have equal depth")
+        if any(not group for group in self.group_path) or any(
+            index < 0 for index in self.item_path
+        ):
+            raise ValueError("harness provenance path entries must be valid")
+        return self
+
+
+class HarnessSpecifierClause(FrozenSchema):
+    operator: Literal["~=", "==", "!=", "<=", ">=", "<", ">", "==="]
+    version: str
+
+    @model_validator(mode="after")
+    def validate_clause(self) -> "HarnessSpecifierClause":
+        try:
+            Specifier(f"{self.operator}{self.version}")
+        except InvalidSpecifier as error:
+            raise ValueError("invalid harness specifier clause") from error
+        return self
+
+
+class HarnessRequirement(FrozenSchema):
+    declaration_id: str
+    package: str
+    provenance: HarnessGroupProvenance
+    name: str
+    requested_extras: tuple[str, ...] = ()
+    specifier: tuple[HarnessSpecifierClause, ...] = ()
+    marker: str | None = None
+    source: SourceIdentity
+    prerelease_allowed: bool = False
+    original_text: str
+
+    @staticmethod
+    def identity_digest(
+        *,
+        package: str,
+        provenance: HarnessGroupProvenance,
+        name: str,
+        requested_extras: tuple[str, ...],
+        specifier: tuple[HarnessSpecifierClause, ...],
+        marker: str | None,
+        source: SourceIdentity,
+        original_text: str,
+    ) -> str:
+        identity = {
+            "package": package,
+            "provenance": provenance.model_dump(mode="json"),
+            "name": name,
+            "requested_extras": requested_extras,
+            "specifier": [item.model_dump(mode="json") for item in specifier],
+            "marker": marker,
+            "source": source.model_dump(mode="json"),
+            "original_text": original_text,
+        }
+        return hashlib.sha256(
+            b"pf:harness-declaration:v1\0"
+            + json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    @model_validator(mode="after")
+    def validate_requirement(self) -> "HarnessRequirement":
+        if canonicalize_name(self.name) != self.name or not self.original_text:
+            raise ValueError("harness requirement must retain normalized identity")
+        if tuple(sorted(set(self.requested_extras))) != self.requested_extras:
+            raise ValueError("harness extras must be sorted and unique")
+        clause_keys = tuple((item.operator, item.version) for item in self.specifier)
+        if clause_keys != tuple(sorted(set(clause_keys))):
+            raise ValueError("harness specifier clauses must be sorted and unique")
+        expected = self.identity_digest(
+            package=self.package,
+            provenance=self.provenance,
+            name=self.name,
+            requested_extras=self.requested_extras,
+            specifier=self.specifier,
+            marker=self.marker,
+            source=self.source,
+            original_text=self.original_text,
+        )
+        if self.declaration_id != expected:
+            raise ValueError("harness declaration ID does not match its identity")
+        return self
+
+
 class Cell(FrozenSchema):
     package: str
     target: str
@@ -124,7 +222,7 @@ class Proposal(FrozenSchema):
 
 class AvailableArtifact(FrozenSchema):
     filename: str
-    kind: Literal["wheel", "sdist"]
+    kind: Literal["wheel", "sdist", "archive"]
     content_hash: str
     locator: str | None = None
     python_minors: tuple[str, ...] = ()
@@ -135,6 +233,149 @@ class AvailableCandidate(FrozenSchema):
     version: str
     yanked: bool = False
     artifacts: tuple[AvailableArtifact, ...]
+
+
+class HarnessSelection(FrozenSchema):
+    name: str
+    version: str
+    source: SourceIdentity
+    selected_artifact: AvailableArtifact | None = None
+    ceiling_bound: bool
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> "HarnessSelection":
+        if canonicalize_name(self.name) != self.name:
+            raise ValueError("harness selection name must be canonical")
+        try:
+            Version(self.version)
+        except InvalidVersion as error:
+            raise ValueError("harness selection version must be normalized") from error
+        return self
+
+
+def harness_baseline_digest(
+    *,
+    cell: Cell,
+    declaration_ids: tuple[str, ...],
+    selections: tuple[HarnessSelection, ...],
+) -> str:
+    identity = {
+        "cell": cell.model_dump(mode="json"),
+        "declaration_ids": declaration_ids,
+        "selections": [item.model_dump(mode="json") for item in selections],
+    }
+    return hashlib.sha256(
+        b"pf:harness-baseline:v1\0"
+        + json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+class HarnessBaseline(FrozenSchema):
+    cell: Cell
+    declaration_ids: tuple[str, ...]
+    selections: tuple[HarnessSelection, ...]
+    digest: str
+
+    @classmethod
+    def from_evidence(
+        cls,
+        *,
+        cell: Cell,
+        declaration_ids: tuple[str, ...],
+        selections: tuple[HarnessSelection, ...],
+    ) -> "HarnessBaseline":
+        return cls(
+            cell=cell,
+            declaration_ids=declaration_ids,
+            selections=selections,
+            digest=harness_baseline_digest(
+                cell=cell,
+                declaration_ids=declaration_ids,
+                selections=selections,
+            ),
+        )
+
+    @model_validator(mode="after")
+    def validate_baseline(self) -> "HarnessBaseline":
+        if self.declaration_ids != tuple(sorted(set(self.declaration_ids))):
+            raise ValueError("harness baseline declarations must be sorted and unique")
+        names = tuple(item.name for item in self.selections)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("harness baseline selections must be sorted and unique")
+        expected = harness_baseline_digest(
+            cell=self.cell,
+            declaration_ids=self.declaration_ids,
+            selections=self.selections,
+        )
+        if self.digest != expected:
+            raise ValueError("harness baseline digest does not match its evidence")
+        return self
+
+
+class HarnessResolutionRequirement(FrozenSchema):
+    declaration: HarnessRequirement
+    specifier: tuple[HarnessSpecifierClause, ...]
+    relaxed_minimum: bool
+    ceiling: str | None = None
+
+    @model_validator(mode="after")
+    def validate_resolution_requirement(self) -> "HarnessResolutionRequirement":
+        clause_keys = tuple((item.operator, item.version) for item in self.specifier)
+        if clause_keys != tuple(sorted(set(clause_keys))):
+            raise ValueError("resolved harness clauses must be sorted and unique")
+        if self.ceiling is not None:
+            try:
+                Version(self.ceiling)
+            except InvalidVersion as error:
+                raise ValueError("harness ceiling must be a normalized version") from error
+        return self
+
+
+def relaxed_harness_digest(
+    *, baseline_digest: str, requirements: tuple[HarnessResolutionRequirement, ...]
+) -> str:
+    identity = {
+        "policy": "harness-relaxation-v1",
+        "baseline_digest": baseline_digest,
+        "requirements": [item.model_dump(mode="json") for item in requirements],
+    }
+    return hashlib.sha256(
+        b"pf:relaxed-harness:v1\0"
+        + json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+class RelaxedHarness(FrozenSchema):
+    policy_identity: Literal["harness-relaxation-v1"] = "harness-relaxation-v1"
+    baseline_digest: str
+    requirements: tuple[HarnessResolutionRequirement, ...]
+    digest: str
+
+    @classmethod
+    def from_requirements(
+        cls,
+        *,
+        baseline_digest: str,
+        requirements: tuple[HarnessResolutionRequirement, ...],
+    ) -> "RelaxedHarness":
+        return cls(
+            baseline_digest=baseline_digest,
+            requirements=requirements,
+            digest=relaxed_harness_digest(
+                baseline_digest=baseline_digest,
+                requirements=requirements,
+            ),
+        )
+
+    @model_validator(mode="after")
+    def validate_relaxed_harness(self) -> "RelaxedHarness":
+        expected = relaxed_harness_digest(
+            baseline_digest=self.baseline_digest,
+            requirements=self.requirements,
+        )
+        if self.digest != expected:
+            raise ValueError("relaxed harness digest does not match its evidence")
+        return self
 
 
 class Candidate(FrozenSchema):
@@ -225,7 +466,7 @@ class PackagePlan(FrozenSchema):
     declarations: tuple[RequirementDeclaration, ...]
     cells: tuple[Cell, ...]
     source_plan: SourcePlan
-    test_requirements: tuple[str, ...] = ()
+    harness_requirements: tuple[HarnessRequirement, ...] = ()
     test_group_present: bool = False
 
 

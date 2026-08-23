@@ -98,6 +98,8 @@ class HighestVersionVerifier:
                 stage=prepared.failure.stage,
                 process=prepared.failure.process,
                 summary_code=prepared.failure.summary_code,
+                project_plan_digest=prepared.project_plan_digest,
+                environment_plan_digest=prepared.environment_plan_digest,
             )
             if failure.disposition == "REJECTED":
                 return BaselineRejection(
@@ -119,6 +121,8 @@ class HighestVersionVerifier:
                         stage=capture.failure.stage,
                         process=capture.failure.process,
                         summary_code=capture.failure.summary_code,
+                        project_plan_digest=prepared.project_plan.semantic_digest,
+                        environment_plan_digest=prepared.environment_plan.semantic_digest,
                     ),
                     evaluation=capture,
                 )
@@ -132,6 +136,7 @@ class HighestVersionVerifier:
                 return HighestVersionPass(
                     attempt=prepared.attempt,
                     baseline=capture.baseline,
+                    harness_baseline=prepared.harness_baseline,
                     evaluation=evaluation,
                 )
             if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
@@ -153,6 +158,8 @@ class HighestVersionVerifier:
                             "increment"
                         ),
                     ),
+                    project_plan_digest=prepared.project_plan.semantic_digest,
+                    environment_plan_digest=prepared.environment_plan.semantic_digest,
                 )
                 return BaselineIndeterminate(
                     attempt=prepared.attempt,
@@ -179,6 +186,8 @@ class HighestVersionVerifier:
                     if isinstance(evaluation, IndeterminateEvaluation)
                     else None
                 ),
+                project_plan_digest=prepared.project_plan.semantic_digest,
+                environment_plan_digest=prepared.environment_plan.semantic_digest,
             )
             if failure.disposition == "REJECTED":
                 assert isinstance(evaluation, TestFailEvaluation)
