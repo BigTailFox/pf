@@ -61,13 +61,13 @@ class ResolutionRunContext(FrozenSchema):
 
     @model_validator(mode="before")
     @classmethod
-    def populate_qualification_profile(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "qualification_profile" not in data:
-            version = data.get("uv_version")
+    def populate_qualification_profile(cls, value: Any, /) -> Any:
+        if isinstance(value, dict) and "qualification_profile" not in value:
+            version = value.get("uv_version")
             profile = UV_DIAGNOSTIC_PROFILES.get(version)
             if profile is not None:
-                return {**data, "qualification_profile": profile}
-        return data
+                return {**value, "qualification_profile": profile}
+        return value
 
     @model_validator(mode="after")
     def validate_run_context(self) -> "ResolutionRunContext":

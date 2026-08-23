@@ -225,6 +225,7 @@ class TestCoordinateSearch:
         vector_two = (VersionPin(name="a", version="2"),)
         passed_two = probe_pass(vector_two, "a=2")
         rejected_one = probe_rejection(vector_one, "a=1")
+        assert isinstance(rejected_one.evaluation, TestFailEvaluation)
         region_slice = StaticRegionSlice(
             cell=candidates.cell,
             source_snapshot_digest="snapshot",

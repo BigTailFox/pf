@@ -75,7 +75,7 @@ Relax(D_H, U_B) = 删除 eligible 显式 minimum 并施加适用 ceiling 后的�
 
 - PF 支持的精确 uv 版本与 adapter protocol identity；
 - secret-free source/index 配置 identity；
-- resolution strategy、prerelease/yanked 规则和规范输入顺序；
+- project request 的 resolution strategy、environment 的 highest strategy、prerelease/yanked 规则和规范输入顺序；
 - Python、platform、marker 和 wheel tag 环境；
 - Verification Run 开始时建立的 release cutoff；
 - cache policy identity。
@@ -87,7 +87,7 @@ ProjectResolutionPlan(P) = ResolveProject(P, C_run)
 G(P)                     = ProjectResolutionPlan(P).graph
 ```
 
-`P` 只 exact pin 受管直接依赖。对 `ExactSelection`，project request 携带 `SelectedCandidate` 的 version 与 artifact evidence；它们不把 artifact 扩展成独立搜索坐标。固定和非受管直接依赖保持声明语义；project 的间接依赖仍由 uv 选择。
+`ResolveProject` 使用当前 Attempt 的 project strategy：baseline/smoke 为 highest，Declaration Attempt 为 lowest-direct，probe 为 exact selection。`P` 只 exact pin 受管直接依赖。对 `ExactSelection`，project request 携带 `SelectedCandidate` 的 version 与 artifact evidence；它们不把 artifact 扩展成独立搜索坐标。固定和非受管直接依赖保持声明语义；project 的间接依赖仍由 uv 选择。
 
 随后解析完整最终环境：
 
@@ -101,7 +101,7 @@ EnvironmentResolutionPlan(P) = ResolveEnvironment(
 E(P) = EnvironmentResolutionPlan(P).graph
 ```
 
-resolver 的既定 highest 策略表示固定 uv 版本、策略和规范输入顺序下的选择，不承诺在多包偏序中求数学上的逐坐标全局最大值。
+`ResolveEnvironment` 始终使用 uv 的 highest strategy。此时 `Exact(G(P))` 已固定 project graph，highest 只让 uv 在原始或 relaxed harness contract 内选择满足约束的尽可能新版本；project 的 lowest-direct strategy 不得传播到 harness。resolver 的既定 highest 策略表示固定 uv 版本、策略和规范输入顺序下的选择，不承诺在多包偏序中求数学上的逐坐标全局最大值。
 
 PF 只安装最终 environment plan：
 
@@ -294,9 +294,9 @@ build(package, cell, baseline)
 环境准备执行两次 resolution、一次 installation：
 
 ```text
-1. resolve ProjectResolutionPlan(P)
+1. 以当前 Attempt 的 project strategy resolve ProjectResolutionPlan(P)
 2. 从 project plan 得到 G(P)，不安装
-3. resolve EnvironmentResolutionPlan(P)
+3. 以 highest strategy resolve EnvironmentResolutionPlan(P)
      from project + Exact(G(P)) + Relax(D_H,U_B)
 4. 只安装 EnvironmentResolutionPlan(P)
 5. inspect E(P)，复证实际 graph 等于 environment plan 且 exact 包含 G(P)
@@ -307,7 +307,7 @@ resolution success 使用 uv 产生的机器可读 plan；v1 使用 `pylock.toml
 
 每个已验证的 `ResolutionPlan` 同时保留 normalized semantic projection 与 validated native uv plan。前者用于 PF graph/identity，只包含 name、version、source 和可靠可得的 selected artifact evidence；后者保留 `pylock.toml`、hash 与 installer 所需 artifact material。
 
-第一次 resolution 只建立 project graph，不创建实际 Python environment。第二次 resolution 把同一 project、`Exact(G(P))` 和 harness declaration 一次性求解成完整最终环境；因此不存在 project install 后再由 harness install 修改环境的中间态。
+第一次 resolution 只建立 project graph，不创建实际 Python environment，并按 Attempt 选择 highest、lowest-direct 或 exact project coordinate。第二次 resolution 把同一 project、`Exact(G(P))` 和 harness declaration 以 highest strategy 一次性求解成完整最终环境；因此不存在 project install 后再由 harness install 修改环境的中间态，也不会把 project 的 lowest-direct strategy 误用于 harness。
 
 installation 消费 `EnvironmentResolutionPlan(P)` 表示的 validated native plan。normalized semantic identity 不需要编码 installer 所需的全部 raw artifact alternatives；这些 alternatives 可以存在于 native plan，但不因此成为 PF coordinate 或 EnvironmentIdentity 字段。安装可以从共享 cache 或 source 下载 native plan 中有完整 integrity evidence 的 artifact，但不得重新进行开放式 dependency resolution。editable project 作为 final plan 的一部分安装。
 
@@ -588,7 +588,7 @@ Probe relaxation 只从 eligible direct registry harness declaration 删除显�
 
 ### H4 — Resolve twice, install once
 
-PF 先 resolve project 得到精确 `G(P)`，再 resolve project + `Exact(G(P))` + relaxed harness 得到 `EnvironmentResolutionPlan(P)`，并且只安装 final plan。必须满足 `G(P) ⊆exact E(P)`。
+PF 先按 Attempt 的 project strategy resolve project 得到精确 `G(P)`，再以 highest strategy resolve project + `Exact(G(P))` + relaxed harness 得到 `EnvironmentResolutionPlan(P)`，并且只安装 final plan。project 的 lowest-direct strategy 不传播到 harness；必须满足 `G(P) ⊆exact E(P)`。
 
 ### H5 — Certified conflict only
 
@@ -662,7 +662,7 @@ Harness transitive graph 完全由 uv 解析，可以出现、消失或改变版
 4. 无 specifier、仅 upper/exclusion、`~=` 和 wildcard equality 的 direct registry distribution 虽不删除 clause，仍记录 `U_B` 并追加 ceiling；精确 equality 和固定 source 不追加；
 5. 删除显式 prerelease lower bound 不改变该 declaration 已确定的 prerelease admission policy；
 6. ceiling-bound direct harness distribution 不能选择高于 `U_B` 的版本；
-7. PF 对每个 Attempt 先 resolve project 得到 `G(P)`，再 resolve 完整 `EnvironmentResolutionPlan(P)`；第一次 resolution 不创建环境；
+7. PF 对每个 Attempt 先按 project strategy resolve 得到 `G(P)`，再以 highest strategy resolve 完整 `EnvironmentResolutionPlan(P)`；第一次 resolution 不创建环境，project 的 lowest-direct strategy 不传播到 harness；
 8. 每个 Attempt 只安装 final environment plan 一次；安装后 inspect 复证实际 `E(P)` 等于 plan 且 `G(P) ⊆exact E(P)`；
 9. 两次 resolution success 都产生经 Schema 校验的 machine-readable plan；installation 不进行 plan 外 resolution；
 10. registry plan entry 保存 package identity、version、source 和 uv 可靠暴露的 selected artifact evidence；raw artifact alternatives 只作 diagnostics/provenance，不形成 PF coordinate 或强制 semantic identity；

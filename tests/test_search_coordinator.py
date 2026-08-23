@@ -773,6 +773,7 @@ class TestSearchCoordinator:
             for observation in result.search.observations
             if isinstance(observation.evidence, StaticOnlyEvidence)
         )
+        assert isinstance(cheap.evidence, StaticOnlyEvidence)
         assert cheap.candidate_version == "2"
         assert cheap.evidence.guidance == "REJECTED"
         assert not hasattr(cheap.evidence, "status")

@@ -10,11 +10,11 @@ from conftest import prepared_resolution_evidence
 from pf.environment import PreparedEnvironment
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import Attempt, AttemptIdentity, TyDiagnostic
-from pf.schemas.project import Proposal, VersionPin
+from pf.schemas.project import PackagePlan, Proposal, VersionPin
 from pf.static_transition import StaticTransitionClassifier
 
 
-def _context(tmp_path: Path, source: str) -> tuple[PreparedEnvironment, object]:
+def _context(tmp_path: Path, source: str) -> tuple[PreparedEnvironment, PackagePlan]:
     project_root = tmp_path / "project"
     project_root.mkdir()
     (project_root / "pyproject.toml").write_text(
@@ -137,7 +137,7 @@ def test_classifier_builds_only_structurally_recoverable_witnesses(
 
     result = StaticTransitionClassifier().classify(
         prepared,
-        package=package,  # type: ignore[arg-type]
+        package=package,
         incremental=(diagnostic,),
     )[0]
 
@@ -183,12 +183,12 @@ def test_classifier_downgrades_without_guessing_from_message(
 
     first = classifier.classify(
         prepared,
-        package=package,  # type: ignore[arg-type]
+        package=package,
         incremental=(diagnostic,),
     )[0]
     second = classifier.classify(
         prepared,
-        package=package,  # type: ignore[arg-type]
+        package=package,
         incremental=(diagnostic.model_copy(update={"message": "different wording"}),),
     )[0]
 

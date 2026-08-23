@@ -349,7 +349,8 @@ class UvAdapter:
             "--resolution",
             (
                 "lowest-direct"
-                if isinstance(resolution, LowestDirectResolution)
+                if kind == "project"
+                and isinstance(resolution, LowestDirectResolution)
                 else "highest"
             ),
             "--exclude-newer",

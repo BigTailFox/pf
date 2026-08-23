@@ -36,6 +36,7 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     PrepareFailure,
     ProcessResult,
+    RuntimeInterfaceMissingEvaluation,
     StaticBaseline,
     StaticBaselineCapture,
     StatusEvent,
@@ -46,7 +47,6 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.evaluation import (
     IndeterminateEvaluation,
-    StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     StaticEvaluation,
     TestFail,
@@ -379,7 +379,7 @@ class TestCompatibilityChecker:
                 self, *args: object, **kwargs: object
             ) -> (
                 PassEvaluation
-                | StaticRegressionEvaluation
+                | RuntimeInterfaceMissingEvaluation
                 | TestFailEvaluation
                 | IndeterminateEvaluation
             ):
@@ -451,7 +451,11 @@ class TestCompatibilityChecker:
 
         assert result.status == "PASS", (
             result,
-            result.failure.process.diagnostic() if result.failure else None,
+            (
+                result.failure.process.diagnostic()
+                if result.failure and result.failure.process
+                else None
+            ),
         )
 
     def test_check_only_evaluates_cells_for_the_exact_host_target(

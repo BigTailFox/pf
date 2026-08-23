@@ -10,9 +10,9 @@ import pytest
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.uv import RegistryAccess, UvAdapter
-from pf.environment import HighestResolution
+from pf.environment import HighestResolution, LowestDirectResolution
 from pf.errors import InfrastructureError
-from pf.harness import original_harness
+from pf.harness import original_harness, relax_harness
 from pf.project import ProjectLoader
 from pf.resolution import (
     ResolutionContext,
@@ -30,6 +30,8 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     Cell,
+    HarnessBaseline,
+    HarnessSelection,
     SourceIdentity,
 )
 
@@ -150,11 +152,26 @@ test-command = ["pytest"]
             source_policy_identity="source-policy",
             allow_prereleases=False,
         )
+        baseline = HarnessBaseline.from_evidence(
+            cell=package.cells[0],
+            declaration_ids=tuple(
+                item.declaration_id for item in package.harness_requirements
+            ),
+            selections=(
+                HarnessSelection(
+                    name="pytest",
+                    version="8.4.2",
+                    source=SourceIdentity(kind="registry"),
+                    ceiling_bound=True,
+                ),
+            ),
+        )
+        resolution = LowestDirectResolution(baseline)
         project = adapter.resolve_project(
             package=package_root,
             package_name=package.name,
             cell=package.cells[0],
-            resolution=HighestResolution(),
+            resolution=resolution,
             context=context,
             request_digest="project-request",
             work_directory=tmp_path,
@@ -166,13 +183,13 @@ test-command = ["pytest"]
             package=package_root,
             package_name=package.name,
             cell=package.cells[0],
-            resolution=HighestResolution(),
+            resolution=resolution,
             context=context,
             request_digest="environment-request",
             project_plan=project,
-            harness=original_harness(
-                package.harness_requirements, package.cells[0]
-            ),
+            harness=relax_harness(
+                package.harness_requirements, baseline
+            ).requirements,
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
@@ -192,14 +209,23 @@ test-command = ["pytest"]
         assert [item.name for item in environment.direct_harness] == ["pytest"]
         assert (tmp_path / "project-constraints.in").read_text() == "idna==3.10\n"
         assert (tmp_path / "environment-requirements.in").read_text().endswith(
-            "pytest>=8.0a1\n"
+            "pytest<=8.4.2\n"
         )
-        compile_argv = runner.specs[1].argv
-        assert Path(compile_argv[0]).is_absolute()
-        assert compile_argv[1:3] == ("pip", "compile")
-        assert compile_argv[compile_argv.index("--python-platform") + 1] == (
+        project_compile_argv = runner.specs[1].argv
+        environment_compile_argv = runner.specs[2].argv
+        assert Path(project_compile_argv[0]).is_absolute()
+        assert project_compile_argv[1:3] == ("pip", "compile")
+        assert project_compile_argv[
+            project_compile_argv.index("--python-platform") + 1
+        ] == (
             "x86_64-unknown-linux-gnu"
         )
+        assert project_compile_argv[
+            project_compile_argv.index("--resolution") + 1
+        ] == "lowest-direct"
+        assert environment_compile_argv[
+            environment_compile_argv.index("--resolution") + 1
+        ] == "highest"
         assert runner.specs[-1].argv[1:3] == ("pip", "sync")
         assert "--prerelease" in runner.specs[2].argv
         assert runner.specs[2].argv[runner.specs[2].argv.index("--prerelease") + 1] == (

@@ -14,7 +14,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.markers import Marker, default_environment
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 from pf.config import ConfigLoader
 from pf.errors import ConfigurationError
@@ -418,6 +418,10 @@ class ProjectLoader:
             source=source,
             original_text=raw,
         )
+        try:
+            specifier_allows_prereleases = requirement.specifier.prereleases is True
+        except InvalidVersion:
+            specifier_allows_prereleases = False
         return HarnessRequirement(
             declaration_id=declaration_id,
             package=package,
@@ -428,7 +432,7 @@ class ProjectLoader:
             marker=marker,
             source=source,
             prerelease_allowed=(
-                allow_prereleases or requirement.specifier.prereleases is True
+                allow_prereleases or specifier_allows_prereleases
             ),
             original_text=raw,
         )

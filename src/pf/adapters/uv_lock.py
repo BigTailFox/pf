@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
+from packaging.markers import InvalidMarker, Marker
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
@@ -137,9 +138,16 @@ def _package(
             raise UvLockError("pylock package has an invalid version") from error
     else:
         raise UvLockError("pylock package version must be a string")
-    marker = package.get("marker")
-    if marker is not None:
-        raise UvLockError("cell-specific pylock package cannot retain a marker")
+    raw_marker = package.get("marker")
+    if raw_marker is None:
+        marker = None
+    elif isinstance(raw_marker, str):
+        try:
+            marker = str(Marker(raw_marker))
+        except InvalidMarker as error:
+            raise UvLockError("pylock package has an invalid marker") from error
+    else:
+        raise UvLockError("pylock package marker must be a string")
     raw_dependencies = package.get("dependencies", [])
     if not isinstance(raw_dependencies, list):
         raise UvLockError("pylock package dependencies must be an array")
@@ -189,6 +197,7 @@ def _package(
             version=version,
             source=source,
             dependencies=tuple(sorted(set(dependencies))),
+            marker=marker,
             available_artifacts=artifacts,
             selected_artifact=selected,
         )

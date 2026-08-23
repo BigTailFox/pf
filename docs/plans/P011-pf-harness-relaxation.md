@@ -233,6 +233,14 @@ adapter parser 校验 lock version、created-by、request identity、package nam
 - **结论：** 当前 `uv 0.12.5` 的最小本地 package 已真实通过 project/environment 两次 pylock resolution、一次 final-plan sync、installed graph inspection 和 test；十个精确 uv 版本全部映射到独立 profile，未登记版本 fail closed。首次联网复验暴露的 relative `directory.path` 缺陷已经按锁文件目录解析并回归。
 - **证据：** current uv 13-case qualification 全部 `expected=true`；独立矩阵 `10 × 13 = 130` 全部输出完整且分类符合预期；Python 3.10/3.11/3.12 隔离全仓各 `693 passed`；Ruff、`ty check src`、`uv build` 与 `git diff --check` 通过。§9 记录逐项验收证据。
 
+### 运行回归修复 — smoke/check 自验证
+
+- **状态：** 已完成
+- **行动：** 用真实 `pf smoke --jobs 1` / `pf check --jobs 1` 建立回归环；修正 environment resolution 错误继承 project `lowest-direct`、单 cell pylock package marker 被误拒、当前 ty 暴露的测试夹具类型漂移，并校准仓库自身 Cyclopts/Pydantic/Tomlkit 与 pytest-env 下界。Packaging 25 对 `===vendor` 的 prerelease 推断异常改为保守的非 prerelease，而不抬高无关下界。
+- **目标：** 让 D012 的“只放松 harness 约束、harness 仍按默认 highest 选择”在 adapter argv、pylock projection 和 PF 自验证中同时成立。
+- **结论：** project compile 独立使用 Attempt strategy；environment compile 在 `Exact(G(P))` 约束下固定使用 highest。uv 为 Python 3.10 输出的 active package marker 属于合法 final plan evidence，parser 规范化并保留该 marker。
+- **证据：** adapter strategy 与 marker 两个回归测试先 Red 后 Green；`pf smoke --jobs 1` 与 `pf check --jobs 1` 在 Python 3.10/3.11/3.12 三个 cell 均通过；聚焦回归 148 passed、host 全量 693 passed，Ruff、ty、`uv lock --check`、`uv build` 与 `git diff --check` 均通过。
+
 ## 8. 实现取舍记录
 
 实施过程中只记录不改变 D012 产品语义的内部取舍。若取舍会改变验收或所有权，必须先更新 D012，而不是只写在这里。

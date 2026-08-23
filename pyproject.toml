@@ -8,12 +8,12 @@ authors = [
 ]
 requires-python = ">=3.10, <3.13"
 dependencies = [
-    "cyclopts>=4.0",
+    "cyclopts>=4.10",
     "packaging>=25.0",
-    "pydantic>=2.0",
+    "pydantic>=2.6",
     "rich>=14.0",
     "tomli>=1.7",
-    "tomlkit>=0.13",
+    "tomlkit>=0.15",
     "ty>=0.0.56",
 ]
 
@@ -45,7 +45,7 @@ addopts = ["--testmon"]
 cache_dir = "tests/.cache/pytest"
 required_plugins = [
     "pytest-cov>=7.1",
-    "pytest-env>=1.2",
+    "pytest-env>=1.0",
     "pytest-testmon>=2.2",
 ]
 

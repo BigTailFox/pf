@@ -159,6 +159,21 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency}" }} }}]
         assert dependency.as_posix() not in normalized
         assert 'path = "source/vendor/tool"' in normalized
 
+    def test_parser_retains_a_package_marker_from_a_single_cell_plan(self) -> None:
+        content = REGISTRY_LOCK.replace(
+            'requires-python = ">=3.11"',
+            'requires-python = ">=3.10"',
+            1,
+        ).replace(
+            'name = "Requests"',
+            'name = "Requests"\nmarker = "python_full_version < \'3.11\'"',
+            1,
+        )
+
+        packages = parse_uv_pylock(content, python_minor="3.10")
+
+        assert packages[0].marker == 'python_full_version < "3.11"'
+
     @pytest.mark.parametrize(
         ("replacement", "message"),
         (
@@ -166,7 +181,6 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency}" }} }}]
             ('created-by = "other"', "not created by uv"),
             ('requires-python = ">=3.12"', "does not cover"),
             ('environments = ["sys_platform == \'linux\'"]', "environment forks"),
-            ('marker = "sys_platform == \'linux\'"', "cannot retain a marker"),
         ),
     )
     def test_parser_rejects_plan_identity_or_cell_drift(

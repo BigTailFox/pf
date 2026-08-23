@@ -191,7 +191,11 @@ class TestEvaluationCache:
             static=first,
             test=TestPass(process=process()),
         )
-        second_full = second
+        second_full = TestFailEvaluation(
+            proposal=proposal,
+            static=second,
+            test=TestFail(process=process(exit_code=1)),
+        )
         cache = EvaluationCache()
 
         with pytest.raises(ValueError, match="does not match its cache baseline"):

@@ -245,6 +245,8 @@ class TestHarnessRelaxation:
 
         assert render_harness_requirement(relaxed.requirements[0]) == expected
         assert relaxed.requirements[0].ceiling == ceiling
+        if raw == "pytest===vendor":
+            assert relaxed.requirements[0].declaration.prerelease_allowed is False
 
     @pytest.mark.parametrize(
         ("source", "raw"),
