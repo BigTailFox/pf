@@ -14,7 +14,7 @@ README.md                 # 使用入口：能力摘要，链接到本页与 D00
 CONTEXT.md                # 领域词汇；不定义产品或实现规则
 docs/
 ├── README.md             # 本页：所有权、状态、导航
-├── designs/              # 规范性契约与设计草案 D001–D013
+├── designs/              # 规范性契约与设计草案 D001–D014
 ├── investigation/        # 非规范性探索与实验快照 I001–
 ├── plans/                # 非规范性实施记录 P001–P012
 └── reviews/              # 非规范性评审快照 R001–
@@ -49,6 +49,7 @@ docs/
 | runtime-backed 静态引导搜索 | [D011](designs/D011-pf-runtime-backed-static-search.md) | static fingerprint/region、runtime witness、动态边界与最终直接验证 | 现行 | [P010](plans/P010-pf-runtime-backed-static-search.md)（已完成） |
 | harness resolution | [D012](designs/D012-pf-harness-relaxation.md) | baseline 保持原始 harness；probe/check 只删除显式 minimum，以两次 uv resolution、一次 installation 保持 project graph | 现行 | [P011](plans/P011-pf-harness-relaxation.md)（已完成） |
 | pytest failure evidence | [D013](designs/D013-pf-pytest-failure-evidence.md) | direct pytest command 的最小 failure witness、保守 outcome 归一与 adapter seam | 现行 | [P012](plans/P012-pf-pytest-failure-evidence.md)（已完成） |
+| 报告 Schema 2 | [D014](designs/D014-pf-report-schema.md) | `package-floor.json` 的规范化实体、typed refs、跨引用验证、规范编码与 Schema 1 迁移 | 草案 | — |
 
 职责交叠时按“被描述的规则”选择所有者，而不是按调用链选择。例如：D003 消费 `ProbeRejection`，但 Rejection 与 Indeterminate 的分类只在 D005；D004 产生 `STATIC_REGRESSION` 所需事实，但不决定搜索处置；D006 组织 failure 文案但不复制 D005 的 title/impact/next step；D008 拥有各命令的 Attempt 序列、Evaluation → cause/stage、Journal 条目语义和 diagnose 工件来源，但不复制 D005 的 cause 矩阵；D007 拥有进程输出、日志保密与完整性标志，但不复制 D005 的 disposition；D002 列出模块位置但不复制 D004–D009 的业务或展示规则；D001 承诺坐标最小结果和命令退出码，但 probe 顺序只在 D003，终端信息层级只在 D006，进程输出语义只在 D007，验证运行条目语义只在 D008，现行契约修复、cell identity、验证运行编排、Journal package identity / 写入时机只在 D009。
 
