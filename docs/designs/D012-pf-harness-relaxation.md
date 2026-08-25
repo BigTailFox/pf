@@ -387,7 +387,9 @@ source identity
 original text
 ```
 
-Relaxation、baseline ceiling、resolution request 和环境准备消费该结构化记录；report builder 只消费这些阶段已经投影出的领域 identity。其他 module 不得重新解析 dependency group 字符串或重新解释 harness source。公共报告如何持久化 harness identity 不由本文拥有；Schema 1/2 的 wire 与 legacy normalization 规则见 [D014](D014-pf-report-schema.md)。
+Relaxation、baseline ceiling、resolution request 和环境准备消费该结构化记录；report builder 只消费这些阶段已经投影出的领域 identity。
+
+其他 module 不得重新解析 dependency group 字符串或重新解释 harness source。公共报告如何持久化 harness identity 不由本文拥有；wire 规则见 [D014](D014-pf-report-schema.md)。
 
 ### 9.3 Request、plan 与 environment identity
 

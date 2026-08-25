@@ -2,7 +2,7 @@
 
 - **状态：** 草案
 - **日期：** 2026-08-25
-- **适用范围：** `package-floor.json` 的公共 JSON 布局、引用完整性、规范编码与 Schema 1 迁移
+- **适用范围：** `package-floor.json` 的公共 JSON 布局、引用完整性、规范编码，以及用 Schema 2 一次性替换现行内联报告
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -14,13 +14,15 @@
 - **harness resolution：** [D012](D012-pf-harness-relaxation.md)
 - **pytest failure evidence：** [D013](D013-pf-pytest-failure-evidence.md)
 
-本文定义 PF 如何把现行报告中的证据树规范化为单一所有者的引用图。目标是在不删除 Attempt、Proposal、Evaluation、CandidateSnapshot、FailureRecord、static region、坐标边界或 projection 证据的前提下，消除同一事实的重复内联和多重权威，使公共报告更小、更容易审计，并继续保守拒绝缺失、冲突或不可表示的证据。
+本文定义 PF 如何把报告证据表达为单一所有者的引用图。它不删除 Attempt、Proposal、Evaluation、CandidateSnapshot、FailureRecord、static region、坐标边界或 projection 证据，只消除重复内联和多重权威。
 
-本文只拥有持久化报告的 wire interface：顶层分组、实体表、引用、规范编码、跨引用验证和版本迁移。D001 继续拥有报告的产品作用、命令和 apply 条件；D003–D005、D008、D011–D013 继续拥有被保存证据的领域含义。本文不得通过重排 JSON 改写这些语义。
+目标是让公共报告更小、更容易审计，并继续保守拒绝缺失、冲突或不可表示的证据。
 
-本文尚未批准或实现。落地前，`schema_version = 1`、`PackageFloorReportV1` 和现行 `ReportStore` 仍是唯一有效行为。
+本文只拥有持久化报告的 wire interface：顶层分组、实体表、引用、规范编码和跨引用验证。D001 继续拥有报告的产品作用、命令和 apply 条件；D003–D005、D008、D011–D013 继续拥有被保存证据的领域含义。本文不得通过重排 JSON 改写这些语义。
 
-## 1. 问题
+本文尚未批准或实现。项目尚未发布；批准落地时直接以 `schema_version = 2` 取代现行内联报告，不保留 reader、migrator 或 dual-write。开发期报告由新的 search 重生。
+
+## 1. 背景与目标
 
 Schema 1 把本质上是引用图的证据按值展开为一棵 JSON 树。一个 `Cell` 会嵌入 CandidateSnapshot、Attempt、Proposal、static region、FailureScope 和 Projection；一个 Proposal 又同时嵌入 Full Evaluation 与其 Static Evaluation；一个失败既出现在 Probe evidence 中，又以 FailureRecord 保存诊断事实。
 
@@ -73,21 +75,19 @@ D001 当前只枚举 Schema 1 包含的概念。完整结构分散在 `schemas/p
 
 `ReportStore` 的紧凑、排序 key 输出适合确定性持久化，不适合直接阅读。Pretty-print 只能增加行数，不能恢复实体关系。`pf explain` 是主要人类 interface，但公共 JSON 仍应能沿稳定引用被审计。
 
-## 2. 目标与非目标
-
-### 2.1 目标
+### 1.4 目标
 
 1. 每个 Cell、CandidateSnapshot、Attempt、Proposal、resolution graph、StaticEvaluation、terminal Evaluation 和 FailureRecord 在报告中最多定义一次；
 2. Observation、Region、CellResult、FailureScope 和 Projection 只使用稳定、本报告内引用；
-3. Schema 1 的证据闭环、failure disposition、static region、边界、最终 PASS、coverage 和 projection 不变量全部保留；
+3. 现行证据闭环、failure disposition、static region、边界、最终 PASS、coverage 和 projection 不变量全部保留；
 4. 缺失引用、重复 ID、错误类型引用、跨 Cell 引用、冲突实体和循环引用均保守失败；
 5. `apply`、`explain`、`diagnose`、`merge` 和 search update 不各自实现引用解析；
 6. 报告继续是一个可移植、原子写入、自包含的 JSON 文件；
-7. Schema 1 可以在持久化 seam 被读取和规范化，不要求用户手工迁移；
+7. reader 只接受 `schema_version = 2`，未知或缺失版本保守失败；
 8. 提交机器可读 JSON Schema、最小完整示例和篡改测试矩阵；
-9. 对同一语义报告，Schema 2 的紧凑编码显著小于 Schema 1，并记录可复现的前后对比。
+9. 对同一语义报告，Schema 2 的紧凑编码显著小于现行内联编码，并记录可复现的前后对比。
 
-### 2.2 非目标
+### 1.5 非目标
 
 - 不删除 Observation、失败、构件 hash、resolved graph、static region 或 runtime witness 以换取体积；
 - 不改变坐标搜索、candidate order、static guidance、Rejection/Indeterminate 或 apply 语义；
@@ -97,10 +97,12 @@ D001 当前只枚举 Schema 1 包含的概念。完整结构分散在 `schemas/p
 - 不依赖 gzip 证明 schema 已经变清楚；压缩可以是传输选择，不是 wire interface；
 - 不用数组下标作为持久引用；merge、规范排序或插入实体不得改变引用；
 - 不把短随机别名当作领域 identity；
-- 不在 `schema_version = 1` 下静默改变字段含义或布局；
+- 不在同一 `schema_version` 下同时接受内联树和 refs；
 - 不把 report hash 变成签名或可信来源证明。
 
-## 3. 核心决策
+## 2. 文档模型
+
+### 2.1 规范化原则
 
 PF 引入 `schema_version = 2`，使用一个自包含 JSON document 表达规范化引用图：
 
@@ -132,7 +134,7 @@ Wire normalization 不等于把所有小 value object 都拆成表。`VersionPin
 - 当前已经存在稳定 ID/digest；
 - 内联会制造两个可独立修改的权威副本。
 
-## 4. 顶层结构
+### 2.2 顶层结构
 
 Schema 2 的说明性结构如下。省略号不是合法 JSON；具体判别变体见后续章节。
 
@@ -178,11 +180,13 @@ Schema 2 的说明性结构如下。省略号不是合法 JSON；具体判别变
 }
 ```
 
-顶层对象使用语义分组，而不是把输入、过程证据和最终结果混在同一层。`identity`、有序 `requirement_declarations` 与有序 `target_cells` 共同定义报告世代；`candidate_snapshots` 是该 generation 内冻结的 search input，但不进入 `report_generation_id`。`evidence` 是可被多个 CellResult 引用的证据池；`cell_results` 和 `projections` 是面向产品结果的索引。
+顶层对象按 identity、输入实体、过程证据和产品结果分组。`identity`、`requirement_declarations` 与 `target_cells` 定义报告世代；CandidateSnapshot 是 generation 内冻结的 search input，但不进入 `report_generation_id`。
 
-## 5. Generation identity
+`evidence` 是共享证据池；`cell_results` 和 `projections` 是产品结果 roots。表的物理分组不决定可达性：CandidateSnapshot 必须从 CellResult 或 Region 被引用，不能仅因位于 `inputs` 而成为 root。
 
-### 5.1 `identity`
+## 3. Generation 与输入实体
+
+### 3.1 `identity`
 
 `identity` 保存：
 
@@ -192,28 +196,33 @@ Schema 2 的说明性结构如下。省略号不是合法 JSON；具体判别变
 - `source_snapshot`；
 - `policy_identity`。
 
-Schema 2 首版保留完整 `SourceSnapshotIdentity.entries`。它在样本中只占 0.6%，不是主要体积来源；保留它可以维持现行 generation identity、merge 相等性和 source drift 证据。若未来要只保存 digest，必须单独提升 source identity 策略，不能作为本次去重的顺带修改。
+Schema 2 首版保留完整 `SourceSnapshotIdentity.entries`。它在样本中只占 0.6%，却能支持 generation identity、merge 相等性和 source drift 复证。若未来只保存 digest，必须单独提升 source identity 策略。
 
-Schema 2 validator 必须按现行 `pf:snapshot:v1` 算法从规范 entries 重算 `source_snapshot.digest`。Schema 1 reader 过去只把 digest 与 entries 作为一组 generation facts，没有复算二者关系；legacy normalization 遇到不一致时必须保守拒绝。
+Schema 2 validator 必须按现行 `pf:snapshot:v1` 算法从规范 entries 重算 `source_snapshot.digest`，拒绝不一致值。
 
-### 5.2 `report_generation_id` preimage
+### 3.2 `report_generation_id`
 
-Schema 2 继续使用现行 `pf:report-generation:v1` identity。其展开 preimage 精确为：
+Schema 2 使用新的 `pf:report-generation:v2` identity，不继承内联报告的数组顺序。preimage 精确为：
 
 ```text
-generator
-package
-source_snapshot
-policy_identity
-requirement_declarations  # 保留 Schema 1 数组顺序
-target_cells              # 保留 Schema 1 数组顺序；Cell 使用 active_declaration_ids
+payload = {
+  "generator": generator,
+  "package": package,
+  "source_snapshot": source_snapshot,
+  "policy_identity": policy_identity,
+  "requirement_declarations": declarations_sorted_by_declaration_id,
+  "target_cells": cells_sorted_by_cell_order
+}
+report_generation_id = sha256(
+  b"pf:report-generation:v2\0" + canonical_identity_json(payload)
+).hexdigest()
 ```
 
-`requirement_declarations` 和 `target_cells` 的数组顺序是现行 generation identity 的一部分。Schema 2 writer 不按 `declaration_id` 或 `cell_id` 重排这两个表；legacy normalization 原样保留已经通过 Schema 1 identity 校验的顺序。CandidateSnapshot、CellResult、projection、failure 和其他 evaluation evidence 不进入 generation preimage。
+`cell_order` 是 `(package, target, python_minor, extra_surface)`。Cell 在 generation preimage 中使用领域字段和 `active_declaration_ids`，不使用 `cell_id` 或 refs。
 
-因此，`inputs` 是 wire interface 的语义分组，不表示其中每个表都属于 generation identity。若未来要让 generation identity 忽略输入数组顺序或吸收 CandidateSnapshot，必须提升为新的领域 identity 版本，并单独迁移 diagnosis association；不能借 Schema 2 normalization 隐式改变。
+CandidateSnapshot、CellResult、Projection、Failure 和 Evaluation 不进入 generation preimage。未来若改变这些输入或排序，必须提升 report-generation identity 版本，不能借 codec 隐式改变。
 
-### 5.3 隐式 generation scope
+### 3.3 隐式 generation scope
 
 以下字段不再在每个嵌套实体重复：
 
@@ -226,15 +235,13 @@ Attempt、Proposal、CandidateSnapshot 和 static region 都属于一个 Package
 
 validator 必须先解析这些引用，再按现行完整语义重建 identity 输入并校验 ID。省略 wire 字段不省略 identity 事实。
 
-## 6. Input tables
+### 3.4 RequirementDeclaration
 
-### 6.1 RequirementDeclaration
-
-`inputs.requirement_declarations` 保留现行 `RequirementDeclaration` 字段和 `declaration_id`。每个 ID 只能定义一次；表顺序保留 §5.2 的 generation preimage 顺序，不按 `declaration_id` 重排。
+`inputs.requirement_declarations` 保留 `RequirementDeclaration` 字段和 `declaration_id`。每个 ID 只能定义一次；表按 `declaration_id` 排序，与 §3.2 的 generation preimage 一致。
 
 其他实体使用 `declaration_ref` 或 `declaration_refs`。引用必须存在；需要规范顺序的集合必须排序且唯一。
 
-### 6.2 TargetCell
+### 3.5 TargetCell
 
 ```json
 {
@@ -253,7 +260,7 @@ validator 必须先解析这些引用，再按现行完整语义重建 identity 
 (package, exact target, CPython minor, sorted extra surface)
 ```
 
-它沿用现行 `cell_identity` 的 lookup 语义，不包含 `active_declaration_refs`。后者属于当前报告世代的 Cell record；同一 generation 中不得出现相同 `cell_id` 和不同 active declarations。跨 generation 引用不合法，因此声明变化不要求重命名兼容性 Cell。
+它沿用现行 `cell_identity` 的 lookup 语义，不包含 `active_declaration_refs`。后者属于当前报告世代的 Cell record；同一 generation 中不得出现相同 `cell_id` 和不同 active declarations。跨 generation 引用不合法，因此声明变化不要求重命名 Cell lookup identity。
 
 规范编码为：
 
@@ -269,11 +276,11 @@ cell_id = "cell-" + sha256(
 ).hexdigest()
 ```
 
-`canonical_identity_json` 的精确定义见 §10.3。`cell_id`、`active_declaration_refs` 和任何 Schema 2 `*_ref` 都不进入 payload。`target_cells` 表顺序保留 §5.2 的 generation preimage 顺序，不按 `cell_id` 排序。
+`canonical_identity_json` 的精确定义见 §6.3。`cell_id`、`active_declaration_refs` 和任何 Schema 2 `*_ref` 都不进入 payload。`target_cells` 按 §3.2 的 `cell_order` 排序。
 
 `target_cells` 必须继续显式存在。Incomplete report 不能从已有 `cell_results` 反推出尚未运行的目标 Cell。
 
-### 6.3 CandidateSnapshot
+### 3.6 CandidateSnapshot
 
 `inputs.candidate_snapshots` 是 CandidateSnapshot 的唯一所有者：
 
@@ -292,9 +299,9 @@ cell_id = "cell-" + sha256(
 
 同一 `(cell_ref, dependency)` 只能对应一个 CandidateSnapshot。所有候选、artifact locator/hash、series representative、prerelease 与构件可安装性规则保持不变。
 
-## 7. Evidence tables
+## 4. Evidence entities
 
-### 7.1 ResolutionGraph
+### 4.1 ResolutionGraph
 
 ```json
 {
@@ -319,12 +326,13 @@ resolution_graph_id = "resolution-" + sha256(
 
 相同 resolved graph 在报告中只定义一次。Proposal 使用 `resolution_graph_ref`。Proposal ID 校验仍对解析后的完整 graph 计算，不把新 ref 字符串冒充原有 Proposal identity。
 
-### 7.2 Attempt
+Environment producer 必须先规范化 graph，再计算 Environment identity 和 `resolution_graph_id`。Reader 要求 wire 已是规范顺序；它不通过重排一个非规范文档来“修复”Proposal identity。
+
+### 4.2 Attempt
 
 ```json
 {
   "attempt_id": "...",
-  "identity_version": "attempt-v2",
   "cell_ref": "cell-...",
   "requested_resolution": "exact-vector",
   "requested_managed_vector": [],
@@ -337,13 +345,17 @@ resolution_graph_id = "resolution-" + sha256(
 }
 ```
 
-Attempt 不再保存 source snapshot digest、policy identity、完整 Cell 或重复的 active declarations。validator 从 generation 与 `cell_ref` 展开这些事实，按对应 `identity_version` 重算现行 `attempt_id`。
+Attempt 不再保存 source snapshot digest、policy identity、完整 Cell、重复的 active declarations 或 `identity_version`。
 
-`harness_declaration_ids` 保留现行 Attempt identity 中排序唯一的 opaque IDs，不是 `*_ref`。Schema 1 没有保存完整 `HarnessRequirement`，legacy reader 不能离线补出 ref target；Schema 2 不伪造该缺失 preimage。运行期 planning 继续消费 D012 的结构化 HarnessRequirement，公共报告只保存现行 Attempt identity 已经拥有的 declaration IDs、baseline digest 和 selected-candidate digest。
+Schema 2 只接受 `attempt-v2`。validator 从 generation 与 `cell_ref` 展开事实，注入 `identity_version="attempt-v2"` 后重算 `attempt_id`；Builder 遇到其他 Attempt identity version 必须失败。
 
-`requested_resolution` 的互斥条件保持不变：highest / lowest-direct 不携带 exact vector，exact-vector 必须携带排序唯一的 vector；attempt-v2 的 harness 与 selected candidate 约束保持不变。
+`harness_declaration_ids` 是排序唯一的 opaque IDs，不是 `*_ref`。公共报告不拥有 `HarnessRequirement` 实体表；Attempt identity 的 harness facts 只保存这些 IDs、baseline digest 和 selected-candidate digest。
 
-### 7.3 Proposal
+运行期 planning 继续消费 D012 的结构化 HarnessRequirement。未来若报告要保存完整声明，必须单独增加实体表并版本化 Attempt identity。
+
+`requested_resolution` 的互斥条件保持不变：highest / lowest-direct 不携带 exact vector，exact-vector 必须携带排序唯一的 vector；harness 与 selected candidate 约束保持不变。
+
+### 4.3 Proposal
 
 ```json
 {
@@ -352,6 +364,8 @@ Attempt 不再保存 source snapshot digest、policy identity、完整 Cell 或�
   "managed_vector": [],
   "fixed_declaration_refs": [],
   "resolution_graph_ref": "resolution-...",
+  "project_plan_digest": "...",
+  "environment_plan_digest": "...",
   "interpreter": {
     "implementation": "cpython",
     "version": "3.12.11",
@@ -362,16 +376,15 @@ Attempt 不再保存 source snapshot digest、policy identity、完整 Cell 或�
 
 Proposal 不再重复 `snapshot_digest`、Cell、policy 或 resolved graph。一个 Attempt 最多产生一个 Proposal；prepare failure 不得虚构 Proposal。
 
-现行 `proposal_id` 实际等于 `EnvironmentIdentity.digest`，其 preimage 还包含 project plan digest 与 environment plan digest；Schema 1 的成功 Proposal 没有保存这两个 digest。因此，仅凭公共 Schema 1 不能重算合法的现行 `proposal_id`。Schema 2 不伪造缺失证据，也不把 graph digest 错当成 environment identity：
+`proposal_id` 等于 `EnvironmentIdentity.digest`。成功 Proposal 必须保存 `project_plan_digest` 与 `environment_plan_digest`。validator 解析 `resolution_graph_ref` 后，按 D012 的 Environment identity 重算 `proposal_id`。
 
-- `proposal_id` 保持现行 opaque environment identity，并成为 Proposal 的稳定 ref；
-- validator 要求它非空、在 Proposal table 中唯一，并复证 Attempt、Cell、vector、graph、interpreter 与 Evaluation 的全部公开关系；
-- legacy normalization 原样保留已经通过 Schema 1 交叉验证的 `proposal_id`；
-- 若未来要让公共报告独立重算 Proposal ID，必须保存两个 plan digest 并版本化 Proposal identity；该增强不作为 Schema 2 normalization 的隐式前提。
+Environment producer 必须把两个 plan digest 放入领域 Proposal，再交给 report builder。Builder 不得从当前项目、缓存或 graph 猜测缺失值。
+
+任一 digest 缺失或为空，或者用两个 digest 与 graph 重建的 Environment identity 不等于 `proposal_id` 时，报告无效。
 
 `managed_vector` 仍保留在 Proposal 中。它是解析后的实际向量；对于 exact Attempt，validator 要求它与 requested vector 一致，但 request 和 realized result 是不同阶段的事实，不合并为一个字段。
 
-### 7.4 StaticEvaluation
+### 4.4 StaticEvaluation
 
 `evidence.static_evaluations` 每个 Proposal 最多一条：
 
@@ -386,11 +399,11 @@ Proposal 不再重复 `snapshot_digest`、Cell、policy 或 resolved graph。一
 }
 ```
 
-`STATIC_REGRESSION` 变体额外保存 `classifications`。`static_evaluations` 只拥有已经产生 `TyCheck` 的 `STATIC_UNCHANGED | STATIC_REGRESSION`；static tool failure 是 terminal `INDETERMINATE`，只定义在 §7.5 的 `evaluations` 表中，不在两张表重复定义。不存在的字段不以 `null` 占位。
+`STATIC_REGRESSION` 变体额外保存 `classifications`。`static_evaluations` 只拥有已经产生 `TyCheck` 的 `STATIC_UNCHANGED | STATIC_REGRESSION`；static tool failure 是 terminal `INDETERMINATE`，只定义在 §4.5 的 `evaluations` 表中，不在两张表重复定义。不存在的字段不以 `null` 占位。
 
 Terminal Evaluation 不再内联 StaticEvaluation，只保存 `static_evaluation_ref`，其值为同一 Proposal ref。static baseline 也不复制 `TyCheck`；CellResult 只保存 baseline Proposal ref 与 diagnostic digest，validator 从本表取得唯一 TyCheck。
 
-### 7.5 Terminal Evaluation
+### 4.5 Terminal Evaluation
 
 `evidence.evaluations` 每个 Proposal 最多一条 terminal Evaluation，继续使用 `PASS | TEST_FAIL | RUNTIME_INTERFACE_MISSING | INDETERMINATE` discriminator：
 
@@ -421,9 +434,11 @@ Terminal Evaluation 不再内联 StaticEvaluation，只保存 `static_evaluation
 
 Runtime witness 的计划、顺序与状态仍由 D011 拥有。若 terminal witness 产生 FailureRecord，该 witness 保存 `failure_ref`；FailureRecord 保存一次 report-portable process facts。validator 复证 failure stage/cause 与 Evaluation 变体匹配。
 
-`INDETERMINATE` 可以发生在 static、witness 或 test stage。static stage 尚未产生合法 StaticEvaluation 时，该变体省略 `static_evaluation_ref`；witness/test stage 必须引用同 Proposal 已有的 StaticEvaluation。这样现行同时属于 `StaticEvaluation` 与 `Evaluation` union 的 `IndeterminateEvaluation` 在 wire 上仍只有一个所有者。
+`INDETERMINATE` 可以发生在 static、witness 或 test stage。static stage 尚未产生合法 StaticEvaluation 时，该变体省略 `static_evaluation_ref`；witness/test stage 必须引用同 Proposal 已有的 StaticEvaluation。
 
-### 7.6 FailureRecord
+`IndeterminateEvaluation` 在 wire 上只由 terminal Evaluation table 拥有。
+
+### 4.6 FailureRecord
 
 ```json
 {
@@ -451,9 +466,9 @@ Cell scope 使用 `cell_ref`，不再内联 Cell、package、source snapshot 和
 
 FailureRecord 继续是 disposition、cause、stage 和可移植诊断事实的唯一所有者。`failure_id` 在解析 scope ref 后按现行完整语义重算。报告仍不得保存 run ID、本地日志 locator、绝对路径、credential 或无界输出。
 
-## 8. CellResult 与搜索引用
+## 5. 结果 roots
 
-### 8.1 判别变体
+### 5.1 CellResult 判别变体
 
 CellResult 继续保留现行终态：
 
@@ -465,11 +480,11 @@ CELL_INDETERMINATE
 SEARCH_FAILED
 ```
 
-Schema 2 首版使用以上精确字符串；不得把“落地时现行实现”作为可变的 wire 定义。未来领域状态重命名必须提升相应 Schema 或提供显式迁移，不能借 normalization 静默改变。
+Schema 2 首版使用以上精确字符串；不得把“落地时现行实现”作为可变 wire 定义。未来重命名必须提升 Schema 或提供显式版本映射，不能借 normalization 静默改变。
 
 所有变体使用 `cell_ref`，并通过 `attempt_ref`、`proposal_ref`、`candidate_snapshot_refs` 和 `failure_refs` 连接证据表。FailureRecord 统一位于 `evidence.failures`；CellResult 只列出属于当前 Cell 的 refs。
 
-### 8.2 Success
+### 5.2 Success
 
 ```json
 {
@@ -487,7 +502,7 @@ Schema 2 首版使用以上精确字符串；不得把“落地时现行实现�
 }
 ```
 
-以下 Schema 1 字段被删除：
+以下现行内联字段被删除，改为引用或派生：
 
 - `observed_upper`：其类型固定为 `None`，没有独立语义；
 - `final_vector`：从 final Proposal 的 `managed_vector` 唯一取得；
@@ -505,7 +520,7 @@ validator 必须证明：
 7. final vector 每个 pin 唯一选择当前 Cell 的 CandidateSnapshot artifact；
 8. 不是 baseline 的 final Proposal 必须由 reported direct ProbePass 授权。
 
-### 8.3 ProbeObservation
+### 5.3 ProbeObservation
 
 Direct observation：
 
@@ -538,7 +553,9 @@ Static-only observation：
 }
 ```
 
-Observation 不再保存完整 vector、Attempt、Proposal、StaticEvaluation 或 terminal Evaluation。所有 Direct 与 Static-only Observation 都必须引用当前 Cell 的 `exact-vector` Attempt；vector 恒从 Attempt 的 `requested_managed_vector` 取得，validator 继续要求 `dependency/candidate_version` 命中该 vector。`highest` 只用于 Cell baseline，`lowest-direct` 不进入 coordinate observations；二者不得借缺失 vector 混入本结构。
+Observation 不再保存完整 vector、Attempt、Proposal、StaticEvaluation 或 terminal Evaluation。所有 Direct 与 Static-only Observation 都必须引用当前 Cell 的 `exact-vector` Attempt。
+
+vector 恒从 Attempt 的 `requested_managed_vector` 取得；`dependency/candidate_version` 必须命中该 vector。`highest` 只用于 Cell baseline，`lowest-direct` 不进入 coordinate observations。
 
 Direct status 必须与引用 Evaluation / FailureRecord 一致：
 
@@ -546,7 +563,7 @@ Direct status 必须与引用 Evaluation / FailureRecord 一致：
 - `REJECTED`：必须有 REJECTED FailureRecord；若已产生 Proposal，还必须有匹配的负向 Evaluation；
 - `INDETERMINATE`：必须有 INDETERMINATE FailureRecord；若已产生 Proposal，还必须有匹配的 Indeterminate Evaluation。
 
-### 8.4 StaticRegion
+### 5.4 StaticRegion
 
 Region 只保存当前 Cell search 中不能从引用推导的事实：
 
@@ -566,7 +583,7 @@ Region 只保存当前 Cell search 中不能从引用推导的事实：
 }
 ```
 
-Schema 1 `StaticRegionSlice` 中的 Cell、source snapshot、policy 和 candidate order 不再内联：
+现行 `StaticRegionSlice` 中的 Cell、source snapshot、policy 和 candidate order 不再内联：
 
 - Cell 来自所属 CellResult；
 - source/policy 来自 generation；
@@ -579,7 +596,7 @@ Runtime reference 只选择 region 的 direct runtime representative，不重复
 
 ```text
 payload = {
-  "slice": expanded_schema_1_static_region_slice,
+  "slice": expanded_static_region_slice,
   "static_fingerprint": static_fingerprint,
   "observed_versions": versions_in_candidate_order,
   "runtime_proposal_ids": sorted_unique_proposal_ids
@@ -589,17 +606,21 @@ region_id = "region-" + sha256(
 ).hexdigest()
 ```
 
-展开的 Slice 使用 Schema 1 字段名与 value shape：完整 Cell 使用 `active_declaration_ids`，source/policy 来自 generation，active dependency/candidate order 来自 CandidateSnapshot，other coordinates 按 dependency 排序且唯一。Derived runtime status、`region_id` 和所有 Schema 2 refs 都不进入 payload。Static-only observation 使用 local `region_ref`；引用必须属于同一个 CellResult。虽然 digest 覆盖完整 Cell context，Region 仍不是全局实体表，不能被其他 CellResult 引用。
+展开的 Slice 使用领域 `StaticRegionSlice` 的字段名与 value shape。完整 Cell 使用 `active_declaration_ids`；source/policy 来自 generation；active dependency/candidate order 来自 CandidateSnapshot；other coordinates 按 dependency 排序且唯一。
 
-### 8.5 Coordinate outcome
+派生 runtime status、`region_id` 和 refs 都不进入 payload。Static-only observation 使用所属 CellResult 的 local `region_ref`。Region 不是全局实体，不能被其他 CellResult 引用。
+
+每个 runtime ref 必须对应同 Region 内的 direct Observation，且派生 status 相同。每条 Static-only Observation 必须恰好命中一个 Region；其 representative 必须属于该 Region 的 runtime refs，派生 status 等于 guidance，且不能是自身 Proposal。
+
+Static-only Proposal 的 StaticEvaluation 必须与 Region 使用相同 baseline digest 和 static fingerprint。
+
+### 5.5 Coordinate outcome
 
 Coordinate status、`boundaries`、`regions`、`sweeps`、counterexample 和 terminal failure ref 保持现行语义。成功 outcome 不再单独保存 `vector`；它由 `final_proposal_ref` 唯一取得，boundaries 必须与该 vector 相等。
 
 `CoordinateBoundary.predecessor_failure_id` 改名为 `predecessor_failure_ref`，但仍必须引用同 dependency、同 predecessor、同 Slice 的 direct ProbeRejection。
 
-## 9. Projection 与报告结果
-
-### 9.1 ProjectionEvidence
+### 5.6 ProjectionEvidence
 
 ```json
 {
@@ -617,15 +638,15 @@ Coordinate status、`boundaries`、`regions`、`sweeps`、counterexample 和 ter
 
 Projection 不再内联 Cell。`floors` 是产品结果，不因可以从 final Proposal 派生就删除：它明确保存要投影的 `Cell -> ExactFloor` 映射，并由 validator 对 final Proposal 复证。`projected_requirements` 与 `representable` 同样保留为面向 apply/explain 的授权摘要。
 
-### 9.2 `result`
+### 5.7 `result`
 
 `complete | incomplete` 保持判别 union。`complete` 虽可由覆盖与 projection 推导，仍作为公共结果摘要保留；validator 必须重新推导并拒绝不一致值。Incomplete reasons 必须规范排序且与 CellResult、缺失覆盖和不可表示 projection 相符。
 
 这些摘要字段属于有意、低成本的派生信息，不是第二份底层证据。
 
-## 10. 引用与 ID 规则
+## 6. 引用与 identity
 
-### 10.1 引用只在本报告内有效
+### 6.1 引用只在本报告内有效
 
 所有 `*_ref` 都是 opaque string，只能解析到当前 JSON document 中对应类型的唯一实体。禁止：
 
@@ -634,11 +655,11 @@ Projection 不再内联 Cell。`floors` 是产品结果，不因可以从 final 
 - 依赖数组位置；
 - 大小写、名称 canonicalization 或截断后的模糊匹配。
 
-### 10.2 定义唯一，引用可重复
+### 6.2 定义唯一，引用可重复
 
 每个实体 ID 在对应类型表中必须恰好定义一次。相同 ID 即使 payload 相同也不能重复出现；输入重复说明 producer 没有完成 normalization。引用字段本身携带目标类型，不要求不同 identity namespace 的字符串在全报告内互不相同。未知、悬空或类型错误引用直接使整个报告无效。
 
-### 10.3 ID 对展开后的语义计算
+### 6.3 ID 对展开后的语义计算
 
 Schema 2 不把物理 `*_ref` 字符串替换成领域 identity 输入。本文新增 ID 使用下列统一编码：
 
@@ -651,19 +672,19 @@ canonical_identity_json(value) = json.dumps(
 ).encode("utf-8")
 ```
 
-这一定义只用于 identity preimage；§12 的 wire JSON 继续不转义非 ASCII 字符。各 ID 的展开 record 与算法如下：
+这一定义只用于 identity preimage；§7.3 的 wire JSON 继续不转义非 ASCII 字符。各 ID 的展开 record 与算法如下：
 
 | Wire identity | 展开的语义 record | 算法与约束 |
 | --- | --- | --- |
-| `report_generation_id` | §5.2 的 generator/package/source/policy/ordered declarations/ordered target Cells | 现行 `pf:report-generation:v1`；CandidateSnapshot 与 Schema 2 refs 不进入 |
-| `source_snapshot.digest` | 按 path 排序的完整 Schema 1 `SnapshotEntry[]` | 现行 `pf:snapshot:v1` |
-| `candidate_snapshot_id` | 注入完整 Cell 与顶层 policy 的 Schema 1 CandidateSnapshot identity | 现行 `pf:candidate-snapshot:v1` |
-| `attempt_id` | 注入 source digest、完整 Cell、active declaration IDs 与 policy 的 `AttemptIdentity` | 按 `identity_version` 使用现行 `pf:attempt:v1|v2` |
-| `failure_id` | 把 scope ref 展开为完整 `AttemptFailureScope | CellFailureScope` 的 Schema 1 FailureRecord facts | 现行 `pf:failure:v1`，保留现行截断长度 |
-| `proposal_id` | 不展开缺失的 project/environment plan digests | §7.3 的 opaque ID，只校验唯一性与公开关系 |
-| `cell_id` | §6.2 的精确 payload | `pf:cell:v1`，最终 ref 为 `cell-` 加完整 SHA-256 hex |
-| `resolution_graph_id` | §7.1 的规范 node array | `pf:resolution-graph:v1`，最终 ref 为 `resolution-` 加完整 SHA-256 hex |
-| `region_id` | §8.4 的规范 region payload | `pf:static-region:v1`，最终 ref 为 `region-` 加完整 SHA-256 hex |
+| `report_generation_id` | §3.2 的 generator/package/source/policy/canonical declarations/canonical target Cells | `pf:report-generation:v2`；CandidateSnapshot 与 Schema 2 refs 不进入 |
+| `source_snapshot.digest` | 按 path 排序的完整现行 `SnapshotEntry[]` | 现行 `pf:snapshot:v1` |
+| `candidate_snapshot_id` | 注入完整 Cell 与顶层 policy 的现行 CandidateSnapshot identity | 现行 `pf:candidate-snapshot:v1` |
+| `attempt_id` | 注入 `identity_version="attempt-v2"`、source digest、完整 Cell、active declaration IDs 与 policy 的 `AttemptIdentity` | 现行 `pf:attempt:v2` |
+| `failure_id` | 把 scope ref 展开为完整 `AttemptFailureScope | CellFailureScope` 的现行 FailureRecord facts | 现行 `pf:failure:v1`，保留现行截断长度 |
+| `proposal_id` | `project_plan_digest`、`environment_plan_digest` 与解析后的 graph | 现行 `environment_identity_digest`；wire 必须保存两个 plan digest |
+| `cell_id` | §3.5 的精确 payload | `pf:cell:v1`，最终 ref 为 `cell-` 加完整 SHA-256 hex |
+| `resolution_graph_id` | §4.1 的规范 node array | `pf:resolution-graph:v1`，最终 ref 为 `resolution-` 加完整 SHA-256 hex |
+| `region_id` | §5.4 的规范 region payload | `pf:static-region:v1`，最终 ref 为 `region-` 加完整 SHA-256 hex |
 
 校验可重建 identity 时，validator 必须：
 
@@ -673,9 +694,11 @@ canonical_identity_json(value) = json.dumps(
 4. 使用该领域 identity 的版本和前缀计算 digest；
 5. 与 wire ID 比较。
 
-因此，规范化布局不会使“同一证据”得到另一个 generation、CandidateSnapshot、Attempt 或 Failure ID。现行 identity 函数仍是各自领域算法的唯一实现所有者；本表拥有的只是 Schema 2 ref 到既有 preimage 的展开规则。Proposal ID 按 §7.3 作为现行 opaque environment identity 保留。
+Report validator 必须调用各领域 identity 函数，不能在 codec 中复制哈希算法。本节只拥有 ref 展开规则，以及 Schema 2 新增的 report-generation、Cell、ResolutionGraph 和 Region identity。
 
-### 10.4 引用图必须无环
+任何 `*_ref`、表位置或派生字段都不得进入未明确列出的 identity preimage。
+
+### 6.4 引用图必须无环
 
 Schema 2 的依赖方向固定为：
 
@@ -693,9 +716,9 @@ generation
 
 FailureScope 可以向 Attempt 或 Cell 回引，但 Attempt/Cell 不引用 Failure；Region 与 Observation 只在所属 CellResult 内形成从 summary 到既有证据的引用。不得增加可产生循环的通用 ref。
 
-## 11. 验证顺序与保守失败
+## 7. 验证与规范编码
 
-### 11.1 引用作用域
+### 7.1 引用作用域
 
 “cross-cell ref”按下表判定，不表示所有被多个 Cell 使用的实体都非法：
 
@@ -713,7 +736,7 @@ FailureScope 可以向 Attempt 或 Cell 回引，但 Attempt/Cell 不引用 Fail
 
 Projection floor 可以引用本 generation 的任一 target Cell；它仍必须属于该 declaration 的 active Cell 集合。相同 ResolutionGraph 被多个 Cell 使用是预期 dedup，不是 cross-cell 违规。
 
-### 11.2 验证顺序
+### 7.2 验证顺序
 
 Report validator 按以下顺序执行：
 
@@ -721,7 +744,7 @@ Report validator 按以下顺序执行：
 2. 用 `extra="forbid"` 校验每个判别 record 的局部结构；
 3. 建立所有实体的私有 typed index，拒绝重复 ID；
 4. 解析全部引用，拒绝 unknown、wrong-kind 和 cross-cell refs；
-5. 校验 Cell、source snapshot、CandidateSnapshot、resolution graph、Attempt、FailureRecord 与 report generation identity，并校验 Proposal ID 唯一性；
+5. 校验 Cell、source snapshot、CandidateSnapshot、resolution graph、Attempt、Proposal、FailureRecord 与 report generation identity；
 6. 校验 StaticEvaluation、terminal Evaluation、witness、FailureRecord cause/stage/disposition；
 7. 校验 Observation、static region、coordinate boundary 与 terminal outcome；
 8. 校验 CellResult baseline/final authority 和 failure ref 精确集合；
@@ -730,7 +753,7 @@ Report validator 按以下顺序执行：
 
 任何阶段都不得通过丢弃未知实体、选择第一份冲突记录、忽略未引用 FailureRecord 或把悬空引用降级为 warning 来恢复。
 
-可达性从 generation inputs、`cell_results`、`projections` 与 `result` 这些 roots 计算固定闭包：
+可达性从 identity inputs（declarations 与 target Cells）、`cell_results`、`projections` 和 `result` 计算固定闭包。CandidateSnapshot table 不是 root。
 
 1. CellResult 的 baseline/final、candidate snapshot、Observation、Region、boundary 与 failure refs 进入闭包；
 2. 可达 Attempt 使满足 `Proposal.attempt_ref == Attempt.attempt_id` 的至多一个 Proposal 可达；只有 prepare failure 可以没有 Proposal；
@@ -738,13 +761,15 @@ Report validator 按以下顺序执行：
 4. Evaluation 与 witness 使其 `failure_ref` 可达；FailureScope 使其 Attempt/Cell 可达；
 5. Region 使其 CandidateSnapshot 与 runtime representative Proposals 可达；
 6. Projection 使其 declaration 与 floor Cells 可达；
-7. 所有表定义必须被闭包访问，且每条 cell-scoped 边通过 §11.1。
+7. 所有表定义必须被闭包访问，且每条 cell-scoped 边通过 §7.1。
 
-因此，Static-only Observation 的 `attempt_ref` 足以使该 Attempt、其唯一 Proposal、StaticEvaluation 与 ResolutionGraph 可达；它不需要虚构 Terminal Evaluation，也不要求自己的 Proposal 同时成为 Region runtime representative。Direct status、Static-only guidance、Region representative status 与 FailureRecord 仍必须由同一闭环复证。
+Static-only Observation 的 `attempt_ref` 足以使其 Attempt、Proposal、StaticEvaluation 与 ResolutionGraph 可达。它不需要虚构 Terminal Evaluation，也不要求自己的 Proposal 成为 Region runtime representative。
+
+Direct status、Static-only guidance、Region representative status 与 FailureRecord 仍必须由同一闭环复证。
 
 不可达实体使报告无效，避免证据池成为未受约束的附加数据区。
 
-## 12. 规范 JSON 编码
+### 7.3 规范 JSON 编码
 
 Schema 2 继续使用：
 
@@ -755,14 +780,16 @@ Schema 2 继续使用：
 - 单个末尾换行；
 - 临时文件、flush、`fsync` 和原子 replace。
 
-Schema 2 的可空事实使用判别变体表达。不存在的 optional 字段在 wire JSON 中省略，不写 `null`；语义上存在的空集合写 `[]`。Discriminator、ID/ref、status、cause、stage 和影响 identity 的字段不得依赖默认省略。
+Schema 2 的可空事实使用判别变体表达。不存在的 optional 字段在 wire JSON 中省略，不写 `null`；语义上存在的空集合写 `[]`。
+
+Wire 中建模的 discriminator、ID/ref、status、cause、stage 和 identity 字段不得依赖默认省略。由 Schema 固定或从 generation/ref 展开的 facts 不重复进入 wire。
 
 规范化实体表使用稳定排序：
 
 | 表 | 顺序 |
 | --- | --- |
-| declarations | §5.2 的 generation preimage 顺序 |
-| cells | §5.2 的 generation preimage 顺序 |
+| declarations | `declaration_id` |
+| cells | `(package, target, python_minor, extra_surface)` |
 | candidate snapshots | `(cell_ref, dependency)` |
 | resolution graphs | `resolution_graph_id` |
 | attempts | `attempt_id` |
@@ -772,15 +799,21 @@ Schema 2 的可空事实使用判别变体表达。不存在的 optional 字段�
 | cell results | `(package, target, python_minor, extra_surface)` |
 | projections | `declaration_ref` |
 
-嵌套集合也必须有唯一顺序：`active_declaration_refs`、`harness_declaration_ids` 按 ID 排序且唯一；`candidate_snapshot_refs` 按 dependency 排序且唯一；Region runtime refs 按 `proposal_ref` 排序且唯一；Projection floors 按上述 cell-result order key 排序且唯一。`failure_refs` 必须唯一，但保留 D003/D005 产生的 CellResult evidence 顺序，不按 ID 重排。Candidate order、observed versions、witness 顺序和其他由 D003/D005/D011 拥有的领域序列同样保留其领域顺序。
+`active_declaration_refs`、`fixed_declaration_refs`、`harness_declaration_ids` 按 ID 排序且唯一；`candidate_snapshot_refs` 按 dependency 排序且唯一。
+
+Region runtime refs 按 `proposal_ref` 排序；Projection floors 按 cell order 排序。
+
+`failure_refs` 必须唯一，但保留 D003/D005 的 evidence 顺序。Candidate order、observed versions、witness 顺序和其他领域序列也保留其所有者定义的顺序。
 
 Pretty JSON 不是规范写入格式。人类展示继续由 `pf explain` / `pf diagnose` 拥有；文档示例可以 pretty-print，但不能作为 golden byte fixture。
 
-## 13. Report module interface 与所有权
+## 8. Report module interface 与所有权
 
 Schema 2 应加深 report module，而不是让调用方学习多个表的 join 规则。
 
-本节是 D014 草案为了消除 hydrate-vs-query 分叉而固定的落地验收 interface，不声明现行实现已经改变，也不成为第二个长期所有者。D014 处于草案期间，现行 module interface 仍只由 D002 定义；批准落地时，D002 必须在同一变更中采纳这里的 resolved facade 与 persistence seam，D005 必须采纳 diagnosis association delta，此后具体 Python 名称与签名仍分别只由 D002/D005 拥有。D014 继续拥有的后置条件只有：wire refs 不泄漏、Schema 1/2 返回同一 resolved view、持久化更新后实体图满足本文的 identity/冲突/可达性规则。
+本节固定落地验收所需的 resolved facade 与 persistence seam，消除 hydrate-vs-query 分叉。D014 仍只拥有 wire 后置条件；具体 Python interface 落地后由 D002 拥有，diagnosis association 由 D005 拥有。
+
+必须满足的后置条件是：wire refs 不泄漏；只有一种 resolved view；持久化更新后的实体图继续满足 identity、冲突和可达性规则。
 
 外部 interface 保持以工作流为单位：
 
@@ -801,10 +834,10 @@ generator
 package
 source_snapshot
 policy_identity
-requirement_declarations        # §5.2 顺序
-target_cells                    # §5.2 顺序
-cell_results                    # §12 report order；返回 resolved CellResult views
-projection_evidence             # declaration generation order
+requirement_declarations        # §3.2 declaration_id order
+target_cells                    # §3.2 cell order
+cell_results                    # §7.3 report order；返回 resolved CellResult views
+projection_evidence             # declaration_id order
 result
 failure_records                 # cell-result order + each CellResult.failure_refs order
 cell_result(cell_id) -> ResolvedCellResult | None
@@ -814,13 +847,31 @@ failure_context(failure_id) -> FailureContext | None
 
 `FailureContext` 精确包含所属 resolved Cell、可选 Proposal identity，以及 `predecessor | None` boundary role；它不包含本地日志 locator。日志 lookup 继续由 D005 的 `(report_generation_id, failure_id)` association 拥有。
 
-Resolved CellResult/Observation/Region views 暴露现行命令所需的完整 typed 机械事实，包括 static baseline、incremental diagnostics、boundary role 和 Proposal identity；所有 `*_ref` 已由 report module 解析。它们共享 immutable interned 实体，不为每次查询深复制完整树。内部选择 eager hydration、lazy table lookup 或两者组合属于 implementation，只要不重新制造可独立修改的权威副本，也不让调用方学习 join 规则。
+Resolved CellResult/Observation/Region views 暴露命令所需的 typed 机械事实；所有 `*_ref` 已由 report module 解析。它们共享 immutable interned 实体，不为每次查询深复制完整树。
 
-`PackageReportBuilder.build(...)` 是生产路径的 intern seam：Search 继续产生 D003/D005/D011 的领域 CellResult，不产生 wire refs；Builder 把这些领域事实收敛为 `ValidatedReport`。`ReportStore.read(...)` 对 Schema 1/2 产生同一个 facade，`write(...)` 只编码 Schema 2。
+下列 wire 已删除的字段可以作为只读派生属性。它们必须从 interned 实体计算，调用方不能赋值或构造第二份权威副本：
 
-`ReportStore.update(existing, replacement)` 是不写磁盘的纯合并：两份报告必须属于同一 generation；replacement 的每个 CellResult root 明确替换 existing 的同 Cell root，空 replacement 失败。不同 generation 调用本方法直接失败。
+- `final_vector` / 成功 `search.vector` ← final Proposal `managed_vector`；
+- Observation `vector` ← exact Attempt `requested_managed_vector`；
+- Region representative `status` ← 同 Proposal 的 direct Observation / terminal Evaluation / FailureRecord。
 
-`update_path` 拥有 search 的持久化更新事务：路径不存在时写 replacement；现有报告合法但 generation 不同时写 replacement；generation 相同时调用 `update` 替换本次 Cell；任何未知或非法现有报告保守失败；成功路径只原子写一次 Schema 2。Workflow 不自行读取 schema version、比较 raw generation fields 或清理 refs。
+内部选择 eager hydration、lazy table lookup 或两者组合属于 implementation，只要不重新制造可独立修改的权威副本，也不让调用方学习 join 规则。
+
+`PackageReportBuilder.build(...)` 是生产路径的 intern seam。Search 产生领域 CellResult，不产生 wire refs；Proposal producer 必须已经附带 §4.3 的两个 plan digests。
+
+Builder 只省略可由 generation / `cell_ref` 恢复的字段并写入 typed refs。它不得从当前项目补证，也不得改写 Attempt、CandidateSnapshot、Failure 或 Environment identity。`ReportStore.read/write` 只处理 Schema 2。
+
+`ReportStore.update(existing, replacement)` 是不写磁盘的纯合并：两份报告必须属于同一 generation；replacement 的每个 CellResult root 明确替换 existing 的同 Cell root。replacement 不含任何 CellResult 时保留 `existing`（本机 0 cell 的 other-host 保留路径），不失败。不同 generation 调用本方法直接失败。
+
+`update_path` 拥有 search 的持久化更新事务：
+
+1. 路径不存在时写 replacement；
+2. 现有文档无法解析、超过读取上限或 `schema_version != 2` 时保守失败；
+3. 现有 Schema 2 合法且 generation 不同时写 replacement，不 intern 旧证据池；
+4. generation 相同时调用 `update` 替换本次 Cell；
+5. 成功路径只原子写一次 Schema 2。
+
+Workflow 不自行比较 raw generation fields 或清理 refs。
 
 `ReportUpdate` 只向 D005 的本地 diagnosis association seam 返回持久化事务已经确定的最小 delta：
 
@@ -830,12 +881,14 @@ replace_generation: bool
 removed_failure_ids: tuple[str, ...]  # 排序唯一；仅同 generation 替换的旧 Cell failures
 ```
 
-路径不存在或 generation 改变时 `replace_generation=true` 且 `removed_failure_ids=()`；同 generation 更新时为 `false`，并列出所有只属于被替换旧 Cell roots 的 Failure IDs。Workflow 在报告写入成功后，把该 delta 与 replacement Cell 的新 FailureRecord process facts 交给 `RunLogStore.replace_associations(...)`。ReportStore 不依赖 RunLogStore，RunLogStore 也不解析报告表；association 更新失败继续按 D002/D005 作为基础设施错误上报。
+路径不存在或 generation 改变时，`replace_generation=true` 且 `removed_failure_ids=()`。同 generation 更新时为 `false`，并列出被替换旧 Cell roots 的 Failure IDs。
+
+报告写入成功后，Workflow 把该 delta 与新 FailureRecord process facts 交给 `RunLogStore.replace_associations(...)`。两个 store 不互相依赖；association 更新失败按 D002/D005 作为基础设施错误上报。
 
 `merge` / `update` 的规范算法为：
 
 1. 每个输入先独立完成局部、引用、identity 与可达性验证；
-2. 比较 §5.2 展开 generation facts；merge 与纯 `update` 要求相同，`update_path` 决定调用 `update` 还是以 replacement 开始新 generation；
+2. 比较 §3.2 展开 generation facts；merge 与纯 `update` 要求相同，`update_path` 决定调用 `update` 还是以 replacement 开始新 generation；
 3. 只合并最终 CellResult roots；merge 中相同 Cell 的 result 必须完全一致，update 中 replacement 明确替换同 Cell 的旧 root；
 4. 从最终 roots 重新 intern 全部 CandidateSnapshot、Attempt、Proposal、Evaluation、Failure、Region 与 graph；
 5. 跨输入相同 ID/相同 payload 只定义一次，相同 ID/不同 payload 失败；同 Proposal 的 StaticEvaluation、terminal Evaluation 与 witness 序列同样适用；
@@ -846,7 +899,7 @@ removed_failure_ids: tuple[str, ...]  # 排序唯一；仅同 generation 替换�
 
 | 规则 | 唯一所有者 |
 | --- | --- |
-| Wire Pydantic models、version dispatch、canonical codec | report module |
+| Wire Pydantic models、`schema_version` 校验、canonical codec | report module |
 | ID/ref index、展开与可达性 | report module |
 | CellResult / projection / completion 跨引用验证 | report module |
 | Search 产生哪些 Observation/Region/Boundary | D003 / CoordinateSearch |
@@ -856,62 +909,19 @@ removed_failure_ids: tuple[str, ...]  # 排序唯一；仅同 generation 替换�
 | Apply 修改与事务 | ProjectEditor / D001 / D009 |
 | 人类展示 | TerminalPresenter / D006 |
 
-调用方不得手写 `dict[id]` join、重复 ID 校验或 Schema 1/2 分支。版本兼容只存在于 ReportStore persistence seam。
+调用方不得手写 `dict[id]` join、重复 ID 校验或 Schema 版本分支。`ReportStore` 只接受 `schema_version = 2`。
 
-## 14. Schema 1 迁移
+## 9. 切换策略
 
-### 14.1 读取与写入策略
+项目尚未发布。Schema 2 落地时直接删除现行内联 writer、reader 和 wire models，不提供 migrator、dual-read、dual-write、隐式备份或 sidecar。
 
-落地后的 ReportStore：
+`apply`、`explain`、`diagnose`、merge 和 search update 只消费 Schema 2 `ValidatedReport`。缺失或不支持的版本直接失败；开发期旧报告由新的 `pf search` 重生。
 
-- 读取 Schema 1 和 Schema 2；
-- 写入只产生 Schema 2；
-- 读到 Schema 1 时先执行完整 `PackageFloorReportV1` 校验，再规范化为 ValidatedReport；
-- `apply`、`explain` 和 `diagnose` 可以消费规范化后的旧报告；
-- search update 统一调用 `update_path`：generation 相同则替换 Cell，不同则开始新 generation，并以 Schema 2 原子写回；
-- merge 可以接受语义 generation 相同的 Schema 1/2 输入，输出 Schema 2；
-- 不 dual-write，不在原文件旁生成隐式备份或 sidecar。
+拒绝错误必须指出实体类型与稳定 ID，但不得转储完整证据或 process output。
 
-未知 Schema 继续失败。Schema 1 兼容期的删除需要单独产品决策，不在本文预设时间。
+## 10. 实施工件与验收
 
-### 14.2 Schema 1 normalization
-
-Legacy adapter 按以下规则收敛重复实体：
-
-1. 按 `pf:snapshot:v1` 重算 source digest；RequirementDeclaration ID 必须唯一；declarations 与 target Cells 保留现行 generation preimage 顺序；
-2. `target_cells` 建立 Cell table；所有嵌套 Cell 必须解析到完全相同的目标 Cell record，包括 active declaration IDs；
-3. 顶层 CandidateSnapshot 集合必须与所有 CellResult 内集合按 `(cell, dependency, digest)` 完全一致；
-4. 同一 Attempt ID 的展开 identity 必须完全一致，且同一 Attempt 最多映射一个 Proposal；
-5. 同一 Proposal ID 的公开 payload 必须完全一致；legacy adapter 不声称重算缺失 preimage 的 environment identity；
-6. 同一 Proposal 的 StaticEvaluation、terminal Evaluation、TyCheck、witness 序列和 FailureRecord 关系必须完全一致；static-stage Indeterminate 只进入 terminal Evaluation table；
-7. legacy resolved graph 只允许规范化数组顺序：Node name 与 dependency name 必须已经是现行 PEP 503 canonical form；Node 或单个 Node 内 dependency 即使 payload 相同也不得重复；非规范名称、重复名称或同名冲突 payload 全部拒绝。通过后以 §7.1 内容 digest 合并；相同 region preimage 得到相同 local ID，不同 payload 的 ID 碰撞失败；
-8. Probe 与 FailureRecord 的 scope/cause/disposition/process 必须通过现行交叉校验后改为 refs；
-9. final vector、search vector 和 final Proposal vector 必须相等后只保留 final Proposal ref；
-10. Projection Cell 必须解析到 target Cell；
-11. 任何冲突都失败，不选择“顶层优先”“嵌套优先”、first 或 last。
-
-Legacy normalization 有意比现行 `PackageFloorReportV1` reader 更严格：
-
-| 现行 reader 可接受的歧义 | Schema 2 normalization |
-| --- | --- |
-| source digest 与 entries 未复算 | 拒绝 |
-| 重复 declaration ID | 拒绝 |
-| target Cell 与嵌套 Cell lookup key 相同但 active declarations 不同 | 拒绝 |
-| 顶层/CellResult CandidateSnapshot 副本漂移 | 拒绝 |
-| 同一 opaque Proposal ID 对应不同公开 payload | 拒绝 |
-| 同一 Proposal 的 static/terminal Evaluation 或 witness 出现冲突副本 | 拒绝 |
-| resolution graph 仅顺序非规范 | 排序后规范化 |
-| resolution graph name 非 canonical、Node/dependency 重复或同名冲突 | 拒绝 |
-
-这些输入不具备无歧义迁移条件，应要求重新 search。拒绝条件必须在错误中指出实体类型与稳定 ID，不转储完整证据或 process output。
-
-### 14.3 Identity 保持
-
-Normalization 对可重建的展开语义计算 ID，因此通过 §14.2 legacy normalization 的 Schema 1 报告保持原有 generation、CandidateSnapshot、Attempt 和 Failure ID。尤其是 declarations/target Cells 使用原数组顺序重建 generation preimage。Proposal ID 按 §7.3 原样保留并统一引用；Schema 2 新增的 Cell、resolution graph 和 region refs 不进入这些旧 identity 的 hash 输入。`harness_declaration_ids` 原样保留，不解析为不存在的实体。
-
-若未来领域 identity 自身升级，必须由对应所有者定义新版本；不能把 wire layout 变化伪装成领域 identity 变化。
-
-## 15. JSON Schema 与文档工件
+### 10.1 JSON Schema 与文档工件
 
 Schema 2 实现必须同时提交：
 
@@ -925,7 +935,7 @@ JSON Schema 从唯一 Pydantic wire models 确定性生成并在测试中检查�
 
 D014 解释字段所有权和跨引用不变量；示例只展示最小结构，不复制完整产品规则。真实大报告不得作为文档示例提交。
 
-## 16. 安全与资源边界
+### 10.2 安全与资源边界
 
 Schema 2 延续现行公共报告限制：
 
@@ -939,9 +949,7 @@ Schema 2 延续现行公共报告限制：
 
 Normalized tables 不能成为 reference amplification。validator 只能按固定有向关系解析本地实体，并使用线性 index；不得递归展开任意用户提供的通用图。目标复杂度为报告字节数和引用数的线性或近线性函数。
 
-## 17. 测试与验收
-
-### 17.1 结构测试
+### 10.3 结构测试
 
 - 每类实体定义唯一；重复 ID 即使 payload 相同也失败；
 - unknown、wrong-kind、cross-cell、cross-generation 和循环 ref 失败；
@@ -953,12 +961,15 @@ Normalized tables 不能成为 reference amplification。validator 只能按固�
 - 顶层只有一份 CandidateSnapshot table；
 - static-stage Indeterminate 只在 terminal Evaluation table 定义一次；
 - `harness_declaration_ids` 是 opaque IDs，不要求或允许解析为 refs；
-- JSON Schema 与 Pydantic wire models 同步。
+- Attempt wire 不保存 `identity_version`；Builder 拒绝非 `attempt-v2` 领域对象；
+- JSON Schema 与 Pydantic wire models 同步；
+- 缺失或不支持的 `schema_version` 读取失败，不进入 intern。
 
-### 17.2 语义等价测试
+### 10.4 语义测试
 
-现行 Schema 1 篡改矩阵必须在 Schema 2 中继续失败，包括：
+现行证据篡改矩阵必须在 Schema 2 中继续失败，并增加 Proposal plan digest 校验：
 
+- Proposal 缺少 plan digest，或重算 `proposal_id` 与 `EnvironmentIdentity` 不符；
 - generation identity 漂移；
 - target Cell 缺失、重复或多余；
 - CandidateSnapshot digest、candidate order 或 artifact 变化；
@@ -974,117 +985,124 @@ Normalized tables 不能成为 reference amplification。validator 只能按固�
 - projection floor 与 final vector 不一致；
 - complete report 覆盖不全或 projection 不可表示。
 
-### 17.3 迁移测试
+### 10.5 持久化与 intern 测试
 
-- 真实 Schema 1 complete / incomplete fixture 能规范化为 Schema 2；
-- v1→v2 后 generation、CandidateSnapshot、Attempt、Failure ID byte-for-byte 不变，ordered declarations/target Cells 不被 ID 排序；
-- 非空 harness declaration IDs 原样迁移为 opaque `harness_declaration_ids`；
-- Schema 1 重复实体在一致时只产生一个 Schema 2 定义；
-- 顶层/嵌套 CandidateSnapshot 冲突保守失败；
-- source digest、nested Cell declarations、Proposal payload、static/terminal Evaluation 或 witness 冲突保守失败；
-- legacy resolution graph 的 Node/dependency 数组只重排顺序，非 canonical name、重复项与同名冲突失败；
-- v1→v2 后 `explain` 可见结果、`diagnose` Failure 顺序和 apply patch 完全等价；
-- v1→v2 与 Schema 2 round trip 都保留每个 CellResult 的 `failure_refs` evidence 顺序；
-- v1/v2 merge 对相同 generation 得到同一规范结果；
-- search update 原子地把旧报告升级为 Schema 2；
+- Builder intern 后 CandidateSnapshot、Attempt、Failure 和 Proposal ID 与领域对象一致；report generation ID 按 §3.2 的 canonical tables 计算；
+- 非空 harness declaration IDs 作为 opaque `harness_declaration_ids` 写入；
+- 重复实体在一致时只产生一个定义；ID 相同、payload 不同则失败；
+- 领域 graph 在计算 identity 前由 producer 规范化；wire 顺序不规范、name 非 canonical、重复 Node/dependency 或同名冲突均读取失败；
+- `explain` 可见结果、`diagnose` Failure 顺序和 apply patch 与 intern 前领域证据等价；
+- Schema 2 round trip 保留每个 CellResult 的 `failure_refs` evidence 顺序，且 byte-for-byte 稳定；
+- 相同 generation 的 merge 得到同一规范结果；
+- search update 只读写 Schema 2；
+- update 在 replacement 为零 CellResult 时保留 existing；
 - update 替换 Cell 后删除仅由旧 Cell 可达的实体，并保留仍被其他 Cell 引用的 ResolutionGraph；
-- `ReportUpdate` 在新路径/新 generation 时要求替换 diagnosis generation，在同 generation 时只列出被替换旧 Cell 的 Failure IDs；
-- Schema 2 round trip byte-for-byte 稳定。
+- `update_path` 遇到缺失或不支持的 `schema_version` 失败，不覆盖；
+- `ReportUpdate` 在新路径/新 generation 时要求替换 diagnosis generation，在同 generation 时只列出被替换旧 Cell 的 Failure IDs。
 
-### 17.4 体积与性能
+### 10.6 体积与性能
 
-实现必须把 §1.2 的 PF 自搜索报告提交为固定 qualification fixture：
+实现必须把 §1.2 的 PF 自搜索内联报告提交为固定体积对照样本，而不是生产 reader 输入：
 
 ```text
-tests/fixtures/report-schema/pf-self-search-v1.json
+tests/fixtures/report-schema/pf-self-search-inline.json
 bytes: 7,682,528
 sha256: 29dd927eea928d63a555203f35304bea1f927f5e81963bac1b163e2e209af034
-report_generation_id: cf37b403df8eceb0060afaf95ce30effd2a699b28ce84f551c432aa5ed91342b
+inline_report_generation_id: cf37b403df8eceb0060afaf95ce30effd2a699b28ce84f551c432aa5ed91342b
 ```
 
-fixture 相邻 README 必须记录生成命令、PF/uv/ty/Python 版本、source snapshot digest 和候选来源；仓库根未跟踪的 `package-floor.json` 不算 qualification fixture。Qualification 记录：
+`inline_report_generation_id` 只用于确认对照样本来源，不是 Schema 2 generation ID 的 golden value。
 
-- Schema 1 紧凑 bytes；
+fixture 相邻 README 必须记录生成命令、PF/uv/ty/Python 版本、source snapshot digest 和候选来源；仓库根未跟踪的 `package-floor.json` 不算 qualification fixture。该样本只用于量体积基线，测试不得通过 `ReportStore.read` 解码它。Qualification 记录：
+
+- 内联紧凑 bytes（固定为 4,084,111）；
 - Schema 2 紧凑 bytes；
 - read + validate 峰值内存和耗时；
-- merge 两份互补报告的峰值内存和耗时。
+- merge 两份互补 Schema 2 报告的峰值内存和耗时。
 
 硬性条件：
 
-1. Schema 2 必须小于同语义 Schema 1 紧凑编码；
+1. Schema 2 必须小于同语义内联紧凑编码；
 2. 24 个 CandidateSnapshot 只能定义 24 次；
 3. 3 个 Cell 只能定义 3 次；
 4. 每个 Attempt、Proposal 和 resolution graph 只能定义一次；
 5. 体积改善不得依赖删除证据、gzip 或降低 validator 强度。
 
-设计目标的精确门槛为 Schema 2 紧凑编码不超过 **2,042,055 bytes**，即相对 4,084,111-byte Schema 1 至少减少 50%；口语中的“约 2.0 MiB”只描述量级，不是另一个 2,097,152-byte 门槛。若原型超过 2,042,055 bytes，不能仅以“仍比 Schema 1 小”宣布 D014 已实施；必须给出按实体分类的剩余体积与原因，并以 D014 修订显式批准例外。不能通过放宽证据契约达标。峰值内存和耗时首版只作为记录项，不构成新的产品 SLA。
+Schema 2 紧凑编码目标不超过 **2,042,055 bytes**，即比 4,084,111-byte 内联编码至少减少 50%。“约 2.0 MiB”只描述量级，不是另一个 2,097,152-byte 门槛。
 
-## 18. 对现行契约的取代
+若原型超过门槛，必须按实体分类说明剩余体积，并通过 D014 修订显式批准例外。不能靠放宽证据契约达标。峰值内存和耗时首版只记录，不构成新 SLA。
+
+## 11. 契约同步
 
 本文处于草案状态，不取代任何现行条款。批准并落地后：
 
 - D001 §7 保留报告的产品作用、命令消费者、完整/不完整含义和保守失败，只把 wire layout、版本与规范编码指向 D014；
-- D002 的 Schema / ReportStore 章节采纳 §13 的 ValidatedReport 与 persistence interface、Schema 1 legacy adapter 和 Schema 2 codec，不复制引用规则；D005 同步采纳 `ReportUpdate` 的 diagnosis association delta；
-- D003–D005、D008、D011–D013 继续定义各自证据语义，只把持久化字段改为 D014 refs；D012 同步澄清结构化 HarnessRequirement 属于 planning/runtime，而报告持久化其 opaque declaration IDs；
+- D002 的 Schema / ReportStore 章节采纳 §8 的 ValidatedReport、persistence interface 与唯一 Schema 2 codec，删除内联报告模型，不复制引用规则；D005 同步采纳 `ReportUpdate` 的 diagnosis association delta；
+- D003–D005、D008、D011–D013 继续定义各自证据语义，只把持久化字段改为 D014 refs；D002/D012 同步让成功 Proposal 携带两个 plan digest；D012 继续拥有 Environment identity 与 graph 规范化；
 - `docs/README.md` 把 D014 状态更新为“现行”，并记录相应实施计划；
-- Schema 1 从“现行 writer”变为“legacy read format”。
+- 现行内联报告从代码与产品契约中删除。
 
-落地必须在同一变更中同步上述所有者文档，不能出现代码写 Schema 2 而 D001 仍声明 Schema 1 是唯一输出的中间状态。
+落地必须在同一变更中同步上述所有者文档，不能出现代码写 Schema 2 而 D001 仍声明内联 Schema 1 是唯一输出的中间状态。
 
-## 19. 被拒绝的方案
+## 12. 被拒绝的方案与决策摘要
 
-### 19.1 只恢复紧凑 JSON
+### 12.1 只恢复紧凑 JSON
 
 从 pretty JSON 改回现行 canonical encoding 可把样本从 7.68 MB 降到 4.08 MB，但 162 条 Observation 仍各自内联完整证据；磁盘改善不能解决多重权威或理解成本。
 
-### 19.2 只删除顶层 CandidateSnapshot
+### 12.2 只删除顶层 CandidateSnapshot
 
 这能立即删除约 380 KB 和一处不一致来源，但 Cell、Attempt、Proposal、Evaluation 与 Failure 的高扇出重复仍占主要体积。Schema 2 应一次建立一致的 ref 规则，不为每种实体补零散特例。
 
-### 19.3 删除搜索过程，只保留 final floor
+### 12.3 删除搜索过程，只保留 final floor
 
 这会让 report 无法复证坐标边界、static-only guidance、FailureRecord、非单调性和 final PASS authority，并削弱 explain/diagnose/merge。报告不是只有 apply patch 的摘要。
 
-### 19.4 主报告 + 本机 evidence sidecar
+### 12.4 主报告 + 本机 evidence sidecar
 
 把大证据移入 `.pf/` 会破坏报告可移植性，使 apply/merge 的授权依赖可丢失本机状态，并引入多文件事务。Schema 2 首版保持一个自包含文档；若未来需要 bundle，必须单独设计 manifest、content hash 和原子发布。
 
-### 19.5 通用 JSON Pointer / `$ref`
+### 12.5 通用 JSON Pointer / `$ref`
 
 通用指针把类型、可达性和允许依赖方向交给字符串路径，数组重排也可能改变引用。Schema 2 使用 typed opaque refs 和固定实体表，不建立通用 graph language。
 
-### 19.6 数组下标或短别名
+### 12.6 数组下标或短别名
 
 `attempts[17]`、`c3` 等引用在 merge、排序和增量更新中不稳定，也不能独立校验内容。持久引用使用现有 domain ID 或明确的内容 digest；人类标签由 `pf explain` 生成。
 
-### 19.7 把所有 value object 都放进实体表
+### 12.7 把所有 value object 都放进实体表
 
 为每个 VersionPin、TyDiagnostic 或 ProcessResult 建表会扩大调用者需要理解的 interface，且节省有限。Schema 2 只规范化具有共享 identity、merge 作用或多重权威风险的高扇出实体。
 
-### 19.8 在 Schema 1 原地接受两种布局
+### 12.8 在同一 `schema_version` 下同时接受内联树和 refs
 
-同一 `schema_version` 同时允许内联对象和 refs 会制造更大的 union、模糊 canonical writer，并让旧 reader 无法可靠拒绝新文档。布局变化必须提升为 Schema 2。
+同一版本号同时允许内联对象和 refs 会制造更大的 union、模糊 canonical writer，并让 reader 无法可靠拒绝错误文档。Schema 2 只接受 refs 布局。
 
-### 19.9 为 legacy harness declaration ID 虚构 typed ref
+### 12.9 为 harness declaration ID 虚构 typed ref
 
-Schema 1 Attempt 只保存 harness declaration IDs，没有完整 HarnessRequirement target。把它们改名为 `*_ref` 会让真实旧报告产生无法解析的引用；从当前项目重新 planning 又会破坏报告自包含、离线读取和 source-drift 语义。Schema 2 保留 opaque `harness_declaration_ids`；未来若公共报告要保存结构化 harness declarations，必须单独增加实体表与迁移策略。
+Attempt identity 的 harness facts 只保存 declaration IDs，公共报告没有 `HarnessRequirement` 实体。把这些 ID 改名为 `*_ref` 会要求解析不存在的 target，或从当前项目重新 planning。
 
-## 20. 决策记录
+这会破坏报告自包含、离线读取和 source-drift 语义。Schema 2 保留 opaque `harness_declaration_ids`；未来若要保存完整声明，必须增加实体表并版本化 Attempt identity。
+
+### 12.10 决策摘要
 
 - `package-floor.json` 继续是版本化公共接口，不降级为实现缓存；
 - 保留一个自包含 JSON 文件，先规范化再考虑压缩或 bundle；
 - 以稳定 typed refs 替代高扇出按值内联；
 - 每类实体有一个定义所有者，其他记录只能引用；
-- ID 对展开后的领域事实计算，wire normalization 不改变既有证据 identity；
-- generation-sensitive declarations/target Cells 保留现行 preimage 顺序，不按新实体 ID 重排；
+- ID 对展开后的领域事实计算，wire refs 不进入领域 identity；
+- `pf:report-generation:v2` 对 canonical declarations/target Cells 计算，不继承内联数组顺序；
 - CandidateSnapshot 属于 generation-scoped search input，但不进入 `report_generation_id`；
 - harness declaration IDs 保持 opaque，不伪装成缺少 target 的 refs；
+- Attempt identity 在 Schema 2 固定为 `attempt-v2`，不保留旧 identity union；
 - static-stage Indeterminate 只由 terminal Evaluation table 拥有；
 - merge/update 从最终 CellResult roots 重建可达图并清理旧实体，共享 ResolutionGraph 可以跨 Cell 保留；
-- `ValidatedReport` 是 resolved immutable facade，wire table、typed index 与版本分发不泄漏给调用方；
+- `ValidatedReport` 是 resolved immutable facade，wire table 与 typed index 不泄漏给调用方；
 - `ReportUpdate` 只把 generation replacement 与旧 Failure ID delta 交给 diagnosis association seam，不让 ReportStore 依赖 RunLogStore；
-- 保留完整 source manifest，因为它体积很小且属于现行 generation identity；
+- 成功 Proposal 保存并重算 `project_plan_digest` / `environment_plan_digest`；
+- 空 CellResult replacement 保留 existing；generation 不同时覆盖，不 intern 旧证据池；
+- 保留完整 source manifest，因为它体积很小且属于 generation identity；
 - 保留 projection/result 等低成本产品摘要，并由底层证据复证；
 - 删除 `observed_upper`、重复 final vector 和无语义 `null`；
-- Schema 1 只在 persistence seam 兼容，生产 writer 只输出 Schema 2；
+- 项目未发布：落地直接替换内联报告，不保留 reader 或 migrator；
 - D014 只拥有报告 wire interface，不接管搜索、失败、静态证据或 apply 的领域语义。
