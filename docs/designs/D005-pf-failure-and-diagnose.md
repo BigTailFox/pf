@@ -10,6 +10,7 @@
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
+- **报告 Schema 2：** [D014](D014-pf-report-schema.md)（已批准，待实现）
 
 本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级。完整性信号是磁盘日志 `stdout_complete` / `stderr_complete`（D007）。Declaration Attempt、Verification Journal 和 Role→impact 由 D008 拥有。
 
@@ -477,7 +478,7 @@ Technical details:
     -> <run-id>/process-<id>.log
 ```
 
-`report_generation_id` 由 generator/algorithm、package、source snapshot、policy、声明和 target cells 的规范 identity 计算，不吸收 cell result 或本地日志信息。
+`report_generation_id` 由 generator/algorithm、package、source snapshot、policy、声明和 target cells 的规范 identity 计算，不吸收 cell result 或本地日志信息。落地后的 wire 排序、canonical tables 与 `pf:report-generation:v2` 前缀以 [D014](D014-pf-report-schema.md) §3.2 为准；落地前仍按现行 `report_generation_id` 实现。
 
 该 locator index：
 

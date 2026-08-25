@@ -1,6 +1,6 @@
 # PF 报告 Schema 2
 
-- **状态：** 草案
+- **状态：** 已批准，待实现
 - **日期：** 2026-08-25
 - **适用范围：** `package-floor.json` 的公共 JSON 布局、引用完整性、规范编码，以及用 Schema 2 一次性替换现行内联报告
 - **产品与命令：** [D001](D001-pf.md)
@@ -20,7 +20,7 @@
 
 本文只拥有持久化报告的 wire interface：顶层分组、实体表、引用、规范编码和跨引用验证。D001 继续拥有报告的产品作用、命令和 apply 条件；D003–D005、D008、D011–D013 继续拥有被保存证据的领域含义。本文不得通过重排 JSON 改写这些语义。
 
-本文尚未批准或实现。项目尚未发布；批准落地时直接以 `schema_version = 2` 取代现行内联报告，不保留 reader、migrator 或 dual-write。开发期报告由新的 search 重生。
+本文已批准、待实现。落地前现行内联报告仍是唯一有效行为。项目尚未发布；落地时直接以 `schema_version = 2` 取代现行内联报告，不保留 reader、migrator 或 dual-write。开发期报告由新的 search 重生。
 
 ## 1. 背景与目标
 
@@ -482,7 +482,17 @@ SEARCH_FAILED
 
 Schema 2 首版使用以上精确字符串；不得把“落地时现行实现”作为可变 wire 定义。未来重命名必须提升 Schema 或提供显式版本映射，不能借 normalization 静默改变。
 
-所有变体使用 `cell_ref`，并通过 `attempt_ref`、`proposal_ref`、`candidate_snapshot_refs` 和 `failure_refs` 连接证据表。FailureRecord 统一位于 `evidence.failures`；CellResult 只列出属于当前 Cell 的 refs。
+所有变体使用 `cell_ref`。FailureRecord 统一位于 `evidence.failures`；CellResult 只列出属于当前 Cell 的 `failure_refs`。内联 Attempt、Proposal、Evaluation、CandidateSnapshot 和 Cell 改为 refs；现行机械字段保留：
+
+| status | 保留字段 | 主要 refs |
+| --- | --- | --- |
+| `SUCCESS` | `search`（observations / regions / boundaries / sweeps）、`static_baseline_digest` | `baseline.attempt_ref` / `proposal_ref`、`candidate_snapshot_refs`、`final_proposal_ref`、`failure_refs` |
+| `BASELINE_REJECTION` | 无独立 search | `attempt_ref`、精确一条 `failure_refs`；若已产生 Evaluation 则另有 `proposal_ref` 与 `static_baseline_digest` |
+| `BASELINE_INDETERMINATE` | 无独立 search | 同 `BASELINE_REJECTION` |
+| `CELL_INDETERMINATE` | `phase`；可选 `search` / `coordinate_failure` | 终端 `failure_ref` 必须属于 `failure_refs`；若已进入 search 则要求完整 baseline refs 与 `candidate_snapshot_refs` |
+| `SEARCH_FAILED` | `phase`、`reason`；可选 `coordinate_failure` | 完整 baseline refs、`candidate_snapshot_refs`、`failure_refs`；`reason` 必须与 coordinate outcome 一致 |
+
+Baseline 变体的 Cell 仍由 `cell_ref` 显式给出，并必须等于其 highest `attempt_ref` 的 Cell。`SEARCH_FAILED.reason` 继续使用现行 `NON_MONOTONIC | NONDETERMINISTIC | NO_PASS_IN_SEARCH_SPACE`。
 
 ### 5.2 Success
 
@@ -531,9 +541,19 @@ Direct observation：
   "evidence": {
     "kind": "DIRECT",
     "attempt_ref": "...",
-    "status": "REJECTED",
-    "failure_ref": "failure-..."
+    "status": "PASS"
   }
+}
+```
+
+Direct Rejection 额外保存 `failure_ref`；PASS 不得出现该字段：
+
+```json
+{
+  "kind": "DIRECT",
+  "attempt_ref": "...",
+  "status": "REJECTED",
+  "failure_ref": "failure-..."
 }
 ```
 
@@ -587,7 +607,7 @@ Region 只保存当前 Cell search 中不能从引用推导的事实：
 
 - Cell 来自所属 CellResult；
 - source/policy 来自 generation；
-- active dependency 与 candidate order 来自 CandidateSnapshot；
+- `candidate_snapshot_ref` 必须属于同一 CellResult 的 `candidate_snapshot_refs`；active dependency 与 candidate order 来自该 CandidateSnapshot；
 - other coordinates、baseline digest 和 fingerprint 仍由 Region 拥有。
 
 Runtime reference 只选择 region 的 direct runtime representative，不重复保存其 status。`PASS | REJECTED | INDETERMINATE` 从同 Proposal 的 direct Observation、terminal Evaluation 与 FailureRecord 唯一推导；三者不一致时整个报告失败。
@@ -978,6 +998,7 @@ Normalized tables 不能成为 reference amplification。validator 只能按固�
 - static baseline、increment、fingerprint 或 witness 不一致；
 - Probe status 与 Evaluation / FailureRecord 不一致；
 - Static-only Observation 只靠 exact Attempt/Proposal/StaticEvaluation 闭包仍合法；
+- Region `candidate_snapshot_ref` 不属于所属 CellResult 的 `candidate_snapshot_refs`；
 - Region runtime representative 的派生 status 与 direct evidence 不一致；
 - boundary predecessor 没有 direct Rejection；
 - final Proposal 不是 PASS 或不属于 reported search；
@@ -1034,10 +1055,11 @@ Schema 2 紧凑编码目标不超过 **2,042,055 bytes**，即比 4,084,111-byte
 
 ## 11. 契约同步
 
-本文处于草案状态，不取代任何现行条款。批准并落地后：
+本文已批准、待实现，落地前不取代任何现行条款。落地后：
 
 - D001 §7 保留报告的产品作用、命令消费者、完整/不完整含义和保守失败，只把 wire layout、版本与规范编码指向 D014；
-- D002 的 Schema / ReportStore 章节采纳 §8 的 ValidatedReport、persistence interface 与唯一 Schema 2 codec，删除内联报告模型，不复制引用规则；D005 同步采纳 `ReportUpdate` 的 diagnosis association delta；
+- D002 的 Schema / ReportStore 章节采纳 §8 的 ValidatedReport、persistence interface 与唯一 Schema 2 codec，删除内联报告模型，不复制引用规则；
+- D005 继续拥有 FailureRecord 与 `(report_generation_id, failure_id)` association 的产品含义；wire generation 的规范输入、排序和 `pf:report-generation:v2` 前缀以 §3.2 为准，并同步采纳 `ReportUpdate` 的 diagnosis association delta；
 - D003–D005、D008、D011–D013 继续定义各自证据语义，只把持久化字段改为 D014 refs；D002/D012 同步让成功 Proposal 携带两个 plan digest；D012 继续拥有 Environment identity 与 graph 规范化；
 - `docs/README.md` 把 D014 状态更新为“现行”，并记录相应实施计划；
 - 现行内联报告从代码与产品契约中删除。

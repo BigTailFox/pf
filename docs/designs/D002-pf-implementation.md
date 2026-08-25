@@ -14,6 +14,7 @@
 - **runtime-backed 搜索：** [D011](D011-pf-runtime-backed-static-search.md)
 - **harness resolution：** [D012](D012-pf-harness-relaxation.md)
 - **pytest failure evidence：** [D013](D013-pf-pytest-failure-evidence.md)
+- **报告 Schema 2：** [D014](D014-pf-report-schema.md)（已批准，待实现）
 
 本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有；前序契约修复由 D009 拥有；判别 resolution/event、Runner 内部调度、平台日志 seam、终端私有视图和完整 composition 由 D010 拥有。本文描述已落地接口，不复制其他契约的业务规则。
 
@@ -407,7 +408,7 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 - 同一 generation 的 search update；
 - 严格 merge 及合并后投影重算。
 
-未知 Schema、缺少 D005 Attempt/FailureScope/FailureRecord union 的开发期旧结构、不匹配 generation、重复 cell 冲突或结构验证失败都保守失败。项目未发布，不提供 Schema 2、dual reader、迁移器或旧字段兼容分支。
+未知 Schema、缺少 D005 Attempt/FailureScope/FailureRecord union 的开发期旧结构、不匹配 generation、重复 cell 冲突或结构验证失败都保守失败。现行只提供 Schema 1；Schema 2 的 ValidatedReport、codec 与一次性替换以 [D014](D014-pf-report-schema.md) 为准，落地前不写入或读取 `schema_version = 2`。
 
 ### 11.2 ProjectEditor
 
