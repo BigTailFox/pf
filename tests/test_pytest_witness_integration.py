@@ -33,299 +33,302 @@ def _write_test(root: Path, source: str) -> None:
     (root / "test_example.py").write_text(source, encoding="utf-8")
 
 
-def test_real_pytest_complete_pass_remains_a_pass(tmp_path: Path) -> None:
-    _write_test(tmp_path, "def test_ok():\n    pass\n")
+class TestPytestWitnessIntegration:
+    def test_pytest_witness_accepts_complete_pass(self, tmp_path: Path) -> None:
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
 
-    result = _run_pytest(tmp_path)
+        result = _run_pytest(tmp_path)
 
-    assert isinstance(result, TestPass)
+        assert isinstance(result, TestPass)
 
+    def test_pytest_witness_classifies_interrupt_as_indeterminate(
+        self, tmp_path: Path
+    ) -> None:
+        _write_test(tmp_path, "raise KeyboardInterrupt\n")
 
-@pytest.mark.parametrize(
-    ("source", "args", "expected_exit"),
-    (
-        ("raise KeyboardInterrupt\n", (), 2),
-        (None, ("--definitely-invalid-option",), 4),
-        (None, ("-p", "plugin_that_does_not_exist"), 1),
-    ),
-)
-def test_unwitnessed_interrupt_usage_and_plugin_bootstrap_are_indeterminate(
-    tmp_path: Path,
-    source: str | None,
-    args: tuple[str, ...],
-    expected_exit: int,
-) -> None:
-    if source is not None:
-        _write_test(tmp_path, source)
+        result = _run_pytest(tmp_path)
 
-    result = _run_pytest(tmp_path, *args)
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 2
+        assert result.summary_code == "pytest-failure-unwitnessed"
 
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == expected_exit
-    assert result.summary_code in {
-        "pytest-failure-unwitnessed",
-        "pytest-outcome-conflict",
-    }
+    def test_pytest_witness_classifies_usage_error_as_indeterminate(
+        self, tmp_path: Path
+    ) -> None:
+        result = _run_pytest(tmp_path, "--definitely-invalid-option")
 
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 4
+        assert result.summary_code == "pytest-failure-unwitnessed"
 
-def test_initial_conftest_import_failure_is_indeterminate(tmp_path: Path) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "raise ImportError('initial conftest')\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_ok():\n    pass\n")
+    def test_pytest_witness_classifies_plugin_bootstrap_failure_as_indeterminate(
+        self, tmp_path: Path
+    ) -> None:
+        result = _run_pytest(tmp_path, "-p", "plugin_that_does_not_exist")
 
-    result = _run_pytest(tmp_path)
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 1
+        assert result.summary_code == "pytest-failure-unwitnessed"
 
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == 4
-    assert result.summary_code == "pytest-failure-unwitnessed"
+    def test_pytest_witness_classifies_initial_conftest_failure_as_indeterminate(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "raise ImportError('initial conftest')\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
 
+        result = _run_pytest(tmp_path)
 
-def test_late_nested_conftest_import_failure_is_a_test_failure(
-    tmp_path: Path,
-) -> None:
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    (nested / "conftest.py").write_text(
-        "raise ImportError('nested conftest')\n",
-        encoding="utf-8",
-    )
-    (nested / "test_nested.py").write_text(
-        "def test_nested():\n    pass\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_root():\n    pass\n")
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 4
+        assert result.summary_code == "pytest-failure-unwitnessed"
 
-    result = _run_pytest(tmp_path)
+    def test_pytest_witness_classifies_late_conftest_failure_as_test_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        (nested / "conftest.py").write_text(
+            "raise ImportError('nested conftest')\n",
+            encoding="utf-8",
+        )
+        (nested / "test_nested.py").write_text(
+            "def test_nested():\n    pass\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_root():\n    pass\n")
 
-    assert isinstance(result, TestFail)
-    assert result.process.exit_code == 2
+        result = _run_pytest(tmp_path)
 
+        assert isinstance(result, TestFail)
+        assert result.process.exit_code == 2
 
-@pytest.mark.parametrize(
-    ("test_source", "rewritten_exit"),
-    (
-        ("def test_ok():\n    pass\n", 1),
-        ("def test_bad():\n    assert False\n", 0),
-    ),
-)
-def test_exit_rewrite_cannot_create_a_false_pass_or_rejection(
-    tmp_path: Path,
-    test_source: str,
-    rewritten_exit: int,
-) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "def pytest_sessionfinish(session):\n"
-        f"    session.exitstatus = {rewritten_exit}\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, test_source)
+    def test_pytest_witness_rejects_pass_rewritten_to_failure(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_sessionfinish(session):\n    session.exitstatus = 1\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
 
-    result = _run_pytest(tmp_path)
+        result = _run_pytest(tmp_path)
 
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == rewritten_exit
-    assert result.summary_code in {
-        "pytest-failure-unwitnessed",
-        "pytest-outcome-conflict",
-    }
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 1
+        assert result.summary_code == "pytest-failure-unwitnessed"
 
+    def test_pytest_witness_rejects_failure_rewritten_to_pass(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_sessionfinish(session):\n    session.exitstatus = 0\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-def test_failure_witness_survives_a_later_interrupt(tmp_path: Path) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "def pytest_runtest_logreport(report):\n"
-        "    if report.failed and report.when == 'call':\n"
-        "        raise KeyboardInterrupt\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_bad():\n    assert False\n")
+        result = _run_pytest(tmp_path)
 
-    result = _run_pytest(tmp_path)
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 0
+        assert result.summary_code == "pytest-outcome-conflict"
 
-    assert isinstance(result, TestFail)
-    assert result.process.exit_code == 2
+    def test_pytest_witness_retains_test_failure_before_interrupt(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_runtest_logreport(report):\n"
+            "    if report.failed and report.when == 'call':\n"
+            "        raise KeyboardInterrupt\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
+        result = _run_pytest(tmp_path)
 
-def test_collection_failure_witness_survives_a_later_interrupt(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "def pytest_collectreport(report):\n"
-        "    if report.failed:\n"
-        "        raise KeyboardInterrupt\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "raise ImportError('collection')\n")
+        assert isinstance(result, TestFail)
+        assert result.process.exit_code == 2
 
-    result = _run_pytest(tmp_path)
+    def test_pytest_witness_retains_collection_failure_before_interrupt(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_collectreport(report):\n"
+            "    if report.failed:\n"
+            "        raise KeyboardInterrupt\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "raise ImportError('collection')\n")
 
-    assert isinstance(result, TestFail)
-    assert result.process.exit_code == 2
+        result = _run_pytest(tmp_path)
 
+        assert isinstance(result, TestFail)
+        assert result.process.exit_code == 2
 
-def test_internal_error_after_failure_witness_has_priority(tmp_path: Path) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "def pytest_runtest_logreport(report):\n"
-        "    if report.failed and report.when == 'call':\n"
-        "        raise RuntimeError('after failure')\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_bad():\n    assert False\n")
+    def test_pytest_witness_prioritizes_internal_error_over_failure(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_runtest_logreport(report):\n"
+            "    if report.failed and report.when == 'call':\n"
+            "        raise RuntimeError('after failure')\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-    result = _run_pytest(tmp_path)
+        result = _run_pytest(tmp_path)
 
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == 3
-    assert result.summary_code == "pytest-internal-error"
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 3
+        assert result.summary_code == "pytest-internal-error"
 
+    @pytest.mark.parametrize("rewritten_exit", (1, 2))
+    def test_pytest_witness_prioritizes_internal_error_after_exit_rewrite(
+        self,
+        tmp_path: Path,
+        rewritten_exit: int,
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n"
+            "    raise RuntimeError('internal')\n"
+            "def pytest_sessionfinish(session):\n"
+            f"    session.exitstatus = {rewritten_exit}\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
 
-@pytest.mark.parametrize("rewritten_exit", (1, 2))
-def test_internal_error_priority_survives_exit_rewrite(
-    tmp_path: Path,
-    rewritten_exit: int,
-) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "def pytest_collection_modifyitems(items):\n"
-        "    raise RuntimeError('internal')\n"
-        "def pytest_sessionfinish(session):\n"
-        f"    session.exitstatus = {rewritten_exit}\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_ok():\n    pass\n")
+        result = _run_pytest(tmp_path)
 
-    result = _run_pytest(tmp_path)
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == rewritten_exit
+        assert result.summary_code == "pytest-internal-error"
 
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == rewritten_exit
-    assert result.summary_code == "pytest-internal-error"
+    def test_pytest_witness_rejects_uncommitted_summary(self, tmp_path: Path) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "import shutil\n"
+            "def pytest_sessionstart(session):\n"
+            "    shutil.rmtree(Path(os.environ['PF_PYTEST_WITNESS_DIR']))\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
+        result = _run_pytest(tmp_path)
 
-def test_summary_commit_failure_cannot_authorize_rejection(tmp_path: Path) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "import os\n"
-        "from pathlib import Path\n"
-        "import shutil\n"
-        "def pytest_sessionstart(session):\n"
-        "    shutil.rmtree(Path(os.environ['PF_PYTEST_WITNESS_DIR']))\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_bad():\n    assert False\n")
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 1
+        assert result.summary_code in {
+            "pytest-evidence-invalid",
+            "pytest-failure-unwitnessed",
+        }
 
-    result = _run_pytest(tmp_path)
+    def test_pytest_witness_rejects_residual_temporary_artifact(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "def pytest_sessionfinish(session):\n"
+            "    directory = Path(os.environ['PF_PYTEST_WITNESS_DIR'])\n"
+            "    (directory / 'leftover.tmp').write_text('partial')\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == 1
-    assert result.summary_code in {
-        "pytest-evidence-invalid",
-        "pytest-failure-unwitnessed",
-    }
+        result = _run_pytest(tmp_path)
 
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 1
+        assert result.summary_code == "pytest-evidence-invalid"
 
-def test_residual_temporary_artifact_invalidates_evidence(tmp_path: Path) -> None:
-    (tmp_path / "conftest.py").write_text(
-        "import os\n"
-        "from pathlib import Path\n"
-        "def pytest_sessionfinish(session):\n"
-        "    directory = Path(os.environ['PF_PYTEST_WITNESS_DIR'])\n"
-        "    (directory / 'leftover.tmp').write_text('partial')\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_bad():\n    assert False\n")
-
-    result = _run_pytest(tmp_path)
-
-    assert isinstance(result, ToolFailure)
-    assert result.process.exit_code == 1
-    assert result.summary_code == "pytest-evidence-invalid"
-
-
-@pytest.mark.parametrize(
-    "conftest_source",
-    (
-        "def pytest_sessionfinish(session):\n"
-        "    raise RuntimeError('sessionfinish')\n",
-        "def pytest_unconfigure(config):\n"
-        "    raise RuntimeError('unconfigure')\n",
-        "def _cleanup():\n"
-        "    raise RuntimeError('cleanup')\n"
-        "def pytest_configure(config):\n"
-        "    config.add_cleanup(_cleanup)\n",
-    ),
-    ids=("sessionfinish", "unconfigure", "config-cleanup"),
-)
-def test_finalization_exception_is_committed_as_internal_error(
-    tmp_path: Path,
-    conftest_source: str,
-) -> None:
-    (tmp_path / "conftest.py").write_text(conftest_source, encoding="utf-8")
-    _write_test(tmp_path, "def test_ok():\n    pass\n")
-
-    result = _run_pytest(tmp_path)
-
-    assert isinstance(result, ToolFailure)
-    assert result.summary_code == "pytest-internal-error"
-
-
-def test_xdist_argv_pass_retains_only_positive_authority(tmp_path: Path) -> None:
-    _write_test(tmp_path, "def test_ok():\n    pass\n")
-
-    result = _run_pytest(tmp_path, "-n2", autoload=True)
-
-    assert isinstance(result, TestPass)
-
-
-def test_xdist_configured_pass_retains_only_positive_authority(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.pytest.ini_options]\naddopts = ['-n2']\n",
-        encoding="utf-8",
-    )
-    _write_test(tmp_path, "def test_ok():\n    pass\n")
-
-    result = _run_pytest(tmp_path, autoload=True)
-
-    assert isinstance(result, TestPass)
-
-
-@pytest.mark.parametrize(
-    ("source", "conftest_source", "args"),
-    (
-        ("def test_bad():\n    assert False\n", None, ("-n2",)),
+    @pytest.mark.parametrize(
+        "conftest_source",
         (
-            "def test_bad():\n    assert False\n",
+            "def pytest_sessionfinish(session):\n"
+            "    raise RuntimeError('sessionfinish')\n",
+            "def pytest_unconfigure(config):\n    raise RuntimeError('unconfigure')\n",
+            "def _cleanup():\n"
+            "    raise RuntimeError('cleanup')\n"
+            "def pytest_configure(config):\n"
+            "    config.add_cleanup(_cleanup)\n",
+        ),
+        ids=("sessionfinish", "unconfigure", "config-cleanup"),
+    )
+    def test_pytest_witness_records_finalization_exception_as_internal_error(
+        self,
+        tmp_path: Path,
+        conftest_source: str,
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(conftest_source, encoding="utf-8")
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
+
+        result = _run_pytest(tmp_path)
+
+        assert isinstance(result, ToolFailure)
+        assert result.summary_code == "pytest-internal-error"
+
+
+class TestPytestWitnessXdistIntegration:
+    def test_pytest_witness_accepts_xdist_pass_from_argv(self, tmp_path: Path) -> None:
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
+
+        result = _run_pytest(tmp_path, "-n2", autoload=True)
+
+        assert isinstance(result, TestPass)
+
+    def test_pytest_witness_accepts_xdist_pass_from_config(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\naddopts = ['-n2']\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
+
+        result = _run_pytest(tmp_path, autoload=True)
+
+        assert isinstance(result, TestPass)
+
+    def test_pytest_witness_rejects_xdist_test_failure(self, tmp_path: Path) -> None:
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
+
+        result = _run_pytest(tmp_path, "-n2", autoload=True)
+
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 1
+        assert result.summary_code == "pytest-outcome-conflict"
+
+    def test_pytest_witness_rejects_xdist_internal_error(self, tmp_path: Path) -> None:
+        (tmp_path / "conftest.py").write_text(
             "def pytest_runtest_logreport(report):\n"
             "    if report.failed and report.when == 'call':\n"
             "        raise RuntimeError('worker internal error')\n",
-            ("-n2",),
-        ),
-        (
-            "import os\ndef test_crash():\n    os._exit(7)\n",
-            None,
-            ("-n2", "--max-worker-restart=0"),
-        ),
-    ),
-    ids=("worker-failure", "worker-internal-error", "worker-crash"),
-)
-def test_xdist_nonzero_outcome_never_authorizes_rejection(
-    tmp_path: Path,
-    source: str,
-    conftest_source: str | None,
-    args: tuple[str, ...],
-) -> None:
-    if conftest_source is not None:
-        (tmp_path / "conftest.py").write_text(
-            conftest_source,
             encoding="utf-8",
         )
-    _write_test(tmp_path, source)
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-    result = _run_pytest(tmp_path, *args, autoload=True)
+        result = _run_pytest(tmp_path, "-n2", autoload=True)
 
-    assert isinstance(result, ToolFailure)
-    assert result.summary_code in {
-        "pytest-evidence-invalid",
-        "pytest-internal-error",
-        "pytest-outcome-conflict",
-    }
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 3
+        assert result.summary_code == "pytest-internal-error"
+
+    def test_pytest_witness_rejects_xdist_worker_crash(self, tmp_path: Path) -> None:
+        _write_test(tmp_path, "import os\ndef test_crash():\n    os._exit(7)\n")
+
+        result = _run_pytest(
+            tmp_path,
+            "-n2",
+            "--max-worker-restart=0",
+            autoload=True,
+        )
+
+        assert isinstance(result, ToolFailure)
+        assert result.process.exit_code == 1
+        assert result.summary_code == "pytest-outcome-conflict"

@@ -35,7 +35,9 @@ test-command = ["pytest"]
         + "\n",
         encoding="utf-8",
     )
-    package = ProjectLoader().load(root=project_root, package_selection=None).packages[0]
+    package = (
+        ProjectLoader().load(root=project_root, package_selection=None).packages[0]
+    )
     temporary = tempfile.TemporaryDirectory(prefix="pf-transition-", dir=tmp_path)
     proposal_root = Path(temporary.name) / "source"
     proposal_root.mkdir()
@@ -95,107 +97,113 @@ def _diagnostic(
     )
 
 
-@pytest.mark.parametrize(
-    ("source", "diagnostic", "operation", "module", "owner", "name"),
-    (
+class TestStaticTransitionClassifier:
+    @pytest.mark.parametrize(
+        ("source", "diagnostic", "operation", "module", "owner", "name"),
         (
-            "import requests.missing\n",
-            _diagnostic(line=1, column=8, code="unresolved-import"),
-            "import-module",
-            "requests.missing",
-            None,
-            None,
+            (
+                "import requests.missing\n",
+                _diagnostic(line=1, column=8, code="unresolved-import"),
+                "import-module",
+                "requests.missing",
+                None,
+                None,
+            ),
+            (
+                "from requests import Missing\n",
+                _diagnostic(line=1, column=6, code="unresolved-import"),
+                "import-symbol",
+                "requests",
+                None,
+                "Missing",
+            ),
+            (
+                "import requests as req\nreq.missing\n",
+                _diagnostic(line=2, column=5, code="unresolved-attribute"),
+                "has-member",
+                "requests",
+                "requests",
+                "missing",
+            ),
         ),
-        (
-            "from requests import Missing\n",
-            _diagnostic(line=1, column=6, code="unresolved-import"),
-            "import-symbol",
-            "requests",
-            None,
-            "Missing",
-        ),
-        (
-            "import requests as req\nreq.missing\n",
-            _diagnostic(line=2, column=5, code="unresolved-attribute"),
-            "has-member",
-            "requests",
-            "requests",
-            "missing",
-        ),
-    ),
-)
-def test_classifier_builds_only_structurally_recoverable_witnesses(
-    tmp_path: Path,
-    source: str,
-    diagnostic: TyDiagnostic,
-    operation: str,
-    module: str,
-    owner: str | None,
-    name: str | None,
-) -> None:
-    prepared, package = _context(tmp_path, source)
-
-    result = StaticTransitionClassifier().classify(
-        prepared,
-        package=package,
-        incremental=(diagnostic,),
-    )[0]
-
-    assert result.classification == "strong"
-    assert result.reason_code == "witness-planned"
-    assert result.witness_plan is not None
-    assert result.witness_plan.managed_dependency == "requests"
-    assert result.witness_plan.operation == operation
-    assert result.witness_plan.module == module
-    assert result.witness_plan.owner == owner
-    assert result.witness_plan.symbol_or_member == name
-    prepared.close()
-
-
-@pytest.mark.parametrize(
-    ("source", "diagnostic", "reason"),
-    (
-        (
-            "import requests\n",
-            _diagnostic(line=1, column=8, code="invalid-type"),
-            "code-not-allowlisted",
-        ),
-        (
-            "value.missing\n",
-            _diagnostic(line=1, column=7, code="unresolved-attribute"),
-            "target-not-unique",
-        ),
-        (
-            "import flask\n",
-            _diagnostic(line=1, column=8, code="unresolved-import"),
-            "managed-dependency-not-unique",
-        ),
-    ),
-)
-def test_classifier_downgrades_without_guessing_from_message(
-    tmp_path: Path,
-    source: str,
-    diagnostic: TyDiagnostic,
-    reason: str,
-) -> None:
-    prepared, package = _context(tmp_path, source)
-    classifier = StaticTransitionClassifier()
-
-    first = classifier.classify(
-        prepared,
-        package=package,
-        incremental=(diagnostic,),
-    )[0]
-    second = classifier.classify(
-        prepared,
-        package=package,
-        incremental=(diagnostic.model_copy(update={"message": "different wording"}),),
-    )[0]
-
-    assert first == second.model_copy(
-        update={"diagnostic_identity": first.diagnostic_identity}
+        ids=("module", "symbol", "member"),
     )
-    assert first.classification == "general"
-    assert first.reason_code == reason
-    assert first.witness_plan is None
-    prepared.close()
+    def test_static_transition_classifier_builds_structurally_recoverable_witnesses(
+        self,
+        tmp_path: Path,
+        source: str,
+        diagnostic: TyDiagnostic,
+        operation: str,
+        module: str,
+        owner: str | None,
+        name: str | None,
+    ) -> None:
+        prepared, package = _context(tmp_path, source)
+
+        result = StaticTransitionClassifier().classify(
+            prepared,
+            package=package,
+            incremental=(diagnostic,),
+        )[0]
+
+        assert result.classification == "strong"
+        assert result.reason_code == "witness-planned"
+        assert result.witness_plan is not None
+        assert result.witness_plan.managed_dependency == "requests"
+        assert result.witness_plan.operation == operation
+        assert result.witness_plan.module == module
+        assert result.witness_plan.owner == owner
+        assert result.witness_plan.symbol_or_member == name
+        prepared.close()
+
+    @pytest.mark.parametrize(
+        ("source", "diagnostic", "reason"),
+        (
+            (
+                "import requests\n",
+                _diagnostic(line=1, column=8, code="invalid-type"),
+                "code-not-allowlisted",
+            ),
+            (
+                "value.missing\n",
+                _diagnostic(line=1, column=7, code="unresolved-attribute"),
+                "target-not-unique",
+            ),
+            (
+                "import flask\n",
+                _diagnostic(line=1, column=8, code="unresolved-import"),
+                "managed-dependency-not-unique",
+            ),
+        ),
+        ids=("unsupported-code", "ambiguous-target", "unmanaged-module"),
+    )
+    def test_static_transition_classifier_downgrades_without_message_guessing(
+        self,
+        tmp_path: Path,
+        source: str,
+        diagnostic: TyDiagnostic,
+        reason: str,
+    ) -> None:
+        prepared, package = _context(tmp_path, source)
+        classifier = StaticTransitionClassifier()
+
+        first = classifier.classify(
+            prepared,
+            package=package,
+            incremental=(diagnostic,),
+        )[0]
+        second = classifier.classify(
+            prepared,
+            package=package,
+            incremental=(
+                diagnostic.model_copy(update={"message": "different wording"}),
+            ),
+        )[0]
+
+        assert first == second.model_copy(
+            update={"diagnostic_identity": first.diagnostic_identity}
+        )
+        assert first.classification == "general"
+        assert first.reason_code == reason
+        assert first.witness_plan is None
+        prepared.close()

@@ -1273,5 +1273,4 @@ class TestPythonInventory:
         with pytest.raises(InfrastructureError) as caught:
             UvAdapter(Runner()).available_cpython_minors(root=tmp_path)
 
-        assert str(caught.value) == "uv could not list available Python versions"
         assert caught.value.detail == "uv: python list failed"

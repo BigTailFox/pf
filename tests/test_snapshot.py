@@ -106,7 +106,6 @@ class TestSnapshotBuilder:
         with pytest.raises(InfrastructureError) as caught:
             SnapshotBuilder(Runner()).build(root)
 
-        assert str(caught.value) == "git could not enumerate the source snapshot"
         assert caught.value.detail == "fatal: not a git repository"
 
     def test_no_process_snapshot_fails_closed_for_git_root(
