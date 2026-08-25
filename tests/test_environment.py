@@ -229,21 +229,22 @@ class SuccessfulUv:
                 ),
             )
         )
+        nodes: tuple[ResolvedNode, ...] = tuple(
+            sorted(
+                (
+                    ResolvedNode(name="demo", version="0.1.0"),
+                    *(
+                        ResolvedNode(name=item.name, version=item.version)
+                        for item in packages
+                        if item.version is not None
+                    ),
+                ),
+                key=lambda item: item.name,
+            )
+        )
         return GraphSuccess(
             process=successful_process(),
-            nodes=tuple(
-                sorted(
-                    (
-                        ResolvedNode(name="demo", version="0.1.0"),
-                        *(
-                            ResolvedNode(name=item.name, version=item.version)
-                            for item in packages
-                            if item.version is not None
-                        ),
-                    ),
-                    key=lambda item: item.name,
-                )
-            ),
+            nodes=nodes,
         )
 
 

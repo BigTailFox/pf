@@ -40,7 +40,7 @@ uv run pf apply
 
 项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
 
-当前 resolver protocol 精确支持 uv `0.12.5`–`0.12.0` 与 `0.11.33`–`0.11.30`；其他 uv 版本会 fail closed，不沿用未经 qualification 的诊断 parser。
+PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当前 resolver protocol 只支持 uv `0.12.5`；其他 uv 版本会 fail closed，不沿用未经 qualification 的诊断 parser。升级任一工具都必须先复跑对应验证，再更新精确版本。
 
 `search` 只写 `package-floor.json`。`apply` 只消费完整、未漂移且可表示的报告，不重新解析依赖、不运行 `ty` 或测试。
 

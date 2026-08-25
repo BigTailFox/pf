@@ -1,25 +1,16 @@
 {
   "schema": "pf-uv-qualification-matrix-v1",
-  "as_of": "2026-08-23",
+  "as_of": "2026-08-25",
   "host_scope": "linux-x86_64",
   "resolution_target": "x86_64-unknown-linux-gnu",
   "python_minor": "3.11",
   "protocol_identity": "uv-pip-compile-pylock-v1",
   "shape_set": "uv-resolution-stderr-shapes-v1",
-  "execution_count": 130,
+  "execution_count": 13,
   "all_outputs_complete": true,
   "all_versions_match_shared_shapes": true,
   "versions": [
-    {"version": "0.12.5", "profile": "uv-diagnostics-0.12.5-v1", "released": "2026-08-14", "binary_sha256": "b65f23a420c4acc96427efb30e5ed9bc0f7e25d2d712000f6ede77c1a0de5f46"},
-    {"version": "0.12.4", "profile": "uv-diagnostics-0.12.4-v1", "released": "2026-08-13", "binary_sha256": "47884be1ceaf3e73c6b6e5abed5cba5eba55109505b796c459503a48b70ba49d"},
-    {"version": "0.12.3", "profile": "uv-diagnostics-0.12.3-v1", "released": "2026-08-07", "binary_sha256": "729d27dbea534ee540a2d3ef43a62fa1a10af7fcbb6d57a70d5859509f624578"},
-    {"version": "0.12.2", "profile": "uv-diagnostics-0.12.2-v1", "released": "2026-08-05", "binary_sha256": "72c5f455cd0e9793910f6a1db255de37b610a36a8db858afa3c72e34668e23e2"},
-    {"version": "0.12.1", "profile": "uv-diagnostics-0.12.1-v1", "released": "2026-07-31", "binary_sha256": "92face6b1f0462ad911857957bd168cd4ae45515e2a2cb3fcc3ecbda3d4d82b1"},
-    {"version": "0.12.0", "profile": "uv-diagnostics-0.12.0-v1", "released": "2026-07-28", "binary_sha256": "b6e3cb5b4858d920c63e1d88e31a7a4d8f567073ee4e5e4a1889f93984dc28ea"},
-    {"version": "0.11.33", "profile": "uv-diagnostics-0.11.33-v1", "released": "2026-07-28", "binary_sha256": "4f5e568281d9b5b411534bb4f056109f0938a9dccf52b112c294e6a627a76dfe"},
-    {"version": "0.11.32", "profile": "uv-diagnostics-0.11.32-v1", "released": "2026-07-23", "binary_sha256": "da15297d6879b2cfbe5ea3cb03725c1613d51ba72892cc996468d871f0a532fb"},
-    {"version": "0.11.31", "profile": "uv-diagnostics-0.11.31-v1", "released": "2026-07-22", "binary_sha256": "007b99a549b25f668d503535f4b1e21e3f34111318fd79bea50fada64f65eb9d"},
-    {"version": "0.11.30", "profile": "uv-diagnostics-0.11.30-v1", "released": "2026-07-20", "binary_sha256": "9a4299a0c3bcc01012acbcdae7b5655e5087e0e5d87459306736a1420a902b81"}
+    {"version": "0.12.5", "profile": "uv-diagnostics-0.12.5-v1", "released": "2026-08-14", "binary_sha256": "b65f23a420c4acc96427efb30e5ed9bc0f7e25d2d712000f6ede77c1a0de5f46"}
   ],
   "cases": [
     {"name": "pure-version-contradiction", "signature": "complete-direct-contradiction-v1", "outcome": "UNSAT", "proof_code": "direct-version-contradiction"},

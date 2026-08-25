@@ -75,7 +75,8 @@ class VerificationRun(Generic[T]):
 
 
 class JournalStore(Protocol):
-    run_id: str
+    @property
+    def run_id(self) -> str: ...
 
     def write_journal(self, journal: VerificationJournal) -> Path: ...
 
@@ -238,6 +239,18 @@ class _VerificationEvents(Generic[T]):
 
     def _journal(self) -> VerificationJournal:
         assert self._logs is not None
+        entries: tuple[VerificationJournalEntry, ...] = tuple(
+            sorted(
+                self._entries.values(),
+                key=lambda entry: (
+                    entry.package,
+                    entry.cell.target,
+                    entry.cell.python_minor,
+                    entry.cell.extra_surface,
+                    entry.failure.failure_id,
+                ),
+            )
+        )
         return VerificationJournal(
             run_id=self._logs.run_id,
             command=self._request.command,
@@ -251,18 +264,7 @@ class _VerificationEvents(Generic[T]):
                 )
                 for package in self._request.packages
             ),
-            entries=tuple(
-                sorted(
-                    self._entries.values(),
-                    key=lambda entry: (
-                        entry.package,
-                        entry.cell.target,
-                        entry.cell.python_minor,
-                        entry.cell.extra_surface,
-                        entry.failure.failure_id,
-                    ),
-                )
-            ),
+            entries=entries,
         )
 
     def _merge(self, entries: list[VerificationJournalEntry]) -> None:

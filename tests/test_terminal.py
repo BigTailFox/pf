@@ -2346,20 +2346,18 @@ class TestExplainRendering:
             )
             for index in range(3, 14)
         )
-        incremental = tuple(
+        incremental: tuple[TyDiagnostic, ...] = tuple(
             sorted(
                 (repeated, repeated, repeated, *extras),
                 key=lambda item: item.identity,
             )
         )
+        diagnostics: tuple[TyDiagnostic, ...] = tuple(
+            sorted((existing, *incremental), key=lambda item: item.identity)
+        )
         static = StaticRegressionEvaluation(
             proposal=proposal,
-            ty=TyCheck(
-                process=process,
-                diagnostics=tuple(
-                    sorted((existing, *incremental), key=lambda item: item.identity)
-                ),
-            ),
+            ty=TyCheck(process=process, diagnostics=diagnostics),
             baseline_digest=baseline.digest,
             incremental=incremental,
             static_fingerprint=static_fingerprint(

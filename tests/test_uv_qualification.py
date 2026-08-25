@@ -16,7 +16,7 @@ class TestUvQualificationRunner:
         )
 
         assert manifest["protocol_identity"] == UV_PROTOCOL_IDENTITY
-        assert manifest["execution_count"] == 10 * 13
+        assert manifest["execution_count"] == 13
         assert manifest["all_outputs_complete"] is True
         assert {
             item["version"]: item["profile"] for item in manifest["versions"]

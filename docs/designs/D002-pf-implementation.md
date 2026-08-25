@@ -386,8 +386,8 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 ### 10.2 UvAdapter、TyAdapter、RuntimeWitnessAdapter、TestAdapter
 
 - `UvAdapter` 唯一固定受支持的精确 uv version/profile，构造 project/environment `uv pip compile --format pylock.toml`、venv、final-plan sync、graph inspection 和 direct candidate query 的 argv。`uv_lock.py` 校验并投影 native/normalized plan；`uv_diagnostics.py` 只对 qualification matrix 认证的完整 contradiction 产生 `ResolutionUnsat`。安装返回绑定 plan digest 的 `InstalledResolution | InstallFailure`，不能产生 resolution/harness conflict；source/build/tool cause 保持 Indeterminate。
-- 当前 `uv-pip-compile-pylock-v1` 精确支持 `0.12.5`、`0.12.4`、`0.12.3`、`0.12.2`、`0.12.1`、`0.12.0`、`0.11.33`、`0.11.32`、`0.11.31`、`0.11.30`；其他版本在建立 resolver context 时 fail closed。每个版本有独立 qualification profile identity，当前十个 profile 共享经 130-case 矩阵认证的 diagnostic shape set。
-- `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。
+- 当前 `uv-pip-compile-pylock-v1` 只支持发行依赖精确固定的 uv `0.12.5`；其他版本在建立 resolver context 时 fail closed。该版本的 qualification profile 已通过 13-case diagnostic matrix。
+- `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。发行依赖精确固定 ty `0.0.74`；升级前必须用候选版本完成全仓类型检查与测试验证。
 - `RuntimeWitnessAdapter` 只执行 D004 的 owned、无 shell、结构化名称可达性 harness；它不决定 disposition。
 - `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与 test outcome policy。唯一 selector 把默认 `[1]` 的 direct pytest command 路由到私有 failure-witness profile，其他命令路由到 generic configured-exit-code profile；同一 selector 同时提供 `evaluation_policy_identity` 的 test outcome policy identity。pytest profile 从 wheel 内 embedded standalone resource 复制 run-unique plugin，以 bounded canonical finalized summary 联合 Portable Process Facts 分类；plugin path、nonce、summary 与 pytest 细节不越过 `TestOperations.run(...) -> TestOutcome` interface。完整 outcome 契约与资格边界由 D013 定义。
 

@@ -322,26 +322,20 @@ class ProjectLoader:
             )
             for owner, group_pyproject, item in expanded_harness
         )
+        source_identities: set[SourceIdentity] = {
+            *(declaration.source for declaration in declarations),
+            *(requirement.source for requirement in harness_requirements),
+        }
+        ordered_sources: tuple[SourceIdentity, ...] = tuple(
+            sorted(source_identities, key=lambda item: item.model_dump_json())
+        )
         return PackagePlan(
             name=package_name,
             pyproject_path=pyproject_path,
             config=config,
             declarations=tuple(declarations),
             cells=cells,
-            source_plan=SourcePlan(
-                identities=tuple(
-                    sorted(
-                        {
-                            *(declaration.source for declaration in declarations),
-                            *(
-                                requirement.source
-                                for requirement in harness_requirements
-                            ),
-                        },
-                        key=lambda item: item.model_dump_json(),
-                    )
-                )
-            ),
+            source_plan=SourcePlan(identities=ordered_sources),
             harness_requirements=harness_requirements,
             test_group_present=test_group_present,
         )

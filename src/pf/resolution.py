@@ -22,19 +22,7 @@ from pf.schemas.project import (
 
 UV_PROTOCOL_IDENTITY = "uv-pip-compile-pylock-v1"
 UV_DIAGNOSTIC_PROFILES = {
-    version: f"uv-diagnostics-{version}-v1"
-    for version in (
-        "0.12.5",
-        "0.12.4",
-        "0.12.3",
-        "0.12.2",
-        "0.12.1",
-        "0.12.0",
-        "0.11.33",
-        "0.11.32",
-        "0.11.31",
-        "0.11.30",
-    )
+    "0.12.5": "uv-diagnostics-0.12.5-v1",
 }
 UV_SUPPORTED_VERSIONS = frozenset(UV_DIAGNOSTIC_PROFILES)
 

@@ -20,9 +20,14 @@ _SUMMARY_WIDTH = 240
 
 
 class FailureView(Protocol):
-    title: str
-    impact: str
-    next_step: str
+    @property
+    def title(self) -> str: ...
+
+    @property
+    def impact(self) -> str: ...
+
+    @property
+    def next_step(self) -> str: ...
 
 
 class DiagnosePresenter(Protocol):

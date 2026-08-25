@@ -806,9 +806,12 @@ class UvAdapter:
                 )
         except (KeyError, TypeError, ValueError, InvalidVersion, json.JSONDecodeError):
             return ToolFailure(cause="TOOL_FAILURE", stage="inspect", process=process)
+        sorted_nodes: tuple[ResolvedNode, ...] = tuple(
+            sorted(nodes, key=lambda node: node.name)
+        )
         return GraphSuccess(
             process=process,
-            nodes=tuple(sorted(nodes, key=lambda node: node.name)),
+            nodes=sorted_nodes,
         )
 
     def query(

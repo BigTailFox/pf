@@ -320,7 +320,7 @@ class TestPlanningSchemas:
 
         record = ExampleRecord(name="pf")
         with pytest.raises(ValidationError):
-            record.name = "changed"
+            setattr(record, "name", "changed")
 
     @pytest.mark.parametrize(
         "config",

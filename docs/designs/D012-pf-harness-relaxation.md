@@ -342,7 +342,7 @@ PF 必须固定并验证 adapter 支持的精确 uv 版本。更换 uv 版本必
 
 adapter qualification runner 在受控 package/index/artifact fixtures 下，对每个候选支持的 uv 版本运行相同命令矩阵，嗅探 resolution failure 与 abnormal failure 的完整输出。该阶段不经过 `EnvironmentFactory`、CoordinateSearch、真实项目或 PF 端到端 workflow。
 
-截至 2026-08-23，现行 profile 精确支持 uv `0.12.5`、`0.12.4`、`0.12.3`、`0.12.2`、`0.12.1`、`0.12.0`、`0.11.33`、`0.11.32`、`0.11.31` 与 `0.11.30`。Linux x86_64 qualification 对每版本运行 13 个 case，共 130 次完整输出；未登记版本 fail closed。十版本仅认证 pure/transitive version contradiction 为 UNSAT，其余 candidate/source/build case 均保持 Indeterminate。
+截至 2026-08-25，现行 profile 只支持发行依赖精确固定的 uv `0.12.5`。Linux x86_64 qualification 对该版本运行 13 个 case；未登记版本 fail closed。该 profile 仅认证 pure/transitive version contradiction 为 UNSAT，其余 candidate/source/build case 均保持 Indeterminate。
 
 matrix 至少覆盖：
 

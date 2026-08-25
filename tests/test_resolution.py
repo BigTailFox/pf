@@ -50,20 +50,19 @@ def _context() -> ResolutionContext:
 
 
 class TestResolutionIdentity:
-    def test_distribution_installs_a_qualified_uv_runtime(self) -> None:
+    def test_distribution_pins_qualified_runtime_tools(self) -> None:
         with (Path(__file__).parents[1] / "pyproject.toml").open("rb") as stream:
             dependencies = tomli.load(stream)["project"]["dependencies"]
-        uv_requirement = next(
-            requirement
+        requirements = {
+            requirement.name: requirement
             for raw_requirement in dependencies
-            if (requirement := Requirement(raw_requirement)).name == "uv"
-        )
+            if (requirement := Requirement(raw_requirement)).name in {"ty", "uv"}
+        }
 
-        assert str(uv_requirement.specifier) == "<0.12.6,>=0.11.30"
-        assert all(
-            Version(version) in uv_requirement.specifier
-            for version in UV_DIAGNOSTIC_PROFILES
-        )
+        assert str(requirements["uv"].specifier) == "==0.12.5"
+        assert str(requirements["ty"].specifier) == "==0.0.74"
+        assert tuple(UV_DIAGNOSTIC_PROFILES) == ("0.12.5",)
+        assert Version("0.12.5") in requirements["uv"].specifier
 
     def test_install_outcomes_are_bound_to_the_validated_plan(self) -> None:
         installed = InstalledResolution(
@@ -79,7 +78,7 @@ class TestResolutionIdentity:
                 process=_process().model_copy(update={"exit_code": 1}),
             )
 
-    def test_run_context_supports_exactly_the_ten_qualified_uv_versions(self) -> None:
+    def test_run_context_supports_exactly_the_pinned_uv_version(self) -> None:
         contexts = tuple(
             ResolutionRunContext(
                 uv_version=version,
