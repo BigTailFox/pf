@@ -20,6 +20,8 @@ from pf.schemas.evaluation import (
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
+    BaselineDetailIdentity,
+    CellContextEvent,
     CellFailureScope,
     CellMatrixEvent,
     CheckCellOutcome,
@@ -27,6 +29,7 @@ from pf.schemas.evaluation import (
     CheckIndeterminate,
     CheckPass,
     CheckResult,
+    DeclarationDetailIdentity,
     Evaluation,
     FailureRecord,
     HighestVersionOutcome,
@@ -145,11 +148,13 @@ class CompatibilityChecker:
         static: CheckStaticOperations,
         full: CheckFullOperations,
         failures: FailurePolicy | None = None,
+        events: ActivityConsumer | None = None,
     ) -> None:
         self._environments = environments
         self._static = static
         self._full = full
         self._failures = failures or FailurePolicy()
+        self._events = events
 
     def check(
         self,
@@ -159,6 +164,10 @@ class CompatibilityChecker:
         snapshot: SourceSnapshot,
     ) -> CheckCellOutcome:
         require_full_evaluation_contract(package, "check")
+        if self._events is not None:
+            self._events.consume(
+                CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
+            )
         highest = self._environments.prepare(
             package=package,
             cell=cell,
@@ -181,6 +190,10 @@ class CompatibilityChecker:
                 static_baseline=None,
                 project_plan_digest=highest.project_plan.semantic_digest,
                 environment_plan_digest=highest.environment_plan.semantic_digest,
+            )
+        if self._events is not None:
+            self._events.consume(
+                CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
             )
         prepared = self._environments.prepare(
             package=package,

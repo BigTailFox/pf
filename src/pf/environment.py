@@ -37,6 +37,7 @@ from pf.schemas.evaluation import (
     InterpreterSuccess,
     CellStageEvent,
     PrepareFailure,
+    StageProgress,
     ToolFailure,
     ToolOutcome,
 )
@@ -77,13 +78,20 @@ class StageConsumer(Protocol):
     def consume(self, event: CellStageEvent) -> None: ...
 
 
-def emit_cell_stage(events: StageConsumer | None, cell: Cell, stage: str) -> None:
+def emit_cell_stage(
+    events: StageConsumer | None,
+    cell: Cell,
+    stage: str,
+    *,
+    progress: StageProgress | None = None,
+) -> None:
     if events is None:
         return
     events.consume(
         CellStageEvent(
             cell=cell,
             stage=stage,
+            progress=progress,
         )
     )
 

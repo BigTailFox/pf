@@ -6,6 +6,7 @@ from typing import Literal, NoReturn, Protocol, runtime_checkable
 from packaging.version import Version
 
 from pf.errors import ConfigurationError
+from pf.schemas.evaluation import SearchProbeRequest
 from pf.schemas.project import CandidateSnapshot, VersionPin
 from pf.schemas.report import (
     CoordinateBoundary,
@@ -32,16 +33,12 @@ class RuntimeBackedVectorEvaluator(Protocol):
 
     def evaluate_in_slice(
         self,
-        vector: tuple[VersionPin, ...],
-        *,
-        dependency: str,
+        request: SearchProbeRequest,
     ) -> ProbeEvidence | StaticOnlyEvidence: ...
 
     def promote(
         self,
-        vector: tuple[VersionPin, ...],
-        *,
-        dependency: str,
+        request: SearchProbeRequest,
     ) -> ProbeEvidence: ...
 
 
@@ -192,17 +189,28 @@ class _CoordinateRun:
             )
             if floor is None or floor not in versions:
                 self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
-            floor_evidence = self._promote_version(current, dependency, floor)
+            index = versions.index(floor)
+            promotion_window = versions[max(0, index - 1) : index + 1]
+            floor_evidence = self._promote_version(
+                current,
+                dependency,
+                floor,
+                window=promotion_window,
+            )
             if self._status(floor_evidence) != "PASS":
                 continue
-            index = versions.index(floor)
             if index == 0:
                 return str(floor), CoordinateBoundary(
                     dependency=dependency,
                     floor=str(floor),
                 )
             predecessor = versions[index - 1]
-            evidence = self._promote_version(current, dependency, predecessor)
+            evidence = self._promote_version(
+                current,
+                dependency,
+                predecessor,
+                window=promotion_window,
+            )
             if isinstance(evidence, ProbeRejection):
                 return str(floor), CoordinateBoundary(
                     dependency=dependency,
@@ -229,12 +237,26 @@ class _CoordinateRun:
             eligible = [version for version in versions if version <= Version(hint)]
             if eligible:
                 probe_hint = eligible[-1]
-        hint_evidence = self._probe_version(current, dependency, probe_hint)
+        hint_evidence = self._probe_version(
+            current,
+            dependency,
+            probe_hint,
+            window=versions,
+        )
         if self._status(hint_evidence) == "PASS":
             if probe_hint == versions[0]:
                 floor = probe_hint
             elif (
-                self._status(self._probe_version(current, dependency, versions[0]))
+                self._status(
+                    self._probe_version(
+                        current,
+                        dependency,
+                        versions[0],
+                        window=[
+                            version for version in versions if version <= probe_hint
+                        ],
+                    )
+                )
                 == "PASS"
             ):
                 floor = versions[0]
@@ -248,9 +270,19 @@ class _CoordinateRun:
                 )
         else:
             points = [version for version in versions if version >= probe_hint]
+            current_window = (
+                points
+                if current_version in points
+                else [*points, current_version]
+            )
             if (
                 self._status(
-                    self._probe_version(current, dependency, current_version)
+                    self._probe_version(
+                        current,
+                        dependency,
+                        current_version,
+                        window=current_window,
+                    )
                 )
                 != "PASS"
             ):
@@ -278,9 +310,19 @@ class _CoordinateRun:
         high_index = len(points) if virtual_high else points.index(high)
         if high_index - low_index <= self._small_threshold:
             candidate_high = min(high_index, len(points) - 1)
-            for version in points[low_index + 1 : candidate_high + 1]:
+            for index, version in enumerate(
+                points[low_index + 1 : candidate_high + 1],
+                start=low_index + 1,
+            ):
                 if (
-                    self._status(self._probe_version(current, dependency, version))
+                    self._status(
+                        self._probe_version(
+                            current,
+                            dependency,
+                            version,
+                            window=points[index : candidate_high + 1],
+                        )
+                    )
                     == "PASS"
                 ):
                     return version
@@ -289,7 +331,14 @@ class _CoordinateRun:
             middle = (low_index + high_index) // 2
             if (
                 self._status(
-                    self._probe_version(current, dependency, points[middle])
+                    self._probe_version(
+                        current,
+                        dependency,
+                        points[middle],
+                        window=points[
+                            low_index : min(high_index, len(points) - 1) + 1
+                        ],
+                    )
                 )
                 == "PASS"
             ):
@@ -303,16 +352,19 @@ class _CoordinateRun:
         current: dict[str, str],
         dependency: str,
         version: Version,
+        *,
+        window: list[Version],
     ) -> SearchEvidence:
         vector = dict(current)
         vector[dependency] = str(version)
-        return self._probe(vector, dependency=dependency)
+        return self._probe(vector, dependency=dependency, window=window)
 
     def _probe(
         self,
         versions: dict[str, str],
         *,
         dependency: str | None,
+        window: list[Version] | None = None,
     ) -> SearchEvidence:
         vector = self._vector(versions)
         key = tuple((pin.name, pin.version) for pin in vector)
@@ -325,8 +377,11 @@ class _CoordinateRun:
                 self._evaluator, RuntimeBackedVectorEvaluator
             ):
                 evidence = self._evaluator.evaluate_in_slice(
-                    vector,
-                    dependency=dependency,
+                    self._probe_request(
+                        vector,
+                        dependency=dependency,
+                        window=window,
+                    )
                 )
             else:
                 evidence = self._evaluator.evaluate(vector)
@@ -352,6 +407,8 @@ class _CoordinateRun:
         current: dict[str, str],
         dependency: str,
         version: Version,
+        *,
+        window: list[Version],
     ) -> SearchEvidence:
         versions = dict(current)
         versions[dependency] = str(version)
@@ -362,10 +419,12 @@ class _CoordinateRun:
         cache_key = (dependency, key)
         existing = self._evidence_cache.get(cache_key)
         if existing is not None and not isinstance(existing, StaticOnlyEvidence):
-            return self._probe(versions, dependency=dependency)
+            return self._probe(versions, dependency=dependency, window=window)
         if not isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
             self._stop("NONDETERMINISTIC", dependency=dependency)
-        evidence = self._evaluator.promote(vector, dependency=dependency)
+        evidence = self._evaluator.promote(
+            self._probe_request(vector, dependency=dependency, window=window)
+        )
         self._evidence_cache[cache_key] = evidence
         self._record_observation(
             versions=versions,
@@ -382,6 +441,25 @@ class _CoordinateRun:
             key=key,
         )
         return evidence
+
+    @staticmethod
+    def _probe_request(
+        vector: tuple[VersionPin, ...],
+        *,
+        dependency: str,
+        window: list[Version] | None,
+    ) -> SearchProbeRequest:
+        if not window:
+            raise ValueError("runtime-backed probe requires a candidate window")
+        versions = {pin.name: pin.version for pin in vector}
+        return SearchProbeRequest(
+            vector=vector,
+            active_dependency=dependency,
+            candidate_version=versions[dependency],
+            lower_version=str(window[0]),
+            upper_version=str(window[-1]),
+            candidate_count=len(window),
+        )
 
     def _record_observation(
         self,

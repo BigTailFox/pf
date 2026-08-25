@@ -7,10 +7,21 @@ import pytest
 
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import TestAdapter
-from pf.schemas.evaluation import EnvironmentVariable, TestFail, TestPass, ToolFailure
+from pf.schemas.evaluation import (
+    EnvironmentVariable,
+    StageProgress,
+    TestFail,
+    TestPass,
+    ToolFailure,
+)
 
 
-def _run_pytest(root: Path, *args: str, autoload: bool = False):
+def _run_pytest(
+    root: Path,
+    *args: str,
+    autoload: bool = False,
+    progress: list[StageProgress | None] | None = None,
+):
     return TestAdapter(SubprocessRunner()).run(
         command=(sys.executable, "-m", "pytest", "--no-header", "-q", *args),
         cwd=root,
@@ -26,6 +37,7 @@ def _run_pytest(root: Path, *args: str, autoload: bool = False):
         ),
         failure_exit_codes=(1,),
         timeout_seconds=30,
+        progress=None if progress is None else progress.append,
     )
 
 
@@ -34,6 +46,35 @@ def _write_test(root: Path, source: str) -> None:
 
 
 class TestPytestWitnessIntegration:
+    def test_serial_pytest_reports_monotonic_collection_progress(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_test(
+            tmp_path,
+            "import time\n"
+            "def test_one():\n    time.sleep(0.15)\n"
+            "def test_two():\n    time.sleep(0.15)\n",
+        )
+        observed: list[StageProgress | None] = []
+
+        result = _run_pytest(tmp_path, progress=observed)
+
+        assert isinstance(result, TestPass)
+        assert observed[0] == StageProgress(completed=0, total=2, unit="tests")
+        assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
+        completed = [item.completed for item in observed if item is not None]
+        assert completed == sorted(set(completed))
+
+    def test_collect_only_keeps_indeterminate_progress(self, tmp_path: Path) -> None:
+        _write_test(tmp_path, "def test_ok():\n    pass\n")
+        observed: list[StageProgress | None] = []
+
+        result = _run_pytest(tmp_path, "--collect-only", progress=observed)
+
+        assert isinstance(result, TestPass)
+        assert observed == []
+
     def test_pytest_witness_accepts_complete_pass(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_ok():\n    pass\n")
 
@@ -276,10 +317,17 @@ class TestPytestWitnessIntegration:
 class TestPytestWitnessXdistIntegration:
     def test_pytest_witness_accepts_xdist_pass_from_argv(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_ok():\n    pass\n")
+        observed: list[StageProgress | None] = []
 
-        result = _run_pytest(tmp_path, "-n2", autoload=True)
+        result = _run_pytest(
+            tmp_path,
+            "-n2",
+            autoload=True,
+            progress=observed,
+        )
 
         assert isinstance(result, TestPass)
+        assert observed == []
 
     def test_pytest_witness_accepts_xdist_pass_from_config(
         self,

@@ -1,7 +1,7 @@
 # PF CLI 交互与展示增强
 
 - **状态：** 现行
-- **最后核对：** 2026-08-23
+- **最后核对：** 2026-08-25
 - **产品与命令：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
@@ -212,11 +212,30 @@ Try 'pf merge --help' for more information.
 
 一个顶层命令只有一个最终摘要。TTY 的 live progress 始终固定在输出底部。每当一个 cell 完成，该 cell 立即从运行时进度中移除，并作为稳定诊断块写入上方 log；不要在命令结束时再输出第二份 cell 诊断。
 
-阶段事件分两类：
+live 事件分三类：
 
 - **范围事实**可以冻结：`loaded project`、`built snapshot`、`selected N cells` 及 python/platform/extra 明细。它们回答 Scope，完成后仍可读。
+- **detail identity** 只在 TTY 的 live cell 卡片内显示，回答“当前正在验证哪个角色/搜索点”；它位于 stage 上方，身份切换时清空上一 stage。
 - **工作动词**只出现在 TTY 底部进度：`checking declarations` / `searching cells` / `smoke testing`。完成后不得冻结成 `checked declarations` 一类过去时阶段行。
 - 非 TTY 没有 live 进度，因此不输出工作动词行；只输出范围事实、cell 完成块和最终摘要。
+
+一个运行中的 cell 卡片按固定层级显示：
+
+```text
+⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+  [pydantic==1.5][1.0…2.0 · 7 candidates]
+  dynamic tests  ●●●●●····· 37/120 tests
+```
+
+detail identity 使用 dim 文本，不重复 cell title：
+
+- `check` 的最高版本静态 baseline 为 `[baseline][highest]`，随后声明最低直接版本 probe 为 `[declaration][lowest-direct]`；若 baseline 已失败，不显示未发生的 declaration identity；
+- `search` 的最高版本完整 baseline 为 `[baseline][highest]`；candidate discovery 清空 identity，只显示 `discovering candidates`；每个实际 search probe 显示 `[dependency==candidate][lower…upper · N candidate(s)]`；
+- 同一 search probe 从 `static check` 进入 `runtime witness` / `dynamic tests` 时 identity 保持不变；cache 命中或已知 PASS 没有实际 probe，不生成新的 identity。
+
+只有 stage 能提供稳定总量时才显示 determinate progress。现行唯一来源是默认 direct pytest profile 的 serial、非 `--collect-only` 执行：collection 完成且 nodeid 唯一后显示 `completed/total tests`，测试完成数只单调增加，总数在该次执行内固定。generic test command、pytest bootstrap/collection 未完成、重复/非法 nodeid、xdist/unknown、collect-only 或 telemetry 故障继续显示 spinner 和 `dynamic tests`，不得估算百分比。telemetry 不参与 D013 failure evidence 或 D005 disposition。
+
+中宽终端用主题样式的 `●` / `·` 表示已完成/未完成比例，同时保留精确计数；窄终端优先隐藏 dots，仍保留 `completed/total tests`。detail/progress 都是瞬时 TTY 信息：非 TTY 与完成后的冻结 cell 块不追加这些行，也不因此产生重复诊断块。
 
 顺序固定为：
 
@@ -428,7 +447,7 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 
 ## 11. 自适应终端
 
-- 生产 `Console`、`Table` 和 `Progress` 不固定 width、height、列宽或 ratio；固定尺寸只允许出现在测试中；
+- 生产 `Console`、`Table` 和 `Progress` 不固定 width、height、列宽或 ratio；固定尺寸只允许出现在测试中；determinate stage dots 根据当前 Console 宽度决定长度或隐藏，不固定终端宽度；
 - TTY 使用动态进度，进度条固定在输出底部；`smoke` / `check` / `search` / `minimize` 的范围事实冻结为一张圆角 `Panel`，每个 live cell（标题+阶段）各自一张圆角 `Panel`；cell 完成后立即冻结为同样的圆角 `Panel`，边框颜色与结果一致，并移出 live 表；非 TTY 不显示逐进程活动，也不输出 box drawing；
 - cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan；颜色只作补充，移除 ANSI 后标题文本不变；
 - 窄终端优先换行或把表格降级为带标签的纵向 block，不能截断 package、cell、状态、artifact 路径或 next action；
@@ -529,6 +548,7 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 11. 展示选择不进入报告、Evaluation、policy 或 source identity。
 12. 默认 cell 行、命令摘要和 `explain` 不把 Schema status 或 cause Enum 当作结论。
 13. `complete` 只描述 D001 完整可授权报告。
+14. live detail identity 必须来自结构化 context event；稳定进度不可用时必须保留 spinner，telemetry 故障不得改变 cell outcome。
 
 ## 16. 决策记录
 

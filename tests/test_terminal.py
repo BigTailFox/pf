@@ -20,6 +20,8 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     CellCompletedEvent,
+    CellContextEvent,
+    BaselineDetailIdentity,
     CellFailed,
     CellFailureScope,
     CellMatrixEvent,
@@ -38,6 +40,7 @@ from pf.schemas.evaluation import (
     FailureRecord,
     HighestVersionPass,
     SearchFailureEvent,
+    SearchProbeDetailIdentity,
     SmokeBaselineRejection,
     SmokePass,
     SmokeIndeterminate,
@@ -45,6 +48,7 @@ from pf.schemas.evaluation import (
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     StatusEvent,
+    StageProgress,
     TestFail,
     TestFailEvaluation,
     TestPass,
@@ -776,6 +780,170 @@ class TestProgressRendering:
         assert "━" in plain
         stage_at = output.index("installing dependencies")
         assert "\x1b[2m" in output[: stage_at + 1]
+
+    def test_tty_live_cell_renders_structured_baseline_identity(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(file=stderr, force_terminal=True, theme=PF_THEME),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellContextEvent(
+                cell=cell,
+                detail=BaselineDetailIdentity(),
+            )
+        )
+        terminal.consume(CellStageEvent(cell=cell, stage="resolving project"))
+        terminal.close()
+
+        output = visible(stderr.getvalue())
+        assert "[baseline][highest]" in output
+        assert output.index("[baseline][highest]") < output.index("resolving project")
+
+    def test_tty_live_cell_renders_search_probe_identity_above_stage(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(file=stderr, force_terminal=True, theme=PF_THEME),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellContextEvent(
+                cell=cell,
+                detail=SearchProbeDetailIdentity(
+                    dependency="pydantic",
+                    version="1.5",
+                    lower_version="1.0",
+                    upper_version="2.0",
+                    candidate_count=7,
+                ),
+            )
+        )
+        terminal.consume(CellStageEvent(cell=cell, stage="static check"))
+        terminal.consume(CellStageEvent(cell=cell, stage="dynamic tests"))
+        terminal.close()
+
+        output = visible(stderr.getvalue())
+        identity = "[pydantic==1.5][1.0…2.0 · 7 candidates]"
+        assert identity in output
+        assert output.rindex(identity) < output.rindex("dynamic tests")
+
+    def test_tty_live_stage_renders_determinate_dot_progress(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=80,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=3, total=8, unit="tests"),
+            )
+        )
+        terminal.close()
+
+        output = visible(stderr.getvalue())
+        assert "dynamic tests" in output
+        assert "3/8 tests" in output
+        assert "●" in output
+        assert "·" in output
+
+    def test_narrow_tty_keeps_exact_stage_count_when_dots_do_not_fit(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=56),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=56,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=3, total=8, unit="tests"),
+            )
+        )
+        terminal.close()
+
+        output = visible(stderr.getvalue())
+        assert "3/8 tests" in output
+        assert "●" not in output
+        assert "·" not in output
+
+    def test_invalid_stage_progress_can_restore_the_spinner_stage(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=80,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=3, total=8, unit="tests"),
+            )
+        )
+        terminal.consume(CellStageEvent(cell=cell, stage="dynamic tests"))
+        terminal.close()
+
+        output = visible(stderr.getvalue())
+        latest_stage = output[output.rindex("dynamic tests") :]
+        assert "3/8 tests" not in latest_stage
+        assert "●" not in latest_stage
+        assert "·" not in latest_stage
 
 
 

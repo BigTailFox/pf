@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-23
+- **最后核对：** 2026-08-25
 - **产品与命令：** [D001](D001-pf.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **静态证据：** [D004](D004-pf-ty-enhancement.md)
@@ -91,6 +91,7 @@ src/pf/
     ├── uv_lock.py
     ├── ty.py
     ├── runtime_witness.py
+    ├── pytest_progress.py # 私有、best-effort 的 serial pytest UI 进度协议
     ├── pytest_witness.py # 私有 bounded protocol 与 qualification/outcome policy
     └── test_command.py
 ```
@@ -167,9 +168,9 @@ Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解�
 - D005 定义的 `AttemptIdentity` / `Attempt`、operation cause、prepare failure、`AttemptFailureScope | CellFailureScope`、`FailureRecord` 与 baseline outcome union；
 - D004 定义的 `TyDiagnostic`、`TyCheck`、`StaticBaseline` 与 static/full Evaluation union；
 - `CheckResult`、`HighestVersionPass`、`BaselineRejection`、`BaselineIndeterminate`、`SmokeResult`、`CacheConflict`；
-- `CellStageEvent`、`CellCompletedEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`、`SearchFailureEvent`。
+- `SearchProbeRequest`、`CellContextEvent`、`CellStageEvent`、`CellCompletedEvent`、`StatusEvent`、`CellMatrixEvent`、`ProcessEvent`、`SearchFailureEvent`。
 
-`CellStageEvent` 只保存 cell 与 stage；`CellCompletedEvent` 保存 cell、严格正数进度、判别的 `CellSucceeded | CellFailed` outcome 与诊断可用性。event 不重复 package identity，也不使用 `completed == 0` 或可空字段组合编码阶段/完成状态。
+`CellContextEvent` 保存 cell 与判别的 `baseline | declaration | search-probe` detail identity；`detail=None` 显式清空上一身份。search probe identity 保存当前 active dependency、candidate version 和 `CoordinateSearch` 提供的离散窗口端点/候选数。`CellStageEvent` 保存 cell、stage 与可选 `StageProgress(completed, total, unit="tests")`；progress 只表达稳定、单调的 UI 估计，不是 Evaluation evidence。`CellCompletedEvent` 保存 cell、严格正数的 cell 完成计数、判别的 `CellSucceeded | CellFailed` outcome 与诊断可用性。event 不重复 package identity，也不使用 `completed == 0` 或可空字段组合编码 cell 完成状态。
 
 `ProcessResult` 只包含脱敏的可移植机械终态（含 `stdout_complete` / `stderr_complete`），不包含详细日志引用或输出文本。运行期 Output Cache 若挂在同一对象上，不得进入 `model_dump` / 报告 / `failure_id`。`FailureRecord` 可以保存该 `ProcessResult`，公共报告不得保存 run ID、绝对路径或其他本机 locator。`RunLogStore` 另行维护 D005/D008 定义的项目本地 diagnosis index 与 Verification Journal；索引或日志丢失不能改变已经记录的 disposition。磁盘日志原文与缓存上限由 D007 拥有。
 
@@ -341,7 +342,7 @@ minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
   -> CoordinateOutcome
 ```
 
-它位于 `coordinate_search.py`。普通 evaluator 读取 `ProbePass | ProbeRejection | ProbeIndeterminate`；search 使用 runtime-backed seam，额外返回无 disposition 的 `StaticOnlyEvidence`、提供 `promote` 和 invocation-local regions。`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。一次调用的 evaluator、cache、observation 与 Slice 状态由该调用私有，同一实例可嵌套和并发使用。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
+它位于 `coordinate_search.py`。普通 evaluator 读取 `ProbePass | ProbeRejection | ProbeIndeterminate`；search 使用 runtime-backed seam，额外返回无 disposition 的 `StaticOnlyEvidence`、提供 `promote` 和 invocation-local regions。runtime-backed `evaluate_in_slice` / `promote` 接收 `SearchProbeRequest`，把 exact vector、active dependency、candidate version 与算法当下的离散窗口作为一个不可分请求；窗口只供 probe 执行与 live identity 使用，不进入结果授权。`start_is_known_pass` 为真时把 start 当作已有 PASS，不重新评估。一次调用的 evaluator、cache、observation 与 Slice 状态由该调用私有，同一实例可嵌套和并发使用。具体算法由 D003 唯一定义。`small_threshold` 的现行默认值是 `8`。
 
 `SearchCoordinator` 位于 `search.py`，构造时必须显式注入 `HighestVersionVerifier` 与 `CoordinateSearch`。其运行 interface：
 
@@ -389,7 +390,7 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 - 当前 `uv-pip-compile-pylock-v1` 只支持发行依赖精确固定的 uv `0.12.5`；其他版本在建立 resolver context 时 fail closed。该版本的 qualification profile 已通过 13-case diagnostic matrix。
 - `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。发行依赖精确固定 ty `0.0.74`；升级前必须用候选版本完成全仓类型检查与测试验证。
 - `RuntimeWitnessAdapter` 只执行 D004 的 owned、无 shell、结构化名称可达性 harness；它不决定 disposition。
-- `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与 test outcome policy。唯一 selector 把默认 `[1]` 的 direct pytest command 路由到私有 failure-witness profile，其他命令路由到 generic configured-exit-code profile；同一 selector 同时提供 `evaluation_policy_identity` 的 test outcome policy identity。pytest profile 从 wheel 内 embedded standalone resource 复制 run-unique plugin，以 bounded canonical finalized summary 联合 Portable Process Facts 分类；plugin path、nonce、summary 与 pytest 细节不越过 `TestOperations.run(...) -> TestOutcome` interface。完整 outcome 契约与资格边界由 D013 定义。
+- `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与 test outcome policy。唯一 selector 把默认 `[1]` 的 direct pytest command 路由到私有 failure-witness profile，其他命令路由到 generic configured-exit-code profile；同一 selector 同时提供 `evaluation_policy_identity` 的 test outcome policy identity。pytest profile 从 wheel 内 embedded standalone resource 复制 run-unique plugin，以 bounded canonical finalized summary 联合 Portable Process Facts 分类。`TestOperations.run(..., progress=None)` 另有一个可选 `StageProgress | None` consumer：仅 direct serial pytest 在 collection 得到唯一 nodeid 集合后通过独立、bounded、atomic 的 best-effort 协议更新它；先有合法 snapshot 后协议失效时以 `None` 清空 determinate 状态，generic、collect-only、xdist/unknown 或首个 snapshot 即无效时不回调。plugin path、nonce、summary 与 pytest 细节不越过 adapter；progress 只越过 `StageProgress | None`，永不改变 `TestOutcome`。完整 outcome 契约、资格边界与 telemetry 隔离由 D013 定义。
 
 所有 adapter 在返回前完成脱敏。Adapter 不决定 disposition；Presenter 与 ReportStore 也不负责补救原始 secret。
 
@@ -428,7 +429,7 @@ PREPARED -> PROJECTS_REPLACED -> VALIDATED -> COMMITTED
 
 ## 12. TerminalPresenter
 
-`pf.terminal` 包是业务 Rich 的唯一使用点。`TerminalPresenter` 在主线程消费 `ActivityEvent` 和强类型命令结果，并把 live 生命周期委托给私有 `LiveVerificationView`。合法 cell 展示事实由不可变 `CellPresentation` 统一从 `CellCompletedEvent` 或 `completion_outcome(result)` 建立；final/live 不各自投影领域 outcome，`_print_cell_report` 只接收该单一对象。Explain / Diagnose renderer 继续位于包内私有模块。stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
+`pf.terminal` 包是业务 Rich 的唯一使用点。`TerminalPresenter` 以 thread-safe `consume(ActivityEvent)` 接收 Scheduler worker 与 pytest progress monitor 的活动事件；私有 `LiveVerificationView` 用同一把可重入锁串行化 Rich 状态变更、渲染和关闭，不要求 producer 切换回调用 Scheduler 的线程。live view 在每个 cell title 下按 `detail identity -> stage/progress` 顺序投影 `CellContextEvent` / `CellStageEvent`；它不推断 probe 身份、搜索窗口或测试总数。合法 cell 完成展示事实由不可变 `CellPresentation` 统一从 `CellCompletedEvent` 或 `completion_outcome(result)` 建立；final/live 不各自投影领域 outcome，`_print_cell_report` 只接收该单一对象。Explain / Diagnose renderer 继续位于包内私有模块。stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
 
 adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 

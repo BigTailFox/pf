@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 import os
 from pathlib import Path
 from typing import Protocol
@@ -22,6 +23,7 @@ from pf.schemas.evaluation import (
     StaticEvaluation,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
+    StageProgress,
     TestFail,
     TestFailEvaluation,
     TestOutcome,
@@ -162,6 +164,7 @@ class TestOperations(Protocol):
         environment: tuple[EnvironmentVariable, ...],
         failure_exit_codes: tuple[int, ...],
         timeout_seconds: int | None,
+        progress: Callable[[StageProgress | None], None] | None = None,
     ) -> TestOutcome: ...
 
 
@@ -377,6 +380,16 @@ class RuntimeEvaluator:
             environment=(EnvironmentVariable(name="PATH", value=path),),
             failure_exit_codes=package.config.test_failure_exit_codes,
             timeout_seconds=package.config.test_timeout,
+            progress=(
+                None
+                if self._events is None
+                else lambda progress: emit_cell_stage(
+                    self._events,
+                    prepared.proposal.cell,
+                    "dynamic tests",
+                    progress=progress,
+                )
+            ),
         )
         prepared.mark_tested()
         if isinstance(outcome, TestPass):

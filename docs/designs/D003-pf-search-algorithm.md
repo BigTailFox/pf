@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **算法版本：** `runtime-static-v1`
-- **最后核对：** 2026-08-23
+- **最后核对：** 2026-08-25
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态 transition 与 witness：** [D004](D004-pf-ty-enhancement.md)
@@ -93,13 +93,24 @@ minimize(start, candidates, evaluator, hints=(), start_is_known_pass=False)
 普通 `VectorEvaluator.evaluate(vector)` 直接返回 Probe evidence。Search 使用 runtime-backed seam：
 
 ```text
-evaluate_in_slice(vector, dependency)
+evaluate_in_slice(SearchProbeRequest)
   -> ProbeEvidence | StaticOnlyEvidence
-promote(vector, dependency)
+promote(SearchProbeRequest)
   -> ProbeEvidence
 regions
   -> tuple[StaticRegion, ...]
 ```
+
+`SearchProbeRequest` 把以下事实绑定在同一次实际 probe 上：
+
+```text
+vector
+active_dependency
+candidate_version
+lower_version / upper_version / candidate_count
+```
+
+`candidate_version` 必须等于 `vector[active_dependency]`，并位于非空窗口内。窗口是本次 lower-bound 定位尚未排除的有序离散候选区间：首次/hint probe 使用当下完整区间；线性扫描从当前点收缩到已知高端；二分使用当前显式候选 low/high 区间；floor/predecessor promotion 使用提交边界对。CandidateSnapshot 之外的虚拟 baseline sentinel 只是已知 PASS evidence bound，不计入窗口端点或 `candidate_count`，也不产生 runtime-backed probe identity。窗口是算法已有状态的只读投影，不改变 probe 顺序、cache key、证据状态或 floor authority；终端只消费该结构化事实，不反推算法窗口。
 
 `start_is_known_pass=True` 时不重复评价 `B`。一次调用的 cache、observation、Slice 状态与 regions 全部 invocation-local；同一 CoordinateSearch 实例可以嵌套或并发调用。
 

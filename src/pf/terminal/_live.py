@@ -24,11 +24,16 @@ from rich.text import Text
 
 from pf.schemas.evaluation import (
     ActivityEvent,
+    BaselineDetailIdentity,
     CellCompletedEvent,
+    CellContextEvent,
     CellMatrixEvent,
     CellStageEvent,
+    DeclarationDetailIdentity,
     ProcessEvent,
     SearchFailureEvent,
+    SearchProbeDetailIdentity,
+    StageProgress,
     StatusEvent,
 )
 from pf.schemas.project import Cell
@@ -75,6 +80,9 @@ class LiveVerificationView:
         self._progress: Progress | None = None
         self._overall_task: TaskID | None = None
         self._cell_tasks: dict[tuple[str, str, str, tuple[str, ...]], TaskID] = {}
+        self._cell_context_tasks: dict[
+            tuple[str, str, str, tuple[str, ...]], TaskID
+        ] = {}
         self._cell_stage_tasks: dict[
             tuple[str, str, str, tuple[str, ...]], TaskID
         ] = {}
@@ -97,6 +105,8 @@ class LiveVerificationView:
                 self._search_diagnostics.append(event)
             elif isinstance(event, CellMatrixEvent):
                 self._consume_matrix(event)
+            elif isinstance(event, CellContextEvent):
+                self._consume_context(event)
             elif isinstance(event, CellStageEvent):
                 self._consume_stage(event)
             elif isinstance(event, CellCompletedEvent):
@@ -189,7 +199,24 @@ class LiveVerificationView:
         if not self._stderr.is_terminal:
             return
         self._ensure_cell_task(event.cell, start=True)
-        self._set_cell_stage(event.cell, event.stage)
+        self._set_cell_stage(event.cell, event.stage, event.progress)
+
+    def _consume_context(self, event: CellContextEvent) -> None:
+        if not self._stderr.is_terminal:
+            return
+        self._ensure_cell_task(event.cell, start=True)
+        key = _cell_key(event.cell)
+        context_id = self._cell_context_tasks.get(key)
+        stage_id = self._cell_stage_tasks.get(key)
+        if context_id is not None and self._progress is not None:
+            self._progress.update(
+                context_id,
+                description=(
+                    "" if event.detail is None else _detail_title(event.detail)
+                ),
+            )
+        if stage_id is not None and self._progress is not None:
+            self._set_cell_stage(event.cell, "", None)
 
     def _consume_completed(self, event: CellCompletedEvent) -> None:
         if self._stderr.is_terminal:
@@ -254,15 +281,18 @@ class LiveVerificationView:
         stage_id = self._cell_stage_tasks.pop(key, None)
         if stage_id is not None:
             self._progress.remove_task(stage_id)
+        context_id = self._cell_context_tasks.pop(key, None)
+        if context_id is not None:
+            self._progress.remove_task(context_id)
 
     def _ensure_progress(self) -> None:
         if self._progress is not None:
             return
         self._progress = _OrderedProgress(
             _IconColumn(),
-            _TaskDescriptionColumn(),
-            _OverallBarColumn(),
-            _OverallCountColumn(),
+            _TaskDescriptionColumn(self._stderr),
+            _OverallBarColumn(self._stderr),
+            _OverallCountColumn(self._stderr),
             _DimElapsedColumn(),
             order=self._ordered_tasks,
             console=self._stderr,
@@ -315,6 +345,12 @@ class LiveVerificationView:
                 start=start,
             )
             self._cell_tasks[key] = task_id
+            self._cell_context_tasks[key] = self._progress.add_task(
+                "",
+                total=None,
+                role="cell-context",
+                start=False,
+            )
             self._cell_stage_tasks[key] = self._progress.add_task(
                 "",
                 total=None,
@@ -345,17 +381,38 @@ class LiveVerificationView:
         by_id: dict[TaskID, Task],
     ) -> list[Task]:
         stage_id = self._cell_stage_tasks.get(key)
-        if stage_id is None or stage_id not in by_id:
-            return []
-        stage = by_id[stage_id]
-        return [stage] if stage.description else []
+        context_id = self._cell_context_tasks.get(key)
+        details = []
+        if context_id is not None and context_id in by_id:
+            context = by_id[context_id]
+            if context.description:
+                details.append(context)
+        if stage_id is not None and stage_id in by_id:
+            stage = by_id[stage_id]
+            if stage.description:
+                details.append(stage)
+        return details
 
-    def _set_cell_stage(self, cell: Cell, stage: str) -> None:
+    def _set_cell_stage(
+        self,
+        cell: Cell,
+        stage: str,
+        progress: StageProgress | None,
+    ) -> None:
         if self._progress is None:
             return
-        stage_id = self._cell_stage_tasks.get(_cell_key(cell))
+        key = _cell_key(cell)
+        stage_id = self._cell_stage_tasks.get(key)
         if stage_id is not None:
-            self._progress.update(stage_id, description=stage)
+            self._progress.remove_task(stage_id)
+        self._cell_stage_tasks[key] = self._progress.add_task(
+            stage,
+            total=None if progress is None else progress.total,
+            completed=0 if progress is None else progress.completed,
+            role="cell-stage",
+            unit=None if progress is None else progress.unit,
+            start=False,
+        )
 
     @staticmethod
     def _status_description(event: StatusEvent) -> str:
@@ -414,6 +471,7 @@ class LiveVerificationView:
         self._progress = None
         self._overall_task = None
         self._cell_tasks.clear()
+        self._cell_context_tasks.clear()
         self._cell_stage_tasks.clear()
 
 
@@ -457,6 +515,25 @@ def _cell_title(cell: Cell) -> str:
     )
 
 
+def _detail_title(
+    detail: (
+        BaselineDetailIdentity
+        | DeclarationDetailIdentity
+        | SearchProbeDetailIdentity
+    ),
+) -> str:
+    if isinstance(detail, BaselineDetailIdentity):
+        return "[baseline][highest]"
+    if isinstance(detail, DeclarationDetailIdentity):
+        return "[declaration][lowest-direct]"
+    noun = "candidate" if detail.candidate_count == 1 else "candidates"
+    return (
+        f"[{detail.dependency}=={detail.version}]"
+        f"[{detail.lower_version}…{detail.upper_version} · "
+        f"{detail.candidate_count} {noun}]"
+    )
+
+
 def _two_char_icon(text: Text) -> Text:
     if text.cell_len >= _ICON_WIDTH:
         return text
@@ -472,20 +549,32 @@ class _IconColumn(ProgressColumn):
 
     def render(self, task: Task) -> RenderableType:
         role = task.fields.get("role")
-        if role == "cell-stage" or (role == "cell" and not task.started):
+        if role in {"cell-context", "cell-stage"} or (
+            role == "cell" and not task.started
+        ):
             return Text(" " * _ICON_WIDTH)
         rendered = self._spinner.render(task)
         return _two_char_icon(rendered) if isinstance(rendered, Text) else Text()
 
 
 class _TaskDescriptionColumn(TextColumn):
-    def __init__(self) -> None:
+    def __init__(self, console: Console) -> None:
         super().__init__("{task.description}", markup=False)
+        self._console = console
 
     def render(self, task: Task) -> Text:
         rendered = super().render(task)
         role = task.fields.get("role")
-        if role == "cell-stage":
+        if (
+            role == "cell-stage"
+            and task.total is not None
+            and self._console.width < 72
+        ):
+            unit = task.fields.get("unit") or ""
+            rendered.append(
+                f"  {int(task.completed)}/{int(task.total)} {unit}"
+            )
+        if role in {"cell-context", "cell-stage"}:
             rendered.stylize("dim")
         elif role == "cell":
             rendered.stylize("cell")
@@ -493,28 +582,55 @@ class _TaskDescriptionColumn(TextColumn):
 
 
 class _OverallBarColumn(ProgressColumn):
-    def __init__(self) -> None:
+    def __init__(self, console: Console) -> None:
         super().__init__()
+        self._console = console
         self._bar = BarColumn(bar_width=20)
 
     def render(self, task: Task) -> RenderableType:
         if task.fields.get("role") == "overall" and task.total is not None:
             return Padding(self._bar.render(task), (0, 0, 0, 1))
+        if task.fields.get("role") == "cell-stage" and task.total is not None:
+            available = self._console.width - 60
+            if available < 6 or task.total == 0:
+                return Text()
+            width = min(20, available)
+            completed = min(
+                width,
+                max(1, int(width * task.completed / task.total))
+                if task.completed
+                else 0,
+            )
+            dots = Text("●" * completed, style="bar.complete")
+            dots.append("·" * (width - completed), style="bar.back")
+            return dots
         return Text()
 
 
 class _OverallCountColumn(MofNCompleteColumn):
+    def __init__(self, console: Console) -> None:
+        super().__init__()
+        self._console = console
+
     def render(self, task: Task) -> Text:
         if task.fields.get("role") == "overall" and task.total is not None:
             rendered = super().render(task)
             rendered.pad_left(1)
             return rendered
+        if task.fields.get("role") == "cell-stage" and task.total is not None:
+            if self._console.width < 72:
+                return Text()
+            unit = task.fields.get("unit") or ""
+            return Text(f"{int(task.completed)}/{int(task.total)} {unit}", style="dim")
         return Text()
 
 
 class _DimElapsedColumn(TimeElapsedColumn):
     def render(self, task: Task) -> Text:
-        if task.fields.get("role") == "cell-stage" or task.elapsed is None:
+        if (
+            task.fields.get("role") in {"cell-context", "cell-stage"}
+            or task.elapsed is None
+        ):
             return Text()
         rendered = super().render(task)
         rendered.stylize("dim")

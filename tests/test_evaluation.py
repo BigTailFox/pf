@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import tempfile
 
@@ -33,6 +34,7 @@ from pf.schemas.evaluation import (
     StaticBaseline,
     StaticBaselineCapture,
     StaticRegressionEvaluation,
+    StageProgress,
     TestOutcome,
     TestFail,
     TestPass,
@@ -626,13 +628,16 @@ class TestEvaluators:
     def test_evaluators_report_static_and_dynamic_stages(self, tmp_path: Path) -> None:
         class Events:
             def __init__(self) -> None:
-                self.phases: list[str] = []
+                self.events: list[CellStageEvent] = []
 
             def consume(self, event: CellStageEvent) -> None:
-                self.phases.append(event.stage)
+                self.events.append(event)
 
         class Tests:
             def run(self, **kwargs: object) -> TestOutcome:
+                progress = kwargs["progress"]
+                assert isinstance(progress, Callable)
+                progress(StageProgress(completed=3, total=5, unit="tests"))
                 return TestPass(process=process_result())
 
         root = tmp_path / "project"
@@ -676,5 +681,14 @@ class TestEvaluators:
         )
 
         assert result.status == "PASS"
-        assert events.phases == ["capturing static baseline", "dynamic tests"]
+        assert [event.stage for event in events.events] == [
+            "capturing static baseline",
+            "dynamic tests",
+            "dynamic tests",
+        ]
+        assert events.events[-1].progress == StageProgress(
+            completed=3,
+            total=5,
+            unit="tests",
+        )
         prepared.close()

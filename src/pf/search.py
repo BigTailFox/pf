@@ -13,8 +13,11 @@ from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     BaselineIndeterminate,
+    BaselineDetailIdentity,
     BaselineRejection,
     CacheConflict,
+    CellContextEvent,
+    CellStageEvent,
     Evaluation,
     FailureDetail,
     FailureCause,
@@ -27,6 +30,8 @@ from pf.schemas.evaluation import (
     PrepareFailure,
     RuntimeInterfaceMissingEvaluation,
     SearchFailureEvent,
+    SearchProbeRequest,
+    SearchProbeDetailIdentity,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
@@ -171,6 +176,10 @@ class SearchDiagnosticConsumer(Protocol):
     def consume(self, event: SearchFailureEvent) -> None: ...
 
 
+class SearchActivityConsumer(Protocol):
+    def consume(self, event: CellContextEvent | CellStageEvent) -> None: ...
+
+
 @dataclass(frozen=True)
 class ProbeRun:
     evidence: ProbeEvidence
@@ -194,19 +203,15 @@ class _RuntimeBackedVectorEvaluator:
 
     def evaluate_in_slice(
         self,
-        vector: tuple[VersionPin, ...],
-        *,
-        dependency: str,
+        request: SearchProbeRequest,
     ) -> ProbeEvidence | StaticOnlyEvidence:
-        return self._runner.evaluate_in_slice(vector, dependency=dependency)
+        return self._runner.evaluate_in_slice(request)
 
     def promote(
         self,
-        vector: tuple[VersionPin, ...],
-        *,
-        dependency: str,
+        request: SearchProbeRequest,
     ) -> ProbeEvidence:
-        return self._runner.promote(vector, dependency=dependency)
+        return self._runner.promote(request)
 
     @property
     def regions(self) -> tuple[StaticRegion, ...]:
@@ -227,6 +232,7 @@ class _ProposalRunner:
         harness_baseline: HarnessBaseline,
         candidate_snapshots: tuple[CandidateSnapshot, ...],
         diagnostics: SearchDiagnosticConsumer | None = None,
+        events: SearchActivityConsumer | None = None,
         failures: FailurePolicy | None = None,
     ) -> None:
         self._environments = environments
@@ -239,6 +245,7 @@ class _ProposalRunner:
         self._harness_baseline = harness_baseline
         self._candidate_snapshots = candidate_snapshots
         self._diagnostics = diagnostics
+        self._events = events
         self._failures = failures or FailurePolicy()
         self._failure_records: dict[str, FailureRecord] = {}
         self._emitted_diagnostics: set[str] = set()
@@ -257,11 +264,18 @@ class _ProposalRunner:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def evaluate_full(self, vector: tuple[VersionPin, ...]) -> ProbeRun:
+    def evaluate_full(
+        self,
+        vector: tuple[VersionPin, ...],
+        *,
+        request: SearchProbeRequest | None = None,
+    ) -> ProbeRun:
         key = self._key(vector)
         existing = self._full_runs.get(key)
         if existing is not None:
             return existing
+        if request is not None:
+            self._emit_probe_context(request)
         prepared = self._prepare(vector)
         if isinstance(prepared, PrepareFailure):
             run = ProbeRun(
@@ -314,14 +328,15 @@ class _ProposalRunner:
 
     def evaluate_in_slice(
         self,
-        vector: tuple[VersionPin, ...],
-        *,
-        dependency: str,
+        request: SearchProbeRequest,
     ) -> ProbeEvidence | StaticOnlyEvidence:
+        vector = request.vector
+        dependency = request.active_dependency
         key = self._key(vector)
         existing = self._full_runs.get(key)
         if existing is not None:
             return existing.evidence
+        self._emit_probe_context(request)
         prepared = self._prepare(vector)
         if isinstance(prepared, PrepareFailure):
             return self._prepare_evidence(prepared)
@@ -433,11 +448,11 @@ class _ProposalRunner:
 
     def promote(
         self,
-        vector: tuple[VersionPin, ...],
-        *,
-        dependency: str,
+        request: SearchProbeRequest,
     ) -> ProbeEvidence:
-        run = self.evaluate_full(vector)
+        vector = request.vector
+        dependency = request.active_dependency
+        run = self.evaluate_full(vector, request=request)
         region_slice, index, _ = self._region_slice(vector, dependency)
         point = self._region_points.get(region_slice, {}).get(index)
         if point is not None and run.evidence.proposal_id is not None:
@@ -451,6 +466,22 @@ class _ProposalRunner:
                 ),
             )
         return run.evidence
+
+    def _emit_probe_context(self, request: SearchProbeRequest) -> None:
+        if self._events is None:
+            return
+        self._events.consume(
+            CellContextEvent(
+                cell=self._cell,
+                detail=SearchProbeDetailIdentity(
+                    dependency=request.active_dependency,
+                    version=request.candidate_version,
+                    lower_version=request.lower_version,
+                    upper_version=request.upper_version,
+                    candidate_count=request.candidate_count,
+                ),
+            )
+        )
 
     @property
     def regions(self) -> tuple[StaticRegion, ...]:
@@ -848,6 +879,7 @@ class SearchCoordinator:
         highest: HighestOperations,
         coordinate_search: CoordinateSearch,
         diagnostics: SearchDiagnosticConsumer | None = None,
+        events: SearchActivityConsumer | None = None,
         failures: FailurePolicy | None = None,
     ) -> None:
         self._environments = environments
@@ -857,6 +889,7 @@ class SearchCoordinator:
         self._failures = failures or FailurePolicy()
         self._highest = highest
         self._diagnostics = diagnostics
+        self._events = events
         self._coordinate_search = coordinate_search
 
     def search(
@@ -867,6 +900,10 @@ class SearchCoordinator:
         snapshot: SourceSnapshot,
     ) -> CellResult:
         require_full_evaluation_contract(package, "search")
+        if self._events is not None:
+            self._events.consume(
+                CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
+            )
         capture = self._highest.verify(
             package=package,
             cell=cell,
@@ -875,6 +912,11 @@ class SearchCoordinator:
         if isinstance(capture, (BaselineRejection, BaselineIndeterminate)):
             return capture
         baseline_evaluation = capture.evaluation
+        if self._events is not None:
+            self._events.consume(CellContextEvent(cell=cell, detail=None))
+            self._events.consume(
+                CellStageEvent(cell=cell, stage="discovering candidates")
+            )
         try:
             candidate_snapshots = self._candidates.build(
                 package=package,
@@ -926,6 +968,7 @@ class SearchCoordinator:
             harness_baseline=capture.harness_baseline,
             candidate_snapshots=candidate_snapshots,
             diagnostics=self._diagnostics,
+            events=self._events,
             failures=self._failures,
         ) as runner:
             search = self._coordinate_search.minimize(

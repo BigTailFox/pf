@@ -29,9 +29,12 @@ from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
+    BaselineDetailIdentity,
     CellCompletedEvent,
+    CellContextEvent,
     CellMatrixEvent,
     CheckCellOutcome,
+    DeclarationDetailIdentity,
     Evaluation,
     PassEvaluation,
     PrepareFailure,
@@ -195,6 +198,7 @@ class TestCompatibilityChecker:
         package, snapshot = write_check_project(tmp_path)
         resolutions: list[str] = []
         prepared: dict[str, PreparedEnvironment] = {}
+        events = Events()
 
         class Environments:
             def prepare(
@@ -307,10 +311,16 @@ class TestCompatibilityChecker:
             environments=Environments(),
             static=Static(),
             full=Full(),
+            events=events,
         ).check(package=package, cell=package.cells[0], snapshot=snapshot)
 
         assert result.status == "PASS"
         assert resolutions == ["highest", "lowest-direct"]
+        assert [
+            event.detail
+            for event in events.items
+            if isinstance(event, CellContextEvent)
+        ] == [BaselineDetailIdentity(), DeclarationDetailIdentity()]
         assert prepared["highest"].tested is False
         assert prepared["lowest-direct"].tested is True
 
@@ -339,6 +349,7 @@ class TestCompatibilityChecker:
             stdout="",
             stderr="Failed to build `numpy==1.24.0`",
         )
+        events = Events()
 
         class Environments:
             def prepare(
@@ -391,6 +402,7 @@ class TestCompatibilityChecker:
             environments=Environments(),
             static=NeverStatic(),
             full=NeverFull(),
+            events=events,
         ).check(package=package, cell=cell, snapshot=snapshot)
 
         assert resolutions == ["highest"]
@@ -400,6 +412,11 @@ class TestCompatibilityChecker:
         assert result.failure is not None
         assert result.failure.cause == "BUILD_FAILURE"
         assert result.failure.stage == "install-project"
+        assert [
+            event.detail
+            for event in events.items
+            if isinstance(event, CellContextEvent)
+        ] == [BaselineDetailIdentity()]
 
     def test_check_passes_a_minimal_local_package(self, tmp_path: Path) -> None:
         package_root = tmp_path / "demo"

@@ -21,6 +21,9 @@ from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    BaselineDetailIdentity,
+    CellContextEvent,
+    CellStageEvent,
     DiagnosticClassification,
     BaselineRejection,
     HighestVersionPass,
@@ -28,6 +31,7 @@ from pf.schemas.evaluation import (
     ProcessResult,
     PrepareFailure,
     SearchFailureEvent,
+    SearchProbeDetailIdentity,
     StaticBaseline,
     StaticBaselineCapture,
     StaticRegressionEvaluation,
@@ -104,6 +108,14 @@ class RecordingDiagnostics:
         self.events: list[SearchFailureEvent] = []
 
     def consume(self, event: SearchFailureEvent) -> None:
+        self.events.append(event)
+
+
+class RecordingActivity:
+    def __init__(self) -> None:
+        self.events: list[object] = []
+
+    def consume(self, event: object) -> None:
         self.events.append(event)
 
 
@@ -410,11 +422,13 @@ class TestSearchCoordinator:
         )
         static = StaticPasses()
         full = FullPasses(static)
+        activity = RecordingActivity()
         coordinator = search_coordinator(
             environments=ProposalFactory(),
             candidates=FrozenCandidates(),
             static=static,
             full=full,
+            events=activity,
         )
 
         result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
@@ -431,6 +445,26 @@ class TestSearchCoordinator:
         )
         assert static.captures == 1
         assert full.evaluated_vectors.count(result.final_vector) == 1
+        assert [
+            event.detail
+            for event in activity.events
+            if isinstance(event, CellContextEvent)
+        ] == [
+            BaselineDetailIdentity(),
+            None,
+            SearchProbeDetailIdentity(
+                dependency="a",
+                version="1",
+                lower_version="1",
+                upper_version="3",
+                candidate_count=3,
+            ),
+        ]
+        assert any(
+            isinstance(event, CellStageEvent)
+            and event.stage == "discovering candidates"
+            for event in activity.events
+        )
 
     def test_search_closes_static_transition_before_exact_runtime_promotion(
         self,

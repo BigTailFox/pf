@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from importlib import resources
 import os
 from pathlib import Path
@@ -9,6 +10,10 @@ import tempfile
 from typing import Literal
 
 from pf.adapters.process import ProcessRunner
+from pf.adapters.pytest_progress import (
+    PROGRESS_DIRECTORY_VARIABLE,
+    PytestProgressMonitor,
+)
 from pf.adapters.pytest_witness import (
     EVIDENCE_DIRECTORY_VARIABLE,
     RUN_NONCE_VARIABLE,
@@ -18,6 +23,7 @@ from pf.schemas.evaluation import (
     EnvironmentVariable,
     ProcessResult,
     ProcessSpec,
+    StageProgress,
     TestFail,
     TestOutcome,
     TestPass,
@@ -76,6 +82,7 @@ class TestAdapter:
         environment: tuple[EnvironmentVariable, ...],
         failure_exit_codes: tuple[int, ...],
         timeout_seconds: int | None,
+        progress: Callable[[StageProgress | None], None] | None = None,
     ) -> TestOutcome:
         profile = _select_test_profile(command, failure_exit_codes)
         if profile == "pytest-failure-witness-v1":
@@ -84,6 +91,7 @@ class TestAdapter:
                 cwd=cwd,
                 environment=environment,
                 timeout_seconds=timeout_seconds,
+                progress=progress,
             )
         result = self._run_process(
             command=command,
@@ -107,8 +115,10 @@ class TestAdapter:
         cwd: Path,
         environment: tuple[EnvironmentVariable, ...],
         timeout_seconds: int | None,
+        progress: Callable[[StageProgress | None], None] | None,
     ) -> TestOutcome:
         temporary = None
+        progress_temporary = None
         try:
             temporary = tempfile.TemporaryDirectory(prefix="pf-pytest-witness-")
             root = Path(temporary.name)
@@ -117,6 +127,28 @@ class TestAdapter:
             plugin_directory.mkdir()
             evidence_directory.mkdir()
             nonce = secrets.token_hex(16)
+            monitor = None
+            active_progress_directory = None
+            if progress is not None:
+                try:
+                    progress_temporary = tempfile.TemporaryDirectory(
+                        prefix="pf-pytest-progress-"
+                    )
+                    progress_directory = Path(progress_temporary.name)
+                    monitor = PytestProgressMonitor(
+                        progress_directory,
+                        nonce=nonce,
+                        consume=progress,
+                    )
+                    active_progress_directory = progress_directory
+                except Exception:
+                    monitor = None
+                    if progress_temporary is not None:
+                        try:
+                            progress_temporary.cleanup()
+                        except Exception:
+                            pass
+                        progress_temporary = None
             module = f"_pf_pytest_witness_{nonce}"
             source = resources.files("pf").joinpath(
                 "_pytest_failure_witness.py"
@@ -127,9 +159,15 @@ class TestAdapter:
                 environment,
                 plugin_directory=plugin_directory,
                 evidence_directory=evidence_directory,
+                progress_directory=active_progress_directory,
                 nonce=nonce,
             )
         except Exception:
+            if progress_temporary is not None:
+                try:
+                    progress_temporary.cleanup()
+                except Exception:
+                    pass
             if temporary is not None:
                 try:
                     temporary.cleanup()
@@ -153,12 +191,24 @@ class TestAdapter:
                 summary_code="pytest-failure-unwitnessed",
             )
         try:
-            result = self._run_process(
-                command=injected_command,
-                cwd=cwd,
-                environment=injected_environment,
-                timeout_seconds=timeout_seconds,
-            )
+            if monitor is not None:
+                try:
+                    monitor.start()
+                except Exception:
+                    monitor = None
+            try:
+                result = self._run_process(
+                    command=injected_command,
+                    cwd=cwd,
+                    environment=injected_environment,
+                    timeout_seconds=timeout_seconds,
+                )
+            finally:
+                if monitor is not None:
+                    try:
+                        monitor.stop()
+                    except Exception:
+                        pass
             failure = self._incomplete_process(result)
             if failure is not None:
                 outcome: TestOutcome = failure
@@ -169,11 +219,21 @@ class TestAdapter:
                     nonce=nonce,
                 )
         except BaseException:
+            if progress_temporary is not None:
+                try:
+                    progress_temporary.cleanup()
+                except Exception:
+                    pass
             try:
                 temporary.cleanup()
             except Exception:
                 pass
             raise
+        if progress_temporary is not None:
+            try:
+                progress_temporary.cleanup()
+            except Exception:
+                pass
         try:
             temporary.cleanup()
         except Exception:
@@ -229,6 +289,7 @@ class TestAdapter:
         *,
         plugin_directory: Path,
         evidence_directory: Path,
+        progress_directory: Path | None,
         nonce: str,
     ) -> tuple[EnvironmentVariable, ...]:
         values = {item.name: item.value for item in environment}
@@ -240,6 +301,8 @@ class TestAdapter:
         )
         values[EVIDENCE_DIRECTORY_VARIABLE] = evidence_directory.as_posix()
         values[RUN_NONCE_VARIABLE] = nonce
+        if progress_directory is not None:
+            values[PROGRESS_DIRECTORY_VARIABLE] = progress_directory.as_posix()
         return tuple(
             EnvironmentVariable(name=name, value=value)
             for name, value in values.items()

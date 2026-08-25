@@ -13,9 +13,9 @@
 - **运行时静态证据：** [D011](D011-pf-runtime-backed-static-search.md)
 - **实施计划：** [P012](../plans/P012-pf-pytest-failure-evidence.md)
 
-本文定义 PF 如何使用 pytest 自己产生的最小 failure witness，把 ordinary collection failure 稳定归一为现有 `TestFail`，同时让 pytest bootstrap、internal、无 failure witness 的 interrupt 与协议故障保持 `ToolFailure`。本文不改变用户测试的 collection/runtest 策略，不建立 pytest lifecycle observer，也不改变 CoordinateSearch 对 `ProbeIndeterminate` 的处置。
+本文定义 PF 如何使用 pytest 自己产生的最小 failure witness，把 ordinary collection failure 稳定归一为现有 `TestFail`，同时让 pytest bootstrap、internal、无 failure witness 的 interrupt 与协议故障保持 `ToolFailure`；并定义同一私有 profile 如何向交互式 CLI 提供与 evidence 隔离的 best-effort 测试计数。本文不改变用户测试的 collection/runtest 策略，不建立参与分类的 pytest lifecycle observer，也不改变 CoordinateSearch 对 `ProbeIndeterminate` 的处置。
 
-本文已按 P012 落地并同步 D001/D002/D005/D008。现行 `TestAdapter` 对默认 `[1]` 的 direct pytest command 使用本文的 failure-witness profile；generic command 与显式自定义 failure codes 保持配置退出码语义。现行 PF 能识别 xdist execution mode，但 v1 未授予 xdist failure Rejection authority：任何 xdist 非零结果仍保守归为 Indeterminate。
+本文已按 P012 落地并同步 D001/D002/D005/D006/D008。现行 `TestAdapter` 对默认 `[1]` 的 direct pytest command 使用本文的 failure-witness profile；generic command 与显式自定义 failure codes 保持配置退出码语义。现行 PF 能识别 xdist execution mode，但 v1 未授予 xdist failure Rejection authority：任何 xdist 非零结果仍保守归为 Indeterminate，也不提供 determinate UI progress。
 
 ## 1. 问题
 
@@ -174,9 +174,9 @@ pytest_cmdline_main(config)
 
 `pytest_cmdline_main` 使用兼容资格范围的 hook-wrapper 形式并以 `tryfirst=True` 成为最外层 wrapper：先 `yield` 让 pytest 默认 command-line action 运行，再原子提交 summary。pytest 的默认 action 在返回前已执行 session-finish 与 unconfigure/cleanup，因此 commit 不早于这些公开 teardown 路径。若被包裹的 action 或 teardown 抛异常，wrapper 先补入 `INTERNAL_ERROR` 并尝试提交，然后保留原异常语义。
 
-plugin 不保存 traceback、longrepr、nodeid、path、测试名称、异常正文或输出正文。fact hook 不写独立 event；只有最终提交会产生 adapter 可信的 evidence。
+failure evidence 不序列化 traceback、longrepr、nodeid、path、测试名称、异常正文或输出正文。fact hook 不写独立 event；只有最终提交会产生 adapter 可信的 evidence。§6.1 的 UI telemetry 会在 pytest process 内短暂保存未完成 nodeid set 来去重计数，但从不把 nodeid 或名称写入文件、event、日志或报告。
 
-以下内容不属于 plugin：
+以下内容不属于 failure evidence 与 outcome classifier：
 
 - pytest lifecycle state 或阶段转移；
 - collection 是否“属于项目”；
@@ -191,18 +191,39 @@ failed `CollectReport` 或 failed setup/call/teardown `TestReport` 本身就是�
 
 finalized summary 是 evidence commit，不是 lifecycle observer。它只证明“该 process 已把自己观察到的 fact set 一次性提交”，不表示 PF 知道 pytest 进入过哪些阶段。
 
+### 6.1 Best-effort UI progress
+
+同一 standalone plugin 另实现两个不具 evidence authority 的公开 hook：
+
+```text
+pytest_collection_finish(session)
+  serial + 非 collect-only + collection 无失败 + nodeid 唯一
+    -> 原子提交 0 / total tests
+
+pytest_runtest_logfinish(nodeid, location)
+  nodeid 首次完成
+    -> completed 单调 +1
+```
+
+`total` 是 collection 结束时 `session.items` 的唯一 nodeid 数量，并在本次执行内固定；`completed` 只在已收集 nodeid 的 `logfinish` 首次出现时增加，重复或未知 nodeid 不计数。中间更新最多每 100 ms 提交一次，最后一个 test 强制提交。空 collection 可以合法显示 `0/0 tests`。
+
+下列任一条件使本次执行不产生 determinate progress：generic profile、bootstrap/collection 未完成、collection failure、`--collect-only`、重复/非法 nodeid、`execution_mode != serial`、目录/序列化/回调故障。降级结果只是 D006 的 spinner；plugin hook 吞掉 telemetry 异常，parent monitor 也忽略非法、倒退或变更总数的 snapshot。两侧都不得修改 pytest exit、failure facts、`ProcessResult` 或 `TestOutcome`。
+
 ## 7. 注入与临时资源
 
 每次 pytest-profile invocation 使用一个 run-unique `TemporaryDirectory`，内部包含：
 
 ```text
-plugin/       单个复制出的 PF-owned plugin module
-evidence/     原子 finalized-summary 文件
+pf-pytest-witness-*/
+  plugin/     单个复制出的 PF-owned plugin module
+  evidence/   原子 finalized-summary 文件
+pf-pytest-progress-*/
+  progress.json  可选的原子 UI progress snapshot
 ```
 
 PF 把 isolated `plugin/` 前置到该进程的 `PYTHONPATH`，保留原有 `PYTHONPATH`，并在 pytest launcher prefix 后、用户参数前插入显式 `-p <unique-module-name>`。PF 不修改用户参数，不增加 collection continuation 或 `maxfail` 选项。
 
-evidence directory 与 run nonce 通过只对该进程生效的环境变量传入；Process Log 只记录环境变量名，值继续按 D007 脱敏。临时目录在 adapter 完成分类后释放，不进入 source snapshot、prepared environment、报告或诊断索引。
+evidence/progress directory 与 run nonce 通过只对该进程生效的环境变量传入；独立 progress 临时目录只在调用方提供 progress consumer 时创建，其准备与 cleanup 故障都被隔离并静默降级，不能触发 witness directory 的 `pytest-cleanup-failed`。Process Log 只记录环境变量名，值继续按 D007 脱敏。临时目录在 adapter 完成分类后释放，不进入 source snapshot、prepared environment、报告或诊断索引。
 
 plugin source 作为 PF wheel 的实现资源发布，但复制出的 module 是独立顶层 module，因此 target environment 不需要安装或导入 PF。若 plugin resource、临时目录或注入 argv/env 无法准备，adapter 仍执行未注入 observer 的原 test command：完整 exit 0 仍为 `TestPass`，任何非零结果均为 `ToolFailure`。这样降级只损失 negative-evidence completeness，不需要伪造未发生的 `ProcessResult.start_error`。
 
@@ -271,6 +292,22 @@ v1 negative-evidence authority 只授予 `execution_mode == "serial"` 且 qualif
 `execution_mode` 使用 pytest-xdist 公开的 `is_xdist_controller` / `is_xdist_worker` 语义判定，不从 `-n` argv 猜测，因为 xdist 也可以由 pytest config `addopts` 启用。只要 controller 或 worker 语义成立，该 process 的 summary 必须标记 `xdist`；helper 不可用或判定不完整时标记 `unknown`。v1 对 xdist 的唯一承诺是 fail closed：完整 exit 0 仍可 `TestPass`，任何非零结果均为 `ToolFailure`。
 
 summary commit failure 不得从 plugin 抛出并改变 pytest 结果。仅 finalized summary 中的 fact 可以授权 Rejection；非零退出且缺失 finalized summary 时，adapter 必须 fail closed。
+
+### 8.1 Ephemeral UI progress protocol
+
+progress protocol identity 为 `pf-pytest-progress-v1`。plugin 在同目录临时文件完整写入后原子替换固定的 `progress.json`：
+
+```json
+{
+  "completed": 37,
+  "protocol": "pf-pytest-progress-v1",
+  "run_nonce": "<run-unique value>",
+  "total": 120,
+  "unit": "tests"
+}
+```
+
+parent monitor 每 100 ms 轮询，单文件上限 1 KiB，只接受 bounded regular file、精确字段、canonical UTF-8 JSON、匹配的 protocol/nonce、literal non-negative integers、`completed <= total` 和 `unit == "tests"`。首次合法 snapshot 后，`total` 不得变化且 `completed` 不得倒退。首个 snapshot 即非法时不回调；先有合法 snapshot 后再发生非法、倒退或 total 变化时，monitor 向 consumer 发送一次 `None` 使 D006 恢复 spinner，再永久关闭本次 telemetry。consumer 自身异常也只关闭 telemetry。monitor 在 process 返回后最后读取一次再释放临时目录。progress snapshot 永远不交给 `classify_pytest_result`，缺失/损坏也不产生 `ToolFailure`。
 
 ## 9. Outcome 决策表
 
@@ -357,14 +394,14 @@ classifier 不要求 complete。一个真实 candidate incompatibility 可以因
 
 1. command-shape 表验证 pytest/generic profile 选择与 argv/env 保真；
 2. recording/fake ProcessRunner 验证完整 outcome 决策表；
-3. protocol 表覆盖空 facts、malformed、truncated、non-canonical bytes、unknown field、wrong nonce/runtime/version、身份字段冲突、超限、残留 temp 与等价重复 summary 的 set-union；
+3. evidence protocol 表覆盖空 facts、malformed、truncated、non-canonical bytes、unknown field、wrong nonce/runtime/version、身份字段冲突、超限、残留 temp 与等价重复 summary 的 set-union；progress protocol 表覆盖正确计数、缺字段、wrong nonce、bool/越界计数、unknown field，并证明故障不改变 TestOutcome；
 4. real pytest matrix 覆盖 6.2.5、7.0.1、7.4.4、8.0.2、8.4.2、9.0.2、9.1.1；核心 witness 场景在 CPython 3.11 与 3.12 上复跑每个 major 的最低代表与当前最新版本，失败组合必须从 qualification authority 移除；
 5. current PF plugin matrix 覆盖 Python 3.10–3.12；
 6. integration 覆盖 module collection import、nested conftest、setup/call/teardown、initial conftest、internal error、KeyboardInterrupt、early plugin import 与 exit rewrite；特别覆盖 test/collection failure 后 interrupt，以及 internal error 后把 exit 3 分别改写为 1/2；
 7. finalization integration 覆盖 failure 后 internal error、sessionfinish/unconfigure/config cleanup 抛异常、summary commit 失败、残留 temp 与非零退出无 finalized summary；
-8. xdist guard integration 至少覆盖 argv `-n2`、config `addopts=-n2`、worker failure、worker internal error 与 worker crash，并证明它们不获得 v1 Rejection authority；
+8. xdist guard integration 至少覆盖 argv `-n2`、config `addopts=-n2`、worker failure、worker internal error 与 worker crash，并证明它们不获得 v1 Rejection authority 或 determinate progress；
 9. `packaging==19.2` × Python 3.10–3.12 形成 `TestFailEvaluation -> ProbeRejection`；
-10. generic command 与显式自定义 failure exit codes 保持现行行为；
+10. generic command、collect-only 与显式自定义 failure exit codes 保持现行行为且不声称 determinate progress；
 11. 安装 PF wheel 后验证 plugin resource 可复制并在独立 target environment 中加载；
 12. 全量 pytest、Ruff、ty、build 与 `git diff --check` 通过。
 
@@ -375,12 +412,13 @@ classifier 不要求 complete。一个真实 candidate incompatibility 可以因
 本文落地时已同步以下唯一所有者：
 
 - D001：补充 direct pytest profile 的结构化 failure witness；`test-failure-exit-codes` 默认仍为 `[1]`，不把 exit 2 加入通用默认；
-- D002：把 `TestAdapter` 从纯 exit-code adapter 加深为 generic/pytest 两个私有 profile，并记录 embedded plugin resource；
+- D002：把 `TestAdapter` 从纯 exit-code adapter 加深为 generic/pytest 两个私有 profile，记录 embedded plugin resource 与可选 `StageProgress` consumer；
+- D006：live `dynamic tests` 只在本文 telemetry 满足稳定门槛时显示 determinate tests 计数，否则保留 spinner；
 - D005：把“测试以配置失败码退出”扩展为“generic configured failure 或 pytest-profile witnessed failure”，保持 `TEST_FAILURE @ test` 的 disposition 规则；
 - D008：`TestFailEvaluation` 的 Attempt/Journal 投影不变，只更新 TestFail 的来源说明；
 - `evaluation_policy_identity`：已加入 test outcome policy identity。
 
-D003、D004、D006、D007、D009–D012 不改变其算法、static、展示、日志、安全、架构或 harness 契约。D004/D007/D011 中关于测试失败来源的过时表述已同步到与本文一致；这不改变它们各自拥有的契约。
+D003、D004、D007、D009–D012 不改变其算法、static、日志、安全、架构或 harness 契约。D004/D007/D011 中关于测试失败来源的过时表述已同步到与本文一致；这不改变它们各自拥有的契约。
 
 ## 15. 验收不变量
 
@@ -396,3 +434,4 @@ D003、D004、D006、D007、D009–D012 不改变其算法、static、展示、�
 10. generic test command 与用户显式 exit-code contract 保持兼容；
 11. 只有 finalized summary 中的 fact 可以授权 Rejection，部分写入或缺失提交不可以；
 12. v1 的 xdist/unknown execution mode 不得产生 Rejection。
+13. UI progress 只允许由稳定、单调、serial 的收集事实产生；缺失或损坏 telemetry 必须降级为 spinner，且不得改变任何 evidence、disposition 或持久化 authority。

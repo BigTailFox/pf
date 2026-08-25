@@ -5,6 +5,7 @@ import hashlib
 import json
 from typing import Annotated, ClassVar, Literal, Union
 
+from packaging.version import Version
 from pydantic import Field, model_validator
 
 from pf.schemas.base import FrozenSchema
@@ -1277,10 +1278,94 @@ class CacheConflict(FrozenSchema):
     observed_statuses: tuple[str, str]
 
 
+class SearchProbeRequest(FrozenSchema):
+    """One exact active-coordinate probe and its unresolved candidate window."""
+
+    vector: tuple[VersionPin, ...]
+    active_dependency: str
+    candidate_version: str
+    lower_version: str
+    upper_version: str
+    candidate_count: int = Field(gt=0, strict=True)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "SearchProbeRequest":
+        versions = {pin.name: pin.version for pin in self.vector}
+        if len(versions) != len(self.vector):
+            raise ValueError("search probe vector dependencies must be unique")
+        if versions.get(self.active_dependency) != self.candidate_version:
+            raise ValueError("search probe candidate must match its active coordinate")
+        if not (
+            Version(self.lower_version)
+            <= Version(self.candidate_version)
+            <= Version(self.upper_version)
+        ):
+            raise ValueError("search probe candidate must be inside its window")
+        return self
+
+
+class BaselineDetailIdentity(FrozenSchema):
+    kind: Literal["baseline"] = "baseline"
+
+
+class DeclarationDetailIdentity(FrozenSchema):
+    kind: Literal["declaration"] = "declaration"
+
+
+class SearchProbeDetailIdentity(FrozenSchema):
+    kind: Literal["search-probe"] = "search-probe"
+    dependency: str
+    version: str
+    lower_version: str
+    upper_version: str
+    candidate_count: int = Field(gt=0, strict=True)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "SearchProbeDetailIdentity":
+        if not self.dependency or not self.version:
+            raise ValueError("search probe detail identity cannot be empty")
+        if not (
+            Version(self.lower_version)
+            <= Version(self.version)
+            <= Version(self.upper_version)
+        ):
+            raise ValueError("search probe detail version must be inside its window")
+        return self
+
+
+CellDetailIdentity = Annotated[
+    Union[
+        BaselineDetailIdentity,
+        DeclarationDetailIdentity,
+        SearchProbeDetailIdentity,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+class CellContextEvent(FrozenSchema):
+    kind: Literal["context"] = "context"
+    cell: Cell
+    detail: CellDetailIdentity | None
+
+
+class StageProgress(FrozenSchema):
+    completed: int = Field(ge=0, strict=True)
+    total: int = Field(ge=0, strict=True)
+    unit: Literal["tests"]
+
+    @model_validator(mode="after")
+    def validate_completed(self) -> "StageProgress":
+        if self.completed > self.total:
+            raise ValueError("stage progress cannot exceed its total")
+        return self
+
+
 class CellStageEvent(FrozenSchema):
     kind: Literal["stage"] = "stage"
     cell: Cell
     stage: str
+    progress: StageProgress | None = None
 
 
 class CellSucceeded(FrozenSchema):
@@ -1374,7 +1459,8 @@ class SearchFailureEvent(FrozenSchema):
 
 
 ActivityEvent = (
-    CellStageEvent
+    CellContextEvent
+    | CellStageEvent
     | CellCompletedEvent
     | StatusEvent
     | CellMatrixEvent

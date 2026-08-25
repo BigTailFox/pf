@@ -41,6 +41,7 @@ from pf.schemas.report import (
     StaticRegionSlice,
 )
 from pf.coordinate_search import CoordinateSearch
+from pf.schemas.evaluation import SearchProbeRequest
 
 
 def snapshot(name: str) -> CandidateSnapshot:
@@ -217,6 +218,96 @@ class InteractionEvaluator:
 
 
 class TestCoordinateSearch:
+    def test_runtime_backed_probe_receives_the_current_discrete_search_window(
+        self,
+    ) -> None:
+        requests: list[SearchProbeRequest] = []
+
+        class RuntimeBacked:
+            @property
+            def regions(self) -> tuple[StaticRegion, ...]:
+                return ()
+
+            def evaluate(
+                self, vector: tuple[VersionPin, ...]
+            ) -> ProbeEvidence:
+                raise AssertionError("known baseline must not be evaluated")
+
+            def evaluate_in_slice(
+                self, request: SearchProbeRequest
+            ) -> ProbeEvidence:
+                requests.append(request)
+                return self._outcome(request)
+
+            def promote(self, request: SearchProbeRequest) -> ProbeEvidence:
+                requests.append(request)
+                return self._outcome(request)
+
+            @staticmethod
+            def _outcome(request: SearchProbeRequest) -> ProbeEvidence:
+                if int(request.candidate_version) >= 3:
+                    return probe_pass(request.vector, request.candidate_version)
+                return probe_rejection(
+                    request.vector,
+                    request.candidate_version,
+                )
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="5"),),
+            candidates=(snapshot_versions("a", ("1", "2", "3", "4", "5")),),
+            evaluator=RuntimeBacked(),
+            hints=(VersionPin(name="a", version="3"),),
+            start_is_known_pass=True,
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert requests[0] == SearchProbeRequest(
+            vector=(VersionPin(name="a", version="3"),),
+            active_dependency="a",
+            candidate_version="3",
+            lower_version="1",
+            upper_version="5",
+            candidate_count=5,
+        )
+
+    def test_runtime_backed_window_excludes_a_virtual_baseline_sentinel(
+        self,
+    ) -> None:
+        requests: list[SearchProbeRequest] = []
+
+        class RuntimeBacked:
+            @property
+            def regions(self) -> tuple[StaticRegion, ...]:
+                return ()
+
+            def evaluate(
+                self, vector: tuple[VersionPin, ...]
+            ) -> ProbeEvidence:
+                raise AssertionError("known baseline must not be evaluated")
+
+            def evaluate_in_slice(
+                self, request: SearchProbeRequest
+            ) -> ProbeEvidence:
+                requests.append(request)
+                if int(request.candidate_version) >= 8:
+                    return probe_pass(request.vector, request.candidate_version)
+                return probe_rejection(request.vector, request.candidate_version)
+
+            promote = evaluate_in_slice
+
+        result = CoordinateSearch(small_threshold=2).minimize(
+            start=(VersionPin(name="a", version="10"),),
+            candidates=(wide_snapshot("a"),),
+            evaluator=RuntimeBacked(),
+            start_is_known_pass=True,
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector[0].version == "8"
+        assert all(request.candidate_version != "10" for request in requests)
+        assert all(request.upper_version != "10" for request in requests)
+        assert all(request.candidate_count <= 9 for request in requests)
+
     def test_static_frontier_is_promoted_and_rebounded_on_runtime_rejection(
         self,
     ) -> None:
@@ -273,23 +364,19 @@ class TestCoordinateSearch:
 
             def evaluate_in_slice(
                 self,
-                vector: tuple[VersionPin, ...],
-                *,
-                dependency: str,
+                request: SearchProbeRequest,
             ) -> ProbeEvidence | StaticOnlyEvidence:
-                assert dependency == "a"
-                version = vector[0].version
+                assert request.active_dependency == "a"
+                version = request.candidate_version
                 self.evaluated.append(version)
                 return passed_two if version == "2" else cheap_one
 
             def promote(
                 self,
-                vector: tuple[VersionPin, ...],
-                *,
-                dependency: str,
+                request: SearchProbeRequest,
             ) -> ProbeEvidence:
-                assert dependency == "a"
-                self.promoted.append(vector[0].version)
+                assert request.active_dependency == "a"
+                self.promoted.append(request.candidate_version)
                 return rejected_one
 
         evaluator = RuntimeBacked()

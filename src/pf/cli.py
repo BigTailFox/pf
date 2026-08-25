@@ -357,6 +357,7 @@ def _assemble_context(
         environments=environments,
         static=static,
         full=full,
+        events=presenter,
     )
     highest = HighestVersionVerifier(
         environments=environments,
@@ -398,6 +399,7 @@ def _assemble_context(
                 highest=highest,
                 coordinate_search=CoordinateSearch(),
                 diagnostics=presenter,
+                events=presenter,
             ),
             verification=verification,
             reports=reports,
