@@ -24,6 +24,7 @@ dev = [
     "pytest-cov>=7.1",
     "pytest-env>=1.0",
     "pytest-testmon>=2.2",
+    "pytest-xdist>=3.8",
     "ruff>=0.12",
 ]
 test = [{ include-group = "dev" }]

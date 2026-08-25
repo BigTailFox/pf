@@ -350,6 +350,7 @@ class TestEnvironmentFactory:
         policy_document = {
             "config": package.config.model_dump(mode="json", exclude={"jobs"}),
             "tool_versions": {"ty": distribution_version("ty")},
+            "test_outcome_policy": "configured-exit-code-v1",
             "ty_diagnostic_policy": {
                 "comparison": "multiset-subtraction",
                 "identity_rule": (

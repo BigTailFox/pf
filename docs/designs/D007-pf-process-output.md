@@ -170,7 +170,7 @@ D005 §6 的“结果完整”解释为：需要完整工具输出才能分类�
 
 `ProcessRunner` 仍然不知道 uv、ty 或测试退出码语义。
 
-- **只看退出码的操作**（完整 `test-command`）：分类只使用 Portable Process Facts。不得因为缓存里没有全文返回 `TOOL_FAILURE`。
+- **不解析进程输出正文的操作**（完整 `test-command`）：generic profile 只使用 Portable Process Facts；direct pytest profile 还使用 D013 的独立、bounded finalized summary，但不读取 stdout/stderr。不得因为 Output Cache 没有全文返回 `TOOL_FAILURE`。
 - **需要解析正文的操作**（`ty` GitLab JSON、`uv python list` JSON、环境图 JSON、git 清单等）：先查 Output Cache；若投影不含完整文档，必须从 Process Log 读取再解析。解析失败（JSON 非法、结构不符）才是 `TOOL_FAILURE`。`stdout_complete` 为 false 导致无法解析时，同样是不完整结果，走 D005 的 Indeterminate / `TOOL_FAILURE`，而不是假装解析了不完整日志。
 - **用输出短语辅助分类的操作**（uv 把 stderr 映射到 `RESOLUTION_CONFLICT` 等）：允许读缓存或日志。短语匹配不得在 `stderr_complete` 为 false 时给出确定性 Rejection；日志不完整的安装失败是 Indeterminate。
 

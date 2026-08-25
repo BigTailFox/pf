@@ -176,7 +176,7 @@ run static transition
         ↓
 run configured test-command
   ├── pass -> PassEvaluation
-  ├── configured failure exit -> TestFailEvaluation
+  ├── D001/D013 ordinary test failure -> TestFailEvaluation
   └── incomplete/tool result -> IndeterminateEvaluation
 ```
 

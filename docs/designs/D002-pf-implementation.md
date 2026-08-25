@@ -13,6 +13,7 @@
 - **架构加深：** [D010](D010-pf-v1-architecture.md)
 - **runtime-backed 搜索：** [D011](D011-pf-runtime-backed-static-search.md)
 - **harness resolution：** [D012](D012-pf-harness-relaxation.md)
+- **pytest failure evidence：** [D013](D013-pf-pytest-failure-evidence.md)
 
 本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有；前序契约修复由 D009 拥有；判别 resolution/event、Runner 内部调度、平台日志 seam、终端私有视图和完整 composition 由 D010 拥有。本文描述已落地接口，不复制其他契约的业务规则。
 
@@ -76,6 +77,7 @@ src/pf/
 ├── report.py            # PackageReportBuilder 与 ReportStore
 ├── editor.py            # ProjectEditor 与恢复日志
 ├── workflow.py          # 七个命令工作流；minimize 复用 search/apply
+├── _pytest_failure_witness.py # 随 wheel 发布的 standalone pytest plugin resource
 ├── schemas/
 │   ├── base.py
 │   ├── config.py
@@ -89,6 +91,7 @@ src/pf/
     ├── uv_lock.py
     ├── ty.py
     ├── runtime_witness.py
+    ├── pytest_witness.py # 私有 bounded protocol 与 qualification/outcome policy
     └── test_command.py
 ```
 
@@ -386,7 +389,7 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 - 当前 `uv-pip-compile-pylock-v1` 精确支持 `0.12.5`、`0.12.4`、`0.12.3`、`0.12.2`、`0.12.1`、`0.12.0`、`0.11.33`、`0.11.32`、`0.11.31`、`0.11.30`；其他版本在建立 resolver context 时 fail closed。每个版本有独立 qualification profile identity，当前十个 profile 共享经 130-case 矩阵认证的 diagnostic shape set。
 - `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。
 - `RuntimeWitnessAdapter` 只执行 D004 的 owned、无 shell、结构化名称可达性 harness；它不决定 disposition。
-- `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与失败退出码策略。
+- `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与 test outcome policy。唯一 selector 把默认 `[1]` 的 direct pytest command 路由到私有 failure-witness profile，其他命令路由到 generic configured-exit-code profile；同一 selector 同时提供 `evaluation_policy_identity` 的 test outcome policy identity。pytest profile 从 wheel 内 embedded standalone resource 复制 run-unique plugin，以 bounded canonical finalized summary 联合 Portable Process Facts 分类；plugin path、nonce、summary 与 pytest 细节不越过 `TestOperations.run(...) -> TestOutcome` interface。完整 outcome 契约与资格边界由 D013 定义。
 
 所有 adapter 在返回前完成脱敏。Adapter 不决定 disposition；Presenter 与 ReportStore 也不负责补救原始 secret。
 

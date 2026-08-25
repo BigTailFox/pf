@@ -216,7 +216,7 @@ COMPATIBLE
 
 INCOMPATIBLE
   runtime witness 得到 CONFIRMED_MISSING
-  或 test-command 以配置的 test-failure-exit-codes 退出
+  或 test-command 得到 D001/D013 定义的 ordinary test failure
 
 UNKNOWN
   timeout、signal、启动失败、resolver/source/harness/tool/environment error，
@@ -375,7 +375,7 @@ boundary_rule          = runtime-evidence-only
 final_verification     = direct-test-command-pass
 ```
 
-实际 `ty` distribution、有效 `ty` 配置、diagnostic identity 和 output format 继续按 D004 进入 identity。`test-command`、failure exit codes、test harness requirements 和 timeout 继续按 D001/D002 进入 full policy identity。
+实际 `ty` distribution、有效 `ty` 配置、diagnostic identity 和 output format 继续按 D004 进入 identity。`test-command`、failure exit codes、test outcome policy identity、test harness requirements 和 timeout 继续按 D001/D002/D013 进入 full policy identity。
 
 任何 strong allowlist、AST 恢复规则、dependency attribution、witness output protocol、region scope 或 final verification 规则变化都必须提升对应版本，使不兼容报告不能 merge/apply。
 

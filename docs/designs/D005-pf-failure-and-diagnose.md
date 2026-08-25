@@ -202,7 +202,7 @@ Probe Attempt 的 Indeterminate 仍立即终止当前 cell。PF 不跳过 unknow
 | final plan 安装失败或安装后 graph 漂移 | `SOURCE_FAILURE` / `BUILD_FAILURE` / `TOOL_FAILURE` / `INTERNAL_INVARIANT` | Indeterminate，终止 | Indeterminate，终止 | plan 后执行失败，不是 resolver proof |
 | D004 增量诊断非空 | 无 cause/disposition | 不适用 | 按 D003/D004 继续 witness/test | 仅 static transition |
 | witness 精确确认 runtime 名称缺失 | `RUNTIME_INTERFACE_MISSING` | 不适用 | Rejected，继续 | runtime 接口不可达 |
-| 测试以配置的失败码退出 | `TEST_FAILURE` | Rejected，终止 | Rejected，继续 | 动态兼容性失败 |
+| generic test 以配置失败码退出，或 direct pytest 产生 D013 witnessed failure | `TEST_FAILURE` | Rejected，终止 | Rejected，继续 | 动态兼容性失败 |
 | index/DNS/凭据/远端来源不可用 | `SOURCE_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 没有候选事实 |
 | 进程 timeout、signal 或启动失败 | `TIMEOUT` / `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 执行事实不完整 |
 | uv/ty/test 输出无法可靠解析 | `TOOL_FAILURE` | Indeterminate，终止 | Indeterminate，终止 | 分类不可靠 |
@@ -210,7 +210,7 @@ Probe Attempt 的 Indeterminate 仍立即终止当前 cell。PF 不跳过 unknow
 | 实际受管向量偏离 requested vector | `INTERNAL_INVARIANT` | Indeterminate，终止 | Indeterminate，终止 | PF/adapter 契约被违反 |
 | 同 context 结果冲突 | `NONDETERMINISTIC` | Indeterminate，终止 | Indeterminate，终止 | 不允许选择一个结果 |
 
-只有 `resolve-project` 的 certified `RESOLUTION_CONFLICT`、`resolve-environment` 的 certified `HARNESS_CONFLICT`、runtime witness confirmed missing 和配置内 test failure 可以成为 Rejection。普通非零退出、stderr substring、candidate unavailable、source、artifact、build、安装与未知诊断均不能从“未完成”推导逻辑无解。
+只有 `resolve-project` 的 certified `RESOLUTION_CONFLICT`、`resolve-environment` 的 certified `HARNESS_CONFLICT`、runtime witness confirmed missing，以及 generic configured failure 或 D013 pytest-profile witnessed failure 可以成为 Rejection。普通非零退出、stderr substring、candidate unavailable、source、artifact、build、安装与未知诊断均不能从“未完成”推导逻辑无解。
 
 ## 9. Resolution 与 final-plan installation
 

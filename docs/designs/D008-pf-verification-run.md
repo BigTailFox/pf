@@ -159,7 +159,7 @@ Role 写入 Journal，供 diagnose 与 impact 使用。它不进入 `attempt_id`
 - 第 1 步失败则 **不** 启动第 2 步。没有 `S_hi` 就不能对下界做 D004 增量。
 - 第 1 步的合法 `TyCheck` 诊断构成 `S_hi`，其本身不是 FailureRecord；捕获过程的工具失败才分类。
 - 第 1 步的 original final environment plan 同时捕获 direct `HarnessBaseline/U_B`；第 2 步在 request 类型层面必须携带它，并使用 relaxed direct harness。没有该 baseline 不能构造 `lowest-direct` Attempt。
-- 第 2 步的增量非空是 `STATIC_REGRESSION` transition，但它不是 FailureCause 或 Rejection；eligible witness confirmed missing 是 `RUNTIME_INTERFACE_MISSING`，测试以配置失败码退出是 `TEST_FAILURE`，二者在证据完整时是 Declaration Attempt 上的 Rejection。
+- 第 2 步的增量非空是 `STATIC_REGRESSION` transition，但它不是 FailureCause 或 Rejection；eligible witness confirmed missing 是 `RUNTIME_INTERFACE_MISSING`，generic configured failure 或 D013 pytest-profile witnessed failure 是 `TEST_FAILURE`，二者在证据完整时是 Declaration Attempt 上的 Rejection。
 - `CoordinateSearch` 不得看见这两次 Attempt。
 
 第 1 步 Rejection（例如受支持 profile 认证当前 highest project/environment request 无解）表示 **当前声明在该 cell 的最高解析上确定不满足验证契约**，命令级仍是 D001 的兼容性失败。build、source、artifact、安装或未知诊断是 Indeterminate。它还不是“下界不兼容”——下界尚未被问到。diagnose 必须用 `declaration-capture` 的 impact，不得写成 Baseline“因此未开始 floor 搜索”，也不得写成 Declaration“下界未通过”。

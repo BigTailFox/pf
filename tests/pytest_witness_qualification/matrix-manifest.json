@@ -1,0 +1,393 @@
+{
+  "all_profiles_qualified": true,
+  "as_of": "2026-08-25",
+  "case_contracts": [
+    {
+      "expected_exit": 0,
+      "expected_facts": [],
+      "name": "pass",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 1,
+      "expected_facts": [
+        [
+          "TEST_FAILED",
+          "call"
+        ]
+      ],
+      "name": "assertion-failure",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 1,
+      "expected_facts": [
+        [
+          "TEST_FAILED",
+          "setup"
+        ]
+      ],
+      "name": "fixture-setup-failure",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 1,
+      "expected_facts": [
+        [
+          "TEST_FAILED",
+          "teardown"
+        ]
+      ],
+      "name": "fixture-teardown-failure",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 2,
+      "expected_facts": [
+        [
+          "COLLECTION_FAILED",
+          "collect"
+        ]
+      ],
+      "name": "module-collection-failure",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 2,
+      "expected_facts": [
+        [
+          "COLLECTION_FAILED",
+          "collect"
+        ]
+      ],
+      "name": "nested-conftest-failure",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 4,
+      "expected_facts": [],
+      "name": "initial-conftest-failure",
+      "summary": "absent"
+    },
+    {
+      "expected_exit": 3,
+      "expected_facts": [
+        [
+          "INTERNAL_ERROR",
+          "pytest"
+        ]
+      ],
+      "name": "internal-error",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 2,
+      "expected_facts": [],
+      "name": "keyboard-interrupt",
+      "summary": "either"
+    },
+    {
+      "expected_exit": 1,
+      "expected_facts": [],
+      "name": "early-plugin-import-failure",
+      "summary": "absent"
+    },
+    {
+      "expected_exit": 5,
+      "expected_facts": [],
+      "name": "no-tests-collected",
+      "summary": "present"
+    },
+    {
+      "expected_exit": 4,
+      "expected_facts": [],
+      "name": "invalid-option",
+      "summary": "absent"
+    }
+  ],
+  "execution_count": 288,
+  "host_scope": "linux-x86_64",
+  "profiles": [
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "6.2.5",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==6.2.5"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "7.0.1",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==7.0.1"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "7.4.4",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==7.4.4"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "8.0.2",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==8.0.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "8.4.2",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==8.4.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "9.0.2",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.0.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "9.1.1",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.1.1"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "6.2.5",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==6.2.5"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "7.0.1",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==7.0.1"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "7.4.4",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==7.4.4"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "8.0.2",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==8.0.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "8.4.2",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==8.4.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "9.0.2",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.0.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "9.1.1",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.1.1"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "6.2.5",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==6.2.5"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "7.0.1",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==7.0.1"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "7.4.4",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==7.4.4"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "8.0.2",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==8.0.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "8.4.2",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==8.4.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "9.0.2",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.0.2"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": false,
+      "pytest_version": "9.1.1",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.1.1"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": true,
+      "pytest_version": "9.1.1",
+      "python_minor": "3.10",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.1.1",
+        "pytest-cov==7.1.0",
+        "pytest-env==1.7.0",
+        "pytest-testmon==2.2.0",
+        "pytest-benchmark==5.2.3",
+        "pytest-xdist==3.8.0"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": true,
+      "pytest_version": "9.1.1",
+      "python_minor": "3.11",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.1.1",
+        "pytest-cov==7.1.0",
+        "pytest-env==1.7.0",
+        "pytest-testmon==2.2.0",
+        "pytest-benchmark==5.2.3",
+        "pytest-xdist==3.8.0"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    },
+    {
+      "case_count": 12,
+      "current_plugins": true,
+      "pytest_version": "9.1.1",
+      "python_minor": "3.12",
+      "qualified": true,
+      "requirements": [
+        "pytest==9.1.1",
+        "pytest-cov==7.1.0",
+        "pytest-env==1.7.0",
+        "pytest-testmon==2.2.0",
+        "pytest-benchmark==5.2.3",
+        "pytest-xdist==3.8.0"
+      ],
+      "results_sha256": "afc610b29c7d67e0aa3338205c360a98f3adc5b8a6bd5e89214f358f6844b22a"
+    }
+  ],
+  "protocol": "pf-pytest-failure-witness-v1",
+  "schema": "pf-pytest-witness-qualification-v1"
+}

@@ -4,6 +4,7 @@ import hashlib
 from importlib.metadata import version as distribution_version
 import json
 
+from pf.adapters.test_command import selected_test_outcome_policy_identity
 from pf.failure import FailurePolicy
 from pf.schemas.config import EffectiveConfig
 from pf.static_transition import STATIC_POLICY_VERSION
@@ -29,6 +30,10 @@ def evaluation_policy_identity(config: EffectiveConfig) -> str:
     document = {
         "config": config.model_dump(mode="json", exclude={"jobs"}),
         "tool_versions": {"ty": distribution_version("ty")},
+        "test_outcome_policy": selected_test_outcome_policy_identity(
+            config.test_command,
+            config.test_failure_exit_codes,
+        ),
         "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,
         "failure_policy": FailurePolicy.identity,
     }
