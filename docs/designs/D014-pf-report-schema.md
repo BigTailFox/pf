@@ -309,7 +309,7 @@ cell_id = "cell-" + sha256(
 }
 ```
 
-`resolution_graph_id` 是规范排序 `ResolvedNode` 列表的内容 digest。Node 按 canonical package name 排序且唯一，每个 `dependencies` 按 canonical name 排序且唯一；payload 是这些 node object 的 JSON array：
+`resolution_graph_id` 是规范排序 `ResolvedNode` 列表的内容 digest。Package name 必须等于现行 PEP 503 canonicalization 的结果；Node 按 canonical package name 排序且唯一，每个 `dependencies` 按 canonical name 排序且唯一；payload 是这些 node object 的 JSON array：
 
 ```text
 resolution_graph_id = "resolution-" + sha256(
@@ -772,13 +772,15 @@ Schema 2 的可空事实使用判别变体表达。不存在的 optional 字段�
 | cell results | `(package, target, python_minor, extra_surface)` |
 | projections | `declaration_ref` |
 
-嵌套集合也必须有唯一顺序：`active_declaration_refs`、`harness_declaration_ids`、`failure_refs` 按 ID 排序且唯一；`candidate_snapshot_refs` 按 dependency 排序且唯一；Region runtime refs 按 `proposal_ref` 排序且唯一；Projection floors 按上述 cell-result order key 排序且唯一。Candidate order、observed versions、witness 顺序和其他由 D003/D011 拥有的领域序列保留其领域顺序，不能按 ID 任意重排。
+嵌套集合也必须有唯一顺序：`active_declaration_refs`、`harness_declaration_ids` 按 ID 排序且唯一；`candidate_snapshot_refs` 按 dependency 排序且唯一；Region runtime refs 按 `proposal_ref` 排序且唯一；Projection floors 按上述 cell-result order key 排序且唯一。`failure_refs` 必须唯一，但保留 D003/D005 产生的 CellResult evidence 顺序，不按 ID 重排。Candidate order、observed versions、witness 顺序和其他由 D003/D005/D011 拥有的领域序列同样保留其领域顺序。
 
 Pretty JSON 不是规范写入格式。人类展示继续由 `pf explain` / `pf diagnose` 拥有；文档示例可以 pretty-print，但不能作为 golden byte fixture。
 
 ## 13. Report module interface 与所有权
 
 Schema 2 应加深 report module，而不是让调用方学习多个表的 join 规则。
+
+本节是 D014 草案为了消除 hydrate-vs-query 分叉而固定的落地验收 interface，不声明现行实现已经改变，也不成为第二个长期所有者。D014 处于草案期间，现行 module interface 仍只由 D002 定义；批准落地时，D002 必须在同一变更中采纳这里的 resolved facade 与 persistence seam，D005 必须采纳 diagnosis association delta，此后具体 Python 名称与签名仍分别只由 D002/D005 拥有。D014 继续拥有的后置条件只有：wire refs 不泄漏、Schema 1/2 返回同一 resolved view、持久化更新后实体图满足本文的 identity/冲突/可达性规则。
 
 外部 interface 保持以工作流为单位：
 
@@ -809,6 +811,8 @@ cell_result(cell_id) -> ResolvedCellResult | None
 failure(failure_id) -> FailureRecord | None
 failure_context(failure_id) -> FailureContext | None
 ```
+
+`FailureContext` 精确包含所属 resolved Cell、可选 Proposal identity，以及 `predecessor | None` boundary role；它不包含本地日志 locator。日志 lookup 继续由 D005 的 `(report_generation_id, failure_id)` association 拥有。
 
 Resolved CellResult/Observation/Region views 暴露现行命令所需的完整 typed 机械事实，包括 static baseline、incremental diagnostics、boundary role 和 Proposal identity；所有 `*_ref` 已由 report module 解析。它们共享 immutable interned 实体，不为每次查询深复制完整树。内部选择 eager hydration、lazy table lookup 或两者组合属于 implementation，只要不重新制造可独立修改的权威副本，也不让调用方学习 join 规则。
 
@@ -880,7 +884,7 @@ Legacy adapter 按以下规则收敛重复实体：
 4. 同一 Attempt ID 的展开 identity 必须完全一致，且同一 Attempt 最多映射一个 Proposal；
 5. 同一 Proposal ID 的公开 payload 必须完全一致；legacy adapter 不声称重算缺失 preimage 的 environment identity；
 6. 同一 Proposal 的 StaticEvaluation、terminal Evaluation、TyCheck、witness 序列和 FailureRecord 关系必须完全一致；static-stage Indeterminate 只进入 terminal Evaluation table；
-7. 相同 resolved graph 以内容 digest 合并；相同 region preimage 得到相同 local ID，不同 payload 的 ID 碰撞失败；
+7. legacy resolved graph 只允许规范化数组顺序：Node name 与 dependency name 必须已经是现行 PEP 503 canonical form；Node 或单个 Node 内 dependency 即使 payload 相同也不得重复；非规范名称、重复名称或同名冲突 payload 全部拒绝。通过后以 §7.1 内容 digest 合并；相同 region preimage 得到相同 local ID，不同 payload 的 ID 碰撞失败；
 8. Probe 与 FailureRecord 的 scope/cause/disposition/process 必须通过现行交叉校验后改为 refs；
 9. final vector、search vector 和 final Proposal vector 必须相等后只保留 final Proposal ref；
 10. Projection Cell 必须解析到 target Cell；
@@ -896,6 +900,8 @@ Legacy normalization 有意比现行 `PackageFloorReportV1` reader 更严格：
 | 顶层/CellResult CandidateSnapshot 副本漂移 | 拒绝 |
 | 同一 opaque Proposal ID 对应不同公开 payload | 拒绝 |
 | 同一 Proposal 的 static/terminal Evaluation 或 witness 出现冲突副本 | 拒绝 |
+| resolution graph 仅顺序非规范 | 排序后规范化 |
+| resolution graph name 非 canonical、Node/dependency 重复或同名冲突 | 拒绝 |
 
 这些输入不具备无歧义迁移条件，应要求重新 search。拒绝条件必须在错误中指出实体类型与稳定 ID，不转储完整证据或 process output。
 
@@ -976,7 +982,9 @@ Normalized tables 不能成为 reference amplification。validator 只能按固�
 - Schema 1 重复实体在一致时只产生一个 Schema 2 定义；
 - 顶层/嵌套 CandidateSnapshot 冲突保守失败；
 - source digest、nested Cell declarations、Proposal payload、static/terminal Evaluation 或 witness 冲突保守失败；
+- legacy resolution graph 的 Node/dependency 数组只重排顺序，非 canonical name、重复项与同名冲突失败；
 - v1→v2 后 `explain` 可见结果、`diagnose` Failure 顺序和 apply patch 完全等价；
+- v1→v2 与 Schema 2 round trip 都保留每个 CellResult 的 `failure_refs` evidence 顺序；
 - v1/v2 merge 对相同 generation 得到同一规范结果；
 - search update 原子地把旧报告升级为 Schema 2；
 - update 替换 Cell 后删除仅由旧 Cell 可达的实体，并保留仍被其他 Cell 引用的 ResolutionGraph；
@@ -1009,14 +1017,14 @@ fixture 相邻 README 必须记录生成命令、PF/uv/ty/Python 版本、source
 4. 每个 Attempt、Proposal 和 resolution graph 只能定义一次；
 5. 体积改善不得依赖删除证据、gzip 或降低 validator 强度。
 
-设计目标为该 fixture 不超过约 2.0 MiB，即相对 4,084,111-byte Schema 1 减少至少 50%。若原型无法达到目标，不能仅以“仍比 Schema 1 小”宣布 D014 已实施；必须给出按实体分类的剩余体积与原因，并以 D014 修订显式批准例外。不能通过放宽证据契约达标。峰值内存和耗时首版只作为记录项，不构成新的产品 SLA。
+设计目标的精确门槛为 Schema 2 紧凑编码不超过 **2,042,055 bytes**，即相对 4,084,111-byte Schema 1 至少减少 50%；口语中的“约 2.0 MiB”只描述量级，不是另一个 2,097,152-byte 门槛。若原型超过 2,042,055 bytes，不能仅以“仍比 Schema 1 小”宣布 D014 已实施；必须给出按实体分类的剩余体积与原因，并以 D014 修订显式批准例外。不能通过放宽证据契约达标。峰值内存和耗时首版只作为记录项，不构成新的产品 SLA。
 
 ## 18. 对现行契约的取代
 
 本文处于草案状态，不取代任何现行条款。批准并落地后：
 
 - D001 §7 保留报告的产品作用、命令消费者、完整/不完整含义和保守失败，只把 wire layout、版本与规范编码指向 D014；
-- D002 的 Schema / ReportStore 章节改为 ValidatedReport、Schema 1 legacy adapter 与 Schema 2 codec，不复制引用规则；
+- D002 的 Schema / ReportStore 章节采纳 §13 的 ValidatedReport 与 persistence interface、Schema 1 legacy adapter 和 Schema 2 codec，不复制引用规则；D005 同步采纳 `ReportUpdate` 的 diagnosis association delta；
 - D003–D005、D008、D011–D013 继续定义各自证据语义，只把持久化字段改为 D014 refs；D012 同步澄清结构化 HarnessRequirement 属于 planning/runtime，而报告持久化其 opaque declaration IDs；
 - `docs/README.md` 把 D014 状态更新为“现行”，并记录相应实施计划；
 - Schema 1 从“现行 writer”变为“legacy read format”。
