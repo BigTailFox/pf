@@ -387,7 +387,7 @@ source identity
 original text
 ```
 
-Relaxation、baseline ceiling、resolution request 和报告都消费该记录；其他 module 不得重新解析 dependency group 字符串或重新解释 harness source。
+Relaxation、baseline ceiling、resolution request 和运行期 report builder 消费该结构化记录；其他 module 不得重新解析 dependency group 字符串或重新解释 harness source。现行公共报告的 Attempt identity 只持久化排序唯一的 harness declaration IDs、policy 与 baseline/selection digests，不内联完整 `HarnessRequirement`。Schema 2 legacy normalization 同样把这些 declaration IDs 作为 opaque identity facts，而不是没有目标表的 refs；wire 规则由 D014 拥有。
 
 ### 9.3 Request、plan 与 environment identity
 
