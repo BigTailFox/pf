@@ -25,20 +25,32 @@ _Avoid_: Version check
 _Avoid_: Attempt, candidate version
 
 **Rejection**:
-完整且确定的事实证明一个 Attempt 不满足 PF 验证契约；它只否定该完整 Attempt，不全局归因到单个 dependency version。
+一个权威验证步骤为 Attempt 产生了可信、明确的负向终态；它只否定该完整 Attempt，不全局归因到单个 dependency version。
 _Avoid_: Error, tool failure, version failure
 
 **Indeterminate**:
-PF 无法为一个 Attempt 获得完整、可靠兼容性结果的状态。
+PF 无法为一个 Attempt 获得可信终态的状态；它描述 observation validity，不表达对失败根因的置信度。
 _Avoid_: Rejection, incompatible
 
+**Configured Verifier**:
+在成功 prepare 的 Proposal 环境中执行的用户 `test-command`；其零退出表示成功，正常非零退出表示负向终态。
+_Avoid_: pytest classifier, smoke command
+
+**Authoritative Result**:
+足以决定 Attempt disposition 的结构化终态；配置 verifier 的权威结果是进程终态，不是 pytest phase、witness 或输出文本。
+_Avoid_: Diagnostic metadata, root-cause evidence
+
+**Diagnostic Metadata**:
+帮助解释权威结果但不能改变 disposition 的非权威事实，例如 pytest phase、progress、摘要和本地日志。
+_Avoid_: Evidence authority, classifier input
+
 **Cause**:
-Adapter 根据脱敏机械事实给出的稳定操作原因；它回答发生了什么，但不决定搜索是否继续。
-_Avoid_: Disposition, exit code, stderr text
+Adapter 根据脱敏机械事实给出的稳定诊断原因；它回答观察到了什么，但不决定搜索是否继续，也不声称根因。
+_Avoid_: Disposition, root cause, stderr text
 
 **Disposition**:
-Failure policy 根据 failure scope、stage、cause 和证据完整性作出的 `PASS`、`REJECTED` 或 `INDETERMINATE` 处置。
-_Avoid_: Cause, status
+PF 根据 Authoritative Result 为 Attempt 得出的 `PASS`、`REJECTED` 或 `INDETERMINATE` 处置。
+_Avoid_: Cause, diagnostic status
 
 **Baseline Rejection**:
 Baseline Attempt 被确定证明不满足 PF 验证契约的终态；它没有可供搜索使用的通过锚点。
