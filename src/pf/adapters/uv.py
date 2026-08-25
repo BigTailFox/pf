@@ -25,6 +25,7 @@ from packaging.utils import (
 )
 from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
+from uv import find_uv_bin
 
 from pf.adapters.process import ProcessRunner, SecretRedactor, read_process_output
 from pf.adapters.uv_diagnostics import (
@@ -179,8 +180,14 @@ class UvAdapter:
         self._redactor = redactor or SecretRedactor(
             self._registry_access.secret_literals
         )
-        requested_executable = str(uv_executable or "uv")
-        discovered = shutil.which(requested_executable)
+        requested_executable = (
+            find_uv_bin() if uv_executable is None else str(uv_executable)
+        )
+        discovered = (
+            requested_executable
+            if uv_executable is None
+            else shutil.which(requested_executable)
+        )
         self._uv_executable = (
             Path(discovered).resolve().as_posix()
             if discovered is not None

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from packaging.requirements import Requirement
+from packaging.version import Version
 import pytest
+import tomli
 
 from pf.resolution import (
     InstalledResolution,
@@ -45,6 +50,21 @@ def _context() -> ResolutionContext:
 
 
 class TestResolutionIdentity:
+    def test_distribution_installs_a_qualified_uv_runtime(self) -> None:
+        with (Path(__file__).parents[1] / "pyproject.toml").open("rb") as stream:
+            dependencies = tomli.load(stream)["project"]["dependencies"]
+        uv_requirement = next(
+            requirement
+            for raw_requirement in dependencies
+            if (requirement := Requirement(raw_requirement)).name == "uv"
+        )
+
+        assert str(uv_requirement.specifier) == "<0.12.6,>=0.11.30"
+        assert all(
+            Version(version) in uv_requirement.specifier
+            for version in UV_DIAGNOSTIC_PROFILES
+        )
+
     def test_install_outcomes_are_bound_to_the_validated_plan(self) -> None:
         installed = InstalledResolution(
             plan_digest="plan",

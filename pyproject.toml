@@ -15,6 +15,7 @@ dependencies = [
     "tomli>=1.7",
     "tomlkit>=0.15",
     "ty>=0.0.56",
+    "uv>=0.11.30,<0.12.6",
 ]
 
 [dependency-groups]

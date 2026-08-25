@@ -71,6 +71,27 @@ def process_result(
 
 
 class TestUvAdapter:
+    def test_default_executable_comes_from_the_uv_runtime_dependency(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(
+            "pf.adapters.uv.find_uv_bin",
+            lambda: "/runtime-dependency/bin/uv",
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "pf.adapters.uv.shutil.which",
+            lambda _executable: "/global/bin/uv",
+        )
+
+        runner = RecordingRunner()
+        UvAdapter(runner).resolution_run_context(root=tmp_path, timeout_seconds=30)
+
+        assert runner.specs[0].argv == (
+            "/runtime-dependency/bin/uv",
+            "--version",
+        )
+
     def test_uv_adapter_resolves_two_pylocks_and_syncs_only_the_final_plan(
         self, tmp_path: Path
     ) -> None:

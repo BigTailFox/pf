@@ -49,8 +49,18 @@ class TestUvQualificationRunner:
         }
 
     def test_runner_qualifies_certified_and_ambiguous_local_cases(self) -> None:
+        from pf.resolution import UV_SUPPORTED_VERSIONS
+
         uv_binary = shutil.which("uv")
         assert uv_binary is not None
+        version_output = subprocess.run(
+            (uv_binary, "--version"),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        uv_version = version_output.split()[1]
+        assert uv_version in UV_SUPPORTED_VERSIONS
         process = subprocess.run(
             (
                 sys.executable,
@@ -62,7 +72,7 @@ class TestUvQualificationRunner:
                 "--uv-bin",
                 uv_binary,
                 "--expected-version",
-                "0.12.5",
+                uv_version,
             ),
             cwd=Path.cwd(),
             capture_output=True,
@@ -71,7 +81,7 @@ class TestUvQualificationRunner:
         )
         result = json.loads(process.stdout)
 
-        assert result["uv_version"] == "0.12.5"
+        assert result["uv_version"] == uv_version
         assert all(
             Path(item["command"][0]).is_absolute() for item in result["matrix"]
         )
