@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import sys
 
@@ -236,7 +235,7 @@ class TestSearchWorkflow:
             replacement_failure.failure_id
         }
 
-    def test_search_replaces_a_report_from_an_incompatible_policy_generation(
+    def test_search_replaces_a_report_from_an_incompatible_source_generation(
         self,
         tmp_path: Path,
     ) -> None:
@@ -273,48 +272,15 @@ class TestSearchWorkflow:
         request = SearchRequest(root=tmp_path.as_posix())
         current = workflow.run(request)[0]
         report_path = tmp_path / "package-floor.json"
-        document = json.loads(report_path.read_text(encoding="utf-8"))
-        legacy_policy = "pre-diagnostic-baseline-policy"
-        cell_result = document["cell_results"][0]
-        cell_result.update(
-            {
-                "status": "BASELINE_FAILED",
-                "phase": "baseline-evaluation",
-                "baseline": {
-                    "status": "STATIC_REGRESSION",
-                    "proposal": {
-                        "proposal_id": "legacy-baseline",
-                        "snapshot_digest": document["source_snapshot"]["digest"],
-                        "cell": cell_result["cell"],
-                        "managed_vector": [],
-                        "fixed_declaration_ids": [],
-                        "resolved_graph": [],
-                        "policy_identity": legacy_policy,
-                        "interpreter": None,
-                    },
-                    "ty": {
-                        "status": "STATIC_REGRESSION",
-                        "process": {
-                            "exit_code": 1,
-                            "signal": None,
-                            "duration_seconds": 0.1,
-                            "stdout": "",
-                            "stderr": "",
-                            "stdout_complete": True,
-                            "stderr_complete": True,
-                            "timed_out": False,
-                            "start_error": None,
-                        },
-                    },
-                },
-            }
+        (tmp_path / "README.md").write_text(
+            "new source generation\n",
+            encoding="utf-8",
         )
-        document["policy_identity"] = legacy_policy
-        report_path.write_text(json.dumps(document), encoding="utf-8")
 
         refreshed = workflow.run(request)[0]
 
         assert refreshed.policy_identity == current.policy_identity
+        assert refreshed.report_generation_id != current.report_generation_id
         assert store.read(report_path) == refreshed
 
     def test_search_workflow_never_executes_a_non_host_target(

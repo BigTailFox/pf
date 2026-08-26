@@ -23,17 +23,20 @@ from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
     CellStageEvent,
+    CellFailed,
     DiagnosticClassification,
     GraphSuccess,
     IndeterminateEvaluation,
     InterpreterSuccess,
     ProcessResult,
     RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessAttempt,
     RuntimeWitnessPlan,
     RuntimeWitnessResult,
     StaticBaseline,
     StaticBaselineCapture,
     StaticRegressionEvaluation,
+    StaticIssueDetail,
     StageProgress,
     TestOutcome,
     TestFail,
@@ -47,6 +50,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import Cell, InterpreterIdentity, Proposal, ResolvedNode
 from pf.snapshot import SnapshotBuilder
 from pf.static_transition import static_fingerprint
+from pf.verification import completion_outcome
 
 
 def process_result(*, exit_code: int = 0) -> ProcessResult:
@@ -440,6 +444,12 @@ class TestEvaluators:
         assert tests.calls == test_calls
         if expected == "RUNTIME_INTERFACE_MISSING":
             assert isinstance(result, RuntimeInterfaceMissingEvaluation)
+            completion = completion_outcome(result)
+            assert isinstance(completion, CellFailed)
+            assert completion.detail == StaticIssueDetail(
+                first=increment,
+                total=1,
+            )
 
     def test_runtime_evaluator_deduplicates_an_identical_multiset_witness_plan(
         self,
@@ -501,6 +511,74 @@ class TestEvaluators:
         assert result.status == "PASS"
         assert witnesses.calls == 1
         assert len(result.witnesses) == 1
+
+    def test_completion_detail_only_reports_the_confirmed_witness_issues(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        prepared = prepared_for_static(tmp_path, "candidate")
+        related_one = diagnostic("snapshot|demo.py|1|2|missing-one")
+        related_two = diagnostic("snapshot|demo.py|2|2|missing-two")
+        unrelated = diagnostic("snapshot|demo.py|3|2|general")
+        plan = RuntimeWitnessPlan(
+            diagnostic_identities=(related_one.identity, related_two.identity),
+            managed_dependency="demo",
+            operation="import-module",
+            module="demo",
+        )
+        static = StaticRegressionEvaluation(
+            proposal=prepared.proposal,
+            ty=TyCheck(
+                process=process_result(exit_code=1),
+                diagnostics=(related_one, related_two, unrelated),
+            ),
+            baseline_digest=ty_diagnostic_digest(()),
+            incremental=(related_one, related_two, unrelated),
+            static_fingerprint=static_fingerprint(
+                (related_one.identity, related_two.identity, unrelated.identity)
+            ),
+            classifications=(
+                DiagnosticClassification(
+                    diagnostic_identity=related_one.identity,
+                    classification="strong",
+                    reason_code="witness-planned",
+                    witness_plan=plan,
+                ),
+                DiagnosticClassification(
+                    diagnostic_identity=related_two.identity,
+                    classification="strong",
+                    reason_code="witness-planned",
+                    witness_plan=plan,
+                ),
+                DiagnosticClassification(
+                    diagnostic_identity=unrelated.identity,
+                    classification="general",
+                    reason_code="not-runtime-checkable",
+                ),
+            ),
+        )
+        evaluation = RuntimeInterfaceMissingEvaluation(
+            proposal=prepared.proposal,
+            static=static,
+            witnesses=(
+                RuntimeWitnessAttempt(
+                    plan=plan,
+                    outcome=RuntimeWitnessResult(
+                        status="CONFIRMED_MISSING",
+                        plan=plan,
+                        process=process_result(),
+                    ),
+                ),
+            ),
+        )
+
+        completion = completion_outcome(evaluation)
+
+        assert isinstance(completion, CellFailed)
+        assert completion.detail == StaticIssueDetail(
+            first=related_one,
+            total=2,
+        )
 
     @pytest.mark.parametrize(
         ("outcome", "expected"),

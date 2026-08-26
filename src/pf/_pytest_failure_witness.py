@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import secrets
 import sys
-import time
 from typing import Any, cast
 
 import pytest
@@ -17,10 +16,15 @@ _NONCE_VARIABLE = "PF_PYTEST_WITNESS_NONCE"
 _PROTOCOL = "pf-pytest-failure-witness-v1"
 _PROGRESS_DIRECTORY_VARIABLE = "PF_PYTEST_PROGRESS_DIR"
 _PROGRESS_PROTOCOL = "pf-pytest-progress-v1"
+_FAILURE_DETAILS_DIRECTORY_VARIABLE = "PF_PYTEST_FAILURE_DETAILS_DIR"
+_FAILURE_DETAILS_PROTOCOL = "pf-pytest-failure-details-v1"
+_MAX_FAILURE_DETAILS = 10_000
+_MAX_NODEID_LENGTH = 4_096
 _facts: set[tuple[str, str]] = set()
 _execution_mode = "unknown"
+_failure_details: dict[str, str] = {}
+_failure_details_valid = True
 _progress_completed = 0
-_progress_last_commit = 0.0
 _progress_remaining: set[str] | None = None
 _progress_total = 0
 
@@ -29,6 +33,7 @@ _progress_total = 0
 def pytest_collectreport(report: object) -> None:
     if getattr(report, "failed", False):
         _facts.add(("COLLECTION_FAILED", "collect"))
+        _record_failure_detail(report, "collect")
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -36,6 +41,7 @@ def pytest_runtest_logreport(report: object) -> None:
     phase = getattr(report, "when", None)
     if getattr(report, "failed", False) and phase in {"setup", "call", "teardown"}:
         _facts.add(("TEST_FAILED", phase))
+        _record_failure_detail(report, phase)
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -105,7 +111,7 @@ def _initialize_progress(session: object) -> None:
     _progress_completed = 0
     _progress_remaining = remaining
     _progress_total = len(remaining)
-    _commit_progress(force=True)
+    _commit_progress()
 
 
 @pytest.hookimpl(trylast=True)
@@ -122,7 +128,7 @@ def _advance_progress(nodeid: str) -> None:
     if _progress_remaining is not None and nodeid in _progress_remaining:
         _progress_remaining.remove(nodeid)
         _progress_completed += 1
-        _commit_progress(force=not _progress_remaining)
+        _commit_progress()
 
 
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)
@@ -130,8 +136,40 @@ def pytest_cmdline_main(config: object):
     outcome = yield
     if getattr(outcome, "excinfo", None) is not None:
         _facts.add(("INTERNAL_ERROR", "pytest"))
-    _commit_progress(force=True)
+    _commit_progress()
+    _commit_failure_details()
     _commit_summary()
+
+
+def _record_failure_detail(report: object, phase: str) -> None:
+    global _failure_details_valid
+    try:
+        if not _failure_details_valid:
+            return
+        nodeid = getattr(report, "nodeid", None)
+        if (
+            type(nodeid) is not str
+            or not nodeid
+            or len(nodeid) > _MAX_NODEID_LENGTH
+            or any(
+                ord(character) < 32
+                or 127 <= ord(character) <= 159
+                or 0xD800 <= ord(character) <= 0xDFFF
+                for character in nodeid
+            )
+        ):
+            _failure_details_valid = False
+            _failure_details.clear()
+            return
+        if nodeid not in _failure_details:
+            if len(_failure_details) >= _MAX_FAILURE_DETAILS:
+                _failure_details_valid = False
+                _failure_details.clear()
+                return
+            _failure_details[nodeid] = phase
+    except Exception:
+        _failure_details_valid = False
+        _failure_details.clear()
 
 
 def _commit_summary() -> None:
@@ -169,14 +207,48 @@ def _commit_summary() -> None:
         return
 
 
-def _commit_progress(*, force: bool) -> None:
-    global _progress_last_commit
+def _commit_failure_details() -> None:
+    try:
+        directory_value = os.environ.get(_FAILURE_DETAILS_DIRECTORY_VARIABLE)
+        if (
+            directory_value is None
+            or not _failure_details_valid
+            or not _failure_details
+        ):
+            return
+        first_nodeid = next(iter(_failure_details))
+        document = {
+            "first": {
+                "nodeid": first_nodeid,
+                "phase": _failure_details[first_nodeid],
+            },
+            "protocol": _FAILURE_DETAILS_PROTOCOL,
+            "run_nonce": os.environ[_NONCE_VARIABLE],
+            "total": len(_failure_details),
+        }
+        payload = (
+            json.dumps(
+                document,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        directory = Path(directory_value)
+        token = secrets.token_hex(16)
+        temporary = directory / f".{token}.tmp"
+        final = directory / f"details-{token}.json"
+        temporary.write_bytes(payload)
+        os.replace(temporary, final)
+    except Exception:
+        return
+
+
+def _commit_progress() -> None:
     try:
         directory_value = os.environ.get(_PROGRESS_DIRECTORY_VARIABLE)
         if directory_value is None or _progress_remaining is None:
-            return
-        now = time.monotonic()
-        if not force and now - _progress_last_commit < 0.1:
             return
         document = {
             "completed": _progress_completed,
@@ -199,6 +271,5 @@ def _commit_progress(*, force: bool) -> None:
         final = directory / "progress.json"
         temporary.write_bytes(payload)
         os.replace(temporary, final)
-        _progress_last_commit = now
     except Exception:
         return

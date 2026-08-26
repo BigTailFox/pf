@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import fnmatch
-import json
 import os
 from pathlib import Path
 import shutil
@@ -13,7 +12,11 @@ from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import ProcessSpec
-from pf.schemas.project import SnapshotEntry, SourceSnapshotIdentity
+from pf.schemas.project import (
+    SnapshotEntry,
+    SourceSnapshotIdentity,
+    source_snapshot_digest,
+)
 
 
 _EXCLUDED_NAMES = frozenset(
@@ -90,15 +93,9 @@ class SnapshotBuilder:
                 manifest=manifest,
             )
             canonical_entries = tuple(sorted(entries, key=lambda entry: entry.path))
-            payload = json.dumps(
-                [entry.model_dump(mode="json") for entry in canonical_entries],
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-            digest = hashlib.sha256(b"pf:snapshot:v1\0" + payload).hexdigest()
             return SourceSnapshot(
                 identity=SourceSnapshotIdentity(
-                    digest=digest,
+                    digest=source_snapshot_digest(canonical_entries),
                     entries=canonical_entries,
                 ),
                 temporary_directory=temporary_directory,

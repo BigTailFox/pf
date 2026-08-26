@@ -398,7 +398,7 @@ Identity 分成两个时点，不能把 post-resolution evidence 反向塞入 At
 1. `AttemptIdentity` 在任何外部操作前建立，覆盖 package source snapshot、cell、`ResolutionRequest`、selected project candidates、`C_run`、relaxation policy、原始 `D_H` 和可用时的 `U_B`；
 2. `EnvironmentIdentity` 在 prepare 成功后建立，另行覆盖两个 normalized plan identity、最终 graph、可靠可得的 selected artifact evidence 和 `E(P)` digest。
 
-`PreparedEnvironment` 必须持有两个 resolution plan 和 `EnvironmentIdentity`。raw plan digest 与 artifact alternatives 可以保留在 provenance/diagnostics 中，但不定义 coordinate，也不进入 normalized semantic identity。static、witness 和 full Evaluation cache key 使用 `EnvironmentIdentity`，不能只按 `proposal_id` 或 request-level Attempt identity 在不同 harness environment 之间复用。
+`PreparedEnvironment` 必须持有两个 resolution plan 和 `EnvironmentIdentity`。成功建立的领域 Proposal 必须保存 `project_plan_digest` 与 `environment_plan_digest`，供 Schema 2 reader 连同规范 graph 复算同一个 Environment identity；report builder 不得从当前项目、缓存或 graph 猜测它们。raw plan digest 与 artifact alternatives 可以保留在 provenance/diagnostics 中，但不定义 coordinate，也不进入 normalized semantic identity。static、witness 和 full Evaluation cache key 使用 `EnvironmentIdentity`，不能只按 `proposal_id` 或 request-level Attempt identity 在不同 harness environment 之间复用。
 
 FailureRecord 保存失败发生前已经取得的 identity 和 plan evidence；resolution 尚未成功时不得虚构 plan 或 artifact identity。
 

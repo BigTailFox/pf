@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `failure-runtime-v1`
-- **最后核对：** 2026-08-23
+- **最后核对：** 2026-08-25
 - **产品与命令：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -10,7 +10,7 @@
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **进程输出与日志：** [D007](D007-pf-process-output.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
-- **报告 Schema 2：** [D014](D014-pf-report-schema.md)（已批准，待实现）
+- **报告 Schema 2：** [D014](D014-pf-report-schema.md)（现行）
 
 本文是 PF 中失败分类、搜索处置、失败证据保真、failure 用户文案和 `diagnose` 行为的唯一契约。D001 只定义产品结果与命令，D002 只定义模块位置，D003 只消费本文定义的 disposition，D004 只定义静态诊断事实，D006 只组织本文文案在普通命令和 `explain` 中的信息层级。完整性信号是磁盘日志 `stdout_complete` / `stderr_complete`（D007）。Declaration Attempt、Verification Journal 和 Role→impact 由 D008 拥有。
 
@@ -50,7 +50,7 @@ D001/D003 又把这些状态全部定义为非证据，因此 candidate probe �
 - `CoordinateSearch` 只消费搜索处置，不解释 uv 文本、stage 或退出码；
 - `pf diagnose` 能在不重新执行项目代码的情况下解释报告中的失败；
 - CLI 先说明用户能理解的现象、影响和下一步，再把 cause Enum 作为次级技术信息；
-- 直接把首发 Schema 1 塑造成最终失败模型，不为开发期报告保留兼容层。
+- 保持首发失败领域模型，不为开发期 Schema 1 报告保留兼容层；现行 wire 由 D014 拥有。
 
 ## 3. 术语
 
@@ -478,7 +478,7 @@ Technical details:
     -> <run-id>/process-<id>.log
 ```
 
-`report_generation_id` 由 generator/algorithm、package、source snapshot、policy、声明和 target cells 的规范 identity 计算，不吸收 cell result 或本地日志信息。落地后的 wire 排序、canonical tables 与 `pf:report-generation:v2` 前缀以 [D014](D014-pf-report-schema.md) §3.2 为准；落地前仍按现行 `report_generation_id` 实现。
+`report_generation_id` 由 generator/algorithm、package、source snapshot、policy、声明和 target cells 的规范 identity 计算，不吸收 cell result 或本地日志信息。wire 排序、canonical tables 与 `pf:report-generation:v2` 前缀以 [D014](D014-pf-report-schema.md) §3.2 为准。
 
 该 locator index：
 
@@ -510,17 +510,19 @@ Technical details:
 
 Failure policy 是深模块 `FailurePolicy`：调用方只提交结构化 FailureScope 和操作失败，module 隐藏分类矩阵。Adapter、搜索和 Presenter 都不得复制矩阵或使用 stderr substring 决定 disposition。
 
-## 15. 首发 Schema 与开发期报告
+## 15. 开发期 Schema 历史与现行报告
 
-本设计发生在 PF 首次发布之前。被替换的开发期 Schema 1 不构成需要兼容的已发布契约。P004 已按以下约束落地：
+本设计发生在 PF 首次发布之前。P004 曾直接重塑开发期 Schema 1；该版本不构成需要兼容的已发布契约。现行 Schema 2 已由 D014 一次性替换它：
 
-- 直接用本文结构替换现有 `schema_version = 1` 模型；
+- FailureScope、FailureRecord、disposition 与 cause/stage 语义仍由本文拥有；
 - 首发 generator/search algorithm identity 保持 `v1`；
 - Evaluation policy identity 加入 `failure-runtime-v1`；
-- 不实现 Schema 2、dual reader、迁移器或旧字段兼容分支；
-- 所有开发期 `package-floor.json` 删除后重新 search；
-- 旧结构即使也声明 `schema_version = 1`，仍因缺少 Attempt/FailureScope/FailureRecord 和新 union 字段而严格验证失败；
+- 不实现 Schema 1 dual reader、迁移器或旧字段兼容分支；
+- 所有 Schema 1 开发期 `package-floor.json` 删除后重新 search；
+- 旧结构因版本或结构不匹配严格验证失败；
 - 不从旧 status 猜测 Rejection，因为旧 candidate prepare 记录缺少完整 ToolFailure 和 Attempt identity。
+
+Schema 2 的 FailureRecord wire owner、typed scope refs、规范 generation 和 `ReportUpdate` delta 以 D014 为准。`SearchCommandWorkflow` 在报告事务成功后只用该 delta 更新 `(report_generation_id, failure_id)` association；`diagnose` 通过 `ValidatedReport.failure_context(...)` 取得 Proposal 与 boundary role，不自行展开 refs。
 
 ## 16. 示例
 
@@ -613,11 +615,11 @@ Certified candidate harness resolution conflict 形成 Rejection 并继续搜索
 
 ### D5：Schema 不保留 `BASELINE_FAILED`（已确认）
 
-Schema 1 直接使用 disposition 明确的 `BaselineRejection | BaselineIndeterminate` union。CLI 可继续使用熟悉的人类文案，避免一个 Schema status 同时表示测试失败、安装拒绝和工具不确定。
+现行报告直接使用 disposition 明确的 `BaselineRejection | BaselineIndeterminate` union。CLI 可继续使用熟悉的人类文案，避免一个 Schema status 同时表示测试失败、安装拒绝和工具不确定。
 
 ### D6：不兼容开发期 Schema（已确认）
 
-PF 尚未发布，直接重塑 Schema 1 与 algorithm v1；不实现 v1→v2 迁移或任何旧报告兼容层。
+PF 尚未发布；D014 已直接以 Schema 2 替换开发期 Schema 1，保留 algorithm v1，且不实现旧报告迁移或兼容层。
 
 ### D7：CLI 以用户文案为主、Enum 为技术细节（已确认）
 

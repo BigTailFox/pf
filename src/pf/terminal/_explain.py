@@ -19,11 +19,10 @@ from pf.schemas.report import (
     CellIndeterminate,
     CellSearchFailure,
     CellSuccess,
-    PackageFloorReportV1,
 )
+from pf.report import ValidatedReport
 
 _UNIQUE_DIAGNOSTIC_LIMIT = 10
-_SUMMARY_WIDTH = 240
 
 
 class FailureView(Protocol):
@@ -44,7 +43,7 @@ class ExplainPresenter(Protocol):
 
 def render(
     presenter: ExplainPresenter,
-    reports: tuple[PackageFloorReportV1, ...],
+    reports: tuple[ValidatedReport, ...],
 ) -> int:
     presenter.close()
     if not reports:
@@ -59,7 +58,7 @@ def render(
 
 def _render_report(
     presenter: ExplainPresenter,
-    report: PackageFloorReportV1,
+    report: ValidatedReport,
 ) -> None:
     declarations = {
         item.declaration_id: item for item in report.requirement_declarations
@@ -76,14 +75,14 @@ def _render_report(
         1 for result in report.cell_results if isinstance(result, CellSuccess)
     )
     targets = len(report.target_cells) or len(report.cell_results)
-    presenter.stdout.print(f"{report.package.name} · {_report_path(report)}")
-    presenter.stdout.print(f"Status: {report.result.status}")
+    presenter.stdout.print(Text(f"{report.package.name} · {_report_path(report)}"))
+    presenter.stdout.print(Text(f"Status: {report.result.status}"))
     presenter.stdout.print(
         "Apply: authorized by this report"
         if complete
         else "Apply: not authorized by this report"
     )
-    presenter.stdout.print(f"Cells: {covered}/{targets} covered")
+    presenter.stdout.print(Text(f"Cells: {covered}/{targets} covered"))
     if report.requirement_declarations or report.projection_evidence:
         presenter.stdout.print()
         presenter.stdout.print("Requirements")
@@ -99,14 +98,13 @@ def _render_report(
                 detail = "no applicable floor"
             else:
                 detail = f"-> {'; '.join(projection.projected_requirements)}"
-            presenter.stdout.print(f"  {label}   {detail}")
+            presenter.stdout.print(Text(f"  {label}   {detail}"))
         for declaration in report.requirement_declarations:
             if declaration.declaration_id not in projected_ids:
-                presenter.stdout.print(f"  {declaration.raw or declaration.name}")
+                presenter.stdout.print(Text(f"  {declaration.raw or declaration.name}"))
     failures = report.failure_records
     if failures or (
-        report.result.status == "incomplete"
-        and "MISSING_CELL" in report.result.reasons
+        report.result.status == "incomplete" and "MISSING_CELL" in report.result.reasons
     ):
         presenter.stdout.print()
         presenter.stdout.print("Blockers")
@@ -129,17 +127,15 @@ def _render_report(
                     for record in records
                 }
                 if len(cells) > 1:
-                    pythons = ", ".join(
-                        f"Python {cell.python_minor}" for cell in cells
-                    )
-                    presenter.stdout.print(f"  {len(cells)} cells · {pythons}")
-                presenter.stdout.print(f"  What happened: {presentation.title}")
-                presenter.stdout.print(f"  Impact: {presentation.impact}")
+                    pythons = ", ".join(f"Python {cell.python_minor}" for cell in cells)
+                    presenter.stdout.print(Text(f"  {len(cells)} cells · {pythons}"))
+                presenter.stdout.print(Text(f"  What happened: {presentation.title}"))
+                presenter.stdout.print(Text(f"  Impact: {presentation.impact}"))
                 diagnose = f"pf diagnose {report.package.name}"
                 unique_ids = {record.failure_id for record in records}
                 if len(unique_ids) == 1:
                     diagnose += f" --failure {failure.failure_id}"
-                presenter.stdout.print(f"  Diagnose: {diagnose}")
+                presenter.stdout.print(Text(f"  Diagnose: {diagnose}"))
         elif (
             report.result.status == "incomplete"
             and "MISSING_CELL" in report.result.reasons
@@ -152,18 +148,20 @@ def _render_report(
             item for item in report.requirement_declarations if item.managed
         )
         presenter.stdout.print(
-            "Summary: "
-            f"{_counted(len(managed) or len(report.projection_evidence), 'dependency declaration')} "
-            "have verified floors."
+            Text(
+                "Summary: "
+                f"{_counted(len(managed) or len(report.projection_evidence), 'dependency declaration')} "
+                "have verified floors."
+            )
         )
-        presenter.stdout.print(f"Next: pf apply {report.package.name}")
+        presenter.stdout.print(Text(f"Next: pf apply {report.package.name}"))
     else:
         presenter.stdout.print("Summary: report is incomplete and cannot be applied.")
 
 
 def _render_static_diagnostics(
     presenter: ExplainPresenter,
-    report: PackageFloorReportV1,
+    report: ValidatedReport,
 ) -> None:
     incrementals: list[tuple[Cell, TyDiagnostic]] = []
     for result in report.cell_results:
@@ -233,8 +231,8 @@ def _print_folded_diagnostics(
         diagnose = f"pf diagnose {package}"
         if len(failures) == 1:
             diagnose += f" --failure {failures[0].failure_id}"
-        presenter.stdout.print(f"    ... and {omitted} more unique diagnostics")
-        presenter.stdout.print(f"    Diagnose: {diagnose}")
+        presenter.stdout.print(Text(f"    ... and {omitted} more unique diagnostics"))
+        presenter.stdout.print(Text(f"    Diagnose: {diagnose}"))
 
 
 def _format_extra_surface(surface: tuple[str, ...]) -> str:
@@ -253,10 +251,7 @@ def _cell_title(cell: Cell) -> str:
 
 
 def _single_line_summary(value: str) -> str:
-    summary = " ".join(value.split())
-    if len(summary) <= _SUMMARY_WIDTH:
-        return summary
-    return f"{summary[: _SUMMARY_WIDTH - 3]}..."
+    return " ".join(value.split())
 
 
 def _diagnostic_summary(diagnostic: TyDiagnostic) -> str:
@@ -273,7 +268,7 @@ def _counted(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {noun}"
 
 
-def _report_path(report: PackageFloorReportV1) -> str:
+def _report_path(report: ValidatedReport) -> str:
     parent = Path(report.package.pyproject_path).parent
     relative = (
         Path("package-floor.json")

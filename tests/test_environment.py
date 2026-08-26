@@ -31,6 +31,7 @@ from pf.resolution import (
     ResolutionPlan,
     ResolutionRunContext,
     ResolutionUnsat,
+    environment_identity_digest,
 )
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
@@ -348,6 +349,17 @@ class TestEnvironmentFactory:
             "original-harness-v1"
         )
         assert prepared.proposal.proposal_id == prepared.environment_identity.digest
+        assert prepared.proposal.project_plan_digest == (
+            prepared.project_plan.semantic_digest
+        )
+        assert prepared.proposal.environment_plan_digest == (
+            prepared.environment_plan.semantic_digest
+        )
+        assert prepared.proposal.proposal_id == environment_identity_digest(
+            project_plan_digest=prepared.proposal.project_plan_digest,
+            environment_plan_digest=prepared.proposal.environment_plan_digest,
+            graph=prepared.proposal.resolved_graph,
+        )
         policy_document = {
             "config": package.config.model_dump(mode="json", exclude={"jobs"}),
             "tool_versions": {"ty": distribution_version("ty")},

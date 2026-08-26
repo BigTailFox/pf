@@ -22,25 +22,27 @@ from pf.cli import (
     create_app,
 )
 from pf.errors import NoApplicableFloorError, PfError
+from pf.report import PackageReportBuilder, ValidatedReport
 from pf.runlog import RunLogStore
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
     DiagnoseRequest,
+    EffectiveConfig,
     MergeRequest,
     ReportRequest,
     SearchRequest,
     SmokeRequest,
 )
 from pf.schemas.evaluation import CheckPass, SmokePass, StatusEvent
-from pf.schemas.project import SourceSnapshotIdentity
+from pf.schemas.project import (
+    PackagePlan,
+    SourcePlan,
+    SourceSnapshotIdentity,
+    source_snapshot_digest,
+)
 from pf.schemas.report import (
-    GeneratorIdentity,
-    IncompleteReportResult,
-    PackageFloorReportV1,
-    PackageIdentity,
     ProjectEditResult,
-    report_generation_id,
 )
 from pf.terminal import TerminalPresenter
 
@@ -105,28 +107,23 @@ def make_context(
     )
 
 
-def minimal_report() -> PackageFloorReportV1:
-    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-    package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-    return PackageFloorReportV1(
-        report_generation_id=report_generation_id(
-            generator=generator,
-            package=package,
-            source_snapshot=snapshot,
-            policy_identity="policy",
-            requirement_declarations=(),
-            target_cells=(),
-        ),
-        generator=generator,
+def minimal_report() -> ValidatedReport:
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(),
+        declarations=(),
+        cells=(),
+        source_plan=SourcePlan(identities=()),
+    )
+    snapshot = SourceSnapshotIdentity(
+        digest=source_snapshot_digest(()),
+        entries=(),
+    )
+    return PackageReportBuilder().build(
         package=package,
         source_snapshot=snapshot,
-        policy_identity="policy",
-        requirement_declarations=(),
-        candidate_snapshots=(),
         cell_results=(),
-        projection_evidence=(),
-        result=IncompleteReportResult(reasons=("MISSING_CELL",)),
     )
 
 
@@ -167,6 +164,41 @@ class TestCliInterface:
         stdout = module_help.stdout
         assert stdout.index("Verify") < stdout.index("Find and apply floors")
         assert stdout.index("smoke") < stdout.index("check")
+
+    def test_module_help_caps_the_outer_canvas_at_120_columns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "200")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pf", "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert max(map(len, result.stdout.splitlines())) <= 120
+
+    def test_invocation_errors_use_the_120_column_error_console(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "200")
+        invalid_option = "--" + "not-a-real-option-" * 10
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pf", "check", invalid_option],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 3
+        assert result.stdout == ""
+        assert "Error:" in result.stderr
+        assert max(map(len, result.stderr.splitlines())) <= 120
 
     def test_merge_help_usage_names_reports_and_hides_report_option(self) -> None:
         result = subprocess.run(
@@ -636,7 +668,7 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: MergeRequest | None = None
 
-            def run(self, request: MergeRequest) -> PackageFloorReportV1:
+            def run(self, request: MergeRequest) -> ValidatedReport:
                 self.request = request
                 return minimal_report()
 
@@ -768,7 +800,7 @@ class TestMinimizeCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class SearchWorkflow:
-            def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]:
+            def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]:
                 return (minimal_report(),)
 
         class ApplyWorkflow:
@@ -809,7 +841,7 @@ class TestMinimizeCommand:
             def __init__(self) -> None:
                 self.request: SearchRequest | None = None
 
-            def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]:
+            def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]:
                 self.request = request
                 return ()
 

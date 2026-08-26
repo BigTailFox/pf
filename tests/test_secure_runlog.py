@@ -26,6 +26,11 @@ class TestPosixDirectoryAdapter:
         assert stat.S_IMODE(run_root.stat().st_mode) == 0o700
         assert stat.S_IMODE((run_root / "journal.json").stat().st_mode) == 0o600
         assert adapter.read_run_text("run", "journal.json", 100) == "journal\n"
+        assert adapter.read_run_stream(
+            "run",
+            "process-0001.log",
+            lambda stream: stream.read(),
+        ) == "log"
         assert adapter.read_logs_text("diagnosis-index.json", 100) == "index\n"
         assert adapter.resolve_regular_log(Path("run/process-0001.log")) == Path(
             ".pf/logs/run/process-0001.log"
@@ -107,6 +112,14 @@ class TestWindowsDirectoryAdapter:
                 content = path.read_text(encoding="utf-8")
                 return content if limit is None else content[: limit + 1]
 
+            def read_text_stream(
+                self,
+                path: Path,
+                read_body: Callable[[TextIO], object],
+            ) -> object:
+                with path.open(encoding="utf-8") as stream:
+                    return read_body(stream)
+
             def validate_regular_file(self, path: Path) -> None:
                 if not path.is_file():
                     raise OSError("unsafe PF log file")
@@ -124,6 +137,11 @@ class TestWindowsDirectoryAdapter:
         adapter.write_logs_text("diagnosis-index.json", "index\n")
 
         assert adapter.read_run_text("run", "process-0001.log", None) == "log"
+        assert adapter.read_run_stream(
+            "run",
+            "process-0001.log",
+            lambda stream: stream.read(),
+        ) == "log"
         assert adapter.read_logs_text("diagnosis-index.json", 100) == "index\n"
         assert adapter.resolve_regular_log(Path("run/process-0001.log")) == Path(
             ".pf/logs/run/process-0001.log"

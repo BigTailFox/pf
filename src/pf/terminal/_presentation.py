@@ -4,14 +4,17 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pf.schemas.evaluation import (
+    BaselineDetailIdentity,
     CellCompletedEvent,
+    CellDetailIdentity,
     CellFailed,
+    CellResultDetail,
     CellSucceeded,
+    DeclarationDetailIdentity,
     FailureRecord,
     ProcessResult,
     SearchFailureEvent,
-    StaticRegressionEvaluation,
-    TyDiagnostic,
+    SearchProbeDetailIdentity,
     VerificationRole,
 )
 from pf.schemas.project import Cell
@@ -36,6 +39,21 @@ _INDETERMINATE_STATUSES = frozenset(
 _OUTCOME_RANK = {"success": 0, "warning": 1, "failure": 2, "indeterminate": 3}
 
 
+def cell_identity_title(identity: CellDetailIdentity) -> str:
+    if isinstance(identity, BaselineDetailIdentity):
+        return "[baseline][highest]"
+    if isinstance(identity, DeclarationDetailIdentity):
+        return "[declaration][lowest-direct]"
+    if isinstance(identity, SearchProbeDetailIdentity):
+        noun = "candidate" if identity.candidate_count == 1 else "candidates"
+        return (
+            f"[{identity.dependency}=={identity.version}]"
+            f"[{identity.lower_version}…{identity.upper_version} · "
+            f"{identity.candidate_count} {noun}]"
+        )
+    raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
+
+
 def outcome_kind(status: str) -> OutcomeKind:
     if status in _SUCCESS_STATUSES:
         return "success"
@@ -58,10 +76,12 @@ def escalate_outcome(
 @dataclass(frozen=True)
 class CellPresentation:
     cell: Cell
+    identity: CellDetailIdentity | None
     kind: OutcomeKind
     elapsed: float | None
     failures: tuple[FailureRecord, ...]
-    diagnostics: tuple[TyDiagnostic, ...]
+    detail: CellResultDetail | None
+    primary_failure_id: str | None
     process: ProcessResult | None
     stage: str
     role: VerificationRole | None
@@ -74,11 +94,13 @@ class CellPresentation:
         event: CellCompletedEvent,
         *,
         elapsed: float | None = None,
+        identity: CellDetailIdentity | None = None,
         search_events: tuple[SearchFailureEvent, ...] = (),
         command: str | None = None,
     ) -> "CellPresentation":
         return cls._from_outcome(
             cell=event.cell,
+            identity=identity,
             outcome=event.outcome,
             elapsed=elapsed,
             search_events=search_events,
@@ -93,12 +115,14 @@ class CellPresentation:
         *,
         cell: Cell,
         elapsed: float | None = None,
+        identity: CellDetailIdentity | None = None,
         search_events: tuple[SearchFailureEvent, ...] = (),
         command: str | None = None,
         diagnose_available: bool = True,
     ) -> "CellPresentation":
         return cls._from_outcome(
             cell=cell,
+            identity=identity,
             outcome=completion_outcome(result),
             elapsed=elapsed,
             search_events=search_events,
@@ -111,6 +135,7 @@ class CellPresentation:
         cls,
         *,
         cell: Cell,
+        identity: CellDetailIdentity | None,
         outcome: CellSucceeded | CellFailed,
         elapsed: float | None,
         search_events: tuple[SearchFailureEvent, ...],
@@ -118,26 +143,50 @@ class CellPresentation:
         diagnose_available: bool,
     ) -> "CellPresentation":
         kind = outcome_kind(outcome.status)
-        if outcome.diagnostics and kind == "success":
-            kind = "warning"
         failures = (
             _unique_failures(search_events, outcome.failures)
             if isinstance(outcome, CellFailed)
             else ()
         )
-        diagnostics = (
-            _incremental_diagnostics(search_events, outcome.diagnostics)
+        search_projection = _search_projection(search_events)
+        outcome_primary = failures[0].failure_id if failures else None
+        primary_failure_id = (
+            search_projection[0]
+            if search_projection is not None
+            else outcome_primary
+        )
+        outcome_detail_failure_id = (
+            outcome.detail_failure_id if isinstance(outcome, CellFailed) else None
+        )
+        outcome_detail = (
+            outcome.detail
             if isinstance(outcome, CellFailed)
-            else outcome.diagnostics
+            and outcome_detail_failure_id in {None, outcome_primary}
+            else None
+        )
+        detail = (
+            search_projection[1]
+            if search_projection is not None
+            else outcome_detail
+        )
+        primary_failure = next(
+            (
+                failure
+                for failure in failures
+                if failure.failure_id == primary_failure_id
+            ),
+            None,
         )
         return cls(
             cell=cell,
+            identity=identity,
             kind=kind,
             elapsed=elapsed,
             failures=failures,
-            diagnostics=diagnostics,
-            process=outcome.process,
-            stage=failures[0].stage if failures else outcome.phase,
+            detail=detail,
+            primary_failure_id=primary_failure_id,
+            process=outcome.process if isinstance(outcome, CellFailed) else None,
+            stage=primary_failure.stage if primary_failure is not None else outcome.phase,
             role=(
                 outcome.verification_role
                 if isinstance(outcome, CellFailed)
@@ -165,20 +214,13 @@ def _unique_failures(
     return tuple(ordered)
 
 
-def _incremental_diagnostics(
+def _search_projection(
     search_events: tuple[SearchFailureEvent, ...],
-    diagnostics: tuple[TyDiagnostic, ...],
-) -> tuple[TyDiagnostic, ...]:
-    ordered = list(diagnostics)
-    seen = {diagnostic.identity for diagnostic in diagnostics}
+) -> tuple[str, CellResultDetail | None] | None:
     for event in search_events:
-        evaluation = event.evaluation
-        static = getattr(evaluation, "static", None)
-        if not isinstance(static, StaticRegressionEvaluation):
+        if event.evaluation is None:
             continue
-        for diagnostic in static.incremental:
-            if diagnostic.identity in seen:
-                continue
-            ordered.append(diagnostic)
-            seen.add(diagnostic.identity)
-    return tuple(ordered)
+        outcome = completion_outcome(event.evaluation)
+        if isinstance(outcome, CellFailed):
+            return event.failure.failure_id, outcome.detail
+    return None

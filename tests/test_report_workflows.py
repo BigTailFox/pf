@@ -7,11 +7,15 @@ import pytest
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
-from pf.policy import evaluation_policy_identity
-from pf.report import ReportStore
+from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
 from pf.runlog import RunLogStore
 from pf.failure import FailurePolicy
-from pf.schemas.config import ApplyRequest, MergeRequest, ReportRequest
+from pf.schemas.config import (
+    ApplyRequest,
+    EffectiveConfig,
+    MergeRequest,
+    ReportRequest,
+)
 from pf.schemas.evaluation import (
     CellFailureScope,
     ProcessResult,
@@ -20,14 +24,14 @@ from pf.schemas.evaluation import (
     VerificationJournalEntry,
     VerificationPackagePolicy,
 )
-from pf.schemas.project import SourceSnapshotIdentity
+from pf.schemas.project import (
+    PackagePlan,
+    SourcePlan,
+    SourceSnapshotIdentity,
+    source_snapshot_digest,
+)
 from pf.schemas.report import (
-    GeneratorIdentity,
-    IncompleteReportResult,
-    PackageFloorReportV1,
-    PackageIdentity,
     ProjectEditResult,
-    report_generation_id,
 )
 from pf.workflow import (
     ApplyCommandWorkflow,
@@ -39,33 +43,24 @@ from pf.workflow import (
 def report(
     *,
     package_name: str = "demo",
-    policy_identity: str = "policy",
-) -> PackageFloorReportV1:
-    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-    package = PackageIdentity(
+    config: EffectiveConfig | None = None,
+) -> ValidatedReport:
+    package = PackagePlan(
         name=package_name,
         pyproject_path="pyproject.toml",
+        config=config or EffectiveConfig(test_timeout=1),
+        declarations=(),
+        cells=(),
+        source_plan=SourcePlan(identities=()),
     )
-    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-    return PackageFloorReportV1(
-        report_generation_id=report_generation_id(
-            generator=generator,
-            package=package,
-            source_snapshot=snapshot,
-            policy_identity=policy_identity,
-            requirement_declarations=(),
-            target_cells=(),
-        ),
-        generator=generator,
+    snapshot = SourceSnapshotIdentity(
+        digest=source_snapshot_digest(()),
+        entries=(),
+    )
+    return PackageReportBuilder().build(
         package=package,
         source_snapshot=snapshot,
-        policy_identity=policy_identity,
-        requirement_declarations=(),
-        candidate_snapshots=(),
-        target_cells=(),
         cell_results=(),
-        projection_evidence=(),
-        result=IncompleteReportResult(reasons=("MISSING_CELL",)),
     )
 
 
@@ -130,16 +125,14 @@ class TestReportWorkflows:
             )
             .packages[0]
         )
-        current_report = report(
-            policy_identity=evaluation_policy_identity(package.config)
-        )
+        current_report = report(config=package.config)
         store.write(tmp_path / "package-floor.json", current_report)
 
         class Editor:
             def apply_many(
                 self,
                 *,
-                reports: tuple[PackageFloorReportV1, ...],
+                reports: tuple[ValidatedReport, ...],
                 root: Path,
             ) -> tuple[ProjectEditResult, ...]:
                 assert reports == (current_report,)
@@ -187,7 +180,7 @@ class TestReportWorkflows:
             def apply_many(
                 self,
                 *,
-                reports: tuple[PackageFloorReportV1, ...],
+                reports: tuple[ValidatedReport, ...],
                 root: Path,
             ) -> tuple[ProjectEditResult, ...]:
                 raise AssertionError("policy drift must fail before editing")
@@ -214,7 +207,7 @@ class TestReportWorkflows:
             def apply_many(
                 self,
                 *,
-                reports: tuple[PackageFloorReportV1, ...],
+                reports: tuple[ValidatedReport, ...],
                 root: Path,
             ) -> tuple[ProjectEditResult, ...]:
                 raise AssertionError("identity mismatch must fail before editing")

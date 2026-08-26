@@ -49,8 +49,8 @@ class ProcessSpec(FrozenSchema):
 
 
 class ProcessResult(FrozenSchema):
-    exit_code: int | None
-    signal: int | None
+    exit_code: int | None = None
+    signal: int | None = None
     duration_seconds: float
     stdout: str = Field(default="", exclude=True)
     stderr: str = Field(default="", exclude=True)
@@ -588,10 +588,37 @@ class TestPass(FrozenSchema):
         return self
 
 
+class PytestFailureCase(FrozenSchema):
+    nodeid: str
+    phase: Literal["collect", "setup", "call", "teardown"]
+
+    @model_validator(mode="after")
+    def validate_nodeid(self) -> "PytestFailureCase":
+        if (
+            not self.nodeid
+            or len(self.nodeid) > 4_096
+            or any(
+                ord(character) < 32
+                or 127 <= ord(character) <= 159
+                or 0xD800 <= ord(character) <= 0xDFFF
+                for character in self.nodeid
+            )
+        ):
+            raise ValueError("pytest failure nodeid must be bounded display text")
+        return self
+
+
+class PytestFailureDetail(FrozenSchema):
+    kind: Literal["pytest-failure"] = "pytest-failure"
+    first: PytestFailureCase
+    total: int = Field(gt=0, le=10_000, strict=True)
+
+
 class TestFail(FrozenSchema):
     __test__: ClassVar[bool] = False
     status: Literal["TEST_FAIL"] = "TEST_FAIL"
     process: ProcessResult
+    detail: PytestFailureDetail | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_test_fail(self) -> "TestFail":
@@ -1368,22 +1395,48 @@ class CellStageEvent(FrozenSchema):
     progress: StageProgress | None = None
 
 
+class StaticIssueDetail(FrozenSchema):
+    kind: Literal["static-issue"] = "static-issue"
+    first: TyDiagnostic
+    total: int = Field(gt=0, strict=True)
+
+
+CellResultDetail = Annotated[
+    Union[PytestFailureDetail, StaticIssueDetail],
+    Field(discriminator="kind"),
+]
+
+
 class CellSucceeded(FrozenSchema):
     kind: Literal["succeeded"] = "succeeded"
     status: str
     phase: str
-    diagnostics: tuple[TyDiagnostic, ...] = ()
-    process: ProcessResult | None = None
 
 
 class CellFailed(FrozenSchema):
     kind: Literal["failed"] = "failed"
     status: str
     phase: str
-    diagnostics: tuple[TyDiagnostic, ...] = ()
+    detail: CellResultDetail | None = Field(default=None, exclude=True)
+    detail_failure_id: str | None = Field(default=None, exclude=True)
     process: ProcessResult | None = None
     failures: tuple[FailureRecord, ...] = ()
     verification_role: VerificationRole | None = None
+
+    @model_validator(mode="after")
+    def validate_detail_source(self) -> "CellFailed":
+        if self.detail is not None and self.failures and self.detail_failure_id is None:
+            raise ValueError("retained cell detail requires an explicit failure source")
+        if self.detail_failure_id is None:
+            return self
+        if self.detail is None:
+            raise ValueError("cell detail source requires structured detail")
+        if not any(
+            failure.failure_id == self.detail_failure_id
+            for failure in self.failures
+        ):
+            raise ValueError("cell detail source must name one retained failure")
+        return self
 
 
 CellCompletionOutcome = Annotated[
@@ -1455,6 +1508,37 @@ class SearchFailureEvent(FrozenSchema):
                 != self.failure.scope.attempt.attempt_id
             ):
                 raise ValueError("search failure evaluation must match its attempt")
+            if isinstance(self.evaluation, TestFailEvaluation):
+                if (
+                    self.failure.cause != "TEST_FAILURE"
+                    or self.failure.stage != "test"
+                    or self.failure.process != self.evaluation.test.process
+                ):
+                    raise ValueError(
+                        "search test evaluation must match its failure facts"
+                    )
+            elif isinstance(self.evaluation, RuntimeInterfaceMissingEvaluation):
+                witness = self.evaluation.witnesses[-1].outcome
+                if not isinstance(witness, RuntimeWitnessResult):
+                    raise ValueError(
+                        "search runtime evaluation requires a terminal witness"
+                    )
+                if (
+                    self.failure.cause != "RUNTIME_INTERFACE_MISSING"
+                    or self.failure.stage != "witness"
+                    or self.failure.process != witness.process
+                ):
+                    raise ValueError(
+                        "search runtime evaluation must match its failure facts"
+                    )
+            elif (
+                self.failure.cause != self.evaluation.failure.cause
+                or self.failure.stage != self.evaluation.failure.stage
+                or self.failure.process != self.evaluation.failure.process
+            ):
+                raise ValueError(
+                    "search indeterminate evaluation must match its failure facts"
+                )
         return self
 
 

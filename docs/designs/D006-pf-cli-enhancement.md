@@ -11,7 +11,7 @@
 
 本文是 PF CLI 帮助信息架构、调用错误反馈、终端信息层级、命令结果摘要和 `explain` 展示的唯一契约。D001 继续定义命令、参数语义、产品结果和退出码；D002 继续定义 `cli.py` / `TerminalPresenter` 的模块位置；D004 定义静态诊断事实；D005 定义 failure 的 title、next step、技术信息；D007 定义 Process Log 与 Output Cache；D008 定义 Verification Role、Journal 以及 check 也产生 FailureRecord。本文只组织这些事实，不重新分类证据或改变产品语义。impact 句子由 D005 拥有；Role 相关 impact 由 D008 拥有，Presenter 只渲染。
 
-本文描述现行 CLI。check 的 FailureRecord、Journal 与 Role→impact 以 D008 为数据源；进程输出末几行以 D007 的 Output Cache / Process Log 为数据源。
+本文描述现行 CLI。check 的 FailureRecord、Journal 与 Role→impact 以 D008 为数据源；普通 cell 卡片不读取进程输出，`diagnose` 的末 3 个非空行以 D007 的 Process Log 为数据源。
 
 ## 1. 问题
 
@@ -215,27 +215,32 @@ Try 'pf merge --help' for more information.
 live 事件分三类：
 
 - **范围事实**可以冻结：`loaded project`、`built snapshot`、`selected N cells` 及 python/platform/extra 明细。它们回答 Scope，完成后仍可读。
-- **detail identity** 只在 TTY 的 live cell 卡片内显示，回答“当前正在验证哪个角色/搜索点”；它位于 stage 上方，身份切换时清空上一 stage。
+- **detail identity** 在 TTY 的 live cell 卡片内回答“当前正在验证哪个角色/搜索点”；短 `baseline | declaration` identity 位于 cell title 后，search-probe identity 位于独立 detail 行，身份切换时清空上一 stage。cell 完成时，当前非空结构化 identity 以相同文本和 version 色保留在冻结块第一行；它仍是 presentation-only 状态，不进入报告、Journal 或 Evaluation。
 - **工作动词**只出现在 TTY 底部进度：`checking declarations` / `searching cells` / `smoke testing`。完成后不得冻结成 `checked declarations` 一类过去时阶段行。
 - 非 TTY 没有 live 进度，因此不输出工作动词行；只输出范围事实、cell 完成块和最终摘要。
 
 一个运行中的 cell 卡片按固定层级显示：
 
 ```text
+⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] [baseline][highest] 0:00:12
+  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests
+
 ⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
   [pydantic==1.5][1.0…2.0 · 7 candidates]
-  dynamic tests  ●●●●●····· 37/120 tests
+  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests
 ```
 
-detail identity 使用 dim 文本，不重复 cell title：
+短 identity 使用区别于 cell title 的 version 色；search-probe identity 使用 dim 文本且不重复 cell title：
 
 - `check` 的最高版本静态 baseline 为 `[baseline][highest]`，随后声明最低直接版本 probe 为 `[declaration][lowest-direct]`；若 baseline 已失败，不显示未发生的 declaration identity；
 - `search` 的最高版本完整 baseline 为 `[baseline][highest]`；candidate discovery 清空 identity，只显示 `discovering candidates`；每个实际 search probe 显示 `[dependency==candidate][lower…upper · N candidate(s)]`；
 - 同一 search probe 从 `static check` 进入 `runtime witness` / `dynamic tests` 时 identity 保持不变；cache 命中或已知 PASS 没有实际 probe，不生成新的 identity。
 
-只有 stage 能提供稳定总量时才显示 determinate progress。现行唯一来源是默认 direct pytest profile 的 serial、非 `--collect-only` 执行：collection 完成且 nodeid 唯一后显示 `completed/total tests`，测试完成数只单调增加，总数在该次执行内固定。generic test command、pytest bootstrap/collection 未完成、重复/非法 nodeid、xdist/unknown、collect-only 或 telemetry 故障继续显示 spinner 和 `dynamic tests`，不得估算百分比。telemetry 不参与 D013 failure evidence 或 D005 disposition。
+只有 stage 能提供稳定总量时才显示 determinate progress。现行唯一来源是默认 direct pytest profile 的 serial、非 `--collect-only` 执行：collection 完成且 nodeid 唯一后显示 `completed/total tests`，测试完成数只单调增加，总数在该次执行内固定。generic test command、pytest bootstrap/collection 未完成、重复/非法 nodeid、xdist/unknown、collect-only 或首个合法 snapshot 前的 telemetry 故障继续显示 spinner 和 `dynamic tests`，不得估算百分比；已有合法 snapshot 后的 telemetry 故障按下段冻结最后值。telemetry 不参与 D013 failure evidence 或 D005 disposition。
 
-中宽终端用主题样式的 `●` / `·` 表示已完成/未完成比例，同时保留精确计数；窄终端优先隐藏 dots，仍保留 `completed/total tests`。detail/progress 都是瞬时 TTY 信息：非 TTY 与完成后的冻结 cell 块不追加这些行，也不因此产生重复诊断块。
+中宽终端的 determinate test stage 使用与 uv 默认观感一致的连续 Rich bar，同时保留精确计数；`dynamic tests` stage 文本与 bar 之间固定一个 ASCII 空格。spinner 与 cell title 之间也固定一个 ASCII 空格。cell title 的 `[`、search detail 和 stage 文本左对齐；elapsed 固定在卡片右侧，不因 `[baseline][highest]` 与 `[declaration][lowest-direct]` 长度不同而跳动。窄终端优先隐藏 test bar，仍保留 `completed/total tests`。stage 文本、bar 或计数变化不得移动 title 行，也不得通过删除/重建 stage task 产生闪烁。pytest plugin 在每个 test 首次完成时原子发布最新 snapshot，parent monitor 最多每秒读取 20 次；Rich 固定以 20 Hz 刷新 spinner 与 elapsed，但一个 ActivityEvent 内的 task 变更必须通过 immutable Task value snapshot 原子可见。同一 stage 一旦显示 determinate progress，后续缺失/非法 telemetry 只停止更新并冻结最后已知值，不得把 bar 降回 spinner；只有 context/stage 真正切换、cell 完成或 live display 关闭才清除。stage progress 是瞬时 TTY 信息：非 TTY 与完成后的冻结 cell 块不追加 stage 行，也不因此产生重复诊断块。
+
+cell matrix 的整体进度不使用 bar，而按 matrix 规范顺序显示一个方块位置：未完成是 dim `□`，完成后原位变为 `■`，颜色使用该 cell 的 success / failure / warning / indeterminate 结果色。方块数始终等于 cell 总数；可用列不足时，Rich 只把方块序列折成多行，不丢失或重排位置。精确 `completed/total` 和 elapsed 继续显示。
 
 顺序固定为：
 
@@ -279,7 +284,7 @@ scope facts -> per-cell frozen diagnostics (as cells complete) -> remaining live
 ⚠ Minimize stopped before apply · search report is incomplete
 ```
 
-具体 failure title 和 impact 仍来自 D005。摘要不把一个 Proposal 的结果概括成某个 dependency version 的全局兼容性结论。`smoke` 测试通过但存在 ty 诊断时，最终摘要仍是退出 `0` 的 `Smoke passed`；cell 行用 `⚠` 展示诊断，不把 warning 升级成命令失败。
+具体 failure title 和 impact 仍来自 D005。摘要不把一个 Proposal 的结果概括成某个 dependency version 的全局兼容性结论。`smoke` 测试通过但存在 baseline ty 诊断时，最终摘要仍是退出 `0` 的 `Smoke passed`；普通 cell 输出不展示这些 warning，也不把它们升级成命令失败。
 
 ### 8.3 Artifact
 
@@ -310,23 +315,22 @@ scope facts -> per-cell frozen diagnostics (as cells complete) -> remaining live
 有 FailureRecord 的 `smoke` / `check` / `search` 完成块：
 
 ```text
-! [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing  0:00:19
-PF could not complete a verification tool operation reliably.
-PF could not determine whether the highest-version baseline works, so it stopped this cell.
--> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
+✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] [baseline][highest] failed at testing  0:00:19
+The full test command failed for this version combination.
 FAILED tests/test_cli.py::test_example
-=== 1 failed, 2 passed in 0.51s ===
--> see .pf/logs/.../process-0020.log for details.
+... and 2 more
+-> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
 ```
 
 第一行是图标、cell 标题、`failed at` 用户阶段（`installing dependencies` / `installing harness` / `static checking` / `testing`）和运行时间。第一行不含 Schema status 或 cause Enum。
 
 随后几层：
 
-1. D005 Reason（title 与 impact），默认颜色，允许换行，不压成单行摘要；
-2. `-> run \`pf diagnose PACKAGE --failure FAILURE_ID\` for more information.`，hint 色；package 参数是报告中的包名；
-3. 进程输出末尾最多 3 行（数据源由 D007 规定：先 Output Cache 末尾，否则读 Process Log 末尾），dim 样式，不把会话开头或整份日志铺进卡片；
-4. `-> see PATH for details.`，hint 色，路径可带 OSC 8。
+1. 一个 D005 title，使用与 cell 结果相同的标准色，不使用 bold 或 bright 色，允许换行；普通 cell 不展示 role impact；
+2. 若有运行时 `CellResultDetail`，展示第一条典型详情；总数大于一时紧跟 `... and N more`；
+3. `-> run \`pf diagnose PACKAGE --failure FAILURE_ID\` for more information.`，使用终端默认前景色的 dim italic hint，不使用 bold、bright 或额外前景色；package 参数是报告中的包名。
+
+普通 cell 不展示 baseline ty warning、stdout/stderr tail 或 Process Log 链接，也不逐条展开同一 cell 的全部 FailureRecord。不同 cell 各自展示自己的结果，不做跨 cell 聚合。若 Journal/index 写入失败使 diagnose 入口不可用，才回退显示对应 Process Log 链接；没有日志时显示 `Detailed diagnosis unavailable.`。
 
 cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan，live 进度与冻结结果相同。
 
@@ -335,7 +339,7 @@ cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan，live 进度与�
 成功 cell 只有图标、标题和耗时，不写 `failed at`：
 
 ```text
-✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] [declaration][lowest-direct] 0:00:12
 ```
 
 第一行是图标、`[py…]`、精确 target triple、extra surface、失败时的 `failed at` 阶段，以及运行时间。TTY 详情不缩进，由圆角卡片承载，边框颜色与结果图标一致。Python 前缀、精确 target triple 和 extra surface 都不能省略或用无标签 `none` 代替。
@@ -348,11 +352,11 @@ TTY 下该结果行是对应 live 进度行的固结形态，在 cell 完成时�
 demo [py3.11][x86_64-unknown-linux-gnu][no-extra]
 ```
 
-D005 的 title 与 impact 出现在 cell 卡片正文；`explain` / `diagnose` 再展开 next step 与技术细节，不在 `smoke` / `check` / `search` 卡片上重复 next step。
+D005 的 title 出现在 cell 卡片正文；`explain` / `diagnose` 再展开 impact、next step 与技术细节，不在 `smoke` / `check` / `search` 卡片上重复。
 
 ### 9.2 静态诊断
 
-实时 `smoke` / `check` / `search` 按实际重数逐条输出规范单行诊断，不在 Presenter 中改变 D004 的多重集语义。
+实时 `smoke` / `check` / `search` 不展示 baseline ty warning 或普通 static regression。只有 `RuntimeInterfaceMissingEvaluation` 的最终 `CONFIRMED_MISSING` witness plan 所覆盖的 incremental issue 才成为 `StaticIssueDetail`：展示规范顺序第一条，后续以 `... and N more` 计数；不相关 increment、ty tool failure 与 test failure 旁的 static regression 不得被归因为拒绝原因。
 
 规范单行格式由本文统一为：
 
@@ -447,13 +451,14 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 
 ## 11. 自适应终端
 
-- 生产 `Console`、`Table` 和 `Progress` 不固定 width、height、列宽或 ratio；固定尺寸只允许出现在测试中；determinate stage dots 根据当前 Console 宽度决定长度或隐藏，不固定终端宽度；
-- TTY 使用动态进度，进度条固定在输出底部；`smoke` / `check` / `search` / `minimize` 的范围事实冻结为一张圆角 `Panel`，每个 live cell（标题+阶段）各自一张圆角 `Panel`；cell 完成后立即冻结为同样的圆角 `Panel`，边框颜色与结果一致，并移出 live 表；非 TTY 不显示逐进程活动，也不输出 box drawing；
+- 默认 CLI 的外层 Console 画布取当前终端宽度与 120 列中的较小值；这是生产 terminal 唯一允许的固定宽度约束，用于避免超宽屏上的过长阅读行；TTY 卡片仍充满该画布；
+- Panel、Table、detail、列宽、bar width、摘要字符宽度和 breakpoint 不设置固定值；内部列只可用 ratio 表达“吸收剩余空间”等相对布局关系，Rich 在外层画布内自行测量、换行和缩放；height 也不固定；
+- TTY 使用固定在输出底部的动态 live 区域；`smoke` / `check` / `search` / `minimize` 的范围事实冻结为一张圆角 `Panel`，每个 live cell（标题+阶段）各自一张圆角 `Panel`，最下方以可换行方块序列显示整体 cell 进度；cell 完成后立即冻结为同样的圆角 `Panel`，边框颜色与结果一致，并移出 live 表；非 TTY 不显示逐进程活动，也不输出 box drawing；
 - cell 标题 `[py…][target][extra]` 在 TTY 使用加粗 cyan；颜色只作补充，移除 ANSI 后标题文本不变；
 - 窄终端优先换行或把表格降级为带标签的纵向 block，不能截断 package、cell、状态、artifact 路径或 next action；
 - 不依赖光标定位表达唯一信息；live display 关闭后，最终冻结行必须能独立阅读；
 - 不支持颜色或 OSC 8 时保留相同可见文本；
-- 帮助、摘要和 `explain` 在 56、80、120 列下都必须可读，不要求视觉像素级相同。
+- 帮助、摘要和 `explain` 在 56、80、120 列下都必须可读；终端宽于 120 列时不得扩大外层画布，不要求视觉像素级相同。
 
 ## 12. 模块所有权
 
@@ -502,9 +507,9 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 ### 13.3 Cell 与 failure
 
 - 冻结 cell 第一行不含 Schema status 或 cause Enum；
-- `smoke` / `check` / `search` 的 FailureRecord 路径包含 D005 title、impact 和 `Diagnose:`；
-- baseline Indeterminate 的 impact 不得把 baseline 说成 candidate；
-- check 按 D008 区分 `declaration-capture` 与 `declaration` impact，不得共用 search Baseline 句子；smoke 的 baseline 使用 D008 smoke 文案。
+- `smoke` / `check` / `search` 的 FailureRecord 路径包含 D005 title 和可用的 diagnose 入口，普通 cell 不展示 role impact；
+- 有结构化典型详情时只展示第一条及剩余数量，不展开 stdout/stderr tail 或普通 Process Log 链接；
+- `diagnose` 仍保留 D005 impact、next step、context 和 technical facts。
 
 ### 13.4 `explain`
 
@@ -520,12 +525,13 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 
 - 非 TTY 是无 ANSI/OSC 8 的稳定文本，且没有工作动词阶段行；
 - TTY 在 56、80、120 列验证不溢出、不丢字段和完成行冻结；
-- 生产 Presenter 构造不传固定终端尺寸；
+- TTY 验证 spinner/title 单空格、identity 切换不移动 elapsed、detail/stage 左对齐、test stage 单空格 bar，以及整体方块的位置、结果色和多行折叠；
+- 默认生产 Presenter 只把外层 Console 限制在最多 120 列，内部 renderable 不传固定尺寸；
 - wheel 安装后按 `smoke -> check -> search -> explain -> diagnose -> apply` 做入口 smoke，并验证 `pf` 与 `python -m pf` 一致。
 
 ## 14. 实施顺序
 
-1. **Cell and failure placement**：去掉 cell 行上的 Schema status，消费 D005 title/impact/`Diagnose:`，修正 baseline Indeterminate impact；
+1. **Cell and failure placement**：去掉 cell 行上的 Schema status，展示 D005 title、结构化典型详情和 diagnose 入口，并把 impact 留给 `diagnose`；
 2. **Help and invocation**：命令分组、位置参数、duration 文案、`merge` 非空、未知 package 候选和统一 usage error；
 3. **Command summary**：按 §8.4 统一 count/artifact/outcome、修正 stdout/stderr、落地 `render_minimize`；
 4. **Explain hierarchy**：声明关联、coverage/projection、blocker 分组和诊断折叠；必须消费 `FailurePresentation`；
@@ -544,11 +550,11 @@ P004 已完成。`explain` 的 blocker 层必须消费 `FailurePresentation`；�
 7. D004 诊断重数不能因展示折叠而丢失；折叠必须显示 `×N`。
 8. cell 标题始终包含 Python、精确 target triple 和 extra surface。
 9. artifact 只有在实际写入或修改后才能描述为 written/updated/merged。
-10. 生产终端布局不硬编码宽高，非 TTY 不输出控制序列。
+10. 生产终端只有外层 Console 的 120 列上限；内部布局不硬编码宽高，非 TTY 不输出控制序列。
 11. 展示选择不进入报告、Evaluation、policy 或 source identity。
 12. 默认 cell 行、命令摘要和 `explain` 不把 Schema status 或 cause Enum 当作结论。
 13. `complete` 只描述 D001 完整可授权报告。
-14. live detail identity 必须来自结构化 context event；稳定进度不可用时必须保留 spinner，telemetry 故障不得改变 cell outcome。
+14. live detail identity 必须来自结构化 context event，完成时当前非空 identity 可进入 TTY 冻结 presentation，但不得进入持久化 schema；稳定进度不可用时必须保留 spinner，telemetry 故障不得改变 cell outcome。
 
 ## 16. 决策记录
 
@@ -578,7 +584,7 @@ digest 是报告关联键，不是用户术语。Presenter 必须通过结构化
 
 ### D7：冻结 cell 行不显示 Schema status（已确认）
 
-图标已经编码成功/失败/警告/不确定。Schema status 是机器词汇，放在第一行会盖过 D005 title。title、impact 和 `Diagnose:` 放在缩进行。
+图标已经编码成功/失败/警告/不确定。Schema status 是机器词汇，放在第一行会盖过 D005 title。普通 cell 只在卡片内放 title、可选结构化典型详情和 diagnose 入口；impact 留在 `diagnose` 中。
 
 ### D8：`explain` 的 Apply 只表示报告授权（已确认）
 

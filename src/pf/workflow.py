@@ -51,7 +51,7 @@ from pf.schemas.evaluation import (
     VerificationJournalRecord,
     VerificationRole,
 )
-from pf.report import PackageReportBuilder, ReportStore
+from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
 from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.config import (
     ApplyRequest,
@@ -63,14 +63,7 @@ from pf.schemas.config import (
     SmokeRequest,
 )
 from pf.schemas.report import (
-    CellIndeterminate,
     CellResult,
-    CellSearchFailure,
-    CellSuccess,
-    CoordinateSuccess,
-    PackageFloorReportV1,
-    ProbeIndeterminate,
-    ProbeRejection,
     ProjectEditResult,
     failure_records_for_result,
 )
@@ -591,7 +584,7 @@ class SearchCommandWorkflow:
         self._associations = associations
         self._host_target = host_target or current_host_target()
 
-    def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]:
+    def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]:
         root = Path(request.root)
         self._events.consume(StatusEvent(message="loading project"))
         project = self._projects.load(
@@ -646,27 +639,9 @@ class SearchCommandWorkflow:
                 report_path = (
                     root / Path(package.pyproject_path).parent / "package-floor.json"
                 )
-                existing = None
-                if report_path.is_file():
-                    existing = self._reports.read_if_same_generation(
-                        report_path,
-                        report,
-                    )
-                    if existing is not None:
-                        report = self._reports.update(existing, report)
-                self._reports.write(report_path, report)
+                update = self._reports.update_path(report_path, report)
+                report = update.report
                 if self._associations is not None:
-                    replaced_cells = {result.cell for result in package_results}
-                    remove_failure_ids = (
-                        tuple(
-                            failure.failure_id
-                            for old_result in existing.cell_results
-                            if old_result.cell in replaced_cells
-                            for failure in failure_records_for_result(old_result)
-                        )
-                        if existing is not None
-                        else ()
-                    )
                     current_failures = tuple(
                         (failure.failure_id, failure.process)
                         for result in package_results
@@ -675,8 +650,8 @@ class SearchCommandWorkflow:
                     self._associations.replace_associations(
                         report.report_generation_id,
                         current_failures,
-                        replace_generation=existing is None,
-                        remove_failure_ids=remove_failure_ids,
+                        replace_generation=update.replace_generation,
+                        remove_failure_ids=update.removed_failure_ids,
                     )
                 reports.append(report)
             return tuple(reports)
@@ -744,7 +719,7 @@ class ExplainCommandWorkflow:
         self._discovery = discovery
         self._reports = reports
 
-    def run(self, request: ReportRequest) -> tuple[PackageFloorReportV1, ...]:
+    def run(self, request: ReportRequest) -> tuple[ValidatedReport, ...]:
         root = Path(request.root)
         locations = self._discovery.discover(
             root=root,
@@ -778,6 +753,8 @@ class DiagnosisLogLocator(Protocol):
         self, package: str
     ) -> VerificationJournalRecord | None: ...
 
+    def read_tail(self, path: Path) -> tuple[str, ...]: ...
+
 
 @dataclass(frozen=True)
 class FailureDiagnosis:
@@ -787,6 +764,7 @@ class FailureDiagnosis:
     proposal_id: str | None
     boundary_role: Literal["predecessor"] | None
     log_path: Path | None
+    output_tail: tuple[str, ...] = ()
     source: Literal["package-floor.json", "journal"] = "package-floor.json"
     verification_role: VerificationRole | None = None
     command: Literal["smoke", "check", "search"] | None = None
@@ -820,32 +798,38 @@ class DiagnoseCommandWorkflow:
                 report = self._reports.read(report_path)
                 if report.package.name != location.name:
                     raise ConfigurationError("report package identity mismatch")
-                for result in report.cell_results:
-                    for failure in failure_records_for_result(result):
-                        if (
-                            request.failure_id is not None
-                            and failure.failure_id != request.failure_id
-                        ):
-                            continue
-                        seen.add(failure.failure_id)
-                        proposal_id, boundary_role = self._search_context(
-                            result,
-                            failure.failure_id,
+                for failure in report.failure_records:
+                    if (
+                        request.failure_id is not None
+                        and failure.failure_id != request.failure_id
+                    ):
+                        continue
+                    context = report.failure_context(failure.failure_id)
+                    if context is None:
+                        raise ConfigurationError(
+                            f"report failure has no resolved context: {failure.failure_id}"
                         )
-                        entries.append(
-                            FailureDiagnosis(
-                                report_generation_id=report.report_generation_id,
-                                package=report.package.name,
-                                failure=failure,
-                                proposal_id=proposal_id,
-                                boundary_role=boundary_role,
-                                log_path=self._logs.lookup(
-                                    report.report_generation_id,
-                                    failure.failure_id,
-                                ),
-                                source="package-floor.json",
-                            )
+                    seen.add(failure.failure_id)
+                    log_path = self._logs.lookup(
+                        report.report_generation_id,
+                        failure.failure_id,
+                    )
+                    entries.append(
+                        FailureDiagnosis(
+                            report_generation_id=report.report_generation_id,
+                            package=report.package.name,
+                            failure=failure,
+                            proposal_id=context.proposal_id,
+                            boundary_role=context.boundary_role,
+                            log_path=log_path,
+                            output_tail=(
+                                self._logs.read_tail(log_path)
+                                if log_path is not None
+                                else ()
+                            ),
+                            source="package-floor.json",
                         )
+                    )
             journal = self._logs.read_latest_journal(location.name)
             if journal is None:
                 continue
@@ -860,6 +844,10 @@ class DiagnoseCommandWorkflow:
                 ):
                     continue
                 seen.add(item.failure.failure_id)
+                log_path = self._logs.lookup_run(
+                    journal.run_id,
+                    item.failure.failure_id,
+                )
                 entries.append(
                     FailureDiagnosis(
                         report_generation_id=journal.run_id,
@@ -867,9 +855,11 @@ class DiagnoseCommandWorkflow:
                         failure=item.failure,
                         proposal_id=None,
                         boundary_role=None,
-                        log_path=self._logs.lookup_run(
-                            journal.run_id,
-                            item.failure.failure_id,
+                        log_path=log_path,
+                        output_tail=(
+                            self._logs.read_tail(log_path)
+                            if log_path is not None
+                            else ()
                         ),
                         source="journal",
                         verification_role=item.role,
@@ -879,41 +869,6 @@ class DiagnoseCommandWorkflow:
         if request.failure_id is not None and not entries:
             raise ConfigurationError(f"failure ID not found: {request.failure_id}")
         return tuple(sorted(entries, key=self._sort_key))
-
-    @staticmethod
-    def _search_context(
-        result: CellResult,
-        failure_id: str,
-    ) -> tuple[str | None, Literal["predecessor"] | None]:
-        if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
-            proposal_id = (
-                result.evaluation.proposal.proposal_id
-                if result.evaluation is not None
-                else None
-            )
-            return proposal_id, None
-        searches = ()
-        if isinstance(result, CellSuccess):
-            searches = (result.search,)
-        elif isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
-            result.coordinate_failure is not None
-        ):
-            searches = (result.coordinate_failure,)
-        proposal_id: str | None = None
-        boundary_role: Literal["predecessor"] | None = None
-        for search in searches:
-            for observation in search.observations:
-                evidence = observation.evidence
-                if isinstance(evidence, (ProbeRejection, ProbeIndeterminate)) and (
-                    evidence.failure_id == failure_id
-                ):
-                    proposal_id = evidence.proposal_id
-            if isinstance(search, CoordinateSuccess) and any(
-                boundary.predecessor_failure_id == failure_id
-                for boundary in search.boundaries
-            ):
-                boundary_role = "predecessor"
-        return proposal_id, boundary_role
 
     @staticmethod
     def _sort_key(entry: FailureDiagnosis) -> tuple[object, ...]:
@@ -948,7 +903,7 @@ class MergeCommandWorkflow:
     def __init__(self, *, reports: ReportStore) -> None:
         self._reports = reports
 
-    def run(self, request: MergeRequest) -> PackageFloorReportV1:
+    def run(self, request: MergeRequest) -> ValidatedReport:
         merged = self._reports.merge(
             tuple(self._reports.read(Path(path)) for path in request.reports)
         )
@@ -960,7 +915,7 @@ class ProjectEditOperations(Protocol):
     def apply_many(
         self,
         *,
-        reports: tuple[PackageFloorReportV1, ...],
+        reports: tuple[ValidatedReport, ...],
         root: Path,
     ) -> tuple[ProjectEditResult, ...]: ...
 

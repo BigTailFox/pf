@@ -50,7 +50,7 @@ class PytestProgressMonitor:
         self._poll()
 
     def _run(self) -> None:
-        while not self._stopped.wait(0.1):
+        while not self._stopped.wait(0.05):
             self._poll()
 
     def _poll(self) -> None:
@@ -59,11 +59,11 @@ class PytestProgressMonitor:
         try:
             progress = _read_progress(self._path, nonce=self._nonce)
         except (InvalidPytestProgress, OSError):
-            self._invalidate()
+            self._invalid = True
             return
         if progress is None:
             if self._last is not None:
-                self._invalidate()
+                self._invalid = True
             return
         if progress == self._last:
             return
@@ -71,7 +71,7 @@ class PytestProgressMonitor:
             progress.total != self._last.total
             or progress.completed < self._last.completed
         ):
-            self._invalidate()
+            self._invalid = True
             return
         try:
             self._consume(progress)
@@ -82,13 +82,6 @@ class PytestProgressMonitor:
 
     def _invalidate(self) -> None:
         self._invalid = True
-        if self._last is None:
-            return
-        try:
-            self._consume(None)
-        except BaseException:
-            pass
-        self._last = None
 
 
 def _read_progress(path: Path, *, nonce: str) -> StageProgress | None:

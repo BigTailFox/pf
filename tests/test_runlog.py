@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pf.errors import InfrastructureError
+from pf.errors import ConfigurationError, InfrastructureError
 from pf.failure import FailurePolicy
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
@@ -49,6 +49,191 @@ def _entry(*, package: str, policy: str) -> VerificationJournalEntry:
 
 
 class TestRunLogStoreJournal:
+    def test_diagnose_tail_uses_stdout_when_stderr_has_no_nonempty_lines(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="stdout-tail")
+        result = ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+        )
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            result,
+            stdout="one\n\ntwo\nthree\nfour\n",
+            stderr="\n",
+        )
+
+        assert store.read_tail(path) == ("two", "three", "four")
+        with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
+            store.read_tail(Path("../outside/process-0001.log"))
+
+    def test_diagnose_tail_strips_terminal_control_sequences(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="safe-tail")
+        result = ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+        )
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            result,
+            stderr=(
+                "\x1b[31mred\x1b[0m\n"
+                "\x1b]8;;https://example.invalid\x07linked\x1b]8;;\x07\n"
+                "control\x00text \x9b31mc1\x9b0m "
+                "\x9d8;;https://example.invalid\x9cwide\x9d8;;\x9c\n"
+            ),
+        )
+
+        assert store.read_tail(path) == (
+            "red",
+            "linked",
+            "controltext c1 wide",
+        )
+
+    def test_diagnose_tail_does_not_treat_c0_or_c1_controls_as_lines(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="control-tail")
+        result = ProcessResult(exit_code=1, signal=None, duration_seconds=0.1)
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            result,
+            stderr="before\x85middle\x1eafter\nlast\n",
+        )
+
+        assert store.read_tail(path) == ("beforemiddleafter", "last")
+
+    def test_diagnose_tail_handles_crlf_split_between_read_chunks(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="chunked-tail")
+        result = ProcessResult(exit_code=1, signal=None, duration_seconds=0.1)
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            result,
+            stderr="abc\r\ndef\r\nghi\n",
+        )
+        monkeypatch.setattr(RunLogStore, "_STREAM_CHUNK_SIZE", 4)
+
+        assert store.read_tail(path) == ("abc", "def", "ghi")
+
+    def test_v2_process_log_frames_section_markers_inside_tool_output(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="framed-tail")
+        result = ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+        )
+        stdout = "before\n--- stderr ---\nafter\n"
+        stderr = "real\n--- stdout ---\n--- stderr ---\nend\n"
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            result,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        assert path.read_text(encoding="utf-8").startswith(
+            "format: pf-process-log-v2\n"
+        )
+        assert store.read_output(result) == (stdout, stderr)
+        assert store.read_tail(path) == (
+            "--- stdout ---",
+            "--- stderr ---",
+            "end",
+        )
+
+    def test_v1_process_log_compatibility_rejects_ambiguous_markers(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="v1-tail")
+        result = ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0.1,
+        )
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=None,
+            ),
+            result,
+        )
+        path.write_text(
+            "format: pf-process-log-v1\n\n"
+            "--- stdout ---\nold stdout\n\n"
+            "--- stderr ---\nold stderr\n",
+            encoding="utf-8",
+        )
+
+        assert store.read_tail(path) == ("old stderr",)
+        path.write_bytes(
+            b"format: pf-process-log-v1\r\n\r\n"
+            b"--- stdout ---\r\nold stdout\r\n\r\n"
+            b"--- stderr ---\r\nold stderr\r\n"
+        )
+        assert store.read_output(result) == (
+            "old stdout\r\n",
+            "old stderr\r\n",
+        )
+        path.write_text(
+            "format: pf-process-log-v1\n\n"
+            "--- stdout ---\nbefore\n--- stderr ---\nafter\n\n"
+            "--- stderr ---\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
+            store.read_tail(path)
+        path.write_text(
+            "format: pf-process-log-v1\n\n"
+            "--- stdout ---\nbefore\n--- stdout ---\nafter\n\n"
+            "--- stderr ---\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
+            store.read_tail(path)
+
     def test_run_log_store_round_trips_a_v2_journal_with_per_package_policies(
         self,
         tmp_path: Path,

@@ -3,16 +3,41 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from packaging.specifiers import InvalidSpecifier, Specifier
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 
-from pf.schemas.base import FrozenSchema
+from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.config import EffectiveConfig
+
+
+_CANONICAL_DISTRIBUTION_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def is_canonical_distribution_name(value: str) -> bool:
+    """Return whether ``value`` is a canonical public distribution name."""
+    return _CANONICAL_DISTRIBUTION_NAME.fullmatch(value) is not None
+
+
+def public_relative_path(value: str, *, allow_parent: bool = False) -> str:
+    """Validate one portable, non-host-absolute path stored in a report."""
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if (
+        not value
+        or posix.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or any(ord(character) < 32 for character in value)
+        or (not allow_parent and (".." in posix.parts or ".." in windows.parts))
+    ):
+        raise ValueError("report path must be public and relative")
+    return value
 
 
 def public_locator(value: str) -> str:
@@ -48,6 +73,27 @@ class SnapshotEntry(FrozenSchema):
     content_digest: str | None = None
     link_target: str | None = None
 
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return public_relative_path(value)
+
+    @field_validator("link_target")
+    @classmethod
+    def validate_link_target(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return public_relative_path(value, allow_parent=True)
+
+
+def source_snapshot_digest(entries: tuple[SnapshotEntry, ...]) -> str:
+    """Return the canonical identity for a complete source manifest."""
+    canonical_entries = tuple(sorted(entries, key=lambda entry: entry.path))
+    payload = [entry.model_dump(mode="json") for entry in canonical_entries]
+    return hashlib.sha256(
+        b"pf:snapshot:v1\0" + canonical_identity_json(payload)
+    ).hexdigest()
+
 
 class SourceSnapshotIdentity(FrozenSchema):
     digest: str
@@ -68,6 +114,18 @@ class RequirementDeclaration(FrozenSchema):
     raw: str
     kind: Literal["searchable", "fixed"]
     managed: bool
+
+    @field_validator("package", "name")
+    @classmethod
+    def validate_distribution_name(cls, value: str) -> str:
+        if not is_canonical_distribution_name(value):
+            raise ValueError("requirement names must be canonical distribution names")
+        return value
+
+    @field_validator("pyproject_path")
+    @classmethod
+    def validate_pyproject_path(cls, value: str) -> str:
+        return public_relative_path(value)
 
 
 class HarnessGroupProvenance(FrozenSchema):
@@ -174,6 +232,8 @@ class Cell(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_normalized_cell(self) -> "Cell":
+        if not is_canonical_distribution_name(self.package):
+            raise ValueError("cell package must be a canonical distribution name")
         if self.target in {"linux", "macos", "windows"}:
             raise ValueError("cell target must be an exact uv target triple")
         if tuple(sorted(set(self.extra_surface))) != self.extra_surface:
@@ -189,6 +249,20 @@ class Cell(FrozenSchema):
 def cell_identity(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
     """Lookup key for a compatibility cell. Not an order contract."""
     return (cell.package, cell.target, cell.python_minor, cell.extra_surface)
+
+
+def cell_id(cell: Cell) -> str:
+    """Return the stable Schema 2 reference identity for a compatibility Cell."""
+    payload = {
+        "package": cell.package,
+        "target": cell.target,
+        "python_minor": cell.python_minor,
+        "extra_surface": cell.extra_surface,
+    }
+    return (
+        "cell-"
+        + hashlib.sha256(b"pf:cell:v1\0" + canonical_identity_json(payload)).hexdigest()
+    )
 
 
 class ResolvedNode(FrozenSchema):
@@ -217,6 +291,8 @@ class Proposal(FrozenSchema):
     fixed_declaration_ids: tuple[str, ...]
     resolved_graph: tuple[ResolvedNode, ...]
     policy_identity: str
+    project_plan_digest: str | None = None
+    environment_plan_digest: str | None = None
     interpreter: InterpreterIdentity | None = None
 
 
@@ -327,7 +403,9 @@ class HarnessResolutionRequirement(FrozenSchema):
             try:
                 Version(self.ceiling)
             except InvalidVersion as error:
-                raise ValueError("harness ceiling must be a normalized version") from error
+                raise ValueError(
+                    "harness ceiling must be a normalized version"
+                ) from error
         return self
 
 
@@ -443,9 +521,30 @@ class CandidateSnapshot(FrozenSchema):
     def validate_candidate_order(self) -> "CandidateSnapshot":
         if not self.candidates:
             raise ValueError("candidate snapshot cannot be empty")
-        versions = [candidate.version for candidate in self.candidates]
-        if len(set(versions)) != len(versions):
-            raise ValueError("candidate snapshot versions must be unique")
+        try:
+            versions = tuple(
+                Version(candidate.version) for candidate in self.candidates
+            )
+        except InvalidVersion as error:
+            raise ValueError(
+                "candidate snapshot versions must be normalized"
+            ) from error
+        if any(
+            str(version) != candidate.version
+            for version, candidate in zip(versions, self.candidates, strict=True)
+        ):
+            raise ValueError("candidate snapshot versions must be normalized")
+        if versions != tuple(sorted(set(versions))):
+            raise ValueError("candidate snapshot versions must be sorted and unique")
+        representatives = tuple(
+            (candidate.series_key, candidate.version) for candidate in self.candidates
+        )
+        if self.series_representatives != representatives or len(
+            {key for key, _ in representatives}
+        ) != len(representatives):
+            raise ValueError(
+                "candidate snapshot series representatives must match candidates"
+            )
         expected_digest = candidate_snapshot_digest(
             dependency=self.dependency,
             cell=self.cell,

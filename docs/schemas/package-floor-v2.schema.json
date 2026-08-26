@@ -1,0 +1,2472 @@
+{
+  "$defs": {
+    "AttemptFailureScopeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "kind": {
+          "const": "attempt",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "kind"
+      ],
+      "title": "AttemptFailureScopeV2",
+      "type": "object"
+    },
+    "AttemptV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "harness_baseline_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Harness Baseline Digest"
+        },
+        "harness_declaration_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Harness Declaration Ids",
+          "type": "array"
+        },
+        "harness_policy_identity": {
+          "enum": [
+            "original-harness-v1",
+            "harness-relaxation-v1"
+          ],
+          "title": "Harness Policy Identity",
+          "type": "string"
+        },
+        "requested_managed_vector": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/VersionPin"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Requested Managed Vector"
+        },
+        "requested_resolution": {
+          "enum": [
+            "highest",
+            "lowest-direct",
+            "exact-vector"
+          ],
+          "title": "Requested Resolution",
+          "type": "string"
+        },
+        "resolution_context_digest": {
+          "title": "Resolution Context Digest",
+          "type": "string"
+        },
+        "selected_candidate_evidence_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Selected Candidate Evidence Digest"
+        },
+        "source_plan_identity": {
+          "title": "Source Plan Identity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "cell_ref",
+        "harness_declaration_ids",
+        "harness_policy_identity",
+        "requested_resolution",
+        "resolution_context_digest",
+        "source_plan_identity"
+      ],
+      "title": "AttemptV2",
+      "type": "object"
+    },
+    "AvailableArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "wheel",
+            "sdist",
+            "archive"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Locator"
+        },
+        "python_minors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Python Minors",
+          "type": "array"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "content_hash",
+        "filename",
+        "kind",
+        "python_minors",
+        "targets"
+      ],
+      "title": "AvailableArtifact",
+      "type": "object"
+    },
+    "BaselineIndeterminateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "failure_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failure Refs",
+          "type": "array"
+        },
+        "proposal_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Proposal Ref"
+        },
+        "static_baseline_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Static Baseline Digest"
+        },
+        "status": {
+          "const": "BASELINE_INDETERMINATE",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "cell_ref",
+        "failure_refs",
+        "status"
+      ],
+      "title": "BaselineIndeterminateV2",
+      "type": "object"
+    },
+    "BaselineRefsV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_baseline_digest": {
+          "title": "Static Baseline Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "proposal_ref",
+        "static_baseline_digest"
+      ],
+      "title": "BaselineRefsV2",
+      "type": "object"
+    },
+    "BaselineRejectionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "failure_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failure Refs",
+          "type": "array"
+        },
+        "proposal_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Proposal Ref"
+        },
+        "static_baseline_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Static Baseline Digest"
+        },
+        "status": {
+          "const": "BASELINE_REJECTION",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "cell_ref",
+        "failure_refs",
+        "status"
+      ],
+      "title": "BaselineRejectionV2",
+      "type": "object"
+    },
+    "Candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/AvailableArtifact"
+        },
+        "prerelease": {
+          "title": "Prerelease",
+          "type": "boolean"
+        },
+        "series_key": {
+          "title": "Series Key",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "prerelease",
+        "series_key",
+        "version"
+      ],
+      "title": "Candidate",
+      "type": "object"
+    },
+    "CandidateSnapshotV2": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_snapshot_id": {
+          "title": "Candidate Snapshot Id",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "dependency": {
+          "title": "Dependency",
+          "type": "string"
+        },
+        "policy_identity": {
+          "title": "Policy Identity",
+          "type": "string"
+        },
+        "series_representatives": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Series Representatives",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceIdentity"
+        }
+      },
+      "required": [
+        "candidate_snapshot_id",
+        "candidates",
+        "cell_ref",
+        "dependency",
+        "policy_identity",
+        "series_representatives",
+        "source"
+      ],
+      "title": "CandidateSnapshotV2",
+      "type": "object"
+    },
+    "CellFailureScopeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "kind": {
+          "const": "cell",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cell_ref",
+        "kind"
+      ],
+      "title": "CellFailureScopeV2",
+      "type": "object"
+    },
+    "CellIndeterminateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BaselineRefsV2"
+            }
+          ]
+        },
+        "candidate_snapshot_refs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Candidate Snapshot Refs"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "coordinate_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoordinateFailureV2"
+            }
+          ]
+        },
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "failure_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failure Refs",
+          "type": "array"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "status": {
+          "const": "CELL_INDETERMINATE",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cell_ref",
+        "failure_ref",
+        "failure_refs",
+        "phase",
+        "status"
+      ],
+      "title": "CellIndeterminateV2",
+      "type": "object"
+    },
+    "CellSearchFailureV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/BaselineRefsV2"
+        },
+        "candidate_snapshot_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Snapshot Refs",
+          "type": "array"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "coordinate_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoordinateFailureV2"
+            }
+          ]
+        },
+        "failure_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failure Refs",
+          "type": "array"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "NON_MONOTONIC",
+            "NONDETERMINISTIC",
+            "NO_PASS_IN_SEARCH_SPACE"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "const": "SEARCH_FAILED",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline",
+        "candidate_snapshot_refs",
+        "cell_ref",
+        "failure_refs",
+        "phase",
+        "reason",
+        "status"
+      ],
+      "title": "CellSearchFailureV2",
+      "type": "object"
+    },
+    "CellSuccessV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/BaselineRefsV2"
+        },
+        "candidate_snapshot_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Snapshot Refs",
+          "type": "array"
+        },
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "failure_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failure Refs",
+          "type": "array"
+        },
+        "final_proposal_ref": {
+          "title": "Final Proposal Ref",
+          "type": "string"
+        },
+        "search": {
+          "$ref": "#/$defs/CoordinateSuccessV2"
+        },
+        "status": {
+          "const": "SUCCESS",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline",
+        "candidate_snapshot_refs",
+        "cell_ref",
+        "failure_refs",
+        "final_proposal_ref",
+        "search",
+        "status"
+      ],
+      "title": "CellSuccessV2",
+      "type": "object"
+    },
+    "CompleteReportResult": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "complete",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "CompleteReportResult",
+      "type": "object"
+    },
+    "CoordinateBoundaryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency": {
+          "title": "Dependency",
+          "type": "string"
+        },
+        "floor": {
+          "title": "Floor",
+          "type": "string"
+        },
+        "predecessor": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Predecessor"
+        },
+        "predecessor_failure_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Predecessor Failure Ref"
+        }
+      },
+      "required": [
+        "dependency",
+        "floor"
+      ],
+      "title": "CoordinateBoundaryV2",
+      "type": "object"
+    },
+    "CoordinateFailureV2": {
+      "additionalProperties": false,
+      "properties": {
+        "counterexample": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            }
+          ],
+          "title": "Counterexample"
+        },
+        "dependency": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Dependency"
+        },
+        "failure_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Failure Ref"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/ProbeObservationV2"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "regions": {
+          "items": {
+            "$ref": "#/$defs/StaticRegionV2"
+          },
+          "title": "Regions",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "NON_MONOTONIC",
+            "NO_PASS_IN_SEARCH_SPACE",
+            "INDETERMINATE",
+            "NONDETERMINISTIC"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observations",
+        "regions",
+        "status"
+      ],
+      "title": "CoordinateFailureV2",
+      "type": "object"
+    },
+    "CoordinateSuccessV2": {
+      "additionalProperties": false,
+      "properties": {
+        "boundaries": {
+          "items": {
+            "$ref": "#/$defs/CoordinateBoundaryV2"
+          },
+          "title": "Boundaries",
+          "type": "array"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/ProbeObservationV2"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "regions": {
+          "items": {
+            "$ref": "#/$defs/StaticRegionV2"
+          },
+          "title": "Regions",
+          "type": "array"
+        },
+        "status": {
+          "const": "SUCCESS",
+          "title": "Status",
+          "type": "string"
+        },
+        "sweeps": {
+          "title": "Sweeps",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "boundaries",
+        "observations",
+        "regions",
+        "status",
+        "sweeps"
+      ],
+      "title": "CoordinateSuccessV2",
+      "type": "object"
+    },
+    "DiagnosticClassification": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "enum": [
+            "strong",
+            "general"
+          ],
+          "title": "Classification",
+          "type": "string"
+        },
+        "classifier_policy_version": {
+          "title": "Classifier Policy Version",
+          "type": "string"
+        },
+        "diagnostic_identity": {
+          "title": "Diagnostic Identity",
+          "type": "string"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "witness_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeWitnessPlan"
+            }
+          ]
+        }
+      },
+      "required": [
+        "classification",
+        "classifier_policy_version",
+        "diagnostic_identity",
+        "reason_code"
+      ],
+      "title": "DiagnosticClassification",
+      "type": "object"
+    },
+    "DirectIndeterminateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "kind": {
+          "const": "DIRECT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "const": "INDETERMINATE",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "failure_ref",
+        "kind",
+        "status"
+      ],
+      "title": "DirectIndeterminateV2",
+      "type": "object"
+    },
+    "DirectPassV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "kind": {
+          "const": "DIRECT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "const": "PASS",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "kind",
+        "status"
+      ],
+      "title": "DirectPassV2",
+      "type": "object"
+    },
+    "DirectRejectionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "kind": {
+          "const": "DIRECT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "const": "REJECTED",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "failure_ref",
+        "kind",
+        "status"
+      ],
+      "title": "DirectRejectionV2",
+      "type": "object"
+    },
+    "FailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "FailureDetail",
+      "type": "object"
+    },
+    "FailureRecordV2": {
+      "additionalProperties": false,
+      "properties": {
+        "cause": {
+          "enum": [
+            "RESOLUTION_CONFLICT",
+            "BUILD_FAILURE",
+            "HARNESS_CONFLICT",
+            "RUNTIME_INTERFACE_MISSING",
+            "TEST_FAILURE",
+            "SOURCE_FAILURE",
+            "ENVIRONMENT_FAILURE",
+            "TOOL_FAILURE",
+            "TIMEOUT",
+            "INTERNAL_INVARIANT",
+            "NONDETERMINISTIC"
+          ],
+          "title": "Cause",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FailureDetail"
+            }
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "REJECTED",
+            "INDETERMINATE"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "environment_plan_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Environment Plan Digest"
+        },
+        "failure_id": {
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "process": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessResult"
+            }
+          ]
+        },
+        "project_plan_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Project Plan Digest"
+        },
+        "scope": {
+          "discriminator": {
+            "mapping": {
+              "attempt": "#/$defs/AttemptFailureScopeV2",
+              "cell": "#/$defs/CellFailureScopeV2"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CellFailureScopeV2"
+            },
+            {
+              "$ref": "#/$defs/AttemptFailureScopeV2"
+            }
+          ],
+          "title": "Scope"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "summary_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Summary Code"
+        }
+      },
+      "required": [
+        "cause",
+        "disposition",
+        "failure_id",
+        "scope",
+        "stage"
+      ],
+      "title": "FailureRecordV2",
+      "type": "object"
+    },
+    "FloorProjectionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_ref": {
+          "title": "Cell Ref",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cell_ref",
+        "version"
+      ],
+      "title": "FloorProjectionV2",
+      "type": "object"
+    },
+    "GeneratorIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "name",
+        "version"
+      ],
+      "title": "GeneratorIdentity",
+      "type": "object"
+    },
+    "IncompleteReportResult": {
+      "additionalProperties": false,
+      "properties": {
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "status": {
+          "const": "incomplete",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reasons",
+        "status"
+      ],
+      "title": "IncompleteReportResult",
+      "type": "object"
+    },
+    "IndeterminateEvaluationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_evaluation_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Static Evaluation Ref"
+        },
+        "status": {
+          "const": "INDETERMINATE",
+          "title": "Status",
+          "type": "string"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+          },
+          "title": "Witnesses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "failure_ref",
+        "proposal_ref",
+        "status",
+        "witnesses"
+      ],
+      "title": "IndeterminateEvaluationV2",
+      "type": "object"
+    },
+    "InterpreterIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "abi": {
+          "title": "Abi",
+          "type": "string"
+        },
+        "implementation": {
+          "const": "cpython",
+          "title": "Implementation",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "abi",
+        "implementation",
+        "version"
+      ],
+      "title": "InterpreterIdentity",
+      "type": "object"
+    },
+    "PackageIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "pyproject_path": {
+          "title": "Pyproject Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "pyproject_path"
+      ],
+      "title": "PackageIdentity",
+      "type": "object"
+    },
+    "PassEvaluationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_evaluation_ref": {
+          "title": "Static Evaluation Ref",
+          "type": "string"
+        },
+        "status": {
+          "const": "PASS",
+          "title": "Status",
+          "type": "string"
+        },
+        "test": {
+          "$ref": "#/$defs/TestPass"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+          },
+          "title": "Witnesses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "proposal_ref",
+        "static_evaluation_ref",
+        "status",
+        "test",
+        "witnesses"
+      ],
+      "title": "PassEvaluationV2",
+      "type": "object"
+    },
+    "ProbeObservationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Candidate Version"
+        },
+        "dependency": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Dependency"
+        },
+        "evidence": {
+          "discriminator": {
+            "mapping": {
+              "DIRECT": {
+                "discriminator": {
+                  "mapping": {
+                    "INDETERMINATE": "#/$defs/DirectIndeterminateV2",
+                    "PASS": "#/$defs/DirectPassV2",
+                    "REJECTED": "#/$defs/DirectRejectionV2"
+                  },
+                  "propertyName": "status"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/DirectPassV2"
+                  },
+                  {
+                    "$ref": "#/$defs/DirectRejectionV2"
+                  },
+                  {
+                    "$ref": "#/$defs/DirectIndeterminateV2"
+                  }
+                ]
+              },
+              "STATIC_ONLY": "#/$defs/StaticOnlyEvidenceV2"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "INDETERMINATE": "#/$defs/DirectIndeterminateV2",
+                  "PASS": "#/$defs/DirectPassV2",
+                  "REJECTED": "#/$defs/DirectRejectionV2"
+                },
+                "propertyName": "status"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/DirectPassV2"
+                },
+                {
+                  "$ref": "#/$defs/DirectRejectionV2"
+                },
+                {
+                  "$ref": "#/$defs/DirectIndeterminateV2"
+                }
+              ]
+            },
+            {
+              "$ref": "#/$defs/StaticOnlyEvidenceV2"
+            }
+          ],
+          "title": "Evidence"
+        }
+      },
+      "required": [
+        "evidence"
+      ],
+      "title": "ProbeObservationV2",
+      "type": "object"
+    },
+    "ProcessResult": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Signal"
+        },
+        "start_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Start Error"
+        },
+        "stderr_complete": {
+          "title": "Stderr Complete",
+          "type": "boolean"
+        },
+        "stdout_complete": {
+          "title": "Stdout Complete",
+          "type": "boolean"
+        },
+        "timed_out": {
+          "title": "Timed Out",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "duration_seconds",
+        "stderr_complete",
+        "stdout_complete",
+        "timed_out"
+      ],
+      "title": "ProcessResult",
+      "type": "object"
+    },
+    "ProjectionEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "declaration_ref": {
+          "title": "Declaration Ref",
+          "type": "string"
+        },
+        "floors": {
+          "items": {
+            "$ref": "#/$defs/FloorProjectionV2"
+          },
+          "title": "Floors",
+          "type": "array"
+        },
+        "projected_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Projected Requirements",
+          "type": "array"
+        },
+        "representable": {
+          "title": "Representable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "declaration_ref",
+        "floors",
+        "projected_requirements",
+        "representable"
+      ],
+      "title": "ProjectionEvidenceV2",
+      "type": "object"
+    },
+    "ProposalV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "environment_plan_digest": {
+          "title": "Environment Plan Digest",
+          "type": "string"
+        },
+        "fixed_declaration_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fixed Declaration Refs",
+          "type": "array"
+        },
+        "interpreter": {
+          "$ref": "#/$defs/InterpreterIdentity"
+        },
+        "managed_vector": {
+          "items": {
+            "$ref": "#/$defs/VersionPin"
+          },
+          "title": "Managed Vector",
+          "type": "array"
+        },
+        "project_plan_digest": {
+          "title": "Project Plan Digest",
+          "type": "string"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "resolution_graph_ref": {
+          "title": "Resolution Graph Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "environment_plan_digest",
+        "fixed_declaration_refs",
+        "interpreter",
+        "managed_vector",
+        "project_plan_digest",
+        "proposal_id",
+        "resolution_graph_ref"
+      ],
+      "title": "ProposalV2",
+      "type": "object"
+    },
+    "ReportEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "items": {
+            "$ref": "#/$defs/AttemptV2"
+          },
+          "title": "Attempts",
+          "type": "array"
+        },
+        "evaluations": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "INDETERMINATE": "#/$defs/IndeterminateEvaluationV2",
+                "PASS": "#/$defs/PassEvaluationV2",
+                "RUNTIME_INTERFACE_MISSING": "#/$defs/RuntimeInterfaceMissingEvaluationV2",
+                "TEST_FAIL": "#/$defs/TestFailEvaluationV2"
+              },
+              "propertyName": "status"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/PassEvaluationV2"
+              },
+              {
+                "$ref": "#/$defs/TestFailEvaluationV2"
+              },
+              {
+                "$ref": "#/$defs/RuntimeInterfaceMissingEvaluationV2"
+              },
+              {
+                "$ref": "#/$defs/IndeterminateEvaluationV2"
+              }
+            ]
+          },
+          "title": "Evaluations",
+          "type": "array"
+        },
+        "failures": {
+          "items": {
+            "$ref": "#/$defs/FailureRecordV2"
+          },
+          "title": "Failures",
+          "type": "array"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/ProposalV2"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "resolution_graphs": {
+          "items": {
+            "$ref": "#/$defs/ResolutionGraphV2"
+          },
+          "title": "Resolution Graphs",
+          "type": "array"
+        },
+        "static_evaluations": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "STATIC_REGRESSION": "#/$defs/StaticRegressionEvaluationV2",
+                "STATIC_UNCHANGED": "#/$defs/StaticUnchangedEvaluationV2"
+              },
+              "propertyName": "status"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/StaticUnchangedEvaluationV2"
+              },
+              {
+                "$ref": "#/$defs/StaticRegressionEvaluationV2"
+              }
+            ]
+          },
+          "title": "Static Evaluations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "attempts",
+        "evaluations",
+        "failures",
+        "proposals",
+        "resolution_graphs",
+        "static_evaluations"
+      ],
+      "title": "ReportEvidenceV2",
+      "type": "object"
+    },
+    "ReportIdentityV2": {
+      "additionalProperties": false,
+      "properties": {
+        "generator": {
+          "$ref": "#/$defs/GeneratorIdentity"
+        },
+        "package": {
+          "$ref": "#/$defs/PackageIdentity"
+        },
+        "policy_identity": {
+          "title": "Policy Identity",
+          "type": "string"
+        },
+        "report_generation_id": {
+          "title": "Report Generation Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "$ref": "#/$defs/SourceSnapshotIdentity"
+        }
+      },
+      "required": [
+        "generator",
+        "package",
+        "policy_identity",
+        "report_generation_id",
+        "source_snapshot"
+      ],
+      "title": "ReportIdentityV2",
+      "type": "object"
+    },
+    "ReportInputsV2": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_snapshots": {
+          "items": {
+            "$ref": "#/$defs/CandidateSnapshotV2"
+          },
+          "title": "Candidate Snapshots",
+          "type": "array"
+        },
+        "requirement_declarations": {
+          "items": {
+            "$ref": "#/$defs/RequirementDeclaration"
+          },
+          "title": "Requirement Declarations",
+          "type": "array"
+        },
+        "target_cells": {
+          "items": {
+            "$ref": "#/$defs/TargetCellV2"
+          },
+          "title": "Target Cells",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_snapshots",
+        "requirement_declarations",
+        "target_cells"
+      ],
+      "title": "ReportInputsV2",
+      "type": "object"
+    },
+    "RequirementDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "declaration_id": {
+          "title": "Declaration Id",
+          "type": "string"
+        },
+        "extra": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Extra"
+        },
+        "kind": {
+          "enum": [
+            "searchable",
+            "fixed"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "location": {
+          "enum": [
+            "base",
+            "optional"
+          ],
+          "title": "Location",
+          "type": "string"
+        },
+        "managed": {
+          "title": "Managed",
+          "type": "boolean"
+        },
+        "marker": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Marker"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "package": {
+          "title": "Package",
+          "type": "string"
+        },
+        "pyproject_path": {
+          "title": "Pyproject Path",
+          "type": "string"
+        },
+        "raw": {
+          "title": "Raw",
+          "type": "string"
+        },
+        "requested_extras": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requested Extras",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceIdentity"
+        },
+        "specifier": {
+          "title": "Specifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "declaration_id",
+        "kind",
+        "location",
+        "managed",
+        "name",
+        "package",
+        "pyproject_path",
+        "raw",
+        "requested_extras",
+        "source",
+        "specifier"
+      ],
+      "title": "RequirementDeclaration",
+      "type": "object"
+    },
+    "ResolutionGraphV2": {
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/ResolvedNode"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "resolution_graph_id": {
+          "title": "Resolution Graph Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "nodes",
+        "resolution_graph_id"
+      ],
+      "title": "ResolutionGraphV2",
+      "type": "object"
+    },
+    "ResolvedNode": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dependencies",
+        "name",
+        "version"
+      ],
+      "title": "ResolvedNode",
+      "type": "object"
+    },
+    "RuntimeInterfaceMissingEvaluationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_evaluation_ref": {
+          "title": "Static Evaluation Ref",
+          "type": "string"
+        },
+        "status": {
+          "const": "RUNTIME_INTERFACE_MISSING",
+          "title": "Status",
+          "type": "string"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+          },
+          "title": "Witnesses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "failure_ref",
+        "proposal_ref",
+        "static_evaluation_ref",
+        "status",
+        "witnesses"
+      ],
+      "title": "RuntimeInterfaceMissingEvaluationV2",
+      "type": "object"
+    },
+    "RuntimeWitnessAttemptV2": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "discriminator": {
+            "mapping": {
+              "CONFIRMED_MISSING": "#/$defs/RuntimeWitnessTerminalV2",
+              "FAILURE": "#/$defs/RuntimeWitnessTerminalV2",
+              "NOT_APPLICABLE": "#/$defs/RuntimeWitnessPositiveV2",
+              "PRESENT": "#/$defs/RuntimeWitnessPositiveV2"
+            },
+            "propertyName": "status"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RuntimeWitnessPositiveV2"
+            },
+            {
+              "$ref": "#/$defs/RuntimeWitnessTerminalV2"
+            }
+          ],
+          "title": "Outcome"
+        },
+        "plan": {
+          "$ref": "#/$defs/RuntimeWitnessPlan"
+        }
+      },
+      "required": [
+        "outcome",
+        "plan"
+      ],
+      "title": "RuntimeWitnessAttemptV2",
+      "type": "object"
+    },
+    "RuntimeWitnessPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnostic_identities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Diagnostic Identities",
+          "type": "array"
+        },
+        "managed_dependency": {
+          "title": "Managed Dependency",
+          "type": "string"
+        },
+        "module": {
+          "title": "Module",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "import-module",
+            "import-symbol",
+            "has-member"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Owner"
+        },
+        "planner_policy_version": {
+          "title": "Planner Policy Version",
+          "type": "string"
+        },
+        "symbol_or_member": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Symbol Or Member"
+        }
+      },
+      "required": [
+        "diagnostic_identities",
+        "managed_dependency",
+        "module",
+        "operation",
+        "planner_policy_version"
+      ],
+      "title": "RuntimeWitnessPlan",
+      "type": "object"
+    },
+    "RuntimeWitnessPositiveV2": {
+      "additionalProperties": false,
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/ProcessResult"
+        },
+        "status": {
+          "enum": [
+            "PRESENT",
+            "NOT_APPLICABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process",
+        "status"
+      ],
+      "title": "RuntimeWitnessPositiveV2",
+      "type": "object"
+    },
+    "RuntimeWitnessTerminalV2": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "CONFIRMED_MISSING",
+            "FAILURE"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "failure_ref",
+        "status"
+      ],
+      "title": "RuntimeWitnessTerminalV2",
+      "type": "object"
+    },
+    "SnapshotEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "content_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Content Digest"
+        },
+        "kind": {
+          "enum": [
+            "directory",
+            "file",
+            "symlink"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "link_target": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Link Target"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "mode",
+        "path"
+      ],
+      "title": "SnapshotEntry",
+      "type": "object"
+    },
+    "SourceIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Commit"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "index": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Index"
+        },
+        "kind": {
+          "enum": [
+            "registry",
+            "path",
+            "workspace",
+            "git",
+            "url"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Locator"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "SourceIdentity",
+      "type": "object"
+    },
+    "SourceSnapshotIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/SnapshotEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "digest",
+        "entries"
+      ],
+      "title": "SourceSnapshotIdentity",
+      "type": "object"
+    },
+    "StaticOnlyEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "title": "Attempt Ref",
+          "type": "string"
+        },
+        "guidance": {
+          "enum": [
+            "PASS",
+            "REJECTED"
+          ],
+          "title": "Guidance",
+          "type": "string"
+        },
+        "kind": {
+          "const": "STATIC_ONLY",
+          "title": "Kind",
+          "type": "string"
+        },
+        "region_ref": {
+          "title": "Region Ref",
+          "type": "string"
+        },
+        "representative_proposal_ref": {
+          "title": "Representative Proposal Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "guidance",
+        "kind",
+        "region_ref",
+        "representative_proposal_ref"
+      ],
+      "title": "StaticOnlyEvidenceV2",
+      "type": "object"
+    },
+    "StaticRegionRuntimeReferenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_ref"
+      ],
+      "title": "StaticRegionRuntimeReferenceV2",
+      "type": "object"
+    },
+    "StaticRegionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_digest": {
+          "title": "Baseline Digest",
+          "type": "string"
+        },
+        "candidate_snapshot_ref": {
+          "title": "Candidate Snapshot Ref",
+          "type": "string"
+        },
+        "observed_versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observed Versions",
+          "type": "array"
+        },
+        "other_coordinates": {
+          "items": {
+            "$ref": "#/$defs/VersionPin"
+          },
+          "title": "Other Coordinates",
+          "type": "array"
+        },
+        "region_id": {
+          "title": "Region Id",
+          "type": "string"
+        },
+        "runtime_references": {
+          "items": {
+            "$ref": "#/$defs/StaticRegionRuntimeReferenceV2"
+          },
+          "title": "Runtime References",
+          "type": "array"
+        },
+        "static_fingerprint": {
+          "title": "Static Fingerprint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline_digest",
+        "candidate_snapshot_ref",
+        "observed_versions",
+        "other_coordinates",
+        "region_id",
+        "runtime_references",
+        "static_fingerprint"
+      ],
+      "title": "StaticRegionV2",
+      "type": "object"
+    },
+    "StaticRegressionEvaluationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_digest": {
+          "title": "Baseline Digest",
+          "type": "string"
+        },
+        "classifications": {
+          "items": {
+            "$ref": "#/$defs/DiagnosticClassification"
+          },
+          "title": "Classifications",
+          "type": "array"
+        },
+        "incremental": {
+          "items": {
+            "$ref": "#/$defs/TyDiagnostic"
+          },
+          "title": "Incremental",
+          "type": "array"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_fingerprint": {
+          "title": "Static Fingerprint",
+          "type": "string"
+        },
+        "status": {
+          "const": "STATIC_REGRESSION",
+          "title": "Status",
+          "type": "string"
+        },
+        "ty": {
+          "$ref": "#/$defs/TyCheck"
+        }
+      },
+      "required": [
+        "baseline_digest",
+        "classifications",
+        "incremental",
+        "proposal_ref",
+        "static_fingerprint",
+        "status",
+        "ty"
+      ],
+      "title": "StaticRegressionEvaluationV2",
+      "type": "object"
+    },
+    "StaticUnchangedEvaluationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_digest": {
+          "title": "Baseline Digest",
+          "type": "string"
+        },
+        "incremental": {
+          "maxItems": 0,
+          "minItems": 0,
+          "title": "Incremental",
+          "type": "array"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_fingerprint": {
+          "title": "Static Fingerprint",
+          "type": "string"
+        },
+        "status": {
+          "const": "STATIC_UNCHANGED",
+          "title": "Status",
+          "type": "string"
+        },
+        "ty": {
+          "$ref": "#/$defs/TyCheck"
+        }
+      },
+      "required": [
+        "baseline_digest",
+        "incremental",
+        "proposal_ref",
+        "static_fingerprint",
+        "status",
+        "ty"
+      ],
+      "title": "StaticUnchangedEvaluationV2",
+      "type": "object"
+    },
+    "TargetCellV2": {
+      "additionalProperties": false,
+      "properties": {
+        "active_declaration_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Active Declaration Refs",
+          "type": "array"
+        },
+        "cell_id": {
+          "title": "Cell Id",
+          "type": "string"
+        },
+        "extra_surface": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Extra Surface",
+          "type": "array"
+        },
+        "package": {
+          "title": "Package",
+          "type": "string"
+        },
+        "python_minor": {
+          "title": "Python Minor",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "active_declaration_refs",
+        "cell_id",
+        "extra_surface",
+        "package",
+        "python_minor",
+        "target"
+      ],
+      "title": "TargetCellV2",
+      "type": "object"
+    },
+    "TestFailEvaluationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_evaluation_ref": {
+          "title": "Static Evaluation Ref",
+          "type": "string"
+        },
+        "status": {
+          "const": "TEST_FAIL",
+          "title": "Status",
+          "type": "string"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+          },
+          "title": "Witnesses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "failure_ref",
+        "proposal_ref",
+        "static_evaluation_ref",
+        "status",
+        "witnesses"
+      ],
+      "title": "TestFailEvaluationV2",
+      "type": "object"
+    },
+    "TestPass": {
+      "additionalProperties": false,
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/ProcessResult"
+        },
+        "status": {
+          "const": "TEST_PASS",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process",
+        "status"
+      ],
+      "title": "TestPass",
+      "type": "object"
+    },
+    "TyCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/TyDiagnostic"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessResult"
+        },
+        "status": {
+          "const": "SUCCESS",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "diagnostics",
+        "process",
+        "status"
+      ],
+      "title": "TyCheck",
+      "type": "object"
+    },
+    "TyDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Column"
+        },
+        "identity": {
+          "title": "Identity",
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Line"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "snapshot",
+            "external"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "column",
+        "identity",
+        "line",
+        "message",
+        "origin",
+        "path",
+        "severity"
+      ],
+      "title": "TyDiagnostic",
+      "type": "object"
+    },
+    "VersionPin": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "VersionPin",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cell_results": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "BASELINE_INDETERMINATE": "#/$defs/BaselineIndeterminateV2",
+            "BASELINE_REJECTION": "#/$defs/BaselineRejectionV2",
+            "CELL_INDETERMINATE": "#/$defs/CellIndeterminateV2",
+            "SEARCH_FAILED": "#/$defs/CellSearchFailureV2",
+            "SUCCESS": "#/$defs/CellSuccessV2"
+          },
+          "propertyName": "status"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/CellSuccessV2"
+          },
+          {
+            "$ref": "#/$defs/CellIndeterminateV2"
+          },
+          {
+            "$ref": "#/$defs/BaselineRejectionV2"
+          },
+          {
+            "$ref": "#/$defs/BaselineIndeterminateV2"
+          },
+          {
+            "$ref": "#/$defs/CellSearchFailureV2"
+          }
+        ]
+      },
+      "title": "Cell Results",
+      "type": "array"
+    },
+    "evidence": {
+      "$ref": "#/$defs/ReportEvidenceV2"
+    },
+    "identity": {
+      "$ref": "#/$defs/ReportIdentityV2"
+    },
+    "inputs": {
+      "$ref": "#/$defs/ReportInputsV2"
+    },
+    "projections": {
+      "items": {
+        "$ref": "#/$defs/ProjectionEvidenceV2"
+      },
+      "title": "Projections",
+      "type": "array"
+    },
+    "result": {
+      "discriminator": {
+        "mapping": {
+          "complete": "#/$defs/CompleteReportResult",
+          "incomplete": "#/$defs/IncompleteReportResult"
+        },
+        "propertyName": "status"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompleteReportResult"
+        },
+        {
+          "$ref": "#/$defs/IncompleteReportResult"
+        }
+      ],
+      "title": "Result"
+    },
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cell_results",
+    "evidence",
+    "identity",
+    "inputs",
+    "projections",
+    "result",
+    "schema_version"
+  ],
+  "title": "PackageFloorReportV2Wire",
+  "type": "object"
+}

@@ -13,6 +13,7 @@ from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
+from pf.resolution import environment_identity_digest
 from pf.runlog import RunLogStore
 from pf.schemas.config import DiagnoseRequest
 from pf.schemas.evaluation import (
@@ -24,6 +25,7 @@ from pf.schemas.evaluation import (
     FailureRecord,
     PassEvaluation,
     ProcessResult,
+    ProcessSpec,
     StaticBaseline,
     StaticUnchangedEvaluation,
     TestFail,
@@ -40,6 +42,7 @@ from pf.schemas.project import (
     Candidate,
     CandidateSnapshot,
     Cell,
+    InterpreterIdentity,
     Proposal,
     SourceIdentity,
     VersionPin,
@@ -74,10 +77,14 @@ class RecordingLogLocator:
     def read_latest_journal(self, package: str) -> VerificationJournal | None:
         return None
 
+    def read_tail(self, path: Path) -> tuple[str, ...]:
+        return ()
+
 
 def candidate_snapshot(
     cell: Cell,
     vector: tuple[VersionPin, ...],
+    policy_identity: str,
 ) -> tuple[CandidateSnapshot, ...]:
     pin = vector[0]
     source = SourceIdentity(kind="registry")
@@ -99,14 +106,14 @@ def candidate_snapshot(
         CandidateSnapshot(
             dependency=pin.name,
             cell=cell,
-            policy_identity="candidate-policy",
+            policy_identity=policy_identity,
             source=source,
             candidates=candidates,
             series_representatives=representatives,
             digest=candidate_snapshot_digest(
                 dependency=pin.name,
                 cell=cell,
-                policy_identity="candidate-policy",
+                policy_identity=policy_identity,
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
@@ -208,6 +215,7 @@ def _attempt(
     )
     return Attempt.from_identity(
         AttemptIdentity(
+            identity_version="attempt-v2",
             source_snapshot_digest=snapshot_digest,
             cell=cell,
             requested_resolution=resolution,
@@ -215,6 +223,20 @@ def _attempt(
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity=policy_identity,
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "original-harness-v1"
+                if resolution == "highest"
+                else "harness-relaxation-v1"
+            ),
+            harness_baseline_digest=(
+                None if resolution == "highest" else "harness-baseline"
+            ),
+            selected_candidate_evidence_digest=(
+                "selected-candidate"
+                if resolution == "exact-vector"
+                else None
+            ),
         )
     )
 
@@ -228,8 +250,14 @@ def _pass_evaluation(
     baseline_digest: str,
     policy_identity: str,
 ) -> PassEvaluation:
+    project_digest = f"project-{attempt.attempt_id}"
+    environment_digest = f"environment-{attempt.attempt_id}"
     proposal = Proposal(
-        proposal_id=";".join(f"{pin.name}={pin.version}" for pin in vector),
+        proposal_id=environment_identity_digest(
+            project_plan_digest=project_digest,
+            environment_plan_digest=environment_digest,
+            graph=(),
+        ),
         attempt_id=attempt.attempt_id,
         snapshot_digest=snapshot_digest,
         cell=attempt.identity.cell,
@@ -237,6 +265,17 @@ def _pass_evaluation(
         fixed_declaration_ids=(),
         resolved_graph=(),
         policy_identity=policy_identity,
+        project_plan_digest=project_digest,
+        environment_plan_digest=environment_digest,
+        interpreter=InterpreterIdentity(
+            implementation="cpython",
+            version=f"{attempt.identity.cell.python_minor}.11",
+            abi=(
+                "cpython-"
+                f"{attempt.identity.cell.python_minor.replace('.', '')}-"
+                f"{attempt.identity.cell.target}"
+            ),
+        ),
     )
     return PassEvaluation(
         proposal=proposal,
@@ -259,7 +298,9 @@ def _process(exit_code: int = 0) -> ProcessResult:
     )
 
 
-def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
+def _write_success_with_predecessor_report(
+    root: Path,
+) -> tuple[str, str, str]:
     _write_managed_project(root)
     project = ProjectLoader().load(root=root, package_selection=None)
     package = project.packages[0]
@@ -380,6 +421,7 @@ def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
                     candidate_snapshots=candidate_snapshot(
                         cell,
                         (rejected_vector[0], final_vector[0]),
+                        policy_identity,
                     ),
                     search=search,
                     final_vector=final_vector,
@@ -389,7 +431,11 @@ def _write_success_with_predecessor_report(root: Path) -> tuple[str, str]:
             ),
         )
         ReportStore().write(root / "package-floor.json", report)
-        return report.report_generation_id, failure.failure_id
+        return (
+            report.report_generation_id,
+            failure.failure_id,
+            failed_test.proposal.proposal_id,
+        )
     finally:
         snapshot.close()
 
@@ -411,6 +457,90 @@ def _diagnosis(
 
 
 class TestDiagnoseWorkflow:
+    def test_diagnose_shows_last_three_nonempty_stderr_lines_from_the_log(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_managed_project(tmp_path)
+        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        cell = project.packages[0].cells[0]
+        attempt = _attempt(
+            cell=cell,
+            snapshot_digest="snapshot",
+            vector=None,
+            policy_identity="policy",
+            requested_resolution="lowest-direct",
+        )
+        process = _process(exit_code=1)
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="TEST_FAILURE",
+            stage="test",
+            process=process,
+        )
+        logs = RunLogStore(root=tmp_path, run_id="diagnose-tail")
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=("pytest",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=None,
+            ),
+            process,
+            stdout="stdout should not be selected\n",
+            stderr=(
+                "first\n\nsecond\n"
+                "\x1b[31mthird\x1b[0m\n"
+                "fourth [bold]literal[/bold]\n"
+            ),
+        )
+        logs.write_journal(
+            VerificationJournal(
+                run_id="diagnose-tail",
+                command="check",
+                source_snapshot_digest="snapshot",
+                package_policies=(
+                    VerificationPackagePolicy(
+                        package="demo",
+                        evaluation_policy_identity="policy",
+                    ),
+                ),
+                entries=(
+                    VerificationJournalEntry(
+                        package="demo",
+                        cell=cell,
+                        role="declaration",
+                        attempt=attempt,
+                        failure=failure,
+                    ),
+                ),
+            )
+        )
+        diagnoses = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
+        ).run(DiagnoseRequest(root=tmp_path.as_posix(), package="demo"))
+        stdout = StringIO()
+
+        TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+            root=tmp_path,
+        ).render_diagnose(diagnoses)
+
+        rendered = stdout.getvalue()
+        assert (
+            "  output:\n"
+            "    second\n"
+            "    third\n"
+            "    fourth [bold]literal[/bold]\n"
+        ) in rendered
+        assert "\x1b" not in rendered
+        assert "first" not in rendered
+        assert "stdout should not be selected" not in rendered
+        assert "  log: .pf/logs/diagnose-tail/process-0001.log" in rendered
+
     def test_diagnose_reads_portable_failure_facts_without_execution_capabilities(
         self,
         tmp_path: Path,
@@ -506,7 +636,9 @@ class TestDiagnoseWorkflow:
         self,
         tmp_path: Path,
     ) -> None:
-        generation, failure_id = _write_success_with_predecessor_report(tmp_path)
+        generation, failure_id, proposal_id = (
+            _write_success_with_predecessor_report(tmp_path)
+        )
         logs = RecordingLogLocator(Path(".pf/logs/run/process-0001.log"))
         diagnoses = DiagnoseCommandWorkflow(
             discovery=ProjectDiscovery(),
@@ -516,7 +648,7 @@ class TestDiagnoseWorkflow:
 
         assert len(diagnoses) == 1
         diagnosis = diagnoses[0]
-        assert diagnosis.proposal_id == "idna=2.0"
+        assert diagnosis.proposal_id == proposal_id
         assert diagnosis.boundary_role == "predecessor"
         assert diagnosis.log_path == Path(".pf/logs/run/process-0001.log")
         assert logs.lookups == [(generation, failure_id)]
@@ -532,7 +664,7 @@ class TestDiagnoseWorkflow:
         assert "Outcome: The verification attempt was rejected" in rendered
         assert "requested resolution: exact-vector" in rendered
         assert "requested vector: idna==2.0" in rendered
-        assert "proposal: idna=2.0" in rendered
+        assert f"proposal: {proposal_id}" in rendered
         assert "boundary role: predecessor" in rendered
         assert "process: exited 1" in rendered
         assert "summary: tests failed" not in rendered

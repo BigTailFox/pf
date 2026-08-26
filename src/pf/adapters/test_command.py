@@ -16,8 +16,10 @@ from pf.adapters.pytest_progress import (
 )
 from pf.adapters.pytest_witness import (
     EVIDENCE_DIRECTORY_VARIABLE,
+    FAILURE_DETAILS_DIRECTORY_VARIABLE,
     RUN_NONCE_VARIABLE,
     classify_pytest_result,
+    read_pytest_failure_detail,
 )
 from pf.schemas.evaluation import (
     EnvironmentVariable,
@@ -119,6 +121,7 @@ class TestAdapter:
     ) -> TestOutcome:
         temporary = None
         progress_temporary = None
+        failure_details_temporary = None
         try:
             temporary = tempfile.TemporaryDirectory(prefix="pf-pytest-witness-")
             root = Path(temporary.name)
@@ -129,6 +132,21 @@ class TestAdapter:
             nonce = secrets.token_hex(16)
             monitor = None
             active_progress_directory = None
+            active_failure_details_directory = None
+            try:
+                failure_details_temporary = tempfile.TemporaryDirectory(
+                    prefix="pf-pytest-failure-details-"
+                )
+                active_failure_details_directory = Path(
+                    failure_details_temporary.name
+                )
+            except Exception:
+                if failure_details_temporary is not None:
+                    try:
+                        failure_details_temporary.cleanup()
+                    except Exception:
+                        pass
+                    failure_details_temporary = None
             if progress is not None:
                 try:
                     progress_temporary = tempfile.TemporaryDirectory(
@@ -160,9 +178,15 @@ class TestAdapter:
                 plugin_directory=plugin_directory,
                 evidence_directory=evidence_directory,
                 progress_directory=active_progress_directory,
+                failure_details_directory=active_failure_details_directory,
                 nonce=nonce,
             )
         except Exception:
+            if failure_details_temporary is not None:
+                try:
+                    failure_details_temporary.cleanup()
+                except Exception:
+                    pass
             if progress_temporary is not None:
                 try:
                     progress_temporary.cleanup()
@@ -218,7 +242,22 @@ class TestAdapter:
                     evidence_directory=evidence_directory,
                     nonce=nonce,
                 )
+                if (
+                    isinstance(outcome, TestFail)
+                    and active_failure_details_directory is not None
+                ):
+                    detail = read_pytest_failure_detail(
+                        active_failure_details_directory,
+                        nonce=nonce,
+                    )
+                    if detail is not None:
+                        outcome = outcome.model_copy(update={"detail": detail})
         except BaseException:
+            if failure_details_temporary is not None:
+                try:
+                    failure_details_temporary.cleanup()
+                except Exception:
+                    pass
             if progress_temporary is not None:
                 try:
                     progress_temporary.cleanup()
@@ -229,6 +268,12 @@ class TestAdapter:
             except Exception:
                 pass
             raise
+        if failure_details_temporary is not None:
+            try:
+                failure_details_temporary.cleanup()
+            except Exception:
+                if isinstance(outcome, TestFail):
+                    outcome = outcome.model_copy(update={"detail": None})
         if progress_temporary is not None:
             try:
                 progress_temporary.cleanup()
@@ -290,6 +335,7 @@ class TestAdapter:
         plugin_directory: Path,
         evidence_directory: Path,
         progress_directory: Path | None,
+        failure_details_directory: Path | None,
         nonce: str,
     ) -> tuple[EnvironmentVariable, ...]:
         values = {item.name: item.value for item in environment}
@@ -301,8 +347,14 @@ class TestAdapter:
         )
         values[EVIDENCE_DIRECTORY_VARIABLE] = evidence_directory.as_posix()
         values[RUN_NONCE_VARIABLE] = nonce
+        values.pop(PROGRESS_DIRECTORY_VARIABLE, None)
+        values.pop(FAILURE_DETAILS_DIRECTORY_VARIABLE, None)
         if progress_directory is not None:
             values[PROGRESS_DIRECTORY_VARIABLE] = progress_directory.as_posix()
+        if failure_details_directory is not None:
+            values[FAILURE_DETAILS_DIRECTORY_VARIABLE] = (
+                failure_details_directory.as_posix()
+            )
         return tuple(
             EnvironmentVariable(name=name, value=value)
             for name, value in values.items()

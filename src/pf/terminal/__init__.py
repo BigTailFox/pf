@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from rich import box
-from rich.console import Console, Group
+from rich.console import Console, ConsoleDimensions, Group
 from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
@@ -24,20 +24,23 @@ from pf.schemas.evaluation import (
     FailureRecord,
     PassEvaluation,
     ProcessResult,
+    PytestFailureDetail,
     RuntimeInterfaceMissingEvaluation,
     SearchFailureEvent,
     SmokeResult,
+    StaticIssueDetail,
     TestFailEvaluation,
-    ToolFailure,
     TyDiagnostic,
     VerificationRole,
 )
 from pf.schemas.project import Cell
-from pf.schemas.report import PackageFloorReportV1, ProjectEditResult
+from pf.report import ValidatedReport
+from pf.schemas.report import ProjectEditResult
 from pf.terminal._live import LiveVerificationView
 from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
+    cell_identity_title,
 )
 
 if TYPE_CHECKING:
@@ -50,14 +53,31 @@ PF_THEME = Theme(
         "failure": "bold red",
         "warning": "yellow",
         "indeterminate": "bold yellow",
+        "reason.success": "green not bold",
+        "reason.failure": "red not bold",
+        "reason.warning": "yellow not bold",
+        "reason.indeterminate": "yellow not bold",
         "dim": "dim",
         "path": "cyan",
         "cell": "bold cyan",
-        "hint": "blue",
+        "hint": "italic cyan not dim not bold",
+        "diagnose-hint": "italic dim not bold",
         "link": "underline cyan",
         "version": "magenta",
     }
 )
+
+_MAX_CLI_WIDTH = 120
+
+
+class _CliConsole(Console):
+    """Keep the outer CLI canvas readable while preserving Rich measurement."""
+
+    @property
+    def size(self) -> ConsoleDimensions:
+        measured = super().size
+        return ConsoleDimensions(min(measured.width, _MAX_CLI_WIDTH), measured.height)
+
 
 _INFRA_REASONS = frozenset({"INDETERMINATE", "BASELINE_REJECTION"})
 
@@ -73,21 +93,7 @@ _BORDER_STYLES = {
     "warning": "yellow",
     "indeterminate": "bold yellow",
 }
-_ICON_WIDTH = 2
-_SUMMARY_WIDTH = 240
 
-_USER_STAGES = {
-    "resolve-project": "project resolution",
-    "resolve-environment": "environment resolution",
-    "create-environment": "install",
-    "inspect-interpreter": "install",
-    "install": "install",
-    "inspect": "install",
-    "install-harness": "harness",
-    "install-environment": "install",
-    "ty": "static",
-    "test": "dynamic",
-}
 _FAILED_AT = {
     "resolve-project": "resolving project dependencies",
     "resolve-environment": "resolving the test environment",
@@ -102,7 +108,6 @@ _FAILED_AT = {
     "ty": "static checking",
     "test": "testing",
 }
-_PROCESS_TAIL_LINES = 3
 _FAILURE_TITLES: dict[FailureCause, str] = {
     "RESOLUTION_CONFLICT": "This version combination has conflicting dependency requirements and cannot be installed.",
     "BUILD_FAILURE": "This version combination could not be built.",
@@ -227,43 +232,13 @@ def _cell_title(cell: Cell) -> str:
 
 
 def _single_line_summary(value: str) -> str:
-    summary = " ".join(value.split())
-    if len(summary) <= _SUMMARY_WIDTH:
-        return summary
-    return f"{summary[: _SUMMARY_WIDTH - 3]}..."
+    return " ".join(value.split())
 
 
 def _failed_at_label(stage: str | None) -> str | None:
     if not stage:
         return None
     return _FAILED_AT.get(stage, stage.replace("-", " "))
-
-
-def _process_output_tail(
-    process: ProcessResult | None,
-    *,
-    detail: str = "",
-    logs: ProcessLogReferences | None = None,
-) -> tuple[str, ...]:
-    text = ""
-    if process is not None:
-        text = process.stderr.strip() or process.stdout.strip()
-        if not text:
-            reader = getattr(logs, "read_output", None)
-            if callable(reader):
-                logged = reader(process)
-                if logged:
-                    text = (logged[1] or logged[0]).strip()
-        if not text:
-            text = process.diagnostic().strip()
-    if not text:
-        text = detail.strip()
-    lines = [
-        line.rstrip()
-        for line in text.splitlines()
-        if line.strip() and line.strip() not in {"[]", "{}", "null"}
-    ]
-    return tuple(lines[-_PROCESS_TAIL_LINES:])
 
 
 def _ty_diagnostic_summary(diagnostic: TyDiagnostic) -> str:
@@ -275,18 +250,51 @@ def _ty_diagnostic_summary(diagnostic: TyDiagnostic) -> str:
     return f"{location} [{diagnostic.code}] {_single_line_summary(diagnostic.message)}"
 
 
+def _cell_detail_lines(
+    detail: PytestFailureDetail | StaticIssueDetail | None,
+) -> tuple[Text, ...]:
+    if detail is None:
+        return ()
+    if isinstance(detail, PytestFailureDetail):
+        phase = "" if detail.first.phase == "call" else f" ({detail.first.phase})"
+        first = Text(f"FAILED {detail.first.nodeid}{phase}")
+    else:
+        first = Text(_ty_diagnostic_summary(detail.first))
+    if detail.total == 1:
+        return (_fold_text(first),)
+    return (
+        _fold_text(first),
+        Text(f"... and {detail.total - 1} more", style="dim"),
+    )
+
+
+def _primary_failure(presentation: CellPresentation) -> FailureRecord:
+    if presentation.primary_failure_id is not None:
+        matching_id = next(
+            (
+                failure
+                for failure in presentation.failures
+                if failure.failure_id == presentation.primary_failure_id
+            ),
+            None,
+        )
+        if matching_id is not None:
+            return matching_id
+    return presentation.failures[0]
+
+
 def _counted(count: int, singular: str, plural: str | None = None) -> str:
     noun = singular if count == 1 else (plural or f"{singular}s")
     return f"{count} {noun}"
 
 
-def _report_path(report: PackageFloorReportV1) -> str:
+def _report_path(report: ValidatedReport) -> str:
     parent = Path(report.package.pyproject_path).parent
     relative = Path("package-floor.json") if parent == Path(".") else parent / "package-floor.json"
     return relative.as_posix()
 
 
-def _search_reasons(reports: tuple[PackageFloorReportV1, ...]) -> set[str]:
+def _search_reasons(reports: tuple[ValidatedReport, ...]) -> set[str]:
     return {
         reason
         for report in reports
@@ -315,6 +323,7 @@ def _cell_finished_line(
     *,
     title: str,
     kind: OutcomeKind,
+    identity: str | None = None,
     elapsed: float | None = None,
     failed_at: str | None = None,
 ) -> Text:
@@ -322,6 +331,8 @@ def _cell_finished_line(
         (f"{_ICONS[kind]} ", kind),
         (title, "cell"),
     ]
+    if identity is not None:
+        parts.extend([" ", (identity, "version")])
     if failed_at:
         parts.extend([" failed at ", (failed_at, kind)])
     if elapsed is not None:
@@ -335,13 +346,18 @@ def _hint_sentence(
     emphasis: str,
     suffix: str,
     *,
+    base_style: str = "hint",
     emphasis_style: str = "",
 ) -> Text:
-    line = Text("-> ", style="hint")
-    line.append(prefix, style="hint")
-    extra = f"hint {emphasis_style}".strip() if emphasis_style else "hint"
+    line = Text("-> ", style=base_style)
+    line.append(prefix, style=base_style)
+    extra = (
+        f"{base_style} {emphasis_style}".strip()
+        if emphasis_style
+        else base_style
+    )
     line.append(emphasis, style=extra)
-    line.append(suffix, style="hint")
+    line.append(suffix, style=base_style)
     return _fold_text(line)
 
 
@@ -377,8 +393,8 @@ class TerminalPresenter:
         logs: ProcessLogReferences | None = None,
         root: Path | None = None,
     ) -> None:
-        self.stdout = stdout or Console(file=sys.stdout, theme=PF_THEME)
-        self.stderr = stderr or Console(file=sys.stderr, theme=PF_THEME)
+        self.stdout = stdout or _CliConsole(file=sys.stdout, theme=PF_THEME)
+        self.stderr = stderr or _CliConsole(file=sys.stderr, theme=PF_THEME)
         self._logs = logs
         self._root = (root or Path.cwd()).resolve()
         self._emitted_cell_keys: set[tuple[str, str, str, tuple[str, ...]]] = set()
@@ -462,8 +478,6 @@ class TerminalPresenter:
                 f"{_counted(cell_count, 'cell')}"
             ),
         )
-        if result.failure.process is not None:
-            self._print_process_detail(result.failure.process)
         return 4
 
     def render_smoke(self, result: SmokeResult) -> int:
@@ -528,7 +542,7 @@ class TerminalPresenter:
             if presentation.kind != "success":
                 self._print_cell_report(presentation)
 
-    def render_search(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
+    def render_search(self, reports: tuple[ValidatedReport, ...]) -> int:
         self.close()
         leftover = self._take_search_diagnostics()
         events_by_cell: dict[
@@ -614,47 +628,53 @@ class TerminalPresenter:
             _cell_finished_line(
                 title=_cell_title(presentation.cell),
                 kind=presentation.kind,
+                identity=(
+                    cell_identity_title(presentation.identity)
+                    if presentation.identity is not None
+                    else None
+                ),
                 elapsed=presentation.elapsed,
                 failed_at=failed_at,
             )
         ]
         if presentation.failures:
-            for record in presentation.failures:
-                failure_presentation = self.failure_presentation(
-                    record,
-                    role=presentation.role,
-                    command=presentation.command,
-                )
-                body.append(_fold_text(Text(failure_presentation.title)))
-                body.append(_fold_text(Text(failure_presentation.impact)))
-                if presentation.diagnose_available:
-                    body.append(
-                        _hint_sentence(
-                            "run ",
-                            f"`pf diagnose {presentation.cell.package} --failure {record.failure_id}`",
-                            " for more information.",
-                            emphasis_style="bold",
-                        )
+            record = _primary_failure(presentation)
+            failure_presentation = self.failure_presentation(
+                record,
+                role=presentation.role,
+                command=presentation.command,
+            )
+            body.append(
+                _fold_text(
+                    Text(
+                        failure_presentation.title,
+                        style=f"reason.{presentation.kind}",
                     )
-                tail = _process_output_tail(record.process, logs=self._logs)
-                if tail:
-                    body.append(_fold_text(Text("\n".join(tail), style="dim")))
-                if record.process is not None:
-                    see = self._see_details_quote(record.process)
-                    if see is not None:
-                        body.append(see)
-            for diagnostic in presentation.diagnostics:
-                body.append(_fold_text(Text(_ty_diagnostic_summary(diagnostic))))
+                )
+            )
+            body.extend(_cell_detail_lines(presentation.detail))
+            if presentation.diagnose_available:
+                body.append(
+                    _hint_sentence(
+                        "run ",
+                        f"`pf diagnose {presentation.cell.package} --failure {record.failure_id}`",
+                        " for more information.",
+                        base_style="diagnose-hint",
+                    )
+                )
+            else:
+                see = (
+                    self._see_details_quote(record.process)
+                    if record.process is not None
+                    else None
+                )
+                body.append(
+                    see
+                    if see is not None
+                    else Text("Detailed diagnosis unavailable.", style="dim")
+                )
             return body
-        for diagnostic in presentation.diagnostics:
-            body.append(_fold_text(Text(_ty_diagnostic_summary(diagnostic))))
-        tail = _process_output_tail(presentation.process, logs=self._logs)
-        if tail:
-            body.append(_fold_text(Text("\n".join(tail), style="dim")))
-        if presentation.process is not None:
-            see = self._see_details_quote(presentation.process)
-            if see is not None:
-                body.append(see)
+        body.extend(_cell_detail_lines(presentation.detail))
         return body
 
     def consume(self, event: ActivityEvent) -> None:
@@ -662,46 +682,6 @@ class TerminalPresenter:
 
     def close(self, *, abandon_pending: bool = False) -> None:
         self._live.close(abandon_pending=abandon_pending)
-
-    def _print_tool_failure(
-        self,
-        heading: str,
-        failure: ToolFailure | FailureRecord,
-    ) -> None:
-        stage = _USER_STAGES.get(failure.stage, failure.stage)
-        self._print_outcome("failure", f"{heading} ({stage})")
-        if failure.process is not None:
-            self._print_process_detail(failure.process)
-
-    def _print_process_detail(self, process: ProcessResult) -> None:
-        detail = _single_line_summary(process.diagnostic())
-        if detail:
-            self._print_step(Text(f"  {detail}", style="dim"))
-        self._print_log_reference(process)
-
-    def _print_log_reference(self, process: ProcessResult) -> None:
-        link = self._log_link(process, indent="  ")
-        if link is not None:
-            self._print_step(link)
-
-    def _log_link(self, process: ProcessResult, *, indent: str = "") -> Text | None:
-        if self._logs is None:
-            return None
-        path = self._logs.reference_for(process)
-        if path is None:
-            return None
-        resolved = path.resolve()
-        try:
-            displayed = resolved.relative_to(self._root).as_posix()
-        except ValueError:
-            displayed = resolved.as_posix()
-        if indent:
-            line = Text(f"{indent}details: ", style="dim")
-            line.append(displayed, style=f"link {resolved.as_uri()}")
-            return line
-        line = Text("details: ")
-        line.append(displayed, style=f"underline cyan link {resolved.as_uri()}")
-        return line
 
     def _see_details_quote(self, process: ProcessResult) -> Text | None:
         if self._logs is None:
@@ -755,7 +735,7 @@ class TerminalPresenter:
 
     def _print_search_summary(
         self,
-        reports: tuple[PackageFloorReportV1, ...],
+        reports: tuple[ValidatedReport, ...],
     ) -> int:
         reasons = _search_reasons(reports)
         exit_code = _search_exit_code(reasons)
@@ -792,7 +772,7 @@ class TerminalPresenter:
 
     def render_minimize(
         self,
-        reports: tuple[PackageFloorReportV1, ...],
+        reports: tuple[ValidatedReport, ...],
         edits: tuple[ProjectEditResult, ...] | None,
     ) -> int:
         self.close()
@@ -809,7 +789,7 @@ class TerminalPresenter:
         self._live.print_step(message)
 
 
-    def render_explain(self, reports: tuple[PackageFloorReportV1, ...]) -> int:
+    def render_explain(self, reports: tuple[ValidatedReport, ...]) -> int:
         from pf.terminal import _explain
 
         return _explain.render(self, reports)
@@ -822,7 +802,7 @@ class TerminalPresenter:
 
         return _diagnose.render(self, diagnoses, root=self._root)
 
-    def render_merge(self, report: PackageFloorReportV1, output: str) -> int:
+    def render_merge(self, report: ValidatedReport, output: str) -> int:
         self.close()
         self._print_outcome(
             "success",

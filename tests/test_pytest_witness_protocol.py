@@ -6,10 +6,16 @@ from pathlib import Path
 
 import pytest
 
+from pf.adapters import test_command as test_command_module
+from pf.adapters import pytest_witness as pytest_witness_module
+from pf.adapters.pytest_witness import read_pytest_failure_detail
 from pf.adapters.test_command import TestAdapter
 from pf.schemas.evaluation import (
+    EnvironmentVariable,
     ProcessResult,
     ProcessSpec,
+    PytestFailureCase,
+    PytestFailureDetail,
     TestFail,
     TestPass,
     ToolFailure,
@@ -92,6 +98,350 @@ def _run(tmp_path: Path, writer: ArtifactWriter):
 
 
 class TestPytestWitnessArtifactProtocol:
+    def test_test_adapter_returns_runtime_pytest_failure_detail(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class DetailRunner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                environment = {item.name: item.value for item in spec.environment}
+                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                _write_summary(
+                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    _document(nonce),
+                )
+                detail = {
+                    "first": {
+                        "nodeid": "tests/test_cli.py::test_example",
+                        "phase": "call",
+                    },
+                    "protocol": "pf-pytest-failure-details-v1",
+                    "run_nonce": nonce,
+                    "total": 3,
+                }
+                directory = Path(
+                    environment["PF_PYTEST_FAILURE_DETAILS_DIR"]
+                )
+                (directory / f"details-{'b' * 32}.json").write_bytes(
+                    _canonical(detail)
+                )
+                return ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                )
+
+        result = TestAdapter(DetailRunner()).run(
+            command=("pytest",),
+            cwd=tmp_path,
+            environment=(),
+            failure_exit_codes=(1,),
+            timeout_seconds=30,
+        )
+
+        assert isinstance(result, TestFail)
+        assert result.detail == PytestFailureDetail(
+            first=PytestFailureCase(
+                nodeid="tests/test_cli.py::test_example",
+                phase="call",
+            ),
+            total=3,
+        )
+        assert "detail" not in result.model_dump(mode="json")
+
+    def test_runtime_detail_ignores_valid_artifacts_from_nested_pytest_runs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class NestedDetailRunner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                environment = {item.name: item.value for item in spec.environment}
+                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                _write_summary(
+                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    _document(nonce),
+                )
+                directory = Path(environment["PF_PYTEST_FAILURE_DETAILS_DIR"])
+                for index, (run_nonce, nodeid) in enumerate(
+                    (
+                        ("nested-nonce", "nested.py::test_failure"),
+                        (nonce, "tests/test_cli.py::test_example"),
+                    )
+                ):
+                    detail = {
+                        "first": {"nodeid": nodeid, "phase": "call"},
+                        "protocol": "pf-pytest-failure-details-v1",
+                        "run_nonce": run_nonce,
+                        "total": 1,
+                    }
+                    (directory / f"details-{index:032x}.json").write_bytes(
+                        _canonical(detail)
+                    )
+                return ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                )
+
+        result = TestAdapter(NestedDetailRunner()).run(
+            command=("pytest",),
+            cwd=tmp_path,
+            environment=(),
+            failure_exit_codes=(1,),
+            timeout_seconds=30,
+        )
+
+        assert isinstance(result, TestFail)
+        assert result.detail == PytestFailureDetail(
+            first=PytestFailureCase(
+                nodeid="tests/test_cli.py::test_example",
+                phase="call",
+            ),
+            total=1,
+        )
+
+    def test_runtime_detail_rejects_duplicate_artifacts_for_its_nonce(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class DuplicateDetailRunner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                environment = {item.name: item.value for item in spec.environment}
+                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                _write_summary(
+                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    _document(nonce),
+                )
+                detail = {
+                    "first": {"nodeid": "test_example.py::test_bad", "phase": "call"},
+                    "protocol": "pf-pytest-failure-details-v1",
+                    "run_nonce": nonce,
+                    "total": 1,
+                }
+                directory = Path(environment["PF_PYTEST_FAILURE_DETAILS_DIR"])
+                for index in range(2):
+                    (directory / f"details-{index:032x}.json").write_bytes(
+                        _canonical(detail)
+                    )
+                return ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                )
+
+        result = TestAdapter(DuplicateDetailRunner()).run(
+            command=("pytest",),
+            cwd=tmp_path,
+            environment=(),
+            failure_exit_codes=(1,),
+            timeout_seconds=30,
+        )
+
+        assert isinstance(result, TestFail)
+        assert result.detail is None
+
+    def test_runtime_detail_artifact_enumeration_is_bounded(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(pytest_witness_module, "_MAX_DETAIL_ARTIFACTS", 1)
+        for index in range(2):
+            detail = {
+                "first": {"nodeid": f"test_{index}.py::test_bad", "phase": "call"},
+                "protocol": "pf-pytest-failure-details-v1",
+                "run_nonce": "current-nonce" if index == 0 else "nested-nonce",
+                "total": 1,
+            }
+            (tmp_path / f"details-{index:032x}.json").write_bytes(
+                _canonical(detail)
+            )
+
+        class LazyScandir:
+            def __init__(self) -> None:
+                self.consumed = 0
+
+            def __enter__(self) -> "LazyScandir":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def __iter__(self) -> "LazyScandir":
+                return self
+
+            def __next__(self):
+                self.consumed += 1
+                if self.consumed > 2:
+                    raise AssertionError("reader consumed beyond the bounded sentinel")
+                path = tmp_path / f"details-{self.consumed - 1:032x}.json"
+                return type("Entry", (), {"path": path.as_posix()})()
+
+        scanner = LazyScandir()
+        monkeypatch.setattr(pytest_witness_module.os, "scandir", lambda _: scanner)
+
+        assert (
+            read_pytest_failure_detail(tmp_path, nonce="current-nonce") is None
+        )
+        assert scanner.consumed == 2
+
+    @pytest.mark.parametrize(
+        "payload_for",
+        (
+            lambda nonce: b"{",
+            lambda nonce: _canonical(
+                {
+                    "first": {"nodeid": "x" * 4_097, "phase": "call"},
+                    "protocol": "pf-pytest-failure-details-v1",
+                    "run_nonce": nonce,
+                    "total": 1,
+                }
+            ),
+            lambda nonce: _canonical(
+                {
+                    "first": {"nodeid": "case\u009b31mred", "phase": "call"},
+                    "protocol": "pf-pytest-failure-details-v1",
+                    "run_nonce": nonce,
+                    "total": 1,
+                }
+            ),
+            lambda nonce: _canonical(
+                {
+                    "first": {"nodeid": "case\ud800bad", "phase": "call"},
+                    "protocol": "pf-pytest-failure-details-v1",
+                    "run_nonce": nonce,
+                    "total": 1,
+                }
+            ),
+        ),
+        ids=(
+            "invalid-json",
+            "overlong-nodeid",
+            "c1-control-nodeid",
+            "surrogate-nodeid",
+        ),
+    )
+    def test_invalid_runtime_detail_does_not_change_test_failure(
+        self,
+        tmp_path: Path,
+        payload_for: Callable[[str], bytes],
+    ) -> None:
+        class InvalidDetailRunner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                environment = {item.name: item.value for item in spec.environment}
+                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                _write_summary(
+                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    _document(nonce),
+                )
+                directory = Path(
+                    environment["PF_PYTEST_FAILURE_DETAILS_DIR"]
+                )
+                (directory / f"details-{'b' * 32}.json").write_bytes(
+                    payload_for(nonce)
+                )
+                return ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                )
+
+        result = TestAdapter(InvalidDetailRunner()).run(
+            command=("pytest",),
+            cwd=tmp_path,
+            environment=(),
+            failure_exit_codes=(1,),
+            timeout_seconds=30,
+        )
+
+        assert isinstance(result, TestFail)
+        assert result.detail is None
+
+    def test_detail_cleanup_failure_only_omits_optional_metadata(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        real_temporary_directory = test_command_module.tempfile.TemporaryDirectory
+
+        class CleanupFailureDirectory:
+            def __init__(self, prefix: str) -> None:
+                self._inner = real_temporary_directory(prefix=prefix)
+                self.name = self._inner.name
+
+            def cleanup(self) -> None:
+                self._inner.cleanup()
+                raise OSError("detail cleanup failed")
+
+        def temporary_directory(*, prefix: str):
+            if prefix == "pf-pytest-failure-details-":
+                return CleanupFailureDirectory(prefix)
+            return real_temporary_directory(prefix=prefix)
+
+        monkeypatch.setattr(
+            test_command_module.tempfile,
+            "TemporaryDirectory",
+            temporary_directory,
+        )
+        result = _run(
+            tmp_path,
+            lambda directory, nonce: _write_summary(
+                directory,
+                _document(nonce),
+            ),
+        )
+
+        assert isinstance(result, TestFail)
+        assert result.detail is None
+
+    def test_detail_setup_failure_does_not_reuse_an_inherited_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        real_temporary_directory = test_command_module.tempfile.TemporaryDirectory
+
+        def temporary_directory(*, prefix: str):
+            if prefix == "pf-pytest-failure-details-":
+                raise OSError("detail setup failed")
+            return real_temporary_directory(prefix=prefix)
+
+        class SetupFailureRunner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                environment = {item.name: item.value for item in spec.environment}
+                assert "PF_PYTEST_FAILURE_DETAILS_DIR" not in environment
+                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                _write_summary(
+                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    _document(nonce),
+                )
+                return ProcessResult(
+                    exit_code=1,
+                    signal=None,
+                    duration_seconds=0.1,
+                )
+
+        monkeypatch.setattr(
+            test_command_module.tempfile,
+            "TemporaryDirectory",
+            temporary_directory,
+        )
+        result = TestAdapter(SetupFailureRunner()).run(
+            command=("pytest",),
+            cwd=tmp_path,
+            environment=(
+                EnvironmentVariable(
+                    name="PF_PYTEST_FAILURE_DETAILS_DIR",
+                    value=(tmp_path / "untrusted").as_posix(),
+                ),
+            ),
+            failure_exit_codes=(1,),
+            timeout_seconds=30,
+        )
+
+        assert isinstance(result, TestFail)
+        assert result.detail is None
+
     @pytest.mark.parametrize(
         "writer",
         (

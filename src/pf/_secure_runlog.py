@@ -5,9 +5,12 @@ import os
 from pathlib import Path
 import secrets
 import stat
-from typing import Protocol, TextIO
+from typing import Protocol, TextIO, TypeVar
 
 from pf.windows_runlog import WindowsRunDirectory
+
+
+_ReadT = TypeVar("_ReadT")
 
 
 class SecureLogDirectory(Protocol):
@@ -29,6 +32,13 @@ class SecureLogDirectory(Protocol):
         name: str,
         limit: int | None,
     ) -> str: ...
+
+    def read_run_stream(
+        self,
+        run_id: str,
+        name: str,
+        read_body: Callable[[TextIO], _ReadT],
+    ) -> _ReadT: ...
 
     def read_logs_text(self, name: str, limit: int) -> str: ...
 
@@ -107,6 +117,24 @@ class PosixDirectoryAdapter:
             run_fd = self._open_directory(logs_fd, run_id)
             try:
                 return self._read_regular_text(run_fd, name, limit)
+            finally:
+                os.close(run_fd)
+        finally:
+            os.close(logs_fd)
+
+    def read_run_stream(
+        self,
+        run_id: str,
+        name: str,
+        read_body: Callable[[TextIO], _ReadT],
+    ) -> _ReadT:
+        logs_fd = self._open_existing_logs()
+        if logs_fd is None:
+            raise FileNotFoundError(name)
+        try:
+            run_fd = self._open_directory(logs_fd, run_id)
+            try:
+                return self._read_regular_stream(run_fd, name, read_body)
             finally:
                 os.close(run_fd)
         finally:
@@ -252,9 +280,43 @@ class PosixDirectoryAdapter:
                 raise ValueError("PF log entry is not a regular file")
             if limit is not None and opened.st_size > limit:
                 raise ValueError("PF log entry exceeds its size limit")
-            with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+            with os.fdopen(
+                descriptor,
+                "r",
+                encoding="utf-8",
+                newline="",
+            ) as stream:
                 descriptor = -1
                 return stream.read() if limit is None else stream.read(limit + 1)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    @classmethod
+    def _read_regular_stream(
+        cls,
+        directory_fd: int,
+        name: str,
+        read_body: Callable[[TextIO], _ReadT],
+    ) -> _ReadT:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_fd,
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("PF log entry is not a regular file")
+            with os.fdopen(
+                descriptor,
+                "r",
+                encoding="utf-8",
+                newline="",
+            ) as stream:
+                descriptor = -1
+                return read_body(stream)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -294,6 +356,7 @@ class PosixDirectoryAdapter:
                 descriptor,
                 "w",
                 encoding="utf-8",
+                newline="",
                 buffering=cls._STREAM_CHUNK_SIZE,
             ) as stream:
                 descriptor = None
@@ -362,6 +425,22 @@ class WindowsDirectoryAdapter:
             return guard.read_bounded_text(
                 guard.logs_root / run_id / name,
                 limit=limit,
+            )
+        finally:
+            if owned:
+                guard.close()
+
+    def read_run_stream(
+        self,
+        run_id: str,
+        name: str,
+        read_body: Callable[[TextIO], _ReadT],
+    ) -> _ReadT:
+        guard, owned = self._run_guard(run_id)
+        try:
+            return guard.read_text_stream(
+                guard.logs_root / run_id / name,
+                read_body,
             )
         finally:
             if owned:

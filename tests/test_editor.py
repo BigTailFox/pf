@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -11,7 +12,8 @@ import pytest
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
-from pf.report import PackageReportBuilder
+from pf.report import PackageReportBuilder, ValidatedReport
+from pf.resolution import environment_identity_digest
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
@@ -28,6 +30,7 @@ from pf.schemas.project import (
     Candidate,
     CandidateSnapshot,
     Cell,
+    InterpreterIdentity,
     Proposal,
     SourceIdentity,
     VersionPin,
@@ -37,7 +40,6 @@ from pf.schemas.report import (
     CellSuccess,
     CoordinateBoundary,
     CoordinateSuccess,
-    PackageFloorReportV1,
     ProbeObservation,
     ProbePass,
 )
@@ -77,19 +79,58 @@ def candidate_snapshot(
         CandidateSnapshot(
             dependency=pin.name,
             cell=cell,
-            policy_identity="candidate-policy",
+            policy_identity="policy",
             source=source,
             candidates=candidates,
             series_representatives=representatives,
             digest=candidate_snapshot_digest(
                 dependency=pin.name,
                 cell=cell,
-                policy_identity="candidate-policy",
+                policy_identity="policy",
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
             ),
         ),
+    )
+
+
+def report_attempt(
+    *,
+    cell: Cell,
+    snapshot_digest: str,
+    resolution: Literal["highest", "exact-vector"],
+    vector: tuple[VersionPin, ...],
+) -> Attempt:
+    return Attempt.from_identity(
+        AttemptIdentity(
+            identity_version="attempt-v2",
+            source_snapshot_digest=snapshot_digest,
+            cell=cell,
+            requested_resolution=resolution,
+            requested_managed_vector=(
+                vector if resolution == "exact-vector" else None
+            ),
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "harness-relaxation-v1"
+                if resolution == "exact-vector"
+                else "original-harness-v1"
+            ),
+            harness_baseline_digest=(
+                "harness-baseline"
+                if resolution == "exact-vector"
+                else None
+            ),
+            selected_candidate_evidence_digest=(
+                "selected-candidate"
+                if resolution == "exact-vector"
+                else None
+            ),
+        )
     )
 
 
@@ -102,19 +143,20 @@ def evaluation(
     attempt: Attempt | None = None,
 ) -> PassEvaluation:
     vector = (VersionPin(name="idna", version=version),)
-    owned_attempt = attempt or Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest=snapshot_digest,
-            cell=cell,
-            requested_resolution=resolution,
-            requested_managed_vector=(vector if resolution == "exact-vector" else None),
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-        )
+    owned_attempt = attempt or report_attempt(
+        cell=cell,
+        snapshot_digest=snapshot_digest,
+        resolution=resolution,
+        vector=vector,
     )
+    project_digest = f"project-{version}"
+    environment_digest = f"environment-{version}"
     proposal = Proposal(
-        proposal_id=f"idna={version}",
+        proposal_id=environment_identity_digest(
+            project_plan_digest=project_digest,
+            environment_plan_digest=environment_digest,
+            graph=(),
+        ),
         attempt_id=owned_attempt.attempt_id,
         snapshot_digest=snapshot_digest,
         cell=cell,
@@ -122,6 +164,13 @@ def evaluation(
         fixed_declaration_ids=(),
         resolved_graph=(),
         policy_identity="policy",
+        project_plan_digest=project_digest,
+        environment_plan_digest=environment_digest,
+        interpreter=InterpreterIdentity(
+            implementation="cpython",
+            version=f"{cell.python_minor}.11",
+            abi=f"cpython-{cell.python_minor.replace('.', '')}-{cell.target}",
+        ),
     )
     return PassEvaluation(
         proposal=proposal,
@@ -135,19 +184,14 @@ def evaluation(
     )
 
 
-def _report_for_package(package, source_snapshot) -> PackageFloorReportV1:
+def _report_for_package(package, source_snapshot) -> ValidatedReport:
     cell = package.cells[0]
     vector = (VersionPin(name="idna", version="3.0"),)
-    final_attempt = Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest=source_snapshot.digest,
-            cell=cell,
-            requested_resolution="exact-vector",
-            requested_managed_vector=vector,
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-        )
+    final_attempt = report_attempt(
+        cell=cell,
+        snapshot_digest=source_snapshot.digest,
+        resolution="exact-vector",
+        vector=vector,
     )
     final_evaluation = evaluation(
         cell,
@@ -172,16 +216,11 @@ def _report_for_package(package, source_snapshot) -> PackageFloorReportV1:
         boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
         sweeps=1,
     )
-    baseline_attempt = Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest=source_snapshot.digest,
-            cell=cell,
-            requested_resolution="highest",
-            requested_managed_vector=None,
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-        )
+    baseline_attempt = report_attempt(
+        cell=cell,
+        snapshot_digest=source_snapshot.digest,
+        resolution="highest",
+        vector=vector,
     )
     baseline_evaluation = evaluation(
         cell,
@@ -214,7 +253,7 @@ def _report_for_package(package, source_snapshot) -> PackageFloorReportV1:
     )
 
 
-def _single_package_report(root: Path) -> PackageFloorReportV1:
+def _single_package_report(root: Path) -> ValidatedReport:
     package = ProjectLoader().load(root=root, package_selection=None).packages[0]
     snapshot = SnapshotBuilder.without_processes().build(root)
     try:
@@ -256,16 +295,11 @@ class TestProjectEditor:
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         cell = package.cells[0]
         vector = (VersionPin(name="idna", version="3.0"),)
-        final_attempt = Attempt.from_identity(
-            AttemptIdentity(
-                source_snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                requested_resolution="exact-vector",
-                requested_managed_vector=vector,
-                active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity="sources",
-                evaluation_policy_identity="policy",
-            )
+        final_attempt = report_attempt(
+            cell=cell,
+            snapshot_digest=snapshot.identity.digest,
+            resolution="exact-vector",
+            vector=vector,
         )
         final_evaluation = evaluation(
             cell,
@@ -290,16 +324,11 @@ class TestProjectEditor:
             boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
             sweeps=1,
         )
-        baseline_attempt = Attempt.from_identity(
-            AttemptIdentity(
-                source_snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                requested_resolution="highest",
-                requested_managed_vector=None,
-                active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity="sources",
-                evaluation_policy_identity="policy",
-            )
+        baseline_attempt = report_attempt(
+            cell=cell,
+            snapshot_digest=snapshot.identity.digest,
+            resolution="highest",
+            vector=vector,
         )
         baseline_evaluation = evaluation(
             cell,
@@ -329,11 +358,15 @@ class TestProjectEditor:
         )
         editor = ProjectEditor(snapshots=SnapshotBuilder.without_processes())
 
-        malicious_document = report.model_dump(mode="python")
-        malicious_document["projection_evidence"][0]["projected_requirements"] = (
-            "idna>=3.0",
+        projection = report.projection_evidence[0]
+        malicious_report = replace(
+            report,
+            projection_evidence=(
+                projection.model_copy(
+                    update={"projected_requirements": ("idna>=3.0",)}
+                ),
+            ),
         )
-        malicious_report = PackageFloorReportV1.model_validate(malicious_document)
         before = pyproject.read_bytes()
         with pytest.raises(
             ConfigurationError, match="unauthorized projected requirement"
@@ -398,16 +431,11 @@ class TestProjectEditor:
         for package in project.packages:
             cell = package.cells[0]
             vector = (VersionPin(name="idna", version="3.0"),)
-            final_attempt = Attempt.from_identity(
-                AttemptIdentity(
-                    source_snapshot_digest=snapshot.identity.digest,
-                    cell=cell,
-                    requested_resolution="exact-vector",
-                    requested_managed_vector=vector,
-                    active_declaration_ids=cell.active_declaration_ids,
-                    source_plan_identity="sources",
-                    evaluation_policy_identity="policy",
-                )
+            final_attempt = report_attempt(
+                cell=cell,
+                snapshot_digest=snapshot.identity.digest,
+                resolution="exact-vector",
+                vector=vector,
             )
             final_evaluation = evaluation(
                 cell,
@@ -432,16 +460,11 @@ class TestProjectEditor:
                 boundaries=(CoordinateBoundary(dependency="idna", floor="3.0"),),
                 sweeps=1,
             )
-            baseline_attempt = Attempt.from_identity(
-                AttemptIdentity(
-                    source_snapshot_digest=snapshot.identity.digest,
-                    cell=cell,
-                    requested_resolution="highest",
-                    requested_managed_vector=None,
-                    active_declaration_ids=cell.active_declaration_ids,
-                    source_plan_identity="sources",
-                    evaluation_policy_identity="policy",
-                )
+            baseline_attempt = report_attempt(
+                cell=cell,
+                snapshot_digest=snapshot.identity.digest,
+                resolution="highest",
+                vector=vector,
             )
             baseline_evaluation = evaluation(
                 cell,

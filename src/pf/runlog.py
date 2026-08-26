@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from collections import deque
 from datetime import datetime, timezone
+from itertools import chain
 import json
 import os
 from pathlib import Path
@@ -33,6 +36,15 @@ class RunLogStore:
     _STDOUT_SECTION = "--- stdout ---"
     _STDERR_SECTION = "--- stderr ---"
     _STREAM_CHUNK_SIZE = 65_536
+    _TERMINAL_SEQUENCE = re.compile(
+        r"\x1b\][^\x07]*(?:\x07|\x1b\\|$)"
+        r"|\x1b[P^_].*?(?:\x1b\\|$)"
+        r"|\x1b\[[0-?]*[ -/]*[@-~]"
+        r"|\x1b[@-_]"
+        r"|\x9d[^\x9c\x07]*(?:\x9c|\x07|$)"
+        r"|[\x90\x98\x9e\x9f].*?(?:\x9c|$)"
+        r"|\x9b[0-?]*[ -/]*[@-~]"
+    )
 
     def __init__(self, *, root: Path, run_id: str | None = None) -> None:
         self._root = root.resolve()
@@ -79,9 +91,19 @@ class RunLogStore:
             with self._lock:
                 self._ensure_run()
                 path = self._run_root / f"process-{process_id:04d}.log"
+                stdout_characters = self._text_length(stdout_file)
+                stderr_characters = self._text_length(stderr_file)
 
                 def write_body(stream: TextIO) -> None:
-                    stream.write(self._render_header(process_id, spec, result))
+                    stream.write(
+                        self._render_header(
+                            process_id,
+                            spec,
+                            result,
+                            stdout_characters=stdout_characters,
+                            stderr_characters=stderr_characters,
+                        )
+                    )
                     stream.write(f"\n{self._STDOUT_SECTION}\n")
                     self._copy_text(stdout_file, stream)
                     stream.write(f"\n{self._STDERR_SECTION}\n")
@@ -110,9 +132,9 @@ class RunLogStore:
                 path.name,
                 None,
             )
+            return self._parse_output(text)
         except (OSError, UnicodeError, ValueError):
             return None
-        return self._parse_output(text)
 
     @property
     def run_id(self) -> str:
@@ -306,6 +328,117 @@ class RunLogStore:
                 detail=str(error),
             ) from error
 
+    def read_tail(self, path: Path) -> tuple[str, ...]:
+        """Read the diagnose preview through the secure log-directory adapter."""
+        try:
+            logs_root = (self._root / ".pf" / "logs").resolve()
+            candidate = path if path.is_absolute() else self._root / path
+            relative = candidate.resolve().relative_to(logs_root)
+            self._validate_relative_locator(relative.as_posix())
+            run_id, name = relative.parts
+            return self._directory.read_run_stream(
+                run_id,
+                name,
+                self._read_process_tail,
+            )
+        except (NotImplementedError, OSError, UnicodeError, ValueError) as error:
+            raise ConfigurationError(
+                "could not read PF diagnosis log",
+                detail=str(error),
+            ) from error
+
+    @classmethod
+    def _read_process_tail(cls, stream: TextIO) -> tuple[str, ...]:
+        first = stream.readline()
+        if first.rstrip("\r\n") == "format: pf-process-log-v2":
+            return cls._read_v2_process_tail(stream, first)
+        return cls._read_v1_process_tail(stream, first)
+
+    @classmethod
+    def _read_v1_process_tail(
+        cls,
+        stream: TextIO,
+        first: str,
+    ) -> tuple[str, ...]:
+        stdout: deque[str] = deque(maxlen=3)
+        stderr: deque[str] = deque(maxlen=3)
+        section: str | None = None
+        stdout_markers = 0
+        stderr_markers = 0
+        for raw_line in chain((first,), stream):
+            line = raw_line.rstrip("\r\n")
+            if line == cls._STDOUT_SECTION:
+                stdout_markers += 1
+                if stdout_markers > 1 or section is not None:
+                    raise ValueError("PF v1 process log framing is ambiguous")
+                section = "stdout"
+                continue
+            if line == cls._STDERR_SECTION and section in {"stdout", "stderr"}:
+                stderr_markers += 1
+                if stderr_markers > 1:
+                    raise ValueError("PF v1 process log framing is ambiguous")
+                section = "stderr"
+                continue
+            if section is None:
+                continue
+            display = cls._safe_terminal_line(line).rstrip()
+            if display.strip():
+                (stderr if section == "stderr" else stdout).append(display)
+        if stdout_markers != 1 or stderr_markers != 1 or section != "stderr":
+            raise ValueError("PF process log sections are invalid")
+        return tuple(stderr or stdout)
+
+    @classmethod
+    def _read_v2_process_tail(
+        cls,
+        stream: TextIO,
+        first: str,
+    ) -> tuple[str, ...]:
+        header = [first.rstrip("\r\n")]
+        while True:
+            raw_line = stream.readline()
+            if not raw_line:
+                raise ValueError("PF v2 process log has no stdout section")
+            line = raw_line.rstrip("\r\n")
+            if line == cls._STDOUT_SECTION:
+                break
+            header.append(line)
+        stdout_length, stderr_length = cls._framed_lengths(header)
+        stdout = cls._read_framed_tail(stream, stdout_length)
+        delimiter = stream.read(len(f"\n{cls._STDERR_SECTION}\n"))
+        if delimiter != f"\n{cls._STDERR_SECTION}\n":
+            raise ValueError("PF v2 process log stderr framing is invalid")
+        stderr = cls._read_framed_tail(stream, stderr_length)
+        if stream.read(1):
+            raise ValueError("PF v2 process log has trailing bytes")
+        return stderr or stdout
+
+    @classmethod
+    def _read_framed_tail(
+        cls,
+        stream: TextIO,
+        length: int,
+    ) -> tuple[str, ...]:
+        collector = _LineTail(cls._safe_terminal_line)
+        remaining = length
+        while remaining:
+            chunk = stream.read(min(cls._STREAM_CHUNK_SIZE, remaining))
+            if not chunk:
+                raise ValueError("PF v2 process log body is incomplete")
+            collector.feed(chunk)
+            remaining -= len(chunk)
+        return collector.finish()
+
+    @classmethod
+    def _safe_terminal_line(cls, line: str) -> str:
+        without_sequences = cls._TERMINAL_SEQUENCE.sub("", line)
+        return "".join(
+            character
+            for character in without_sequences
+            if character == "\t"
+            or (ord(character) >= 32 and not 127 <= ord(character) <= 159)
+        )
+
     def close(self) -> None:
         with self._lock:
             self._directory.close()
@@ -423,15 +556,28 @@ class RunLogStore:
             dest.write(piece)
 
     @classmethod
+    def _text_length(cls, source: TextIO) -> int:
+        source.seek(0)
+        length = 0
+        while True:
+            piece = source.read(cls._STREAM_CHUNK_SIZE)
+            if not piece:
+                return length
+            length += len(piece)
+
+    @classmethod
     def _render_header(
         cls,
         process_id: int,
         spec: ProcessSpec,
         result: ProcessResult,
+        *,
+        stdout_characters: int,
+        stderr_characters: int,
     ) -> str:
         environment_names = sorted(variable.name for variable in spec.environment)
         return (
-            "format: pf-process-log-v1\n"
+            "format: pf-process-log-v2\n"
             f"process_id: {process_id}\n"
             f"argv: {cls._bounded_json(spec.argv)}\n"
             f"cwd: {cls._bounded_json(spec.cwd)}\n"
@@ -447,6 +593,8 @@ class RunLogStore:
             f"duration_seconds: {result.duration_seconds}\n"
             f"stdout_complete: {json.dumps(result.stdout_complete)}\n"
             f"stderr_complete: {json.dumps(result.stderr_complete)}\n"
+            f"stdout_characters: {stdout_characters}\n"
+            f"stderr_characters: {stderr_characters}\n"
         )
 
     @classmethod
@@ -459,7 +607,13 @@ class RunLogStore:
         stdout: str,
         stderr: str,
     ) -> str:
-        output = cls._render_header(process_id, spec, result)
+        output = cls._render_header(
+            process_id,
+            spec,
+            result,
+            stdout_characters=len(stdout),
+            stderr_characters=len(stderr),
+        )
         for heading, value in (
             (cls._STDOUT_SECTION, stdout),
             (cls._STDERR_SECTION, stderr),
@@ -469,15 +623,67 @@ class RunLogStore:
 
     @classmethod
     def _parse_output(cls, text: str) -> tuple[str, str]:
+        if text.startswith("format: pf-process-log-v2\n"):
+            return cls._parse_v2_output(text)
+        return cls._parse_v1_output(text)
+
+    @classmethod
+    def _parse_v2_output(cls, text: str) -> tuple[str, str]:
         stdout_mark = f"\n{cls._STDOUT_SECTION}\n"
-        stderr_mark = f"\n{cls._STDERR_SECTION}\n"
         stdout_at = text.find(stdout_mark)
-        stderr_at = text.find(stderr_mark)
-        if stdout_at < 0 or stderr_at < 0 or stderr_at < stdout_at:
-            return "", ""
-        stdout = text[stdout_at + len(stdout_mark) : stderr_at]
-        stderr = text[stderr_at + len(stderr_mark) :]
-        return stdout, stderr
+        if stdout_at < 0:
+            raise ValueError("PF v2 process log has no stdout section")
+        stdout_length, stderr_length = cls._framed_lengths(
+            text[:stdout_at].splitlines()
+        )
+        stdout_start = stdout_at + len(stdout_mark)
+        stdout_end = stdout_start + stdout_length
+        stderr_mark = f"\n{cls._STDERR_SECTION}\n"
+        if text[stdout_end : stdout_end + len(stderr_mark)] != stderr_mark:
+            raise ValueError("PF v2 process log stderr framing is invalid")
+        stderr_start = stdout_end + len(stderr_mark)
+        stderr_end = stderr_start + stderr_length
+        if stderr_end != len(text):
+            raise ValueError("PF v2 process log body length is invalid")
+        return text[stdout_start:stdout_end], text[stderr_start:stderr_end]
+
+    @classmethod
+    def _parse_v1_output(cls, text: str) -> tuple[str, str]:
+        candidates: list[tuple[str, str]] = []
+        for newline in ("\n", "\r\n"):
+            stdout_mark = f"{newline}{cls._STDOUT_SECTION}{newline}"
+            stderr_mark = f"{newline}{cls._STDERR_SECTION}{newline}"
+            if text.count(stdout_mark) != 1 or text.count(stderr_mark) != 1:
+                continue
+            stdout_at = text.find(stdout_mark)
+            stderr_at = text.find(stderr_mark)
+            if stderr_at < stdout_at:
+                continue
+            candidates.append(
+                (
+                    text[stdout_at + len(stdout_mark) : stderr_at],
+                    text[stderr_at + len(stderr_mark) :],
+                )
+            )
+        if len(candidates) != 1:
+            raise ValueError("PF v1 process log framing is ambiguous")
+        return candidates[0]
+
+    @staticmethod
+    def _framed_lengths(header: list[str]) -> tuple[int, int]:
+        values: dict[str, int] = {}
+        for line in header:
+            name, separator, value = line.partition(": ")
+            if name not in {"stdout_characters", "stderr_characters"}:
+                continue
+            if not separator or not value.isascii() or not value.isdecimal():
+                raise ValueError("PF v2 process log length is invalid")
+            if name in values:
+                raise ValueError("PF v2 process log length is duplicated")
+            values[name] = int(value)
+        if set(values) != {"stdout_characters", "stderr_characters"}:
+            raise ValueError("PF v2 process log lengths are missing")
+        return values["stdout_characters"], values["stderr_characters"]
 
     @staticmethod
     def _bounded(value: str, limit: int) -> str:
@@ -499,6 +705,44 @@ class RunLogStore:
         return f"{timestamp}-{os.getpid()}-{secrets.token_hex(4)}"
 
 
+class _LineTail:
+    def __init__(self, sanitize: Callable[[str], str]) -> None:
+        self._sanitize = sanitize
+        self._lines: deque[str] = deque(maxlen=3)
+        self._pending: list[str] = []
+        self._previous_was_cr = False
+
+    def feed(self, chunk: str) -> None:
+        start = 0
+        for index, character in enumerate(chunk):
+            if character not in {"\r", "\n"}:
+                self._previous_was_cr = False
+                continue
+            if index > start:
+                self._pending.append(chunk[start:index])
+            if character != "\n" or not self._previous_was_cr:
+                self._flush_pending()
+            self._previous_was_cr = character == "\r"
+            start = index + 1
+        if start < len(chunk):
+            self._pending.append(chunk[start:])
+
+    def finish(self) -> tuple[str, ...]:
+        if self._pending:
+            self._flush_pending()
+        return tuple(self._lines)
+
+    def _flush_pending(self) -> None:
+        line = "".join(self._pending)
+        self._pending.clear()
+        self._append(line)
+
+    def _append(self, line: str) -> None:
+        display = self._sanitize(line).rstrip()
+        if display.strip():
+            self._lines.append(display)
+
+
 class _ProcessLogWriter:
     """Stream redacted stdout/stderr to anonymous temps, then patch terminal facts."""
 
@@ -508,8 +752,16 @@ class _ProcessLogWriter:
         self._store = store
         self._process_id = process_id
         self._spec = spec
-        self._stdout = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
-        self._stderr = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        self._stdout = tempfile.TemporaryFile(
+            mode="w+",
+            encoding="utf-8",
+            newline="",
+        )
+        self._stderr = tempfile.TemporaryFile(
+            mode="w+",
+            encoding="utf-8",
+            newline="",
+        )
         self._closed = False
 
     def write_stdout(self, chunk: str) -> None:

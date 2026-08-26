@@ -20,6 +20,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.25",
     "pytest>=9.1",
     "pytest-benchmark>=5.2",
     "pytest-cov>=7.1",

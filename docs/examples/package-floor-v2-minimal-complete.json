@@ -1,0 +1,133 @@
+{
+  "cell_results": [
+    {
+      "baseline": {
+        "attempt_ref": "1c73f09f934b991f9b9915e8bd22f7c03a280b26b54677495301fdce78b1305d",
+        "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
+        "static_baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f"
+      },
+      "candidate_snapshot_refs": [],
+      "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
+      "failure_refs": [],
+      "final_proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
+      "search": {
+        "boundaries": [],
+        "observations": [],
+        "regions": [],
+        "status": "SUCCESS",
+        "sweeps": 0
+      },
+      "status": "SUCCESS"
+    }
+  ],
+  "evidence": {
+    "attempts": [
+      {
+        "attempt_id": "1c73f09f934b991f9b9915e8bd22f7c03a280b26b54677495301fdce78b1305d",
+        "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "context",
+        "source_plan_identity": "sources"
+      }
+    ],
+    "evaluations": [
+      {
+        "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
+        "static_evaluation_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
+        "status": "PASS",
+        "test": {
+          "process": {
+            "duration_seconds": 0.0,
+            "exit_code": 0,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "status": "TEST_PASS"
+        },
+        "witnesses": []
+      }
+    ],
+    "failures": [],
+    "proposals": [
+      {
+        "attempt_ref": "1c73f09f934b991f9b9915e8bd22f7c03a280b26b54677495301fdce78b1305d",
+        "environment_plan_digest": "environment-plan",
+        "fixed_declaration_refs": [],
+        "interpreter": {
+          "abi": "cpython-312-x86_64-linux-gnu",
+          "implementation": "cpython",
+          "version": "3.12.11"
+        },
+        "managed_vector": [],
+        "project_plan_digest": "project-plan",
+        "proposal_id": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
+        "resolution_graph_ref": "resolution-54bcee171cdbb7f01c3ec42805682f7fb1f3d03d1d4e54dc2fe5510305319f42"
+      }
+    ],
+    "resolution_graphs": [
+      {
+        "nodes": [],
+        "resolution_graph_id": "resolution-54bcee171cdbb7f01c3ec42805682f7fb1f3d03d1d4e54dc2fe5510305319f42"
+      }
+    ],
+    "static_evaluations": [
+      {
+        "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+        "incremental": [],
+        "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
+        "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783",
+        "status": "STATIC_UNCHANGED",
+        "ty": {
+          "diagnostics": [],
+          "process": {
+            "duration_seconds": 0.0,
+            "exit_code": 0,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "status": "SUCCESS"
+        }
+      }
+    ]
+  },
+  "identity": {
+    "generator": {
+      "algorithm": "v1",
+      "name": "pf",
+      "version": "0.1.0"
+    },
+    "package": {
+      "name": "demo",
+      "pyproject_path": "pyproject.toml"
+    },
+    "policy_identity": "a87bc79e485e166af0a6c86000dd746c99ab194829858a83b7dc9d5910814c87",
+    "report_generation_id": "ab39a04e9d14a9bb693800350fc8f34f97a97ec37760961bb2db97df169d6cc2",
+    "source_snapshot": {
+      "digest": "7e6fd755e9c7cf62ae5dea94106049d58e04bfe1df225cc7f262b1124c00a1dc",
+      "entries": []
+    }
+  },
+  "inputs": {
+    "candidate_snapshots": [],
+    "requirement_declarations": [],
+    "target_cells": [
+      {
+        "active_declaration_refs": [],
+        "cell_id": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
+        "extra_surface": [],
+        "package": "demo",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      }
+    ]
+  },
+  "projections": [],
+  "result": {
+    "status": "complete"
+  },
+  "schema_version": 2
+}

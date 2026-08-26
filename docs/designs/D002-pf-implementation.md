@@ -14,7 +14,7 @@
 - **runtime-backed 搜索：** [D011](D011-pf-runtime-backed-static-search.md)
 - **harness resolution：** [D012](D012-pf-harness-relaxation.md)
 - **pytest failure evidence：** [D013](D013-pf-pytest-failure-evidence.md)
-- **报告 Schema 2：** [D014](D014-pf-report-schema.md)（已批准，待实现）
+- **报告 Schema 2：** [D014](D014-pf-report-schema.md)（现行）
 
 本文是 PF v1 模块接口、依赖方向、Schema 所有权、adapter 与持久化结构的唯一所有者。用户可见值与退出码不在这里重复定义；坐标 probe 规则由 D003 定义；`ty` 诊断比较由 D004 定义；failure cause、disposition 与 `diagnose` 行为由 D005 定义；CLI 信息层级、调用错误和终端布局由 D006 定义。ProcessResult 字段与磁盘日志正文由 D007 拥有；`lowest-direct` Attempt、Cell Completion 与 Verification Journal 由 D008 拥有；前序契约修复由 D009 拥有；判别 resolution/event、Runner 内部调度、平台日志 seam、终端私有视图和完整 composition 由 D010 拥有。本文描述已落地接口，不复制其他契约的业务规则。
 
@@ -159,7 +159,7 @@ Schema validator 只验证本记录的结构和纯不变量。需要 I/O 或多�
 
 稳定 declaration ID 覆盖 `pyproject.toml` 路径、base/optional 位置、extra、规范化名称、requested extras、marker 与来源 identity，不包含数组下标、行号或会被 apply 改写的 specifier。
 
-Proposal 只在解析图完成复查后建立，并同时保存 `attempt_id`；prepare 失败不得虚构 Proposal。`AttemptIdentity` / `Attempt` 与 Failure 模型同属 Evaluation Schema，见下节。
+Proposal 只在解析图完成复查后建立，并同时保存 `attempt_id`、`project_plan_digest` 与 `environment_plan_digest`；prepare 失败不得虚构 Proposal。两个 plan digest 用于按 D012 复算 Environment identity，不得由 report builder 猜测。`AttemptIdentity` / `Attempt` 与 Failure 模型同属 Evaluation Schema，见下节。
 
 Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解析图、解释器和 Evaluation 策略 identity。策略 identity 已包含影响 `ty` 执行、诊断判定、failure policy 和完整测试的有效配置，因此 cache key 不再重复拼接这些 policy 字段。
 
@@ -180,9 +180,9 @@ Proposal ID 覆盖源码快照、cell、受管向量、固定声明、实际解�
 - `ProbePass` / `ProbeRejection` / `ProbeIndeterminate`、坐标边界与 `CoordinateOutcome`；
 - cell result discriminator union（包括 Attempt 前的 `CellIndeterminate`）、baseline outcome 与 `FailureRecord` 引用；
 - 投影证据与 complete/incomplete report result；
-- `PackageFloorReportV1`、`ProjectEditResult`。
+- 私有 Schema 2 wire records、`ProjectEditResult`。
 
-`PackageFloorReportV1` validator 复证目标 cell 精确覆盖、成功证据、FailureRecord 交叉引用、投影授权，以及 D004 的静态基线和 D005 的 disposition 一致性。公共 JSON 即使被手工编辑也不能绕过这些不变量。
+`ValidatedReport` 是 report module 对 workflow、editor、explain 和 diagnose 暴露的唯一 immutable resolved facade。私有 Schema 2 wire records、typed index、引用展开和完整验证由 D014 拥有；调用方不得 import wire model 或自行 join refs。公共 JSON 即使被手工编辑也不能绕过目标 cell 覆盖、成功证据、FailureRecord、投影授权、D004 静态基线和 D005 disposition 不变量。
 
 ## 6. CLI 与应用工作流
 
@@ -391,7 +391,7 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 - 当前 `uv-pip-compile-pylock-v1` 只支持发行依赖精确固定的 uv `0.12.5`；其他版本在建立 resolver context 时 fail closed。该版本的 qualification profile 已通过 13-case diagnostic matrix。
 - `TyAdapter` 的输出、诊断规范化和参数所有权由 D004 定义。发行依赖精确固定 ty `0.0.74`；升级前必须用候选版本完成全仓类型检查与测试验证。
 - `RuntimeWitnessAdapter` 只执行 D004 的 owned、无 shell、结构化名称可达性 harness；它不决定 disposition。
-- `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与 test outcome policy。唯一 selector 把默认 `[1]` 的 direct pytest command 路由到私有 failure-witness profile，其他命令路由到 generic configured-exit-code profile；同一 selector 同时提供 `evaluation_policy_identity` 的 test outcome policy identity。pytest profile 从 wheel 内 embedded standalone resource 复制 run-unique plugin，以 bounded canonical finalized summary 联合 Portable Process Facts 分类。`TestOperations.run(..., progress=None)` 另有一个可选 `StageProgress | None` consumer：仅 direct serial pytest 在 collection 得到唯一 nodeid 集合后通过独立、bounded、atomic 的 best-effort 协议更新它；先有合法 snapshot 后协议失效时以 `None` 清空 determinate 状态，generic、collect-only、xdist/unknown 或首个 snapshot 即无效时不回调。plugin path、nonce、summary 与 pytest 细节不越过 adapter；progress 只越过 `StageProgress | None`，永不改变 `TestOutcome`。完整 outcome 契约、资格边界与 telemetry 隔离由 D013 定义。
+- `TestAdapter` 只执行已决定的完整 argv、cwd、环境、timeout 与 test outcome policy。唯一 selector 把默认 `[1]` 的 direct pytest command 路由到私有 failure-witness profile，其他命令路由到 generic configured-exit-code profile；同一 selector 同时提供 `evaluation_policy_identity` 的 test outcome policy identity。pytest profile 从 wheel 内 embedded standalone resource 复制 run-unique plugin，以 bounded canonical finalized summary 联合 Portable Process Facts 分类。`TestOperations.run(..., progress=None)` 另有一个可选 `StageProgress | None` consumer：仅 direct serial pytest 在 collection 得到唯一 nodeid 集合后通过独立、bounded、atomic 的 best-effort 协议更新它；先有合法 snapshot 后协议失效时停止回调并保留最后值，generic、collect-only、xdist/unknown 或首个 snapshot 即无效时不回调。plugin path、nonce、summary 与 pytest 细节不越过 adapter；progress 只越过 `StageProgress | None`，永不改变 `TestOutcome`。完整 outcome 契约、资格边界与 telemetry 隔离由 D013 定义。
 
 所有 adapter 在返回前完成脱敏。Adapter 不决定 disposition；Presenter 与 ReportStore 也不负责补救原始 secret。
 
@@ -403,12 +403,12 @@ candidate probe 的每个 Rejection/Indeterminate 都把可移植 `FailureRecord
 
 `ReportStore` 唯一拥有：
 
-- 首发 Schema 1 严格读取与 64 MiB 上限；
-- canonical JSON 与原子写；
-- 同一 generation 的 search update；
-- 严格 merge 及合并后投影重算。
+- Schema 2 的唯一 codec、typed ref 解析、完整验证与 64 MiB 上限；
+- canonical JSON、原子写与只接受 `schema_version = 2` 的读取；
+- `update_path` 持久化事务及 `ReportUpdate` diagnosis association delta；
+- 从最终 CellResult roots 重建实体池、projection/result 的严格 merge/update。
 
-未知 Schema、缺少 D005 Attempt/FailureScope/FailureRecord union 的开发期旧结构、不匹配 generation、重复 cell 冲突或结构验证失败都保守失败。现行只提供 Schema 1；Schema 2 的 ValidatedReport、codec 与一次性替换以 [D014](D014-pf-report-schema.md) 为准，落地前不写入或读取 `schema_version = 2`。
+未知或旧 Schema、缺失/错误类型/跨 Cell/循环引用、identity 漂移、不可达实体、非规范顺序、不匹配 generation、重复 cell 冲突或结构验证失败都保守失败。`ReportStore`、`PackageReportBuilder` 和 facade 的完整 interface 与 wire 规则以 [D014](D014-pf-report-schema.md) §7–§9 为准；不提供 Schema 1 reader、migrator 或 dual-write。
 
 ### 11.2 ProjectEditor
 
@@ -430,7 +430,7 @@ PREPARED -> PROJECTS_REPLACED -> VALIDATED -> COMMITTED
 
 ## 12. TerminalPresenter
 
-`pf.terminal` 包是业务 Rich 的唯一使用点。`TerminalPresenter` 以 thread-safe `consume(ActivityEvent)` 接收 Scheduler worker 与 pytest progress monitor 的活动事件；私有 `LiveVerificationView` 用同一把可重入锁串行化 Rich 状态变更、渲染和关闭，不要求 producer 切换回调用 Scheduler 的线程。live view 在每个 cell title 下按 `detail identity -> stage/progress` 顺序投影 `CellContextEvent` / `CellStageEvent`；它不推断 probe 身份、搜索窗口或测试总数。合法 cell 完成展示事实由不可变 `CellPresentation` 统一从 `CellCompletedEvent` 或 `completion_outcome(result)` 建立；final/live 不各自投影领域 outcome，`_print_cell_report` 只接收该单一对象。Explain / Diagnose renderer 继续位于包内私有模块。stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
+`pf.terminal` 包是业务 Rich 的唯一使用点。`TerminalPresenter` 以 thread-safe `consume(ActivityEvent)` 接收 Scheduler worker 与 pytest progress monitor 的活动事件；私有 `LiveVerificationView` 用同一把可重入锁串行化 Rich 状态变更、渲染和关闭，不要求 producer 切换回调用 Scheduler 的线程。live view 把短 `baseline | declaration` identity 并入 cell title 行，把 search-probe identity 放在独立 detail 行，并在其后投影 stage/progress；各行独立布局，progress 更新原地复用同一 stage task。Rich 以 20 Hz auto-refresh 驱动 spinner 与 elapsed；task 自身的隐式 refresh 被延迟到完整 ActivityEvent 提交后，renderer 只读取该事件提交的 immutable Task value snapshot，不能观察半成品字段或 task 组合。它不推断 probe 身份、搜索窗口或测试总数。合法 cell 完成展示事实由不可变 `CellPresentation` 统一从 `CellCompletedEvent` 或 `completion_outcome(result)` 建立；final/live 不各自投影领域 outcome，`_print_cell_report` 只接收该单一对象。Explain / Diagnose renderer 继续位于包内私有模块。stdout/stderr、TTY live display、非 TTY 稳定行、最终摘要、artifact 布局和诊断短格式由 D006 定义；诊断身份与多重集事实由 D004 定义；FailureRecord 的 title、impact、next step 和次级技术信息由 D005 定义；本地日志链接由 `RunLogStore` 提供。生产布局不在本文另写一套展示规则。
 
 adapter、Evaluator、workflow 和 report 不拼终端文案。日志文件保存机械详情；Presenter 可以为 `diagnose` 展示已定位的脱敏日志内容，但不得重新分类或用日志改变报告中的 disposition。
 

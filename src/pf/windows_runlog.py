@@ -4,7 +4,11 @@ import ctypes
 import os
 from pathlib import Path
 import secrets
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TextIO, TypeVar
+
+
+_ReadT = TypeVar("_ReadT")
 
 
 _FILE_READ_ATTRIBUTES = 0x0080
@@ -123,9 +127,44 @@ class WindowsRunDirectory:
             opened = os.fstat(descriptor)
             if limit is not None and opened.st_size > limit:
                 raise ValueError("PF diagnosis index exceeds its size limit")
-            with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+            with os.fdopen(
+                descriptor,
+                "r",
+                encoding="utf-8",
+                newline="",
+            ) as stream:
                 descriptor = None
                 return stream.read() if limit is None else stream.read(limit + 1)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            if handle is not None:
+                self._close_all((handle,))
+
+    def read_text_stream(  # pragma: no cover
+        self,
+        path: Path,
+        read_body: Callable[[TextIO], _ReadT],
+    ) -> _ReadT:
+        """Read a guarded regular file through a bounded-memory consumer."""
+        self.assert_intact()
+        self._require_guarded_parent(path)
+        handle = self._open_file(path, access=_GENERIC_READ)
+        descriptor: int | None = None
+        try:
+            import msvcrt  # pragma: no cover
+
+            open_osfhandle = getattr(msvcrt, "open_osfhandle")
+            descriptor = open_osfhandle(handle, os.O_RDONLY)
+            handle = None
+            with os.fdopen(
+                descriptor,
+                "r",
+                encoding="utf-8",
+                newline="",
+            ) as stream:
+                descriptor = None
+                return read_body(stream)
         finally:
             if descriptor is not None:
                 os.close(descriptor)
@@ -159,7 +198,12 @@ class WindowsRunDirectory:
             open_osfhandle = getattr(msvcrt, "open_osfhandle")
             descriptor = open_osfhandle(handle, os.O_WRONLY)
             handle = None
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            with os.fdopen(
+                descriptor,
+                "w",
+                encoding="utf-8",
+                newline="",
+            ) as stream:
                 descriptor = None
                 write_body(stream)
                 stream.flush()

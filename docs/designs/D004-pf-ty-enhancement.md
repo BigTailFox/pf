@@ -192,7 +192,7 @@ Witness 是内部负向优化，不产生正向 compatibility。未选择 witnes
 
 ## 10. Schema、cache 与报告
 
-公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。
+公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。Schema 2 只改变这些事实的持久化所有权：StaticEvaluation、terminal Evaluation、Proposal 和 FailureRecord 按 D014 的 typed refs 关联，不改变本节的静态证据语义。
 
 概念 cache key：
 

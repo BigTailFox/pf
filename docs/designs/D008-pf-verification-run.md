@@ -113,7 +113,7 @@ AttemptIdentity.requested_resolution
 
 `highest` 的 Attempt identity 不包含“是否跑测试”。check 的静态捕获与 smoke/search 的 Baseline 在同一快照、cell、策略下是 **同一次 highest Attempt 请求**；差别只在本次运行的评价契约和 Verification Role。
 
-项目尚未发布。该字段扩展仍属 Schema 1，不升 Schema 2。`failure-v1` 对 `highest` / `exact-vector` 的既有行保持不变。
+`requested_resolution` 是 Attempt 的领域事实；现行 Schema 2 按 D014 §4.2 只接受 `attempt-v2` 并用 typed Cell ref 保存它，不改变本节的 Verification Role 语义。`failure-v1` 对 `highest` / `exact-vector` 的既有行保持不变。
 
 ### 4.2 评价契约
 
@@ -179,7 +179,7 @@ Adapter cause + stage + process
   → PrepareFailure | Evaluation | ToolFailure（仅评价阶段）
   → FailurePolicy.classify(AttemptFailureScope | CellFailureScope, ...)
   → FailureRecord
-  → Cell Completion（kind, stage, failure, process, diagnostics）
+  → Cell Completion（kind, stage, failure, process, runtime detail）
   → Presenter `failed at` + Diagnose
   → Journal（及 search 的报告）
 ```
@@ -215,8 +215,10 @@ kind          success | warning | failure | indeterminate
 stage         非成功时必填，adapter 名（resolve-project / resolve-environment / install-environment / ty / test / …）
 failure       非成功时必填 FailureRecord
 process       若有
-diagnostics   D004 增量或 warning 基线诊断
+detail        可选、运行时、非权威的 typed CellResultDetail
 ```
+
+成功 completion 不携带 baseline ty warning。失败 detail 只允许由统一 completion projector 从结构化 Evaluation/Adapter outcome 产生：pytest `TestFail` 可给第一项失败用例与总数；`RuntimeInterfaceMissingEvaluation` 可给最终 confirmed-missing witness plan 覆盖的第一项 static increment 与总数。detail 不进入 Journal、报告、FailureRecord 或任何 identity。
 
 `failed at` 的用户文案仍由 D006 从 adapter stage 映射。未知 stage 仍把 `-` 换成空格。完成观察不得依赖 `message == "STATIC_FAIL"` 或遗留 `BUILD_UNAVAILABLE`。
 
@@ -326,7 +328,7 @@ D006 仍拥有布局。本文改变的是数据是否存在：
 - check 不再有“无 FailureRecord 因此无 Diagnose”的例外；
 - 成功 cell 仍不写 `failed at`。
 
-`Diagnose:` 在 Journal 写入成功后才是事后可打开的入口。若 Journal 写入失败，卡片仍可展示 title、进程末 3 行和 Process Log 链接，但必须把 diagnose 入口视为不可用，不得打印事后 404 的 `failure_id`。
+`Diagnose:` 在 Journal 写入成功后才是事后可打开的入口。若 Journal 写入失败，卡片仍可展示 title 与 structured detail，并把可用 Process Log 链接作为唯一回退；必须把 diagnose 入口视为不可用，不得打印事后 404 的 `failure_id`。若日志也不可用，明确显示详细诊断不可用。
 
 ## 10. 模块所有权
 

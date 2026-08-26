@@ -16,9 +16,6 @@ from pf.schemas.evaluation import (
 if TYPE_CHECKING:
     from pf.workflow import FailureDiagnosis
 
-_SUMMARY_WIDTH = 240
-
-
 class FailureView(Protocol):
     @property
     def title(self) -> str: ...
@@ -129,14 +126,10 @@ def render(
             )
         if failure.process is not None:
             presenter.stdout.print(f"  process: {_process_terminal(failure.process)}")
-            output = (
-                failure.process.stderr.strip()
-                or failure.process.stdout.strip()
-                or (failure.process.start_error or "").strip()
-            )
-            summary = _single_line_summary(output)
-            if summary:
-                presenter.stdout.print(f"  summary: {summary}")
+        if diagnosis.output_tail:
+            presenter.stdout.print("  output:")
+            for line in diagnosis.output_tail:
+                presenter.stdout.print(Text(f"    {line}"))
         if diagnosis.log_path is not None:
             resolved = (root / diagnosis.log_path).resolve()
             presenter.stdout.print(
@@ -158,10 +151,7 @@ def _format_extra_surface(surface: tuple[str, ...]) -> str:
 
 
 def _single_line_summary(value: str) -> str:
-    summary = " ".join(value.split())
-    if len(summary) <= _SUMMARY_WIDTH:
-        return summary
-    return f"{summary[: _SUMMARY_WIDTH - 3]}..."
+    return " ".join(value.split())
 
 
 def _process_terminal(process: ProcessResult) -> str:

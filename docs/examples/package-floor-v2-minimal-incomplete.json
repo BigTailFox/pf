@@ -1,0 +1,50 @@
+{
+  "cell_results": [],
+  "evidence": {
+    "attempts": [],
+    "evaluations": [],
+    "failures": [],
+    "proposals": [],
+    "resolution_graphs": [],
+    "static_evaluations": []
+  },
+  "identity": {
+    "generator": {
+      "algorithm": "v1",
+      "name": "pf",
+      "version": "0.1.0"
+    },
+    "package": {
+      "name": "demo",
+      "pyproject_path": "pyproject.toml"
+    },
+    "policy_identity": "a87bc79e485e166af0a6c86000dd746c99ab194829858a83b7dc9d5910814c87",
+    "report_generation_id": "ab39a04e9d14a9bb693800350fc8f34f97a97ec37760961bb2db97df169d6cc2",
+    "source_snapshot": {
+      "digest": "7e6fd755e9c7cf62ae5dea94106049d58e04bfe1df225cc7f262b1124c00a1dc",
+      "entries": []
+    }
+  },
+  "inputs": {
+    "candidate_snapshots": [],
+    "requirement_declarations": [],
+    "target_cells": [
+      {
+        "active_declaration_refs": [],
+        "cell_id": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
+        "extra_surface": [],
+        "package": "demo",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      }
+    ]
+  },
+  "projections": [],
+  "result": {
+    "reasons": [
+      "MISSING_CELL"
+    ],
+    "status": "incomplete"
+  },
+  "schema_version": 2
+}

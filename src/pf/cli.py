@@ -35,7 +35,8 @@ from pf.schemas.config import (
     SmokeRequest,
 )
 from pf.schemas.evaluation import CheckResult, SmokeResult
-from pf.schemas.report import PackageFloorReportV1, ProjectEditResult
+from pf.report import ValidatedReport
+from pf.schemas.report import ProjectEditResult
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
 from pf.terminal import TerminalPresenter, command_usage, command_usage_line
@@ -58,7 +59,7 @@ class CheckWorkflow(Protocol):
 
 
 class SearchWorkflow(Protocol):
-    def run(self, request: SearchRequest) -> tuple[PackageFloorReportV1, ...]: ...
+    def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]: ...
 
 
 class SmokeWorkflow(Protocol):
@@ -66,7 +67,7 @@ class SmokeWorkflow(Protocol):
 
 
 class ExplainWorkflow(Protocol):
-    def run(self, request: ReportRequest) -> tuple[PackageFloorReportV1, ...]: ...
+    def run(self, request: ReportRequest) -> tuple[ValidatedReport, ...]: ...
 
 
 class DiagnoseWorkflow(Protocol):
@@ -74,7 +75,7 @@ class DiagnoseWorkflow(Protocol):
 
 
 class MergeWorkflow(Protocol):
-    def run(self, request: MergeRequest) -> PackageFloorReportV1: ...
+    def run(self, request: MergeRequest) -> ValidatedReport: ...
 
 
 class ApplyWorkflow(Protocol):
@@ -163,6 +164,8 @@ def create_app(context: CliContext) -> App:
         print_error=True,
         exit_on_error=False,
         error_formatter=_invocation_error,
+        console=context.presenter.stdout,
+        error_console=context.presenter.stderr,
     )
 
     @app.command(group=_VERIFY, sort_key=1)

@@ -2,63 +2,48 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
 from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
-from pf.report import ReportStore
+from pf.policy import evaluation_policy_identity
+from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
+from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     CellFailureScope,
     FailureCause,
     FailureDetail,
     ProcessResult,
 )
-from pf.schemas.project import SourceSnapshotIdentity
-from pf.schemas.report import (
-    CellIndeterminate,
-    FloorProjection,
-    GeneratorIdentity,
-    IncompleteReportResult,
-    PackageFloorReportV1,
-    PackageIdentity,
-    ProjectionEvidence,
-    report_generation_id,
-)
 from pf.schemas.project import (
-    AvailableArtifact,
-    Candidate,
-    CandidateSnapshot,
     Cell,
-    RequirementDeclaration,
-    SourceIdentity,
-    candidate_snapshot_digest,
+    PackagePlan,
+    SnapshotEntry,
+    SourcePlan,
+    SourceSnapshotIdentity,
+    source_snapshot_digest,
 )
+from pf.schemas.report import CellIndeterminate
 
 
-def incomplete_report() -> PackageFloorReportV1:
-    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-    package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-    return PackageFloorReportV1(
-        report_generation_id=report_generation_id(
-            generator=generator,
-            package=package,
-            source_snapshot=snapshot,
-            policy_identity="policy",
-            requirement_declarations=(),
-            target_cells=(),
-        ),
-        generator=generator,
-        package=package,
-        source_snapshot=snapshot,
-        policy_identity="policy",
-        requirement_declarations=(),
-        candidate_snapshots=(),
-        cell_results=(),
-        projection_evidence=(),
-        result=IncompleteReportResult(reasons=("INDETERMINATE",)),
+def package_for(cells: tuple[Cell, ...]) -> PackagePlan:
+    return PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_timeout=1),
+        declarations=(),
+        cells=cells,
+        source_plan=SourcePlan(identities=()),
+    )
+
+
+def snapshot_for(
+    entries: tuple[SnapshotEntry, ...] = (),
+) -> SourceSnapshotIdentity:
+    return SourceSnapshotIdentity(
+        digest=source_snapshot_digest(entries),
+        entries=entries,
     )
 
 
@@ -66,18 +51,21 @@ def cell_failure(
     cell: Cell,
     cause: FailureCause,
     *,
+    snapshot: SourceSnapshotIdentity,
+    policy_identity: str,
     stage: str = "evaluation",
+    process: ProcessResult | None = None,
 ) -> CellIndeterminate:
     failure = FailurePolicy().classify(
         scope=CellFailureScope(
             package=cell.package,
             cell=cell,
-            source_snapshot_digest="snapshot",
-            evaluation_policy_identity="policy",
+            source_snapshot_digest=snapshot.digest,
+            evaluation_policy_identity=policy_identity,
         ),
         cause=cause,
         stage=stage,
-        process=None,
+        process=process,
         detail=FailureDetail(code="test-failure", message="test failure"),
     )
     return CellIndeterminate(
@@ -88,121 +76,53 @@ def cell_failure(
     )
 
 
+def report_for(
+    cells: tuple[Cell, ...] = (),
+    results: tuple[CellIndeterminate, ...] = (),
+    *,
+    snapshot: SourceSnapshotIdentity | None = None,
+) -> ValidatedReport:
+    package = package_for(cells)
+    return PackageReportBuilder().build(
+        package=package,
+        source_snapshot=snapshot or snapshot_for(),
+        cell_results=results,
+    )
+
+
 class TestReportStore:
-    def test_write_round_trips_canonical_versioned_json(
+    def test_write_round_trips_canonical_schema_2_json(
         self,
         tmp_path: Path,
     ) -> None:
         store = ReportStore()
         path = tmp_path / "package-floor.json"
-        report = incomplete_report()
+        report = report_for()
 
         store.write(path, report)
 
         content = path.read_text(encoding="utf-8")
         assert content.endswith("\n") and not content.endswith("\n\n")
-        assert content.startswith('{"candidate_snapshots":')
-        assert store.read(path) == report
-
-    def test_read_rejects_unknown_schema(self, tmp_path: Path) -> None:
-        store = ReportStore()
-        path = tmp_path / "package-floor.json"
-        store.write(path, incomplete_report())
-        content = path.read_text(encoding="utf-8")
-        document = json.loads(content)
-        document["schema_version"] = 2
-        path.write_text(json.dumps(document), encoding="utf-8")
-
-        with pytest.raises(
-            ConfigurationError, match="unsupported report schema_version: 2"
-        ):
-            store.read(path)
-
-    def test_report_store_omits_captured_process_output(self, tmp_path: Path) -> None:
-        store = ReportStore()
-        path = tmp_path / "package-floor.json"
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        failure = FailurePolicy().classify(
-            scope=CellFailureScope(
-                package=cell.package,
-                cell=cell,
-                source_snapshot_digest="snapshot",
-                evaluation_policy_identity="policy",
-            ),
-            cause="TOOL_FAILURE",
-            stage="test",
-            process=ProcessResult(
-                exit_code=0,
-                signal=None,
-                duration_seconds=11.12,
-                stdout="484 passed in 11.12s",
-                stderr="secret-noise",
-                stdout_complete=False,
-            ),
-        )
-        generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-        package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-        snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-        cells = (cell,)
-        report = PackageFloorReportV1(
-            report_generation_id=report_generation_id(
-                generator=generator,
-                package=package,
-                source_snapshot=snapshot,
-                policy_identity="policy",
-                requirement_declarations=(),
-                target_cells=cells,
-            ),
-            generator=generator,
-            package=package,
-            source_snapshot=snapshot,
-            policy_identity="policy",
-            requirement_declarations=(),
-            candidate_snapshots=(),
-            target_cells=cells,
-            cell_results=(
-                CellIndeterminate(
-                    cell=cell,
-                    phase="test",
-                    failure_id=failure.failure_id,
-                    failure_records=(failure,),
-                ),
-            ),
-            projection_evidence=(),
-            result=IncompleteReportResult(reasons=("INDETERMINATE",)),
-        )
-
-        store.write(path, report)
-        content = path.read_text(encoding="utf-8")
+        assert content.startswith('{"cell_results":')
+        assert '"schema_version":2' in content
+        assert ":null" not in content
         loaded = store.read(path)
-        process = loaded.failure_records[0].process
-
-        assert '"stdout":' not in content
-        assert '"stderr":' not in content
-        assert "stdout_tail" not in content
-        assert "stderr_tail" not in content
-        assert "484 passed" not in content
-        assert "secret-noise" not in content
-        assert process is not None
-        assert process.exit_code == 0
-        assert process.stdout_complete is False
-        assert process.stdout == ""
-        assert process.stderr == ""
+        assert loaded == report
+        rewritten = tmp_path / "rewritten.json"
+        store.write(rewritten, loaded)
+        assert rewritten.read_bytes() == path.read_bytes()
 
     @pytest.mark.parametrize(
         ("content", "message"),
         (
             (None, "cannot read report"),
             ("not-json", "invalid report JSON"),
-            ('{"schema_version":1}', "invalid v1 report"),
+            ('{"schema_version":1}', "unsupported report schema_version"),
+            ('{"schema_version":3}', "unsupported report schema_version"),
+            ("[]", "unsupported report schema_version"),
         ),
     )
-    def test_read_rejects_unusable_report(
+    def test_read_rejects_unusable_or_non_schema_2_report(
         self,
         tmp_path: Path,
         content: str | None,
@@ -215,51 +135,111 @@ class TestReportStore:
         with pytest.raises(ConfigurationError, match=message):
             ReportStore().read(path)
 
-    def test_report_store_rejects_development_era_baseline_failed_status(
+    def test_read_rejects_oversized_report_before_loading_it(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        path = tmp_path / "package-floor.json"
+        with path.open("wb") as stream:
+            stream.seek(64 * 1024 * 1024)
+            stream.write(b"x")
+
+        def unexpected_read(_path: Path) -> bytes:
+            pytest.fail("oversized report was loaded into memory")
+
+        monkeypatch.setattr(Path, "read_bytes", unexpected_read)
+
+        with pytest.raises(ConfigurationError, match="64 MiB read limit"):
+            ReportStore().read(path)
+
+    def test_read_rejects_invalid_utf8_as_invalid_report_json(
         self,
         tmp_path: Path,
     ) -> None:
-        store = ReportStore()
         path = tmp_path / "package-floor.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "report_generation_id": "legacy",
-                    "generator": {"name": "pf", "version": "0.1.0", "algorithm": "v1"},
-                    "package": {"name": "demo", "pyproject_path": "pyproject.toml"},
-                    "source_snapshot": {"digest": "snapshot", "entries": []},
-                    "policy_identity": "policy",
-                    "requirement_declarations": [],
-                    "candidate_snapshots": [],
-                    "target_cells": [],
-                    "cell_results": [
-                        {
-                            "status": "BASELINE_FAILED",
-                            "cell": {
-                                "package": "demo",
-                                "target": "x86_64-unknown-linux-gnu",
-                                "python_minor": "3.10",
-                                "extra_surface": [],
-                            },
-                            "phase": "baseline-evaluation",
-                        }
-                    ],
-                    "projection_evidence": [],
-                    "result": {"status": "incomplete", "reasons": ["BASELINE_FAILED"]},
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        path.write_bytes(b'{"schema_version":2,"invalid":"\xff"}')
 
-        with pytest.raises(ConfigurationError, match="invalid v1 report"):
+        with pytest.raises(ConfigurationError, match="invalid report JSON"):
+            ReportStore().read(path)
+
+    def test_read_rejects_non_utf8_json_even_when_json_can_detect_it(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "package-floor.json"
+        store = ReportStore()
+        store.write(path, report_for())
+        path.write_bytes(path.read_text(encoding="utf-8").encode("utf-16"))
+
+        with pytest.raises(ConfigurationError, match="invalid report JSON"):
             store.read(path)
 
+    def test_report_store_omits_captured_process_output(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        snapshot = snapshot_for()
+        policy = evaluation_policy_identity(package_for((cell,)).config)
+        result = cell_failure(
+            cell,
+            "TOOL_FAILURE",
+            snapshot=snapshot,
+            policy_identity=policy,
+            stage="test",
+            process=ProcessResult(
+                exit_code=0,
+                signal=None,
+                duration_seconds=11.12,
+                stdout="484 passed in 11.12s",
+                stderr="secret-noise",
+                stdout_complete=False,
+            ),
+        )
+        report = report_for((cell,), (result,), snapshot=snapshot)
+        path = tmp_path / "package-floor.json"
 
-class TestReportMerge:
-    def test_report_merge_is_deterministic_and_rejects_conflicting_cells(self) -> None:
-        store = ReportStore()
+        ReportStore().write(path, report)
+
+        content = path.read_text(encoding="utf-8")
+        loaded = ReportStore().read(path)
+        process = loaded.failure_records[0].process
+        assert '"stdout":' not in content
+        assert '"stderr":' not in content
+        assert "484 passed" not in content
+        assert "secret-noise" not in content
+        assert process is not None
+        assert process.exit_code == 0
+        assert process.stdout_complete is False
+        assert process.stdout == ""
+        assert process.stderr == ""
+
+    def test_update_path_rejects_bad_existing_without_overwrite(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "package-floor.json"
+        original = b'{"schema_version":1}\n'
+        path.write_bytes(original)
+
+        with pytest.raises(
+            ConfigurationError,
+            match="unsupported report schema_version",
+        ):
+            ReportStore().update_path(path, report_for())
+
+        assert path.read_bytes() == original
+
+    def test_reader_rejects_cross_cell_failure_reference(
+        self,
+        tmp_path: Path,
+    ) -> None:
         cells = tuple(
             Cell(
                 package="demo",
@@ -269,40 +249,61 @@ class TestReportMerge:
             )
             for minor in ("3.10", "3.11")
         )
-
-        def report_for(
-            cell: Cell,
-            cause: Literal["TIMEOUT", "TOOL_FAILURE", "SOURCE_FAILURE"],
-        ) -> PackageFloorReportV1:
-            generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-            package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-            snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-            return PackageFloorReportV1(
-                report_generation_id=report_generation_id(
-                    generator=generator,
-                    package=package,
-                    source_snapshot=snapshot,
-                    policy_identity="policy",
-                    requirement_declarations=(),
-                    target_cells=cells,
-                ),
-                generator=generator,
-                package=package,
-                source_snapshot=snapshot,
-                policy_identity="policy",
-                requirement_declarations=(),
-                candidate_snapshots=(),
-                target_cells=cells,
-                cell_results=(cell_failure(cell, cause),),
-                projection_evidence=(),
-                result=IncompleteReportResult(
-                    reasons=("INDETERMINATE", "MISSING_CELL")
-                ),
+        snapshot = snapshot_for()
+        policy = evaluation_policy_identity(package_for(cells).config)
+        results = tuple(
+            cell_failure(
+                cell,
+                "TIMEOUT",
+                snapshot=snapshot,
+                policy_identity=policy,
             )
+            for cell in cells
+        )
+        path = tmp_path / "package-floor.json"
+        ReportStore().write(
+            path,
+            report_for(cells, results, snapshot=snapshot),
+        )
+        document = json.loads(path.read_text(encoding="utf-8"))
+        foreign_ref = document["cell_results"][1]["failure_ref"]
+        document["cell_results"][0]["failure_ref"] = foreign_ref
+        document["cell_results"][0]["failure_refs"] = [foreign_ref]
+        path.write_text(json.dumps(document), encoding="utf-8")
 
-        first = report_for(cells[1], "TIMEOUT")
-        second = report_for(cells[0], "TOOL_FAILURE")
-        merged = store.merge((first, second))
+        with pytest.raises(
+            ConfigurationError,
+            match="CellResult evidence mismatch",
+        ):
+            ReportStore().read(path)
+
+
+class TestReportMergeAndUpdate:
+    def test_merge_is_deterministic_and_rejects_conflicting_cells(self) -> None:
+        cells = tuple(
+            Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor=minor,
+                extra_surface=(),
+            )
+            for minor in ("3.10", "3.11")
+        )
+        snapshot = snapshot_for()
+        policy = evaluation_policy_identity(package_for(cells).config)
+
+        def partial(cell: Cell, cause: FailureCause) -> ValidatedReport:
+            result = cell_failure(
+                cell,
+                cause,
+                snapshot=snapshot,
+                policy_identity=policy,
+            )
+            return report_for(cells, (result,), snapshot=snapshot)
+
+        first = partial(cells[1], "TIMEOUT")
+        second = partial(cells[0], "TOOL_FAILURE")
+        merged = ReportStore().merge((first, second))
 
         assert [result.cell.python_minor for result in merged.cell_results] == [
             "3.10",
@@ -311,191 +312,10 @@ class TestReportMerge:
         assert merged.result.status == "incomplete"
         assert merged.result.reasons == ("INDETERMINATE",)
 
-        conflict = report_for(cells[1], "SOURCE_FAILURE")
         with pytest.raises(ConfigurationError, match="conflicting result for cell"):
-            store.merge((first, conflict))
+            ReportStore().merge((first, partial(cells[1], "SOURCE_FAILURE")))
 
-    @pytest.mark.parametrize(
-        ("field", "value", "message"),
-        (
-            (
-                "generator",
-                GeneratorIdentity(name="other", version="0.1.0", algorithm="v1"),
-                "generator",
-            ),
-            (
-                "package",
-                PackageIdentity(name="other", pyproject_path="pyproject.toml"),
-                "package",
-            ),
-            (
-                "source_snapshot",
-                SourceSnapshotIdentity(digest="other", entries=()),
-                "source snapshot",
-            ),
-            ("policy_identity", "other", "policy"),
-            (
-                "requirement_declarations",
-                (
-                    RequirementDeclaration(
-                        declaration_id="demo",
-                        package="demo",
-                        location="base",
-                        name="demo",
-                        source=SourceIdentity(kind="registry"),
-                        pyproject_path="pyproject.toml",
-                        raw="demo",
-                        kind="searchable",
-                        managed=False,
-                    ),
-                ),
-                "declarations",
-            ),
-            (
-                "target_cells",
-                (
-                    Cell(
-                        package="demo",
-                        target="x86_64-unknown-linux-gnu",
-                        python_minor="3.10",
-                        extra_surface=(),
-                    ),
-                ),
-                "target cell coverage",
-            ),
-        ),
-    )
-    def test_report_merge_and_update_reject_generation_drift(
-        self,
-        field: str,
-        value: object,
-        message: str,
-    ) -> None:
-        original = incomplete_report()
-        changed = original.model_copy(update={field: value})
-        store = ReportStore()
-
-        with pytest.raises(ConfigurationError, match=message):
-            store.merge((original, changed))
-        with pytest.raises(ConfigurationError, match=message):
-            store.update(original, changed)
-
-    def test_report_merge_rejects_conflicting_candidate_and_projection_evidence(
-        self,
-    ) -> None:
-        store = ReportStore()
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-            active_declaration_ids=("demo",),
-        )
-
-        def candidate(identity: str) -> CandidateSnapshot:
-            source = SourceIdentity(kind="registry")
-            candidates = (
-                Candidate(
-                    version="1.0",
-                    series_key="1",
-                    artifact=AvailableArtifact(
-                        filename=f"demo-{identity}.whl",
-                        kind="wheel",
-                        content_hash="sha256:abc",
-                    ),
-                ),
-            )
-            representatives = (("1", "1.0"),)
-            return CandidateSnapshot(
-                dependency="demo",
-                cell=cell,
-                policy_identity="policy",
-                source=source,
-                candidates=candidates,
-                series_representatives=representatives,
-                digest=candidate_snapshot_digest(
-                    dependency="demo",
-                    cell=cell,
-                    policy_identity="policy",
-                    source=source,
-                    candidates=candidates,
-                    series_representatives=representatives,
-                ),
-            )
-
-        declaration = RequirementDeclaration(
-            declaration_id="demo",
-            package="demo",
-            location="base",
-            name="demo",
-            source=SourceIdentity(kind="registry"),
-            pyproject_path="pyproject.toml",
-            raw="demo",
-            kind="searchable",
-            managed=True,
-        )
-
-        def evidence_report(
-            snapshot: CandidateSnapshot,
-            floor: str,
-        ) -> PackageFloorReportV1:
-            generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-            package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-            source_snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-            return PackageFloorReportV1(
-                report_generation_id=report_generation_id(
-                    generator=generator,
-                    package=package,
-                    source_snapshot=source_snapshot,
-                    policy_identity="policy",
-                    requirement_declarations=(declaration,),
-                    target_cells=(cell,),
-                ),
-                generator=generator,
-                package=package,
-                source_snapshot=source_snapshot,
-                policy_identity="policy",
-                requirement_declarations=(declaration,),
-                candidate_snapshots=(snapshot,),
-                target_cells=(cell,),
-                cell_results=(),
-                projection_evidence=(
-                    ProjectionEvidence(
-                        declaration_id="demo",
-                        floors=(FloorProjection(cell=cell, version=floor),),
-                        projected_requirements=(),
-                        representable=False,
-                    ),
-                ),
-                result=IncompleteReportResult(reasons=("MISSING_CELL",)),
-            )
-
-        first = evidence_report(candidate("first"), "1.0")
-        with pytest.raises(ConfigurationError, match="conflicting candidate snapshot"):
-            store.merge((first, evidence_report(candidate("second"), "1.0")))
-        with pytest.raises(ConfigurationError, match="conflicting projection"):
-            store.merge((first, evidence_report(candidate("first"), "2.0")))
-
-    def test_report_merge_rejects_unknown_projection_declarations(self) -> None:
-        report = incomplete_report().model_copy(
-            update={
-                "projection_evidence": (
-                    ProjectionEvidence(
-                        declaration_id="unknown",
-                        floors=(),
-                        projected_requirements=(),
-                        representable=False,
-                    ),
-                )
-            }
-        )
-
-        with pytest.raises(ConfigurationError, match="unknown projection declaration"):
-            ReportStore().merge((report,))
-
-
-class TestReportUpdate:
-    def test_report_update_replaces_local_cells_and_retains_other_hosts(self) -> None:
+    def test_update_replaces_local_cells_and_retains_other_hosts(self) -> None:
         cells = (
             Cell(
                 package="demo",
@@ -510,54 +330,68 @@ class TestReportUpdate:
                 extra_surface=(),
             ),
         )
-
-        def make_report(results: tuple[CellIndeterminate, ...]) -> PackageFloorReportV1:
-            generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-            package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-            snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
-            return PackageFloorReportV1(
-                report_generation_id=report_generation_id(
-                    generator=generator,
-                    package=package,
-                    source_snapshot=snapshot,
-                    policy_identity="policy",
-                    requirement_declarations=(),
-                    target_cells=cells,
-                ),
-                generator=generator,
-                package=package,
-                source_snapshot=snapshot,
-                policy_identity="policy",
-                requirement_declarations=(),
-                candidate_snapshots=(),
-                target_cells=cells,
-                cell_results=results,
-                projection_evidence=(),
-                result=IncompleteReportResult(reasons=("INDETERMINATE",)),
+        snapshot = snapshot_for()
+        policy = evaluation_policy_identity(package_for(cells).config)
+        existing_results = tuple(
+            cell_failure(
+                cell,
+                "TIMEOUT",
+                snapshot=snapshot,
+                policy_identity=policy,
+                stage="old",
             )
-
-        existing = make_report(
-            tuple(cell_failure(cell, "TIMEOUT", stage="old") for cell in cells)
+            for cell in cells
         )
-        replacement = make_report(
-            (cell_failure(cells[1], "TOOL_FAILURE", stage="new"),)
+        replacement_result = cell_failure(
+            cells[1],
+            "TOOL_FAILURE",
+            snapshot=snapshot,
+            policy_identity=policy,
+            stage="new",
+        )
+        existing = report_for(cells, existing_results, snapshot=snapshot)
+        replacement = report_for(
+            cells,
+            (replacement_result,),
+            snapshot=snapshot,
         )
 
         updated = ReportStore().update(existing, replacement)
-        failures = tuple(
+
+        indeterminate = tuple(
             result
             for result in updated.cell_results
             if isinstance(result, CellIndeterminate)
         )
-
-        assert len(failures) == len(updated.cell_results)
-        assert [(result.cell.target, result.phase) for result in failures] == [
+        assert len(indeterminate) == len(updated.cell_results)
+        assert [(result.cell.target, result.phase) for result in indeterminate] == [
             ("aarch64-apple-darwin", "old"),
             ("x86_64-unknown-linux-gnu", "new"),
         ]
+        assert (
+            ReportStore().update(
+                updated,
+                report_for(cells, (), snapshot=snapshot),
+            )
+            is updated
+        )
 
-    def test_report_update_is_a_noop_when_replacement_has_no_cells(self) -> None:
-        existing = incomplete_report()
-        replacement = incomplete_report()
+    def test_merge_and_update_reject_generation_drift(self) -> None:
+        original = report_for()
+        changed = report_for(
+            snapshot=snapshot_for(
+                (
+                    SnapshotEntry(
+                        path="README.md",
+                        kind="file",
+                        mode=0o644,
+                        content_digest="a" * 64,
+                    ),
+                )
+            )
+        )
 
-        assert ReportStore().update(existing, replacement) is existing
+        with pytest.raises(ConfigurationError, match="generation identity"):
+            ReportStore().merge((original, changed))
+        with pytest.raises(ConfigurationError, match="generation identity"):
+            ReportStore().update(original, changed)

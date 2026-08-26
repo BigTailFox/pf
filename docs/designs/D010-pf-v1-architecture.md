@@ -256,13 +256,14 @@ SecureLogDirectory
   write_run_text(name, content)
   write_run_stream(name, write_body)
   read_run_text(run_id, name, limit)
+  read_run_stream(run_id, name, read_body)
   read_logs_text(name, limit)
   write_logs_text(name, content)
   resolve_regular_log(relative)
   close()
 ```
 
-该 interface 只隐藏安全目录创建/打开、原子 `0600` 私有写、有界读取、regular-file 与 directory identity 验证及资源关闭。locator 仍是相对 `.pf/logs` 的 Path；adapter 不解析 Process Log、Journal 或 diagnosis index JSON。
+该 interface 只隐藏安全目录创建/打开、原子 `0600` 私有写、有界/流式读取、regular-file 与 directory identity 验证及资源关闭。locator 仍是相对 `.pf/logs` 的 Path；adapter 不解析 Process Log、Journal 或 diagnosis index JSON。
 
 ### 8.2 两个真实 adapter
 
@@ -273,7 +274,7 @@ platform factory 只在 RunLogStore 初始化时选择一次 adapter。不支持
 
 RunLogStore 继续唯一拥有：
 
-- `pf-run-log-v1`、`pf-process-log-v1`、Journal 与 diagnosis-index 格式；
+- `pf-run-log-v1`、现行 `pf-process-log-v2` 与保守 v1 reader、Journal 和 diagnosis-index 格式；
 - ProcessResult runtime reference；
 - failure association、latest journal 和 locator 规则；
 - JSON 验证、字段上限与用户可见错误分类。

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import hashlib
-import json
 import re
 from typing import Annotated, Any, Literal, Union
 
@@ -10,7 +9,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 from pydantic import Field, model_validator
 
-from pf.schemas.base import FrozenSchema
+from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.evaluation import FailureCause, ProcessResult
 from pf.schemas.project import (
     Cell,
@@ -28,14 +27,7 @@ UV_SUPPORTED_VERSIONS = frozenset(UV_DIAGNOSTIC_PROFILES)
 
 
 def _digest(prefix: bytes, value: object) -> str:
-    return hashlib.sha256(
-        prefix
-        + json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
+    return hashlib.sha256(prefix + canonical_identity_json(value)).hexdigest()
 
 
 class ResolutionRunContext(FrozenSchema):
@@ -402,6 +394,26 @@ def environment_identity_digest(
     )
 
 
+def resolution_graph_id(graph: tuple[ResolvedNode, ...]) -> str:
+    """Return the Schema 2 identity for one canonical resolved graph."""
+    names = tuple(node.name for node in graph)
+    if names != tuple(sorted(set(names))):
+        raise ValueError("resolution graph nodes must be sorted and unique")
+    for node in graph:
+        if canonicalize_name(node.name) != node.name:
+            raise ValueError("resolution graph package names must be canonical")
+        if node.dependencies != tuple(sorted(set(node.dependencies))):
+            raise ValueError(
+                "resolution graph dependencies must be sorted and unique"
+            )
+        if any(canonicalize_name(item) != item for item in node.dependencies):
+            raise ValueError("resolution graph dependencies must be canonical")
+    payload = [node.model_dump(mode="json") for node in graph]
+    return "resolution-" + hashlib.sha256(
+        b"pf:resolution-graph:v1\0" + canonical_identity_json(payload)
+    ).hexdigest()
+
+
 class EnvironmentIdentity(FrozenSchema):
     project_plan_digest: str
     environment_plan_digest: str
@@ -429,9 +441,7 @@ class EnvironmentIdentity(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_environment_identity(self) -> "EnvironmentIdentity":
-        names = tuple(item.name for item in self.graph)
-        if names != tuple(sorted(set(names))):
-            raise ValueError("environment graph must be sorted and unique")
+        resolution_graph_id(self.graph)
         expected = environment_identity_digest(
             project_plan_digest=self.project_plan_digest,
             environment_plan_digest=self.environment_plan_digest,

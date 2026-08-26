@@ -6,6 +6,7 @@
 - **代码基线：** `9f4e088`
 - **评审来源：** [R003](../reviews/R003-pf-search-indeterminate-review.md)
 - **后续设计：** [D013](../designs/D013-pf-pytest-failure-evidence.md)
+- **权威：** 结局分类、协议与 adapter 契约只以 [D013](../designs/D013-pf-pytest-failure-evidence.md) 为准；本文与 R003 是参考
 
 本文记录 minimal pytest failure-witness plugin 的行为实验。实验回答：PF 能否只依赖 pytest 公开 failure-report hooks，在不改变用户 collection/runtest 行为、不解析 traceback、也不维护 pytest lifecycle 状态机的前提下，为 ordinary collection failure 建立保守的 Rejection evidence。
 
@@ -134,7 +135,7 @@ pytest 9.1.1 与当前四个 PF pytest plugins 在 Python 3.10–3.12 上完全�
 - failing session 可以被改写为 exit 0，此时 witness 与最终 exit 相互矛盾；
 - failed report 后仍可能发生 pytest internal error，形成 exit 3 + earlier witness。
 
-因此，production adapter 必须联合验证 ProcessResult 与 witness，至少满足：
+因此，production adapter 必须联合验证 ProcessResult 与 witness。下面的名字只是本次实验的观察用语，不是 Schema 或 `TestOutcome`；规范决策表只在 D013。
 
 ```text
 exit 0 + no witness
@@ -167,12 +168,11 @@ packaging==19.2
 
 相比 invocation normalization，它不要求继续执行已成功收集的 tests；相比 lifecycle observer，它不维护 pytest 阶段状态机。pytest-specific knowledge 可以保留在 `TestAdapter` implementation 内，RuntimeEvaluator、FailurePolicy 与 CoordinateSearch 无需学习 pytest 细节。
 
-原型的 append-only JSON line 只用于探索，不是 production protocol。D013 应使用 run-unique identity、严格版本校验与 atomic per-event files，使 malformed/stale evidence 和并发 worker 写入都能 fail closed。
+原型的 append-only JSON line 只用于探索，不是 production protocol。D013 应使用 run-unique identity、严格版本校验与 atomic per-event files；多 process 的等价重复 event 合法折叠，身份字段不一致则 fail closed。
 
 ## 8. 限制
 
-- core pytest 6–9 matrix 运行于 CPython 3.10；跨 Python minor 只验证当前 PF plugin 组合；
+- core pytest 6–9 matrix 运行于 CPython 3.10；跨 Python minor 只验证当前 PF plugin 组合。pytest 无 native 代码，这不构成缩小 v1 资格范围的理由；D013 落地测试须在 3.11/3.12 上复跑各 major 代表版本的核心 witness 场景；
 - 没有资格化 pytest-xdist 或任意第三方 plugin ecosystem；
 - 没有重跑完整 `pf search`、全量 PF pytest、ty 或 build；
-- prototype 不提供针对同权限恶意 project code 的安全 attestation；
 - 本文只记录行为事实与设计输入，不把 D013 草案写成现行 PF 行为。

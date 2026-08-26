@@ -501,6 +501,8 @@ class EnvironmentFactory:
                 managed_vector=actual_vector,
                 fixed_declaration_ids=fixed_declaration_ids,
                 resolved_graph=graph.nodes,
+                project_plan_digest=project_outcome.semantic_digest,
+                environment_plan_digest=environment_outcome.semantic_digest,
                 policy_identity=policy_identity,
                 interpreter=interpreter_result.interpreter,
             )

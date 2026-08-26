@@ -417,4 +417,5 @@ class TestSmokeWorkflow:
         assert "The full test command failed for this version combination." in output
         assert "pf diagnose" not in output
         assert failure_id not in output
-        assert "1 failed" in output
+        assert "1 failed" not in output
+        assert "Detailed diagnosis unavailable." in output

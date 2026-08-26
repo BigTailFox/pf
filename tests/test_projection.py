@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Literal
 
 from packaging.requirements import Requirement
-from pydantic import ValidationError
 import pytest
 
+from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
+from pf.resolution import environment_identity_digest
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
@@ -25,11 +27,13 @@ from pf.schemas.project import (
     Candidate,
     CandidateSnapshot,
     Cell,
+    InterpreterIdentity,
     Proposal,
     RequirementDeclaration,
     SourceIdentity,
     VersionPin,
     candidate_snapshot_digest,
+    cell_id,
 )
 from pf.schemas.report import (
     CellSuccess,
@@ -40,7 +44,6 @@ from pf.schemas.report import (
     ProbePass,
     report_generation_id,
 )
-from pf.schemas.report import PackageFloorReportV1
 from pf.snapshot import SnapshotBuilder
 
 
@@ -77,19 +80,52 @@ def candidate_snapshot(
         CandidateSnapshot(
             dependency=pin.name,
             cell=cell,
-            policy_identity="candidate-policy",
+            policy_identity="policy",
             source=source,
             candidates=candidates,
             series_representatives=representatives,
             digest=candidate_snapshot_digest(
                 dependency=pin.name,
                 cell=cell,
-                policy_identity="candidate-policy",
+                policy_identity="policy",
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
             ),
         ),
+    )
+
+
+def report_attempt(
+    *,
+    cell: Cell,
+    snapshot_digest: str,
+    resolution: Literal["highest", "exact-vector"],
+    vector: tuple[VersionPin, ...],
+) -> Attempt:
+    return Attempt.from_identity(
+        AttemptIdentity(
+            identity_version="attempt-v2",
+            source_snapshot_digest=snapshot_digest,
+            cell=cell,
+            requested_resolution=resolution,
+            requested_managed_vector=(vector if resolution == "exact-vector" else None),
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "harness-relaxation-v1"
+                if resolution == "exact-vector"
+                else "original-harness-v1"
+            ),
+            harness_baseline_digest=(
+                "harness-baseline" if resolution == "exact-vector" else None
+            ),
+            selected_candidate_evidence_digest=(
+                "selected-candidate" if resolution == "exact-vector" else None
+            ),
+        )
     )
 
 
@@ -102,19 +138,20 @@ def passing_evaluation(
     attempt: Attempt | None = None,
 ) -> PassEvaluation:
     vector = (VersionPin(name="idna", version=version),)
-    owned_attempt = attempt or Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest=snapshot_digest,
-            cell=cell,
-            requested_resolution=resolution,
-            requested_managed_vector=(vector if resolution == "exact-vector" else None),
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-        )
+    owned_attempt = attempt or report_attempt(
+        cell=cell,
+        snapshot_digest=snapshot_digest,
+        resolution=resolution,
+        vector=vector,
     )
+    project_digest = f"project-{cell_id(cell)}-{version}"
+    environment_digest = f"environment-{cell_id(cell)}-{version}"
     proposal = Proposal(
-        proposal_id=f"idna={version}",
+        proposal_id=environment_identity_digest(
+            project_plan_digest=project_digest,
+            environment_plan_digest=environment_digest,
+            graph=(),
+        ),
         attempt_id=owned_attempt.attempt_id,
         snapshot_digest=snapshot_digest,
         cell=cell,
@@ -122,6 +159,13 @@ def passing_evaluation(
         fixed_declaration_ids=(),
         resolved_graph=(),
         policy_identity="policy",
+        project_plan_digest=project_digest,
+        environment_plan_digest=environment_digest,
+        interpreter=InterpreterIdentity(
+            implementation="cpython",
+            version=f"{cell.python_minor}.11",
+            abi=f"cpython-{cell.python_minor.replace('.', '')}-{cell.target}",
+        ),
     )
     return PassEvaluation(
         proposal=proposal,
@@ -142,16 +186,11 @@ def successful_cell(
     snapshot_digest: str,
 ) -> CellSuccess:
     vector = (VersionPin(name="idna", version=floor),)
-    final_attempt = Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest=snapshot_digest,
-            cell=cell,
-            requested_resolution="exact-vector",
-            requested_managed_vector=vector,
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-        )
+    final_attempt = report_attempt(
+        cell=cell,
+        snapshot_digest=snapshot_digest,
+        resolution="exact-vector",
+        vector=vector,
     )
     final_evaluation = passing_evaluation(
         cell,
@@ -176,16 +215,11 @@ def successful_cell(
         boundaries=(CoordinateBoundary(dependency="idna", floor=floor),),
         sweeps=1,
     )
-    baseline_attempt = Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest=snapshot_digest,
-            cell=cell,
-            requested_resolution="highest",
-            requested_managed_vector=None,
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-        )
+    baseline_attempt = report_attempt(
+        cell=cell,
+        snapshot_digest=snapshot_digest,
+        resolution="highest",
+        vector=vector,
     )
     baseline = passing_evaluation(
         cell,
@@ -254,28 +288,38 @@ class TestReportProjection:
         assert str(projected.specifier) == "!=2.5,<4,>=3.0"
         assert str(projected.marker) == 'python_version >= "3.10"'
 
-        incomplete_coverage = report.model_dump(mode="python")
-        incomplete_coverage["target_cells"] = (
-            *report.target_cells,
-            Cell(
-                package="demo",
-                target="x86_64-unknown-linux-gnu",
-                python_minor="3.11",
-                extra_surface=(),
-            ),
+        extra_cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+            active_declaration_ids=(report.target_cells[0].active_declaration_ids),
         )
-        incomplete_coverage["report_generation_id"] = report_generation_id(
+        target_cells = (*report.target_cells, extra_cell)
+        path = tmp_path / "tampered-coverage.json"
+        ReportStore().write(path, report)
+        incomplete_coverage = json.loads(path.read_text(encoding="utf-8"))
+        incomplete_coverage["inputs"]["target_cells"].append(
+            {
+                "cell_id": cell_id(extra_cell),
+                "package": extra_cell.package,
+                "target": extra_cell.target,
+                "python_minor": extra_cell.python_minor,
+                "extra_surface": list(extra_cell.extra_surface),
+                "active_declaration_refs": list(extra_cell.active_declaration_ids),
+            }
+        )
+        incomplete_coverage["identity"]["report_generation_id"] = report_generation_id(
             generator=report.generator,
             package=report.package,
             source_snapshot=report.source_snapshot,
             policy_identity=report.policy_identity,
             requirement_declarations=report.requirement_declarations,
-            target_cells=incomplete_coverage["target_cells"],
+            target_cells=target_cells,
         )
-        with pytest.raises(
-            ValidationError, match="complete report requires exact cell coverage"
-        ):
-            PackageFloorReportV1.model_validate(incomplete_coverage)
+        path.write_text(json.dumps(incomplete_coverage), encoding="utf-8")
+        with pytest.raises(ConfigurationError, match="projection evidence mismatch"):
+            ReportStore().read(path)
 
     def test_report_builder_represents_different_python_floors_with_markers(
         self,
@@ -387,6 +431,36 @@ class TestReportProjection:
         assert merged.result.status == "complete"
         assert merged.projection_evidence[0].representable is True
         assert len(merged.projection_evidence[0].projected_requirements) == 2
+        merged_path = tmp_path / "merged.json"
+        ReportStore().write(merged_path, merged)
+        merged_document = json.loads(merged_path.read_text(encoding="utf-8"))
+        assert len(merged_document["evidence"]["resolution_graphs"]) == 1
+        assert (
+            len(
+                {
+                    proposal["resolution_graph_ref"]
+                    for proposal in merged_document["evidence"]["proposals"]
+                }
+            )
+            == 1
+        )
+
+        replacement = builder.build(
+            package=package,
+            source_snapshot=snapshot.identity,
+            cell_results=(
+                successful_cell(
+                    package.cells[0],
+                    "2.5",
+                    snapshot_digest=snapshot.identity.digest,
+                ),
+            ),
+        )
+        updated = ReportStore().update(merged, replacement)
+        updated_path = tmp_path / "updated.json"
+        ReportStore().write(updated_path, updated)
+        updated_document = json.loads(updated_path.read_text(encoding="utf-8"))
+        assert len(updated_document["evidence"]["resolution_graphs"]) == 1
 
     def test_projection_requires_exact_cell_set_equivalence(self) -> None:
         declaration = RequirementDeclaration(

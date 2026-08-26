@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import re
+import sys
+import time
 from io import StringIO
 from pathlib import Path
 from typing import Literal
@@ -23,6 +26,7 @@ from pf.schemas.evaluation import (
     CellContextEvent,
     BaselineDetailIdentity,
     CellFailed,
+    CellResultDetail,
     CellFailureScope,
     CellMatrixEvent,
     CellStageEvent,
@@ -30,11 +34,14 @@ from pf.schemas.evaluation import (
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
+    DeclarationDetailIdentity,
     DiagnosticClassification,
     PassEvaluation,
     ProcessEvent,
     ProcessResult,
     ProcessSpec,
+    PytestFailureCase,
+    PytestFailureDetail,
     FailureDetail,
     FailureCause,
     FailureRecord,
@@ -45,6 +52,7 @@ from pf.schemas.evaluation import (
     SmokePass,
     SmokeIndeterminate,
     StaticBaseline,
+    StaticIssueDetail,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     StatusEvent,
@@ -60,25 +68,27 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     Cell,
+    PackagePlan,
     Proposal,
     RequirementDeclaration,
     SourceIdentity,
+    SourcePlan,
     SourceSnapshotIdentity,
     VersionPin,
+    source_snapshot_digest,
 )
+from pf.schemas.config import EffectiveConfig
+from pf.report import PackageReportBuilder, ValidatedReport
 from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
     CellSearchFailure,
     CoordinateFailure,
-    GeneratorIdentity,
     IncompleteReportResult,
-    PackageFloorReportV1,
-    PackageIdentity,
     ProjectionEvidence,
     ProbeObservation,
     ProbeRejection,
-    report_generation_id,
+    failure_records_for_result,
 )
 from pf.terminal import PF_THEME, TerminalPresenter
 from pf.static_transition import static_fingerprint
@@ -141,7 +151,7 @@ def completed_event(
     completed: int = 1,
     total: int = 1,
     phase: str = "complete",
-    diagnostics: tuple[TyDiagnostic, ...] = (),
+    detail: CellResultDetail | None = None,
     process: ProcessResult | None = None,
     failure: FailureRecord | None = None,
     role: VerificationRole | None = None,
@@ -152,14 +162,17 @@ def completed_event(
         outcome = CellSucceeded(
             status=status,
             phase=phase,
-            diagnostics=diagnostics,
-            process=process,
         )
     else:
         outcome = CellFailed(
             status=status,
             phase=stage or phase,
-            diagnostics=diagnostics,
+            detail=detail,
+            detail_failure_id=(
+                failure.failure_id
+                if detail is not None and failure is not None
+                else None
+            ),
             process=process,
             failures=() if failure is None else (failure,),
             verification_role=role,
@@ -216,30 +229,37 @@ def incomplete_report(
     projections: tuple[ProjectionEvidence, ...] = (),
     cell_results: tuple[CellResult, ...] = (),
     declarations: tuple[RequirementDeclaration, ...] = (),
-) -> PackageFloorReportV1:
-    generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-    package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-    snapshot = SourceSnapshotIdentity(digest="snapshot", entries=())
+) -> ValidatedReport:
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(),
+        declarations=(),
+        cells=(),
+        source_plan=SourcePlan(identities=()),
+    )
+    snapshot = SourceSnapshotIdentity(
+        digest=source_snapshot_digest(()),
+        entries=(),
+    )
     target_cells = tuple(result.cell for result in cell_results)
-    return PackageFloorReportV1(
-        report_generation_id=report_generation_id(
-            generator=generator,
-            package=package,
-            source_snapshot=snapshot,
-            policy_identity="policy",
-            requirement_declarations=declarations,
-            target_cells=target_cells,
-        ),
-        generator=generator,
+    base = PackageReportBuilder().build(
         package=package,
         source_snapshot=snapshot,
-        policy_identity="policy",
+        cell_results=(),
+    )
+    return replace(
+        base,
         requirement_declarations=declarations,
-        candidate_snapshots=(),
         target_cells=target_cells,
         cell_results=cell_results,
         projection_evidence=projections,
-        result=IncompleteReportResult(reasons=reasons),
+        result=IncompleteReportResult(status="incomplete", reasons=reasons),
+        failure_records=tuple(
+            failure
+            for result in cell_results
+            for failure in failure_records_for_result(result)
+        ),
     )
 
 
@@ -433,6 +453,240 @@ class TestErrorRendering:
 
 
 class TestProgressRendering:
+    @pytest.mark.parametrize(
+        ("terminal_columns", "expected_width"),
+        ((80, 80), (200, 120)),
+    )
+    def test_default_cli_canvas_uses_terminal_width_up_to_120_columns(
+        self,
+        terminal_columns: int,
+        expected_width: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.setenv("COLUMNS", str(terminal_columns))
+        monkeypatch.setenv("LINES", "40")
+        monkeypatch.setattr(sys, "stdout", TTYBuffer())
+        stderr = TTYBuffer()
+        monkeypatch.setattr(sys, "stderr", stderr)
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        terminal = TerminalPresenter()
+
+        terminal.consume(StatusEvent(message="smoke testing"))
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.close()
+
+        rendered_border = next(
+            line
+            for line in visible(stderr.getvalue()).splitlines()
+            if "╭" in line
+        )
+        border = rendered_border[rendered_border.index("╭") :]
+        assert len(border) == expected_width
+
+    def test_overall_cell_progress_preserves_matrix_positions_and_result_colors(
+        self,
+    ) -> None:
+        cells = tuple(
+            Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor=python_minor,
+                extra_surface=(),
+            )
+            for python_minor in ("3.9", "3.10", "3.11", "3.12")
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                width=80,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(StatusEvent(message="smoke testing"))
+        terminal.consume(CellMatrixEvent(cells=cells))
+        terminal.consume(
+            completed_event(
+                cells[1],
+                status="REJECTED",
+                completed=1,
+                total=len(cells),
+            )
+        )
+        terminal.consume(
+            completed_event(
+                cells[3],
+                status="SUCCESS",
+                completed=2,
+                total=len(cells),
+            )
+        )
+
+        output = stderr.getvalue()
+        plain_line = next(
+            line
+            for line in reversed(visible(output).splitlines())
+            if "smoke testing" in line and "2/4" in line
+        )
+        styled_line = next(
+            line
+            for line in reversed(output.splitlines())
+            if "smoke testing" in line and "2/4" in visible(line)
+        )
+        terminal.close()
+
+        assert "□■□■" in plain_line
+        assert "━" not in plain_line
+        assert re.search(r"\x1b\[[0-9;]*31m■", styled_line) is not None
+        assert re.search(r"\x1b\[[0-9;]*32m■", styled_line) is not None
+
+    @pytest.mark.parametrize(
+        ("status", "style_code"),
+        (
+            ("SUCCESS", "32"),
+            ("REJECTED", "1;31"),
+            ("NO_PASS_IN_SEARCH_SPACE", "33"),
+            ("INDETERMINATE", "1;33"),
+        ),
+    )
+    def test_completed_cell_square_uses_the_result_color(
+        self,
+        status: str,
+        style_code: str,
+    ) -> None:
+        first = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        second = first.model_copy(update={"python_minor": "3.12"})
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                width=80,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(StatusEvent(message="smoke testing"))
+        terminal.consume(CellMatrixEvent(cells=(first, second)))
+        terminal.consume(
+            completed_event(first, status=status, completed=1, total=2)
+        )
+        output = stderr.getvalue()
+        progress_line = next(
+            line
+            for line in reversed(output.splitlines())
+            if "smoke testing" in line and "1/2" in visible(line)
+        )
+        terminal.close()
+
+        assert f"\x1b[{style_code}m■" in progress_line
+
+    def test_overall_cell_progress_wraps_one_square_per_cell(self) -> None:
+        cells = tuple(
+            Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor=f"3.{index}",
+                extra_surface=(),
+            )
+            for index in range(40)
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=56, height=200),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=56,
+                height=200,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(StatusEvent(message="smoke testing"))
+        terminal.consume(CellMatrixEvent(cells=cells))
+        output = visible(stderr.getvalue())
+        latest_progress = output[output.rindex("smoke testing") :]
+        square_lines = [line for line in latest_progress.splitlines() if "□" in line]
+        terminal.close()
+
+        assert len(square_lines) > 1, repr(latest_progress[-500:])
+        assert sum(line.count("□") for line in square_lines) == len(cells)
+
+    @pytest.mark.parametrize("width", (56, 80, 120))
+    def test_tty_failure_cards_wrap_at_rich_console_width(
+        self,
+        width: int,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        attempt = attempt_for(cell)
+        process = process_result(exit_code=1)
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="TEST_FAILURE",
+            stage="test",
+            process=process,
+        )
+        stderr = StringIO()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=width),
+            stderr=Console(file=stderr, force_terminal=True, width=width),
+        )
+
+        terminal.consume(
+            completed_event(
+                cell,
+                status="REJECTED",
+                failure=failure,
+                detail=PytestFailureDetail(
+                    first=PytestFailureCase(
+                        nodeid="tests/test_search_workflow.py::test_candidate_failure",
+                        phase="call",
+                    ),
+                    total=2,
+                ),
+                stage="test",
+            )
+        )
+
+        plain = visible(stderr.getvalue())
+        collapsed = " ".join(
+            "".join(" " if char in "│╭╮╰╯─" else char for char in plain).split()
+        )
+        border = next(line for line in plain.splitlines() if line.startswith("╭"))
+        assert len(border) == width
+        compact = "".join(
+            char
+            for char in plain
+            if not char.isspace() and char not in "│╭╮╰╯─"
+        )
+        assert "tests/test_search_workflow.py::test_candidate_failure" in compact
+        assert "... and 1 more" in collapsed
+
     def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty(self) -> None:
         cell = Cell(
             package="demo",
@@ -469,7 +723,7 @@ class TestProgressRendering:
         )
         assert "╭" in visible(terminal.getvalue())
 
-    def test_completed_cell_log_includes_indented_status_and_diagnostic(self) -> None:
+    def test_completed_cell_log_omits_unstructured_process_output(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -496,10 +750,9 @@ class TestProgressRendering:
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
             "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at static checking\n"
-            "error: Unresolved import 'missing'\n"
         )
 
-    def test_completed_cell_with_failure_record_prints_diagnose_and_role_impact(
+    def test_completed_cell_with_failure_record_prints_title_and_diagnose(
         self,
     ) -> None:
         cell = Cell(
@@ -532,12 +785,62 @@ class TestProgressRendering:
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
         assert "failed at testing" in output
-        assert "The declared lower bounds did not pass the required checks." in output
+        assert "The full test command failed for this version combination." in output
+        assert "The declared lower bounds did not pass" not in output
         assert f"pf diagnose demo --failure {failure.failure_id}" in output
         assert "STATIC_REGRESSION" not in output
         assert "REJECTED" not in output
 
-    def test_completed_cell_omits_diagnose_when_journal_is_unavailable(self) -> None:
+    def test_completed_cell_shows_first_causal_static_issue_and_count(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        attempt = attempt_for(cell, resolution="lowest-direct")
+        process = process_result(exit_code=0)
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="RUNTIME_INTERFACE_MISSING",
+            stage="witness",
+            process=process,
+        )
+        issue = TyDiagnostic(
+            identity="snapshot|demo.py|9|2|unresolved-import",
+            origin="snapshot",
+            path="demo.py",
+            line=9,
+            column=2,
+            code="unresolved-import",
+            severity="error",
+            message="Module `legacy` is unavailable",
+        )
+        terminal, stdout, stderr = presenter()
+
+        terminal.consume(
+            completed_event(
+                cell,
+                status="REJECTED",
+                failure=failure,
+                detail=StaticIssueDetail(first=issue, total=4),
+                role="declaration",
+                stage="witness",
+            )
+        )
+
+        output = stderr.getvalue()
+        assert stdout.getvalue() == ""
+        assert "failed at witness" in output
+        assert "A required runtime interface is missing" in output
+        assert "demo.py:9:2 [unresolved-import] Module `legacy` is unavailable" in output
+        assert "... and 3 more" in output
+        assert f"pf diagnose demo --failure {failure.failure_id}" in output
+
+    def test_completed_cell_falls_back_to_log_when_journal_is_unavailable(
+        self,
+        tmp_path: Path,
+    ) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -555,19 +858,35 @@ class TestProgressRendering:
             stage="install-project",
             process=process,
         )
-        terminal, stdout, stderr = presenter()
-
-        terminal.consume(
-            completed_event(
-                cell,
-                status="REJECTED",
-                failure=failure,
-                process=process,
-                role="declaration-capture",
-                stage="install-project",
-                diagnose_available=False,
-            )
+        logs = RunLogStore(root=tmp_path, run_id="fallback-run")
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=("build",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=10,
+            ),
+            process,
         )
+        stdout = StringIO()
+        stderr = StringIO()
+        terminal = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+            logs=logs,
+            root=tmp_path,
+        )
+
+        event = completed_event(
+            cell,
+            status="REJECTED",
+            failure=failure,
+            process=process,
+            role="declaration-capture",
+            stage="install-project",
+            diagnose_available=False,
+        )
+        terminal.consume(event)
 
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
@@ -575,7 +894,38 @@ class TestProgressRendering:
         assert "This version combination could not be built." in output
         assert "pf diagnose" not in output
         assert failure.failure_id not in output
-        assert "Failed to build `numpy==1.24.0`" in output
+        assert "Failed to build `numpy==1.24.0`" not in output
+        assert ".pf/logs/fallback-run/process-0001.log" in output
+
+        tty_stderr = StringIO()
+        tty_terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=tty_stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+            ),
+            logs=logs,
+            root=tmp_path,
+        )
+        tty_terminal.consume(event)
+
+        styled_output = tty_stderr.getvalue()
+        hint_at = styled_output.index("->")
+        hint_start = styled_output.rfind("\x1b[", 0, hint_at)
+        hint_end = styled_output.index("for details.", hint_at) + len("for details.")
+        hint_codes = re.findall(
+            r"\x1b\[([0-9;]+)m", styled_output[hint_start:hint_end]
+        )
+        assert any("36" in code.split(";") for code in hint_codes)
+        assert any("3" in code.split(";") for code in hint_codes)
+        assert all(
+            token not in {"1", "2", "34", "94", "96"}
+            for code in hint_codes
+            for token in code.split(";")
+        )
 
     def test_successful_cell_does_not_print_probe_diagnose(self) -> None:
         cell = Cell(
@@ -605,7 +955,7 @@ class TestProgressRendering:
         assert "pf diagnose" not in output
         assert failure.failure_id not in output
 
-    def test_completed_cell_log_collapses_multiline_diagnostics_to_a_summary(
+    def test_completed_cell_without_structured_detail_only_prints_the_stage(
         self,
     ) -> None:
         cell = Cell(
@@ -633,8 +983,6 @@ class TestProgressRendering:
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
             "✗ [py3.12][x86_64-unknown-linux-gnu][no-extra] failed at installing dependencies\n"
-            "Failed to build `numpy==1.24.0`\n"
-            "Because cmake is missing\n"
         )
 
     def test_cell_matrix_summary_lists_count_and_axes(self) -> None:
@@ -777,7 +1125,7 @@ class TestProgressRendering:
         assert "applying floors" in plain
         assert "1/2" in plain
         assert "installing dependencies" in plain
-        assert "━" in plain
+        assert "━" not in plain
         stage_at = output.index("installing dependencies")
         assert "\x1b[2m" in output[: stage_at + 1]
 
@@ -790,8 +1138,13 @@ class TestProgressRendering:
         )
         stderr = TTYBuffer()
         terminal = TerminalPresenter(
-            stdout=Console(file=StringIO(), force_terminal=True),
-            stderr=Console(file=stderr, force_terminal=True, theme=PF_THEME),
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=80,
+                theme=PF_THEME,
+            ),
         )
 
         terminal.consume(CellMatrixEvent(cells=(cell,)))
@@ -805,8 +1158,193 @@ class TestProgressRendering:
         terminal.close()
 
         output = visible(stderr.getvalue())
-        assert "[baseline][highest]" in output
+        assert (
+            "[py3.10][x86_64-unknown-linux-gnu][no-extra] [baseline][highest]"
+        ) in output
         assert output.index("[baseline][highest]") < output.index("resolving project")
+
+    def test_tty_live_cell_renders_declaration_identity_inline(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=120),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=120,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellContextEvent(
+                cell=cell,
+                detail=DeclarationDetailIdentity(),
+            )
+        )
+        terminal.consume(CellStageEvent(cell=cell, stage="dynamic tests"))
+        terminal.close()
+
+        output = visible(stderr.getvalue())
+        assert (
+            "[py3.10][x86_64-unknown-linux-gnu][no-extra] [declaration][lowest-direct]"
+        ) in output
+        assert output.index("[declaration][lowest-direct]") < output.index(
+            "dynamic tests"
+        )
+
+    def test_tty_live_identity_updates_keep_spinner_gap_and_elapsed_column_stable(
+        self,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.12",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=120),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=120,
+                theme=PF_THEME,
+            ),
+        )
+        title = "[py3.12][x86_64-unknown-linux-gnu][no-extra]"
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(CellContextEvent(cell=cell, detail=BaselineDetailIdentity()))
+        baseline_line = next(
+            line
+            for line in reversed(visible(stderr.getvalue()).splitlines())
+            if title in line and "[baseline][highest]" in line
+        )
+
+        terminal.consume(
+            CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
+        )
+        declaration_line = next(
+            line
+            for line in reversed(visible(stderr.getvalue()).splitlines())
+            if title in line and "[declaration][lowest-direct]" in line
+        )
+        terminal.close()
+
+        baseline_title_at = baseline_line.index(title)
+        declaration_title_at = declaration_line.index(title)
+        assert not baseline_line[baseline_title_at - 2].isspace()
+        assert baseline_line[baseline_title_at - 1] == " "
+        assert not declaration_line[declaration_title_at - 2].isspace()
+        assert declaration_line[declaration_title_at - 1] == " "
+        assert baseline_line.index("0:00:") == declaration_line.index("0:00:")
+
+    def test_tty_live_stage_and_bar_align_with_the_cell_title(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.12",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=120),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=120,
+                theme=PF_THEME,
+            ),
+        )
+        title = "[py3.12][x86_64-unknown-linux-gnu][no-extra]"
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(CellContextEvent(cell=cell, detail=BaselineDetailIdentity()))
+        terminal.consume(CellStageEvent(cell=cell, stage="static check"))
+        static_output = visible(stderr.getvalue())
+        static_title_line = next(
+            line for line in reversed(static_output.splitlines()) if title in line
+        )
+        static_stage_line = next(
+            line
+            for line in reversed(static_output.splitlines())
+            if "static check" in line
+        )
+
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=3, total=8, unit="tests"),
+            )
+        )
+        dynamic_output = visible(stderr.getvalue())
+        dynamic_title_line = next(
+            line for line in reversed(dynamic_output.splitlines()) if title in line
+        )
+        dynamic_stage_line = next(
+            line
+            for line in reversed(dynamic_output.splitlines())
+            if "dynamic tests" in line
+        )
+        terminal.close()
+
+        assert static_stage_line.index("static check") == static_title_line.index(title)
+        assert dynamic_stage_line.index("dynamic tests") == dynamic_title_line.index(
+            title
+        )
+        assert re.search(r"dynamic tests [━╺╸]", dynamic_stage_line) is not None
+
+    def test_tty_frozen_cell_keeps_the_last_live_identity_and_style(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.12",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=120),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                width=120,
+                theme=PF_THEME,
+            ),
+        )
+        title = "[py3.12][x86_64-unknown-linux-gnu][no-extra]"
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(CellContextEvent(cell=cell, detail=BaselineDetailIdentity()))
+        live_output = stderr.getvalue()
+        terminal.consume(CellStageEvent(cell=cell, stage="static check"))
+        terminal.consume(completed_event(cell, status="SUCCESS"))
+        terminal.close()
+
+        output = stderr.getvalue()
+        frozen = next(
+            line
+            for line in reversed(visible(output).splitlines())
+            if f"✓ {title}" in line
+        )
+        assert f"✓ {title} [baseline][highest]" in frozen
+        live_identity_at = live_output.rindex("[baseline][highest]")
+        live_identity_style_at = live_output.rfind("\x1b[", 0, live_identity_at)
+        identity_at = output.rindex("[baseline][highest]")
+        identity_style_at = output.rfind("\x1b[", 0, identity_at)
+        assert live_output[live_identity_style_at:live_identity_at].startswith(
+            "\x1b[35m"
+        )
+        assert output[identity_style_at:identity_at].startswith("\x1b[35m")
 
     def test_tty_live_cell_renders_search_probe_identity_above_stage(self) -> None:
         cell = Cell(
@@ -842,8 +1380,16 @@ class TestProgressRendering:
         identity = "[pydantic==1.5][1.0…2.0 · 7 candidates]"
         assert identity in output
         assert output.rindex(identity) < output.rindex("dynamic tests")
+        title = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
+        title_line = next(
+            line for line in reversed(output.splitlines()) if title in line
+        )
+        identity_line = next(
+            line for line in reversed(output.splitlines()) if identity in line
+        )
+        assert identity_line.index(identity) == title_line.index(title)
 
-    def test_tty_live_stage_renders_determinate_dot_progress(self) -> None:
+    def test_tty_live_stage_renders_uv_style_determinate_progress(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -874,10 +1420,103 @@ class TestProgressRendering:
         output = visible(stderr.getvalue())
         assert "dynamic tests" in output
         assert "3/8 tests" in output
-        assert "●" in output
-        assert "·" in output
+        stage_at = output.rindex("dynamic tests")
+        assert re.search(r"dynamic tests [━╺╸]", output) is not None, repr(
+            output[stage_at : stage_at + 40]
+        )
+        cell_line = next(
+            line
+            for line in reversed(output.splitlines())
+            if "[py3.10][x86_64-unknown-linux-gnu][no-extra]" in line
+        )
+        elapsed_gap = re.search(r"\[no-extra\]( +)0:00:", cell_line)
+        assert elapsed_gap is not None
+        assert "━" in output
+        assert "●" not in output
+        assert "·" not in output
 
-    def test_narrow_tty_keeps_exact_stage_count_when_dots_do_not_fit(self) -> None:
+    def test_tty_live_progress_updates_keep_the_same_stage_row(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=80,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=3, total=8, unit="tests"),
+            )
+        )
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=4, total=8, unit="tests"),
+            )
+        )
+        output = visible(stderr.getvalue())
+        terminal.close()
+
+        latest_frame = output[output.rfind("╭") :]
+        assert latest_frame.count("dynamic tests") == 1
+        assert "4/8 tests" in latest_frame
+        assert "3/8 tests" not in latest_frame
+
+    def test_tty_live_view_refreshes_spinner_at_a_fixed_cadence(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=80,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(CellStageEvent(cell=cell, stage="resolving project"))
+        time.sleep(0.08)
+        before_tick = stderr.getvalue()
+        time.sleep(0.12)
+        after_tick = stderr.getvalue()
+        terminal.close()
+
+        assert len(after_tick) > len(before_tick)
+        assert after_tick.count("[py3.10]") > before_tick.count("[py3.10]")
+        before_frame = next(
+            line
+            for line in reversed(visible(before_tick).splitlines())
+            if "[py3.10]" in line
+        )
+        after_frame = next(
+            line
+            for line in reversed(visible(after_tick).splitlines())
+            if "[py3.10]" in line
+        )
+        assert after_frame != before_frame
+
+    def test_narrow_tty_keeps_exact_stage_count_when_bar_does_not_fit(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -907,10 +1546,49 @@ class TestProgressRendering:
 
         output = visible(stderr.getvalue())
         assert "3/8 tests" in output
-        assert "●" not in output
-        assert "·" not in output
 
-    def test_invalid_stage_progress_can_restore_the_spinner_stage(self) -> None:
+    @pytest.mark.parametrize("width", (56, 80))
+    def test_narrow_tty_wraps_without_losing_live_cell_header_fields(
+        self,
+        width: int,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.12",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=width),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                width=width,
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
+        )
+        output = visible(stderr.getvalue())
+        terminal.close()
+
+        frame = output[output.rfind("╭") :]
+        compact = "".join(
+            character
+            for character in frame.replace("0:00:00", "")
+            if not character.isspace() and character not in "│╭╮╰╯─"
+        )
+        assert "[py3.12][x86_64-unknown-linux-gnu][no-extra]" in compact
+        assert "[declaration][lowest-direct]" in compact
+        assert re.search(r"\S \[py3\.12", frame) is not None
+        assert "0:00:00" in frame
+        assert "…" not in frame
+
+    def test_missing_same_stage_progress_keeps_the_last_determinate_value(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -941,9 +1619,8 @@ class TestProgressRendering:
 
         output = visible(stderr.getvalue())
         latest_stage = output[output.rindex("dynamic tests") :]
-        assert "3/8 tests" not in latest_stage
-        assert "●" not in latest_stage
-        assert "·" not in latest_stage
+        assert "3/8 tests" in latest_stage
+        assert "━" in latest_stage
 
 
 
@@ -992,7 +1669,16 @@ class TestProgressRendering:
         evaluation = TestFailEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=test_process),
+            test=TestFail(
+                process=test_process,
+                detail=PytestFailureDetail(
+                    first=PytestFailureCase(
+                        nodeid="tests/test_cli.py::test_example",
+                        phase="call",
+                    ),
+                    total=2,
+                ),
+            ),
         )
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
@@ -1048,35 +1734,71 @@ class TestProgressRendering:
         assert "failed at testing" in collapsed
         assert diagnose in collapsed
         assert "-> run" in collapsed
-        assert "-> see" in collapsed
+        assert "-> see" not in collapsed
         assert "for more information" in collapsed
-        assert "The full test command failed for this version combination." in collapsed
-        assert (
-            "The highest-version resolution did not pass the required checks."
-            in collapsed
+        reason = "The full test command failed for this version combination."
+        reason_at = output.index(reason)
+        reason_style_at = output.rfind("\x1b[", 0, reason_at)
+        reason_codes = re.findall(
+            r"\x1b\[([0-9;]+)m",
+            output[reason_style_at : reason_at + len(reason)],
         )
-        assert ".pf/logs/tty-run/process-0002.log" in collapsed
-        assert "details." in collapsed
+        assert any("31" in code.split(";") for code in reason_codes)
+        assert all(
+            token not in {"1", "91"}
+            for code in reason_codes
+            for token in code.split(";")
+        )
+        hint_at = output.index("->")
+        hint_start = output.rfind("\x1b[", 0, hint_at)
+        hint_end = output.index("for more information.", hint_at) + len(
+            "for more information."
+        )
+        hint_codes = re.findall(r"\x1b\[([0-9;]+)m", output[hint_start:hint_end])
+        assert any("2" in code.split(";") for code in hint_codes)
+        assert any("3" in code.split(";") for code in hint_codes)
+        assert all(
+            token
+            not in {
+                "1",
+                "30",
+                "31",
+                "32",
+                "33",
+                "34",
+                "35",
+                "36",
+                "37",
+                "90",
+                "91",
+                "92",
+                "93",
+                "94",
+                "95",
+                "96",
+                "97",
+            }
+            for code in hint_codes
+            for token in code.split(";")
+        )
+        assert "The full test command failed for this version combination." in collapsed
+        assert "The highest-version resolution did not pass" not in collapsed
+        assert ".pf/logs/tty-run/process-0002.log" not in collapsed
         assert "test session starts" not in collapsed
         assert "collected 3 items" not in collapsed
         assert "FAILED tests/test_cli.py::test_example" in collapsed
-        assert "FAILED tests/test_project.py::test_load" in collapsed
-        assert "=== 2 failed, 1 passed in 0.51s ===" in collapsed
+        assert "FAILED tests/test_project.py::test_load" not in collapsed
+        assert "... and 1 more" in collapsed
+        assert "=== 2 failed, 1 passed in 0.51s ===" not in collapsed
         assert collapsed.index("failed at testing") < collapsed.index(
             "The full test command failed for this version combination."
         )
         assert collapsed.index("The full test command failed") < collapsed.index(
-            "for more information"
-        )
-        assert collapsed.index("for more information") < collapsed.index(
             "FAILED tests/test_cli.py"
         )
-        assert collapsed.index("=== 2 failed, 1 passed in 0.51s ===") < collapsed.index(
-            "details."
+        assert collapsed.index("... and 1 more") < collapsed.index(
+            "for more information"
         )
-        assert "31" in output
-        path_at = output.index(".pf/logs/tty-run/process-0002.log")
-        assert "34" in output[:path_at]
 
 
 
@@ -1193,7 +1915,7 @@ class TestProgressRendering:
         assert "extra surfaces: no-extra" in plain
         assert "╭" in plain
 
-    def test_tty_completed_cell_log_keeps_dim_status_and_diagnostic(self) -> None:
+    def test_tty_completed_cell_log_omits_unstructured_process_output(self) -> None:
         terminal = StringIO()
         presenter = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
@@ -1233,7 +1955,7 @@ class TestProgressRendering:
         assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
         assert "failed at static checking" in plain
         assert "0:00:00" in plain
-        assert "error: Unresolved import 'missing'" in plain
+        assert "error: Unresolved import 'missing'" not in plain
         assert "  error: Unresolved import 'missing'" not in plain
         assert "STATIC_REGRESSION" not in plain
         assert "╭" in plain
@@ -1320,7 +2042,7 @@ class TestProgressRendering:
         warn_at = output.index("⚠")
         assert "33" in output[: warn_at + 1]
 
-    def test_tty_process_log_path_is_a_local_file_hyperlink(
+    def test_check_indeterminate_does_not_emit_a_process_log_hyperlink(
         self, tmp_path: Path
     ) -> None:
         stdout = StringIO()
@@ -1353,9 +2075,10 @@ class TestProgressRendering:
             )
         )
 
-        assert "\x1b]8;" in stderr.getvalue()
-        assert path.resolve().as_uri() in stderr.getvalue()
-        assert ".pf/logs/linked-run/process-0001.log" in visible(stderr.getvalue())
+        output = stderr.getvalue()
+        assert "\x1b]8;" not in output
+        assert path.resolve().as_uri() not in output
+        assert ".pf/logs/linked-run/process-0001.log" not in visible(output)
 
 
 class TestVerificationRendering:
@@ -1398,7 +2121,7 @@ class TestVerificationRendering:
         assert stdout.getvalue() == ""
         assert all(fragment in stderr.getvalue() for fragment in fragments)
 
-    def test_check_indeterminate_prints_a_short_reason_and_log_link(
+    def test_check_indeterminate_omits_process_output_and_log_link(
         self,
         tmp_path: Path,
     ) -> None:
@@ -1440,11 +2163,9 @@ class TestVerificationRendering:
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
             "! Check indeterminate · This version combination has conflicting dependency requirements and cannot be installed. · 0 cells\n"
-            "  No solution found when resolving dependencies: because tomli==2.0.0\n"
-            "  details: .pf/logs/test-run/process-0001.log\n"
         )
 
-    def test_smoke_test_failure_prints_dynamic_summary_and_log_link(
+    def test_smoke_test_failure_prints_structured_detail_without_output_tail(
         self,
         tmp_path: Path,
     ) -> None:
@@ -1481,7 +2202,16 @@ class TestVerificationRendering:
         evaluation = TestFailEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=test_process),
+            test=TestFail(
+                process=test_process,
+                detail=PytestFailureDetail(
+                    first=PytestFailureCase(
+                        nodeid="tests/test_cli.py::test_example",
+                        phase="call",
+                    ),
+                    total=2,
+                ),
+            ),
         )
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
@@ -1526,11 +2256,9 @@ class TestVerificationRendering:
         assert stderr.getvalue() == (
             "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
             "The full test command failed for this version combination.\n"
-            "The highest-version resolution did not pass the required checks.\n"
+            "FAILED tests/test_cli.py::test_example\n"
+            "... and 1 more\n"
             f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "1 failed\n"
-            "2 passed\n"
-            "-> see .pf/logs/smoke-run/process-0002.log for details.\n"
             "✗ Smoke failed · highest-version resolution did not pass · 1 cell\n"
         )
 
@@ -1580,7 +2308,7 @@ class TestVerificationRendering:
         assert "TOOL_FAILURE" not in stderr.getvalue()
         assert "BASELINE_INDETERMINATE" not in stderr.getvalue()
 
-    def test_smoke_ty_diagnostics_are_warnings_with_one_line_summaries(
+    def test_smoke_hides_baseline_ty_warnings(
         self,
         tmp_path: Path,
     ) -> None:
@@ -1664,13 +2392,9 @@ class TestVerificationRendering:
 
         assert exit_code == 0
         assert stdout.getvalue() == "✓ Smoke passed · 1 cell\n"
-        assert stderr.getvalue() == (
-            "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "src/demo.py:4:7 [invalid-type] Expected str, found int\n"
-            "-> see .pf/logs/ty-run/process-0003.log for details.\n"
-        )
+        assert stderr.getvalue() == ""
 
-    def test_check_reuses_ty_warning_summaries(self) -> None:
+    def test_check_hides_baseline_ty_warnings(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -1721,12 +2445,9 @@ class TestVerificationRendering:
 
         assert exit_code == 0
         assert stdout.getvalue() == "✓ Check passed · 1 cell\n"
-        assert stderr.getvalue() == (
-            "⚠ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-            "site-packages/demo.pyi [invalid-return-type] Returned int instead of str\n"
-        )
+        assert stderr.getvalue() == ""
 
-    def test_check_runtime_failure_summarizes_static_increment(self) -> None:
+    def test_test_failure_does_not_blame_a_static_increment(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -1786,11 +2507,10 @@ class TestVerificationRendering:
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
             "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
-            "demo.py:9:2 [dependency-regression] new dependency regression\n"
             "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
         )
 
-    def test_check_does_not_repeat_diagnostics_already_frozen_from_progress(
+    def test_check_does_not_show_static_increment_for_test_failure(
         self,
     ) -> None:
         cell = Cell(
@@ -1837,7 +2557,6 @@ class TestVerificationRendering:
             completed_event(
                 cell,
                 status="TEST_FAIL",
-                diagnostics=(increment,),
                 process=process,
                 stage="test",
             )
@@ -1850,14 +2569,14 @@ class TestVerificationRendering:
         assert exit_code == 1
         assert stdout.getvalue() == ""
         output = stderr.getvalue()
-        assert output.count("demo.py:9:2 [dependency-regression]") == 1
+        assert "demo.py:9:2 [dependency-regression]" not in output
         assert "STATIC_REGRESSION" not in output
         assert "ty: 1 new diagnostic" not in output
         assert output.endswith(
             "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
         )
 
-    def test_smoke_live_completion_uses_smoke_baseline_impact(self) -> None:
+    def test_smoke_live_completion_omits_smoke_baseline_impact(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -1885,14 +2604,13 @@ class TestVerificationRendering:
         )
 
         output = stderr.getvalue()
-        assert (
-            "The highest-version resolution did not pass the required checks." in output
-        )
+        assert "The highest-version resolution did not pass" not in output
+        assert "The full test command failed for this version combination." in output
         assert "did not start the floor search" not in output
 
 
 class TestSearchRendering:
-    def test_search_candidate_diagnostics_use_stage_summaries_and_log_links(
+    def test_search_candidate_uses_one_structured_detail_and_diagnose_entry(
         self,
         tmp_path: Path,
     ) -> None:
@@ -1936,7 +2654,16 @@ class TestSearchRendering:
         dynamic = TestFailEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=dynamic_process),
+            test=TestFail(
+                process=dynamic_process,
+                detail=PytestFailureDetail(
+                    first=PytestFailureCase(
+                        nodeid="tests/test_search.py::test_candidate",
+                        phase="call",
+                    ),
+                    total=2,
+                ),
+            ),
         )
         install_process = process_result(stderr="No solution found\nconflicting pins")
         install = ToolFailure(
@@ -1971,12 +2698,19 @@ class TestSearchRendering:
             stage="test",
             process=dynamic_process,
         )
+        earlier_failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="TEST_FAILURE",
+            stage="test",
+            process=process_result(exit_code=2, stderr="earlier failure"),
+        )
         install_failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause=install.cause,
             stage=install.stage,
             process=install.process,
         )
+        terminal.consume(SearchFailureEvent(cell=cell, failure=earlier_failure))
         terminal.consume(
             SearchFailureEvent(cell=cell, failure=dynamic_failure, evaluation=dynamic)
         )
@@ -1988,12 +2722,16 @@ class TestSearchRendering:
 
         output = stderr.getvalue()
         assert exit_code == 2
-        assert "demo.py:4:2 [bad-argument-type] argument has the wrong type" in output
+        assert "demo.py:4:2 [bad-argument-type]" not in output
         assert "The full test command failed for this version combination." in output
-        assert "test dependencies cannot be installed" in output
+        assert "FAILED tests/test_search.py::test_candidate" in output
+        assert "... and 1 more" in output
+        assert "test dependencies cannot be installed" not in output
         assert "RESOLUTION_CONFLICT" not in output
-        assert output.count(".pf/logs/search-run/") == 2
-        assert output.count("for details.") == 2
+        assert ".pf/logs/search-run/" not in output
+        assert output.count("pf diagnose demo --failure") == 1
+        assert f"--failure {dynamic_failure.failure_id}" in output
+        assert f"--failure {earlier_failure.failure_id}" not in output
 
     @pytest.mark.parametrize(
         ("reasons", "expected_exit"),
@@ -2069,9 +2807,7 @@ class TestSearchRendering:
         assert stderr.getvalue() == (
             "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at resolving the test environment\n"
             "The test dependencies cannot be installed without changing the versions being checked.\n"
-            "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
             f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "No solution found when resolving dependencies\n"
             "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
         )
 
@@ -2100,7 +2836,6 @@ class TestSearchRendering:
         assert stderr.getvalue() == (
             "! [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at candidate discovery\n"
             "PF could not reach or read a configured package source.\n"
-            "PF could not obtain the information needed to start or continue this cell.\n"
             f"-> run `pf diagnose demo --failure {terminal_result.failure_id}` for more information.\n"
             "! Search stopped · compatibility is unknown · 1 report written\n"
         )
@@ -2143,13 +2878,11 @@ class TestSearchRendering:
         assert stderr.getvalue() == (
             "! [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
             "The operation timed out, so compatibility is unknown.\n"
-            "PF could not determine whether this candidate works, so it stopped this cell.\n"
             f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "process timed out\n"
             "! Search stopped · compatibility is unknown · 1 report written\n"
         )
 
-    def test_search_reuses_highest_baseline_ty_warning_summaries(self) -> None:
+    def test_search_hides_highest_baseline_ty_warnings(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -2221,15 +2954,36 @@ class TestSearchRendering:
         assert stderr.getvalue() == (
             "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra] failed at testing\n"
             "The full test command failed for this version combination.\n"
-            "The highest-version baseline did not pass, so PF did not start the floor search for this cell.\n"
             f"-> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "1 failed, 2 passed\n"
-            "demo.py:3 [unresolved-reference] Name is not defined\n"
             "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
         )
 
 
 class TestExplainRendering:
+    def test_explain_renders_report_strings_as_literal_text(self) -> None:
+        malicious = "[link=https://evil.example]foo>=1[/link]"
+        report = incomplete_report(
+            "MISSING_CELL",
+            declarations=(
+                requirement_declaration(
+                    "demo:dependencies:foo",
+                    name="foo",
+                    raw=malicious,
+                ),
+            ),
+        )
+        stdout = StringIO()
+        terminal = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=True),
+            stderr=Console(file=StringIO(), force_terminal=True),
+        )
+
+        assert terminal.render_explain((report,)) == 0
+
+        rendered = stdout.getvalue()
+        assert malicious in rendered
+        assert "\x1b]8;" not in rendered
+
     def test_explain_renders_incomplete_reasons_and_projection_requirements(
         self,
     ) -> None:

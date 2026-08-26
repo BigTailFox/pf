@@ -8,7 +8,7 @@
 - **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
 - **验证运行语义：** [D008](D008-pf-verification-run.md)
 
-本文是 PF 中外部进程输出如何捕获、如何写入本机日志、如何进入内存投影，以及这些材料如何（不）构成兼容性证据的唯一契约。D001 只承诺报告不含输出文本、日志不进入 identity，以及终端给日志链接；D002 只定义 `ProcessRunner` / `RunLogStore` 的模块位置、安全写和 Schema 形状；D005 只消费本文定义的“磁盘日志是否完整”，不解释字节上限；D006 只规定 live 卡片展示末几行，不规定这几行从哪读；D008 的 Verification Journal 不含 stdout/stderr 正文。
+本文是 PF 中外部进程输出如何捕获、如何写入本机日志、如何进入内存投影，以及这些材料如何（不）构成兼容性证据的唯一契约。D001 只承诺报告不含输出文本、日志不进入 identity，以及终端给日志链接；D002 只定义 `ProcessRunner` / `RunLogStore` 的模块位置、安全写和 Schema 形状；D005 只消费本文定义的“磁盘日志是否完整”，不解释字节上限；D006 规定普通 cell 不展示输出、`diagnose` 展示末几行；D008 的 Verification Journal 不含 stdout/stderr 正文。
 
 ## 1. 问题
 
@@ -94,6 +94,8 @@ _Avoid_: 有界 head/tail, truncated, 截断摘要
 - 每个流是否完整写入（`stdout_complete` / `stderr_complete`）；
 - 脱敏后的 stdout 原文和 stderr 原文，各为一块连续正文，不再拆成 summary/tail 冒充原文。
 
+现行 `pf-process-log-v2` 在 header 记录两个流的字符长度，再依次写入连续 stdout/stderr 正文；reader 按长度 framing 消费，正文中出现 `--- stdout ---` / `--- stderr ---` 行不得改变分流。历史 `pf-process-log-v1` 仅作保守读取兼容：section marker 唯一时可以读取，正文造成 marker 歧义时 fail closed，不猜测 stderr 优先结果。所有生产 text handle 禁用平台换行转换，使 framing 在 POSIX/Windows 上一致。
+
 argv、cwd、环境变量名等元数据仍可有独立硬上限（实现细节，防止把超长 `-c` 脚本写进日志头）。元数据截断只影响日志头，不得把对应流标成不完整，也不得改变终态分类。
 
 环境变量值、已知凭据、URL userinfo 不得写入日志。脱敏在写入项目日志之前完成。`.pf` / `.pf/logs` 的权限、symlink fail-closed、原子写和 Windows ACL 由 D002 拥有。
@@ -118,8 +120,8 @@ Process Runner 必须在进程输出产生后把脱敏正文流式写入 Process
 
 Output Cache 是本次 CLI 进程内的缓存，不是第二份证据库。合法用途只有：
 
-- live CLI 按 D006 取末几行；
-- adapter 或 diagnose 在同一次运行中加速读取已经在缓存里的正文。
+- adapter 在同一次运行中加速读取已经在缓存里的正文；
+- online diagnose 实现可以复用缓存，但离线 diagnose 必须能只凭安全 Process Log locator 读取。
 
 缓存未覆盖全文时，读取方必须打开对应 Process Log。不得把“缓存里没有全文”当成工具崩溃或磁盘日志不完整。
 
@@ -127,7 +129,7 @@ Output Cache 是本次 CLI 进程内的缓存，不是第二份证据库。合�
 
 v1 不使用跨外部进程的内存总预算。每个外部进程的 Output Cache 投影（该进程 stdout 与 stderr 合计）最多 **16 MiB**。16 MiB 足够一次工具调用的常规长文本；超出部分只存在于磁盘日志。
 
-当该进程输出超过 16 MiB 时，缓存只保留投影，优先保留各流末尾，以便 D006 的末 3 行不读盘也能显示。实现不得为了“装得下 JSON”再为单个 adapter 另设上限。
+当该进程输出超过 16 MiB 时，缓存只保留投影，优先保留各流末尾；`diagnose` 仍必须能从完整 Process Log 读取末 3 个非空行。实现不得为了“装得下 JSON”再为单个 adapter 另设上限。
 
 并行 cell 各自持有自己的最多 16 MiB 投影。分类完成后，实现应释放该进程除 live 卡片仍需要的投影之外的缓存。
 
@@ -178,17 +180,13 @@ D005 §6 的“结果完整”解释为：需要完整工具输出才能分类�
 
 Registry HTTP 响应不是进程日志，其读取上限仍由 `UvAdapter` 拥有，不适用本文的磁盘无上限规则。
 
-## 9. Live CLI 与 diagnose
+## 9. 普通 CLI 与 diagnose
 
-D006 规定失败卡片最多展示进程输出末 3 行，并给 `-> see PATH`。这 3 行的数据源按顺序为：
+普通 cell 卡片不读取或展示 stdout/stderr，也不显示 Process Log 链接；Journal/index 写入失败、精确 diagnose 入口不可用时，D006 才允许把已知 Process Log 链接作为回退入口。
 
-1. Output Cache 中该进程的投影末尾；
-2. 否则读取对应 Process Log 的末尾；
-3. 否则省略输出行，仍展示日志链接（若有）。
+`pf diagnose` 展示 D005 规定的 title/impact/技术终态，并通过 `RunLogStore` 的安全 locator 流式扫描日志：stderr 有非空行时取 stderr，否则取 stdout，只在内存保留各流最后 3 个非空行，随后显示完整 Process Log 链接。返回终端前移除 ANSI/OSC、C0/C1 等控制序列（tab 除外），Presenter 以纯 `Text` 渲染，日志里的 Rich markup 不得被解释。Presenter 不直接打开 `Path`，`RunLogStore` 不返回未经过 `SecureLogDirectory` 校验的正文；locator 存在但日志损坏或读取失败时按 D005 报本地诊断读取错误，只有合法空输出返回空 tail。
 
-成功 cell 不展示输出正文。
-
-`pf diagnose` 展示 D005 规定的 title/impact/技术终态。完整 stdout/stderr 只通过本地 Process Log 查看。Diagnosis Index 缺失时，仍可展示报告内的 Portable Process Facts，并声明本地日志不可用；不得把缺失日志呈现为新的兼容性失败。其他宿主 merge 进来的 FailureRecord 可以没有本机日志。
+完整 stdout/stderr 仍只通过本地 Process Log 查看。Diagnosis Index 缺失时，仍可展示报告内的 Portable Process Facts，并声明本地日志不可用；不得把缺失日志呈现为新的兼容性失败。其他宿主 merge 进来的 FailureRecord 可以没有本机日志。
 
 ## 10. 模块所有权
 

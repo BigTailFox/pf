@@ -320,7 +320,7 @@ Static regression 本身、witness `PRESENT`、region representative 的 pass �
 
 ### 10.3 `search`
 
-`search` 的 highest baseline 继续要求直接完整 PASS。候选 probe 使用 §8/§9；static state 和 region observation 进入报告证据，但只有 ProbeRejection 可以形成 predecessor boundary。最终 `CellSuccess.final_evaluation` 必须引用 final Proposal 自身的直接 test pass。
+`search` 的 highest baseline 继续要求直接完整 PASS。候选 probe 使用 §8/§9；static state 和 region observation 进入报告证据，但只有 ProbeRejection 可以形成 predecessor boundary。领域 `CellSuccess.final_evaluation` 必须属于 final Proposal 自身的直接 test pass；Schema 2 用 `final_proposal_ref` 唯一展开该 Evaluation。
 
 ## 11. Schema、缓存与报告
 
@@ -344,6 +344,8 @@ Schema validator 必须拒绝：
 - 把未直接 test-pass 的 Proposal 作为 final floor；
 - 跨 Slice 合并 region；
 - 缺失、截断或跨 scope 的 static/witness/test 证据。
+
+以上领域证据在公共报告中的唯一实体 owner、StaticRegion identity、runtime representative refs 与可达性规则由 D014 定义；本文不复制 wire layout。
 
 缓存按实际证据层分离：
 

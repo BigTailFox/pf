@@ -1,40 +1,52 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Annotated, Literal, Union
 
 from packaging.version import Version
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
-from pf.schemas.base import FrozenSchema
+from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
     Evaluation,
+    DiagnosticClassification,
     FailureCause,
+    FailureDetail,
     FailureRecord,
     IndeterminateEvaluation,
     PassEvaluation,
     RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessPlan,
     RuntimeWitnessResult,
+    ProcessResult,
     StaticBaseline,
     StaticEvaluation,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     TestFailEvaluation,
+    TestPass,
+    TyCheck,
+    TyDiagnostic,
     process_facts_match,
 )
 from pf.schemas.project import (
     CandidateSnapshot,
+    Candidate,
     Cell,
+    InterpreterIdentity,
     RequirementDeclaration,
+    ResolvedNode,
     SelectedCandidate,
     SourceSnapshotIdentity,
+    SourceIdentity,
     VersionPin,
     cell_identity,
+    is_canonical_distribution_name,
+    public_relative_path,
 )
 
 
@@ -169,8 +181,7 @@ def _require_search_evidence(
                 raise ValueError("runtime-backed probe PASS requires full evaluation")
             if (
                 isinstance(evidence, ProbeRejection)
-                and evidence.cause
-                in {"RUNTIME_INTERFACE_MISSING", "TEST_FAILURE"}
+                and evidence.cause in {"RUNTIME_INTERFACE_MISSING", "TEST_FAILURE"}
                 and evidence.evaluation is None
             ):
                 raise ValueError(
@@ -355,11 +366,15 @@ class StaticRegionSlice(FrozenSchema):
             raise ValueError("static region Slice facts cannot be empty")
         names = tuple(pin.name for pin in self.other_coordinates)
         if names != tuple(sorted(set(names))) or self.active_dependency in names:
-            raise ValueError("static region other coordinates must be sorted and unique")
+            raise ValueError(
+                "static region other coordinates must be sorted and unique"
+            )
         if not self.candidate_order or len(set(self.candidate_order)) != len(
             self.candidate_order
         ):
-            raise ValueError("static region candidate order must be non-empty and unique")
+            raise ValueError(
+                "static region candidate order must be non-empty and unique"
+            )
         return self
 
 
@@ -384,8 +399,7 @@ class StaticOnlyEvidence(FrozenSchema):
             self.region_slice.cell != identity.cell
             or self.region_slice.source_snapshot_digest
             != identity.source_snapshot_digest
-            or self.region_slice.policy_identity
-            != identity.evaluation_policy_identity
+            or self.region_slice.policy_identity != identity.evaluation_policy_identity
             or self.static_evaluation.baseline_digest
             != self.region_slice.baseline_digest
         ):
@@ -431,7 +445,9 @@ class StaticRegion(FrozenSchema):
                 for version in self.observed_versions
             )
         except ValueError as error:
-            raise ValueError("static region version must belong to its Slice") from error
+            raise ValueError(
+                "static region version must belong to its Slice"
+            ) from error
         if indexes != tuple(range(indexes[0], indexes[-1] + 1)):
             raise ValueError("static region observations must be contiguous")
         if not self.runtime_references:
@@ -442,6 +458,26 @@ class StaticRegion(FrozenSchema):
         ):
             raise ValueError("static region runtime references must be unique")
         return self
+
+
+def static_region_id(region: StaticRegion) -> str:
+    """Return the Schema 2 identity for one expanded static region."""
+
+    proposal_ids = tuple(
+        sorted(reference.proposal_id for reference in region.runtime_references)
+    )
+    if proposal_ids != tuple(sorted(set(proposal_ids))):
+        raise ValueError("static region runtime Proposal IDs must be unique")
+    payload = {
+        "slice": region.slice.model_dump(mode="json"),
+        "static_fingerprint": region.static_fingerprint,
+        "observed_versions": region.observed_versions,
+        "runtime_proposal_ids": proposal_ids,
+    }
+    digest = hashlib.sha256(
+        b"pf:static-region:v1\0" + canonical_identity_json(payload)
+    ).hexdigest()
+    return f"region-{digest}"
 
 
 def _observation_matches_region(
@@ -462,9 +498,7 @@ def _observation_matches_region(
     ):
         return False
     coordinates = tuple(
-        pin
-        for pin in observation.vector
-        if pin.name != region_slice.active_dependency
+        pin for pin in observation.vector if pin.name != region_slice.active_dependency
     )
     if coordinates != region_slice.other_coordinates:
         return False
@@ -493,10 +527,14 @@ def _require_region_evidence(
             if _observation_matches_region(observation, region)
         )
         if any(
-            not any(observation.candidate_version == version for observation in matching)
+            not any(
+                observation.candidate_version == version for observation in matching
+            )
             for version in region.observed_versions
         ):
-            raise ValueError("static region interval must be backed by its observations")
+            raise ValueError(
+                "static region interval must be backed by its observations"
+            )
         direct = {
             (observation.evidence.proposal_id, observation.evidence.status)
             for observation in matching
@@ -706,9 +744,7 @@ class CoordinateFailure(FrozenSchema):
             )
             if not any(
                 tuple(
-                    pin
-                    for pin in low_observation.vector
-                    if pin.name != self.dependency
+                    pin for pin in low_observation.vector if pin.name != self.dependency
                 )
                 == tuple(
                     pin
@@ -839,7 +875,9 @@ class CellSuccess(FrozenSchema):
                 final_pass.evidence.attempt.identity.requested_managed_vector
                 != self.final_vector
             ):
-                raise ValueError("final ProbePass Attempt vector must match final vector")
+                raise ValueError(
+                    "final ProbePass Attempt vector must match final vector"
+                )
             if (
                 final_pass.evidence.attempt.attempt_id
                 != self.final_evaluation.proposal.attempt_id
@@ -1092,6 +1130,18 @@ class PackageIdentity(FrozenSchema):
     name: str
     pyproject_path: str
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not is_canonical_distribution_name(value):
+            raise ValueError("package name must be a canonical distribution name")
+        return value
+
+    @field_validator("pyproject_path")
+    @classmethod
+    def validate_pyproject_path(cls, value: str) -> str:
+        return public_relative_path(value)
+
 
 class FloorProjection(FrozenSchema):
     cell: Cell
@@ -1106,11 +1156,11 @@ class ProjectionEvidence(FrozenSchema):
 
 
 class CompleteReportResult(FrozenSchema):
-    status: Literal["complete"] = "complete"
+    status: Literal["complete"]
 
 
 class IncompleteReportResult(FrozenSchema):
-    status: Literal["incomplete"] = "incomplete"
+    status: Literal["incomplete"]
     reasons: tuple[str, ...]
 
 
@@ -1120,148 +1170,376 @@ ReportResult = Annotated[
 ]
 
 
-class PackageFloorReportV1(FrozenSchema):
-    schema_version: Literal[1] = 1
+class ReportIdentityV2(FrozenSchema):
     report_generation_id: str
     generator: GeneratorIdentity
     package: PackageIdentity
     source_snapshot: SourceSnapshotIdentity
     policy_identity: str
+
+
+class TargetCellV2(FrozenSchema):
+    cell_id: str
+    package: str
+    target: str
+    python_minor: str
+    extra_surface: tuple[str, ...]
+    active_declaration_refs: tuple[str, ...]
+
+
+class CandidateSnapshotV2(FrozenSchema):
+    candidate_snapshot_id: str
+    dependency: str
+    cell_ref: str
+    policy_identity: str
+    source: SourceIdentity
+    candidates: tuple[Candidate, ...]
+    series_representatives: tuple[tuple[str, str], ...]
+
+
+class ReportInputsV2(FrozenSchema):
     requirement_declarations: tuple[RequirementDeclaration, ...]
-    candidate_snapshots: tuple[CandidateSnapshot, ...]
-    target_cells: tuple[Cell, ...] = ()
-    cell_results: tuple[CellResult, ...]
-    projection_evidence: tuple[ProjectionEvidence, ...]
+    target_cells: tuple[TargetCellV2, ...]
+    candidate_snapshots: tuple[CandidateSnapshotV2, ...]
+
+
+class CellFailureScopeV2(FrozenSchema):
+    kind: Literal["cell"]
+    cell_ref: str
+
+
+class AttemptFailureScopeV2(FrozenSchema):
+    kind: Literal["attempt"]
+    attempt_ref: str
+
+
+FailureScopeV2 = Annotated[
+    Union[CellFailureScopeV2, AttemptFailureScopeV2],
+    Field(discriminator="kind"),
+]
+
+
+class FailureRecordV2(FrozenSchema):
+    failure_id: str
+    scope: FailureScopeV2
+    disposition: Literal["REJECTED", "INDETERMINATE"]
+    cause: FailureCause
+    stage: str
+    process: ProcessResult | None = None
+    summary_code: str | None = None
+    detail: FailureDetail | None = None
+    project_plan_digest: str | None = None
+    environment_plan_digest: str | None = None
+
+
+class AttemptV2(FrozenSchema):
+    attempt_id: str
+    cell_ref: str
+    requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
+    requested_managed_vector: tuple[VersionPin, ...] | None = None
+    source_plan_identity: str
+    resolution_context_digest: str
+    harness_policy_identity: Literal["original-harness-v1", "harness-relaxation-v1"]
+    harness_declaration_ids: tuple[str, ...]
+    harness_baseline_digest: str | None = None
+    selected_candidate_evidence_digest: str | None = None
+
+
+class ResolutionGraphV2(FrozenSchema):
+    resolution_graph_id: str
+    nodes: tuple[ResolvedNode, ...]
+
+
+class ProposalV2(FrozenSchema):
+    proposal_id: str
+    attempt_ref: str
+    managed_vector: tuple[VersionPin, ...]
+    fixed_declaration_refs: tuple[str, ...]
+    resolution_graph_ref: str
+    project_plan_digest: str
+    environment_plan_digest: str
+    interpreter: InterpreterIdentity
+
+
+class StaticUnchangedEvaluationV2(FrozenSchema):
+    proposal_ref: str
+    status: Literal["STATIC_UNCHANGED"]
+    ty: TyCheck
+    baseline_digest: str
+    incremental: tuple[()]
+    static_fingerprint: str
+
+
+class StaticRegressionEvaluationV2(FrozenSchema):
+    proposal_ref: str
+    status: Literal["STATIC_REGRESSION"]
+    ty: TyCheck
+    baseline_digest: str
+    incremental: tuple[TyDiagnostic, ...]
+    static_fingerprint: str
+    classifications: tuple[DiagnosticClassification, ...]
+
+
+StaticEvaluationV2 = Annotated[
+    Union[StaticUnchangedEvaluationV2, StaticRegressionEvaluationV2],
+    Field(discriminator="status"),
+]
+
+
+class RuntimeWitnessPositiveV2(FrozenSchema):
+    status: Literal["PRESENT", "NOT_APPLICABLE"]
+    process: ProcessResult
+
+
+class RuntimeWitnessTerminalV2(FrozenSchema):
+    status: Literal["CONFIRMED_MISSING", "FAILURE"]
+    failure_ref: str
+
+
+RuntimeWitnessOutcomeV2 = Annotated[
+    Union[RuntimeWitnessPositiveV2, RuntimeWitnessTerminalV2],
+    Field(discriminator="status"),
+]
+
+
+class RuntimeWitnessAttemptV2(FrozenSchema):
+    plan: RuntimeWitnessPlan
+    outcome: RuntimeWitnessOutcomeV2
+
+
+class PassEvaluationV2(FrozenSchema):
+    proposal_ref: str
+    status: Literal["PASS"]
+    static_evaluation_ref: str
+    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    test: TestPass
+
+
+class TestFailEvaluationV2(FrozenSchema):
+    proposal_ref: str
+    status: Literal["TEST_FAIL"]
+    static_evaluation_ref: str
+    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    failure_ref: str
+
+
+class RuntimeInterfaceMissingEvaluationV2(FrozenSchema):
+    proposal_ref: str
+    status: Literal["RUNTIME_INTERFACE_MISSING"]
+    static_evaluation_ref: str
+    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    failure_ref: str
+
+
+class IndeterminateEvaluationV2(FrozenSchema):
+    proposal_ref: str
+    status: Literal["INDETERMINATE"]
+    static_evaluation_ref: str | None = None
+    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    failure_ref: str
+
+
+TerminalEvaluationV2 = Annotated[
+    Union[
+        PassEvaluationV2,
+        TestFailEvaluationV2,
+        RuntimeInterfaceMissingEvaluationV2,
+        IndeterminateEvaluationV2,
+    ],
+    Field(discriminator="status"),
+]
+
+
+class ReportEvidenceV2(FrozenSchema):
+    resolution_graphs: tuple[ResolutionGraphV2, ...]
+    attempts: tuple[AttemptV2, ...]
+    proposals: tuple[ProposalV2, ...]
+    static_evaluations: tuple[StaticEvaluationV2, ...]
+    evaluations: tuple[TerminalEvaluationV2, ...]
+    failures: tuple[FailureRecordV2, ...]
+
+
+class BaselineRefsV2(FrozenSchema):
+    attempt_ref: str
+    proposal_ref: str
+    static_baseline_digest: str
+
+
+class DirectPassV2(FrozenSchema):
+    kind: Literal["DIRECT"]
+    attempt_ref: str
+    status: Literal["PASS"]
+
+
+class DirectRejectionV2(FrozenSchema):
+    kind: Literal["DIRECT"]
+    attempt_ref: str
+    status: Literal["REJECTED"]
+    failure_ref: str
+
+
+class DirectIndeterminateV2(FrozenSchema):
+    kind: Literal["DIRECT"]
+    attempt_ref: str
+    status: Literal["INDETERMINATE"]
+    failure_ref: str
+
+
+class StaticOnlyEvidenceV2(FrozenSchema):
+    kind: Literal["STATIC_ONLY"]
+    attempt_ref: str
+    guidance: Literal["PASS", "REJECTED"]
+    region_ref: str
+    representative_proposal_ref: str
+
+
+DirectEvidenceV2 = Annotated[
+    Union[DirectPassV2, DirectRejectionV2, DirectIndeterminateV2],
+    Field(discriminator="status"),
+]
+
+
+ObservationEvidenceV2 = Annotated[
+    Union[DirectEvidenceV2, StaticOnlyEvidenceV2],
+    Field(discriminator="kind"),
+]
+
+
+class ProbeObservationV2(FrozenSchema):
+    dependency: str | None = None
+    candidate_version: str | None = None
+    evidence: ObservationEvidenceV2
+
+
+class CoordinateBoundaryV2(FrozenSchema):
+    dependency: str
+    floor: str
+    predecessor: str | None = None
+    predecessor_failure_ref: str | None = None
+
+
+class StaticRegionRuntimeReferenceV2(FrozenSchema):
+    proposal_ref: str
+
+
+class StaticRegionV2(FrozenSchema):
+    region_id: str
+    candidate_snapshot_ref: str
+    baseline_digest: str
+    other_coordinates: tuple[VersionPin, ...]
+    static_fingerprint: str
+    observed_versions: tuple[str, ...]
+    runtime_references: tuple[StaticRegionRuntimeReferenceV2, ...]
+
+
+class CoordinateSuccessV2(FrozenSchema):
+    status: Literal["SUCCESS"]
+    observations: tuple[ProbeObservationV2, ...]
+    boundaries: tuple[CoordinateBoundaryV2, ...]
+    regions: tuple[StaticRegionV2, ...]
+    sweeps: int
+
+
+class CoordinateFailureV2(FrozenSchema):
+    status: Literal[
+        "NON_MONOTONIC",
+        "NO_PASS_IN_SEARCH_SPACE",
+        "INDETERMINATE",
+        "NONDETERMINISTIC",
+    ]
+    dependency: str | None = None
+    observations: tuple[ProbeObservationV2, ...]
+    regions: tuple[StaticRegionV2, ...]
+    counterexample: tuple[str, str] | None = None
+    failure_ref: str | None = None
+
+
+class CellIndeterminateV2(FrozenSchema):
+    status: Literal["CELL_INDETERMINATE"]
+    cell_ref: str
+    phase: str
+    failure_ref: str
+    failure_refs: tuple[str, ...]
+    baseline: BaselineRefsV2 | None = None
+    candidate_snapshot_refs: tuple[str, ...] | None = None
+    coordinate_failure: CoordinateFailureV2 | None = None
+
+
+class BaselineRejectionV2(FrozenSchema):
+    status: Literal["BASELINE_REJECTION"]
+    cell_ref: str
+    attempt_ref: str
+    failure_refs: tuple[str, ...]
+    proposal_ref: str | None = None
+    static_baseline_digest: str | None = None
+
+
+class BaselineIndeterminateV2(FrozenSchema):
+    status: Literal["BASELINE_INDETERMINATE"]
+    cell_ref: str
+    attempt_ref: str
+    failure_refs: tuple[str, ...]
+    proposal_ref: str | None = None
+    static_baseline_digest: str | None = None
+
+
+class CellSuccessV2(FrozenSchema):
+    status: Literal["SUCCESS"]
+    cell_ref: str
+    baseline: BaselineRefsV2
+    candidate_snapshot_refs: tuple[str, ...]
+    search: CoordinateSuccessV2
+    final_proposal_ref: str
+    failure_refs: tuple[str, ...]
+
+
+class CellSearchFailureV2(FrozenSchema):
+    status: Literal["SEARCH_FAILED"]
+    cell_ref: str
+    phase: str
+    reason: Literal[
+        "NON_MONOTONIC",
+        "NONDETERMINISTIC",
+        "NO_PASS_IN_SEARCH_SPACE",
+    ]
+    baseline: BaselineRefsV2
+    candidate_snapshot_refs: tuple[str, ...]
+    coordinate_failure: CoordinateFailureV2 | None = None
+    failure_refs: tuple[str, ...]
+
+
+class FloorProjectionV2(FrozenSchema):
+    cell_ref: str
+    version: str
+
+
+class ProjectionEvidenceV2(FrozenSchema):
+    declaration_ref: str
+    floors: tuple[FloorProjectionV2, ...]
+    projected_requirements: tuple[str, ...]
+    representable: bool
+
+
+CellResultV2 = Annotated[
+    Union[
+        CellSuccessV2,
+        CellIndeterminateV2,
+        BaselineRejectionV2,
+        BaselineIndeterminateV2,
+        CellSearchFailureV2,
+    ],
+    Field(discriminator="status"),
+]
+
+
+class PackageFloorReportV2Wire(FrozenSchema):
+    schema_version: Literal[2]
+    identity: ReportIdentityV2
+    inputs: ReportInputsV2
+    evidence: ReportEvidenceV2
+    cell_results: tuple[CellResultV2, ...]
+    projections: tuple[ProjectionEvidenceV2, ...]
     result: ReportResult
-
-    @model_validator(mode="after")
-    def validate_completion_authority(self) -> "PackageFloorReportV1":
-        expected_generation = report_generation_id(
-            generator=self.generator,
-            package=self.package,
-            source_snapshot=self.source_snapshot,
-            policy_identity=self.policy_identity,
-            requirement_declarations=self.requirement_declarations,
-            target_cells=self.target_cells,
-        )
-        if self.report_generation_id != expected_generation:
-            raise ValueError("report generation ID does not match its identity")
-        target_keys = tuple(self._cell_key(cell) for cell in self.target_cells)
-        result_keys = tuple(self._cell_key(result.cell) for result in self.cell_results)
-        if len(set(target_keys)) != len(target_keys):
-            raise ValueError("report target cells must be unique")
-        if len(set(result_keys)) != len(result_keys):
-            raise ValueError("report cell results must be unique")
-        if self.result.status == "complete":
-            if not self.cell_results or any(
-                not isinstance(result, CellSuccess) for result in self.cell_results
-            ):
-                raise ValueError(
-                    "complete report requires every target cell to succeed"
-                )
-            if set(result_keys) != set(target_keys):
-                raise ValueError("complete report requires exact cell coverage")
-            if any(
-                not projection.representable for projection in self.projection_evidence
-            ):
-                raise ValueError("complete report requires representable projections")
-            projections = {
-                projection.declaration_id: projection
-                for projection in self.projection_evidence
-            }
-            if len(projections) != len(self.projection_evidence):
-                raise ValueError("projection declaration IDs must be unique")
-            result_by_key = {
-                self._cell_key(result.cell): result for result in self.cell_results
-            }
-            for declaration in self.requirement_declarations:
-                if not declaration.managed:
-                    continue
-                active_keys = {
-                    self._cell_key(cell)
-                    for cell in self.target_cells
-                    if declaration.declaration_id in cell.active_declaration_ids
-                }
-                if not active_keys:
-                    continue
-                projection = projections.get(declaration.declaration_id)
-                if (
-                    projection is None
-                    or {self._cell_key(floor.cell) for floor in projection.floors}
-                    != active_keys
-                ):
-                    raise ValueError(
-                        "complete report requires exact projection coverage"
-                    )
-                for floor in projection.floors:
-                    result = result_by_key[self._cell_key(floor.cell)]
-                    assert isinstance(result, CellSuccess)
-                    verified = next(
-                        (
-                            pin.version
-                            for pin in result.final_vector
-                            if pin.name == declaration.name
-                        ),
-                        None,
-                    )
-                    if verified != floor.version:
-                        raise ValueError(
-                            "projection floor must match the verified final vector"
-                        )
-        for cell_result in self.cell_results:
-            static_baseline = cell_result.static_baseline
-            if static_baseline is not None and (
-                static_baseline.proposal.snapshot_digest != self.source_snapshot.digest
-                or static_baseline.proposal.policy_identity != self.policy_identity
-            ):
-                raise ValueError("static baseline must match report source and policy")
-            if static_baseline is not None and (
-                static_baseline.proposal.attempt_id is None
-            ):
-                raise ValueError("public report Proposal must reference an Attempt")
-        failures = tuple(
-            failure
-            for result in self.cell_results
-            for failure in failure_records_for_result(result)
-        )
-        if len({failure.failure_id for failure in failures}) != len(failures):
-            raise ValueError("FailureRecord IDs must be unique within one report")
-        for failure in failures:
-            scope = failure.scope
-            scope_cell = (
-                scope.attempt.identity.cell
-                if isinstance(scope, AttemptFailureScope)
-                else scope.cell
-            )
-            scope_snapshot = (
-                scope.attempt.identity.source_snapshot_digest
-                if isinstance(scope, AttemptFailureScope)
-                else scope.source_snapshot_digest
-            )
-            scope_policy = (
-                scope.attempt.identity.evaluation_policy_identity
-                if isinstance(scope, AttemptFailureScope)
-                else scope.evaluation_policy_identity
-            )
-            if (
-                scope_cell.package != self.package.name
-                or scope_snapshot != self.source_snapshot.digest
-                or scope_policy != self.policy_identity
-            ):
-                raise ValueError("FailureRecord scope must match its report generation")
-        return self
-
-    @property
-    def failure_records(self) -> tuple[FailureRecord, ...]:
-        return tuple(
-            failure
-            for result in self.cell_results
-            for failure in failure_records_for_result(result)
-        )
-
-    @staticmethod
-    def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
-        return cell_identity(cell)
 
 
 class ProjectEditResult(FrozenSchema):
@@ -1285,16 +1563,23 @@ def report_generation_id(
     requirement_declarations: tuple[RequirementDeclaration, ...],
     target_cells: tuple[Cell, ...],
 ) -> str:
+    declarations = tuple(
+        sorted(
+            requirement_declarations,
+            key=lambda declaration: declaration.declaration_id,
+        )
+    )
+    cells = tuple(sorted(target_cells, key=cell_identity))
     identity = {
         "generator": generator.model_dump(mode="json"),
         "package": package.model_dump(mode="json"),
         "source_snapshot": source_snapshot.model_dump(mode="json"),
         "policy_identity": policy_identity,
         "requirement_declarations": [
-            declaration.model_dump(mode="json")
-            for declaration in requirement_declarations
+            declaration.model_dump(mode="json") for declaration in declarations
         ],
-        "target_cells": [cell.model_dump(mode="json") for cell in target_cells],
+        "target_cells": [cell.model_dump(mode="json") for cell in cells],
     }
-    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(b"pf:report-generation:v1\0" + canonical).hexdigest()
+    return hashlib.sha256(
+        b"pf:report-generation:v2\0" + canonical_identity_json(identity)
+    ).hexdigest()

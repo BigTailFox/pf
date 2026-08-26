@@ -24,6 +24,7 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     CellCompletedEvent,
+    CellFailed,
     CellFailureScope,
     CellStageEvent,
     CellSucceeded,
@@ -34,6 +35,8 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     ProcessSpec,
+    PytestFailureCase,
+    PytestFailureDetail,
     SearchFailureEvent,
     SmokeBaselineRejection,
     SmokeIndeterminate,
@@ -57,7 +60,6 @@ from pf.schemas.project import (
     Proposal,
     SelectedCandidate,
     SourceIdentity,
-    SourceSnapshotIdentity,
     VersionPin,
     candidate_snapshot_digest,
     cell_identity,
@@ -69,10 +71,6 @@ from pf.schemas.report import (
     CoordinateBoundary,
     CoordinateFailure,
     CoordinateSuccess,
-    GeneratorIdentity,
-    IncompleteReportResult,
-    PackageFloorReportV1,
-    PackageIdentity,
     ProbeObservation,
     ProbeIndeterminate,
     ProbePass,
@@ -81,7 +79,6 @@ from pf.schemas.report import (
     StaticRegion,
     StaticRegionRuntimeReference,
     StaticRegionSlice,
-    report_generation_id,
 )
 from pf.static_transition import static_fingerprint
 
@@ -472,26 +469,6 @@ class TestPlanningSchemas:
 
         with pytest.raises(ValidationError, match="digest"):
             CandidateSnapshot.model_validate(dumped)
-
-    def test_development_schema_one_without_generation_identity_is_rejected(
-        self,
-    ) -> None:
-        with pytest.raises(ValidationError, match="report_generation_id"):
-            PackageFloorReportV1.model_validate(
-                {
-                    "schema_version": 1,
-                    "generator": {"name": "pf", "version": "0.1.0", "algorithm": "v1"},
-                    "package": {"name": "demo", "pyproject_path": "pyproject.toml"},
-                    "source_snapshot": {"digest": "snapshot", "entries": []},
-                    "policy_identity": "policy",
-                    "requirement_declarations": [],
-                    "candidate_snapshots": [],
-                    "target_cells": [],
-                    "cell_results": [],
-                    "projection_evidence": [],
-                    "result": {"status": "incomplete", "reasons": ["MISSING_CELL"]},
-                }
-            )
 
     def test_structured_probe_rejections_require_their_evaluation(self) -> None:
         attempt = _attempt(resolution="exact-vector", vector=())
@@ -1707,6 +1684,47 @@ class TestReportSchemas:
 
         assert isinstance(event, ActivityEvent)
         assert event.failure == failure
+        wrong_failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="HARNESS_CONFLICT",
+            stage="install-harness",
+            process=evaluation.test.process,
+        )
+        with pytest.raises(ValidationError, match="test evaluation"):
+            SearchFailureEvent(
+                cell=proposal.cell,
+                failure=wrong_failure,
+                evaluation=evaluation,
+            )
+
+    def test_search_failure_event_matches_indeterminate_failure_facts(self) -> None:
+        attempt = _attempt(resolution="exact-vector", vector=())
+        evaluation = _indeterminate_evaluation(attempt)
+        failure = FailurePolicy().classify_evaluation(
+            AttemptFailureScope(attempt=attempt),
+            evaluation,
+        )
+        assert failure is not None
+
+        event = SearchFailureEvent(
+            cell=evaluation.proposal.cell,
+            failure=failure,
+            evaluation=evaluation,
+        )
+
+        assert event.evaluation == evaluation
+        mismatched = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause=evaluation.failure.cause,
+            stage="witness",
+            process=evaluation.failure.process,
+        )
+        with pytest.raises(ValidationError, match="indeterminate evaluation"):
+            SearchFailureEvent(
+                cell=evaluation.proposal.cell,
+                failure=mismatched,
+                evaluation=evaluation,
+            )
 
     def test_cell_activity_events_reject_progress_sentinel_fields(self) -> None:
         cell = _attempt().identity.cell
@@ -1733,6 +1751,57 @@ class TestReportSchemas:
                 total=1,
                 outcome=CellSucceeded(status="PASS", phase="complete"),
             )
+
+    def test_cell_result_detail_is_excluded_from_runtime_event_serialization(
+        self,
+    ) -> None:
+        attempt = _attempt()
+        cell = attempt.identity.cell
+        process = _successful_process(exit_code=1)
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="TEST_FAILURE",
+            stage="test",
+            process=process,
+        )
+        event = CellCompletedEvent(
+            cell=cell,
+            completed=1,
+            total=1,
+            outcome=CellFailed(
+                status="REJECTED",
+                phase="test",
+                detail=PytestFailureDetail(
+                    first=PytestFailureCase(
+                        nodeid="tests/test_cli.py::test_example",
+                        phase="call",
+                    ),
+                    total=1,
+                ),
+                detail_failure_id=failure.failure_id,
+                failures=(failure,),
+            ),
+        )
+
+        outcome = event.model_dump(mode="json")["outcome"]
+        assert "detail" not in outcome
+        assert "detail_failure_id" not in outcome
+        assert isinstance(event.outcome, CellFailed)
+        with pytest.raises(ValidationError, match="explicit failure source"):
+            CellFailed(
+                status="REJECTED",
+                phase="test",
+                detail=event.outcome.detail,
+                failures=(failure,),
+            )
+
+    @pytest.mark.parametrize("suffix", ("\u009b31mred", "\ud800bad"))
+    def test_pytest_failure_case_rejects_unsafe_display_text(
+        self,
+        suffix: str,
+    ) -> None:
+        with pytest.raises(ValidationError, match="bounded display text"):
+            PytestFailureCase(nodeid=f"case{suffix}", phase="call")
 
     def test_search_diagnostic_event_rejects_a_mismatched_cell(self) -> None:
         attempt = _attempt()
@@ -1792,48 +1861,6 @@ class TestReportSchemas:
                 phase="test",
                 failure_id=failure.failure_id,
                 failure_records=(failure,),
-            )
-
-    @pytest.mark.parametrize("mismatch", ("snapshot", "policy"))
-    def test_report_rejects_static_baseline_outside_its_source_or_policy(
-        self,
-        mismatch: str,
-    ) -> None:
-        baseline_attempt, baseline, passed = _baseline_evidence()
-        source_digest = "other" if mismatch == "snapshot" else "snapshot"
-        policy_identity = "other" if mismatch == "policy" else "policy"
-        failure = CellSearchFailure(
-            reason="NO_PASS_IN_SEARCH_SPACE",
-            cell=baseline.proposal.cell,
-            phase="candidate-discovery",
-            baseline_attempt=baseline_attempt,
-            static_baseline=baseline,
-            baseline=passed,
-        )
-
-        with pytest.raises(ValidationError, match="report source and policy"):
-            generator = GeneratorIdentity(name="pf", version="0.1.0", algorithm="v1")
-            package = PackageIdentity(name="demo", pyproject_path="pyproject.toml")
-            source = SourceSnapshotIdentity(digest=source_digest, entries=())
-            PackageFloorReportV1(
-                report_generation_id=report_generation_id(
-                    generator=generator,
-                    package=package,
-                    source_snapshot=source,
-                    policy_identity=policy_identity,
-                    requirement_declarations=(),
-                    target_cells=(baseline.proposal.cell,),
-                ),
-                generator=generator,
-                package=package,
-                source_snapshot=source,
-                policy_identity=policy_identity,
-                requirement_declarations=(),
-                candidate_snapshots=(),
-                target_cells=(baseline.proposal.cell,),
-                cell_results=(failure,),
-                projection_evidence=(),
-                result=IncompleteReportResult(reasons=("NO_PASS_IN_SEARCH_SPACE",)),
             )
 
     def test_cell_success_rejects_tampered_final_evidence(self) -> None:

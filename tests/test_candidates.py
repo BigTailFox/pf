@@ -113,7 +113,9 @@ test-command = ["pytest"]
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        package = (
+            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        )
         index = RecordingIndex()
 
         builder = CandidateBuilder(index)

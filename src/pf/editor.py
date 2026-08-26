@@ -13,10 +13,9 @@ import tomlkit
 from tomlkit.items import Array
 
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
-from pf.report import PackageReportBuilder
+from pf.report import PackageReportBuilder, ValidatedReport
 from pf.schemas.project import RequirementDeclaration
 from pf.schemas.report import (
-    PackageFloorReportV1,
     ProjectEditResult,
     ProjectionEvidence,
 )
@@ -25,7 +24,7 @@ from pf.snapshot import SnapshotBuilder
 
 @dataclass
 class _PreparedApply:
-    report: PackageFloorReportV1
+    report: ValidatedReport
     pyproject: Path
     relative: str
     original: bytes
@@ -35,7 +34,7 @@ class _PreparedApply:
 
 
 class ProjectEditor:
-    """Apply only projection evidence authorized by a complete v1 report."""
+    """Apply only projection evidence authorized by a complete Schema 2 report."""
 
     _RECOVERY_SCHEMA = 2
 
@@ -45,7 +44,7 @@ class ProjectEditor:
     def apply(
         self,
         *,
-        report: PackageFloorReportV1,
+        report: ValidatedReport,
         root: Path,
     ) -> ProjectEditResult:
         return self.apply_many(reports=(report,), root=root)[0]
@@ -53,7 +52,7 @@ class ProjectEditor:
     def apply_many(
         self,
         *,
-        reports: tuple[PackageFloorReportV1, ...],
+        reports: tuple[ValidatedReport, ...],
         root: Path,
     ) -> tuple[ProjectEditResult, ...]:
         root = root.resolve()
@@ -135,7 +134,7 @@ class ProjectEditor:
 
     def _prepare_report(
         self,
-        report: PackageFloorReportV1,
+        report: ValidatedReport,
         root: Path,
     ) -> _PreparedApply:
         if report.result.status != "complete":

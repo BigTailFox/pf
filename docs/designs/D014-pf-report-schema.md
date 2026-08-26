@@ -1,6 +1,6 @@
 # PF 报告 Schema 2
 
-- **状态：** 已批准，待实现
+- **状态：** 实施中；Schema 2 主体已落地，§10.6 固定样本资格化待完成
 - **日期：** 2026-08-25
 - **适用范围：** `package-floor.json` 的公共 JSON 布局、引用完整性、规范编码，以及用 Schema 2 一次性替换现行内联报告
 - **产品与命令：** [D001](D001-pf.md)
@@ -20,7 +20,7 @@
 
 本文只拥有持久化报告的 wire interface：顶层分组、实体表、引用、规范编码和跨引用验证。D001 继续拥有报告的产品作用、命令和 apply 条件；D003–D005、D008、D011–D013 继续拥有被保存证据的领域含义。本文不得通过重排 JSON 改写这些语义。
 
-本文已批准、待实现。落地前现行内联报告仍是唯一有效行为。项目尚未发布；落地时直接以 `schema_version = 2` 取代现行内联报告，不保留 reader、migrator 或 dual-write。开发期报告由新的 search 重生。
+Schema 2 主体已经落地；`schema_version = 2` 是唯一现行报告布局，不保留 Schema 1 reader、migrator 或 dual-write。开发期旧报告必须由新的 search 重生。§10.6 指定的外部固定 Schema 1 样本尚未恢复，因此体积/性能资格化与本设计的“已完成”状态仍被阻塞；实施过程与验证证据见 [P013](../plans/P013-pf-report-schema.md)。
 
 ## 1. 背景与目标
 
@@ -30,7 +30,7 @@ Schema 1 把本质上是引用图的证据按值展开为一棵 JSON 树。一�
 
 ### 1.1 同一事实存在多个所有者
 
-现行 Builder 从每个 CellResult 的 `candidate_snapshots` 再复制一份顶层 `candidate_snapshots`。CellResult 内副本用于完整性验证，顶层副本用于 merge；`PackageFloorReportV1` 没有要求两者完全相等。因此，一个 Schema-valid 文档可以同时携带两套不同的候选证据。
+Schema 1 Builder 从每个 CellResult 的 `candidate_snapshots` 再复制一份顶层 `candidate_snapshots`。CellResult 内副本用于完整性验证，顶层副本用于 merge；`PackageFloorReportV1` 没有要求两者完全相等。因此，一个 Schema-valid 文档可以同时携带两套不同的候选证据。
 
 同类重复还包括：
 
@@ -71,7 +71,7 @@ Schema 1 把本质上是引用图的证据按值展开为一棵 JSON 树。一�
 
 ### 1.3 机器规范与人类结构都不清楚
 
-D001 当前只枚举 Schema 1 包含的概念。完整结构分散在 `schemas/project.py`、`schemas/evaluation.py` 和 `schemas/report.py` 的多个判别 union 与交叉 validator 中，没有提交的 JSON Schema、最小完整示例或字段所有权表。
+D001 当时只枚举 Schema 1 包含的概念。完整结构分散在 `schemas/project.py`、`schemas/evaluation.py` 和 `schemas/report.py` 的多个判别 union 与交叉 validator 中，没有提交的 JSON Schema、最小完整示例或字段所有权表。
 
 `ReportStore` 的紧凑、排序 key 输出适合确定性持久化，不适合直接阅读。Pretty-print 只能增加行数，不能恢复实体关系。`pf explain` 是主要人类 interface，但公共 JSON 仍应能沿稳定引用被审计。
 
@@ -231,7 +231,7 @@ CandidateSnapshot、CellResult、Projection、Failure 和 Evaluation 不进入 g
 - 完整 `Cell`；
 - `active_declaration_ids`。
 
-Attempt、Proposal、CandidateSnapshot 和 static region 都属于一个 PackageFloorReport generation。它们通过 `cell_ref` 取得 Cell，通过顶层 `identity` 取得 source snapshot 与 policy，通过 Cell 取得 active declarations。
+Attempt、Proposal、CandidateSnapshot 和 static region 都属于一个 PackageFloorReport generation。它们通过 `cell_ref` 取得 Cell，通过顶层 `identity` 取得 source snapshot，通过 Cell 取得 active declarations；Attempt、Proposal 与 static region 使用顶层 evaluation policy，CandidateSnapshot 的 selection policy 按 §3.6 保存在自身 record。
 
 validator 必须先解析这些引用，再按现行完整语义重建 identity 输入并校验 ID。省略 wire 字段不省略 identity 事实。
 
@@ -289,13 +289,14 @@ cell_id = "cell-" + sha256(
   "candidate_snapshot_id": "...",
   "dependency": "packaging",
   "cell_ref": "cell-...",
+  "policy_identity": "...",
   "source": {},
   "candidates": [],
   "series_representatives": []
 }
 ```
 
-`candidate_snapshot_id` 使用现行 CandidateSnapshot digest。validator 解析 `cell_ref` 并注入顶层 policy 后，按现行完整 identity 重算 digest。CellResult 只保存 `candidate_snapshot_refs`，不得再内联 CandidateSnapshot。
+`candidate_snapshot_id` 使用现行 CandidateSnapshot digest。CandidateBuilder 的 selection policy identity 与顶层 evaluation policy identity 是不同领域事实，不能从 generation 推导；wire 必须保存 CandidateSnapshot 自身的 `policy_identity`。validator 解析 `cell_ref`，再按完整 identity 重算 digest。CellResult 只保存 `candidate_snapshot_refs`，不得再内联 CandidateSnapshot。
 
 同一 `(cell_ref, dependency)` 只能对应一个 CandidateSnapshot。所有候选、artifact locator/hash、series representative、prerelease 与构件可安装性规则保持不变。
 
@@ -698,7 +699,7 @@ canonical_identity_json(value) = json.dumps(
 | --- | --- | --- |
 | `report_generation_id` | §3.2 的 generator/package/source/policy/canonical declarations/canonical target Cells | `pf:report-generation:v2`；CandidateSnapshot 与 Schema 2 refs 不进入 |
 | `source_snapshot.digest` | 按 path 排序的完整现行 `SnapshotEntry[]` | 现行 `pf:snapshot:v1` |
-| `candidate_snapshot_id` | 注入完整 Cell 与顶层 policy 的现行 CandidateSnapshot identity | 现行 `pf:candidate-snapshot:v1` |
+| `candidate_snapshot_id` | 注入完整 Cell 与 record 自带 selection policy 的现行 CandidateSnapshot identity | 现行 `pf:candidate-snapshot:v1` |
 | `attempt_id` | 注入 `identity_version="attempt-v2"`、source digest、完整 Cell、active declaration IDs 与 policy 的 `AttemptIdentity` | 现行 `pf:attempt:v2` |
 | `failure_id` | 把 scope ref 展开为完整 `AttemptFailureScope | CellFailureScope` 的现行 FailureRecord facts | 现行 `pf:failure:v1`，保留现行截断长度 |
 | `proposal_id` | `project_plan_digest`、`environment_plan_digest` 与解析后的 graph | 现行 `environment_identity_digest`；wire 必须保存两个 plan digest |
@@ -1055,7 +1056,7 @@ Schema 2 紧凑编码目标不超过 **2,042,055 bytes**，即比 4,084,111-byte
 
 ## 11. 契约同步
 
-本文已批准、待实现，落地前不取代任何现行条款。落地后：
+本文已经落地并取代开发期内联 Schema 1。现行所有权同步如下：
 
 - D001 §7 保留报告的产品作用、命令消费者、完整/不完整含义和保守失败，只把 wire layout、版本与规范编码指向 D014；
 - D002 的 Schema / ReportStore 章节采纳 §8 的 ValidatedReport、persistence interface 与唯一 Schema 2 codec，删除内联报告模型，不复制引用规则；

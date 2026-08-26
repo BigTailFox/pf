@@ -18,6 +18,7 @@ from pf.schemas.evaluation import (
     CellCompletedEvent,
     CellFailed,
     CellFailureScope,
+    CellResultDetail,
     CellSucceeded,
     CheckCellOutcome,
     FailureDetail,
@@ -29,10 +30,9 @@ from pf.schemas.evaluation import (
     RuntimeInterfaceMissingEvaluation,
     RuntimeWitnessResult,
     SearchFailureEvent,
-    StaticRegressionEvaluation,
+    StaticIssueDetail,
     TestFailEvaluation,
     ToolFailure,
-    TyDiagnostic,
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
@@ -311,66 +311,50 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
     """Project one verification result into the terminal completion contract."""
     if isinstance(result, CheckCellOutcome):
         if isinstance(result.evaluation, PassEvaluation):
-            diagnostics = result.evaluation.static.ty.diagnostics
             return CellSucceeded(
                 status=result.status,
                 phase="complete",
-                diagnostics=diagnostics,
-                process=result.evaluation.static.ty.process if diagnostics else None,
             )
-        diagnostics, process = _failed_evaluation_payload(
-            result.evaluation,
-            result.failure,
-        )
         assert result.failure is not None
+        detail = _evaluation_detail(result.evaluation)
         return CellFailed(
             status=result.status,
             phase=result.failure.stage,
-            diagnostics=diagnostics,
-            process=process,
+            detail=detail,
+            detail_failure_id=(result.failure.failure_id if detail is not None else None),
+            process=_failed_evaluation_process(result.evaluation, result.failure),
             failures=(result.failure,),
             verification_role=result.role,
         )
 
     if isinstance(result, HighestVersionPass):
-        diagnostics = result.baseline.ty.diagnostics
         return CellSucceeded(
             status=result.status,
             phase="complete",
-            diagnostics=diagnostics,
-            process=result.baseline.ty.process if diagnostics else None,
         )
 
     if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
-        diagnostics, process = _failed_evaluation_payload(
-            result.evaluation,
-            result.failure,
-        )
+        detail = _evaluation_detail(result.evaluation)
         return CellFailed(
             status=result.status,
             phase=result.failure.stage,
-            diagnostics=diagnostics,
-            process=process,
+            detail=detail,
+            detail_failure_id=(result.failure.failure_id if detail is not None else None),
+            process=_failed_evaluation_process(result.evaluation, result.failure),
             failures=(result.failure,),
             verification_role="baseline",
         )
 
     if isinstance(result, CellSuccess):
-        diagnostics = result.static_baseline.ty.diagnostics
         return CellSucceeded(
             status=result.status,
             phase="complete",
-            diagnostics=diagnostics,
-            process=result.static_baseline.ty.process if diagnostics else None,
         )
 
     if isinstance(result, CellSearchFailure):
-        diagnostics = result.static_baseline.ty.diagnostics
         return CellFailed(
             status=result.status,
             phase=result.phase,
-            diagnostics=diagnostics,
-            process=result.static_baseline.ty.process if diagnostics else None,
             failures=result.failure_records,
             verification_role="probe",
         )
@@ -390,25 +374,18 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
         )
 
     if isinstance(result, PassEvaluation):
-        diagnostics = result.static.ty.diagnostics
         return CellSucceeded(
             status=result.status,
             phase="complete",
-            diagnostics=diagnostics,
-            process=result.static.ty.process if diagnostics else None,
         )
 
     if isinstance(result, RuntimeInterfaceMissingEvaluation):
-        confirmed = next(
-            attempt.outcome
-            for attempt in result.witnesses
-            if isinstance(attempt.outcome, RuntimeWitnessResult)
-            and attempt.outcome.status == "CONFIRMED_MISSING"
-        )
+        confirmed = result.witnesses[-1].outcome
+        assert isinstance(confirmed, RuntimeWitnessResult)
         return CellFailed(
             status=result.status,
             phase="witness",
-            diagnostics=_static_diagnostics(result.static),
+            detail=_evaluation_detail(result),
             process=confirmed.process,
         )
 
@@ -416,7 +393,7 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
         return CellFailed(
             status=result.status,
             phase="test",
-            diagnostics=_static_diagnostics(result.static),
+            detail=_evaluation_detail(result),
             process=result.test.process,
         )
 
@@ -437,29 +414,34 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
     raise TypeError(f"unsupported verification result: {type(result).__name__}")
 
 
-def _failed_evaluation_payload(
+def _failed_evaluation_process(
     evaluation: object,
     failure: FailureRecord | None,
-) -> tuple[tuple[TyDiagnostic, ...], ProcessResult | None]:
+) -> ProcessResult | None:
     if isinstance(evaluation, TestFailEvaluation):
-        return _static_diagnostics(evaluation.static), evaluation.test.process
+        return evaluation.test.process
     if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        confirmed = next(
-            attempt.outcome
-            for attempt in evaluation.witnesses
-            if isinstance(attempt.outcome, RuntimeWitnessResult)
-            and attempt.outcome.status == "CONFIRMED_MISSING"
-        )
-        return _static_diagnostics(evaluation.static), confirmed.process
-    if isinstance(evaluation, IndeterminateEvaluation) and evaluation.static is not None:
-        return _static_diagnostics(evaluation.static), evaluation.failure.process
-    return (), None if failure is None else failure.process
+        confirmed = evaluation.witnesses[-1].outcome
+        assert isinstance(confirmed, RuntimeWitnessResult)
+        return confirmed.process
+    if isinstance(evaluation, IndeterminateEvaluation):
+        return evaluation.failure.process
+    return None if failure is None else failure.process
 
 
-def _static_diagnostics(
-    static: object,
-) -> tuple[TyDiagnostic, ...]:
-    if isinstance(static, StaticRegressionEvaluation):
-        return static.incremental
-    diagnostics = getattr(getattr(static, "ty", None), "diagnostics", ())
-    return tuple(diagnostics)
+def _evaluation_detail(evaluation: object | None) -> CellResultDetail | None:
+    if isinstance(evaluation, TestFailEvaluation):
+        return evaluation.test.detail
+    if not isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+        return None
+    confirmed = evaluation.witnesses[-1].outcome
+    assert isinstance(confirmed, RuntimeWitnessResult)
+    identities = set(confirmed.plan.diagnostic_identities)
+    relevant = tuple(
+        diagnostic
+        for diagnostic in evaluation.static.incremental
+        if diagnostic.identity in identities
+    )
+    if not relevant:
+        return None
+    return StaticIssueDetail(first=relevant[0], total=len(relevant))

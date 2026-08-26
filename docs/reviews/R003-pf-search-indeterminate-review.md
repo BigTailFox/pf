@@ -10,7 +10,7 @@
 - **探索证据：** [I001](../investigation/I001-pf-pytest-witness-collection.md)
 - **后续整改：** [D013](../designs/D013-pf-pytest-failure-evidence.md)
 
-本文记录 PF 自搜索中一次 pytest collection failure 被错误压缩为 `ProbeIndeterminate` 的问题。本文只评审 test evidence classification；不改变现行搜索模型，也不把 dependency harness 的替代计划搜索纳入本次整改。
+本文记录 PF 自搜索中一次 pytest collection failure 被错误压缩为 `ProbeIndeterminate` 的问题。本文只评审 test evidence classification；不改变现行搜索模型，也不把 dependency harness 的替代计划搜索纳入本次整改。整改契约与结局分类只以 [D013](../designs/D013-pf-pytest-failure-evidence.md) 为准；本文与 [I001](../investigation/I001-pf-pytest-witness-collection.md) 是参考快照。
 
 ## 1. 结论
 
@@ -123,16 +123,11 @@ D012 在 selected harness plan 无法实例化时寻找其他合法 realization�
 
 本次不修改 D004/D011 的静态证据语义。static PASS 不是 compatibility proof；运行时验证仍是 floor evidence 的必要组成部分。
 
-## 7. 临时绕过
+## 7. 整改路径
 
-项目可以显式设置：
+不要把 `test-failure-exit-codes = [1, 2]` 当作修复。exit 2 仍可能是 KeyboardInterrupt 或其他不可靠终态；把 2 加入失败码会扩大误拒绝。
 
-```toml
-[tool.pf]
-test-failure-exit-codes = [1, 2]
-```
-
-这会让当前 collection exit 2 进入 `TEST_FAILURE`，但也会扩大误拒绝范围。它只适合用户明确接受该 test command 退出码契约时临时使用，不是 PF 的默认修复，也不构成本 Review 的整改完成。
+整改是 [D013](../designs/D013-pf-pytest-failure-evidence.md) 的 PF-owned pytest failure-witness plugin：在 direct pytest 与默认 `[1]` 下注入最小 observer，只有 pytest 直接报告的 collection/test failure 才进入现有 Rejection 路径。
 
 ## 8. 验证范围
 
@@ -143,4 +138,4 @@ test-failure-exit-codes = [1, 2]
 - 对照 TestAdapter、RuntimeEvaluator、FailurePolicy、CoordinateSearch 与 D001/D003/D005/D008/D011；
 - 确认 `UNREPRESENTABLE_PROJECTION` 是 cell 没有可授权 floor 的派生结果，不是第二个独立根因。
 
-本次修订只收缩评审结论与整改范围，没有重新运行完整 `pf search`、全量 pytest、ty 或 build。R003 仍是非规范性快照，不把文档修订写成新的行为验证。
+本次修订收缩了评审结论与整改范围，并去掉 `test-failure-exit-codes = [1, 2]` 临时绕过，改以 D013 plugin 为整改路径。没有重新运行完整 `pf search`、全量 pytest、ty 或 build。R003 仍是非规范性快照，不把文档修订写成新的行为验证。

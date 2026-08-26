@@ -9,6 +9,7 @@ from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import TestAdapter
 from pf.schemas.evaluation import (
     EnvironmentVariable,
+    PytestFailureDetail,
     StageProgress,
     TestFail,
     TestPass,
@@ -46,6 +47,99 @@ def _write_test(root: Path, source: str) -> None:
 
 
 class TestPytestWitnessIntegration:
+    @pytest.mark.parametrize(
+        ("source", "expected_nodeid", "expected_phase"),
+        (
+            (
+                "raise ImportError('collection')\n",
+                "test_example.py",
+                "collect",
+            ),
+            (
+                "import pytest\n"
+                "@pytest.fixture\n"
+                "def broken():\n    raise RuntimeError('setup')\n"
+                "def test_bad(broken):\n    pass\n",
+                "test_example.py::test_bad",
+                "setup",
+            ),
+            (
+                "def test_bad():\n    assert False\n",
+                "test_example.py::test_bad",
+                "call",
+            ),
+            (
+                "import pytest\n"
+                "@pytest.fixture\n"
+                "def broken():\n    yield\n    raise RuntimeError('teardown')\n"
+                "def test_bad(broken):\n    pass\n",
+                "test_example.py::test_bad",
+                "teardown",
+            ),
+        ),
+        ids=("collection", "setup", "call", "teardown"),
+    )
+    def test_pytest_failure_detail_identifies_the_first_failed_case(
+        self,
+        tmp_path: Path,
+        source: str,
+        expected_nodeid: str,
+        expected_phase: str,
+    ) -> None:
+        _write_test(tmp_path, source)
+
+        result = _run_pytest(tmp_path)
+
+        assert isinstance(result, TestFail)
+        assert isinstance(result.detail, PytestFailureDetail)
+        assert result.detail.first.nodeid == expected_nodeid
+        assert result.detail.first.phase == expected_phase
+        assert result.detail.total == 1
+
+    def test_pytest_failure_detail_counts_distinct_nodeids_once(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_test(
+            tmp_path,
+            "import pytest\n"
+            "@pytest.fixture\n"
+            "def broken():\n    yield\n    raise RuntimeError('teardown')\n"
+            "def test_first(broken):\n    assert False\n"
+            "def test_second():\n    assert False\n",
+        )
+
+        result = _run_pytest(tmp_path)
+
+        assert isinstance(result, TestFail)
+        assert isinstance(result.detail, PytestFailureDetail)
+        assert result.detail.first.nodeid == "test_example.py::test_first"
+        assert result.detail.first.phase == "call"
+        assert result.detail.total == 2
+
+    @pytest.mark.parametrize(
+        ("nodeid_escape", "expected"),
+        (("\\u009b31m", TestFail), ("\\ud800bad", ToolFailure)),
+        ids=("c1-control", "surrogate"),
+    )
+    def test_pytest_failure_detail_omits_an_unsafe_display_nodeid(
+        self,
+        tmp_path: Path,
+        nodeid_escape: str,
+        expected: type[TestFail] | type[ToolFailure],
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n"
+            f"    items[0]._nodeid = 'test_example.py::test_bad{nodeid_escape}'\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
+
+        result = _run_pytest(tmp_path)
+
+        assert isinstance(result, expected)
+        assert getattr(result, "detail", None) is None
+
     def test_serial_pytest_reports_monotonic_collection_progress(
         self,
         tmp_path: Path,
@@ -65,6 +159,56 @@ class TestPytestWitnessIntegration:
         assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
         completed = [item.completed for item in observed if item is not None]
         assert completed == sorted(set(completed))
+
+    def test_serial_pytest_reports_each_visible_slow_test_without_lag(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_test(
+            tmp_path,
+            "import time\n"
+            "def test_one():\n    time.sleep(0.06)\n"
+            "def test_two():\n    time.sleep(0.06)\n"
+            "def test_three():\n    time.sleep(0.06)\n"
+            "def test_four():\n    time.sleep(0.06)\n",
+        )
+        observed: list[StageProgress | None] = []
+
+        result = _run_pytest(tmp_path, progress=observed)
+
+        assert isinstance(result, TestPass)
+        assert [item.completed for item in observed if item is not None] == [
+            0,
+            1,
+            2,
+            3,
+            4,
+        ]
+
+    def test_large_serial_suite_keeps_determinate_progress_until_completion(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_test(
+            tmp_path,
+            "import time\n"
+            "import pytest\n"
+            "@pytest.mark.parametrize('case', range(842))\n"
+            "def test_case(case):\n    time.sleep(0.002)\n",
+        )
+        observed: list[StageProgress | None] = []
+
+        result = _run_pytest(tmp_path, progress=observed)
+
+        assert isinstance(result, TestPass)
+        assert None not in observed
+        assert observed[0] is not None
+        assert observed[0].total == 842
+        assert observed[-1] == StageProgress(
+            completed=842,
+            total=842,
+            unit="tests",
+        )
 
     def test_collect_only_keeps_indeterminate_progress(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_ok():\n    pass\n")
@@ -267,6 +411,26 @@ class TestPytestWitnessIntegration:
             "pytest-evidence-invalid",
             "pytest-failure-unwitnessed",
         }
+
+    def test_pytest_failure_detail_commit_failure_only_omits_detail(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "conftest.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "import shutil\n"
+            "def pytest_sessionfinish(session):\n"
+            "    shutil.rmtree("
+            "Path(os.environ['PF_PYTEST_FAILURE_DETAILS_DIR']))\n",
+            encoding="utf-8",
+        )
+        _write_test(tmp_path, "def test_bad():\n    assert False\n")
+
+        result = _run_pytest(tmp_path)
+
+        assert isinstance(result, TestFail)
+        assert result.detail is None
 
     def test_pytest_witness_rejects_residual_temporary_artifact(
         self, tmp_path: Path

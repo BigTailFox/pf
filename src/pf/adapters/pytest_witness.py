@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import islice
 import json
+import os
 from pathlib import Path
 import re
 import stat
@@ -12,6 +13,8 @@ from packaging.version import InvalidVersion, Version
 
 from pf.schemas.evaluation import (
     ProcessResult,
+    PytestFailureCase,
+    PytestFailureDetail,
     TestFail,
     TestOutcome,
     TestPass,
@@ -19,12 +22,17 @@ from pf.schemas.evaluation import (
 )
 
 EVIDENCE_DIRECTORY_VARIABLE = "PF_PYTEST_WITNESS_DIR"
+FAILURE_DETAILS_DIRECTORY_VARIABLE = "PF_PYTEST_FAILURE_DETAILS_DIR"
 RUN_NONCE_VARIABLE = "PF_PYTEST_WITNESS_NONCE"
 PROTOCOL = "pf-pytest-failure-witness-v1"
+FAILURE_DETAILS_PROTOCOL = "pf-pytest-failure-details-v1"
 
 _MAX_SUMMARIES = 1024
 _MAX_SUMMARY_BYTES = 4 * 1024
 _SUMMARY_NAME = re.compile(r"summary-[0-9a-f]{32}\.json")
+_DETAIL_NAME = re.compile(r"details-[0-9a-f]{32}\.json")
+_MAX_DETAIL_BYTES = 8 * 1024
+_MAX_DETAIL_ARTIFACTS = 1024
 _SUMMARY_FIELDS = frozenset(
     {
         "execution_mode",
@@ -142,6 +150,91 @@ def classify_pytest_result(
     if result.exit_code in {1, 2} and not evidence.has_failure:
         return _tool_failure(result, "pytest-failure-unwitnessed")
     return _tool_failure(result, "pytest-outcome-conflict")
+
+
+def read_pytest_failure_detail(
+    directory: Path,
+    *,
+    nonce: str,
+) -> PytestFailureDetail | None:
+    """Read optional UI metadata without affecting pytest outcome authority."""
+    try:
+        with os.scandir(directory) as entries:
+            paths = tuple(
+                Path(entry.path)
+                for entry in islice(entries, _MAX_DETAIL_ARTIFACTS + 1)
+            )
+        if not paths:
+            return None
+        if len(paths) > _MAX_DETAIL_ARTIFACTS:
+            raise InvalidPytestEvidence("too many failure detail artifacts")
+        matches = tuple(
+            detail
+            for artifact_nonce, detail in (
+                _read_pytest_failure_detail_artifact(path) for path in paths
+            )
+            if artifact_nonce == nonce
+        )
+        if len(matches) != 1:
+            raise InvalidPytestEvidence("failure detail artifact count is invalid")
+        return matches[0]
+    except (
+        InvalidPytestEvidence,
+        OSError,
+        RecursionError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ):
+        return None
+
+
+def _read_pytest_failure_detail_artifact(
+    path: Path,
+) -> tuple[str, PytestFailureDetail]:
+    if _DETAIL_NAME.fullmatch(path.name) is None:
+        raise InvalidPytestEvidence("failure detail artifact name is invalid")
+    metadata = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_DETAIL_BYTES:
+        raise InvalidPytestEvidence("failure detail is not a bounded regular file")
+    with path.open("rb") as stream:
+        payload = stream.read(_MAX_DETAIL_BYTES + 1)
+    if len(payload) > _MAX_DETAIL_BYTES:
+        raise InvalidPytestEvidence("failure detail exceeds the byte limit")
+    document = json.loads(payload.decode("utf-8"))
+    if type(document) is not dict or frozenset(document) != {
+        "first",
+        "protocol",
+        "run_nonce",
+        "total",
+    }:
+        raise InvalidPytestEvidence("failure detail fields do not match")
+    canonical = (
+        json.dumps(
+            document,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    if payload != canonical:
+        raise InvalidPytestEvidence("failure detail bytes are not canonical")
+    if document["protocol"] != FAILURE_DETAILS_PROTOCOL:
+        raise InvalidPytestEvidence("failure detail protocol is invalid")
+    run_nonce = document["run_nonce"]
+    if type(run_nonce) is not str:
+        raise InvalidPytestEvidence("failure detail nonce is invalid")
+    first = document["first"]
+    if type(first) is not dict or frozenset(first) != {"nodeid", "phase"}:
+        raise InvalidPytestEvidence("failure detail first case is invalid")
+    return run_nonce, PytestFailureDetail(
+        first=PytestFailureCase(
+            nodeid=first["nodeid"],
+            phase=first["phase"],
+        ),
+        total=document["total"],
+    )
 
 
 def _read_evidence(directory: Path, *, nonce: str) -> PytestEvidence | None:

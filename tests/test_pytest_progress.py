@@ -8,6 +8,7 @@ import time
 
 import pytest
 
+from pf.adapters.pytest_progress import PytestProgressMonitor
 from pf.adapters.test_command import TestAdapter
 from pf.schemas.evaluation import ProcessResult, ProcessSpec, StageProgress, TestPass
 
@@ -178,7 +179,7 @@ def test_progress_cleanup_failure_does_not_change_test_outcome(
     assert observed == [StageProgress(completed=3, total=8, unit="tests")]
 
 
-def test_invalid_progress_after_a_valid_snapshot_restores_indeterminate_mode(
+def test_invalid_progress_after_a_valid_snapshot_freezes_the_last_value(
     tmp_path: Path,
 ) -> None:
     class RegressingProgressRunner(ProgressRunner):
@@ -210,7 +211,43 @@ def test_invalid_progress_after_a_valid_snapshot_restores_indeterminate_mode(
     )
 
     assert isinstance(result, TestPass)
-    assert observed == [
-        StageProgress(completed=3, total=8, unit="tests"),
-        None,
+    assert observed == [StageProgress(completed=3, total=8, unit="tests")]
+
+
+@pytest.mark.parametrize(
+    "failed_read",
+    (OSError("transient atomic snapshot read"), None),
+    ids=("os-error", "temporarily-missing"),
+)
+def test_snapshot_read_failure_freezes_the_last_visible_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_read: OSError | None,
+) -> None:
+    first = StageProgress(completed=320, total=842, unit="tests")
+    snapshots: list[StageProgress | OSError | None] = [
+        first,
+        failed_read,
+        StageProgress(completed=321, total=842, unit="tests"),
     ]
+
+    def read_snapshot(path: Path, *, nonce: str) -> StageProgress | None:
+        del path, nonce
+        snapshot = snapshots.pop(0)
+        if isinstance(snapshot, OSError):
+            raise snapshot
+        return snapshot
+
+    monkeypatch.setattr("pf.adapters.pytest_progress._read_progress", read_snapshot)
+    observed: list[StageProgress | None] = []
+    monitor = PytestProgressMonitor(
+        tmp_path,
+        nonce="0" * 32,
+        consume=observed.append,
+    )
+
+    monitor._poll()
+    monitor._poll()
+    monitor._poll()
+
+    assert observed == [first]
