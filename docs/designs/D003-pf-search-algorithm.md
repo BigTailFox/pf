@@ -2,12 +2,12 @@
 
 - **状态：** 现行
 - **算法版本：** `runtime-static-v1`
-- **最后核对：** 2026-08-25
+- **最后核对：** 2026-08-26
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态 transition 与 witness：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **决策来源：** [D011](D011-pf-runtime-backed-static-search.md)
+- **已归并决策：** [D011](D011-pf-runtime-backed-static-search.md)
 
 本文是单个 package/cell 的坐标搜索、static region、probe 顺序、不变量与终止条件的唯一所有者。候选冻结由 D001 定义；静态事实和 witness 由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 由 D005 定义。跨 cell 并发、报告合并和 apply 不属于本文。
 

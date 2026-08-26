@@ -1,432 +1,231 @@
-# PF 统一运行语义
+# PF 统一验证运行语义
 
 - **状态：** 现行
-- **最后核对：** 2026-08-23
-- **产品与命令：** [D001](D001-pf.md)
-- **实现结构：** [D002](D002-pf-implementation.md)
-- **搜索算法：** [D003](D003-pf-search-algorithm.md)
-- **静态证据：** [D004](D004-pf-ty-enhancement.md)
-- **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **CLI 交互与展示：** [D006](D006-pf-cli-enhancement.md)
-- **进程输出与日志：** [D007](D007-pf-process-output.md)
+- **Journal：** `verification-journal-v2`
+- **最后核对：** 2026-08-26
+- **命令语义：** [D001](D001-pf.md)
+- **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
+- **展示：** [D006](D006-pf-cli-enhancement.md)
+- **日志：** [D007](D007-pf-process-output.md)
 
-本文是 PF 中验证运行如何实例化 Attempt、cell 如何走同一条错误链路、非报告 FailureRecord 如何持久化，以及 `pf diagnose` 从哪些工件读取的唯一契约。D001 继续定义命令、退出码和 `package-floor.json` 的 apply 语义；D002 继续定义模块位置；D003 只消费搜索处置；D004 只定义静态增量；D005 继续定义 cause、disposition、FailureRecord 形状和用户文案；D006 只组织这些事实的终端层级；D007 只定义 Process Log 与 Output Cache。
+本文是 Verification Run、命令的 Attempt 序列、Verification Role、跨 Cell scheduling、completion projection、Journal 时序、Diagnosis Index association 与 `diagnose` 读取面的唯一所有者。
 
-## 1. 问题
-
-D005 把一次验证请求做成 Attempt，并把调查入口做成 `FailureRecord` + `pf diagnose`。落地后这条链只覆盖 **smoke/search 的 highest 与 exact-vector**。`check` 被写成“结果是 Evaluation，不能 diagnose”：
-
-1. `lowest-direct` 不创建 Attempt；prepare 失败被拆成裸 `ToolFailure`，stage 和 Attempt 一起丢掉；
-2. `CompatibilityChecker` 把 highest 的 `PrepareFailure` 也 unwrap 成 `ToolFailure`，check 的第一轮捕获同样退出分类；
-3. 调度器完成投影只在存在 `FailureRecord` 时保留 stage；Presenter 再用 `STATIC_FAIL` 特判补 `failed at`。安装失败的 cell 标题没有阶段，`TEST_FAIL` 在 live 冻结路径上同样会丢；
-4. `pf diagnose` 只读 `package-floor.json`。check/smoke 即使当场打印了 `failure_id`，命令结束后也没有可打开的记录。
-
-这四件事看起来像 CLI 缺口，根因是运行模型不统一：同一条 prepare → evaluate → classify → 完成观察 → 调查 的流水线，在 check 上被截断成 Evaluation 判别联合。
-
-真正需要分开的是：
+## 1. Verification Run
 
 ```text
-这次命令跑了哪些 Attempt？     验证运行（本文）
-该 Attempt 如何分类？         D005 disposition
-用户事后从哪读到记录？         验证日志 ∪ floor 报告（本文）
-搜索能不能当证据用？           只有写入 package-floor.json 的 search 记录
+VerificationRun
+  command: smoke | check | search
+  packages
+  one immutable SourceSnapshot
+  unique Cell tasks
+  jobs
+  optional max-duration
 ```
 
-## 2. 目标与非目标
+每个 Cell task 在外部 operation 前必须建立 Attempt；Attempt 前的 candidate discovery 或 scheduler deadline 只能形成 `CellFailureScope`。Prepare failure 保留完整 `PrepareFailure(attempt, failure, acquired plan digests)`，调用方不得 unwrap 成裸 ToolFailure。
 
-### 2.1 目标
-
-- `smoke`、`check`、`search` 的每个 cell 验证请求在外部操作前都是 Attempt；
-- 非成功 cell 终态一律经 `FailurePolicy` 得到 `FailureRecord`，完成事件携带 adapter `stage`；
-- `check` 的 `lowest-direct` 是第三种 `requested_resolution`，不是伪装的 `exact-vector`，也不是 Baseline；
-- `pf diagnose` 能解释最近一次验证运行中的 Rejection/Indeterminate，不要求先 `search`；
-- check/smoke 的 FailureRecord **不** 写入 `package-floor.json`，不参与 apply / explain / merge；
-- `CoordinateSearch` 仍然只看见 search 的 Probe 处置，看不见 Declaration Attempt。
-
-### 2.2 非目标
-
-- 不增加、删除或重命名 D001 已定义的命令；
-- 不改变 D003 的 probe 顺序、单调假设或 `PASS`/`FAIL` 边界规则；
-- 不把 `S_hi` 的捕获改成一次带测试的 Baseline；check 的 highest 仍只 capture，不跑 `test-command`；
-- 不引入 Schema 2、dual reader 或把验证日志做成公共报告；
-- 不改变 D007 的日志完整性或 D006 的卡片行数、颜色、通道；
-- 不为 v1 提供跨机器的 check 诊断同步；验证日志与 Process Log 一样是本机工件。
-
-## 3. 术语
-
-**Verification Run**（验证运行）：
-一次 `smoke`、`check` 或 `search`（含 `minimize` 的 search 阶段）对所选 package、当前源码快照和策略执行的完整验证。它对应 `.pf/logs/<run-id>/`。它不是 floor 报告。
-_Avoid_: CLI session, Evaluation context, report generation
-
-**Verification Journal**（验证日志）：
-该 Verification Run 写入 `.pf/logs/<run-id>/journal.json` 的本机记录。它保存命令、Verification Role、FailureRecord 和 Attempt 引用。它不是 `package-floor.json`，不授权 apply。
-_Avoid_: package-check.json, floor report, diagnosis-index
-
-**Verification Role**（验证角色）：
-同一 `requested_resolution` 在某次运行中承担的产品角色。它进入 Journal 与展示 impact，不进入 Attempt identity，不进入 `failure-v1` 分类矩阵。
-_Avoid_: Attempt kind, requested_resolution, Schema status
-
-**Declaration Attempt**（声明 Attempt）：
-`requested_resolution = lowest-direct` 且 `requested_managed_vector` 为空的 Attempt。它验证当前声明在最低直接解析下是否满足完整验证契约。
-_Avoid_: Probe Attempt, Baseline Attempt, lowest-direct Evaluation
-
-**Cell Completion**（cell 完成观察）：
-调度器在 cell 终态确定后投影给 Presenter 的结构化观察：结果种类、adapter `stage`、可选 `FailureRecord`、进程终态和诊断。它不是公共 Schema。
-_Avoid_: ProgressEvent.message, STATIC_FAIL 特判, 裸 ToolFailure
-
-本文沿用 D005 的 Attempt、Proposal、Rejection、Indeterminate、FailureRecord、Diagnosis，以及 D004 的 `S_hi`。
-
-## 4. 统一运行模型
-
-所有会验证 cell 的命令共用一条流水线。命令只选择 **要建立哪些 Attempt** 和 **每个 Attempt 的评价契约**；不得另开一条“只返回 Evaluation / ToolFailure”的旁路。
+一个 Cell 的链路是：
 
 ```text
-Verification Run
-  → 对每个宿主 cell：
-       按命令建立 Attempt（外部操作前）
-       prepare →（成功则）evaluate
-       非 PASS 经 FailurePolicy.classify
-       投影 Cell Completion（必含 stage）
-  → 写入 Verification Journal
-  → search 另将可移植 FailureRecord 写入 package-floor.json
-  → Presenter 冻结 cell 卡；diagnose 读 Journal ∪ 报告
+request/Cell
+  -> Attempt
+  -> prepare -> Proposal 或 PrepareFailure
+  -> evaluate -> Evaluation
+  -> FailurePolicy -> FailureRecord
+  -> Journal durability
+  -> CellCompletedEvent
+  -> Presenter
 ```
 
-不变量：
+PASS 不经过 FailurePolicy。合法 baseline `TyCheck` diagnostics 不是 FailureRecord。
 
-1. 有评价契约的 cell 工作在外部操作前必须有 Attempt。没有 Attempt 的失败只能是 D005 的 `CellFailureScope`（候选发现、调度 deadline）。
-2. `EnvironmentFactory.prepare` 在 `highest`、`lowest-direct` 或带 `managed_vector` 时返回 `PreparedEnvironment | PrepareFailure`，不再为 `lowest-direct` 返回裸 `ToolFailure`。
-3. 调用方不得把 `PrepareFailure` unwrap 成内部 `ToolFailure` 再交给调度器。
-4. 非成功 cell 完成观察必须带 adapter `stage`。stage 来自 `FailureRecord.stage`，与 live `phase` 动词分开。
-5. `PASS` 仍不经过 `FailurePolicy`。合法 `TyCheck` 中的既有诊断只产生 warning，不产生 FailureRecord。
+## 2. Attempt request 与 Role
 
-### 4.1 Attempt identity 的第三种解析方式
+`requested_resolution` 是 Attempt identity：
 
 ```text
-AttemptIdentity.requested_resolution
-  highest        Baseline / 静态捕获共用的最高解析请求
-  lowest-direct  Declaration Attempt
-  exact-vector   Probe Attempt（必须带 requested_managed_vector）
+highest        managed vector 在解析前未知
+lowest-direct  声明下界 request，managed vector 在解析前未知
+exact-vector   search probe，必须带 requested managed vector
 ```
 
-`lowest-direct` 与 `highest` 一样：解析前不知道受管向量，identity 不含事后图。禁止在 prepare 成功后再把实际向量改写成 `exact-vector` 来冒充 Probe；那样安装失败仍然没有 Attempt。
+不能在 prepare 成功后把 highest/lowest-direct 改写成 exact-vector。Highest identity 不包含“是否运行测试”；同一 request 可以在不同 Verification Run 中承担不同 Role。
 
-`highest` 的 Attempt identity 不包含“是否跑测试”。check 的静态捕获与 smoke/search 的 Baseline 在同一快照、cell、策略下是 **同一次 highest Attempt 请求**；差别只在本次运行的评价契约和 Verification Role。
-
-`requested_resolution` 是 Attempt 的领域事实；现行 Schema 2 按 D014 §4.2 只接受 `attempt-v2` 并用 typed Cell ref 保存它，不改变本节的 Verification Role 语义。`failure-v1` 对 `highest` / `exact-vector` 的既有行保持不变。
-
-### 4.2 评价契约
-
-评价契约属于 Verification Run，不属于 Attempt identity：
-
-| 契约 | 行为 |
-| --- | --- |
-| `static-capture` | 只运行 D004 `StaticEvaluator.capture`，不跑 `test-command` |
-| `full` | 在已有 `S_hi` 上跑增量静态（或对 highest 先 capture 再测）和完整测试 |
-
-Adapter 仍然不知道契约。`FailurePolicy` 仍然不知道命令。Presenter / Journal 用 Verification Role 选择 impact。
-
-### 4.3 Verification Role
-
-| Role | 命令 | `requested_resolution` | 评价契约 |
+| Role | 命令 | Request | Evaluation contract |
 | --- | --- | --- | --- |
-| `baseline` | smoke、search | `highest` | `full` |
-| `declaration-capture` | check | `highest` | `static-capture` |
-| `declaration` | check | `lowest-direct` | `full`（相对本 cell 刚捕获的 `S_hi`） |
-| `probe` | search | `exact-vector` | D003 runtime-backed；static-only 只作调度事实 |
+| `baseline` | smoke/search | highest | full |
+| `declaration-capture` | check | highest | static capture only |
+| `declaration` | check | lowest-direct | full，相对本次捕获的 `S_hi` |
+| `probe` | search | exact-vector | D003 runtime-backed route |
 
-Role 写入 Journal，供 diagnose 与 impact 使用。它不进入 `attempt_id` 或 `failure_id`。
+Role 进入 Journal 并决定 offline impact；它不进入 Attempt ID、Proposal ID 或 Failure ID，也不改变 D005 classification。
 
-## 5. 各命令的 Attempt 序列
+## 3. 命令序列
 
-### 5.1 `smoke`
+### 3.1 Smoke
 
-每个宿主 cell 一次 `baseline` Attempt：`prepare(highest)` → capture → 同环境完整测试 → 关闭。分类与今日 `HighestVersionVerifier` 相同。结果写入 Journal，不写 `package-floor.json`。
-
-### 5.2 `check`
-
-每个宿主 cell **两次** Attempt，串行：
+每个宿主 Cell 一次 baseline：
 
 ```text
-1. declaration-capture    prepare(highest) → capture S_hi → close
-2. declaration            仅当捕获得到合法 S_hi
-                          prepare(lowest-direct, HarnessBaseline from step 1)
-                          → 相对该 S_hi 做 full → close
+prepare(highest, original harness)
+-> capture S_hi
+-> 在同一未污染 environment 上 full evaluate
+-> close
 ```
 
-规则：
+使用 `HighestVersionVerifier`，写 Journal，不读写 floor report。
 
-- 第 1 步失败则 **不** 启动第 2 步。没有 `S_hi` 就不能对下界做 D004 增量。
-- 第 1 步的合法 `TyCheck` 诊断构成 `S_hi`，其本身不是 FailureRecord；捕获过程的工具失败才分类。
-- 第 1 步的 original final environment plan 同时捕获 direct `HarnessBaseline/U_B`；第 2 步在 request 类型层面必须携带它，并使用 relaxed direct harness。没有该 baseline 不能构造 `lowest-direct` Attempt。
-- 第 2 步的增量非空是 `STATIC_REGRESSION` transition，但它不是 FailureCause 或 Rejection；eligible witness confirmed missing 是 `RUNTIME_INTERFACE_MISSING`，generic configured failure 或 D013 pytest-profile witnessed failure 是 `TEST_FAILURE`，二者在证据完整时是 Declaration Attempt 上的 Rejection。
-- `CoordinateSearch` 不得看见这两次 Attempt。
+### 3.2 Check
 
-第 1 步 Rejection（例如受支持 profile 认证当前 highest project/environment request 无解）表示 **当前声明在该 cell 的最高解析上确定不满足验证契约**，命令级仍是 D001 的兼容性失败。build、source、artifact、安装或未知诊断是 Indeterminate。它还不是“下界不兼容”——下界尚未被问到。diagnose 必须用 `declaration-capture` 的 impact，不得写成 Baseline“因此未开始 floor 搜索”，也不得写成 Declaration“下界未通过”。
-
-第 1 步 Indeterminate 表示 **无法捕获 `S_hi`**，下界问题未回答，命令级为不确定结果。
-
-### 5.3 `search`
-
-每个宿主 cell：一次 `baseline`（与 smoke 相同的完整 highest）。只有 Baseline `PASS` 才进入候选发现和 D003。每个 probe 是 `exact-vector` Attempt。candidate discovery / 调度 deadline 仍是 `CellFailureScope`。
-
-search 把可移植 FailureRecord 写入 `package-floor.json`，并同时写入本次 Journal。报告仍是 apply/explain/merge 的唯一公共接口。
-
-## 6. 统一错误链路
+每个宿主 Cell 最多两次串行 Attempt：
 
 ```text
-Adapter cause + stage + process
-  → PrepareFailure | Evaluation | ToolFailure（仅评价阶段）
-  → FailurePolicy.classify(AttemptFailureScope | CellFailureScope, ...)
-  → FailureRecord
-  → Cell Completion（kind, stage, failure, process, runtime detail）
-  → Presenter `failed at` + Diagnose
-  → Journal（及 search 的报告）
+1. declaration-capture
+   prepare(highest, original harness) -> capture S_hi/HarnessBaseline -> close
+
+2. declaration
+   仅当步骤 1 得到合法 S_hi
+   prepare(lowest-direct, relaxed harness, captured HarnessBaseline)
+   -> full evaluate relative to S_hi -> close
 ```
 
-### 6.1 prepare
+步骤 1 的 static diagnostics 构成 baseline，不是 failure。步骤 1 未成功时不得启动步骤 2，也不能把结果描述为“declared lower bounds failed”；它只说明未能捕获 baseline。步骤 2 不进入 CoordinateSearch。
 
-`EnvironmentFactory` 在创建 venv 和两次 resolution 前构造 request-level Attempt；run-level uv protocol setup 先于所有 Attempt。prepare 失败返回 `PrepareFailure(attempt, failure, acquired plan digests)`。`CompatibilityChecker`、`HighestVersionVerifier` 和 probe runner 都必须保留该对象直到 `classify`，并把失败发生前已经取得的 plan identity 传入 FailureRecord。
+### 3.3 Search
 
-禁止：
+每个宿主 Cell 先运行一次 full highest baseline；只有 `HighestVersionPass` 才冻结 candidates 并进入 D003。每个真实 probe 是 exact-vector Attempt。Candidate discovery/scheduler deadline 可形成 Cell-scoped Indeterminate。
 
-- 把 `PrepareFailure.failure` 当作 cell 任务的返回值；
-- 用 `getattr(result, "status") == "FAILURE"` 当作完成观察的全部信息；
-- 在 Presenter 用 Schema status 推断 stage。
+Search 同时把 FailureRecord 放入 Journal 与 Schema 2 report。Report 是 apply/explain/merge 的唯一公共接口；Journal 只用于本机 diagnose。
 
-### 6.2 评价阶段
-
-`RuntimeInterfaceMissingEvaluation`、`TestFailEvaluation` 与 `IndeterminateEvaluation` 在进入调度器之前（或在完成投影之内、但必须在 Presenter 之前）变成带 Attempt 的 `FailureRecord`：
-
-| 评价结果 | cause | stage |
-| --- | --- | --- |
-| `RuntimeInterfaceMissingEvaluation` | `RUNTIME_INTERFACE_MISSING` | `witness` |
-| `TestFailEvaluation` | `TEST_FAILURE` | `test` |
-| `IndeterminateEvaluation` | 其 `ToolFailure.cause` | 其 `ToolFailure.stage` |
-
-StaticUnchanged/StaticRegression 不是本表的 failure Evaluation。check 不再把 Schema status 作为 Presenter 的 stage 来源。
-
-### 6.3 Cell Completion
-
-完成投影对 Presenter 只保证：
+## 4. VerificationRunner 与 Scheduler
 
 ```text
-kind          success | warning | failure | indeterminate
-stage         非成功时必填，adapter 名（resolve-project / resolve-environment / install-environment / ty / test / …）
-failure       非成功时必填 FailureRecord
-process       若有
-detail        可选、运行时、非权威的 typed CellResultDetail
+VerificationRunner.run(VerificationRun) -> ordered outcomes
 ```
 
-成功 completion 不携带 baseline ty warning。失败 detail 只允许由统一 completion projector 从结构化 Evaluation/Adapter outcome 产生：pytest `TestFail` 可给第一项失败用例与总数；`RuntimeInterfaceMissingEvaluation` 可给最终 confirmed-missing witness plan 覆盖的第一项 static increment 与总数。detail 不进入 Journal、报告、FailureRecord 或任何 identity。
+Runner 独占：
 
-`failed at` 的用户文案仍由 D006 从 adapter stage 映射。未知 stage 仍把 `-` 换成空格。完成观察不得依赖 `message == "STATIC_FAIL"` 或遗留 `BUILD_UNAVAILABLE`。
+- 验证 package/task/Cell identity；
+- 构造 generic Scheduler；
+- max-duration 未启动 task 的 `TIMEOUT @ scheduler-deadline` CellResult；
+- 领域 result → Cell completion 投影；
+- per-Cell Journal merge、持久化与 diagnose availability；
+- final Journal 错误上抛。
 
-调度器可以继续接收各命令自己的结果类型，但投影必须经过这一观察。不得再丢 `ToolFailure.stage`。
+Scheduler 只理解 `ScheduledCellTask`, worker, deadline callback, `jobs`, monotonic clock 与 `cell_schedule_key`。它不导入 Evaluation、Failure、Journal、CellResult 或 terminal facts。结果按 package/target/Python/extra 规范排序；单 Cell 内 probe 串行。
 
-### 6.4 Declaration Attempt 的分类扩展
+当 Cell 完成时，Runner 先合并 buffered search failures 与 final task failures，再写当前完整 Journal；只有写入成功，`CellCompletedEvent.diagnose_available` 才为 true。写入失败仍发布 `diagnose_available=false` 的 completion，随后以 InfrastructureError 结束 run，不能静默宣称可诊断。
 
-cause 集合、Rejection 资格和 Baseline/Probe 列仍由 D005 §8 唯一拥有，本文不复制该矩阵。本文只增加：
+## 5. Activity 与 completion
 
-- `requested_resolution = lowest-direct` 使用与 Probe 相同的 Rejection 资格；prepare 阶段只有 `resolve-project / RESOLUTION_CONFLICT` 与 `resolve-environment / HARNESS_CONFLICT` 的 certified complete outcome 可 Reject；
-- 搜索含义固定为“终止该 check cell”——check 没有后续 probe；
-- `rejection_is_supported` 必须接受 `lowest-direct`；
-- 任意 role 的 `STATIC_REGRESSION` 都没有 disposition；只有 runtime witness/test 或既有 prepare cause 进入 D005。
-
-Declaration Attempt 不要求事先存在一次 **完整通过测试的** Baseline。它要求本 cell 在同一次 check 运行中已经得到合法 `S_hi`。这是 D004 静态基线，不是 D005 搜索锚点。不得把 Declaration Attempt 解释为 Probe，也不得因此要求 smoke 式的 highest `PASS`。
-
-check 的 `declaration-capture` 使用 D005 的 Baseline/`highest` 行：certified project/harness resolution conflict 是 Rejection；build、安装、artifact、工具、来源与超时是 Indeterminate。捕获成功后的 `TyCheck` 诊断不是 Rejection。
-
-## 7. 命令终态
-
-退出码仍由 D001 拥有。本文只规定如何从统一的 Attempt 结果聚合，避免再按 Evaluation 类型与裸 `ToolFailure` 分叉。
-
-### 7.1 check
-
-对每个 cell，取该 cell 上 `declaration` 的结果；若未启动，取 `declaration-capture`：
-
-- 任一 cell 的该终态为 Rejection → 命令 `COMPATIBILITY_FAILED`，退出 1；
-- 否则任一为 Indeterminate → 命令不确定，退出 4；
-- 否则全部为声明 `PASS` → 退出 0。
-
-摘要仍使用 D001/D006 的“current declarations are incompatible”或不确定措辞，不把单个 `pydantic-core` 版本说成全局不兼容。
-
-### 7.2 smoke / search
-
-聚合规则不改：Baseline Rejection 退出 1；Indeterminate 退出 4；search 的其他不可应用原因退出 2。search 的 Probe Rejection 不单独决定命令退出码，它们是报告内的搜索证据。
-
-## 8. 持久化与 diagnose
-
-### 8.1 Verification Journal
-
-每次 Verification Run 在 `.pf/logs/<run-id>/journal.json` 写一份验证日志，至少能还原：
+Activity 使用判别 records：
 
 ```text
-schema                verification-journal-v1
+CellContextEvent(detail = baseline | declaration | search-probe | None)
+CellStageEvent(stage, progress?)
+CellCompletedEvent(completed, total, outcome, diagnose_available)
+StatusEvent / CellMatrixEvent / ProcessEvent / SearchFailureEvent
+```
+
+Context、stage 与 completion 不能用 optional field 组合或 `completed == 0` 隐式编码。`0 < completed <= total`。
+
+统一 completion outcome 是：
+
+```text
+CellSucceeded(status, phase)
+CellFailed(status, phase, failures, process?, role?, runtime detail?)
+```
+
+Non-success `phase` 来自 FailureRecord stage；Presenter 不从 Schema status 猜 stage。`CellResultDetail` 是 excluded runtime-only union：pytest failure detail 或 confirmed-missing static issue。它必须绑定 retained failure ID，不进入 Journal、report、FailureRecord 或 identity。
+
+## 6. 命令聚合
+
+`check` 对每个 Cell 使用 declaration 结果；若未启动，则使用 declaration-capture 结果。任一 Rejected → compatibility failure/exit 1；否则任一 Indeterminate → exit 4；否则全部 declaration PASS → exit 0。
+
+`smoke` 任一 BaselineRejection → exit 1；否则任一 BaselineIndeterminate → exit 4；否则 PASS。Search 的 baseline 聚合相同；Probe Rejections 只是搜索证据，其他 no-floor 原因按 D001 exit 2。
+
+## 7. Verification Journal
+
+V2 位置：
+
+```text
+.pf/logs/<run-id>/journal.json
+```
+
+结构：
+
+```text
+schema_version = verification-journal-v2
 run_id
-command               smoke | check | search
-packages[]            包名
+command = smoke | check | search
 source_snapshot_digest
-evaluation_policy_identity
+package_policies[]
+  package
+  evaluation_policy_identity
 entries[]
   package
-  cell
-  role                Verification Role
-  attempt             Attempt | 省略（仅 CellFailureScope）
-  failure             FailureRecord
+  Cell
+  Role
+  Attempt?       CellFailureScope 时省略
+  FailureRecord
 ```
 
-Journal 不保存 stdout/stderr 正文、绝对路径或完整 Evaluation。Static transition 与 witness 的完整公共证据保存在 search report；Journal 中失败的工具原文以对应 Process Log 为准。权限、脱敏、原子写与 `.pf/logs` 的其余规则由 D002 / D007 拥有。Journal 的目标 identity 与写入时机见 [D009](D009-pf-v1-refactor.md) §4.7 / §6。
+Packages 与 policies 必须 sorted/unique。每个 entry 的 package、Cell、scope、Attempt、source digest 与该 package policy 必须闭合；同 failure ID 的不同 payload 冲突。Entries 按 package/Cell/failure ID 规范排序。
 
-search 成功写入 `package-floor.json` 之后，Journal 与报告中的 FailureRecord 必须能按 `failure_id` 对上。报告仍不保存 `run_id`。
+Journal 不保存 stdout/stderr、完整 Evaluation、absolute path 或 report refs。Process 原文在 D007 Process Log；search 的完整 portable evidence 在 D014 report。Writer 只写 V2；`verification-journal-v1` 仅作历史本机日志的严格 reader compatibility，不是第二个写 contract。
 
-### 8.2 Diagnosis Index
+## 8. Diagnosis Index 与 report association
 
-D005 的 locator 从“只键到报告世代”扩展为同时键到验证运行：
+`.pf/logs/diagnosis-index.json` 保存：
 
 ```text
-.pf/logs/diagnosis-index.json
-  latest_journal[package] = run_id
-  (report_generation_id, failure_id) -> 相对 Process Log
-  (run_id, failure_id)              -> 相对 Process Log
+latest_journal[package] = run_id
+(run_id, failure_id) -> relative Process Log
+(report_generation_id, failure_id) -> relative Process Log
 ```
 
-不得靠扫描 run 目录或匹配输出文本查找日志。同 generation 的报告更新仍替换报告侧映射；新的 Verification Run 替换该 package 的 `latest_journal`。
+不得扫描 run directories 或按 output text 猜 locator。新 Verification Run 替换对应 package 的 `latest_journal`。
 
-### 8.3 `pf diagnose` 的读取面
+Search 必须先成功 `ReportStore.update_path`，再用 `ReportUpdate` 更新 report-side associations：
 
-`diagnose` 仍严格离线，不重放、不联网、不改项目。读取顺序：
+- generation replacement 时整体替换；
+- 同 generation update 移除旧 Failure IDs、添加本次可关联 records；
+- merge 自其他 host 的 Failure 可以没有本机 locator。
 
-1. 指定 `--failure`：先在所选 package 的 `package-floor.json` 中找；没有则在 `latest_journal` 的 Journal 中找；再没有则该 ID 不存在（命令错误，退出 3）。不得遍历全部历史 run 目录。
-2. 省略 `--failure`：列出报告中的 FailureRecord（若报告存在），再列出 `latest_journal` 中尚未按 `failure_id` 出现过的记录。两组都要标明来源：`package-floor.json` 或最近一次 `pf check` / `pf smoke` / `pf search`。
+Association/locator 不进入 report，缺失不改变 Failure evidence。
 
-没有 floor 报告时，只列出最近一次 Journal。没有 Journal 且没有报告中的失败时，诊断 0 条，退出 0。
+## 9. Diagnose 读取面
 
-`explain` / `apply` / `merge` 继续只使用 `package-floor.json`。Journal 缺失不影响报告证据；报告缺失不影响用 Journal 诊断最近一次 check/smoke。
+`pf diagnose` 只读取：
 
-### 8.4 impact 选择
+```text
+选中 package 的 package-floor.json（若存在）
+union
+该 package 的 latest Verification Journal（若存在）
+```
 
-落地后，impact 由 disposition、scope 和 **Verification Role** 决定，不再只由 `requested_resolution` 决定（否则 check 的 highest 会误用 Baseline 的“未开始 floor 搜索”）。D005 §12.3 的 Baseline/Probe 表只覆盖没有 Role 的默认路径。
+指定 failure ID 时先查 report，再查 latest Journal；不存在则 exit 3，不遍历历史 runs。省略时合并 report records 与 latest Journal 中尚未出现的 failure ID，并标注来源；最终稳定排序和诊断语义由 D005 定义。两边都无记录时展示 0 failures、exit 0。
 
-| Role | REJECTED | INDETERMINATE |
+`explain`、`apply` 与 `merge` 只使用 report；Journal 缺失不削弱 report authority，report 缺失不阻止诊断最近一次 run。读取必须离线，不规划 environment、不启动 process、不修改项目。
+
+## 10. Role-aware impact
+
+| Role | Rejected | Indeterminate |
 | --- | --- | --- |
-| `probe` | This candidate did not pass the required checks. PF will continue searching. | PF could not determine whether this candidate works, so it stopped this cell. |
-| `baseline`（search） | The highest-version baseline did not pass, so PF did not start the floor search for this cell. | PF could not determine whether the highest-version baseline works, so it stopped this cell. |
-| `baseline`（smoke） | The highest-version resolution did not pass the required checks. | PF could not determine whether the highest-version resolution works. |
-| `declaration-capture` | PF could not capture a static baseline from the highest resolution of the current declarations, so it did not verify the declared lower bounds for this cell. | PF could not determine whether a static baseline can be captured, so it did not verify the declared lower bounds for this cell. |
-| `declaration` | The declared lower bounds did not pass the required checks. | PF could not determine whether the declared lower bounds work. |
-| Cell-scoped | （不能 Reject） | PF could not obtain the information needed to start or continue this cell. |
+| probe | candidate 未通过；search 可继续 | candidate compatibility unknown；停止 Cell |
+| baseline/search | highest baseline 未通过，未开始 floor search | highest baseline unknown；停止 Cell |
+| baseline/smoke | highest resolution 未通过 | highest resolution unknown |
+| declaration-capture | 未能捕获 current declarations 的 static baseline，未验证下界 | baseline capture unknown，未验证下界 |
+| declaration | declared lower bounds 未通过 | declared lower bounds unknown |
+| Cell scope | 不允许 | 未取得启动/继续 Cell 所需信息 |
 
-Journal 必须保存 Role，diagnose 才能在离线时选择正确 impact。不得从 `requested_resolution` 单独反推 Role。
+D005 拥有 title/next step 与 disposition；D008 唯一选择上述 impact；D006 只渲染。
 
-## 9. Live CLI
+## 11. 不变量
 
-D006 仍拥有布局。本文改变的是数据是否存在：
-
-- `smoke` / `check` / `search` 的非成功 cell 第一行都写 `failed at <用户阶段>`；
-- 都提供 `Diagnose:`，package 参数是正在验证的包名；
-- check 不再有“无 FailureRecord 因此无 Diagnose”的例外；
-- 成功 cell 仍不写 `failed at`。
-
-`Diagnose:` 在 Journal 写入成功后才是事后可打开的入口。若 Journal 写入失败，卡片仍可展示 title 与 structured detail，并把可用 Process Log 链接作为唯一回退；必须把 diagnose 入口视为不可用，不得打印事后 404 的 `failure_id`。若日志也不可用，明确显示详细诊断不可用。
-
-## 10. 模块所有权
-
-| 规则 | 唯一所有者 |
-| --- | --- |
-| 验证运行、Journal、Role、check 的两次 Attempt 序列 | 本文 |
-| diagnose 读取报告 ∪ `latest_journal`，不扫描 run 目录 | 本文 |
-| Cell Completion 必须携带 stage 与 FailureRecord | 本文 |
-| cause、disposition 矩阵、`failure_id`、title/next step | D005 |
-| 上表 Role → impact 文案 | 本文；Presenter 只渲染 |
-| static transition 没有 disposition；runtime-missing/test 才可 Reject | D004 / D005 |
-| 命令存在、退出码、`package-floor.json` apply 语义 | D001 |
-| `prepare` 对三种 resolution 都返回 Attempt | `EnvironmentFactory`；接口形状见 D002 |
-| check 不得 unwrap `PrepareFailure` | `CompatibilityChecker` |
-| 完成投影 | `Scheduler` 内部；不新增公共模块，除非出现第二个真实投影 |
-| Journal 文件与 diagnosis index 扩展 | `RunLogStore` |
-| `failed at` 用户阶段名、卡片层级 | D006 |
-| Process Log 原文与完整性 | D007 |
-| probe 顺序 | D003 |
-
-`FailurePolicy.classify` 仍不接收命令名或 Role。Role 是运行/展示事实，不是分类输入。
-
-## 11. 对现行契约的取代
-
-落地本文后，下列条款作废：
-
-- D001 §6.1：`check` 的 `lowest-direct` 不建立 Attempt，非成功结果不能 `diagnose`；
-- D001 §6.5：`diagnose` **只** 读取 `package-floor.json`，落地前不读取 Journal；
-- D002 §8.2：`check` 的 `lowest-direct` 不创建 Attempt、prepare 失败直接 `ToolFailure`，`CompatibilityChecker` unwrap `PrepareFailure`；
-- D005 §3.1：Attempt 只有 Baseline 与 Probe 两种；
-- D005 §12 / §12.1：`diagnose` 只解释报告中的失败；`check` 是 Evaluation 不能 diagnose；
-- D005 §12.3：impact **只** 由 `requested_resolution` 决定；
-- D006 §9.1：没有 FailureRecord 的 check 失败不能提供 Diagnose；
-- D006 §13.3：D008 落地前 check 的 Evaluation 失败路径没有 Diagnose；
-- 实现：`CompatibilityChecker` unwrap `PrepareFailure`；`_completion_payload` 丢弃 `ToolFailure.stage`；Presenter 用 `STATIC_FAIL` / `BUILD_UNAVAILABLE` 猜 stage。
-
-P004 中“check 兼容性失败仍走 Evaluation”是历史实施记录，不再描述现行目标。
-
-## 12. 被拒绝的方案
-
-- **把 check 的 FailureRecord 写入 `package-floor.json`。** 未搜索的验证会冒充 floor 证据，`explain`/`apply`/`merge` 被污染。
-- **把 `lowest-direct` 做成 `exact-vector`。** 安装失败没有向量；Probe 还要求完整通过的搜索 Baseline，check 的 highest 故意不跑测试。
-- **把 check 的 highest 捕获改名为单独的 `requested_resolution`。** 它与 smoke 的 highest 是同一解析请求；差别是 Role 和评价契约，不是 identity。
-- **只用 `CellFailureScope` 给 check 分类。** Cell scope 不能 Reject，声明下界的确定性 ty/测试失败会变成 Indeterminate。
-- **为 check 再写一个 FailurePolicy。** 分类矩阵只有一处；变化的是 Attempt identity 与 Role。
-- **diagnose 遍历全部 `.pf/logs`。** 与 D005 禁止模糊查找日志同类。只认报告与 `latest_journal`。
-- **只在 live 卡片上打印 `failure_id`、不写 Journal。** 命令结束后 Diagnose 入口是假的；smoke 今日已有此缺口。
-- **check 的 highest 捕获失败一律叫下界不兼容。** 下界尚未评价；必须用 `declaration-capture` impact。
-
-## 13. 验证契约
-
-- `lowest-direct` prepare 失败保留 Attempt 和已取得的 plan identity；`failure.stage` 为 `resolve-project` / `resolve-environment` / `install-environment` / inspect 等 adapter 名，TTY 展示对应阶段并有 Diagnose；
-- check 的 lowest-direct static regression 继续运行 witness/test；confirmed missing 或 test failure 才产生 Declaration FailureRecord；
-- check 的 highest 安装失败不启动 `lowest-direct`，diagnose impact 使用 `declaration-capture` 文案；
-- Journal 不出现在 `explain` / `apply` 路径；把 Journal 误当作报告必须失败；
-- `pf diagnose pkg --failure ID` 在仅跑过 check、没有 `package-floor.json` 时仍能展示该 ID；
-- search 的 `failure_id` 在报告与 Journal 中一致；
-- `CoordinateSearch` 测试不得读到 `lowest-direct` Attempt；
-- smoke 结束后 `diagnose` 能打开本次 Baseline FailureRecord，不再留下悬空 ID。
-
-## 14. 实施顺序
-
-1. **Attempt 与分类**：`requested_resolution` 增加 `lowest-direct`；`FailurePolicy` / `rejection_is_supported` 接受它；`EnvironmentFactory` 为 `lowest-direct` 建 Attempt。
-2. **check 错误链**：停止 unwrap；`CompatibilityChecker` 对两轮失败都 `classify`；调度投影始终带 `FailureRecord.stage`。
-3. **Journal 与 index**：smoke/check/search 写 Journal；扩展 diagnosis index；`diagnose` 按 §8.3 读取。
-4. **展示**：去掉 status 特判；check 与 smoke 同样输出 Diagnose；impact 按 Role 选择。
-5. **入口验证**：真实 `check` 安装失败，以及保留静态 regression 上下文的 runtime failure，都能 `diagnose`；`search` → `explain` → `apply` 仍只认报告。
-
-每个阶段以公开 CLI 行为测试开始。不得保留“check 无 FailureRecord”兼容分支。
-
-## 15. 不变量
-
-1. 三种 `requested_resolution` 在外部操作前都有 Attempt；没有 Attempt 就不能 Reject。
-2. Declaration Attempt 不是 Probe，不推进 D003 边界。
-3. check/smoke 的 FailureRecord 只存在于 Journal 与本机 index，不授权 apply。
-4. 非成功 Cell Completion 必有 `stage` 与 `FailureRecord`。
-5. `FailurePolicy` 不接收命令名或 Role。
-6. diagnose 不扫描 run 目录，不重放，不把 Journal 缺失说成新的兼容性失败。
-7. 同一次 check cell 的捕获失败和下界失败必须能在 diagnose 中区分 Role。
-
-## 16. 决策记录
-
-### D1：`lowest-direct` 是第三种 `requested_resolution`（已确认）
-
-它与 `highest` 一样是解析方式，不是事后向量。做成 Probe 会在 prepare 失败时失去 Attempt，并错误要求完整 Baseline `PASS`。
-
-### D2：check/smoke 使用 Verification Journal，不写 floor 报告（已确认）
-
-diagnose 需要持久化 FailureRecord；apply 需要未被验证运行污染的 floor 证据。本机 Journal 同时修好 smoke 卡片上事后无效的 `failure_id`。
-
-### D3：diagnose 只认报告 ∪ `latest_journal`（已确认）
-
-调查最近一次验证，不把 `.pf/logs` 做成隐式历史数据库。更早 run 的日志仍可按 Process Log 路径打开，但不出现在 `pf diagnose` 的默认列表里。
-
-### D4：Role 选择 impact，不选择 disposition（已确认）
-
-同一 highest Attempt 在 smoke 与 check 捕获中分类规则相同；用户影响不同。把命令塞进 `FailurePolicy` 会让分类器拥有文案。
-
-### D5：check 每个 cell 两次 Attempt（已确认）
-
-`S_hi` 捕获失败和下界验证失败是两个问题。合成一次 Attempt 会在 3.12 安装失败这类捕获期错误上谎称“下界不兼容”，或再次丢掉第一轮的 Attempt。
+- Role 不改变 classification 或 identity。
+- Journal 必须在可用 diagnose command 展示前 durable。
+- Search report 与 Journal 的同一 failure ID 必须映射同一 portable facts。
+- Cell completion 必须保留 stage 与 FailureRecord，不能退化为裸 status/message。
+- Journal/Index/Process Log 是本机诊断材料，不是 apply authority。
+- Scheduler 不拥有领域 failure；workflow 不复制 Runner 的 Journal timing。

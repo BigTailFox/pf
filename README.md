@@ -17,14 +17,14 @@ PF v1 以一个可独立安装的包和一个兼容性 cell 为搜索单位：
 ## 命令契约
 
 ```text
-pf check [package] [--jobs auto|N]
 pf smoke [package] [--jobs auto|N]
+pf check [package] [--jobs auto|N]
 pf search [package] [--jobs auto|N] [--max-duration DURATION]
 pf apply [package]
 pf minimize [package] [--jobs auto|N] [--max-duration DURATION]
 pf explain [package]
 pf diagnose [package] [--failure FAILURE_ID]
-pf merge REPORT... --output PATH
+pf merge REPORT [REPORT ...] --output PATH
 ```
 
 开发环境可直接运行：
@@ -44,7 +44,7 @@ PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当�
 
 `search` 只写 `package-floor.json`。`apply` 只消费完整、未漂移且可表示的报告，不重新解析依赖、不运行 `ty` 或测试。
 
-`smoke` 在当前声明约束内建立尽可能新的 fresh install，运行一次 `ty` 和完整测试。`ty` 诊断以 warning 摘要展示，测试失败才是兼容性失败。外部工具的脱敏详细记录写入 `.pf/logs/`，终端摘要在支持时链接到对应日志。
+`smoke` 在当前声明约束内建立尽可能新的 fresh install，捕获一次 `ty` 静态基线并运行完整测试。静态诊断本身不是兼容性失败；普通 Cell 摘要只展示最终结果，详细进程记录写入 `.pf/logs/`，失败时通过 `pf diagnose` 查看。
 
 `diagnose` 只读、离线地解释报告或最近一次验证运行中的 Rejection / Indeterminate；它不访问网络、不创建环境，也不隐式重放失败。
 
@@ -53,4 +53,4 @@ PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当�
 - [工程文档索引](docs/README.md)：契约所有权、状态词和文档布局
 - [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
 
-D001–D013 已落地。实施记录不承担现行契约。
+D001–D008、D012–D014 是现行契约；D009–D011 的实施决策已归并到这些所有者。D015 仍是草案。Plan、Review 与 Investigation 只记录历史执行或观察，不承担现行契约。

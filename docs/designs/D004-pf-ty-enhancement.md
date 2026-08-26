@@ -2,12 +2,12 @@
 
 - **状态：** 现行
 - **策略版本：** `static-transition-v1`
-- **最后核对：** 2026-08-23
+- **最后核对：** 2026-08-26
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **决策来源：** [D011](D011-pf-runtime-backed-static-search.md)
+- **已归并决策：** [D011](D011-pf-runtime-backed-static-search.md)
 
 本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线、增量 transition、diagnostic 分类和 runtime witness 的唯一契约。静态事实不决定 compatibility disposition；边界由 D003/D005 的 runtime evidence 决定。
 
