@@ -1380,6 +1380,19 @@ class CellContextEvent(FrozenSchema):
     detail: CellDetailIdentity | None
 
 
+class CellSearchProgressEvent(FrozenSchema):
+    kind: Literal["search-progress"] = "search-progress"
+    cell: Cell
+    completed_packages: tuple[VersionPin, ...]
+
+    @model_validator(mode="after")
+    def validate_completed_packages(self) -> "CellSearchProgressEvent":
+        names = tuple(pin.name for pin in self.completed_packages)
+        if len(set(names)) != len(names):
+            raise ValueError("completed search packages must be unique")
+        return self
+
+
 class StageProgress(FrozenSchema):
     completed: int = Field(ge=0, strict=True)
     total: int = Field(ge=0, strict=True)
@@ -1548,6 +1561,7 @@ class SearchFailureEvent(FrozenSchema):
 
 ActivityEvent = (
     CellContextEvent
+    | CellSearchProgressEvent
     | CellStageEvent
     | CellCompletedEvent
     | StatusEvent

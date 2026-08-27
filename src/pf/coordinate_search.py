@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, NoReturn, Protocol, runtime_checkable
 
@@ -53,6 +54,7 @@ class _KnownPass:
 
 
 SearchEvidence = ProbeEvidence | StaticOnlyEvidence | _KnownPass
+CoordinateProgressConsumer = Callable[[tuple[VersionPin, ...]], None]
 
 
 class CoordinateSearch:
@@ -71,12 +73,14 @@ class CoordinateSearch:
         evaluator: VectorEvaluator,
         hints: tuple[VersionPin, ...] = (),
         start_is_known_pass: bool = False,
+        progress: CoordinateProgressConsumer | None = None,
     ) -> CoordinateOutcome:
         return _CoordinateRun(
             small_threshold=self.small_threshold,
             evaluator=evaluator,
             start_is_known_pass=start_is_known_pass,
             start=start,
+            progress=progress,
         ).minimize(start=start, candidates=candidates, hints=hints)
 
 
@@ -90,6 +94,7 @@ class _CoordinateRun:
         evaluator: VectorEvaluator,
         start_is_known_pass: bool,
         start: tuple[VersionPin, ...],
+        progress: CoordinateProgressConsumer | None,
     ) -> None:
         self._small_threshold = small_threshold
         self._evaluator = evaluator
@@ -109,6 +114,7 @@ class _CoordinateRun:
             if start_is_known_pass
             else set()
         )
+        self._progress = progress
 
     def minimize(
         self,
@@ -135,6 +141,8 @@ class _CoordinateRun:
             while True:
                 sweeps += 1
                 changed = False
+                completed: list[VersionPin] = []
+                self._publish_progress(completed)
                 current_boundaries: dict[str, CoordinateBoundary] = {}
                 for dependency in sorted(snapshots):
                     floor, boundary = self._find_floor(
@@ -146,6 +154,8 @@ class _CoordinateRun:
                     if Version(floor) < Version(current[dependency]):
                         current[dependency] = floor
                         changed = True
+                    completed.append(VersionPin(name=dependency, version=floor))
+                    self._publish_progress(completed)
                 boundaries = current_boundaries
                 if not changed:
                     break
@@ -158,6 +168,10 @@ class _CoordinateRun:
             )
         except _SearchStopped as stopped:
             return stopped.result
+
+    def _publish_progress(self, completed: list[VersionPin]) -> None:
+        if self._progress is not None:
+            self._progress(tuple(completed))
 
     def _find_floor(
         self,

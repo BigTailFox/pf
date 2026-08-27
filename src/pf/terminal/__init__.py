@@ -42,6 +42,7 @@ from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
     cell_identity_text,
+    completed_packages_text,
     completion_action,
     outcome_border_style,
 )
@@ -67,6 +68,7 @@ PF_THEME = Theme(
         "dim": "dim",
         "path": "cyan",
         "cell": "bold cyan",
+        "cell-title": "bold",
         "hint": "italic cyan not dim not bold",
         "diagnose-hint": "italic dim not bold",
         "link": "underline cyan",
@@ -280,6 +282,18 @@ def _cell_detail_lines(
     )
 
 
+def _indent_cell_result_details(lines: list[Text]) -> list[Text]:
+    if not lines:
+        return []
+    return [
+        lines[0],
+        *(
+            _fold_text(Text.assemble("  ", line))
+            for line in lines[1:]
+        ),
+    ]
+
+
 def _primary_failure(presentation: CellPresentation) -> FailureRecord:
     if presentation.primary_failure_id is not None:
         matching_id = next(
@@ -371,7 +385,7 @@ def _cell_finished_line(
 ) -> Text:
     parts: list[str | tuple[str, str]] = [
         (f"{_ICONS[kind]} ", kind),
-        (title, "cell"),
+        (title, "cell-title"),
     ]
     if elapsed is not None:
         parts.extend([" ", (_format_elapsed(elapsed), "dim")])
@@ -746,6 +760,8 @@ class TerminalPresenter:
                 elapsed=presentation.elapsed,
             )
         ]
+        if presentation.completed_packages is not None:
+            body.append(completed_packages_text(presentation.completed_packages))
         completion_detail = _cell_completion_detail_line(presentation)
         if completion_detail is not None:
             body.append(completion_detail)
@@ -764,7 +780,6 @@ class TerminalPresenter:
                             failure_presentation.title,
                         )
                         or failure_presentation.title,
-                        style=f"reason.{presentation.kind}",
                     )
                 )
             )
@@ -789,14 +804,12 @@ class TerminalPresenter:
                     if see is not None
                     else Text("Detailed diagnosis unavailable.", style="dim")
                 )
-            return body
+            return _indent_cell_result_details(body)
         reason = _cell_reason(presentation, None)
         if reason is not None:
-            body.append(
-                _fold_text(Text(reason, style=f"reason.{presentation.kind}"))
-            )
+            body.append(_fold_text(Text(reason)))
         body.extend(_cell_detail_lines(presentation.detail))
-        return body
+        return _indent_cell_result_details(body)
 
     def consume(self, event: ActivityEvent) -> None:
         self._live.consume(event)

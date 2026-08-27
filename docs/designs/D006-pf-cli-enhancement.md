@@ -122,17 +122,25 @@ TTY 的每个运行中 Cell 使用独立卡片：
   dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests ETA 0:00:41
 
 ⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [pydantic=1.5][1.0..2.0#7]
+  [baseline][packaging=24.0][cyclopts=2.4.0]
+  [pydantic=1.7.4][1.7.4~2.13.4#18]
   dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests ETA 0:00:41
 
-⠋ searching cells · 2 running · 5 left                              0:00:12
+⠋ searching cells · 3 running · 4 finished · 0 left                 0:00:12
 ```
 
-`CellContextEvent` 提供当前 detail identity；baseline、declaration 与 search probe 都放在 title 后的第一条 detail，并将整条 identity 渲染为默认亮度 cyan，不按 token 降低亮度。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
+`CellSearchProgressEvent` 提供当前 coordinate sweep 已完成的包；search Cell 把它放在
+probe identity 上方，以绿色渲染 `[baseline]` 与按实际完成顺序追加的
+`[dependency=version]`；其中 version 使用 bold green。最高版本 baseline 一通过就发布 `[baseline]`，因此 candidate
+discovery 较慢或失败时仍保留这个已完成事实；每轮 sweep 开始重置为 `[baseline]`。
+完成包只属于运行期 Activity，不进入 report、cache、Journal、FailureRecord 或
+identity。
+
+Cell title `[py...][target][extra]` 使用 bold 默认前景色。`CellContextEvent` 提供当前 detail identity；baseline、declaration 与 search probe 都放在 title 后的 identity detail。Identity 第一段使用当前上下文色的默认亮度，第二段 `[highest]` / `[lowest-direct]` / `[window#count]` 在同色基础上使用 dim。Search probe 的 active/lower/upper version 与 candidate count 使用 bold，dependency 与分隔符保持普通字重；候选窗口使用 `~`。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
 
 只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total tests` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
-Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`M left` 和右对齐总耗时，其中 `left = total - completed - running`；不显示方块矩阵或 completed/total。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
+Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；不显示方块矩阵或 completed/total。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
 
 外层 Console 最宽 120 列；内部 renderable 不设置固定 width/height。窄终端优先隐藏 bar、换行或改为 label block，不能丢失 package、Cell、artifact 或 next action。非 TTY 无 box drawing。
 
@@ -140,35 +148,44 @@ TTY Cell 卡片边框统一使用 dim，并保留原有颜色：live 卡片仍�
 
 ## 6. Cell completion 与 detail
 
-成功 Cell 的 header 只有结果图标、Cell 与 elapsed；identity 位于第一条 detail：
+成功 Cell 的 header 只有结果图标、Cell 与 elapsed；普通 identity 紧随其后：
 
 ```text
 ✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-check passed at [declaration][lowest-direct]
+  check passed at [declaration][lowest-direct]
+```
+
+search 若已有 coordinate progress，则先显示绿色已完成包行，再显示当前 probe：
+
+```text
+✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+  [baseline][packaging=24.0][cyclopts=2.4.0]
+  search completed at [pydantic=1.7.4][1.7.4~2.13.4#18]
 ```
 
 有 FailureRecord 的 Cell 块为：
 
 ```text
 ✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
-smoke failed at [baseline][highest][testing]
-The full test command failed for this version combination.
-FAILED tests/test_cli.py::test_example
-... and 2 more
--> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
+  smoke failed at [baseline][highest][testing]
+  The full test command failed for this version combination.
+  FAILED tests/test_cli.py::test_example
+  ... and 2 more
+  -> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
 ```
 
 固定层级：
 
 1. 图标、完整 Cell 与 elapsed；
-2. 命令 completion action、可选 detail identity 与用户阶段；
-3. 一个 D005 title 或 search completion Reason；普通 Cell 不展示 Role impact；
-4. 可选 `CellResultDetail` 的第一条典型详情与 `... and N more`；
-5. Journal/Index 可用时显示精确 diagnose command。
+2. search 可选绿色已完成包行；
+3. 命令 completion action、可选 detail identity 与用户阶段；
+4. 一个 D005 title 或 search completion Reason；普通 Cell 不展示 Role impact；
+5. 可选 `CellResultDetail` 的第一条典型详情与 `... and N more`；
+6. Journal/Index 可用时显示精确 diagnose command。
 
-completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。失败阶段作为 identity 后的第三个 bracket token；没有 identity 时仍使用单独的 bracket token。完成 detail 整行只使用对应结果色的默认亮度，不使用 dim、cyan、bold 或其他局部样式。
+header 后的每条 detail 都固定缩进两个字符，与 live Cell 中 spinner 后的 title 起点对齐。completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。失败阶段作为 identity 后的第三个 bracket token；没有 identity 时仍使用单独的 bracket token。completion action 与 identity 第一段使用对应结果色的默认亮度；identity 第二段使用同色 dim，search probe 的版本与 candidate count 保留局部 bold。
 
-search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收到的最新 `SearchFailureEvent`。末事件没有 detail 时不得回退到历史 probe；历史 failure 仍留在报告、Journal 与 `pf diagnose`。Reason 另行表达 Cell 为何结束：`INDETERMINATE` 明示搜索空间尚未评估完成并附终止 failure title；`NO_PASS_IN_SEARCH_SPACE` 明示搜索空间已完整评估但没有兼容组合。`NON_MONOTONIC` / `NONDETERMINISTIC` 显示各自的搜索结论，不借用某次历史候选拒绝作为 Cell 结论。
+search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收到的最新 `SearchFailureEvent`。末事件没有 detail 时不得回退到历史 probe；历史 failure 仍留在报告、Journal 与 `pf diagnose`。Reason 使用默认前景色，另行表达 Cell 为何结束：`INDETERMINATE` 明示搜索空间尚未评估完成并附终止 failure title；`NO_PASS_IN_SEARCH_SPACE` 明示搜索空间已完整评估但没有兼容组合。`NON_MONOTONIC` / `NONDETERMINISTIC` 显示各自的搜索结论，不借用某次历史候选拒绝作为 Cell 结论。
 
 普通 Cell 不展示 baseline `ty` warning、stdout/stderr tail、Process Log link、cause/status Enum 或全部 Failures。若应有的 Journal/Index 写入失败使 diagnose 不可用，才回退到对应 Process Log link；没有日志则显示 `Detailed diagnosis unavailable.`。
 

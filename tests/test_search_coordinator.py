@@ -23,6 +23,7 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     BaselineDetailIdentity,
     CellContextEvent,
+    CellSearchProgressEvent,
     CellStageEvent,
     DiagnosticClassification,
     BaselineRejection,
@@ -774,6 +775,16 @@ class TestSearchCoordinator:
                 candidate_count=3,
             ),
         ]
+        assert [
+            event.completed_packages
+            for event in activity.events
+            if isinstance(event, CellSearchProgressEvent)
+        ] == [
+            (),
+            (VersionPin(name="a", version="1"),),
+            (),
+            (VersionPin(name="a", version="1"),),
+        ]
         assert any(
             isinstance(event, CellStageEvent)
             and event.stage == "discovering candidates"
@@ -1157,11 +1168,13 @@ class TestSearchCoordinator:
             test_group_present=True,
         )
         static = StaticPasses()
+        activity = RecordingActivity()
         coordinator = search_coordinator(
             environments=ProposalFactory(),
             candidates=UnavailableCandidates(),
             static=static,
             full=FullPasses(static),
+            events=activity,
         )
 
         result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
@@ -1171,6 +1184,11 @@ class TestSearchCoordinator:
         assert result.phase == "candidate-discovery"
         assert result.failure_records[0].cause == "SOURCE_FAILURE"
         assert result.failure_records[0].scope.kind == "cell"
+        assert [
+            event.completed_packages
+            for event in activity.events
+            if isinstance(event, CellSearchProgressEvent)
+        ] == [()]
 
     def test_search_coordinator_retains_candidate_source_failure_detail(
         self,

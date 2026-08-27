@@ -198,6 +198,7 @@ def _cell_presentation(
         return CellPresentation(
             cell=cell,
             identity=None,
+            completed_packages=None,
             kind="warning",
             status="MISSING_CELL",
             elapsed=None,

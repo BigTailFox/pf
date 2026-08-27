@@ -4,6 +4,8 @@
 - **日期：** 2026-08-27
 - **展示契约：** [D006](../designs/D006-pf-cli-enhancement.md)
 - **前序实施：** [P014](P014-pf-cell-diagnostics.md)、[P015](P015-pf-pytest-progress-isolation.md)
+- **后续调整：** [P018](P018-pf-search-completed-packages.md) 将 search window 的 `..`
+  改为 `~`、加粗数值 token，并在 probe 上方增加绿色已完成包行。
 
 ## 1. 目标
 
@@ -13,20 +15,21 @@
 
 本轮稳定行为是：
 
-1. live Cell 的第一条 detail 总是当前 identity。baseline/declaration 使用
+1. live Cell 的标题 `[py...][target][extra]` 使用默认前景色；第一条 detail 总是
+   当前 identity。baseline/declaration 使用
    `[baseline][highest]` / `[declaration][lowest-direct]`；search probe 使用紧凑
-   `[pydantic=2.0.1][1.0..3.0#14]`。整条 identity 使用默认亮度 cyan，不按 token
-   降低亮度。
+   `[pydantic=2.0.1][1.0~3.0#14]`。identity 第一段使用当前上下文色，第二段
+   `[highest]` / `[lowest-direct]` / `[window#count]` 在同色基础上使用 dim。
 2. 完成 Cell 的标题只保留 icon、Cell 与耗时，identity 移到第一条 detail。
    smoke/check/search 的非成功前缀分别为 `smoke failed at`、`check failed at`、
    `search stopped at`；失败阶段成为紧随 identity 的第三个 bracket token，例如
-   `check failed at [declaration][lowest-direct][testing]`。该 detail 整行使用结果色
-   的默认亮度，不保留 dim、cyan 或其他局部样式。成功态对应 `smoke passed at`、
-   `check passed at`、`search completed at`。
+   `check failed at [declaration][lowest-direct][testing]`。completion action 与 identity
+   第一段使用结果色的默认亮度，identity 第二段使用同色 dim；成功态对应
+   `smoke passed at`、`check passed at`、`search completed at`。
 3. 命令级最后一行的 icon 与整句文字统一使用结果色并 bold。
 4. matrix 只建立总数，不为未启动 Cell 创建 live panel。运行面板数因此由真实
    scheduler 并发自然约束为不超过 `jobs`。footer 只显示 spinner、phase、
-   `N running`、`M left` 和右对齐总耗时，其中
+   `N running`、`F finished`、`M left` 和右对齐总耗时，其中
    `left = total - completed - running`；不再显示 Cell 方块矩阵或 `completed/total`。
 5. direct serial pytest 的确定进度行增加 `ETA H:MM:SS`。估计值使用当前 dynamic
    stage elapsed 的平均吞吐计算；尚无完成测试时显示 `ETA --:--:--`。telemetry
@@ -54,7 +57,7 @@
 2. **完成态：** 分别用 smoke/check/search 的公开完成路径断言命令前缀、identity
    第一 detail 行、结果色与保留阶段；最后覆盖成功态。
 3. **Footer：** 以 4 Cell 的公开 event 序列证明未启动 Cell 不出现、同时最多显示
-   2 个 panel，并断言 `2 running · 2 left` 与右对齐耗时。
+   2 个 panel，并断言 `2 running · 0 finished · 2 left` 与右对齐耗时。
 4. **ETA：** 先断言 direct determinate progress 出现 ETA，再覆盖 completed=0 与
    同 stage `progress=None` 冻结；保留 spinner 定频回归。
 5. **Summary：** 对 success/failure/warning/indeterminate 的 ANSI 输出断言整行结果
@@ -72,6 +75,12 @@
 10. **Setup card border follow-up：** 在公开 setup event 序列中断言唯一 rounded card
     运行中边框为默认前景 dim，且 loaded/built/selected 正文不继承 dim；完成后同一
     卡片持久化为 dim + 最终 outcome 色。
+11. **Title / identity / footer follow-up：** 公开 TTY ANSI 测试先证明 Cell title
+    仍为 cyan、identity 次段仍为默认亮度、footer 缺少 `N finished`；再分别收敛为
+    默认前景 title、dim 次段，以及 `running · finished · left`。
+12. **Result prose follow-up：** 公开完成卡片先证明 Reason 仍继承 outcome 色且详情
+    从 panel 正文左边缘开始；再令 Reason 使用默认前景，并让 identity、Reason、
+    structured detail 与 diagnose 入口遵循 live detail 的同一层缩进。
 
 ## 4. 实施记录
 
@@ -156,6 +165,19 @@
   warning。live 不再随最后一个 Cell 自动固结；smoke/check/search renderer 在真实命令
   结果确定后显式传入 final outcome。新增 success Cell + warning search 的 ANSI
   RED/GREEN，证明 setup 使用 dim yellow 而非 green。
+- **Slice 11 / title、identity 与 footer follow-up：** RED 分别证明 live/冻结 Cell
+  title 仍为 cyan、identity 第二段仍为默认亮度、footer 只显示 running/left。GREEN
+  新增只服务 Cell title 的 `cell-title` style，避免改动 explain package 的既有 cyan；
+  typed identity formatter 只 dim 第二个 bracket segment；footer 从 overall completed
+  投影 `N finished`，56 列由 Rich 自然折行且不丢 `left`。
+- **Slice 12 / result prose follow-up：** RED 证明 completed package version 无 bold、
+  Reason 继承 outcome 色、冻结 detail 从 icon 起点开始。GREEN 只加粗完成包的 version，
+  Reason 回到默认前景，并统一给 completion identity、Reason、structured detail/count
+  与 diagnose 加两个字符缩进，使其对齐结果 title；report/cache interface 不变。
+- **Review 修正 / ANSI 精度：** Standards review 指出默认前景断言遗漏 bright
+  `90–97`，且 declaration 完成态只聚合整行 SGR，无法证明只有第二段 dim。测试现统一
+  排除标准与 bright 前景码，并分别验证 action、identity 第一段、第二段和 stage；
+  Standards / Spec 最终复审均为 0 findings。
 
 ## 5. 验证结论
 
@@ -173,6 +195,11 @@
 - 包含并行合入 P017 修正的最终完整套件为 `1291 passed in 26.96s`。受限沙箱内首次全量
   只有安装态 E2E 因无法访问 package source 失败；允许依赖源访问后该单项及最终
   全量均通过。
+- 本次 style follow-up：`tests/test_terminal.py` 为 `105 passed`；terminal/explain/CLI
+  相邻回归为 `155 passed`；扩展 smoke/check/search/coordinator 相邻回归为
+  `217 passed`。全仓 Ruff 与 ty 通过；无 testmon 完整 suite 在允许依赖源访问的环境为
+  `1304 passed in 22.66s`。受限环境的首次完整 suite 为 `1303 passed, 1 failed`，唯一
+  失败的安装态 E2E 在允许 package source 访问后单项通过。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。

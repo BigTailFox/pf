@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import re
 from typing import Literal, Protocol
 
-from pf.coordinate_search import CoordinateSearch
+from pf.coordinate_search import CoordinateProgressConsumer, CoordinateSearch
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.environment import ExactSelection, PreparedEnvironment, ResolutionRequest
 from pf.evaluation import EvaluationCache, require_full_evaluation_contract
@@ -17,6 +17,7 @@ from pf.schemas.evaluation import (
     BaselineRejection,
     CacheConflict,
     CellContextEvent,
+    CellSearchProgressEvent,
     CellStageEvent,
     Evaluation,
     FailureDetail,
@@ -177,7 +178,10 @@ class SearchDiagnosticConsumer(Protocol):
 
 
 class SearchActivityConsumer(Protocol):
-    def consume(self, event: CellContextEvent | CellStageEvent) -> None: ...
+    def consume(
+        self,
+        event: CellContextEvent | CellSearchProgressEvent | CellStageEvent,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -892,6 +896,29 @@ class SearchCoordinator:
         self._events = events
         self._coordinate_search = coordinate_search
 
+    def _coordinate_progress(
+        self,
+        cell: Cell,
+    ) -> CoordinateProgressConsumer | None:
+        events = self._events
+        if events is None:
+            return None
+        previous: tuple[VersionPin, ...] | None = None
+
+        def publish(completed_packages: tuple[VersionPin, ...]) -> None:
+            nonlocal previous
+            if completed_packages == previous:
+                return
+            previous = completed_packages
+            events.consume(
+                CellSearchProgressEvent(
+                    cell=cell,
+                    completed_packages=completed_packages,
+                )
+            )
+
+        return publish
+
     def search(
         self,
         *,
@@ -912,6 +939,9 @@ class SearchCoordinator:
         if isinstance(capture, (BaselineRejection, BaselineIndeterminate)):
             return capture
         baseline_evaluation = capture.evaluation
+        coordinate_progress = self._coordinate_progress(cell)
+        if coordinate_progress is not None:
+            coordinate_progress(())
         if self._events is not None:
             self._events.consume(CellContextEvent(cell=cell, detail=None))
             self._events.consume(
@@ -976,6 +1006,7 @@ class SearchCoordinator:
                 candidates=candidate_snapshots,
                 evaluator=_RuntimeBackedVectorEvaluator(runner),
                 start_is_known_pass=True,
+                progress=coordinate_progress,
             )
             if isinstance(search, CoordinateFailure):
                 search = CoordinateFailure.model_validate(

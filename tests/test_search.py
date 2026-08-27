@@ -497,6 +497,7 @@ class TestCoordinateSearch:
     def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal(
         self,
     ) -> None:
+        progress: list[tuple[VersionPin, ...]] = []
         result = CoordinateSearch(small_threshold=4).minimize(
             start=(
                 VersionPin(name="a", version="3"),
@@ -504,6 +505,7 @@ class TestCoordinateSearch:
             ),
             candidates=(snapshot("a"), snapshot("b")),
             evaluator=InteractionEvaluator(),
+            progress=progress.append,
         )
 
         assert isinstance(result, CoordinateSuccess)
@@ -519,6 +521,26 @@ class TestCoordinateSearch:
             ("b", "1"),
         ]
         assert result.sweeps == 3
+        assert progress == [
+            (),
+            (VersionPin(name="a", version="2"),),
+            (
+                VersionPin(name="a", version="2"),
+                VersionPin(name="b", version="1"),
+            ),
+            (),
+            (VersionPin(name="a", version="1"),),
+            (
+                VersionPin(name="a", version="1"),
+                VersionPin(name="b", version="1"),
+            ),
+            (),
+            (VersionPin(name="a", version="1"),),
+            (
+                VersionPin(name="a", version="1"),
+                VersionPin(name="b", version="1"),
+            ),
+        ]
 
     def test_coordinate_search_uses_hint_then_lower_bound_binary_search(self) -> None:
         class ThresholdEvaluator:
@@ -641,6 +663,38 @@ class TestCoordinateSearch:
         assert isinstance(result, CoordinateFailure)
         assert result.status == "INDETERMINATE"
         assert result.failure_id == "failure-timeout"
+
+    def test_coordinate_progress_excludes_an_active_indeterminate_package(
+        self,
+    ) -> None:
+        class UnknownOnSecondPackage:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                versions = {pin.name: pin.version for pin in vector}
+                if versions == {"a": "1", "b": "1"}:
+                    return ProbeIndeterminate(
+                        attempt=probe_attempt(vector),
+                        failure_id="failure-timeout",
+                        cause="TIMEOUT",
+                    )
+                return probe_pass(vector, "known-pass")
+
+        progress: list[tuple[VersionPin, ...]] = []
+        result = CoordinateSearch().minimize(
+            start=(
+                VersionPin(name="a", version="3"),
+                VersionPin(name="b", version="3"),
+            ),
+            candidates=(snapshot("a"), snapshot("b")),
+            evaluator=UnknownOnSecondPackage(),
+            progress=progress.append,
+        )
+
+        assert isinstance(result, CoordinateFailure)
+        assert result.status == "INDETERMINATE"
+        assert progress == [
+            (),
+            (VersionPin(name="a", version="1"),),
+        ]
 
     @pytest.mark.parametrize(
         ("small_threshold", "versions", "floor"),

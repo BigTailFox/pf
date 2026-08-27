@@ -19,7 +19,7 @@ from pf.schemas.evaluation import (
     SearchProbeDetailIdentity,
     VerificationRole,
 )
-from pf.schemas.project import Cell
+from pf.schemas.project import Cell, VersionPin
 from pf.verification import completion_outcome
 
 
@@ -59,24 +59,46 @@ def cell_identity_text(
     style: str = "",
 ) -> Text:
     if isinstance(identity, BaselineDetailIdentity):
-        value = "[baseline][highest]"
+        value = Text("[baseline]", style=style, overflow="fold", no_wrap=False)
+        value.append("[highest]", style="dim")
+        return value
     elif isinstance(identity, DeclarationDetailIdentity):
-        value = "[declaration][lowest-direct]"
+        value = Text("[declaration]", style=style, overflow="fold", no_wrap=False)
+        value.append("[lowest-direct]", style="dim")
+        return value
     elif isinstance(identity, SearchProbeDetailIdentity):
-        value = (
-            f"[{identity.dependency}={identity.version}]"
-            f"[{identity.lower_version}..{identity.upper_version}"
-            f"#{identity.candidate_count}]"
-        )
+        value = Text(style=style, overflow="fold", no_wrap=False)
+        value.append(f"[{identity.dependency}=")
+        value.append(identity.version, style="bold")
+        value.append("][", style="dim")
+        value.append(identity.lower_version, style="bold dim")
+        value.append("~", style="dim")
+        value.append(identity.upper_version, style="bold dim")
+        value.append("#", style="dim")
+        value.append(str(identity.candidate_count), style="bold dim")
+        value.append("]", style="dim")
+        return value
     else:
         raise AssertionError(
             f"unsupported cell identity: {type(identity).__name__}"
         )
-    return Text(value, style=style, overflow="fold", no_wrap=False)
 
 
 def cell_identity_title(identity: CellDetailIdentity) -> str:
     return cell_identity_text(identity).plain
+
+
+def completed_packages_text(
+    completed_packages: tuple[VersionPin, ...],
+    *,
+    style: str = "success",
+) -> Text:
+    value = Text("[baseline]", style=style, overflow="fold", no_wrap=False)
+    for pin in completed_packages:
+        value.append(f"[{pin.name}=")
+        value.append(pin.version, style="bold")
+        value.append("]")
+    return value
 
 
 def outcome_border_style(kind: OutcomeKind) -> str:
@@ -137,6 +159,7 @@ def escalate_outcome(
 class CellPresentation:
     cell: Cell
     identity: CellDetailIdentity | None
+    completed_packages: tuple[VersionPin, ...] | None
     kind: OutcomeKind
     status: str
     elapsed: float | None
@@ -156,12 +179,14 @@ class CellPresentation:
         *,
         elapsed: float | None = None,
         identity: CellDetailIdentity | None = None,
+        completed_packages: tuple[VersionPin, ...] | None = None,
         search_events: tuple[SearchFailureEvent, ...] = (),
         command: str | None = None,
     ) -> "CellPresentation":
         return cls._from_outcome(
             cell=event.cell,
             identity=identity,
+            completed_packages=completed_packages,
             outcome=event.outcome,
             elapsed=elapsed,
             search_events=search_events,
@@ -177,6 +202,7 @@ class CellPresentation:
         cell: Cell,
         elapsed: float | None = None,
         identity: CellDetailIdentity | None = None,
+        completed_packages: tuple[VersionPin, ...] | None = None,
         search_events: tuple[SearchFailureEvent, ...] = (),
         command: str | None = None,
         diagnose_available: bool = True,
@@ -184,6 +210,7 @@ class CellPresentation:
         return cls._from_outcome(
             cell=cell,
             identity=identity,
+            completed_packages=completed_packages,
             outcome=completion_outcome(result),
             elapsed=elapsed,
             search_events=search_events,
@@ -197,6 +224,7 @@ class CellPresentation:
         *,
         cell: Cell,
         identity: CellDetailIdentity | None,
+        completed_packages: tuple[VersionPin, ...] | None,
         outcome: CellSucceeded | CellFailed,
         elapsed: float | None,
         search_events: tuple[SearchFailureEvent, ...],
@@ -242,6 +270,7 @@ class CellPresentation:
         return cls(
             cell=cell,
             identity=resolved_identity,
+            completed_packages=completed_packages,
             kind=kind,
             status=outcome.status,
             elapsed=elapsed,
