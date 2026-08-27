@@ -104,3 +104,5 @@ workflow、report schema 和 search 编排不学习展示字段。
   访问后的完整 pytest 为 `1294 passed in 21.57s`，sdist/wheel 构建成功。根目录既有
   报告只读 TTY 验证为 3 个 yellow Cell，Summary 输出 bold yellow；环境原有
   `NO_COLOR=1` 时按 Rich 标准只保留 bold，不把用户级禁色设置当作产品失败。
+  固定区间 `3ef5485...a67650c` 的 Standards/Spec 双轴复审均为 0 findings、无 scope
+  creep。
