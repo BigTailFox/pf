@@ -3609,7 +3609,7 @@ class TestExplainRendering:
 
         assert digest not in stdout.getvalue()
 
-    def test_explain_distinguishes_baseline_diagnostics_from_static_increments(
+    def test_explain_hides_static_history_and_renders_the_final_search_conclusion(
         self,
     ) -> None:
         cell = Cell(
@@ -3736,19 +3736,17 @@ class TestExplainRendering:
         assert exit_code == 0
         rendered = stdout.getvalue()
         assert "Apply: not authorized by this report" in rendered
-        assert "What happened:" in rendered
-        assert (
-            f"Diagnose: pf diagnose demo --failure {rejection.failure_id}" in rendered
-        )
-        assert "ty baseline: 1 diagnostic" in rendered
-        assert (
-            "+ demo.py:2:1 [dependency-regression] dependency API is unavailable"
-            in rendered
-        )
+        assert "configured search space was fully evaluated" in rendered
+        assert "no compatible version" in rendered
+        assert rejection.failure_id not in rendered
+        assert "What happened:" not in rendered
+        assert "ty baseline" not in rendered
+        assert "demo.py" not in rendered
+        assert "dependency-regression" not in rendered
         assert "NO_PASS_IN_SEARCH_SPACE" not in rendered
         assert "Apply: ready" not in rendered
 
-    def test_explain_folds_repeated_diagnostics_and_caps_unique_lines(self) -> None:
+    def test_explain_does_not_render_large_static_diagnostic_history(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -3893,11 +3891,13 @@ class TestExplainRendering:
         )
 
         rendered = stdout.getvalue()
-        assert "×3" in rendered
-        assert "extra diagnostic 3" in rendered
-        assert "... and 2 more unique diagnostics" in rendered
+        assert "configured search space was fully evaluated" in rendered
+        assert "no compatible version" in rendered
+        assert "×3" not in rendered
+        assert "extra diagnostic 3" not in rendered
+        assert "more unique diagnostics" not in rendered
         assert "extra diagnostic 9" not in rendered
-        assert "Diagnose: pf diagnose demo" in rendered
+        assert "pf diagnose demo" not in rendered
 
     @pytest.mark.parametrize("width", (56, 80, 120))
     def test_explain_keeps_required_fields_readable_at_common_widths(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import OrderedDict
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
@@ -8,29 +8,16 @@ from rich.console import Console
 from rich.text import Text
 
 from pf.errors import ConfigurationError
-from pf.schemas.evaluation import (
-    AttemptFailureScope,
-    FailureRecord,
-    StaticRegressionEvaluation,
-    TyDiagnostic,
-)
+from pf.report import ValidatedReport
+from pf.schemas.evaluation import BaselineIndeterminate, BaselineRejection
 from pf.schemas.project import Cell
 from pf.schemas.report import (
     CellIndeterminate,
+    CellResult,
     CellSearchFailure,
     CellSuccess,
 )
-from pf.report import ValidatedReport
-
-_UNIQUE_DIAGNOSTIC_LIMIT = 10
-
-
-class FailureView(Protocol):
-    @property
-    def title(self) -> str: ...
-
-    @property
-    def impact(self) -> str: ...
+from pf.terminal._presentation import CellPresentation, OutcomeKind
 
 
 class ExplainPresenter(Protocol):
@@ -38,7 +25,14 @@ class ExplainPresenter(Protocol):
 
     def close(self, *, abandon_pending: bool = False) -> None: ...
 
-    def failure_presentation(self, failure: FailureRecord) -> FailureView: ...
+    def _render_explain_cell(self, presentation: CellPresentation) -> None: ...
+
+    def _render_explain_overview(
+        self,
+        lines: tuple[Text, ...],
+        *,
+        kind: OutcomeKind,
+    ) -> None: ...
 
 
 def render(
@@ -71,21 +65,34 @@ def _render_report(
             "report projection is missing its requirement declaration"
         )
     complete = report.result.status == "complete"
+    kind = _report_kind(report)
     covered = sum(
         1 for result in report.cell_results if isinstance(result, CellSuccess)
     )
     targets = len(report.target_cells) or len(report.cell_results)
-    presenter.stdout.print(Text(f"{report.package.name} · {_report_path(report)}"))
-    presenter.stdout.print(Text(f"Status: {report.result.status}"))
-    presenter.stdout.print(
-        "Apply: authorized by this report"
-        if complete
-        else "Apply: not authorized by this report"
-    )
-    presenter.stdout.print(Text(f"Cells: {covered}/{targets} covered"))
+    overview: list[Text] = [
+        Text.assemble(
+            (report.package.name, "cell"),
+            " · ",
+            (_report_path(report), "path"),
+        ),
+        Text.assemble(
+            "Status: ",
+            (report.result.status, f"reason.{kind}"),
+        ),
+        Text.assemble(
+            "Apply: ",
+            (
+                "authorized by this report"
+                if complete
+                else "not authorized by this report",
+                f"reason.{kind}",
+            ),
+        ),
+        Text(f"Cells: {covered}/{targets} covered"),
+    ]
     if report.requirement_declarations or report.projection_evidence:
-        presenter.stdout.print()
-        presenter.stdout.print("Requirements")
+        overview.extend((Text(), Text("Requirements", style="bold")))
         projected_ids = {
             projection.declaration_id for projection in report.projection_evidence
         }
@@ -94,54 +101,35 @@ def _render_report(
             label = declaration.raw or declaration.name
             if not projection.representable:
                 detail = "projection blocked"
+                detail_style = "reason.warning"
             elif not projection.projected_requirements:
                 detail = "no applicable floor"
+                detail_style = "reason.warning"
             else:
                 detail = f"-> {'; '.join(projection.projected_requirements)}"
-            presenter.stdout.print(Text(f"  {label}   {detail}"))
+                detail_style = "version"
+            line = Text("  ")
+            line.append(label)
+            line.append("   ")
+            line.append(detail, style=detail_style)
+            overview.append(line)
         for declaration in report.requirement_declarations:
             if declaration.declaration_id not in projected_ids:
-                presenter.stdout.print(Text(f"  {declaration.raw or declaration.name}"))
-    failures = report.failure_records
-    if failures or (
-        report.result.status == "incomplete" and "MISSING_CELL" in report.result.reasons
-    ):
+                overview.append(Text(f"  {declaration.raw or declaration.name}"))
+    presenter._render_explain_overview(
+        tuple(overview),
+        kind=kind,
+    )
+
+    cells = report.target_cells or tuple(result.cell for result in report.cell_results)
+    if cells:
         presenter.stdout.print()
-        presenter.stdout.print("Blockers")
-        if failures:
-            grouped: dict[tuple[str, str], list[FailureRecord]] = {}
-            for failure in failures:
-                presentation = presenter.failure_presentation(failure)
-                grouped.setdefault(
-                    (presentation.title, presentation.impact), []
-                ).append(failure)
-            for records in grouped.values():
-                failure = records[0]
-                presentation = presenter.failure_presentation(failure)
-                cells = {
-                    (
-                        record.scope.attempt.identity.cell
-                        if isinstance(record.scope, AttemptFailureScope)
-                        else record.scope.cell
-                    )
-                    for record in records
-                }
-                if len(cells) > 1:
-                    pythons = ", ".join(f"Python {cell.python_minor}" for cell in cells)
-                    presenter.stdout.print(Text(f"  {len(cells)} cells · {pythons}"))
-                presenter.stdout.print(Text(f"  What happened: {presentation.title}"))
-                presenter.stdout.print(Text(f"  Impact: {presentation.impact}"))
-                diagnose = f"pf diagnose {report.package.name}"
-                unique_ids = {record.failure_id for record in records}
-                if len(unique_ids) == 1:
-                    diagnose += f" --failure {failure.failure_id}"
-                presenter.stdout.print(Text(f"  Diagnose: {diagnose}"))
-        elif (
-            report.result.status == "incomplete"
-            and "MISSING_CELL" in report.result.reasons
-        ):
-            presenter.stdout.print("  target cells are missing from this host run")
-    _render_static_diagnostics(presenter, report)
+        results = {_cell_key(result.cell): result for result in report.cell_results}
+        for cell in cells:
+            presenter._render_explain_cell(
+                _cell_presentation(results.get(_cell_key(cell)), cell=cell)
+            )
+
     presenter.stdout.print()
     if complete:
         managed = tuple(
@@ -159,108 +147,73 @@ def _render_report(
         presenter.stdout.print("Summary: report is incomplete and cannot be applied.")
 
 
-def _render_static_diagnostics(
-    presenter: ExplainPresenter,
-    report: ValidatedReport,
-) -> None:
-    incrementals: list[tuple[Cell, TyDiagnostic]] = []
-    for result in report.cell_results:
-        baseline = result.static_baseline
-        if baseline is None:
-            continue
-        count = len(baseline.diagnostics)
-        noun = "diagnostic" if count == 1 else "diagnostics"
-        presenter.stdout.print(
-            Text(f"  {_cell_title(result.cell)} ty baseline: {count} {noun}")
-        )
-        if isinstance(result, CellSuccess):
-            searches = (result.search,)
-        elif isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
-            result.coordinate_failure is not None
-        ):
-            searches = (result.coordinate_failure,)
-        else:
-            searches = ()
-        seen_proposals: set[str] = set()
-        for search in searches:
-            for observation in search.observations:
-                evidence = observation.evidence
-                static = evidence.static_evaluation
-                if not isinstance(static, StaticRegressionEvaluation):
-                    continue
-                if evidence.proposal_id is None:
-                    raise ValueError("static evidence requires a Proposal")
-                if evidence.proposal_id in seen_proposals:
-                    continue
-                seen_proposals.add(evidence.proposal_id)
-                incrementals.extend(
-                    (result.cell, diagnostic) for diagnostic in static.incremental
-                )
-    _print_folded_diagnostics(
-        presenter,
-        incrementals,
-        package=report.package.name,
-        failures=report.failure_records,
-    )
-
-
-def _print_folded_diagnostics(
-    presenter: ExplainPresenter,
-    incrementals: list[tuple[Cell, TyDiagnostic]],
+def _cell_presentation(
+    result: CellResult | None,
     *,
-    package: str,
-    failures: tuple[FailureRecord, ...],
-) -> None:
-    if not incrementals:
-        return
-    groups: OrderedDict[str, list[Cell]] = OrderedDict()
-    for cell, diagnostic in incrementals:
-        groups.setdefault(_diagnostic_summary(diagnostic), []).append(cell)
-    unique = tuple(groups.items())
-    shown = unique[:_UNIQUE_DIAGNOSTIC_LIMIT]
-    for summary, cells in shown:
-        line = f"    + {summary}"
-        if len(cells) > 1:
-            line += f"  ×{len(cells)}"
-        cell_count = len({_cell_key(cell) for cell in cells})
-        if cell_count > 1:
-            line += f" · {cell_count} cells"
-        presenter.stdout.print(Text(line))
-    omitted = len(unique) - len(shown)
-    if omitted:
-        diagnose = f"pf diagnose {package}"
-        if len(failures) == 1:
-            diagnose += f" --failure {failures[0].failure_id}"
-        presenter.stdout.print(Text(f"    ... and {omitted} more unique diagnostics"))
-        presenter.stdout.print(Text(f"    Diagnose: {diagnose}"))
+    cell: Cell,
+) -> CellPresentation:
+    if result is None:
+        return CellPresentation(
+            cell=cell,
+            identity=None,
+            kind="warning",
+            status="MISSING_CELL",
+            elapsed=None,
+            failures=(),
+            detail=None,
+            primary_failure_id=None,
+            process=None,
+            stage="",
+            role=None,
+            command="search",
+            diagnose_available=False,
+        )
 
-
-def _format_extra_surface(surface: tuple[str, ...]) -> str:
-    return "default" if not surface else ",".join(surface)
+    presentation = CellPresentation.from_result(
+        result,
+        cell=cell,
+        command="search",
+    )
+    if isinstance(result, CellIndeterminate):
+        terminal = next(
+            failure
+            for failure in result.failure_records
+            if failure.failure_id == result.failure_id
+        )
+        return replace(
+            presentation,
+            failures=(terminal,),
+            detail=None,
+            primary_failure_id=terminal.failure_id,
+            process=terminal.process,
+            stage=terminal.stage,
+        )
+    if isinstance(result, (CellSuccess, CellSearchFailure)):
+        return replace(
+            presentation,
+            failures=(),
+            detail=None,
+            primary_failure_id=None,
+            process=None,
+        )
+    if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+        return replace(presentation, detail=None)
+    raise AssertionError(f"unsupported CellResult: {type(result).__name__}")
 
 
 def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
     return (cell.package, cell.python_minor, cell.target, cell.extra_surface)
 
 
-def _cell_title(cell: Cell) -> str:
-    return (
-        f"[py{cell.python_minor}][{cell.target}]"
-        f"[{_format_extra_surface(cell.extra_surface)}]"
-    )
-
-
-def _single_line_summary(value: str) -> str:
-    return " ".join(value.split())
-
-
-def _diagnostic_summary(diagnostic: TyDiagnostic) -> str:
-    location = diagnostic.path
-    if diagnostic.line is not None:
-        location += f":{diagnostic.line}"
-    if diagnostic.column is not None:
-        location += f":{diagnostic.column}"
-    return f"{location} [{diagnostic.code}] {_single_line_summary(diagnostic.message)}"
+def _report_kind(report: ValidatedReport) -> OutcomeKind:
+    if report.result.status == "complete":
+        return "success"
+    reasons = set(report.result.reasons)
+    if "BASELINE_REJECTION" in reasons:
+        return "failure"
+    if "INDETERMINATE" in reasons:
+        return "indeterminate"
+    return "warning"
 
 
 def _counted(count: int, singular: str, plural: str | None = None) -> str:

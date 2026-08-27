@@ -207,32 +207,37 @@ Search/incomplete reason 的主导映射：
 
 ## 8. Explain
 
-`explain` 只回答：读取的 package/report、report complete 状态、该 report 是否授权 apply、Cell coverage、每条 declaration 的 floor/projection、blocker 与 diagnose 入口。它不核对当前 source/policy drift，不转储 observation、Proposal、process output 或技术 Enum。
+`explain` 只回答：读取的 package/report、report complete 状态、该 report 是否授权 apply、Cell coverage、每条 declaration 的 floor/projection、每个目标 Cell 的最终状态与终止原因，以及可用的精确 diagnose 入口。它不核对当前 source/policy drift，不转储 observation、Proposal、process output 或技术 Enum。
 
 默认结构：
 
 ```text
-PACKAGE · package-floor.json
-Status: complete | incomplete
-Apply: authorized by this report | not authorized by this report
-Cells: covered/total
+╭─ report card ─────────────────────────────────────────────╮
+│ PACKAGE · package-floor.json                              │
+│ Status: complete | incomplete                             │
+│ Apply: authorized by this report | not authorized ...     │
+│ Cells: covered/total                                      │
+│                                                          │
+│ Requirements                                              │
+│   <raw declaration> <projection | no floor | blocked>     │
+╰──────────────────────────────────────────────────────────╯
 
-Requirements
-  <raw declaration> -> <projected requirement(s) | no applicable floor | projection blocked>
-
-Blockers
-  <Cell scope>
-  What happened: <D005 title>
-  Impact: <D008 role-aware impact>
-  Diagnose: pf diagnose PACKAGE [--failure ID]
+╭─ one card per target Cell ───────────────────────────────╮
+│ <outcome icon> <Cell identity>                            │
+│ <final status>                                            │
+│ <terminal reason>                                         │
+│ <optional exact pf diagnose --failure entry>              │
+╰──────────────────────────────────────────────────────────╯
 
 Summary: ...
 Next: pf apply PACKAGE
 ```
 
-Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。多 marker requirements 在声明下缩进。相同 `FailurePresentation` 可以聚合多个 Cells，但必须保留 Cell 范围与 Failure 数；一条 Failure 使用精确 `--failure`，多条使用列表入口。缺 FailureRecord 时不能捏造 diagnose command。
+Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。多 marker requirements 在声明下缩进。Cell 卡片复用 smoke/check/search 的 outcome、identity、边框、Reason 和 diagnose-hint 视觉语言；TTY 使用 Rich Panel，非 TTY 保留相同信息顺序的纯文本降级。
 
-展示字段完全相同的 static diagnostics 可分组并用 `×N` 保留重数；每组最多 10 条唯一行，随后给省略数和 diagnose 入口。默认 explain 不显示 Proposal/source/policy IDs。
+Cell 只投影报告中的最终状态。`CellIndeterminate` 选择其 `failure_id` 指向的终止 Failure；baseline rejection/indeterminate 选择 baseline Failure；完整评估无解、non-monotonic 与 nondeterministic 显示命令级结论；没有 CellResult 的 target Cell 显示 missing warning。仅权威终止 Failure 可以生成精确 `--failure` 入口，不能把历史候选 Failure 当作当前 blocker 或诊断目标。
+
+默认 explain 不显示历史 Failure 轨迹、ty baseline、static increment、pytest detail、Proposal/source/policy IDs 或 process output。上述机械证据属于 `pf diagnose`。
 
 ## 9. Diagnose
 

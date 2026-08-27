@@ -100,6 +100,19 @@ _BORDER_STYLES = {
     "indeterminate": "dim yellow",
 }
 
+
+def _outcome_card(
+    lines: tuple[Text, ...] | list[Text],
+    *,
+    kind: OutcomeKind,
+) -> Panel:
+    return Panel(
+        Group(*lines),
+        box=box.ROUNDED,
+        border_style=_BORDER_STYLES[kind],
+        padding=(0, 1),
+    )
+
 _FAILED_AT = {
     "resolve-project": "resolving project dependencies",
     "resolve-environment": "resolving the test environment",
@@ -300,6 +313,7 @@ _SEARCH_COMPLETION_REASONS = {
     "NONDETERMINISTIC": (
         "Repeated checks disagreed, so PF could not derive a reliable floor."
     ),
+    "MISSING_CELL": "This target cell has no result in this report.",
 }
 
 
@@ -665,18 +679,33 @@ class TerminalPresenter:
             return
         lines = self._cell_result_lines(presentation)
         if self.stderr.is_terminal:
-            self._print_step(
-                Panel(
-                    Group(*lines),
-                    box=box.ROUNDED,
-                    border_style=_BORDER_STYLES[presentation.kind],
-                    padding=(0, 1),
-                )
-            )
+            self._print_step(_outcome_card(lines, kind=presentation.kind))
         else:
             for line in lines:
                 self._print_step(line)
         self._emitted_cell_keys.add(key)
+
+    def _render_explain_cell(self, presentation: CellPresentation) -> None:
+        """Render one report Cell with the shared final-card presentation."""
+        lines = self._cell_result_lines(presentation)
+        if self.stdout.is_terminal:
+            self.stdout.print(_outcome_card(lines, kind=presentation.kind))
+            return
+        for line in lines:
+            self.stdout.print(line)
+
+    def _render_explain_overview(
+        self,
+        lines: tuple[Text, ...],
+        *,
+        kind: OutcomeKind,
+    ) -> None:
+        """Render the report overview with the shared outcome-card theme."""
+        if self.stdout.is_terminal:
+            self.stdout.print(_outcome_card(lines, kind=kind))
+            return
+        for line in lines:
+            self.stdout.print(line)
 
     def _cell_result_lines(
         self,
