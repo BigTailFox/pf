@@ -1297,25 +1297,34 @@ class TestSearchSchemas:
 
 
 class TestEvaluationSchemas:
+    def test_process_spec_rejects_empty_argv(self) -> None:
+        with pytest.raises(ValidationError):
+            ProcessSpec(argv=(), cwd=".", timeout_seconds=None)
+
     @pytest.mark.parametrize(
-        "spec",
-        (
-            {"argv": (), "cwd": ".", "timeout_seconds": None},
-            {"argv": ("python",), "cwd": ".", "timeout_seconds": 0},
-            {
-                "argv": ("python",),
-                "cwd": ".",
-                "timeout_seconds": None,
-                "summary_limit": 0,
-            },
-        ),
+        "timeout_seconds",
+        (0, -0.1, float("nan"), float("inf")),
+        ids=("zero", "negative", "nan", "infinite"),
     )
-    def test_process_spec_rejects_an_unexecutable_contract(
+    def test_process_spec_rejects_invalid_timeout(
         self,
-        spec: dict[str, object],
+        timeout_seconds: int | float,
     ) -> None:
         with pytest.raises(ValidationError):
-            ProcessSpec.model_validate(spec)
+            ProcessSpec(
+                argv=("python",),
+                cwd=".",
+                timeout_seconds=timeout_seconds,
+            )
+
+    def test_process_spec_rejects_invalid_summary_limit(self) -> None:
+        with pytest.raises(ValidationError):
+            ProcessSpec(
+                argv=("python",),
+                cwd=".",
+                timeout_seconds=None,
+                summary_limit=0,
+            )
 
     @pytest.mark.parametrize(
         "facts",

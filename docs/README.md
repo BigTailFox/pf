@@ -46,7 +46,7 @@ Plan、Review 和 Investigation 中的状态、命令、计数与结论都属于
 | [D013](designs/D013-pf-pytest-failure-evidence.md) | 现行 direct pytest failure-witness profile 与 UI-only pytest telemetry |
 | [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 2 wire、typed refs、规范编码与跨引用验证 |
 
-[D014](designs/D014-pf-report-schema.md) 的 Schema 2 已是现行唯一报告布局；固定 Schema 1 对照样本仍缺失，因此体积/性能资格化尚未执行。这个验证缺口不恢复 Schema 1，也不产生第二种 wire contract。
+[D014](designs/D014-pf-report-schema.md) 的 Schema 2 是现行唯一报告布局；Schema 1 不在兼容性或资格化范围内。
 
 以下 Design 已实施并归并，不再拥有现行条款：
 

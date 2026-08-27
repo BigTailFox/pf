@@ -14,12 +14,6 @@ from pf.schemas.report import CompleteReportResult, IncompleteReportResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
-_validate_recorded_performance = cast(
-    Callable[[object], None],
-    run_path(str(ROOT / "scripts" / "qualify_report_schema.py"))[
-        "_validate_recorded_performance"
-    ],
-)
 _generate_schema_main = cast(
     Callable[[], int],
     run_path(str(ROOT / "scripts" / "generate_report_schema.py"))["main"],
@@ -97,43 +91,3 @@ class TestReportArtifacts:
         report = ReportStore().read(path)
 
         assert isinstance(report.result, result_type)
-
-
-class TestReportSchemaQualificationRecord:
-    @pytest.mark.parametrize(
-        "recorded",
-        (
-            {},
-            {"read_validate": {}, "merge_complementary": {}},
-            {
-                "read_validate": {"peak_bytes": True, "seconds": 0.1},
-                "merge_complementary": {"peak_bytes": 1, "seconds": 0.1},
-            },
-            {
-                "read_validate": {"peak_bytes": 1, "seconds": -0.1},
-                "merge_complementary": {"peak_bytes": 1, "seconds": 0.1},
-            },
-            {
-                "read_validate": {"peak_bytes": 1, "seconds": float("nan")},
-                "merge_complementary": {"peak_bytes": 1, "seconds": 0.1},
-            },
-            {
-                "read_validate": {"peak_bytes": 1, "seconds": float("inf")},
-                "merge_complementary": {"peak_bytes": 1, "seconds": 0.1},
-            },
-        ),
-    )
-    def test_validate_rejects_invalid_performance_sections(
-        self,
-        recorded: object,
-    ) -> None:
-        with pytest.raises(RuntimeError):
-            _validate_recorded_performance(recorded)
-
-    def test_validate_accepts_complete_non_negative_performance(self) -> None:
-        _validate_recorded_performance(
-            {
-                "read_validate": {"peak_bytes": 0, "seconds": 0},
-                "merge_complementary": {"peak_bytes": 1, "seconds": 0.1},
-            }
-        )

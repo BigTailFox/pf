@@ -262,7 +262,7 @@ class TestSubprocessRunner:
                     "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)",
                 ),
                 cwd=tmp_path.as_posix(),
-                timeout_seconds=1,
+                timeout_seconds=0.1,
                 start_new_session=False,
             )
         )

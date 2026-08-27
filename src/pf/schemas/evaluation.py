@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import hashlib
 import json
+import math
 from typing import Annotated, ClassVar, Literal, Union
 
 from packaging.version import Version
@@ -32,7 +33,7 @@ class ProcessSpec(FrozenSchema):
     argv: tuple[str, ...]
     cwd: str
     environment: tuple[EnvironmentVariable, ...] = ()
-    timeout_seconds: int | None
+    timeout_seconds: int | float | None
     start_new_session: bool = True
     redaction_policy_identity: str = "pf-default-v1"
     summary_limit: int | None = None
@@ -41,7 +42,9 @@ class ProcessSpec(FrozenSchema):
     def validate_process_spec(self) -> "ProcessSpec":
         if not self.argv:
             raise ValueError("process argv cannot be empty")
-        if self.timeout_seconds is not None and self.timeout_seconds <= 0:
+        if self.timeout_seconds is not None and (
+            not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0
+        ):
             raise ValueError("process timeout must be positive or None")
         if self.summary_limit is not None and self.summary_limit <= 0:
             raise ValueError("summary limit must be positive or None")

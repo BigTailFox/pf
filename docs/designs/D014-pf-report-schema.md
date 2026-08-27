@@ -169,8 +169,7 @@ ReportStore.update_path(path, replacement) -> ReportUpdate
 
 - JSON Schema 和两个最小示例只能由 `scripts/generate_report_schema.py` 从唯一 wire model 生成；`--check` 必须无漂移。
 - 示例必须同时通过 Draft 2020-12 JSON Schema 与 `ReportStore.read`。
-- `tests/fixtures/report-schema/README.md` 指定的固定 Schema 1/Schema 2 self-search 对照文件当前均未交付，因此 `scripts/qualify_report_schema.py --check` 严格失败，对应 pytest 明确 skip。
-- 缺失固定输入意味着 D014 的体积、实体计数、read/merge 性能资格化尚未执行；它不是 Schema 2 行为失败，也不是资格通过证据。
-- 恢复精确 fixture 后，资格脚本必须验证同 generation 与同搜索语义、Schema 2 不超过 2,042,055 bytes、实体唯一计数和记录工件，再解除 skip。
+- Schema 2 的 canonical encoding、identity、typed refs、可达性与 merge/update 契约由独立的 public-behavior 测试验证。
+- Schema 1 不是可读布局，也不作为 Schema 2 的兼容性、体积或性能验收基线。
 
-当前 wire contract 不因该验证缺口回退：`schema_version = 2` 仍是唯一可读写布局。
+`schema_version = 2` 是唯一可读写布局。

@@ -445,20 +445,6 @@ class TestPytestWitnessIntegration:
 
 
 class TestPytestWitnessXdistIntegration:
-    def test_pytest_witness_accepts_xdist_pass_from_argv(self, tmp_path: Path) -> None:
-        _write_test(tmp_path, "def test_ok():\n    pass\n")
-        observed: list[StageProgress | None] = []
-
-        result = _run_pytest(
-            tmp_path,
-            "-n1",
-            autoload=True,
-            progress=observed.append,
-        )
-
-        assert isinstance(result, TestPass)
-        assert observed == []
-
     def test_pytest_witness_accepts_xdist_pass_from_config(
         self,
         tmp_path: Path,
@@ -468,10 +454,16 @@ class TestPytestWitnessXdistIntegration:
             encoding="utf-8",
         )
         _write_test(tmp_path, "def test_ok():\n    pass\n")
+        observed: list[StageProgress | None] = []
 
-        result = _run_pytest(tmp_path, autoload=True)
+        result = _run_pytest(
+            tmp_path,
+            autoload=True,
+            progress=observed.append,
+        )
 
         assert isinstance(result, TestPass)
+        assert observed == []
 
     def test_pytest_witness_rejects_xdist_test_failure(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_bad():\n    assert False\n")

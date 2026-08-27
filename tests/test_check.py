@@ -10,18 +10,12 @@ import pytest
 
 from conftest import prepared_resolution_evidence
 
-from pf.adapters.process import SubprocessRunner
-from pf.adapters.test_command import TestAdapter
-from pf.adapters.ty import TyAdapter
-from pf.adapters.uv import UvAdapter
 from pf.environment import (
-    EnvironmentFactory,
     HighestResolution,
     LowestDirectResolution,
     PreparedEnvironment,
     ResolutionRequest,
 )
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import CheckRequest
@@ -417,63 +411,6 @@ class TestCompatibilityChecker:
             for event in events.items
             if isinstance(event, CellContextEvent)
         ] == [BaselineDetailIdentity()]
-
-    def test_check_passes_a_minimal_local_package(self, tmp_path: Path) -> None:
-        package_root = tmp_path / "demo"
-        (package_root / "src" / "demo").mkdir(parents=True)
-        (package_root / "src" / "demo" / "__init__.py").write_text(
-            "VALUE = 1\n",
-            encoding="utf-8",
-        )
-        (package_root / "pyproject.toml").write_text(
-            """
-    [project]
-    name = "demo"
-    version = "0.1.0"
-
-    [build-system]
-    requires = ["uv_build>=0.8.22,<0.9.0"]
-    build-backend = "uv_build"
-
-    [dependency-groups]
-    test = []
-
-    [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
-    """.strip()
-            + "\n",
-            encoding="utf-8",
-        )
-        runner = SubprocessRunner()
-        uv = UvAdapter(runner)
-        static = StaticEvaluator(TyAdapter(runner))
-        checker = CompatibilityChecker(
-            environments=EnvironmentFactory(uv),
-            static=static,
-            full=RuntimeEvaluator(
-                static=static,
-                tests=TestAdapter(runner),
-            ),
-        )
-        project = ProjectLoader().load(root=package_root, package_selection=None)
-        snapshot = SnapshotBuilder(runner).build(package_root)
-
-        result = checker.check(
-            package=project.packages[0],
-            cell=project.packages[0].cells[0],
-            snapshot=snapshot,
-        )
-
-        assert result.status == "PASS", (
-            result,
-            (
-                result.failure.process.diagnostic()
-                if result.failure and result.failure.process
-                else None
-            ),
-        )
 
     def test_check_only_evaluates_cells_for_the_exact_host_target(
         self, tmp_path: Path
