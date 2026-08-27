@@ -1186,6 +1186,35 @@ class TestProgressRendering:
         stage_at = output.index("installing dependencies")
         assert "\x1b[2m" in output[: stage_at + 1]
 
+    def test_tty_live_cell_card_border_is_dim_without_adding_a_hue(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(CellStageEvent(cell=cell, stage="dynamic tests"))
+        terminal.close()
+
+        raw = stderr.getvalue()
+        border_at = raw.rindex("╭")
+        style_at = raw.rfind("\x1b[", 0, border_at)
+        border_codes = sgr_codes(raw[style_at:border_at])
+        assert "2" in border_codes
+        assert not ({"31", "32", "33", "36"} & border_codes)
+
     def test_tty_live_cell_renders_structured_baseline_identity(self) -> None:
         cell = Cell(
             package="demo",
@@ -1229,9 +1258,9 @@ class TestProgressRendering:
         assert identity_line.index("[baseline]") == title_line.index(title)
         assert frame.index("[baseline][highest]") < frame.index("resolving project")
         identity_at = raw.rindex("[baseline]")
-        line_start = raw.rfind("\n", 0, identity_at) + 1
-        line_end = raw.find("\n", identity_at)
-        identity_codes = sgr_codes(raw[line_start:line_end])
+        style_at = raw.rfind("\x1b[", 0, identity_at)
+        identity_end = identity_at + len("[baseline][highest]")
+        identity_codes = sgr_codes(raw[style_at:identity_end])
         assert "36" in identity_codes
         assert "2" not in identity_codes
 
@@ -1280,9 +1309,9 @@ class TestProgressRendering:
             "dynamic tests"
         )
         identity_at = raw.rindex("[declaration]")
-        line_start = raw.rfind("\n", 0, identity_at) + 1
-        line_end = raw.find("\n", identity_at)
-        identity_codes = sgr_codes(raw[line_start:line_end])
+        style_at = raw.rfind("\x1b[", 0, identity_at)
+        identity_end = identity_at + len("[declaration][lowest-direct]")
+        identity_codes = sgr_codes(raw[style_at:identity_end])
         assert "36" in identity_codes
         assert "2" not in identity_codes
 
@@ -1506,9 +1535,9 @@ class TestProgressRendering:
         )
         assert identity_line.index(identity) == title_line.index(title)
         identity_at = raw.rindex("[pydantic=")
-        line_start = raw.rfind("\n", 0, identity_at) + 1
-        line_end = raw.find("\n", identity_at)
-        identity_codes = sgr_codes(raw[line_start:line_end])
+        style_at = raw.rfind("\x1b[", 0, identity_at)
+        identity_end = identity_at + len(identity)
+        identity_codes = sgr_codes(raw[style_at:identity_end])
         assert "36" in identity_codes
         assert "2" not in identity_codes
 

@@ -67,7 +67,8 @@
    仍含 dim/cyan 且阶段在 `· testing`；再统一为 live cyan/default 与完成态单一结果
    色，并把失败阶段格式化为第三个 bracket token。
 9. **Cell border follow-up：** 对 success/failure/warning/indeterminate 四种 TTY 卡片
-   先断言边框同时保留结果色并使用 dim，再统一边框 theme，正文样式保持不变。
+   及 live 卡片先断言边框同时保留原颜色并使用 dim，再统一边框 theme，正文样式
+   保持不变。
 
 ## 4. 实施记录
 
@@ -128,6 +129,10 @@
   四种 TTY 卡片边框分别只有 outcome hue，failure/indeterminate 还保留 bold，均无
   dim。GREEN：边框 theme 统一为 dim + 既有 green/red/yellow hue，不把 dim 传给
   正文，并移除边框的 bold；四种 ANSI 回归 `4 passed`。
+- **Review 修正 / live border：** Standards review 发现运行中的 Cell Panel 也属于
+  Cell 卡片，而首次实现只调整完成态。新增 live ANSI RED 证明默认前景边框没有
+  dim；GREEN 为 `_OrderedProgress` 的 live Panel 增加 dim、保持默认前景色，并将
+  live identity 的 ANSI 断言收窄到 identity span，避免把边框 dim 误判为正文 dim。
 
 ## 5. 验证结论
 
@@ -137,8 +142,10 @@
   获取 `uv_build` 时被网络策略拒绝；允许依赖访问后，首次实现为
   `1267 passed in 21.13s`，双轴 review 修正后为 `1269 passed in 22.11s`，style
   follow-up 后为 `1271 passed in 21.06s`，Cell 边框 follow-up 后为
-  `1275 passed in 21.32s`。
-- Cell 边框 follow-up 的 terminal/smoke/CLI 相邻回归为 `131 passed`。
+  `1275 passed in 21.32s`，live border review 修正后为
+  `1276 passed in 21.49s`。
+- Cell 边框 follow-up 的 terminal/smoke/CLI 相邻回归为 `131 passed`，live border
+  review 修正后为 `132 passed`。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。

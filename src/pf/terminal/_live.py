@@ -801,6 +801,7 @@ class _OrderedProgress(Progress):
             Panel(
                 Group(*(self.make_tasks_table((task,)) for task in group)),
                 box=box.ROUNDED,
+                border_style="dim",
                 padding=(0, 1),
             )
             for group in cell_groups
