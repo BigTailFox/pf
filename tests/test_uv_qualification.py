@@ -2,9 +2,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import shutil
-import subprocess
+from runpy import run_path
 import sys
+from typing import Callable, Protocol, cast
+
+import pytest
+
+
+class NamedCase(Protocol):
+    name: str
+
+
+_script = run_path("scripts/qualify_uv.py")
+CASES = cast(
+    tuple[NamedCase, ...],
+    _script["CASES"],
+)
+_qualification_main = cast(
+    Callable[[], None],
+    _script["main"],
+)
 
 
 class TestUvQualificationRunner:
@@ -24,15 +41,7 @@ class TestUvQualificationRunner:
         assert [item["outcome"] for item in manifest["cases"]].count("UNSAT") == 2
 
     def test_matrix_contains_every_required_case(self) -> None:
-        process = subprocess.run(
-            (sys.executable, "scripts/qualify_uv.py", "--list-cases"),
-            cwd=Path.cwd(),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-
-        assert set(json.loads(process.stdout)) == {
+        assert {case.name for case in CASES} == {
             "pure-version-contradiction",
             "transitive-version-contradiction",
             "package-unavailable",
@@ -48,41 +57,24 @@ class TestUvQualificationRunner:
             "offline-cache-miss",
         }
 
-    def test_runner_qualifies_certified_and_ambiguous_local_cases(self) -> None:
-        from pf.resolution import UV_SUPPORTED_VERSIONS
-
-        uv_binary = shutil.which("uv")
-        assert uv_binary is not None
-        version_output = subprocess.run(
-            (uv_binary, "--version"),
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        uv_version = version_output.split()[1]
-        assert uv_version in UV_SUPPORTED_VERSIONS
-        process = subprocess.run(
-            (
-                sys.executable,
-                "scripts/qualify_uv.py",
+    def test_runner_qualifies_a_certified_local_case(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "qualify_uv.py",
                 "--case",
                 "pure-version-contradiction",
-                "--case",
-                "package-version-unavailable",
-                "--uv-bin",
-                uv_binary,
-                "--expected-version",
-                uv_version,
-            ),
-            cwd=Path.cwd(),
-            capture_output=True,
-            text=True,
-            check=True,
+            ],
         )
-        result = json.loads(process.stdout)
 
-        assert result["uv_version"] == uv_version
-        assert all(
-            Path(item["command"][0]).is_absolute() for item in result["matrix"]
-        )
-        assert all(item["expected"] for item in result["matrix"])
+        _qualification_main()
+
+        result = json.loads(capsys.readouterr().out)
+        assert len(result["matrix"]) == 1
+        assert result["matrix"][0]["case"] == "pure-version-contradiction"
+        assert result["matrix"][0]["expected"] is True

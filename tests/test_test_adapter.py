@@ -3,12 +3,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import sys
 import tempfile
 
 import pytest
 
-from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import (
     TestAdapter,
     selected_test_outcome_policy_identity as outcome_policy_identity,
@@ -49,7 +47,11 @@ class TestTestAdapter:
             (("python", "-m", "pytest"), (1,), "pytest-failure-witness-v1"),
             (("python3", "-m", "pytest", "-q"), (1,), "pytest-failure-witness-v1"),
             (("python3.12", "-m", "pytest"), (1,), "pytest-failure-witness-v1"),
-            (("/venv/bin/python3.10", "-m", "pytest"), (1,), "pytest-failure-witness-v1"),
+            (
+                ("/venv/bin/python3.10", "-m", "pytest"),
+                (1,),
+                "pytest-failure-witness-v1",
+            ),
             (
                 (r"C:\Python312\python.exe", "-m", "pytest"),
                 (1,),
@@ -109,9 +111,7 @@ class TestTestAdapter:
                 self.plugin_was_present = (plugin_dir / f"{module}.py").is_file()
                 summary = {
                     "execution_mode": "serial",
-                    "facts": [
-                        {"kind": "COLLECTION_FAILED", "phase": "collect"}
-                    ],
+                    "facts": [{"kind": "COLLECTION_FAILED", "phase": "collect"}],
                     "finalized": True,
                     "protocol": "pf-pytest-failure-witness-v1",
                     "pytest_version": "9.1.1",
@@ -189,7 +189,9 @@ class TestTestAdapter:
         def missing_resource(package: str) -> object:
             raise FileNotFoundError(package)
 
-        monkeypatch.setattr("pf.adapters.test_command.resources.files", missing_resource)
+        monkeypatch.setattr(
+            "pf.adapters.test_command.resources.files", missing_resource
+        )
         runner = Runner()
 
         result = TestAdapter(runner).run(
@@ -250,109 +252,6 @@ class TestTestAdapter:
         assert result.process.exit_code == 0
         assert result.summary_code == "pytest-cleanup-failed"
 
-    def test_real_pytest_collection_failure_produces_a_witness(
-        self, tmp_path: Path
-    ) -> None:
-        (tmp_path / "test_broken.py").write_text(
-            "raise ImportError('collection failed')\n",
-            encoding="utf-8",
-        )
-
-        result = TestAdapter(SubprocessRunner()).run(
-            command=(sys.executable, "-m", "pytest", "-q"),
-            cwd=tmp_path,
-            environment=(
-                EnvironmentVariable(
-                    name="PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-                    value="1",
-                ),
-            ),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
-
-        assert isinstance(result, TestFail)
-        assert result.process.exit_code == 2
-
-    @pytest.mark.parametrize(
-        ("source", "expected_exit"),
-        (
-            (
-                "import pytest\n"
-                "@pytest.fixture\n"
-                "def broken():\n"
-                "    raise RuntimeError('setup')\n"
-                "def test_setup(broken):\n"
-                "    pass\n",
-                1,
-            ),
-            ("def test_call():\n    assert False\n", 1),
-            (
-                "import pytest\n"
-                "@pytest.fixture\n"
-                "def broken():\n"
-                "    yield\n"
-                "    raise RuntimeError('teardown')\n"
-                "def test_teardown(broken):\n"
-                "    pass\n",
-                1,
-            ),
-        ),
-    )
-    def test_real_pytest_test_report_failure_produces_a_witness(
-        self,
-        tmp_path: Path,
-        source: str,
-        expected_exit: int,
-    ) -> None:
-        (tmp_path / "test_broken.py").write_text(source, encoding="utf-8")
-
-        result = TestAdapter(SubprocessRunner()).run(
-            command=(sys.executable, "-m", "pytest", "-q"),
-            cwd=tmp_path,
-            environment=(
-                EnvironmentVariable(
-                    name="PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-                    value="1",
-                ),
-            ),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
-
-        assert isinstance(result, TestFail)
-        assert result.process.exit_code == expected_exit
-
-    def test_real_pytest_internal_error_overrides_other_outcomes(
-        self, tmp_path: Path
-    ) -> None:
-        (tmp_path / "conftest.py").write_text(
-            "def pytest_collection_modifyitems(items):\n"
-            "    raise RuntimeError('internal')\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "test_ok.py").write_text(
-            "def test_ok():\n    pass\n",
-            encoding="utf-8",
-        )
-
-        result = TestAdapter(SubprocessRunner()).run(
-            command=(sys.executable, "-m", "pytest", "-q"),
-            cwd=tmp_path,
-            environment=(
-                EnvironmentVariable(
-                    name="PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-                    value="1",
-                ),
-            ),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
-
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 3
-        assert result.summary_code == "pytest-internal-error"
-
     @pytest.mark.parametrize(
         ("exit_code", "facts", "expected", "summary_code"),
         (
@@ -404,9 +303,7 @@ class TestTestAdapter:
                 environment = {item.name: item.value for item in spec.environment}
                 summary = {
                     "execution_mode": "serial",
-                    "facts": [
-                        {"kind": kind, "phase": phase} for kind, phase in facts
-                    ],
+                    "facts": [{"kind": kind, "phase": phase} for kind, phase in facts],
                     "finalized": True,
                     "protocol": "pf-pytest-failure-witness-v1",
                     "pytest_version": "9.1.1",

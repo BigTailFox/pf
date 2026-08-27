@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from io import StringIO
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import NoReturn, cast
 
 import pytest
+from cyclopts.exceptions import CycloptsError
 from rich.console import Console
 
 from pf.cli import (
@@ -100,9 +102,7 @@ def make_context(
         ),
         presenter=presenter,
         run_logs=(
-            run_logs
-            if run_logs is not None
-            else cast(RunLogStore, NoOpRunLogs())
+            run_logs if run_logs is not None else cast(RunLogStore, NoOpRunLogs())
         ),
     )
 
@@ -127,13 +127,46 @@ def minimal_report() -> ValidatedReport:
     )
 
 
+def invoke_app(*args: str) -> subprocess.CompletedProcess[str]:
+    stdout = StringIO()
+    stderr = StringIO()
+    context = make_context(
+        presenter=TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        )
+    )
+    try:
+        result = create_app(context)(
+            list(args),
+            exit_on_error=False,
+            result_action="return_value",
+        )
+        return_code = int(result or 0)
+    except PfError as error:
+        return_code = context.presenter.render_error(error)
+    except CycloptsError:
+        return_code = 3
+    finally:
+        context.close()
+    return subprocess.CompletedProcess(
+        args=("pf", *args),
+        returncode=return_code,
+        stdout=stdout.getvalue(),
+        stderr=stderr.getvalue(),
+    )
+
+
 @pytest.fixture(scope="module")
 def module_help() -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment["COLUMNS"] = "200"
     return subprocess.run(
         [sys.executable, "-m", "pf", "--help"],
         check=False,
         capture_output=True,
         text=True,
+        env=environment,
     )
 
 
@@ -167,19 +200,10 @@ class TestCliInterface:
 
     def test_module_help_caps_the_outer_canvas_at_120_columns(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        module_help: subprocess.CompletedProcess[str],
     ) -> None:
-        monkeypatch.setenv("COLUMNS", "200")
-
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, result.stderr
-        assert max(map(len, result.stdout.splitlines())) <= 120
+        assert module_help.returncode == 0, module_help.stderr
+        assert max(map(len, module_help.stdout.splitlines())) <= 120
 
     def test_invocation_errors_use_the_120_column_error_console(
         self,
@@ -201,12 +225,7 @@ class TestCliInterface:
         assert max(map(len, result.stderr.splitlines())) <= 120
 
     def test_merge_help_usage_names_reports_and_hides_report_option(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "merge", "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = invoke_app("merge", "--help")
 
         assert result.returncode == 0, result.stderr
         assert "Usage: pf merge REPORT [REPORT ...] --output PATH" in result.stdout
@@ -215,12 +234,7 @@ class TestCliInterface:
         assert "--package" not in result.stdout
 
     def test_merge_without_reports_is_a_usage_error(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "merge", "--output", "merged.json"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = invoke_app("merge", "--output", "merged.json")
 
         assert result.returncode == 3
         assert "Error:" in result.stderr
@@ -233,11 +247,14 @@ class TestCliInterface:
         self,
         module_help: subprocess.CompletedProcess[str],
     ) -> None:
+        environment = os.environ.copy()
+        environment["COLUMNS"] = "200"
         script = subprocess.run(
             ["uv", "run", "--no-sync", "pf", "--help"],
             check=False,
             capture_output=True,
             text=True,
+            env=environment,
         )
 
         assert module_help.returncode == 0, module_help.stderr
@@ -245,12 +262,7 @@ class TestCliInterface:
         assert module_help.stdout == script.stdout
 
     def test_unknown_option_is_an_invocation_error(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "check", "--not-a-flag"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = invoke_app("check", "--not-a-flag")
 
         assert result.returncode == 3
         assert result.stdout == ""
@@ -261,12 +273,7 @@ class TestCliInterface:
         assert "\x1b" not in result.stderr
 
     def test_illegal_jobs_is_an_invocation_error(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "check", "--jobs", "nope"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = invoke_app("check", "--jobs", "nope")
 
         assert result.returncode == 3
         assert "Error:" in result.stderr
@@ -277,12 +284,7 @@ class TestCliInterface:
         assert "\x1b" not in result.stderr
 
     def test_illegal_duration_restates_accepted_format(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "search", "--max-duration", "10minutes"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = invoke_app("search", "--max-duration", "10minutes")
 
         assert result.returncode == 3
         assert "Error:" in result.stderr
@@ -407,12 +409,7 @@ class TestCommandDispatch:
         command: str,
         expected_fragments: tuple[str, ...],
     ) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", command, "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = invoke_app(command, "--help")
 
         assert result.returncode == 0, result.stderr
         assert f"Usage: pf {command} [OPTIONS] [PACKAGE]" in result.stdout

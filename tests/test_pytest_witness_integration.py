@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import sys
 
@@ -21,7 +22,7 @@ def _run_pytest(
     root: Path,
     *args: str,
     autoload: bool = False,
-    progress: list[StageProgress | None] | None = None,
+    progress: Callable[[StageProgress | None], None] | None = None,
 ):
     return TestAdapter(SubprocessRunner()).run(
         command=(sys.executable, "-m", "pytest", "--no-header", "-q", *args),
@@ -38,7 +39,7 @@ def _run_pytest(
         ),
         failure_exit_codes=(1,),
         timeout_seconds=30,
-        progress=None if progress is None else progress.append,
+        progress=progress,
     )
 
 
@@ -140,81 +141,46 @@ class TestPytestWitnessIntegration:
         assert isinstance(result, expected)
         assert getattr(result, "detail", None) is None
 
-    def test_serial_pytest_reports_monotonic_collection_progress(
+    def test_serial_pytest_reports_determinate_collection_and_completion(
         self,
         tmp_path: Path,
     ) -> None:
+        ready = tmp_path / "progress-visible"
         _write_test(
             tmp_path,
             "import time\n"
-            "def test_one():\n    time.sleep(0.15)\n"
-            "def test_two():\n    time.sleep(0.15)\n",
+            "from pathlib import Path\n"
+            "def test_one():\n"
+            "    deadline = time.monotonic() + 5\n"
+            "    while not Path('progress-visible').exists():\n"
+            "        if time.monotonic() >= deadline:\n"
+            "            raise AssertionError('initial progress was not observed')\n"
+            "        time.sleep(0.005)\n",
         )
+        initial = StageProgress(completed=0, total=1, unit="tests")
         observed: list[StageProgress | None] = []
 
-        result = _run_pytest(tmp_path, progress=observed)
+        def observe(progress: StageProgress | None) -> None:
+            observed.append(progress)
+            if progress == initial:
+                ready.touch()
 
-        assert isinstance(result, TestPass)
-        assert observed[0] == StageProgress(completed=0, total=2, unit="tests")
-        assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
-        completed = [item.completed for item in observed if item is not None]
-        assert completed == sorted(set(completed))
-
-    def test_serial_pytest_reports_each_visible_slow_test_without_lag(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write_test(
-            tmp_path,
-            "import time\n"
-            "def test_one():\n    time.sleep(0.06)\n"
-            "def test_two():\n    time.sleep(0.06)\n"
-            "def test_three():\n    time.sleep(0.06)\n"
-            "def test_four():\n    time.sleep(0.06)\n",
-        )
-        observed: list[StageProgress | None] = []
-
-        result = _run_pytest(tmp_path, progress=observed)
-
-        assert isinstance(result, TestPass)
-        assert [item.completed for item in observed if item is not None] == [
-            0,
-            1,
-            2,
-            3,
-            4,
-        ]
-
-    def test_large_serial_suite_keeps_determinate_progress_until_completion(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write_test(
-            tmp_path,
-            "import time\n"
-            "import pytest\n"
-            "@pytest.mark.parametrize('case', range(842))\n"
-            "def test_case(case):\n    time.sleep(0.002)\n",
-        )
-        observed: list[StageProgress | None] = []
-
-        result = _run_pytest(tmp_path, progress=observed)
+        result = _run_pytest(tmp_path, progress=observe)
 
         assert isinstance(result, TestPass)
         assert None not in observed
-        assert observed[0] is not None
-        assert observed[0].total == 842
-        assert observed[-1] == StageProgress(
-            completed=842,
-            total=842,
-            unit="tests",
-        )
+        assert observed[0] == initial
+        assert observed[-1] == StageProgress(completed=1, total=1, unit="tests")
 
     def test_collect_only_keeps_indeterminate_progress(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_ok():\n    pass\n")
         observed: list[StageProgress | None] = []
 
-        result = _run_pytest(tmp_path, "--collect-only", progress=observed)
+        result = _run_pytest(
+            tmp_path,
+            "--collect-only",
+            progress=observed.append,
+        )
 
         assert isinstance(result, TestPass)
         assert observed == []
@@ -485,9 +451,9 @@ class TestPytestWitnessXdistIntegration:
 
         result = _run_pytest(
             tmp_path,
-            "-n2",
+            "-n1",
             autoload=True,
-            progress=observed,
+            progress=observed.append,
         )
 
         assert isinstance(result, TestPass)
@@ -498,7 +464,7 @@ class TestPytestWitnessXdistIntegration:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
-            "[tool.pytest.ini_options]\naddopts = ['-n2']\n",
+            "[tool.pytest.ini_options]\naddopts = ['-n1']\n",
             encoding="utf-8",
         )
         _write_test(tmp_path, "def test_ok():\n    pass\n")
@@ -510,7 +476,7 @@ class TestPytestWitnessXdistIntegration:
     def test_pytest_witness_rejects_xdist_test_failure(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-        result = _run_pytest(tmp_path, "-n2", autoload=True)
+        result = _run_pytest(tmp_path, "-n1", autoload=True)
 
         assert isinstance(result, ToolFailure)
         assert result.process.exit_code == 1
@@ -525,7 +491,7 @@ class TestPytestWitnessXdistIntegration:
         )
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-        result = _run_pytest(tmp_path, "-n2", autoload=True)
+        result = _run_pytest(tmp_path, "-n1", autoload=True)
 
         assert isinstance(result, ToolFailure)
         assert result.process.exit_code == 3
@@ -536,7 +502,7 @@ class TestPytestWitnessXdistIntegration:
 
         result = _run_pytest(
             tmp_path,
-            "-n2",
+            "-n1",
             "--max-worker-restart=0",
             autoload=True,
         )

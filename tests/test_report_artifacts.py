@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 from runpy import run_path
+import sys
 from typing import Callable, cast
 
 from jsonschema import Draft202012Validator
@@ -20,6 +19,10 @@ _validate_recorded_performance = cast(
     run_path(str(ROOT / "scripts" / "qualify_report_schema.py"))[
         "_validate_recorded_performance"
     ],
+)
+_generate_schema_main = cast(
+    Callable[[], int],
+    run_path(str(ROOT / "scripts" / "generate_report_schema.py"))["main"],
 )
 SCHEMA_PATH = ROOT / "docs" / "schemas" / "package-floor-v2.schema.json"
 EXAMPLE_PATHS = (
@@ -47,12 +50,17 @@ def _contains_type(value: object, expected: str) -> bool:
 
 
 class TestReportArtifacts:
-    def test_generate_schema_matches_committed_artifact(self) -> None:
-        subprocess.run(
-            [sys.executable, "scripts/generate_report_schema.py", "--check"],
-            cwd=ROOT,
-            check=True,
+    def test_generate_schema_check_accepts_committed_artifacts(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["generate_report_schema.py", "--check"],
         )
+
+        assert _generate_schema_main() == 0
 
     def test_json_schema_is_strict_and_canonical(self) -> None:
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))

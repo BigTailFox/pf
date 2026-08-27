@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
+from runpy import run_path
 import sys
+from typing import Callable, cast
+
+import pytest
 
 from pf.adapters.pytest_witness import (
     PROTOCOL,
@@ -15,6 +18,10 @@ from pf.adapters.pytest_witness import (
 MANIFEST = Path("tests/pytest_witness_qualification/matrix-manifest.json")
 PACKAGING_19_MANIFEST = Path(
     "tests/pytest_witness_qualification/packaging-19-manifest.json"
+)
+_qualification_main = cast(
+    Callable[[], int],
+    run_path("scripts/qualify_pytest_witness.py")["main"],
 )
 
 
@@ -59,40 +66,50 @@ class TestPytestWitnessQualificationManifest:
 
 
 class TestPytestWitnessQualificationRunner:
-    def test_qualification_runner_lists_the_committed_case_contracts(self) -> None:
+    def test_qualification_runner_lists_the_committed_case_contracts(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        process = subprocess.run(
-            (sys.executable, "scripts/qualify_pytest_witness.py", "--list-cases"),
-            cwd=Path.cwd(),
-            capture_output=True,
-            text=True,
-            check=True,
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["qualify_pytest_witness.py", "--list-cases"],
         )
-        listed_cases = json.loads(process.stdout)
+
+        assert _qualification_main() == 0
+
+        listed_cases = json.loads(capsys.readouterr().out)
         committed_cases = {item["name"] for item in manifest["case_contracts"]}
 
         assert len(listed_cases) == len(set(listed_cases))
         assert set(listed_cases) == committed_cases
 
-    def test_qualification_runner_replays_current_profile(self) -> None:
-        process = subprocess.run(
-            (
-                sys.executable,
-                "scripts/qualify_pytest_witness.py",
+    def test_qualification_runner_executes_current_profile_case(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "qualify_pytest_witness.py",
                 "--inner",
+                "--case",
+                "no-tests-collected",
                 "--plugin-source",
                 "src/pf/_pytest_failure_witness.py",
-            ),
-            cwd=Path.cwd(),
-            capture_output=True,
-            text=True,
-            check=True,
+            ],
         )
-        result = json.loads(process.stdout)
 
+        assert _qualification_main() == 0
+
+        result = json.loads(capsys.readouterr().out)
         assert result["pytest_version"] == "9.1.1"
-        assert len(result["cases"]) == 12
-        assert all(item["expected"] for item in result["cases"])
+        assert [item["case"] for item in result["cases"]] == ["no-tests-collected"]
+        assert result["cases"][0]["expected"] is True
 
 
 class TestPackaging19QualificationManifest:

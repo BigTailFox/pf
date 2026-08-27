@@ -314,7 +314,12 @@ def _run_case(
         }
 
 
-def _inner(plugin_source: Path, *, autoload: bool) -> InnerResult:
+def _inner(
+    plugin_source: Path,
+    *,
+    autoload: bool,
+    cases: tuple[QualificationCase, ...] = CASES,
+) -> InnerResult:
     import pytest
 
     python_minor = f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -326,7 +331,7 @@ def _inner(plugin_source: Path, *, autoload: bool) -> InnerResult:
             python_minor=python_minor,
             pytest_version=pytest.__version__,
         )
-        for case in CASES
+        for case in cases
     ]
     return {
         "python_minor": python_minor,
@@ -343,6 +348,7 @@ def _run_profile(
     python_minor: str,
     requirements: tuple[str, ...],
     autoload: bool,
+    cases: tuple[QualificationCase, ...],
 ) -> dict[str, object]:
     command = [
         uv_binary,
@@ -366,6 +372,8 @@ def _run_profile(
     )
     if autoload:
         command.append("--autoload")
+    for case in cases:
+        command.extend(("--case", case.name))
     process = subprocess.run(
         command,
         cwd=script.parents[1],
@@ -445,6 +453,7 @@ def main() -> int:
     parser.add_argument("--python-minor", action="append")
     parser.add_argument("--pytest-version", action="append")
     parser.add_argument("--current-plugins", action="store_true")
+    parser.add_argument("--case", action="append", default=[])
     parser.add_argument("--list-cases", action="store_true")
     parser.add_argument("--uv-bin", default=shutil.which("uv"))
     parser.add_argument("--output", type=Path)
@@ -464,8 +473,18 @@ def main() -> int:
     plugin_source = args.plugin_source or (
         Path(__file__).resolve().parents[1] / "src/pf/_pytest_failure_witness.py"
     )
+    selected = frozenset(args.case)
+    unknown = sorted(selected - {case.name for case in CASES})
+    if unknown:
+        parser.error(f"unknown qualification case: {unknown[0]}")
+    cases = tuple(case for case in CASES if not selected or case.name in selected)
     if args.inner:
-        print(json.dumps(_inner(plugin_source, autoload=args.autoload), sort_keys=True))
+        print(
+            json.dumps(
+                _inner(plugin_source, autoload=args.autoload, cases=cases),
+                sort_keys=True,
+            )
+        )
         return 0
     if args.uv_bin is None:
         parser.error("uv is required")
@@ -480,6 +499,7 @@ def main() -> int:
             python_minor=minor,
             requirements=(f"pytest=={version}",),
             autoload=False,
+            cases=cases,
         )
         for minor in python_minors
         for version in versions
@@ -493,13 +513,14 @@ def main() -> int:
                 python_minor=minor,
                 requirements=CURRENT_PLUGIN_REQUIREMENTS,
                 autoload=True,
+                cases=cases,
             )
             for minor in python_minors
         )
     manifest = {
         "schema": "pf-pytest-witness-qualification-v1",
         "protocol": PROTOCOL,
-        "cases": [case.name for case in CASES],
+        "cases": [case.name for case in cases],
         "execution_count": sum(
             len(cases)
             for profile in profiles
