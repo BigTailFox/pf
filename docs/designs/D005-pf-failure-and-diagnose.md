@@ -2,9 +2,10 @@
 
 - **状态：** 现行
 - **策略版本：** `failure-runtime-v1`
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-27
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
+- **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行角色与读取面：** [D008](D008-pf-verification-run.md)
 - **Harness negative evidence：** [D012](D012-pf-harness-relaxation.md)
@@ -92,11 +93,14 @@ Rejection 是明确负向证据，只否定完整 Attempt。现行 v1 仅允许�
 - `BUILD_FAILURE`、`SOURCE_FAILURE`、`ENVIRONMENT_FAILURE`、`TOOL_FAILURE`、`TIMEOUT`、`INTERNAL_INVARIANT` 或 `NONDETERMINISTIC`；
 - candidate unavailable、index/DNS/auth、artifact、build、installation、graph inspection、parser 或未知 resolver failure；
 - start error、timeout、signal、缺失 process facts 或不完整输出；
-- static regression、runtime witness `PRESENT | NOT_APPLICABLE | FAILURE`；
 - D013 未资格化、缺失或冲突的 pytest witness；
 - stderr 文本看似冲突或测试失败。
 
-这些结果形成 Indeterminate。保守漏掉 Rejection 会停止 Cell；错误 Rejection 会移动边界，因此不能放宽。
+其中的失败结果形成 Indeterminate。保守漏掉 Rejection 会停止 Cell；错误 Rejection 会移动边界，因此不能放宽。
+
+Static regression 与 runtime witness `PRESENT | NOT_APPLICABLE` 不是失败结果，也不单独形成 `FailureRecord`。它们没有 PASS 或 Rejection authority：static regression 只触发 D004 runtime 路由；`PRESENT | NOT_APPLICABLE` 后，D004 evaluator 必须继续剩余 witness，并在没有终态 witness 时运行配置 test-command。
+
+只有 runtime witness `ToolFailure` 形成 `INDETERMINATE`；evaluation 必须在首个 `ToolFailure` 停止并保留对应 process evidence。
 
 ## 4. Baseline、declaration 与 probe
 
