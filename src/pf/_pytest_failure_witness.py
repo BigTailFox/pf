@@ -15,6 +15,7 @@ _DIRECTORY_VARIABLE = "PF_PYTEST_WITNESS_DIR"
 _NONCE_VARIABLE = "PF_PYTEST_WITNESS_NONCE"
 _PROTOCOL = "pf-pytest-failure-witness-v1"
 _PROGRESS_DIRECTORY_VARIABLE = "PF_PYTEST_PROGRESS_DIR"
+_PROGRESS_NONCE_VARIABLE = "PF_PYTEST_PROGRESS_NONCE"
 _PROGRESS_PROTOCOL = "pf-pytest-progress-v1"
 _FAILURE_DETAILS_DIRECTORY_VARIABLE = "PF_PYTEST_FAILURE_DETAILS_DIR"
 _FAILURE_DETAILS_PROTOCOL = "pf-pytest-failure-details-v1"
@@ -92,6 +93,8 @@ def _initialize_progress(session: object) -> None:
     if (
         _execution_mode != "serial"
         or _PROGRESS_DIRECTORY_VARIABLE not in os.environ
+        or not os.environ.get(_PROGRESS_NONCE_VARIABLE)
+        or os.environ[_PROGRESS_NONCE_VARIABLE] != os.environ.get(_NONCE_VARIABLE)
         or ("COLLECTION_FAILED", "collect") in _facts
     ):
         return
@@ -248,12 +251,18 @@ def _commit_failure_details() -> None:
 def _commit_progress() -> None:
     try:
         directory_value = os.environ.get(_PROGRESS_DIRECTORY_VARIABLE)
-        if directory_value is None or _progress_remaining is None:
+        progress_nonce = os.environ.get(_PROGRESS_NONCE_VARIABLE)
+        if (
+            directory_value is None
+            or _progress_remaining is None
+            or not progress_nonce
+            or progress_nonce != os.environ.get(_NONCE_VARIABLE)
+        ):
             return
         document = {
             "completed": _progress_completed,
             "protocol": _PROGRESS_PROTOCOL,
-            "run_nonce": os.environ[_NONCE_VARIABLE],
+            "run_nonce": progress_nonce,
             "total": _progress_total,
             "unit": "tests",
         }

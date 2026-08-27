@@ -192,6 +192,34 @@ class TestSubprocessRunner:
         assert log_path is not None
         assert "runtime-secret" not in log_path.read_text(encoding="utf-8")
 
+    def test_subprocess_runner_applies_environment_removals_before_overrides(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PF_TEST_PARENT_ONLY", "parent-only")
+        monkeypatch.setenv("PF_TEST_REPLACED", "parent-value")
+
+        result = SubprocessRunner().run(
+            ProcessSpec(
+                argv=(
+                    sys.executable,
+                    "-c",
+                    "import os; "
+                    "print(os.environ.get('PF_TEST_PARENT_ONLY', 'missing'), "
+                    "os.environ.get('PF_TEST_REPLACED', 'missing'))",
+                ),
+                cwd=tmp_path.as_posix(),
+                environment=(
+                    EnvironmentVariable(name="PF_TEST_REPLACED", value="child-value"),
+                ),
+                environment_removals=("PF_TEST_PARENT_ONLY", "PF_TEST_REPLACED"),
+                timeout_seconds=5,
+            )
+        )
+
+        assert result.stdout == "missing ***\n"
+
     def test_subprocess_runner_persists_complete_output_within_the_capture_limit(
         self,
         tmp_path: Path,

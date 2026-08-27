@@ -104,7 +104,7 @@ Prerelease、postrelease、dev/local build、其他 major/minor、xdist 或 unkn
 
 ## 5. UI-only telemetry
 
-进度和失败详情使用独立临时目录与协议，不参与 outcome classification、policy identity、Process Log、Journal、cache 或公共报告。任何准备、读取、校验、写入或 cleanup 故障都只能省略 UI 信息。
+进度和失败详情使用独立临时目录与协议，不参与 outcome classification、policy identity、Process Log、Journal、cache 或公共报告。每次 direct-pytest invocation 在启动 child 前先删除继承的 pytest 私有 environment 名字，再注入自己的 witness、nonce 与可用 UI 目录；被测套件内的嵌套 pytest 不得继承或覆盖外层 telemetry。Progress 只有在 invocation-local `PF_PYTEST_PROGRESS_NONCE` 存在且等于当前 witness nonce 时才初始化和提交；仅继承目录或来自另一 invocation 的 activation 不能写 snapshot。任何准备、读取、校验、写入或 cleanup 故障都只能省略 UI 信息。
 
 ### 5.1 Progress
 

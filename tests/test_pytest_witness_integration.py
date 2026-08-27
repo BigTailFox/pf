@@ -172,6 +172,67 @@ class TestPytestWitnessIntegration:
         assert observed[0] == initial
         assert observed[-1] == StageProgress(completed=1, total=1, unit="tests")
 
+    def test_test_adapter_progress_reaches_completion_across_nested_pytest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_test(
+            tmp_path,
+            "import sys\n"
+            "import time\n"
+            "from pf.adapters.process import SubprocessRunner\n"
+            "from pf.adapters.test_command import TestAdapter\n"
+            "from pf.schemas.evaluation import EnvironmentVariable, TestPass\n"
+            "def test_outer_first():\n"
+            "    time.sleep(0.2)\n"
+            "def test_outer_runs_inner_pytest(tmp_path):\n"
+            "    inner = tmp_path / 'inner'\n"
+            "    inner.mkdir()\n"
+            "    (inner / 'test_inner.py').write_text(\n"
+            "        'import time\\ndef test_inner():\\n    time.sleep(0.2)\\n',\n"
+            "        encoding='utf-8',\n"
+            "    )\n"
+            "    result = TestAdapter(SubprocessRunner()).run(\n"
+            "        command=(sys.executable, '-m', 'pytest', '-q'),\n"
+            "        cwd=inner,\n"
+            "        environment=(EnvironmentVariable(\n"
+            "            name='PYTEST_DISABLE_PLUGIN_AUTOLOAD', value='1'\n"
+            "        ),),\n"
+            "        failure_exit_codes=(1,),\n"
+            "        timeout_seconds=10,\n"
+            "    )\n"
+            "    assert isinstance(result, TestPass)\n",
+        )
+        observed: list[StageProgress | None] = []
+
+        result = _run_pytest(tmp_path, progress=observed.append)
+
+        assert isinstance(result, TestPass)
+        assert None not in observed
+        assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
+
+    def test_test_adapter_progress_reaches_completion_across_qualification_pytest(
+        self,
+    ) -> None:
+        qualification = (
+            "tests/test_pytest_witness_qualification.py::"
+            "TestPytestWitnessQualificationRunner::"
+        )
+        observed: list[StageProgress | None] = []
+
+        result = _run_pytest(
+            Path(__file__).resolve().parents[1],
+            qualification
+            + "test_qualification_runner_lists_the_committed_case_contracts",
+            qualification + "test_qualification_runner_executes_current_profile_case",
+            autoload=True,
+            progress=observed.append,
+        )
+
+        assert isinstance(result, TestPass)
+        assert None not in observed
+        assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
+
     def test_collect_only_keeps_indeterminate_progress(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_ok():\n    pass\n")
         observed: list[StageProgress | None] = []

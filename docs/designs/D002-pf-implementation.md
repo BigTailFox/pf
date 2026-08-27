@@ -177,7 +177,7 @@ Evaluator 的 static transition/witness 由 D004 定义，test profile 由 D013 
 ProcessRunner.run(ProcessSpec) -> ProcessResult
 ```
 
-生产 `SubprocessRunner` 唯一执行 `shell=False` argv、cwd/env、进程组、timeout、output capture 与通用 redaction，并可把完整 Process Log 交给 RunLogStore。ProcessResult、Process Log 与 Output Cache 的唯一契约是 D007。
+生产 `SubprocessRunner` 唯一执行 `shell=False` argv、cwd/env、进程组、timeout、output capture 与通用 redaction，并可把完整 Process Log 交给 RunLogStore。`ProcessSpec.environment_removals` 表达从继承 environment 删除的名字；runner 必须先删除、再应用 `environment` overlay，使 adapter 可以隔离私有 invocation 状态而不修改进程级 `os.environ`。ProcessResult、Process Log 与 Output Cache 的唯一契约是 D007。
 
 - `UvAdapter` 拥有 uv argv、resolver protocol、candidate query、pylock parsing、venv、install 与 graph inspection；D012 拥有语义和资格边界。
 - `TyAdapter` 拥有 ty argv/JSON normalization；D004 拥有诊断语义。

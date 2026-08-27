@@ -17,6 +17,7 @@ def _reset_witness(monkeypatch: pytest.MonkeyPatch):
         "PF_PYTEST_WITNESS_DIR",
         "PF_PYTEST_WITNESS_NONCE",
         "PF_PYTEST_PROGRESS_DIR",
+        "PF_PYTEST_PROGRESS_NONCE",
         "PF_PYTEST_FAILURE_DETAILS_DIR",
     ):
         monkeypatch.delenv(variable, raising=False)
@@ -44,6 +45,17 @@ def _finish_command(excinfo: object = None) -> None:
     next(hook)
     with pytest.raises(StopIteration):
         hook.send(SimpleNamespace(excinfo=excinfo))
+
+
+def _enable_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    directory: Path,
+    *,
+    nonce: str = "nonce",
+) -> None:
+    monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(directory))
+    monkeypatch.setenv("PF_PYTEST_PROGRESS_NONCE", nonce)
+    monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", nonce)
 
 
 class TestPytestFailureWitnessEvents:
@@ -274,8 +286,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
         items = [SimpleNamespace(nodeid="test_one.py"), SimpleNamespace(nodeid="test_two.py")]
 
@@ -294,8 +305,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "xdist"
 
         witness.pytest_collection_finish(_session(items=[]))
@@ -307,8 +317,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
         witness._facts.add(("COLLECTION_FAILED", "collect"))
 
@@ -321,8 +330,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
 
         witness.pytest_collection_finish(_session(items=[], collectonly=True))
@@ -334,8 +342,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
 
         witness.pytest_collection_finish(_session(items=()))
@@ -347,8 +354,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
 
         witness.pytest_collection_finish(
@@ -362,8 +368,7 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
         items = [
             SimpleNamespace(nodeid="duplicate"),
@@ -388,20 +393,21 @@ class TestPytestFailureWitnessProgress:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
+        blocked = tmp_path / "blocked"
+        blocked.write_text("not a directory", encoding="utf-8")
+        _enable_progress(monkeypatch, blocked)
         witness._execution_mode = "serial"
 
         witness.pytest_collection_finish(_session(items=[]))
 
-        assert not (tmp_path / "progress.json").exists()
+        assert not (blocked / "progress.json").exists()
 
     def test_pytest_runtest_logfinish_advances_known_test(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        _enable_progress(monkeypatch, tmp_path)
         witness._execution_mode = "serial"
         witness.pytest_collection_finish(
             _session(items=[SimpleNamespace(nodeid="test_one.py")])
@@ -432,6 +438,7 @@ class TestPytestFailureWitnessFinalization:
         ):
             monkeypatch.setenv(variable, str(tmp_path))
         monkeypatch.setenv("PF_PYTEST_WITNESS_NONCE", "nonce")
+        monkeypatch.setenv("PF_PYTEST_PROGRESS_NONCE", "nonce")
         witness._execution_mode = "serial"
         witness._facts.add(("TEST_FAILED", "call"))
         witness._failure_details["tests/test_bad.py::test_bad"] = "call"

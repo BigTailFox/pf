@@ -12,6 +12,7 @@ from typing import Literal
 from pf.adapters.process import ProcessRunner
 from pf.adapters.pytest_progress import (
     PROGRESS_DIRECTORY_VARIABLE,
+    PROGRESS_NONCE_VARIABLE,
     PytestProgressMonitor,
 )
 from pf.adapters.pytest_witness import (
@@ -36,6 +37,14 @@ TestOutcomePolicyIdentity = Literal[
     "configured-exit-code-v1",
     "pytest-failure-witness-v1",
 ]
+
+_PYTEST_PRIVATE_ENVIRONMENT = (
+    EVIDENCE_DIRECTORY_VARIABLE,
+    FAILURE_DETAILS_DIRECTORY_VARIABLE,
+    PROGRESS_DIRECTORY_VARIABLE,
+    PROGRESS_NONCE_VARIABLE,
+    RUN_NONCE_VARIABLE,
+)
 
 
 def _executable_basename(command: str) -> str:
@@ -181,6 +190,7 @@ class TestAdapter:
                 command=command,
                 cwd=cwd,
                 environment=environment,
+                environment_removals=_PYTEST_PRIVATE_ENVIRONMENT,
                 timeout_seconds=timeout_seconds,
             )
             failure = self._incomplete_process(result)
@@ -205,6 +215,7 @@ class TestAdapter:
                     command=injected_command,
                     cwd=cwd,
                     environment=injected_environment,
+                    environment_removals=_PYTEST_PRIVATE_ENVIRONMENT,
                     timeout_seconds=timeout_seconds,
                 )
             finally:
@@ -257,6 +268,7 @@ class TestAdapter:
         command: tuple[str, ...],
         cwd: Path,
         environment: tuple[EnvironmentVariable, ...],
+        environment_removals: tuple[str, ...] = (),
         timeout_seconds: int | None,
     ) -> ProcessResult:
         return self._runner.run(
@@ -264,6 +276,7 @@ class TestAdapter:
                 argv=command,
                 cwd=cwd.as_posix(),
                 environment=environment,
+                environment_removals=environment_removals,
                 timeout_seconds=timeout_seconds,
             )
         )
@@ -307,9 +320,11 @@ class TestAdapter:
         values[EVIDENCE_DIRECTORY_VARIABLE] = evidence_directory.as_posix()
         values[RUN_NONCE_VARIABLE] = nonce
         values.pop(PROGRESS_DIRECTORY_VARIABLE, None)
+        values.pop(PROGRESS_NONCE_VARIABLE, None)
         values.pop(FAILURE_DETAILS_DIRECTORY_VARIABLE, None)
         if progress_directory is not None:
             values[PROGRESS_DIRECTORY_VARIABLE] = progress_directory.as_posix()
+            values[PROGRESS_NONCE_VARIABLE] = nonce
         if failure_details_directory is not None:
             values[FAILURE_DETAILS_DIRECTORY_VARIABLE] = (
                 failure_details_directory.as_posix()

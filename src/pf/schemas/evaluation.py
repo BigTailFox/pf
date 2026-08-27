@@ -33,6 +33,7 @@ class ProcessSpec(FrozenSchema):
     argv: tuple[str, ...]
     cwd: str
     environment: tuple[EnvironmentVariable, ...] = ()
+    environment_removals: tuple[str, ...] = ()
     timeout_seconds: int | float | None
     start_new_session: bool = True
     redaction_policy_identity: str = "pf-default-v1"

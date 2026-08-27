@@ -291,6 +291,8 @@ class SubprocessRunner:
         argv = tuple(redactor.redact(argument) for argument in spec.argv)
         self._emit(ProcessEvent(process_id=process_id, argv=argv, state="started"))
         environment = os.environ.copy()
+        for name in spec.environment_removals:
+            environment.pop(name, None)
         environment.update({item.name: item.value for item in spec.environment})
         size = self._terminal_size()
         environment["COLUMNS"] = str(size.columns)
