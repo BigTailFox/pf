@@ -23,7 +23,7 @@ from pf.terminal._presentation import CellPresentation, OutcomeKind
 
 
 _SPECIFIER_TOKEN = re.compile(
-    r"(?P<operator>===|~=|==|!=|<=|>=|<|>)(?P<space>\s*)(?P<version>[^,;\s]+)"
+    r"(?P<operator>===|~=|==|!=|<=|>=|<|>)(?P<space>\s*)(?P<version>[^,;)\s]+)"
 )
 
 
@@ -281,8 +281,20 @@ def _requirement_text(requirement: str, *, color: str) -> Text:
     if not parsed.specifier:
         return text
     declaration = requirement.partition(";")[0]
-    for match in _SPECIFIER_TOKEN.finditer(declaration):
-        text.stylize(color, match.start("operator"), match.end("version"))
+    matches = tuple(_SPECIFIER_TOKEN.finditer(declaration))
+    if not matches:
+        return text
+    start = matches[0].start("operator")
+    prefix = declaration[:start].rstrip()
+    if prefix.endswith("("):
+        start = len(prefix) - 1
+    end = matches[-1].end("version")
+    suffix = declaration[end:]
+    closing = suffix.lstrip()
+    if closing.startswith(")"):
+        end += len(suffix) - len(closing) + 1
+    text.stylize(color, start, end)
+    for match in matches:
         text.stylize(
             f"bold {color}",
             match.start("version"),

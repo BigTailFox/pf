@@ -372,6 +372,52 @@ class TestExplainCellCards:
             in stdout.getvalue()
         )
 
+    def test_explain_requirements_style_entire_multi_clause_specifier(
+        self,
+    ) -> None:
+        declaration = _declaration("demo", specifier=" (>=1, <2)")
+        projection = ProjectionEvidence(
+            declaration_id=declaration.declaration_id,
+            floors=(),
+            projected_requirements=("demo (>=1.5, <2)",),
+            representable=True,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (
+                _report(
+                    target_cells=(),
+                    cell_results=(),
+                    declarations=(declaration,),
+                    projections=(projection,),
+                ),
+            )
+        )
+
+        rendered = stdout.getvalue()
+        assert (
+            "demo \x1b[36m(>=\x1b[0m\x1b[1;36m1\x1b[0m"
+            "\x1b[36m, <\x1b[0m\x1b[1;36m2\x1b[0m\x1b[36m)\x1b[0m"
+            in rendered
+        )
+        assert (
+            "-> demo \x1b[32m(>=\x1b[0m\x1b[1;32m1.5\x1b[0m"
+            "\x1b[32m, <\x1b[0m\x1b[1;32m2\x1b[0m\x1b[32m)\x1b[0m"
+            in rendered
+        )
+
     def test_explain_multiple_marker_requirements_are_indented_under_declaration(
         self,
     ) -> None:
