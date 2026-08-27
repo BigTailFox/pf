@@ -115,8 +115,13 @@ workflow、report schema 和 search 编排不学习展示字段。
   operator 为 cyan、version 为 bold cyan；搜索 projection 对应为 green / bold green。
   package name、extras、marker 与无法解析的 literal text 不继承版本色，多 marker
   projection 仍逐行缩进。
-- **Requirements follow-up 验证：** explain 聚焦测试 `25 passed`，全仓 Ruff 与 ty
-  通过；允许依赖访问后的完整 pytest 为 `1297 passed in 21.74s`，sdist/wheel 构建
+- **Requirements follow-up 验证：** explain 聚焦测试 `26 passed`，全仓 Ruff 与 ty
+  通过；允许依赖访问后的完整 pytest 为 `1298 passed in 21.16s`，sdist/wheel 构建
   成功。根目录既有报告只读 TTY 验证中，六条 blocked detail 对齐，`>=`/`==` 为
   cyan、版本 operand 为 bold cyan，uv/ty 未伪造 projection。受限网络下 installed-CLI
   仍因无法取得 `uv_build` 单点失败，联网完整复跑通过，不归类为产品失败。
+- **Requirements follow-up review：** 初审 Standards 为 0 findings；Spec 指出多
+  clause specifier 的逗号与可选括号未继承 cyan/green。新增原始/投影
+  `(>=1, <2)` 公开 ANSI RED→GREEN，并修正 closing parenthesis 不得进入 version
+  operand。固定区间 `533b2ea...c989857` 复审后 Standards/Spec 均为 0 个遗留问题，
+  无 scope creep。
