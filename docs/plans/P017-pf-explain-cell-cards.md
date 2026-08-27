@@ -1,6 +1,6 @@
 # P017 — explain 报告与终态 Cell 卡片
 
-- **状态：** 待审查
+- **状态：** 已完成
 - **日期：** 2026-08-27
 - **展示契约：** [D006](../designs/D006-pf-cli-enhancement.md)
 - **前序实施：** [P014](P014-pf-cell-diagnostics.md)、[P016](P016-pf-cli-live-presentation.md)
@@ -76,10 +76,11 @@ workflow、report schema 和 search 编排不学习展示字段。
   没有可捏造的 diagnose ID。缺失 target Cell 显示独立 warning 卡。
 - **回归：** 新增独立公开 `render_explain` 测试，覆盖终止 Failure 选择、报告卡、
   static/pytest 隐藏、missing/success Cell、ANSI outcome 色；原有两条 static history
-  展示测试改为断言默认 explain 不泄漏历史。explain/terminal 聚焦为
-  `84 passed, 17 deselected`，独立 explain + 既有 ExplainRendering 为 `17 passed`。
+  展示测试改为断言默认 explain 不泄漏历史。review follow-up 又覆盖多 marker 缩进
+  和 baseline indeterminate；独立 explain + 既有 ExplainRendering 最终为
+  `19 passed`。
 - **完整验证：** 全仓 Ruff 与 ty 通过；允许构建依赖访问后的显式
-  `pytest --no-testmon -q` 为 `1287 passed in 21.06s`；sdist/wheel 构建成功。初次
+  `pytest --no-testmon -q` 为 `1290 passed in 21.42s`；sdist/wheel 构建成功。初次
   restricted sandbox 的 installed-CLI E2E 因无法下载 `uv_build` indeterminate，联网
   复跑后通过，不归类为产品失败。
 - **真实 CLI：** 对根目录既有 `package-floor.json` 只读运行非 TTY 与伪 TTY
@@ -88,3 +89,7 @@ workflow、report schema 和 search 编排不学习展示字段。
   ty baseline 或 302 条 static diagnostics。既有未跟踪报告未修改、不进入提交。
 - **并行边界：** 验证期间 P016 setup-card follow-up 同时修改 `_live.py`、P016 与
   terminal 测试；本任务不修改或暂存这些 hunks，最终全量验证覆盖两组当前改动。
+- **双轴 review：** 初审 Standards 为 0 findings；Spec 指出多 marker projection 仍
+  被压成一行，以及 P017 计划中的 baseline indeterminate 缺少独立公开测试。新增
+  缩进布局 RED→GREEN 与对应终态测试后复审，Standards/Spec 均为 0 个遗留问题、
+  无 scope creep。
