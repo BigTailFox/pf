@@ -129,15 +129,17 @@ def _render_report(
     )
 
     cells = report.target_cells or tuple(result.cell for result in report.cell_results)
-    if cells:
+    results = {_cell_key(result.cell): result for result in report.cell_results}
+    presentations = tuple(
+        _cell_presentation(results.get(_cell_key(cell)), cell=cell) for cell in cells
+    )
+    if presentations:
         presenter.stdout.print()
-        results = {_cell_key(result.cell): result for result in report.cell_results}
-        for cell in cells:
-            presenter._render_explain_cell(
-                _cell_presentation(results.get(_cell_key(cell)), cell=cell)
-            )
+        for presentation in presentations:
+            presenter._render_explain_cell(presentation)
 
     presenter.stdout.print()
+    summary_kind = _summary_kind(complete=complete, cells=presentations)
     if complete:
         managed = tuple(
             item for item in report.requirement_declarations if item.managed
@@ -146,12 +148,18 @@ def _render_report(
             Text(
                 "Summary: "
                 f"{_counted(len(managed) or len(report.projection_evidence), 'dependency declaration')} "
-                "have verified floors."
+                "have verified floors.",
+                style=f"summary.{summary_kind}",
             )
         )
         presenter.stdout.print(Text(f"Next: pf apply {report.package.name}"))
     else:
-        presenter.stdout.print("Summary: report is incomplete and cannot be applied.")
+        presenter.stdout.print(
+            Text(
+                "Summary: report is incomplete and cannot be applied.",
+                style=f"summary.{summary_kind}",
+            )
+        )
 
 
 def _cell_presentation(
@@ -219,6 +227,20 @@ def _report_kind(report: ValidatedReport) -> OutcomeKind:
     if "BASELINE_REJECTION" in reasons:
         return "failure"
     if "INDETERMINATE" in reasons:
+        return "indeterminate"
+    return "warning"
+
+
+def _summary_kind(
+    *,
+    complete: bool,
+    cells: tuple[CellPresentation, ...],
+) -> OutcomeKind:
+    if complete:
+        return "success"
+    if any(cell.kind == "failure" for cell in cells):
+        return "failure"
+    if any(cell.kind == "indeterminate" for cell in cells):
         return "indeterminate"
     return "warning"
 

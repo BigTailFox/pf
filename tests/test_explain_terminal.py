@@ -547,3 +547,128 @@ class TestExplainCellCards:
         assert "Status: \x1b[33mincomplete" in rendered
         assert "Apply: \x1b[33mnot authorized by this report" in rendered
         assert "\x1b[33m⚠ " in rendered
+
+    def test_explain_summary_uses_red_when_any_cell_is_red(self) -> None:
+        rejected_cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        rejected_attempt = _attempt(rejected_cell, resolution="highest")
+        rejection = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=rejected_attempt),
+            cause="HARNESS_CONFLICT",
+            stage="resolve-environment",
+            process=_process_result(),
+        )
+        rejected = BaselineRejection(
+            attempt=rejected_attempt,
+            failure=rejection,
+        )
+        indeterminate_cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        indeterminate_failure = FailurePolicy().classify(
+            scope=CellFailureScope(
+                package=indeterminate_cell.package,
+                cell=indeterminate_cell,
+                source_snapshot_digest="snapshot",
+                evaluation_policy_identity="policy",
+            ),
+            cause="TOOL_FAILURE",
+            stage="test",
+            process=_process_result(),
+        )
+        indeterminate = CellIndeterminate(
+            cell=indeterminate_cell,
+            phase="runtime-search",
+            failure_id=indeterminate_failure.failure_id,
+            failure_records=(indeterminate_failure,),
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (
+                _report(
+                    target_cells=(rejected_cell, indeterminate_cell),
+                    cell_results=(rejected, indeterminate),
+                ),
+            )
+        )
+
+        assert (
+            "\x1b[1;31mSummary: report is incomplete and cannot be applied."
+            "\x1b[0m\n"
+            in stdout.getvalue()
+        )
+
+    def test_explain_summary_uses_yellow_when_report_has_only_yellow_cells(
+        self,
+    ) -> None:
+        report = ReportStore().read(
+            Path(__file__).parents[1]
+            / "docs/examples/package-floor-v2-minimal-incomplete.json"
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain((report,))
+
+        assert (
+            "\x1b[1;33mSummary: report is incomplete and cannot be applied."
+            "\x1b[0m\n"
+            in stdout.getvalue()
+        )
+
+    def test_explain_summary_uses_green_when_report_authorizes_apply(
+        self,
+    ) -> None:
+        report = ReportStore().read(
+            Path(__file__).parents[1]
+            / "docs/examples/package-floor-v2-minimal-complete.json"
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain((report,))
+
+        assert (
+            "\x1b[1;32mSummary: 0 dependency declarations have verified floors."
+            "\x1b[0m\n"
+            in stdout.getvalue()
+        )

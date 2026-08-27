@@ -59,6 +59,9 @@ workflow、report schema 和 search 编排不学习展示字段。
 4. **布局与降级：** 覆盖非 TTY 可读输出及 56/80/120 列自适应换行。
 5. **验证：** explain/terminal 聚焦 pytest、Ruff、ty、完整 pytest、真实现有
    `package-floor.json` 的只读 `pf explain`；记录环境性失败与 review 结论。
+6. **Summary 结果色：** 通过公开 `render_explain` 路径依次锁定 red Cell 优先、
+   incomplete yellow、applyable green 三条契约；整条 Summary 使用对应 outcome 的
+   bold theme，且不把颜色决策下沉到 report schema。
 
 ## 5. 实施记录
 
@@ -93,3 +96,11 @@ workflow、report schema 和 search 编排不学习展示字段。
   被压成一行，以及 P017 计划中的 baseline indeterminate 缺少独立公开测试。新增
   缩进布局 RED→GREEN 与对应终态测试后复审，Standards/Spec 均为 0 个遗留问题、
   无 scope creep。
+- **Summary 结果色 follow-up：** 新增 red Cell 优先于 yellow、仅 yellow Cell、
+  complete/applyable 三条公开 ANSI 契约。`_explain` 只聚合既有
+  `CellPresentation.kind`：complete 为 bold green；不可 apply 且任一 Cell failure 为
+  bold red；其余不可 apply 状态为 bold yellow。整条 Summary 共享一种样式。
+- **Follow-up 验证：** explain 聚焦测试 `22 passed`，全仓 Ruff 与 ty 通过；允许依赖
+  访问后的完整 pytest 为 `1294 passed in 21.57s`，sdist/wheel 构建成功。根目录既有
+  报告只读 TTY 验证为 3 个 yellow Cell，Summary 输出 bold yellow；环境原有
+  `NO_COLOR=1` 时按 Rich 标准只保留 bold，不把用户级禁色设置当作产品失败。
