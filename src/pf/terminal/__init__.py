@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from rich import box
 from rich.console import Console, ConsoleDimensions, Group
 from rich.panel import Panel
+from rich.table import Column, Table
 from rich.text import Text
 from rich.theme import Theme
 
@@ -103,6 +104,25 @@ def _outcome_card(
 ) -> Panel:
     return Panel(
         Group(*lines),
+        box=box.ROUNDED,
+        border_style=outcome_border_style(kind),
+        padding=(0, 1),
+    )
+
+
+def _cell_outcome_card(lines: list[Text], *, kind: OutcomeKind) -> Panel:
+    header, *details = lines
+    content = Table.grid(
+        Column(no_wrap=True),
+        Column(overflow="fold", no_wrap=False),
+        padding=(0, 0),
+        expand=True,
+    )
+    content.add_row(Text(_ICONS[kind], style=kind), header)
+    for detail in details:
+        content.add_row(Text(), detail)
+    return Panel(
+        content,
         box=box.ROUNDED,
         border_style=outcome_border_style(kind),
         padding=(0, 1),
@@ -271,9 +291,9 @@ def _cell_detail_lines(
         return ()
     if isinstance(detail, PytestFailureDetail):
         phase = "" if detail.first.phase == "call" else f" ({detail.first.phase})"
-        first = Text(f"FAILED {detail.first.nodeid}{phase}")
+        first = Text(f"FAILED {detail.first.nodeid}{phase}", style="dim")
     else:
-        first = Text(_ty_diagnostic_summary(detail.first))
+        first = Text(_ty_diagnostic_summary(detail.first), style="dim")
     if detail.total == 1:
         return (_fold_text(first),)
     return (
@@ -282,11 +302,15 @@ def _cell_detail_lines(
     )
 
 
-def _indent_cell_result_details(lines: list[Text]) -> list[Text]:
+def _plain_cell_result_lines(
+    lines: list[Text],
+    *,
+    kind: OutcomeKind,
+) -> list[Text]:
     if not lines:
         return []
     return [
-        lines[0],
+        Text.assemble((f"{_ICONS[kind]} ", kind), lines[0]),
         *(
             _fold_text(Text.assemble("  ", line))
             for line in lines[1:]
@@ -377,14 +401,12 @@ def _format_elapsed(seconds: float | None) -> str:
     return str(timedelta(seconds=max(0, int(seconds))))
 
 
-def _cell_finished_line(
+def _cell_title_line(
     *,
     title: str,
-    kind: OutcomeKind,
     elapsed: float | None = None,
 ) -> Text:
     parts: list[str | tuple[str, str]] = [
-        (f"{_ICONS[kind]} ", kind),
         (title, "cell-title"),
     ]
     if elapsed is not None:
@@ -417,6 +439,7 @@ def _cell_completion_detail_line(
             cell_identity_text(
                 presentation.identity,
                 style=base_style,
+                dim_secondary=False,
             )
         )
     if failed_at is not None:
@@ -724,16 +747,16 @@ class TerminalPresenter:
         lines = self._cell_result_lines(presentation)
         self._emitted_cell_keys.add(key)
         if self.stderr.is_terminal:
-            return (_outcome_card(lines, kind=presentation.kind),)
-        return tuple(lines)
+            return (_cell_outcome_card(lines, kind=presentation.kind),)
+        return tuple(_plain_cell_result_lines(lines, kind=presentation.kind))
 
     def _render_explain_cell(self, presentation: CellPresentation) -> None:
         """Render one report Cell with the shared final-card presentation."""
         lines = self._cell_result_lines(presentation)
         if self.stdout.is_terminal:
-            self.stdout.print(_outcome_card(lines, kind=presentation.kind))
+            self.stdout.print(_cell_outcome_card(lines, kind=presentation.kind))
             return
-        for line in lines:
+        for line in _plain_cell_result_lines(lines, kind=presentation.kind):
             self.stdout.print(line)
 
     def _render_explain_overview(
@@ -754,9 +777,8 @@ class TerminalPresenter:
         presentation: CellPresentation,
     ) -> list[Text]:
         body: list[Text] = [
-            _cell_finished_line(
+            _cell_title_line(
                 title=_cell_title(presentation.cell),
-                kind=presentation.kind,
                 elapsed=presentation.elapsed,
             )
         ]
@@ -804,12 +826,12 @@ class TerminalPresenter:
                     if see is not None
                     else Text("Detailed diagnosis unavailable.", style="dim")
                 )
-            return _indent_cell_result_details(body)
+            return body
         reason = _cell_reason(presentation, None)
         if reason is not None:
             body.append(_fold_text(Text(reason)))
         body.extend(_cell_detail_lines(presentation.detail))
-        return _indent_cell_result_details(body)
+        return body
 
     def consume(self, event: ActivityEvent) -> None:
         self._live.consume(event)

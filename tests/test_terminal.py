@@ -731,6 +731,62 @@ class TestProgressRendering:
         assert "tests/test_search_workflow.py::test_candidate_failure" in compact
         assert "... and 1 more" in collapsed
 
+    def test_tty_result_evidence_wraps_in_title_aligned_content_column(
+        self,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt_for(cell)),
+            cause="TOOL_FAILURE",
+            stage="test",
+            process=process_result(exit_code=1),
+        )
+        stderr = StringIO()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=56),
+            stderr=Console(file=stderr, force_terminal=True, width=56),
+        )
+        terminal.bind_command("search")
+
+        terminal.consume(
+            completed_event(
+                cell,
+                status="INDETERMINATE",
+                failure=failure,
+                role="probe",
+                stage="test",
+            )
+        )
+
+        lines = visible(stderr.getvalue()).splitlines()
+        title_at = next(
+            index for index, line in enumerate(lines) if "[py3.10]" in line
+        )
+        completion_at = next(
+            index for index, line in enumerate(lines) if "search stopped at" in line
+        )
+        diagnose_at = next(
+            index for index, line in enumerate(lines) if "-> run" in line
+        )
+        title_indent = lines[title_at].index("[py3.10]")
+        evidence_lines = lines[completion_at + 1 : diagnose_at]
+
+        assert len(evidence_lines) > 1
+        assert all(
+            next(
+                index
+                for index, character in enumerate(line)
+                if character not in " │"
+            )
+            == title_indent
+            for line in evidence_lines
+        )
+
     @pytest.mark.parametrize(
         ("status", "result_color"),
         (
@@ -1611,9 +1667,9 @@ class TestProgressRendering:
         frozen = next(
             line
             for line in reversed(visible(output).splitlines())
-            if f"✓ {title}" in line
+            if "✓" in line and title in line
         )
-        assert f"✓ {title} 0:00:00" in frozen
+        assert f"{title} 0:00:00" in frozen
         title_at = output.rindex(title)
         title_style_at = output.rfind("\x1b[", 0, title_at)
         title_codes = sgr_codes(output[title_style_at:title_at])
@@ -1629,12 +1685,12 @@ class TestProgressRendering:
         first_style_at = output.rfind("\x1b[", completion_at, baseline_at)
         first_codes = sgr_codes(output[first_style_at:baseline_at])
         highest_at = output.index("[highest]", baseline_at)
-        second_style_at = output.rfind("\x1b[", baseline_at, highest_at)
+        second_style_at = output.rfind("\x1b[", 0, highest_at)
         second_codes = sgr_codes(output[second_style_at:highest_at])
         assert "32" in first_codes
         assert not ({"2", "36"} & first_codes)
-        assert {"2", "32"} <= second_codes
-        assert "36" not in second_codes
+        assert "32" in second_codes
+        assert not ({"2", "36"} & second_codes)
 
     def test_tty_live_cell_renders_search_probe_identity_above_stage(self) -> None:
         cell = Cell(
@@ -2167,6 +2223,11 @@ class TestProgressRendering:
         assert completion_line.index("smoke failed at") == detail_indent
         assert reason_line.index("The full test command failed") == detail_indent
         assert diagnose_line.index("-> run") == detail_indent
+        failed_at = output.index("FAILED tests/test_cli.py::test_example")
+        failed_style_at = output.rfind("\x1b[", 0, failed_at)
+        failed_codes = sgr_codes(output[failed_style_at:failed_at])
+        assert "2" in failed_codes
+        assert not (_FOREGROUND_SGR_CODES & failed_codes)
         reason = "The full test command failed for this version combination."
         reason_at = output.index(reason)
         reason_style_at = output.rfind("\x1b[", 0, reason_at)
@@ -3277,7 +3338,7 @@ class TestVerificationRendering:
 
         assert stderr.getvalue().splitlines()[1] == f"  {expected}"
 
-    def test_completed_declaration_identity_dims_only_second_segment(
+    def test_completed_declaration_identity_keeps_all_segments_default_brightness(
         self,
     ) -> None:
         cell = Cell(
@@ -3326,20 +3387,20 @@ class TestVerificationRendering:
         action_style_at = raw.rfind("\x1b[", 0, action_at)
         action_codes = sgr_codes(raw[action_style_at:action_at])
         declaration_at = raw.index("[declaration]", action_at)
-        declaration_style_at = raw.rfind("\x1b[", action_at, declaration_at)
+        declaration_style_at = raw.rfind("\x1b[", 0, declaration_at)
         declaration_codes = sgr_codes(raw[declaration_style_at:declaration_at])
         lowest_at = raw.index("[lowest-direct]", declaration_at)
-        lowest_style_at = raw.rfind("\x1b[", declaration_at, lowest_at)
+        lowest_style_at = raw.rfind("\x1b[", 0, lowest_at)
         lowest_codes = sgr_codes(raw[lowest_style_at:lowest_at])
         stage_at = raw.index("[testing]", lowest_at)
-        stage_style_at = raw.rfind("\x1b[", lowest_at, stage_at)
+        stage_style_at = raw.rfind("\x1b[", 0, stage_at)
         stage_codes = sgr_codes(raw[stage_style_at:stage_at])
 
         for default_codes in (action_codes, declaration_codes, stage_codes):
             assert "31" in default_codes
             assert not ({"1", "2", "36"} & default_codes)
-        assert {"2", "31"} <= lowest_codes
-        assert not ({"1", "36"} & lowest_codes)
+        assert "31" in lowest_codes
+        assert not ({"1", "2", "36"} & lowest_codes)
 
     def test_completed_search_probe_identity_uses_result_color_and_bold_numeric_tokens(
         self,
@@ -3395,8 +3456,8 @@ class TestVerificationRendering:
         style_start = raw.rfind("\x1b[", 0, action_at)
         stage_end = raw.index("[testing]", action_at) + len("[testing]")
         codes = sgr_codes(raw[style_start:stage_end])
-        assert {"1", "2", "33"} <= codes
-        assert "36" not in codes
+        assert {"1", "33"} <= codes
+        assert not ({"2", "36"} & codes)
         dependency_at = raw.index(identity.dependency, action_at)
         dependency_style_at = raw.rfind("\x1b[", 0, dependency_at)
         dependency_codes = sgr_codes(raw[dependency_style_at:dependency_at])
@@ -3414,8 +3475,8 @@ class TestVerificationRendering:
         ):
             numeric_style_at = raw.rfind("\x1b[", 0, numeric_at)
             numeric_codes = sgr_codes(raw[numeric_style_at:numeric_at])
-            assert {"1", "2", "33"} <= numeric_codes
-            assert "36" not in numeric_codes
+            assert {"1", "33"} <= numeric_codes
+            assert not ({"2", "36"} & numeric_codes)
 
 
 class TestSearchRendering:

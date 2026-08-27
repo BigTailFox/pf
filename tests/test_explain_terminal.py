@@ -729,7 +729,7 @@ class TestExplainCellCards:
         assert "\x1b[36mpackage-floor.json" in rendered
         assert "Status: \x1b[33mincomplete" in rendered
         assert "Apply: \x1b[33mnot authorized by this report" in rendered
-        assert "\x1b[33m⚠ " in rendered
+        assert "\x1b[33m⚠" in rendered
 
     def test_explain_summary_uses_red_when_any_cell_is_red(self) -> None:
         rejected_cell = Cell(

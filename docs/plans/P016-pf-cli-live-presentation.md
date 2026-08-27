@@ -1,6 +1,6 @@
 # P016 — smoke/check/search 统一 Cell 展示
 
-- **状态：** 已完成
+- **状态：** 已完成（2026-08-27 result layout follow-up）
 - **日期：** 2026-08-27
 - **展示契约：** [D006](../designs/D006-pf-cli-enhancement.md)
 - **前序实施：** [P014](P014-pf-cell-diagnostics.md)、[P015](P015-pf-pytest-progress-isolation.md)
@@ -24,7 +24,7 @@
    smoke/check/search 的非成功前缀分别为 `smoke failed at`、`check failed at`、
    `search stopped at`；失败阶段成为紧随 identity 的第三个 bracket token，例如
    `check failed at [declaration][lowest-direct][testing]`。completion action 与 identity
-   第一段使用结果色的默认亮度，identity 第二段使用同色 dim；成功态对应
+   全部 identity segment 使用结果色的默认亮度，不继承 live identity 的次段 dim；成功态对应
    `smoke passed at`、`check passed at`、`search completed at`。
 3. 命令级最后一行的 icon 与整句文字统一使用结果色并 bold。
 4. matrix 只建立总数，不为未启动 Cell 创建 live panel。运行面板数因此由真实
@@ -81,6 +81,12 @@
 12. **Result prose follow-up：** 公开完成卡片先证明 Reason 仍继承 outcome 色且详情
     从 panel 正文左边缘开始；再令 Reason 使用默认前景，并让 identity、Reason、
     structured detail 与 diagnose 入口遵循 live detail 的同一层缩进。
+13. **Result identity follow-up：** 公开 ANSI 测试先证明完成态 `[lowest-direct]` 仍为
+    dim；再让完成 formatter 显式选择全亮 identity，同时保留 live 次段 dim。
+14. **Result layout follow-up：** 56 列公开卡片先证明长 evidence 只有首行缩进；再以
+    icon/content 两列布局统一 title 与所有 detail 的悬挂缩进，删除 TTY 手工空格前缀。
+15. **Evidence style follow-up：** pytest `FAILED <nodeid>` 与 `... and N more` 都使用
+    dim；Reason 保持默认前景，diagnose 保持默认前景 dim italic。
 
 ## 4. 实施记录
 
@@ -178,6 +184,22 @@
   `90–97`，且 declaration 完成态只聚合整行 SGR，无法证明只有第二段 dim。测试现统一
   排除标准与 bright 前景码，并分别验证 action、identity 第一段、第二段和 stage；
   Standards / Spec 最终复审均为 0 findings。
+- **Slice 13 / result identity follow-up：** RED 分段证明 completed declaration 的
+  `[lowest-direct]` 与 search window 仍继承 live 的 dim。GREEN 为共享 formatter 增加
+  显式 completion 选择，完成态 action、全部 identity segment 与 stage 统一使用结果色
+  默认亮度，数字仍局部 bold；live 次段 dim 契约保持不变。
+- **Slice 14 / result layout follow-up：** 56 列 RED 证明长 Reason 只有首个物理行带
+  detail 缩进。GREEN 令 TTY completion 使用 Rich icon/content 两列表格，title、Reason、
+  structured detail 与 diagnose 的所有物理换行都由 content 列对齐；接受 Rich grid 在
+  icon 与 content 间自然保留两个空格，非 TTY 稳定文本不变。
+- **Slice 15 / evidence style follow-up：** ANSI RED 证明 `FAILED <nodeid>` 仍是默认
+  亮度。GREEN 令 pytest 与 static structured evidence 首行使用默认前景 dim，数量行
+  继续 dim；Reason 保持默认亮度，diagnose 保持 dim italic。
+- **Review 修正 / 结构化结果标题：** Standards review 指出精确双空格断言会把 Rich
+  grid 实现细节升级为契约，且 `header[:1]` / `header[2:]` 会反解析已格式化文本。结果
+  title 现保持独立结构，TTY card 由 outcome kind 直接构造 icon 列，非 TTY 在边界处
+  组装 icon；测试只断言 icon/title/elapsed 语义。Standards / Spec 最终复审均为
+  0 findings。
 
 ## 5. 验证结论
 
@@ -200,6 +222,11 @@
   `217 passed`。全仓 Ruff 与 ty 通过；无 testmon 完整 suite 在允许依赖源访问的环境为
   `1304 passed in 22.66s`。受限环境的首次完整 suite 为 `1303 passed, 1 failed`，唯一
   失败的安装态 E2E 在允许 package source 访问后单项通过。
+- 本次 result layout follow-up：`tests/test_terminal.py` 为 `106 passed`；terminal/
+  explain 为 `122 passed`；terminal/explain/CLI/smoke/check/search 相邻回归为
+  `222 passed`。受限环境完整 suite 为 `1304 passed, 1 failed`，唯一失败仍是安装态
+  E2E 无法访问 package source；允许依赖源访问后，review 修正后的完整 suite 为
+  `1305 passed in 22.31s`。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。

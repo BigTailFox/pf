@@ -57,26 +57,29 @@ def cell_identity_text(
     identity: CellDetailIdentity,
     *,
     style: str = "",
+    dim_secondary: bool = True,
 ) -> Text:
+    secondary_style = "dim" if dim_secondary else ""
+    bold_secondary_style = "bold dim" if dim_secondary else "bold"
     if isinstance(identity, BaselineDetailIdentity):
         value = Text("[baseline]", style=style, overflow="fold", no_wrap=False)
-        value.append("[highest]", style="dim")
+        value.append("[highest]", style=secondary_style)
         return value
     elif isinstance(identity, DeclarationDetailIdentity):
         value = Text("[declaration]", style=style, overflow="fold", no_wrap=False)
-        value.append("[lowest-direct]", style="dim")
+        value.append("[lowest-direct]", style=secondary_style)
         return value
     elif isinstance(identity, SearchProbeDetailIdentity):
         value = Text(style=style, overflow="fold", no_wrap=False)
         value.append(f"[{identity.dependency}=")
         value.append(identity.version, style="bold")
-        value.append("][", style="dim")
-        value.append(identity.lower_version, style="bold dim")
-        value.append("~", style="dim")
-        value.append(identity.upper_version, style="bold dim")
-        value.append("#", style="dim")
-        value.append(str(identity.candidate_count), style="bold dim")
-        value.append("]", style="dim")
+        value.append("][", style=secondary_style)
+        value.append(identity.lower_version, style=bold_secondary_style)
+        value.append("~", style=secondary_style)
+        value.append(identity.upper_version, style=bold_secondary_style)
+        value.append("#", style=secondary_style)
+        value.append(str(identity.candidate_count), style=bold_secondary_style)
+        value.append("]", style=secondary_style)
         return value
     else:
         raise AssertionError(
