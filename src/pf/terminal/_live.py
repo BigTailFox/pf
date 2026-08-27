@@ -47,6 +47,7 @@ from pf.terminal._presentation import (
     OutcomeKind,
     cell_identity_text,
     escalate_outcome,
+    outcome_border_style,
 )
 
 
@@ -95,10 +96,12 @@ class LiveVerificationView:
         self,
         *,
         stderr: Console,
-        emit_cell: Callable[[CellPresentation], None],
+        render_cell: Callable[
+            [CellPresentation], tuple[RenderableType, ...] | None
+        ],
     ) -> None:
         self._stderr = stderr
-        self._emit_cell = emit_cell
+        self._render_cell = render_cell
         self._lock = RLock()
         self._progress: _OrderedProgress | None = None
         self._overall_task: TaskID | None = None
@@ -117,6 +120,8 @@ class LiveVerificationView:
         self._pending_outcome: OutcomeKind | None = None
         self._search_diagnostics: list[SearchFailureEvent] = []
         self._setup_lines: list[Text] = []
+        self._setup_card_lines: tuple[Text, ...] = ()
+        self._completed_cards: list[RenderableType] = []
         self._command: str | None = None
         self._cell_matrix_active = False
 
@@ -142,10 +147,18 @@ class LiveVerificationView:
                 self._consume_completed(event)
             self._refresh_progress()
 
-    def close(self, *, abandon_pending: bool = False) -> None:
+    def close(
+        self,
+        *,
+        abandon_pending: bool = False,
+        final_outcome: OutcomeKind | None = None,
+    ) -> None:
         with self._lock:
             if abandon_pending:
                 self._pending_status = None
+            if final_outcome is not None:
+                self._pending_outcome = final_outcome
+            elif abandon_pending:
                 self._pending_outcome = None
             self._finish_progress()
 
@@ -155,7 +168,7 @@ class LiveVerificationView:
             self._search_diagnostics.clear()
             return diagnostics
 
-    def print_step(self, message: str | Text | Panel | Group) -> None:
+    def print_step(self, message: RenderableType) -> None:
         with self._lock:
             printer = (
                 self._progress.print
@@ -257,7 +270,13 @@ class LiveVerificationView:
             search_events=self._take_cell_diagnostics(event.cell),
             command=self._command,
         )
-        self._emit_cell(presentation)
+        cell_report = self._render_cell(presentation)
+        if cell_report is not None:
+            if self._stderr.is_terminal and self._setup_card_lines:
+                self._completed_cards.extend(cell_report)
+            else:
+                for renderable in cell_report:
+                    self.print_step(renderable)
         self._pending_outcome = escalate_outcome(
             self._pending_outcome,
             presentation.kind,
@@ -273,8 +292,6 @@ class LiveVerificationView:
                 total=event.total,
                 completed=event.completed,
             )
-            if event.completed >= event.total:
-                self._finish_progress()
 
     def _take_cell_diagnostics(
         self,
@@ -327,6 +344,7 @@ class LiveVerificationView:
             _StageRemainingColumn(),
             _DimElapsedColumn(),
             order=self._ordered_tasks,
+            header=self._pinned_renderable,
             console=self._stderr,
             transient=True,
             expand=True,
@@ -538,27 +556,65 @@ class LiveVerificationView:
         lines = tuple(self._setup_lines)
         self._setup_lines.clear()
         if self._stderr.is_terminal:
-            self.print_step(Panel(Group(*lines), box=box.ROUNDED, padding=(0, 1)))
+            self._setup_card_lines = lines
             return
         for line in lines:
             self.print_step(line)
 
+    def _pinned_renderable(self) -> RenderableType | None:
+        if not self._setup_card_lines:
+            return None
+        return Group(
+            self._setup_card(self._setup_card_lines, border_style="dim"),
+            *self._completed_cards,
+        )
+
+    @staticmethod
+    def _setup_card(
+        lines: tuple[Text, ...],
+        *,
+        border_style: str,
+    ) -> Panel:
+        return Panel(
+            Group(*lines),
+            box=box.ROUNDED,
+            border_style=border_style,
+            padding=(0, 1),
+        )
+
+    def _persist_setup_card(self, kind: OutcomeKind) -> None:
+        if not self._setup_card_lines or self._progress is None:
+            return
+        lines = self._setup_card_lines
+        completed_cards = tuple(self._completed_cards)
+        self._setup_card_lines = ()
+        self._completed_cards.clear()
+        self._refresh_progress()
+        self._progress.print(
+            Group(
+                self._setup_card(lines, border_style=outcome_border_style(kind)),
+                *completed_cards,
+            )
+        )
+
     def _finish_progress(self) -> None:
         if self._progress is None:
             return
+        outcome = self._pending_outcome or "success"
         if (
             self._pending_status is not None
             and self._pending_status.message not in _CELL_PHASE_MESSAGES
         ):
             line = self._completed_status_line(
                 self._pending_status,
-                self._pending_outcome or "success",
+                outcome,
             )
             if self._pending_status.message in _SETUP_MESSAGES:
                 self._setup_lines.append(line)
             else:
                 self.print_step(line)
         self._flush_setup_card()
+        self._persist_setup_card(outcome)
         self._pending_status = None
         self._pending_outcome = None
         self._progress.stop()
@@ -569,6 +625,8 @@ class LiveVerificationView:
         self._cell_stage_tasks.clear()
         self._cell_identities.clear()
         self._render_tasks = ()
+        self._setup_card_lines = ()
+        self._completed_cards.clear()
         self._cell_matrix_active = False
 
 
@@ -764,9 +822,11 @@ class _OrderedProgress(Progress):
         self,
         *columns: str | ProgressColumn,
         order: Callable[[], list[Task]],
+        header: Callable[[], RenderableType | None],
         **kwargs: Any,
     ) -> None:
         self._task_order = order
+        self._header = header
         super().__init__(*columns, **kwargs)
 
     def refresh(self) -> None:
@@ -776,8 +836,9 @@ class _OrderedProgress(Progress):
         super().refresh()
 
     def get_renderables(self):
+        header = self._header()
         tasks = self._task_order()
-        if not tasks:
+        if not tasks and header is None:
             return
         cell_groups: list[list[Task]] = []
         current: list[Task] = []
@@ -797,7 +858,10 @@ class _OrderedProgress(Progress):
                 current.append(task)
         if current:
             cell_groups.append(current)
-        renderables: list[RenderableType] = [
+        renderables: list[RenderableType] = []
+        if header is not None:
+            renderables.append(header)
+        renderables.extend(
             Panel(
                 Group(*(self.make_tasks_table((task,)) for task in group)),
                 box=box.ROUNDED,
@@ -805,7 +869,7 @@ class _OrderedProgress(Progress):
                 padding=(0, 1),
             )
             for group in cell_groups
-        ]
+        )
         if overall:
             renderables.append(self.make_tasks_table(overall))
         if renderables:

@@ -87,17 +87,30 @@ Try 'pf <command> --help' for more information.
 
 `explain` 成功读取后全文在 stdout，即使报告 incomplete；读取失败仍走 stderr/exit 3。一个顶层命令只有一个 final summary，且它是最后一条结果信息。`minimize` 只调用 `render_minimize(reports, edits)`，不能连续渲染 search/apply 两份 summary。
 
-顺序固定：
+TTY 运行中顺序固定：
 
 ```text
-scope facts
+scope facts 首部卡片
 -> Cells 完成时立即冻结的结果块
--> 仍运行的 TTY live 区域
+-> 仍运行的 Cell 卡片
+-> live footer
+```
+
+scope facts 与已完成 Cell 同属 pinned live 区域：Cell 一完成就从运行卡片移入首部
+下方的冻结结果块并保持可见；Presenter 得到命令级最终 outcome 后，再将两者按
+“scope facts 首部 -> 完成块”一次性固结。随后顺序为：
+
+```text
+scope facts 首部卡片 + 完成块
 -> artifact paths
 -> final summary
 ```
 
 非 TTY 不显示 live 工作动词或控制序列，只输出 scope、完成块和 summary。
+
+scope facts 首部卡片的运行中边框使用默认前景色 dim；完成固结时保持 dim，并切换为
+命令最终 outcome 的 green/red/yellow。边框样式不得传给 `loaded project`、
+`built snapshot`、matrix facts 等正文。
 
 ## 5. Live Cell
 
@@ -165,7 +178,9 @@ search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收
 path[:line[:column]] [check_name] single-line message
 ```
 
-每个 Cell 独立展示，不跨 Cell 聚合。TTY completion 立即固结并从 live 区移除；非 TTY 同时输出等价稳定文本。
+每个 Cell 独立展示，不跨 Cell 聚合。TTY completion 立即从 active Cell 区移入 setup
+首部下方的 pinned 完成区；命令 outcome 确定后与首部一起固结，不得改变两者顺序。
+非 TTY 在 Cell completion 时立即输出等价稳定文本。
 
 ## 7. Final summary
 

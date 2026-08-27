@@ -463,6 +463,32 @@ class TestErrorRendering:
             in output
         )
 
+    def test_render_error_colors_the_setup_border_as_failure(self) -> None:
+        terminal = TTYBuffer()
+        presenter = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=terminal,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+            ),
+        )
+
+        presenter.consume(StatusEvent(message="loading project"))
+        presenter.consume(StatusEvent(message="building snapshot"))
+        presenter.render_error(ConfigurationError("snapshot drifted"))
+
+        raw = terminal.getvalue()
+        loaded_at = raw.rindex("loaded project")
+        border_at = raw.rfind("╭", 0, loaded_at)
+        border_style_at = raw.rfind("\x1b[", 0, border_at)
+        border_codes = sgr_codes(raw[border_style_at:border_at])
+        assert "31" in border_codes
+        assert "2" in border_codes
+        assert "1" not in border_codes
+        assert loaded_at < raw.rindex("configuration: snapshot drifted")
+
 
 class TestProgressRendering:
     @pytest.mark.parametrize(
@@ -1079,10 +1105,15 @@ class TestProgressRendering:
         )
 
     def test_tty_setup_facts_render_in_one_rounded_card(self) -> None:
-        stderr = StringIO()
+        stderr = TTYBuffer()
         terminal = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
-            stderr=Console(file=stderr, force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+            ),
         )
         cells = (
             Cell(
@@ -1110,7 +1141,8 @@ class TestProgressRendering:
         terminal.consume(StatusEvent(message="smoke testing"))
         terminal.consume(CellMatrixEvent(cells=cells))
 
-        output = visible(stderr.getvalue())
+        raw = stderr.getvalue()
+        output = visible(raw)
         assert output.count("╭") == 1
         assert "✓ loaded project" in output
         assert "✓ built snapshot" in output
@@ -1118,7 +1150,102 @@ class TestProgressRendering:
         assert "python: 3.10, 3.11, 3.12" in output
         assert "platform: x86_64-unknown-linux-gnu" in output
         assert "extra surfaces: no-extra" in output
+        border_at = raw.rindex("╭")
+        border_style_at = raw.rfind("\x1b[", 0, border_at)
+        border_codes = sgr_codes(raw[border_style_at:border_at])
+        assert "2" in border_codes
+        assert not ({"31", "32", "33", "36"} & border_codes)
+        loaded_at = raw.rindex("loaded project")
+        loaded_style_at = raw.rfind("\x1b[", 0, loaded_at)
+        loaded_end = loaded_at + len("loaded project")
+        assert "2" not in sgr_codes(raw[loaded_style_at:loaded_end])
         terminal.close()
+
+    @pytest.mark.parametrize(
+        ("status", "result_color"),
+        (
+            ("SUCCESS", "32"),
+            ("REJECTED", "31"),
+            ("NO_PASS_IN_SEARCH_SPACE", "33"),
+            ("INDETERMINATE", "33"),
+        ),
+    )
+    def test_tty_setup_card_border_uses_final_result_color(
+        self,
+        status: str,
+        result_color: str,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+            ),
+        )
+
+        terminal.consume(StatusEvent(message="loading project"))
+        terminal.consume(StatusEvent(message="building snapshot"))
+        terminal.consume(StatusEvent(message="smoke testing"))
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(completed_event(cell, status=status))
+        terminal.close()
+
+        raw = stderr.getvalue()
+        loaded_at = raw.rindex("loaded project")
+        border_at = raw.rfind("╭", 0, loaded_at)
+        border_style_at = raw.rfind("\x1b[", 0, border_at)
+        border_codes = sgr_codes(raw[border_style_at:border_at])
+        assert result_color in border_codes
+        assert "2" in border_codes
+        assert "1" not in border_codes
+        assert loaded_at < raw.rindex("[py3.10][x86_64-unknown-linux-gnu][no-extra]")
+
+    def test_tty_setup_card_border_uses_the_command_result(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+            ),
+        )
+        terminal.bind_command("search")
+        terminal.consume(StatusEvent(message="loading project"))
+        terminal.consume(StatusEvent(message="building snapshot"))
+        terminal.consume(StatusEvent(message="searching cells"))
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(completed_event(cell, status="SUCCESS"))
+
+        exit_code = terminal.render_search(
+            (incomplete_report("NO_PASS_IN_SEARCH_SPACE"),)
+        )
+
+        raw = stderr.getvalue()
+        loaded_at = raw.rindex("loaded project")
+        border_at = raw.rfind("╭", 0, loaded_at)
+        border_style_at = raw.rfind("\x1b[", 0, border_at)
+        border_codes = sgr_codes(raw[border_style_at:border_at])
+        assert exit_code == 2
+        assert "33" in border_codes
+        assert "2" in border_codes
+        assert "32" not in border_codes
 
     def test_tty_live_lifecycle_renders_through_public_events(
         self, monkeypatch: pytest.MonkeyPatch
@@ -2030,7 +2157,7 @@ class TestProgressRendering:
 
 
     def test_tty_completed_status_checkmark_is_green(self) -> None:
-        terminal = StringIO()
+        terminal = TTYBuffer()
         presenter = TerminalPresenter(
             stdout=Console(
                 file=StringIO(),
@@ -2069,7 +2196,7 @@ class TestProgressRendering:
         assert "\x1b[32m" in output[: check_at + 1]
 
     def test_tty_matrix_axis_lines_are_dim(self) -> None:
-        terminal = StringIO()
+        terminal = TTYBuffer()
         presenter = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
             stderr=Console(

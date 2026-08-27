@@ -43,6 +43,7 @@ from pf.terminal._presentation import (
     OutcomeKind,
     cell_identity_text,
     completion_action,
+    outcome_border_style,
 )
 
 if TYPE_CHECKING:
@@ -93,14 +94,6 @@ _ICONS = {
     "warning": "⚠",
     "indeterminate": "!",
 }
-_BORDER_STYLES = {
-    "success": "dim green",
-    "failure": "dim red",
-    "warning": "dim yellow",
-    "indeterminate": "dim yellow",
-}
-
-
 def _outcome_card(
     lines: tuple[Text, ...] | list[Text],
     *,
@@ -109,7 +102,7 @@ def _outcome_card(
     return Panel(
         Group(*lines),
         box=box.ROUNDED,
-        border_style=_BORDER_STYLES[kind],
+        border_style=outcome_border_style(kind),
         padding=(0, 1),
     )
 
@@ -477,7 +470,7 @@ class TerminalPresenter:
         self._command: str | None = None
         self._live = LiveVerificationView(
             stderr=self.stderr,
-            emit_cell=self._print_cell_report,
+            render_cell=self._cell_report_renderables,
         )
 
     def bind_command(self, command: str) -> None:
@@ -489,7 +482,7 @@ class TerminalPresenter:
             isinstance(error, ConfigurationError) and error.candidates
         ):
             return self._render_invocation(error)
-        self.close(abandon_pending=True)
+        self._live.close(abandon_pending=True, final_outcome="failure")
         self.stderr.print(
             Text.assemble(
                 (f"{_ICONS['failure']} ", "failure"),
@@ -506,7 +499,7 @@ class TerminalPresenter:
         return int(error.exit_code)
 
     def _render_invocation(self, error: ConfigurationError) -> int:
-        self.close(abandon_pending=True)
+        self._live.close(abandon_pending=True, final_outcome="failure")
         self.stderr.print(f"Error: {error}")
         if error.candidates:
             shown = error.candidates[:10]
@@ -523,7 +516,16 @@ class TerminalPresenter:
         return int(error.exit_code)
 
     def render_check(self, result: CheckResult) -> int:
-        self.close()
+        check_kind: OutcomeKind = (
+            "success"
+            if result.status == "PASS"
+            else (
+                "failure"
+                if result.status == "COMPATIBILITY_FAILED"
+                else "indeterminate"
+            )
+        )
+        self.close(final_outcome=check_kind)
         if result.outcomes:
             for outcome in result.outcomes:
                 self._print_check_cell_outcome(outcome)
@@ -557,7 +559,16 @@ class TerminalPresenter:
         return 4
 
     def render_smoke(self, result: SmokeResult) -> int:
-        self.close()
+        smoke_kind: OutcomeKind = (
+            "success"
+            if result.status == "PASS"
+            else (
+                "failure"
+                if result.status == "BASELINE_REJECTION"
+                else "indeterminate"
+            )
+        )
+        self.close(final_outcome=smoke_kind)
         for outcome in result.outcomes:
             presentation = CellPresentation.from_result(
                 outcome,
@@ -620,7 +631,17 @@ class TerminalPresenter:
                 self._print_cell_report(presentation)
 
     def render_search(self, reports: tuple[ValidatedReport, ...]) -> int:
-        self.close()
+        search_exit_code = _search_exit_code(_search_reasons(reports))
+        search_kind: OutcomeKind
+        if search_exit_code == 0:
+            search_kind = "success"
+        elif search_exit_code == 1:
+            search_kind = "failure"
+        elif search_exit_code == 4:
+            search_kind = "indeterminate"
+        else:
+            search_kind = "warning"
+        self.close(final_outcome=search_kind)
         leftover = self._take_search_diagnostics()
         events_by_cell: dict[
             tuple[str, str, str, tuple[str, ...]], list[SearchFailureEvent]
@@ -674,16 +695,23 @@ class TerminalPresenter:
         self,
         presentation: CellPresentation,
     ) -> None:
+        renderables = self._cell_report_renderables(presentation)
+        if renderables is not None:
+            for renderable in renderables:
+                self._print_step(renderable)
+
+    def _cell_report_renderables(
+        self,
+        presentation: CellPresentation,
+    ) -> tuple[Text | Panel | Group, ...] | None:
         key = _cell_key(presentation.cell)
         if key in self._emitted_cell_keys:
-            return
+            return None
         lines = self._cell_result_lines(presentation)
-        if self.stderr.is_terminal:
-            self._print_step(_outcome_card(lines, kind=presentation.kind))
-        else:
-            for line in lines:
-                self._print_step(line)
         self._emitted_cell_keys.add(key)
+        if self.stderr.is_terminal:
+            return (_outcome_card(lines, kind=presentation.kind),)
+        return tuple(lines)
 
     def _render_explain_cell(self, presentation: CellPresentation) -> None:
         """Render one report Cell with the shared final-card presentation."""
@@ -773,8 +801,16 @@ class TerminalPresenter:
     def consume(self, event: ActivityEvent) -> None:
         self._live.consume(event)
 
-    def close(self, *, abandon_pending: bool = False) -> None:
-        self._live.close(abandon_pending=abandon_pending)
+    def close(
+        self,
+        *,
+        abandon_pending: bool = False,
+        final_outcome: OutcomeKind | None = None,
+    ) -> None:
+        self._live.close(
+            abandon_pending=abandon_pending,
+            final_outcome=final_outcome,
+        )
 
     def _see_details_quote(self, process: ProcessResult) -> Text | None:
         if self._logs is None:

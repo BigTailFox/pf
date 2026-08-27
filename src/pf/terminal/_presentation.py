@@ -25,6 +25,13 @@ from pf.verification import completion_outcome
 
 OutcomeKind = Literal["success", "failure", "warning", "indeterminate"]
 
+_OUTCOME_BORDER_STYLES: dict[OutcomeKind, str] = {
+    "success": "dim green",
+    "failure": "dim red",
+    "warning": "dim yellow",
+    "indeterminate": "dim yellow",
+}
+
 _SUCCESS_STATUSES = frozenset({"SUCCESS", "PASS"})
 _WARNING_STATUSES = frozenset(
     {
@@ -70,6 +77,11 @@ def cell_identity_text(
 
 def cell_identity_title(identity: CellDetailIdentity) -> str:
     return cell_identity_text(identity).plain
+
+
+def outcome_border_style(kind: OutcomeKind) -> str:
+    """Return the shared dim border style for a completed outcome."""
+    return _OUTCOME_BORDER_STYLES[kind]
 
 
 def completion_action(command: str | None, kind: OutcomeKind) -> str | None:

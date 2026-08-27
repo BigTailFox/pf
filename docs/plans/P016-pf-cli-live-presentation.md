@@ -69,6 +69,9 @@
 9. **Cell border follow-up：** 对 success/failure/warning/indeterminate 四种 TTY 卡片
    及 live 卡片先断言边框同时保留原颜色并使用 dim，再统一边框 theme，正文样式
    保持不变。
+10. **Setup card border follow-up：** 在公开 setup event 序列中断言唯一 rounded card
+    运行中边框为默认前景 dim，且 loaded/built/selected 正文不继承 dim；完成后同一
+    卡片持久化为 dim + 最终 outcome 色。
 
 ## 4. 实施记录
 
@@ -133,6 +136,26 @@
   Cell 卡片，而首次实现只调整完成态。新增 live ANSI RED 证明默认前景边框没有
   dim；GREEN 为 `_OrderedProgress` 的 live Panel 增加 dim、保持默认前景色，并将
   live identity 的 ANSI 断言收窄到 identity span，避免把边框 dim 误判为正文 dim。
+- **Slice 10 / setup card border follow-up：** RED：`loaded project`、`built snapshot`
+  与 `selected N cells` 的唯一 rounded setup card 使用默认亮度边框；追加 RED 证明
+  完成后若直接补打 outcome 色卡片，会落在已完成 Cell 卡片之后、破坏首部顺序。
+  GREEN：运行中 setup Panel 使用默认前景 dim；`TerminalPresenter` 统一构造 Cell
+  renderables，由 `LiveVerificationView` 在 setup 下冻结完成卡片，结束时按“outcome 色
+  setup → Cell 诊断”一次性持久化。success/failure/warning/indeterminate 边框分别使用
+  dim green/red/yellow/yellow，正文不继承 dim；TTY ANSI 回归 `7 passed`。
+- **Review 修正 / 异常 outcome：** Spec review 发现 `render_error()` 的
+  `abandon_pending` 会清空 outcome，使红色错误下的 setup 边框误用 success green。
+  新增异常路径 ANSI RED；GREEN 由 error renderer 显式以 failure outcome 关闭 live，
+  保留“丢弃未完成 status”语义，同时令首部边框使用 dim red。
+- **Review 修正 / 固结契约：** Standards review 发现 D006 仍把完成 Cell 描述为直接
+  固结到 live 外。D006 §4/§6 已明确新的 pinned ownership：完成 Cell 立即从 active
+  区移到 setup 下方，最终 outcome 确定后按“setup → 完成块”一次性固结；非 TTY
+  仍在 Cell completion 时立即输出。
+- **Review 修正 / 命令级 outcome：** Standards 复审发现最后一个 Cell 的聚合结果
+  不一定等于最终命令结果，例如成功 Cell 仍可能因不可表示 projection 令 search
+  warning。live 不再随最后一个 Cell 自动固结；smoke/check/search renderer 在真实命令
+  结果确定后显式传入 final outcome。新增 success Cell + warning search 的 ANSI
+  RED/GREEN，证明 setup 使用 dim yellow 而非 green。
 
 ## 5. 验证结论
 
@@ -145,7 +168,11 @@
   `1275 passed in 21.32s`，live border review 修正后为
   `1276 passed in 21.49s`。
 - Cell 边框 follow-up 的 terminal/smoke/CLI 相邻回归为 `131 passed`，live border
-  review 修正后为 `132 passed`。
+  review 修正后为 `132 passed`；setup 最终色、首部顺序及 review 修正后，terminal/
+  smoke/CLI 全量相邻回归为 `138 passed`。
+- 包含并行合入 P017 修正的最终完整套件为 `1291 passed in 26.96s`。受限沙箱内首次全量
+  只有安装态 E2E 因无法访问 package source 失败；允许依赖源访问后该单项及最终
+  全量均通过。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。
