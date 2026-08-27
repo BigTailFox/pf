@@ -66,6 +66,8 @@
 8. **Identity style follow-up：** 先用 ANSI 测试证明 live identity 仍含 dim、完成行
    仍含 dim/cyan 且阶段在 `· testing`；再统一为 live cyan/default 与完成态单一结果
    色，并把失败阶段格式化为第三个 bracket token。
+9. **Cell border follow-up：** 对 success/failure/warning/indeterminate 四种 TTY 卡片
+   先断言边框同时保留结果色并使用 dim，再统一边框 theme，正文样式保持不变。
 
 ## 4. 实施记录
 
@@ -122,6 +124,10 @@
   单一上下文 style”；live 传入 cyan，完成态传入结果色，阶段追加为第三个 bracket
   token。smoke/check/search、无 identity deadline 和 numeric search identity 共
   `10 passed`。
+- **Slice 9 / Cell border follow-up：** RED：success/failure/warning/indeterminate
+  四种 TTY 卡片边框分别只有 outcome hue，failure/indeterminate 还保留 bold，均无
+  dim。GREEN：边框 theme 统一为 dim + 既有 green/red/yellow hue，不把 dim 传给
+  正文，并移除边框的 bold；四种 ANSI 回归 `4 passed`。
 
 ## 5. 验证结论
 
@@ -130,7 +136,9 @@
 - 完整测试套件：沙箱内先得到 `1266 passed, 1 failed`，唯一失败是安装态 E2E
   获取 `uv_build` 时被网络策略拒绝；允许依赖访问后，首次实现为
   `1267 passed in 21.13s`，双轴 review 修正后为 `1269 passed in 22.11s`，style
-  follow-up 后为 `1271 passed in 21.06s`。
+  follow-up 后为 `1271 passed in 21.06s`，Cell 边框 follow-up 后为
+  `1275 passed in 21.32s`。
+- Cell 边框 follow-up 的 terminal/smoke/CLI 相邻回归为 `131 passed`。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。

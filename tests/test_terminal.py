@@ -699,6 +699,49 @@ class TestProgressRendering:
         assert "tests/test_search_workflow.py::test_candidate_failure" in compact
         assert "... and 1 more" in collapsed
 
+    @pytest.mark.parametrize(
+        ("status", "result_color"),
+        (
+            ("SUCCESS", "32"),
+            ("REJECTED", "31"),
+            ("NO_PASS_IN_SEARCH_SPACE", "33"),
+            ("INDETERMINATE", "33"),
+        ),
+    )
+    def test_tty_cell_card_border_keeps_result_color_and_is_dim(
+        self,
+        status: str,
+        result_color: str,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = StringIO()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+            ),
+        )
+
+        terminal.consume(completed_event(cell, status=status))
+        terminal.close()
+
+        raw = stderr.getvalue()
+        border_at = raw.rindex("╭")
+        style_at = raw.rfind("\x1b[", 0, border_at)
+        border_codes = sgr_codes(raw[style_at:border_at])
+        assert result_color in border_codes
+        assert "2" in border_codes
+        assert "1" not in border_codes
+
     def test_progress_is_stable_lines_off_tty_and_dynamic_on_tty(self) -> None:
         cell = Cell(
             package="demo",

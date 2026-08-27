@@ -123,6 +123,8 @@ Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live
 
 外层 Console 最宽 120 列；内部 renderable 不设置固定 width/height。窄终端优先隐藏 bar、换行或改为 label block，不能丢失 package、Cell、artifact 或 next action。非 TTY 无 box drawing。
 
+TTY Cell 卡片边框统一使用 dim，并保留 outcome hue：success 为 green，failure 为 red，warning/indeterminate 为 yellow。dim 只作用于边框，不传递到卡片正文。
+
 ## 6. Cell completion 与 detail
 
 成功 Cell 的 header 只有结果图标、Cell 与 elapsed；identity 位于第一条 detail：

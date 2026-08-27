@@ -94,10 +94,10 @@ _ICONS = {
     "indeterminate": "!",
 }
 _BORDER_STYLES = {
-    "success": "green",
-    "failure": "bold red",
-    "warning": "yellow",
-    "indeterminate": "bold yellow",
+    "success": "dim green",
+    "failure": "dim red",
+    "warning": "dim yellow",
+    "indeterminate": "dim yellow",
 }
 
 _FAILED_AT = {
