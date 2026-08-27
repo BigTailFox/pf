@@ -40,7 +40,8 @@ from pf.terminal._live import LiveVerificationView
 from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
-    cell_identity_title,
+    cell_identity_text,
+    completion_action,
 )
 
 if TYPE_CHECKING:
@@ -57,6 +58,18 @@ PF_THEME = Theme(
         "reason.failure": "red not bold",
         "reason.warning": "yellow not bold",
         "reason.indeterminate": "yellow not bold",
+        "identity.success": "green not bold",
+        "identity.success.muted": "green dim not bold",
+        "identity.failure": "red not bold",
+        "identity.failure.muted": "red dim not bold",
+        "identity.warning": "yellow not bold",
+        "identity.warning.muted": "yellow dim not bold",
+        "identity.indeterminate": "yellow not bold",
+        "identity.indeterminate.muted": "yellow dim not bold",
+        "summary.success": "bold green",
+        "summary.failure": "bold red",
+        "summary.warning": "bold yellow",
+        "summary.indeterminate": "bold yellow",
         "dim": "dim",
         "path": "cyan",
         "cell": "bold cyan",
@@ -283,6 +296,37 @@ def _primary_failure(presentation: CellPresentation) -> FailureRecord:
     return presentation.failures[0]
 
 
+_SEARCH_COMPLETION_REASONS = {
+    "NO_PASS_IN_SEARCH_SPACE": (
+        "The configured search space was fully evaluated, but no compatible "
+        "version combination was found."
+    ),
+    "NON_MONOTONIC": (
+        "Search evidence was non-monotonic, so PF could not derive a reliable floor."
+    ),
+    "NONDETERMINISTIC": (
+        "Repeated checks disagreed, so PF could not derive a reliable floor."
+    ),
+}
+
+
+def _cell_reason(
+    presentation: CellPresentation,
+    failure_title: str | None,
+) -> str | None:
+    if presentation.command != "search":
+        return failure_title
+    conclusion = _SEARCH_COMPLETION_REASONS.get(presentation.status)
+    if conclusion is not None:
+        return conclusion
+    if presentation.kind == "indeterminate" and failure_title is not None:
+        return (
+            "Search stopped before the configured search space was fully evaluated. "
+            f"{failure_title}"
+        )
+    return failure_title
+
+
 def _counted(count: int, singular: str, plural: str | None = None) -> str:
     noun = singular if count == 1 else (plural or f"{singular}s")
     return f"{count} {noun}"
@@ -323,22 +367,52 @@ def _cell_finished_line(
     *,
     title: str,
     kind: OutcomeKind,
-    identity: str | None = None,
     elapsed: float | None = None,
-    failed_at: str | None = None,
 ) -> Text:
     parts: list[str | tuple[str, str]] = [
         (f"{_ICONS[kind]} ", kind),
         (title, "cell"),
     ]
-    if identity is not None:
-        parts.extend([" ", (identity, "version")])
-    if failed_at:
-        parts.extend([" failed at ", (failed_at, kind)])
     if elapsed is not None:
-        parts.extend(["  " if failed_at else " ", (_format_elapsed(elapsed), "dim")])
+        parts.extend([" ", (_format_elapsed(elapsed), "dim")])
     line = Text.assemble(*parts)
     return _fold_text(line)
+
+
+def _cell_completion_detail_line(
+    presentation: CellPresentation,
+) -> Text | None:
+    failed_at = (
+        _failed_at_label(presentation.stage)
+        if presentation.kind in {"failure", "warning", "indeterminate"}
+        else None
+    )
+    action = completion_action(presentation.command, presentation.kind)
+    if action is None and presentation.identity is None and failed_at is None:
+        return None
+    base_style = f"reason.{presentation.kind}"
+    line = Text(overflow="fold", no_wrap=False)
+    if action is not None:
+        line.append(action, style=base_style)
+    if presentation.identity is not None:
+        if action is not None:
+            line.append(" at ", style=base_style)
+        line.append_text(
+            cell_identity_text(
+                presentation.identity,
+                active_style=f"identity.{presentation.kind}",
+                muted_style=f"identity.{presentation.kind}.muted",
+            )
+        )
+    elif failed_at is not None and action is None:
+        line.append("failed at ", style=base_style)
+        line.append(failed_at, style=f"{base_style} dim")
+        return line
+    if failed_at is not None:
+        if action is not None or presentation.identity is not None:
+            line.append(" · ", style=f"{base_style} dim")
+        line.append(failed_at, style=f"{base_style} dim")
+    return line
 
 
 def _hint_sentence(
@@ -619,24 +693,16 @@ class TerminalPresenter:
         self,
         presentation: CellPresentation,
     ) -> list[Text]:
-        failed_at = (
-            _failed_at_label(presentation.stage)
-            if presentation.kind in {"failure", "indeterminate"}
-            else None
-        )
         body: list[Text] = [
             _cell_finished_line(
                 title=_cell_title(presentation.cell),
                 kind=presentation.kind,
-                identity=(
-                    cell_identity_title(presentation.identity)
-                    if presentation.identity is not None
-                    else None
-                ),
                 elapsed=presentation.elapsed,
-                failed_at=failed_at,
             )
         ]
+        completion_detail = _cell_completion_detail_line(presentation)
+        if completion_detail is not None:
+            body.append(completion_detail)
         if presentation.failures:
             record = _primary_failure(presentation)
             failure_presentation = self.failure_presentation(
@@ -647,7 +713,11 @@ class TerminalPresenter:
             body.append(
                 _fold_text(
                     Text(
-                        failure_presentation.title,
+                        _cell_reason(
+                            presentation,
+                            failure_presentation.title,
+                        )
+                        or failure_presentation.title,
                         style=f"reason.{presentation.kind}",
                     )
                 )
@@ -674,6 +744,11 @@ class TerminalPresenter:
                     else Text("Detailed diagnosis unavailable.", style="dim")
                 )
             return body
+        reason = _cell_reason(presentation, None)
+        if reason is not None:
+            body.append(
+                _fold_text(Text(reason, style=f"reason.{presentation.kind}"))
+            )
         body.extend(_cell_detail_lines(presentation.detail))
         return body
 
@@ -729,7 +804,7 @@ class TerminalPresenter:
         console: Console | None = None,
     ) -> None:
         (console or self.stderr).print(
-            Text.assemble((f"{_ICONS[kind]} ", kind), message),
+            Text(f"{_ICONS[kind]} {message}", style=f"summary.{kind}"),
             soft_wrap=True,
         )
 

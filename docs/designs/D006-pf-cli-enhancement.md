@@ -104,34 +104,39 @@ scope facts
 TTY 的每个运行中 Cell 使用独立卡片：
 
 ```text
-⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] [baseline][highest] 0:00:12
-  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests
+⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+  [baseline][highest]
+  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests ETA 0:00:41
 
 ⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [pydantic==1.5][1.0…2.0 · 7 candidates]
-  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests
+  [pydantic=1.5][1.0..2.0#7]
+  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests ETA 0:00:41
+
+⠋ searching cells · 2 running · 5 left                              0:00:12
 ```
 
-`CellContextEvent` 提供当前 detail identity：baseline/declaration 放 title 行；search probe 放独立 detail 行。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
+`CellContextEvent` 提供当前 detail identity；baseline、declaration 与 search probe 都放在 title 后的第一条 detail。第一组默认亮度、第二组 dim，版本和 candidate count 为 cyan（第二组同时 dim）。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
 
-只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total tests`；generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后值，不能降回 spinner。Progress 是 UI-only，不改变 TestOutcome。
+只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total tests` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
-Cell matrix 用规范顺序的 `□`/`■` 表示未完成/完成；方块数始终等于 Cell 总数，可换行但不丢失或重排。Result color 只补充 outcome。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
+Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`M left` 和右对齐总耗时，其中 `left = total - completed - running`；不显示方块矩阵或 completed/total。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
 
 外层 Console 最宽 120 列；内部 renderable 不设置固定 width/height。窄终端优先隐藏 bar、换行或改为 label block，不能丢失 package、Cell、artifact 或 next action。非 TTY 无 box drawing。
 
 ## 6. Cell completion 与 detail
 
-成功 Cell 只有结果图标、Cell、当前非空 presentation identity 与 elapsed：
+成功 Cell 的 header 只有结果图标、Cell 与 elapsed；identity 位于第一条 detail：
 
 ```text
-✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] [declaration][lowest-direct] 0:00:12
+✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+check passed at [declaration][lowest-direct]
 ```
 
 有 FailureRecord 的 Cell 块为：
 
 ```text
-✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] [baseline][highest] failed at testing 0:00:19
+✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
+smoke failed at [baseline][highest] · testing
 The full test command failed for this version combination.
 FAILED tests/test_cli.py::test_example
 ... and 2 more
@@ -140,10 +145,15 @@ FAILED tests/test_cli.py::test_example
 
 固定层级：
 
-1. 图标、完整 Cell、可选 detail identity、用户阶段与 elapsed；
-2. 一个 D005 title；普通 Cell 不展示 Role impact；
-3. 可选 `CellResultDetail` 的第一条典型详情与 `... and N more`；
-4. Journal/Index 可用时显示精确 diagnose command。
+1. 图标、完整 Cell 与 elapsed；
+2. 命令 completion action、可选 detail identity 与用户阶段；
+3. 一个 D005 title 或 search completion Reason；普通 Cell 不展示 Role impact；
+4. 可选 `CellResultDetail` 的第一条典型详情与 `... and N more`；
+5. Journal/Index 可用时显示精确 diagnose command。
+
+completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。identity 使用 live formatter；完成态只把默认前景替换为结果色，第二组仍 dim，cyan 数字不变。
+
+search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收到的最新 `SearchFailureEvent`。末事件没有 detail 时不得回退到历史 probe；历史 failure 仍留在报告、Journal 与 `pf diagnose`。Reason 另行表达 Cell 为何结束：`INDETERMINATE` 明示搜索空间尚未评估完成并附终止 failure title；`NO_PASS_IN_SEARCH_SPACE` 明示搜索空间已完整评估但没有兼容组合。`NON_MONOTONIC` / `NONDETERMINISTIC` 显示各自的搜索结论，不借用某次历史候选拒绝作为 Cell 结论。
 
 普通 Cell 不展示 baseline `ty` warning、stdout/stderr tail、Process Log link、cause/status Enum 或全部 Failures。若应有的 Journal/Index 写入失败使 diagnose 不可用，才回退到对应 Process Log link；没有日志则显示 `Detailed diagnosis unavailable.`。
 
@@ -164,6 +174,7 @@ path[:line[:column]] [check_name] single-line message
 ```
 
 所有 renderer 复用统一 `0/1/N` 单复数 formatter。只有实际写入/修改的 artifact 能使用 `written | updated | merged`。多 package 先逐行列 artifact，再输出一条命令级 summary。
+Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 
 典型结果：
 

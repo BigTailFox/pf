@@ -299,7 +299,7 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
 
     if isinstance(result, CellSearchFailure):
         return CellFailed(
-            status=result.status,
+            status=result.reason,
             phase=result.phase,
             failures=result.failure_records,
             verification_role="probe",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from copy import copy
+from math import ceil
 from threading import RLock
 from typing import Any
 
@@ -44,7 +45,7 @@ from pf.schemas.project import Cell
 from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
-    cell_identity_title,
+    cell_identity_text,
     escalate_outcome,
 )
 
@@ -111,16 +112,13 @@ class LiveVerificationView:
         self._cell_identities: dict[
             tuple[str, str, str, tuple[str, ...]], CellDetailIdentity | None
         ] = {}
-        self._cell_order: list[tuple[str, str, str, tuple[str, ...]]] = []
-        self._cell_outcomes: dict[
-            tuple[str, str, str, tuple[str, ...]], OutcomeKind | None
-        ] = {}
         self._render_tasks: tuple[Task, ...] = ()
         self._pending_status: StatusEvent | None = None
         self._pending_outcome: OutcomeKind | None = None
         self._search_diagnostics: list[SearchFailureEvent] = []
         self._setup_lines: list[Text] = []
         self._command: str | None = None
+        self._cell_matrix_active = False
 
     def bind_command(self, command: str) -> None:
         self._command = command
@@ -153,15 +151,7 @@ class LiveVerificationView:
 
     def take_search_diagnostics(self) -> tuple[SearchFailureEvent, ...]:
         with self._lock:
-            diagnostics = tuple(
-                sorted(
-                    self._search_diagnostics,
-                    key=lambda event: (
-                        *_cell_key(event.cell),
-                        event.failure.failure_id,
-                    ),
-                )
-            )
+            diagnostics = tuple(self._search_diagnostics)
             self._search_diagnostics.clear()
             return diagnostics
 
@@ -201,6 +191,7 @@ class LiveVerificationView:
         )
 
     def _consume_matrix(self, event: CellMatrixEvent) -> None:
+        self._cell_matrix_active = True
         heading, *details = _matrix_summary_lines(event.cells)
         heading_line = Text.assemble((f"{_ICONS['success']} ", "success"), heading)
         detail_lines = [Text(f"  {line}", style="dim") for line in details]
@@ -214,8 +205,6 @@ class LiveVerificationView:
             for line in detail_lines:
                 self.print_step(line)
             return
-        self._cell_order = [_cell_key(cell) for cell in event.cells]
-        self._cell_outcomes = dict.fromkeys(self._cell_order)
         description = (
             self._status_description(self._pending_status)
             if self._pending_status is not None
@@ -226,8 +215,6 @@ class LiveVerificationView:
             total=len(event.cells) or None,
             completed=0,
         )
-        for cell in event.cells:
-            self._ensure_cell_task(cell, start=False)
 
     def _consume_stage(self, event: CellStageEvent) -> None:
         if not self._stderr.is_terminal:
@@ -236,32 +223,25 @@ class LiveVerificationView:
         self._set_cell_stage(event.cell, event.stage, event.progress)
 
     def _consume_context(self, event: CellContextEvent) -> None:
+        key = _cell_key(event.cell)
+        self._cell_identities[key] = event.detail
         if not self._stderr.is_terminal:
             return
         self._ensure_cell_task(event.cell, start=True)
-        key = _cell_key(event.cell)
-        self._cell_identities[key] = event.detail
         cell_id = self._cell_tasks.get(key)
         context_id = self._cell_context_tasks.get(key)
         stage_id = self._cell_stage_tasks.get(key)
-        inline_detail = (
-            cell_identity_title(event.detail)
-            if isinstance(
-                event.detail,
-                BaselineDetailIdentity | DeclarationDetailIdentity,
-            )
-            else None
-        )
         if cell_id is not None and self._progress is not None:
-            self._progress.update(cell_id, inline_detail=inline_detail)
+            self._progress.update(cell_id)
         if context_id is not None and self._progress is not None:
             self._progress.update(
                 context_id,
                 description=(
-                    cell_identity_title(event.detail)
-                    if isinstance(event.detail, SearchProbeDetailIdentity)
+                    cell_identity_text(event.detail).plain
+                    if event.detail is not None
                     else ""
                 ),
+                detail_identity=event.detail,
             )
         if stage_id is not None and self._progress is not None:
             self._set_cell_stage(event.cell, "", None)
@@ -277,8 +257,6 @@ class LiveVerificationView:
             search_events=self._take_cell_diagnostics(event.cell),
             command=self._command,
         )
-        if self._stderr.is_terminal:
-            self._cell_outcomes[_cell_key(event.cell)] = presentation.kind
         self._emit_cell(presentation)
         self._pending_outcome = escalate_outcome(
             self._pending_outcome,
@@ -336,6 +314,7 @@ class LiveVerificationView:
         if context_id is not None:
             self._progress.remove_task(context_id)
         self._cell_identities.pop(key, None)
+        self._sync_overall_running()
 
     def _ensure_progress(self) -> None:
         if self._progress is not None:
@@ -345,6 +324,7 @@ class LiveVerificationView:
             _TaskDescriptionColumn(),
             _ProgressVisualColumn(),
             _OverallCountColumn(),
+            _StageRemainingColumn(),
             _DimElapsedColumn(),
             order=self._ordered_tasks,
             console=self._stderr,
@@ -384,7 +364,8 @@ class LiveVerificationView:
                 total=total,
                 completed=completed,
                 role="overall",
-                cell_progress=self._overall_cell_progress(),
+                running=len(self._cell_tasks),
+                cell_activity=self._cell_matrix_active,
             )
             return
         if total is not None:
@@ -393,17 +374,16 @@ class LiveVerificationView:
                 description=description,
                 total=total,
                 completed=completed,
-                cell_progress=self._overall_cell_progress(),
+                running=len(self._cell_tasks),
+                cell_activity=self._cell_matrix_active,
             )
         elif description is not None:
             self._progress.update(
                 self._overall_task,
                 description=description,
-                cell_progress=self._overall_cell_progress(),
+                running=len(self._cell_tasks),
+                cell_activity=self._cell_matrix_active,
             )
-
-    def _overall_cell_progress(self) -> tuple[OutcomeKind | None, ...]:
-        return tuple(self._cell_outcomes[key] for key in self._cell_order)
 
     def _ensure_cell_task(self, cell: Cell, *, start: bool) -> TaskID:
         self._ensure_progress()
@@ -415,7 +395,6 @@ class LiveVerificationView:
                 _cell_title(cell),
                 total=None,
                 role="cell",
-                inline_detail=None,
                 start=start,
             )
             self._cell_tasks[key] = task_id
@@ -432,10 +411,20 @@ class LiveVerificationView:
                 stage_progress=None,
                 start=False,
             )
+            self._sync_overall_running()
             return task_id
         if start:
             self._progress.start_task(task_id)
         return task_id
+
+    def _sync_overall_running(self) -> None:
+        if self._progress is None or self._overall_task is None:
+            return
+        self._progress.update(
+            self._overall_task,
+            running=len(self._cell_tasks),
+            cell_activity=self._cell_matrix_active,
+        )
 
     def _ordered_tasks(self) -> list[Task]:
         return list(self._render_tasks)
@@ -485,15 +474,38 @@ class LiveVerificationView:
             stage_task = next(
                 task for task in self._progress.tasks if task.id == stage_id
             )
+            stage_changed = stage_task.description != stage
             stage_progress = progress
             if progress is None and stage_task.description == stage:
                 previous = stage_task.fields.get("stage_progress")
                 if isinstance(previous, StageProgress):
                     stage_progress = previous
+            if stage_changed:
+                self._progress.reset(
+                    stage_id,
+                    start=bool(stage),
+                    total=(stage_progress.total if stage_progress is not None else None),
+                    completed=(
+                        stage_progress.completed if stage_progress is not None else 0
+                    ),
+                    description=stage,
+                    role="cell-stage",
+                    stage_progress=stage_progress,
+                )
+                return
+            if stage_progress is not None:
+                self._progress.update(
+                    stage_id,
+                    description=stage,
+                    total=stage_progress.total,
+                    completed=stage_progress.completed,
+                    stage_progress=stage_progress,
+                )
+                return
             self._progress.update(
                 stage_id,
                 description=stage,
-                stage_progress=stage_progress,
+                stage_progress=None,
             )
 
     @staticmethod
@@ -556,9 +568,8 @@ class LiveVerificationView:
         self._cell_context_tasks.clear()
         self._cell_stage_tasks.clear()
         self._cell_identities.clear()
-        self._cell_order.clear()
-        self._cell_outcomes.clear()
         self._render_tasks = ()
+        self._cell_matrix_active = False
 
 
 def _python_sort_key(minor: str) -> tuple[int, ...]:
@@ -628,16 +639,33 @@ class _TaskDescriptionColumn(TextColumn):
         )
 
     def render(self, task: Task) -> Text:
+        if task.fields.get("role") == "cell-context":
+            identity = task.fields.get("detail_identity")
+            if isinstance(
+                identity,
+                BaselineDetailIdentity
+                | DeclarationDetailIdentity
+                | SearchProbeDetailIdentity,
+            ):
+                return cell_identity_text(identity)
         rendered = super().render(task)
         role = task.fields.get("role")
-        if role in {"cell-context", "cell-stage"}:
+        if role == "cell-stage":
             rendered.stylize("dim")
+        elif (
+            role == "overall"
+            and task.total is not None
+            and task.fields.get("cell_activity") is True
+        ):
+            running = task.fields.get("running")
+            if isinstance(running, int):
+                left = max(0, int(task.total - task.completed - running))
+                rendered.append(
+                    f" · {running} running · {left} left",
+                    style="dim",
+                )
         elif role == "cell":
             rendered.stylize("cell")
-            inline_detail = task.fields.get("inline_detail")
-            if isinstance(inline_detail, str) and inline_detail:
-                rendered.append(" ")
-                rendered.append(inline_detail, style="version")
         return rendered
 
 
@@ -647,16 +675,7 @@ class _ProgressVisualColumn(ProgressColumn):
 
     def render(self, task: Task) -> RenderableType:
         if task.fields.get("role") == "overall":
-            cell_progress = task.fields.get("cell_progress")
-            if isinstance(cell_progress, tuple) and cell_progress:
-                rendered = Text(" ", overflow="fold", no_wrap=False)
-                for outcome in cell_progress:
-                    rendered.append(
-                        "■" if outcome is not None else "□",
-                        style=outcome or "dim",
-                    )
-                return rendered
-            return Text()
+            return _ElasticSpace()
         stage_progress = task.fields.get("stage_progress")
         if task.fields.get("role") == "cell-stage" and isinstance(
             stage_progress, StageProgress
@@ -681,7 +700,11 @@ class _ProgressVisualColumn(ProgressColumn):
 
 class _OverallCountColumn(MofNCompleteColumn):
     def render(self, task: Task) -> Text:
-        if task.fields.get("role") == "overall" and task.total is not None:
+        if (
+            task.fields.get("role") == "overall"
+            and task.total is not None
+            and task.fields.get("cell_activity") is not True
+        ):
             rendered = super().render(task)
             rendered.pad_left(1)
             return rendered
@@ -697,6 +720,27 @@ class _OverallCountColumn(MofNCompleteColumn):
             rendered.pad_left(1)
             return rendered
         return Text()
+
+
+class _StageRemainingColumn(ProgressColumn):
+    def __init__(self) -> None:
+        super().__init__(table_column=Column(no_wrap=True))
+
+    def render(self, task: Task) -> Text:
+        progress = task.fields.get("stage_progress")
+        if task.fields.get("role") != "cell-stage" or not isinstance(
+            progress,
+            StageProgress,
+        ):
+            return Text()
+        if progress.completed == 0:
+            return Text(" ETA --:--:--", style="dim")
+        remaining = max(0, progress.total - progress.completed)
+        elapsed = task.elapsed or 0.0
+        estimate = ceil(elapsed * remaining / progress.completed)
+        hours, remainder = divmod(estimate, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return Text(f" ETA {hours}:{minutes:02d}:{seconds:02d}", style="dim")
 
 
 class _DimElapsedColumn(TimeElapsedColumn):
@@ -798,7 +842,7 @@ class _OrderedProgress(Progress):
             return tuple(
                 column
                 for column in self.columns
-                if not isinstance(column, _OverallCountColumn)
+                if not isinstance(column, _OverallCountColumn | _StageRemainingColumn)
                 and (
                     task.elapsed is not None
                     or not isinstance(column, _DimElapsedColumn)
@@ -817,7 +861,22 @@ class _OrderedProgress(Progress):
                 for column in self.columns
                 if isinstance(column, _IconColumn | _TaskDescriptionColumn)
                 or has_progress
-                and isinstance(column, _ProgressVisualColumn | _OverallCountColumn)
+                and isinstance(
+                    column,
+                    _ProgressVisualColumn
+                    | _OverallCountColumn
+                    | _StageRemainingColumn,
+                )
+            )
+        if role == "overall":
+            return tuple(
+                column
+                for column in self.columns
+                if not isinstance(column, _StageRemainingColumn)
+                and (
+                    task.fields.get("cell_activity") is not True
+                    or not isinstance(column, _OverallCountColumn)
+                )
             )
         return tuple(self.columns)
 

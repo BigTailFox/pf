@@ -14,7 +14,7 @@ docs/
 ├── README.md             # 本页
 ├── designs/              # 现行契约、草案与已归并设计 D001–D015
 ├── investigation/        # 非规范性实验快照 I001–
-├── plans/                # 非规范性实施记录 P001–P014
+├── plans/                # 非规范性实施记录 P001–P016
 ├── reviews/              # 非规范性评审快照 R001–
 ├── schemas/              # 机器可读公共 Schema
 └── examples/             # 由 Schema 模型生成的示例
@@ -59,7 +59,7 @@ Plan、Review 和 Investigation 中的状态、命令、计数与结论都属于
 ## 非规范性记录
 
 - [I001](investigation/I001-pf-pytest-witness-collection.md) 是 D013 的 pytest 6–9 实验输入快照。
-- [P001](plans/P001-pf-v1.md)–[P014](plans/P014-pf-cell-diagnostics.md) 是实施与验证记录；其中 P013 如实保留 D014 固定样本资格化尚未完成时的状态。
+- [P001](plans/P001-pf-v1.md)–[P016](plans/P016-pf-cli-live-presentation.md) 是实施与验证记录；其中 P013 如实保留 D014 固定样本资格化尚未完成时的状态。
 - [R001](reviews/R001-pf-v1-review.md)–[R003](reviews/R003-pf-search-indeterminate-review.md) 是对应提交和运行证据的评审快照。
 
 根目录 [README](../README.md) 只提供使用入口；[CONTEXT.md](../CONTEXT.md) 只约束现行术语。机器可读报告结构见 [JSON Schema](schemas/package-floor-v2.schema.json)，最小文档见 [complete](examples/package-floor-v2-minimal-complete.json) 与 [incomplete](examples/package-floor-v2-minimal-incomplete.json) 示例。

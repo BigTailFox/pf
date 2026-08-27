@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from rich.text import Text
+
 from pf.schemas.evaluation import (
     BaselineDetailIdentity,
     CellCompletedEvent,
@@ -37,21 +39,76 @@ _INDETERMINATE_STATUSES = frozenset(
     {"CELL_INDETERMINATE", "BASELINE_INDETERMINATE", "INDETERMINATE"}
 )
 _OUTCOME_RANK = {"success": 0, "warning": 1, "failure": 2, "indeterminate": 3}
+_COMMAND_COMPLETION_ACTIONS: dict[str, tuple[str, str]] = {
+    "smoke": ("smoke passed", "smoke failed"),
+    "check": ("check passed", "check failed"),
+    "search": ("search completed", "search stopped"),
+}
+
+
+def cell_identity_text(
+    identity: CellDetailIdentity,
+    *,
+    active_style: str = "",
+    muted_style: str = "dim",
+) -> Text:
+    text = Text(overflow="fold", no_wrap=False)
+    if isinstance(identity, BaselineDetailIdentity):
+        text.append("[baseline]", style=active_style)
+        text.append("[highest]", style=muted_style)
+        return text
+    if isinstance(identity, DeclarationDetailIdentity):
+        text.append("[declaration]", style=active_style)
+        text.append("[lowest-direct]", style=muted_style)
+        return text
+    if not isinstance(identity, SearchProbeDetailIdentity):
+        raise AssertionError(
+            f"unsupported cell identity: {type(identity).__name__}"
+        )
+    text.append(f"[{identity.dependency}=", style=active_style)
+    text.append(identity.version, style="cyan")
+    text.append("]", style=active_style)
+    text.append("[", style=muted_style)
+    text.append(identity.lower_version, style="cyan dim")
+    text.append("..", style=muted_style)
+    text.append(identity.upper_version, style="cyan dim")
+    text.append("#", style=muted_style)
+    text.append(str(identity.candidate_count), style="cyan dim")
+    text.append("]", style=muted_style)
+    return text
 
 
 def cell_identity_title(identity: CellDetailIdentity) -> str:
-    if isinstance(identity, BaselineDetailIdentity):
-        return "[baseline][highest]"
-    if isinstance(identity, DeclarationDetailIdentity):
-        return "[declaration][lowest-direct]"
-    if isinstance(identity, SearchProbeDetailIdentity):
-        noun = "candidate" if identity.candidate_count == 1 else "candidates"
-        return (
-            f"[{identity.dependency}=={identity.version}]"
-            f"[{identity.lower_version}…{identity.upper_version} · "
-            f"{identity.candidate_count} {noun}]"
-        )
-    raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
+    return cell_identity_text(identity).plain
+
+
+def completion_action(command: str | None, kind: OutcomeKind) -> str | None:
+    if command not in _COMMAND_COMPLETION_ACTIONS:
+        return None
+    success, stopped = _COMMAND_COMPLETION_ACTIONS[command]
+    return success if kind == "success" else stopped
+
+
+def _completion_identity(
+    command: str | None,
+    outcome: CellSucceeded | CellFailed,
+) -> CellDetailIdentity | None:
+    if command == "smoke":
+        return BaselineDetailIdentity()
+    if command == "check":
+        if (
+            isinstance(outcome, CellFailed)
+            and outcome.verification_role == "declaration-capture"
+        ):
+            return BaselineDetailIdentity()
+        return DeclarationDetailIdentity()
+    if (
+        command == "search"
+        and isinstance(outcome, CellFailed)
+        and outcome.verification_role == "baseline"
+    ):
+        return BaselineDetailIdentity()
+    return None
 
 
 def outcome_kind(status: str) -> OutcomeKind:
@@ -78,6 +135,7 @@ class CellPresentation:
     cell: Cell
     identity: CellDetailIdentity | None
     kind: OutcomeKind
+    status: str
     elapsed: float | None
     failures: tuple[FailureRecord, ...]
     detail: CellResultDetail | None
@@ -143,6 +201,7 @@ class CellPresentation:
         diagnose_available: bool,
     ) -> "CellPresentation":
         kind = outcome_kind(outcome.status)
+        resolved_identity = identity or _completion_identity(command, outcome)
         failures = (
             _unique_failures(search_events, outcome.failures)
             if isinstance(outcome, CellFailed)
@@ -179,8 +238,9 @@ class CellPresentation:
         )
         return cls(
             cell=cell,
-            identity=identity,
+            identity=resolved_identity,
             kind=kind,
+            status=outcome.status,
             elapsed=elapsed,
             failures=failures,
             detail=detail,
@@ -217,10 +277,11 @@ def _unique_failures(
 def _search_projection(
     search_events: tuple[SearchFailureEvent, ...],
 ) -> tuple[str, CellResultDetail | None] | None:
-    for event in search_events:
-        if event.evaluation is None:
-            continue
-        outcome = completion_outcome(event.evaluation)
-        if isinstance(outcome, CellFailed):
-            return event.failure.failure_id, outcome.detail
-    return None
+    if not search_events:
+        return None
+    terminal = search_events[-1]
+    if terminal.evaluation is None:
+        return terminal.failure.failure_id, None
+    outcome = completion_outcome(terminal.evaluation)
+    detail = outcome.detail if isinstance(outcome, CellFailed) else None
+    return terminal.failure.failure_id, detail
