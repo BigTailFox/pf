@@ -106,6 +106,13 @@ def _render_report(
                 detail = "no applicable floor"
                 detail_style = "reason.warning"
             else:
+                if len(projection.projected_requirements) > 1:
+                    overview.append(Text(f"  {label}"))
+                    for requirement in projection.projected_requirements:
+                        line = Text("    -> ")
+                        line.append(requirement, style="version")
+                        overview.append(line)
+                    continue
                 detail = f"-> {'; '.join(projection.projected_requirements)}"
                 detail_style = "version"
             line = Text("  ")

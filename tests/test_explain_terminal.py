@@ -14,6 +14,7 @@ from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
+    BaselineIndeterminate,
     BaselineRejection,
     CellFailureScope,
     PassEvaluation,
@@ -234,6 +235,51 @@ class TestExplainCellCards:
         assert "rich>=14" in card
         assert "projection blocked" in card
 
+    def test_explain_multiple_marker_requirements_are_indented_under_declaration(
+        self,
+    ) -> None:
+        declaration = RequirementDeclaration(
+            declaration_id="demo:dependencies:foo",
+            package="demo",
+            location="base",
+            name="foo",
+            source=SourceIdentity(kind="registry"),
+            pyproject_path="pyproject.toml",
+            raw="foo>=1",
+            kind="searchable",
+            managed=True,
+        )
+        projection = ProjectionEvidence(
+            declaration_id=declaration.declaration_id,
+            floors=(),
+            projected_requirements=(
+                'foo>=2; python_version < "3.12"',
+                'foo>=3; python_version >= "3.12"',
+            ),
+            representable=True,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (
+                _report(
+                    target_cells=(),
+                    cell_results=(),
+                    declarations=(declaration,),
+                    projections=(projection,),
+                ),
+            )
+        )
+
+        lines = stdout.getvalue().splitlines()
+        assert "  foo>=1" in lines
+        assert '    -> foo>=2; python_version < "3.12"' in lines
+        assert '    -> foo>=3; python_version >= "3.12"' in lines
+
     def test_explain_terminal_cell_hides_static_baseline_evidence(self) -> None:
         cell = Cell(
             package="demo",
@@ -432,6 +478,47 @@ class TestExplainCellCards:
         assert "tests/test_widget.py" not in rendered
         assert "... and 1 more" not in rendered
         assert "ty baseline" not in rendered
+
+    def test_explain_baseline_indeterminate_renders_terminal_reason(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        attempt = _attempt(cell, resolution="highest")
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="TOOL_FAILURE",
+            stage="install",
+            process=_process_result(),
+        )
+        result = BaselineIndeterminate(
+            attempt=attempt,
+            failure=failure,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (_report(target_cells=(cell,), cell_results=(result,)),)
+        )
+
+        rendered = stdout.getvalue()
+        normalized = " ".join(rendered.split())
+        assert "! [py3.10][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        assert (
+            "search stopped at [baseline][highest][installing dependencies]"
+            in normalized
+        )
+        assert (
+            "PF could not complete a verification tool operation reliably."
+            in normalized
+        )
+        assert failure.failure_id in normalized
 
     def test_explain_tty_colors_report_and_cell_outcomes(self) -> None:
         report = ReportStore().read(
