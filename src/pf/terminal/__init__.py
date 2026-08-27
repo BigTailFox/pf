@@ -59,14 +59,6 @@ PF_THEME = Theme(
         "reason.failure": "red not bold",
         "reason.warning": "yellow not bold",
         "reason.indeterminate": "yellow not bold",
-        "identity.success": "green not bold",
-        "identity.success.muted": "green dim not bold",
-        "identity.failure": "red not bold",
-        "identity.failure.muted": "red dim not bold",
-        "identity.warning": "yellow not bold",
-        "identity.warning.muted": "yellow dim not bold",
-        "identity.indeterminate": "yellow not bold",
-        "identity.indeterminate.muted": "yellow dim not bold",
         "summary.success": "bold green",
         "summary.failure": "bold red",
         "summary.warning": "bold yellow",
@@ -392,27 +384,22 @@ def _cell_completion_detail_line(
     if action is None and presentation.identity is None and failed_at is None:
         return None
     base_style = f"reason.{presentation.kind}"
-    line = Text(overflow="fold", no_wrap=False)
+    line = Text(style=base_style, overflow="fold", no_wrap=False)
     if action is not None:
-        line.append(action, style=base_style)
+        line.append(action)
+        if presentation.identity is not None or failed_at is not None:
+            line.append(" at ")
+    elif failed_at is not None:
+        line.append("failed at ")
     if presentation.identity is not None:
-        if action is not None:
-            line.append(" at ", style=base_style)
         line.append_text(
             cell_identity_text(
                 presentation.identity,
-                active_style=f"identity.{presentation.kind}",
-                muted_style=f"identity.{presentation.kind}.muted",
+                style=base_style,
             )
         )
-    elif failed_at is not None and action is None:
-        line.append("failed at ", style=base_style)
-        line.append(failed_at, style=f"{base_style} dim")
-        return line
     if failed_at is not None:
-        if action is not None or presentation.identity is not None:
-            line.append(" · ", style=f"{base_style} dim")
-        line.append(failed_at, style=f"{base_style} dim")
+        line.append(f"[{failed_at}]")
     return line
 
 

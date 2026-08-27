@@ -15,12 +15,13 @@
 
 1. live Cell 的第一条 detail 总是当前 identity。baseline/declaration 使用
    `[baseline][highest]` / `[declaration][lowest-direct]`；search probe 使用紧凑
-   `[pydantic=2.0.1][1.0..3.0#14]`。第一组使用默认亮度，第二组 dim；版本和
-   candidate 数字统一 cyan，第二组数字同时 dim。
+   `[pydantic=2.0.1][1.0..3.0#14]`。整条 identity 使用默认亮度 cyan，不按 token
+   降低亮度。
 2. 完成 Cell 的标题只保留 icon、Cell 与耗时，identity 移到第一条 detail。
    smoke/check/search 的非成功前缀分别为 `smoke failed at`、`check failed at`、
-   `search stopped at`；其后保留用户阶段。完成态在 live 样式基础上只把默认
-   前景替换为结果色，cyan 数字不变。成功态对应 `smoke passed at`、
+   `search stopped at`；失败阶段成为紧随 identity 的第三个 bracket token，例如
+   `check failed at [declaration][lowest-direct][testing]`。该 detail 整行使用结果色
+   的默认亮度，不保留 dim、cyan 或其他局部样式。成功态对应 `smoke passed at`、
    `check passed at`、`search completed at`。
 3. 命令级最后一行的 icon 与整句文字统一使用结果色并 bold。
 4. matrix 只建立总数，不为未启动 Cell 创建 live panel。运行面板数因此由真实
@@ -62,6 +63,9 @@
    先证明旧实现错误展示早期 nodeid，再令完成卡片选择最新 failure/title/diagnose。
 7. **Search conclusion：** 用同一 probe identity 分别完成 exhaustive rejection 与
    timeout indeterminate，断言 Reason 一边是完整评估无解、一边是提前终止且未知。
+8. **Identity style follow-up：** 先用 ANSI 测试证明 live identity 仍含 dim、完成行
+   仍含 dim/cyan 且阶段在 `· testing`；再统一为 live cyan/default 与完成态单一结果
+   色，并把失败阶段格式化为第三个 bracket token。
 
 ## 4. 实施记录
 
@@ -112,16 +116,24 @@
   失败态现在只按真实 `verification_role` 回填；成功态仍可按命令补齐。smoke/check
   两个未启动回归均证明不再暗示发生过 Attempt；旧式 check evaluation 渲染则在其
   已知 declaration 入口显式传入 identity。
+- **Slice 8 / identity style follow-up：** RED：10 个公开 TTY/ANSI 路径证明 live
+  baseline/declaration/search identity 仍含 dim，完成 identity 仍混入 dim/cyan，且
+  阶段使用 `· testing`。GREEN：共享 `cell_identity_text` 收窄为“typed identity +
+  单一上下文 style”；live 传入 cyan，完成态传入结果色，阶段追加为第三个 bracket
+  token。smoke/check/search、无 identity deadline 和 numeric search identity 共
+  `10 passed`。
 
 ## 5. 验证结论
 
 - Review 修正后的 terminal、smoke、check、verification 与 search 相邻回归：
-  `138 passed`。
+  `138 passed`；style follow-up 后 terminal/CLI/workflow 相邻回归为 `174 passed`。
 - 完整测试套件：沙箱内先得到 `1266 passed, 1 failed`，唯一失败是安装态 E2E
-  获取 `uv_build` 时被网络策略拒绝；在允许依赖访问的同一完整命令下为
-  首次实现为 `1267 passed in 21.13s`；双轴 review 修正后为
-  `1269 passed in 22.11s`。
+  获取 `uv_build` 时被网络策略拒绝；允许依赖访问后，首次实现为
+  `1267 passed in 21.13s`，双轴 review 修正后为 `1269 passed in 22.11s`，style
+  follow-up 后为 `1271 passed in 21.06s`。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。
+  style follow-up 另以预期失败的真实 TTY `pf check --jobs 2` 验证
+  `check failed at [declaration][lowest-direct][testing]`。
 - 根目录既有未跟踪 `package-floor.json` 未读取、未修改且不进入本次提交。

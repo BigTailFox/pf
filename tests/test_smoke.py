@@ -442,7 +442,7 @@ class TestSmokeWorkflow:
             ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         output = stderr.getvalue()
-        assert "smoke failed at [baseline][highest] · testing" in output
+        assert "smoke failed at [baseline][highest][testing]" in output
         assert "The full test command failed for this version combination." in output
         assert "pf diagnose" not in output
         assert failure_id not in output

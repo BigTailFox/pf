@@ -115,7 +115,7 @@ TTY 的每个运行中 Cell 使用独立卡片：
 ⠋ searching cells · 2 running · 5 left                              0:00:12
 ```
 
-`CellContextEvent` 提供当前 detail identity；baseline、declaration 与 search probe 都放在 title 后的第一条 detail。第一组默认亮度、第二组 dim，版本和 candidate count 为 cyan（第二组同时 dim）。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
+`CellContextEvent` 提供当前 detail identity；baseline、declaration 与 search probe 都放在 title 后的第一条 detail，并将整条 identity 渲染为默认亮度 cyan，不按 token 降低亮度。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
 
 只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total tests` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
@@ -136,7 +136,7 @@ check passed at [declaration][lowest-direct]
 
 ```text
 ✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
-smoke failed at [baseline][highest] · testing
+smoke failed at [baseline][highest][testing]
 The full test command failed for this version combination.
 FAILED tests/test_cli.py::test_example
 ... and 2 more
@@ -151,7 +151,7 @@ FAILED tests/test_cli.py::test_example
 4. 可选 `CellResultDetail` 的第一条典型详情与 `... and N more`；
 5. Journal/Index 可用时显示精确 diagnose command。
 
-completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。identity 使用 live formatter；完成态只把默认前景替换为结果色，第二组仍 dim，cyan 数字不变。
+completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。失败阶段作为 identity 后的第三个 bracket token；没有 identity 时仍使用单独的 bracket token。完成 detail 整行只使用对应结果色的默认亮度，不使用 dim、cyan、bold 或其他局部样式。
 
 search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收到的最新 `SearchFailureEvent`。末事件没有 detail 时不得回退到历史 probe；历史 failure 仍留在报告、Journal 与 `pf diagnose`。Reason 另行表达 Cell 为何结束：`INDETERMINATE` 明示搜索空间尚未评估完成并附终止 failure title；`NO_PASS_IN_SEARCH_SPACE` 明示搜索空间已完整评估但没有兼容组合。`NON_MONOTONIC` / `NONDETERMINISTIC` 显示各自的搜索结论，不借用某次历史候选拒绝作为 Cell 结论。
 

@@ -647,7 +647,7 @@ class _TaskDescriptionColumn(TextColumn):
                 | DeclarationDetailIdentity
                 | SearchProbeDetailIdentity,
             ):
-                return cell_identity_text(identity)
+                return cell_identity_text(identity, style="cyan")
         rendered = super().render(task)
         role = task.fields.get("role")
         if role == "cell-stage":

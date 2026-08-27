@@ -49,33 +49,23 @@ _COMMAND_COMPLETION_ACTIONS: dict[str, tuple[str, str]] = {
 def cell_identity_text(
     identity: CellDetailIdentity,
     *,
-    active_style: str = "",
-    muted_style: str = "dim",
+    style: str = "",
 ) -> Text:
-    text = Text(overflow="fold", no_wrap=False)
     if isinstance(identity, BaselineDetailIdentity):
-        text.append("[baseline]", style=active_style)
-        text.append("[highest]", style=muted_style)
-        return text
-    if isinstance(identity, DeclarationDetailIdentity):
-        text.append("[declaration]", style=active_style)
-        text.append("[lowest-direct]", style=muted_style)
-        return text
-    if not isinstance(identity, SearchProbeDetailIdentity):
+        value = "[baseline][highest]"
+    elif isinstance(identity, DeclarationDetailIdentity):
+        value = "[declaration][lowest-direct]"
+    elif isinstance(identity, SearchProbeDetailIdentity):
+        value = (
+            f"[{identity.dependency}={identity.version}]"
+            f"[{identity.lower_version}..{identity.upper_version}"
+            f"#{identity.candidate_count}]"
+        )
+    else:
         raise AssertionError(
             f"unsupported cell identity: {type(identity).__name__}"
         )
-    text.append(f"[{identity.dependency}=", style=active_style)
-    text.append(identity.version, style="cyan")
-    text.append("]", style=active_style)
-    text.append("[", style=muted_style)
-    text.append(identity.lower_version, style="cyan dim")
-    text.append("..", style=muted_style)
-    text.append(identity.upper_version, style="cyan dim")
-    text.append("#", style=muted_style)
-    text.append(str(identity.candidate_count), style="cyan dim")
-    text.append("]", style=muted_style)
-    return text
+    return Text(value, style=style, overflow="fold", no_wrap=False)
 
 
 def cell_identity_title(identity: CellDetailIdentity) -> str:
