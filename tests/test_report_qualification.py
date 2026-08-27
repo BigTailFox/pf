@@ -13,13 +13,14 @@ INLINE_FIXTURE = (
 )
 
 
-@pytest.mark.skipif(
-    not INLINE_FIXTURE.is_file(),
-    reason="D014 fixed Schema 1 qualification fixture is not available",
-)
-def test_pf_self_search_report_meets_schema_2_qualification() -> None:
-    subprocess.run(
-        [sys.executable, "scripts/qualify_report_schema.py", "--check"],
-        cwd=ROOT,
-        check=True,
+class TestReportSchemaQualification:
+    @pytest.mark.skipif(
+        not INLINE_FIXTURE.is_file(),
+        reason="D014 fixed Schema 1 qualification fixture is not available",
     )
+    def test_pf_self_search_meets_schema_2_qualification(self) -> None:
+        subprocess.run(
+            [sys.executable, "scripts/qualify_report_schema.py", "--check"],
+            cwd=ROOT,
+            check=True,
+        )

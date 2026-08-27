@@ -518,7 +518,7 @@ class TestPytestWitnessArtifactProtocol:
             "unknown-file",
         ),
     )
-    def test_protocol_rejects_every_noncanonical_artifact(
+    def test_protocol_rejects_noncanonical_document(
         self,
         tmp_path: Path,
         writer: ArtifactWriter,
@@ -552,7 +552,7 @@ class TestPytestWitnessArtifactProtocol:
         ),
         ids=("non-utf8", "oversize", "symlink"),
     )
-    def test_protocol_reads_only_bounded_regular_utf8_files(
+    def test_protocol_rejects_unsafe_artifact_file(
         self,
         tmp_path: Path,
         writer: ArtifactWriter,
@@ -562,27 +562,34 @@ class TestPytestWitnessArtifactProtocol:
         assert isinstance(result, ToolFailure)
         assert result.summary_code == "pytest-evidence-invalid"
 
-    @pytest.mark.parametrize(
-        ("count", "expected"),
-        ((1024, TestFail), (1025, ToolFailure)),
-        ids=("at-limit", "over-limit"),
-    )
-    def test_protocol_bounds_the_number_of_final_summaries(
-        self,
+    @staticmethod
+    def _run_with_final_summaries(
         tmp_path: Path,
         count: int,
-        expected: type[TestFail] | type[ToolFailure],
-    ) -> None:
+    ) -> TestFail | ToolFailure:
         def write_many(directory: Path, nonce: str) -> None:
             document = _document(nonce)
             for index in range(count):
                 _write_summary(directory, document, token=f"{index:032x}")
 
-        result = _run(tmp_path, write_many)
+        return _run(tmp_path, write_many)
 
-        assert isinstance(result, expected)
-        if isinstance(result, ToolFailure):
-            assert result.summary_code == "pytest-evidence-invalid"
+    def test_protocol_accepts_the_maximum_number_of_final_summaries(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        result = self._run_with_final_summaries(tmp_path, 1024)
+
+        assert isinstance(result, TestFail)
+
+    def test_protocol_rejects_too_many_final_summaries(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        result = self._run_with_final_summaries(tmp_path, 1025)
+
+        assert isinstance(result, ToolFailure)
+        assert result.summary_code == "pytest-evidence-invalid"
 
     def test_protocol_stops_enumerating_at_the_summary_limit(
         self,

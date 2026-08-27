@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import tempfile
+from typing import Literal
 
 import pytest
 
@@ -25,6 +26,7 @@ from pf.schemas.evaluation import (
     CellStageEvent,
     CellFailed,
     DiagnosticClassification,
+    Evaluation,
     GraphSuccess,
     IndeterminateEvaluation,
     InterpreterSuccess,
@@ -47,7 +49,13 @@ from pf.schemas.evaluation import (
     TyDiagnostic,
     ty_diagnostic_digest,
 )
-from pf.schemas.project import Cell, InterpreterIdentity, Proposal, ResolvedNode
+from pf.schemas.project import (
+    Cell,
+    InterpreterIdentity,
+    PackagePlan,
+    Proposal,
+    ResolvedNode,
+)
 from pf.snapshot import SnapshotBuilder
 from pf.static_transition import static_fingerprint
 from pf.verification import completion_outcome
@@ -185,6 +193,7 @@ class PreparedUv:
             nodes=(ResolvedNode(name="demo", version="0.1.0"),),
         )
 
+
 class FailingTy:
     def check(self, **kwargs: object) -> TyCheck:
         return TyCheck(
@@ -207,7 +216,7 @@ class PassingTy:
         return TyCheck(process=process_result(), diagnostics=())
 
 
-class TestEvaluators:
+class TestStaticFingerprint:
     def test_static_fingerprint_preserves_the_complete_ordered_multiset(self) -> None:
         states = {
             "empty": static_fingerprint(()),
@@ -229,6 +238,8 @@ class TestEvaluators:
             }.items()
         }
 
+
+class TestStaticEvaluator:
     @pytest.mark.parametrize("scope", ("cell", "snapshot", "policy"))
     def test_static_evaluator_rejects_a_baseline_from_another_scope(
         self,
@@ -318,6 +329,8 @@ class TestEvaluators:
         assert result.static_fingerprint == static_fingerprint((shifted.identity,))
         assert result.baseline_digest == capture.baseline.digest
 
+
+class TestRuntimeEvaluator:
     def test_runtime_evaluator_runs_tests_for_a_general_static_regression(
         self, tmp_path: Path
     ) -> None:
@@ -365,22 +378,18 @@ class TestEvaluators:
         assert tests.calls == 1
         assert prepared.tested is True
 
-    @pytest.mark.parametrize(
-        ("witness_status", "expected", "test_calls"),
-        (
-            ("PRESENT", "PASS", 1),
-            ("NOT_APPLICABLE", "PASS", 1),
-            ("CONFIRMED_MISSING", "RUNTIME_INTERFACE_MISSING", 0),
-            ("TOOL_FAILURE", "INDETERMINATE", 0),
-        ),
-    )
-    def test_runtime_evaluator_routes_structured_witness_results(
-        self,
+
+class TestRuntimeWitnessEvaluator:
+    @staticmethod
+    def _evaluate_witness_status(
         tmp_path: Path,
-        witness_status: str,
-        expected: str,
-        test_calls: int,
-    ) -> None:
+        witness_status: Literal[
+            "PRESENT",
+            "NOT_APPLICABLE",
+            "CONFIRMED_MISSING",
+            "TOOL_FAILURE",
+        ],
+    ) -> tuple[Evaluation, int, TyDiagnostic]:
         prepared = prepared_for_static(tmp_path, "candidate")
         source = prepared.proposal_root / "demo.py"
         source.write_text("import demo\n", encoding="utf-8")
@@ -440,16 +449,49 @@ class TestEvaluators:
             static_result=static,
         )
 
-        assert result.status == expected
-        assert tests.calls == test_calls
-        if expected == "RUNTIME_INTERFACE_MISSING":
-            assert isinstance(result, RuntimeInterfaceMissingEvaluation)
-            completion = completion_outcome(result)
-            assert isinstance(completion, CellFailed)
-            assert completion.detail == StaticIssueDetail(
-                first=increment,
-                total=1,
-            )
+        return result, tests.calls, increment
+
+    @pytest.mark.parametrize("witness_status", ("PRESENT", "NOT_APPLICABLE"))
+    def test_runtime_evaluator_continues_after_nonterminal_witness(
+        self,
+        tmp_path: Path,
+        witness_status: Literal["PRESENT", "NOT_APPLICABLE"],
+    ) -> None:
+        result, test_calls, _ = self._evaluate_witness_status(
+            tmp_path,
+            witness_status,
+        )
+
+        assert result.status == "PASS"
+        assert test_calls == 1
+
+    def test_runtime_evaluator_stops_after_confirmed_missing_witness(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        result, test_calls, increment = self._evaluate_witness_status(
+            tmp_path,
+            "CONFIRMED_MISSING",
+        )
+
+        assert isinstance(result, RuntimeInterfaceMissingEvaluation)
+        assert test_calls == 0
+        completion = completion_outcome(result)
+        assert isinstance(completion, CellFailed)
+        assert completion.detail == StaticIssueDetail(first=increment, total=1)
+
+    def test_runtime_evaluator_stops_after_witness_tool_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        result, test_calls, _ = self._evaluate_witness_status(
+            tmp_path,
+            "TOOL_FAILURE",
+        )
+
+        assert isinstance(result, IndeterminateEvaluation)
+        assert result.cause == "TOOL_FAILURE"
+        assert test_calls == 0
 
     def test_runtime_evaluator_deduplicates_an_identical_multiset_witness_plan(
         self,
@@ -512,7 +554,7 @@ class TestEvaluators:
         assert witnesses.calls == 1
         assert len(result.witnesses) == 1
 
-    def test_completion_detail_only_reports_the_confirmed_witness_issues(
+    def test_completion_outcome_reports_only_confirmed_witness_issues(
         self,
         tmp_path: Path,
     ) -> None:
@@ -580,34 +622,13 @@ class TestEvaluators:
             total=2,
         )
 
-    @pytest.mark.parametrize(
-        ("outcome", "expected"),
-        (
-            (TestPass(process=process_result()), "PASS"),
-            (TestFail(process=process_result(exit_code=1)), "TEST_FAIL"),
-            (
-                ToolFailure(
-                    cause="TIMEOUT",
-                    stage="test",
-                    process=ProcessResult(
-                        exit_code=None,
-                        signal=9,
-                        duration_seconds=1,
-                        stdout="",
-                        stderr="",
-                        timed_out=True,
-                    ),
-                ),
-                "INDETERMINATE",
-            ),
-        ),
-    )
-    def test_full_evaluator_preserves_complete_test_outcomes(
-        self,
+
+class TestRuntimeEvaluatorOutcomes:
+    @staticmethod
+    def _evaluate_test_outcome(
         tmp_path: Path,
         outcome: TestOutcome,
-        expected: str,
-    ) -> None:
+    ) -> tuple[Evaluation, PreparedEnvironment, Path | None]:
         root = tmp_path / "project"
         root.mkdir()
         (root / "pyproject.toml").write_text(
@@ -650,11 +671,59 @@ class TestEvaluators:
             tests=tests,
         ).evaluate(prepared, package=package, baseline=empty_baseline(prepared))
 
-        assert result.status == expected
-        assert prepared.tested is True
-        assert tests.cwd == prepared.proposal_root
+        return result, prepared, tests.cwd
 
-    def test_static_evaluator_preserves_tool_failure(self, tmp_path: Path) -> None:
+    def test_runtime_evaluator_preserves_test_pass(self, tmp_path: Path) -> None:
+        result, prepared, test_cwd = self._evaluate_test_outcome(
+            tmp_path,
+            TestPass(process=process_result()),
+        )
+
+        assert result.status == "PASS"
+        assert prepared.tested is True
+        assert test_cwd == prepared.proposal_root
+
+    def test_runtime_evaluator_preserves_test_failure(self, tmp_path: Path) -> None:
+        result, prepared, test_cwd = self._evaluate_test_outcome(
+            tmp_path,
+            TestFail(process=process_result(exit_code=1)),
+        )
+
+        assert result.status == "TEST_FAIL"
+        assert prepared.tested is True
+        assert test_cwd == prepared.proposal_root
+
+    def test_runtime_evaluator_preserves_indeterminate_test_tool(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        result, prepared, test_cwd = self._evaluate_test_outcome(
+            tmp_path,
+            ToolFailure(
+                cause="TIMEOUT",
+                stage="test",
+                process=ProcessResult(
+                    exit_code=None,
+                    signal=9,
+                    duration_seconds=1,
+                    stdout="",
+                    stderr="",
+                    timed_out=True,
+                ),
+            ),
+        )
+
+        assert isinstance(result, IndeterminateEvaluation)
+        assert result.cause == "TIMEOUT"
+        assert prepared.tested is True
+        assert test_cwd == prepared.proposal_root
+
+
+class TestStaticEvaluatorFailures:
+    @staticmethod
+    def _tool_failure_case(
+        tmp_path: Path,
+    ) -> tuple[StaticEvaluator, PreparedEnvironment, PackagePlan]:
         root = tmp_path / "project"
         root.mkdir()
         (root / "pyproject.toml").write_text(
@@ -689,35 +758,58 @@ class TestEvaluators:
                 )
 
         evaluator = StaticEvaluator(FailingTool())
-        evaluated = evaluator.evaluate(
+
+        return evaluator, prepared, package
+
+    def test_static_evaluator_evaluate_preserves_tool_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        evaluator, prepared, package = self._tool_failure_case(tmp_path)
+
+        result = evaluator.evaluate(
             prepared,
             package=package,
             baseline=empty_baseline(prepared),
         )
-        result = evaluator.capture(prepared, package=package)
 
-        assert isinstance(evaluated, IndeterminateEvaluation)
-        assert evaluated.status == "INDETERMINATE"
-        assert evaluated.cause == "TOOL_FAILURE"
         assert isinstance(result, IndeterminateEvaluation)
         assert result.status == "INDETERMINATE"
         assert result.cause == "TOOL_FAILURE"
 
-    def test_evaluators_report_static_and_dynamic_stages(self, tmp_path: Path) -> None:
-        class Events:
-            def __init__(self) -> None:
-                self.events: list[CellStageEvent] = []
+    def test_static_evaluator_capture_preserves_tool_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        evaluator, prepared, package = self._tool_failure_case(tmp_path)
 
-            def consume(self, event: CellStageEvent) -> None:
-                self.events.append(event)
+        result = evaluator.capture(prepared, package=package)
 
-        class Tests:
-            def run(self, **kwargs: object) -> TestOutcome:
-                progress = kwargs["progress"]
-                assert isinstance(progress, Callable)
-                progress(StageProgress(completed=3, total=5, unit="tests"))
-                return TestPass(process=process_result())
+        assert isinstance(result, IndeterminateEvaluation)
+        assert result.status == "INDETERMINATE"
+        assert result.cause == "TOOL_FAILURE"
 
+
+class TestEvaluationProgress:
+    class Events:
+        def __init__(self) -> None:
+            self.events: list[CellStageEvent] = []
+
+        def consume(self, event: CellStageEvent) -> None:
+            self.events.append(event)
+
+    class Tests:
+        def run(self, **kwargs: object) -> TestOutcome:
+            progress = kwargs["progress"]
+            assert isinstance(progress, Callable)
+            progress(StageProgress(completed=3, total=5, unit="tests"))
+            return TestPass(process=process_result())
+
+    @classmethod
+    def _progress_case(
+        cls,
+        tmp_path: Path,
+    ) -> tuple[PackagePlan, PreparedEnvironment, Events, StaticEvaluator]:
         root = tmp_path / "project"
         root.mkdir()
         (root / "pyproject.toml").write_text(
@@ -742,25 +834,45 @@ class TestEvaluators:
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
-        events = Events()
-
+        events = cls.Events()
         static = StaticEvaluator(PassingTy(), events=events)
-        capture = static.capture(prepared, package=package)
-        assert isinstance(capture, StaticBaselineCapture)
+
+        return package, prepared, events, static
+
+    def test_static_evaluator_capture_reports_baseline_stage(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        package, prepared, events, static = self._progress_case(tmp_path)
+
+        result = static.capture(prepared, package=package)
+
+        assert isinstance(result, StaticBaselineCapture)
+        assert [event.stage for event in events.events] == ["capturing static baseline"]
+        prepared.close()
+
+    def test_runtime_evaluator_reports_dynamic_stage_and_progress(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        package, prepared, events, static = self._progress_case(tmp_path)
+        baseline = static.capture(prepared, package=package)
+        assert isinstance(baseline, StaticBaselineCapture)
+        events.events.clear()
+
         result = RuntimeEvaluator(
             static=static,
-            tests=Tests(),
+            tests=self.Tests(),
             events=events,
         ).evaluate(
             prepared,
             package=package,
-            baseline=capture.baseline,
-            static_result=capture.static,
+            baseline=baseline.baseline,
+            static_result=baseline.static,
         )
 
         assert result.status == "PASS"
         assert [event.stage for event in events.events] == [
-            "capturing static baseline",
             "dynamic tests",
             "dynamic tests",
         ]
