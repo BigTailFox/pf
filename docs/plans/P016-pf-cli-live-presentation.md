@@ -102,13 +102,25 @@
   `CellSearchFailure.reason` 保留到 runtime completion status；Presenter 对 exhaustive
   / non-monotonic / nondeterministic 结论使用命令级 Reason，indeterminate 则在 D005
   title 前明确 early-stop。两类公开输出对照回归 `1 passed`。
+- **Review 修正 / 真实 smoke live：** Spec review 发现合成 terminal 测试手工发送了
+  baseline context，但 `SmokeCommandWorkflow` 的真实 scheduler task 未发送。新增
+  workflow→TTY Presenter 的 RED，在 verifier 执行前观察不到 live Cell；GREEN 在
+  task 真正开始后、调用 verifier 前发送 typed `BaselineDetailIdentity`，不提前为未
+  调度 Cell 建 panel。
+- **Review 修正 / 未启动 Cell：** Standards review 发现完成态 fallback 会为只有
+  `CellFailureScope` 的未启动 deadline Cell 补造 baseline/declaration identity。
+  失败态现在只按真实 `verification_role` 回填；成功态仍可按命令补齐。smoke/check
+  两个未启动回归均证明不再暗示发生过 Attempt；旧式 check evaluation 渲染则在其
+  已知 declaration 入口显式传入 identity。
 
 ## 5. 验证结论
 
-- Terminal 与相邻命令/workflow 回归：`196 passed`。
+- Review 修正后的 terminal、smoke、check、verification 与 search 相邻回归：
+  `138 passed`。
 - 完整测试套件：沙箱内先得到 `1266 passed, 1 failed`，唯一失败是安装态 E2E
   获取 `uv_build` 时被网络策略拒绝；在允许依赖访问的同一完整命令下为
-  `1267 passed in 21.13s`。
+  首次实现为 `1267 passed in 21.13s`；双轴 review 修正后为
+  `1269 passed in 22.11s`。
 - 静态检查：任务范围 `ruff check`、`ty check` 均通过，`git diff --check` 通过。
 - 真实 CLI：临时最小项目的 `pf smoke --jobs 2`、`pf check --jobs 2`、
   `pf search --jobs 2` 均成功；TTY smoke 也验证了完成卡片的 baseline 第一 detail。

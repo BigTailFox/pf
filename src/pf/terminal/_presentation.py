@@ -93,20 +93,21 @@ def _completion_identity(
     command: str | None,
     outcome: CellSucceeded | CellFailed,
 ) -> CellDetailIdentity | None:
-    if command == "smoke":
+    if isinstance(outcome, CellSucceeded):
+        if command == "smoke":
+            return BaselineDetailIdentity()
+        if command == "check":
+            return DeclarationDetailIdentity()
+        return None
+    if command == "smoke" and outcome.verification_role == "baseline":
         return BaselineDetailIdentity()
     if command == "check":
-        if (
-            isinstance(outcome, CellFailed)
-            and outcome.verification_role == "declaration-capture"
-        ):
+        if outcome.verification_role == "declaration-capture":
             return BaselineDetailIdentity()
-        return DeclarationDetailIdentity()
-    if (
-        command == "search"
-        and isinstance(outcome, CellFailed)
-        and outcome.verification_role == "baseline"
-    ):
+        if outcome.verification_role == "declaration":
+            return DeclarationDetailIdentity()
+        return None
+    if command == "search" and outcome.verification_role == "baseline":
         return BaselineDetailIdentity()
     return None
 

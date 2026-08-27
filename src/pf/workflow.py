@@ -490,6 +490,9 @@ class SmokeCommandWorkflow:
         snapshot: SourceSnapshot,
     ) -> Callable[[], HighestVersionOutcome]:
         def run() -> HighestVersionOutcome:
+            self._events.consume(
+                CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
+            )
             return self._verifier.verify(
                 package=package,
                 cell=cell,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import StringIO
 from pathlib import Path
+import re
 
 import pytest
 
@@ -47,6 +48,15 @@ class Events:
         self.items.append(event)
 
 
+class TTYBuffer(StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def visible(text: str) -> str:
+    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+
+
 def attempt_and_proposal(
     *,
     package: PackagePlan,
@@ -85,7 +95,7 @@ class FailingJournal:
 
 
 class TestSmokeWorkflow:
-    def test_smoke_workflow_verifies_each_host_cell_at_highest_resolution(
+    def test_smoke_workflow_emits_live_baseline_identity_before_verification(
         self,
         tmp_path: Path,
     ) -> None:
@@ -107,6 +117,13 @@ class TestSmokeWorkflow:
             encoding="utf-8",
         )
         seen: list[Cell] = []
+        live_frames: list[str] = []
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(file=stderr, force_terminal=True, width=80),
+        )
+        terminal.bind_command("smoke")
 
         class Verifier:
             def verify(
@@ -117,6 +134,7 @@ class TestSmokeWorkflow:
                 snapshot: SourceSnapshot,
             ) -> HighestVersionOutcome:
                 seen.append(cell)
+                live_frames.append(visible(stderr.getvalue()))
                 process = ProcessResult(
                     exit_code=0,
                     signal=None,
@@ -156,15 +174,25 @@ class TestSmokeWorkflow:
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
             verification=VerificationRunner(
-                events=Events(), logs=None
+                events=terminal, logs=None
             ),
-            events=Events(),
+            events=terminal,
             host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         assert result.status == "PASS"
         assert len(result.outcomes) == 1
         assert [cell.target for cell in seen] == ["x86_64-unknown-linux-gnu"]
+        live = live_frames[0]
+        title = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
+        title_line = next(line for line in reversed(live.splitlines()) if title in line)
+        identity_line = next(
+            line
+            for line in reversed(live.splitlines())
+            if "[baseline][highest]" in line
+        )
+        assert identity_line != title_line
+        assert identity_line.index("[baseline]") == title_line.index(title)
 
     def test_smoke_workflow_treats_a_normal_test_failure_as_compatibility_failure(
         self,
@@ -345,6 +373,7 @@ class TestSmokeWorkflow:
             stdout=Console(file=stdout, force_terminal=False, color_system=None),
             stderr=Console(file=stderr, force_terminal=False, color_system=None),
         )
+        terminal.bind_command("smoke")
 
         class Verifier:
             def verify(
@@ -413,7 +442,7 @@ class TestSmokeWorkflow:
             ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         output = stderr.getvalue()
-        assert "failed at testing" in output
+        assert "smoke failed at [baseline][highest] · testing" in output
         assert "The full test command failed for this version combination." in output
         assert "pf diagnose" not in output
         assert failure_id not in output

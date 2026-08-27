@@ -2734,6 +2734,40 @@ class TestVerificationRendering:
             "smoke passed at [baseline][highest]",
         ]
 
+    @pytest.mark.parametrize("command", ("smoke", "check"))
+    def test_unstarted_cell_completion_does_not_invent_attempt_identity(
+        self,
+        command: str,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        failure = recorded_failure(
+            cause="TIMEOUT",
+            stage="scheduler-deadline",
+            process=process_result(timed_out=True),
+        )
+        terminal, _, stderr = presenter()
+        terminal.bind_command(command)
+
+        terminal.consume(
+            completed_event(
+                cell,
+                status="INDETERMINATE",
+                failure=failure,
+                role="probe",
+                stage="scheduler-deadline",
+            )
+        )
+
+        output = stderr.getvalue()
+        assert f"{command} failed · scheduler deadline" in output
+        assert "[baseline]" not in output
+        assert "[declaration]" not in output
+
     @pytest.mark.parametrize(
         ("command", "identity", "role", "expected"),
         (

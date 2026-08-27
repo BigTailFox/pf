@@ -20,6 +20,7 @@ from pf.schemas.evaluation import (
     CellFailed,
     CheckCellOutcome,
     CheckResult,
+    DeclarationDetailIdentity,
     FailureCause,
     FailureRecord,
     PassEvaluation,
@@ -611,6 +612,7 @@ class TerminalPresenter:
             presentation = CellPresentation.from_result(
                 evaluation,
                 cell=evaluation.proposal.cell,
+                identity=DeclarationDetailIdentity(),
                 command="check",
             )
             if presentation.kind != "success":
