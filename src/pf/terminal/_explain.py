@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import re
 from typing import Protocol
 
+from packaging.requirements import InvalidRequirement, Requirement
 from rich.console import Console
 from rich.text import Text
 
@@ -18,6 +20,11 @@ from pf.schemas.report import (
     CellSuccess,
 )
 from pf.terminal._presentation import CellPresentation, OutcomeKind
+
+
+_SPECIFIER_TOKEN = re.compile(
+    r"(?P<operator>===|~=|==|!=|<=|>=|<|>)(?P<space>\s*)(?P<version>[^,;\s]+)"
+)
 
 
 class ExplainPresenter(Protocol):
@@ -93,36 +100,56 @@ def _render_report(
     ]
     if report.requirement_declarations or report.projection_evidence:
         overview.extend((Text(), Text("Requirements", style="bold")))
+        requirement_width = max(
+            (
+                Text(declaration.raw or declaration.name).cell_len
+                for declaration in report.requirement_declarations
+            ),
+            default=0,
+        )
         projected_ids = {
             projection.declaration_id for projection in report.projection_evidence
         }
         for projection in report.projection_evidence:
             declaration = declarations[projection.declaration_id]
             label = declaration.raw or declaration.name
+            label_text = _requirement_text(label, color="cyan")
             if not projection.representable:
-                detail = "projection blocked"
-                detail_style = "reason.warning"
+                detail = Text("projection blocked", style="reason.warning")
             elif not projection.projected_requirements:
-                detail = "no applicable floor"
-                detail_style = "reason.warning"
+                detail = Text("no applicable floor", style="reason.warning")
             else:
                 if len(projection.projected_requirements) > 1:
-                    overview.append(Text(f"  {label}"))
+                    line = Text("  ")
+                    line.append_text(label_text)
+                    overview.append(line)
                     for requirement in projection.projected_requirements:
                         line = Text("    -> ")
-                        line.append(requirement, style="version")
+                        line.append_text(_requirement_text(requirement, color="green"))
                         overview.append(line)
                     continue
-                detail = f"-> {'; '.join(projection.projected_requirements)}"
-                detail_style = "version"
+                detail = Text("-> ")
+                detail.append_text(
+                    _requirement_text(
+                        projection.projected_requirements[0],
+                        color="green",
+                    )
+                )
             line = Text("  ")
-            line.append(label)
-            line.append("   ")
-            line.append(detail, style=detail_style)
+            line.append_text(label_text)
+            line.append(" " * (requirement_width - label_text.cell_len + 3))
+            line.append_text(detail)
             overview.append(line)
         for declaration in report.requirement_declarations:
             if declaration.declaration_id not in projected_ids:
-                overview.append(Text(f"  {declaration.raw or declaration.name}"))
+                line = Text("  ")
+                line.append_text(
+                    _requirement_text(
+                        declaration.raw or declaration.name,
+                        color="cyan",
+                    )
+                )
+                overview.append(line)
     presenter._render_explain_overview(
         tuple(overview),
         kind=kind,
@@ -243,6 +270,25 @@ def _summary_kind(
     if any(cell.kind == "indeterminate" for cell in cells):
         return "indeterminate"
     return "warning"
+
+
+def _requirement_text(requirement: str, *, color: str) -> Text:
+    text = Text(requirement)
+    try:
+        parsed = Requirement(requirement)
+    except InvalidRequirement:
+        return text
+    if not parsed.specifier:
+        return text
+    declaration = requirement.partition(";")[0]
+    for match in _SPECIFIER_TOKEN.finditer(declaration):
+        text.stylize(color, match.start("operator"), match.end("version"))
+        text.stylize(
+            f"bold {color}",
+            match.start("version"),
+            match.end("version"),
+        )
+    return text
 
 
 def _counted(count: int, singular: str, plural: str | None = None) -> str:

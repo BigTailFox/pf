@@ -250,6 +250,12 @@ Next: pf apply PACKAGE
 
 Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。多 marker requirements 在声明下缩进。Cell 卡片复用 smoke/check/search 的 outcome、identity、边框、Reason 和 diagnose-hint 视觉语言；TTY 使用 Rich Panel，非 TTY 保留相同信息顺序的纯文本降级。
 
+Requirements 的 declaration 与单条 projection/detail 使用按当前内容计算的对齐列，
+不得固定终端宽度。原始 declaration 的 dependency specifier 使用 cyan，其中 version
+operand 使用 bold cyan；搜索得到的 projected requirement 使用 green，其中 version
+operand 使用 bold green。package name、extras 与 marker 保持默认前景色；blocked / no
+applicable floor 保持 warning 色。多 marker projection 继续在 declaration 下逐行缩进。
+
 Cell 只投影报告中的最终状态。`CellIndeterminate` 选择其 `failure_id` 指向的终止 Failure；baseline rejection/indeterminate 选择 baseline Failure；完整评估无解、non-monotonic 与 nondeterministic 显示命令级结论；没有 CellResult 的 target Cell 显示 missing warning。仅权威终止 Failure 可以生成精确 `--failure` 入口，不能把历史候选 Failure 当作当前 blocker 或诊断目标。
 
 默认 explain 不显示历史 Failure 轨迹、ty baseline、static increment、pytest detail、Proposal/source/policy IDs 或 process output。上述机械证据属于 `pf diagnose`。

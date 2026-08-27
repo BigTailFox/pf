@@ -120,6 +120,25 @@ def _report(
     )
 
 
+def _declaration(
+    name: str,
+    *,
+    specifier: str,
+) -> RequirementDeclaration:
+    return RequirementDeclaration(
+        declaration_id=f"demo:dependencies:{name}",
+        package="demo",
+        location="base",
+        name=name,
+        specifier=specifier,
+        source=SourceIdentity(kind="registry"),
+        pyproject_path="pyproject.toml",
+        raw=f"{name}{specifier}",
+        kind="searchable",
+        managed=True,
+    )
+
+
 class TestExplainCellCards:
     def test_explain_terminal_cell_renders_only_terminal_status_and_reason(
         self,
@@ -234,6 +253,124 @@ class TestExplainCellCards:
         assert "Requirements" in card
         assert "rich>=14" in card
         assert "projection blocked" in card
+
+    def test_explain_requirements_align_projection_details(self) -> None:
+        rich = _declaration("rich", specifier=">=14.0")
+        packaging = _declaration("packaging", specifier=">=25.0")
+        projections = tuple(
+            ProjectionEvidence(
+                declaration_id=declaration.declaration_id,
+                floors=(),
+                projected_requirements=(),
+                representable=False,
+            )
+            for declaration in (rich, packaging)
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (
+                _report(
+                    target_cells=(),
+                    cell_results=(),
+                    declarations=(rich, packaging),
+                    projections=projections,
+                ),
+            )
+        )
+
+        requirement_lines = [
+            line
+            for line in stdout.getvalue().splitlines()
+            if "projection blocked" in line
+        ]
+        assert len(requirement_lines) == 2
+        assert len({line.index("projection blocked") for line in requirement_lines}) == 1
+
+    def test_explain_requirements_style_original_specifier_and_version(
+        self,
+    ) -> None:
+        declaration = _declaration("rich", specifier=">=14.0")
+        projection = ProjectionEvidence(
+            declaration_id=declaration.declaration_id,
+            floors=(),
+            projected_requirements=(),
+            representable=False,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (
+                _report(
+                    target_cells=(),
+                    cell_results=(),
+                    declarations=(declaration,),
+                    projections=(projection,),
+                ),
+            )
+        )
+
+        assert (
+            "rich\x1b[36m>=\x1b[0m\x1b[1;36m14.0\x1b[0m"
+            in stdout.getvalue()
+        )
+
+    def test_explain_requirements_style_projected_version_without_coloring_marker(
+        self,
+    ) -> None:
+        declaration = _declaration("rich", specifier=">=14.0")
+        projection = ProjectionEvidence(
+            declaration_id=declaration.declaration_id,
+            floors=(),
+            projected_requirements=(
+                'rich>=15.0; python_version >= "3.11"',
+            ),
+            representable=True,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            (
+                _report(
+                    target_cells=(),
+                    cell_results=(),
+                    declarations=(declaration,),
+                    projections=(projection,),
+                ),
+            )
+        )
+
+        assert (
+            "-> rich\x1b[32m>=\x1b[0m\x1b[1;32m15.0\x1b[0m; "
+            'python_version >= "3.11"'
+            in stdout.getvalue()
+        )
 
     def test_explain_multiple_marker_requirements_are_indented_under_declaration(
         self,

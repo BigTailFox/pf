@@ -62,6 +62,9 @@ workflow、report schema 和 search 编排不学习展示字段。
 6. **Summary 结果色：** 通过公开 `render_explain` 路径依次锁定 red Cell 优先、
    incomplete yellow、applyable green 三条契约；整条 Summary 使用对应 outcome 的
    bold theme，且不把颜色决策下沉到 report schema。
+7. **Requirements 布局与版本色：** 先锁定 declaration/detail 内容驱动的列对齐，
+   再分别锁定原始 specifier cyan + bold version、搜索 projection green + bold version；
+   marker 与 package name 不继承版本色，多 marker projection 保持声明下缩进。
 
 ## 5. 实施记录
 
@@ -106,3 +109,14 @@ workflow、report schema 和 search 编排不学习展示字段。
   `NO_COLOR=1` 时按 Rich 标准只保留 bold，不把用户级禁色设置当作产品失败。
   固定区间 `3ef5485...a67650c` 的 Standards/Spec 双轴复审均为 0 findings、无 scope
   creep。
+- **Requirements layout follow-up：** declaration/detail 的间距由当前报告最长
+  declaration 的 Rich cell width 计算，blocked/no-floor 与单条 projection 因而对齐，
+  不引入固定终端宽度。合法 dependency specifier 在 marker 前按 token 着色：原始
+  operator 为 cyan、version 为 bold cyan；搜索 projection 对应为 green / bold green。
+  package name、extras、marker 与无法解析的 literal text 不继承版本色，多 marker
+  projection 仍逐行缩进。
+- **Requirements follow-up 验证：** explain 聚焦测试 `25 passed`，全仓 Ruff 与 ty
+  通过；允许依赖访问后的完整 pytest 为 `1297 passed in 21.74s`，sdist/wheel 构建
+  成功。根目录既有报告只读 TTY 验证中，六条 blocked detail 对齐，`>=`/`==` 为
+  cyan、版本 operand 为 bold cyan，uv/ty 未伪造 projection。受限网络下 installed-CLI
+  仍因无法取得 `uv_build` 单点失败，联网完整复跑通过，不归类为产品失败。
