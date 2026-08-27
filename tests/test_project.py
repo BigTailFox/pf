@@ -6,7 +6,7 @@ import pytest
 
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader, host_target, marker_platform
-from pf.project_discovery import ProjectDiscovery
+from pf.project_discovery import PackageLocation, ProjectDiscovery
 from pf.schemas.project import SourceIdentity
 
 
@@ -34,6 +34,94 @@ test-command = ["pytest"]
 
 
 class TestProjectDiscovery:
+    @pytest.mark.parametrize(
+        "document",
+        (
+            "tool = 1\n",
+            "[tool]\nuv = 1\n",
+            "[tool.uv]\nworkspace = 1\n",
+            "[tool]\npf = 1\n",
+            "[tool.pf]\npackage = 1\n",
+            "[tool.pf.package]\ndemo = 1\n",
+            "[tool.pf.package.demo]\npath = 1\n",
+            '[tool.uv.workspace]\nmembers = "packages/*"\n',
+            "[tool.uv.workspace]\nmembers = [1]\n",
+        ),
+        ids=(
+            "tool",
+            "uv",
+            "workspace",
+            "pf",
+            "package-map",
+            "package-entry",
+            "package-path",
+            "member-string",
+            "member-item",
+        ),
+    )
+    def test_project_discovery_rejects_malformed_workspace_metadata(
+        self,
+        tmp_path: Path,
+        document: str,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(document, encoding="utf-8")
+
+        with pytest.raises(ConfigurationError):
+            ProjectDiscovery().discover(root=tmp_path, package_selection=None)
+
+    @pytest.mark.parametrize(
+        ("document", "member"),
+        (
+            (
+                '[project]\nname = "demo"\nversion = "1"\n'
+                '[tool.pf.package.missing]\npath = "missing"\n',
+                None,
+            ),
+            ('[tool.uv.workspace]\nmembers = ["member"]\n', "[project]\n"),
+            (
+                '[tool.uv.workspace]\nmembers = ["member"]\n'
+                '[tool.pf]\npackages = ["other"]\n',
+                '[project]\nname = "demo"\nversion = "1"\n',
+            ),
+            (
+                '[tool.uv.workspace]\nmembers = ["member"]\nexclude = ["member"]\n',
+                '[project]\nname = "demo"\nversion = "1"\n',
+            ),
+            (
+                '[project]\nname = "demo"\nversion = "1"\n'
+                '[tool.pf.package.demo]\npath = "../outside"\n',
+                None,
+            ),
+        ),
+        ids=("missing-path", "missing-name", "not-selected", "excluded", "escape"),
+    )
+    def test_project_discovery_rejects_an_empty_package_selection(
+        self,
+        tmp_path: Path,
+        document: str,
+        member: str | None,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(document, encoding="utf-8")
+        if member is not None:
+            member_root = tmp_path / "member"
+            member_root.mkdir()
+            (member_root / "pyproject.toml").write_text(member, encoding="utf-8")
+
+        with pytest.raises(ConfigurationError):
+            ProjectDiscovery().discover(root=tmp_path, package_selection=None)
+
+    def test_project_discovery_rejects_an_invalid_project_name(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = ""\nversion = "1"\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError, match="invalid project name"):
+            ProjectDiscovery().discover(root=tmp_path, package_selection=None)
+
     def test_single_package_loads_normalized_declarations_and_cells(
         self, tmp_path: Path
     ) -> None:
@@ -606,6 +694,35 @@ class TestTargetPlatform:
 
 
 class TestProjectLoader:
+    def test_project_loader_rejects_identity_drift_during_loading(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        write_basic_project(tmp_path, "")
+
+        class DriftingDiscovery(ProjectDiscovery):
+            def discover(
+                self,
+                *,
+                root: Path,
+                package_selection: str | None,
+            ) -> tuple[PackageLocation, ...]:
+                del package_selection
+                return (
+                    PackageLocation(
+                        name="other",
+                        package_root=root,
+                        pyproject_path=root / "pyproject.toml",
+                        report_path=root / "package-floor.json",
+                    ),
+                )
+
+        with pytest.raises(ConfigurationError, match="identity changed"):
+            ProjectLoader(discovery=DriftingDiscovery()).load(
+                root=tmp_path,
+                package_selection=None,
+            )
+
     @pytest.mark.parametrize(
         ("configuration", "message"),
         (

@@ -41,7 +41,9 @@ from pf.schemas.report import (
     StaticRegionSlice,
 )
 from pf.coordinate_search import CoordinateSearch
+from pf.errors import ConfigurationError
 from pf.schemas.evaluation import SearchProbeRequest
+from pf.search import select_probe
 
 
 def snapshot(name: str) -> CandidateSnapshot:
@@ -114,6 +116,92 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
             series_representatives=representatives,
         ),
     )
+
+
+def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
+    base = snapshot(name)
+    artifact = base.candidates[0].artifact.model_copy(
+        update={
+            "filename": f"{name}-1-py3-none-any.whl",
+            "locator": f"https://files.example/{name}-1-py3-none-any.whl",
+            "content_hash": f"sha256:{'a' * 64}",
+        }
+    )
+    candidate = Candidate(version="1", series_key="1", artifact=artifact)
+    representatives = (("1", "1"),)
+    return CandidateSnapshot(
+        dependency=name,
+        cell=base.cell,
+        policy_identity=base.policy_identity,
+        source=base.source,
+        candidates=(candidate,),
+        series_representatives=representatives,
+        digest=candidate_snapshot_digest(
+            dependency=name,
+            cell=base.cell,
+            policy_identity=base.policy_identity,
+            source=base.source,
+            candidates=(candidate,),
+            series_representatives=representatives,
+        ),
+    )
+
+
+class TestProbeSelection:
+    def test_select_probe_returns_the_frozen_artifact(self) -> None:
+        selected = select_probe(
+            (VersionPin(name="a", version="1"),),
+            (selectable_snapshot(),),
+        )
+
+        assert selected[0].artifact.filename == "a-1-py3-none-any.whl"
+
+    def test_select_probe_rejects_duplicate_dependencies(self) -> None:
+        pin = VersionPin(name="a", version="1")
+
+        with pytest.raises(ConfigurationError, match="unique"):
+            select_probe((pin, pin), (selectable_snapshot(),))
+
+    def test_select_probe_rejects_mismatched_dependencies(self) -> None:
+        with pytest.raises(ConfigurationError, match="same dependencies"):
+            select_probe(
+                (VersionPin(name="b", version="1"),),
+                (selectable_snapshot(),),
+            )
+
+    def test_select_probe_rejects_an_unfrozen_version(self) -> None:
+        with pytest.raises(ConfigurationError, match="not uniquely frozen"):
+            select_probe(
+                (VersionPin(name="a", version="2"),),
+                (selectable_snapshot(),),
+            )
+
+    @pytest.mark.parametrize(
+        "artifact_update",
+        (
+            {"filename": ""},
+            {"locator": None},
+            {"locator": ""},
+            {"content_hash": "sha256:short"},
+        ),
+        ids=("filename", "missing-locator", "empty-locator", "hash"),
+    )
+    def test_select_probe_rejects_incomplete_artifact_evidence(
+        self,
+        artifact_update: dict[str, object],
+    ) -> None:
+        snapshot = selectable_snapshot()
+        candidate = snapshot.candidates[0].model_copy(
+            update={
+                "artifact": snapshot.candidates[0].artifact.model_copy(
+                    update=artifact_update
+                )
+            }
+        )
+        tampered = snapshot.model_copy(update={"candidates": (candidate,)})
+
+        with pytest.raises(ConfigurationError, match="artifact is incomplete"):
+            select_probe((VersionPin(name="a", version="1"),), (tampered,))
 
 
 def probe_attempt(vector: tuple[VersionPin, ...]) -> Attempt:

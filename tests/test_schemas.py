@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 
@@ -35,11 +35,15 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     ProcessSpec,
+    PrepareFailure,
     PytestFailureCase,
     PytestFailureDetail,
+    RuntimeWitnessAttempt,
     SearchFailureEvent,
     SmokeBaselineRejection,
     SmokeIndeterminate,
+    RuntimeWitnessPlan,
+    RuntimeWitnessResult,
     StaticBaseline,
     StaticBaselineCapture,
     StaticRegressionEvaluation,
@@ -50,6 +54,7 @@ from pf.schemas.evaluation import (
     ToolFailure,
     TyCheck,
     TyDiagnostic,
+    process_facts_match,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -57,12 +62,15 @@ from pf.schemas.project import (
     Candidate,
     CandidateSnapshot,
     Cell,
+    HarnessGroupProvenance,
     Proposal,
+    RequirementDeclaration,
     SelectedCandidate,
     SourceIdentity,
     VersionPin,
     candidate_snapshot_digest,
     cell_identity,
+    public_locator,
 )
 from pf.schemas.report import (
     CellIndeterminate,
@@ -79,6 +87,7 @@ from pf.schemas.report import (
     StaticRegion,
     StaticRegionRuntimeReference,
     StaticRegionSlice,
+    static_region_id,
 )
 from pf.static_transition import static_fingerprint
 
@@ -281,7 +290,70 @@ def _cell_success() -> CellSuccess:
     )
 
 
+def _model_values(model: FrozenSchema) -> dict[str, Any]:
+    return {field: getattr(model, field) for field in type(model).model_fields}
+
+
+def _witness_plan(identity: str = "diagnostic") -> RuntimeWitnessPlan:
+    return RuntimeWitnessPlan(
+        diagnostic_identities=(identity,),
+        managed_dependency="demo",
+        operation="import-module",
+        module="demo",
+    )
+
+
 class TestPlanningSchemas:
+    @pytest.mark.parametrize(
+        ("locator", "expected"),
+        (
+            (
+                "https://user:secret@example.test:8443/demo.whl?token=secret#fragment",
+                "https://example.test:8443/demo.whl",
+            ),
+            ("file:///tmp/demo.whl?token=secret", "file:///tmp/demo.whl"),
+        ),
+        ids=("network-port", "absolute-file"),
+    )
+    def test_public_locator_removes_private_url_parts(
+        self,
+        locator: str,
+        expected: str,
+    ) -> None:
+        assert public_locator(locator) == expected
+
+    def test_requirement_declaration_rejects_noncanonical_names(self) -> None:
+        with pytest.raises(ValidationError, match="canonical distribution"):
+            RequirementDeclaration(
+                declaration_id="declaration",
+                package="Demo",
+                location="base",
+                name="idna",
+                source=SourceIdentity(kind="registry"),
+                pyproject_path="pyproject.toml",
+                raw="idna",
+                kind="searchable",
+                managed=True,
+            )
+
+    def test_harness_provenance_requires_a_group_path(self) -> None:
+        with pytest.raises(ValidationError, match="requires a pyproject and group"):
+            HarnessGroupProvenance(
+                owner="root",
+                pyproject_path="pyproject.toml",
+                group_path=(),
+                item_path=(),
+            )
+
+    def test_harness_provenance_requires_matching_path_depth(self) -> None:
+        with pytest.raises(ValidationError, match="equal depth"):
+            HarnessGroupProvenance(
+                owner="root",
+                pyproject_path="pyproject.toml",
+                group_path=("test",),
+                item_path=(0, 1),
+            )
+
     def test_cell_identity_is_the_compatibility_quadruple(self) -> None:
         cell = Cell(
             package="demo",
@@ -1297,6 +1369,370 @@ class TestSearchSchemas:
 
 
 class TestEvaluationSchemas:
+    def test_exact_attempt_v2_requires_selected_candidate_evidence(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+
+        with pytest.raises(ValidationError, match="selected candidate evidence"):
+            AttemptIdentity(
+                identity_version="attempt-v2",
+                source_snapshot_digest="snapshot",
+                cell=cell,
+                requested_resolution="exact-vector",
+                requested_managed_vector=(VersionPin(name="demo", version="1"),),
+                active_declaration_ids=(),
+                source_plan_identity="sources",
+                evaluation_policy_identity="policy",
+                resolution_context_digest="context",
+                harness_policy_identity="harness-relaxation-v1",
+                harness_baseline_digest="baseline",
+            )
+
+    def test_pass_rejects_confirmed_missing_witness_evidence(self) -> None:
+        proposal = _proposal("proposal")
+        static = StaticUnchangedEvaluation(
+            proposal=proposal,
+            ty=TyCheck(process=_successful_process(), diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+        )
+        plan = _witness_plan()
+        witness = RuntimeWitnessAttempt(
+            plan=plan,
+            outcome=RuntimeWitnessResult(
+                status="CONFIRMED_MISSING",
+                plan=plan,
+                process=_successful_process(),
+            ),
+        )
+
+        with pytest.raises(ValidationError, match="confirmed-missing"):
+            PassEvaluation(
+                proposal=proposal,
+                static=static,
+                witnesses=(witness,),
+                test=TestPass(process=_successful_process()),
+            )
+
+    def test_pass_rejects_witness_tool_failure(self) -> None:
+        proposal = _proposal("proposal")
+        static = StaticUnchangedEvaluation(
+            proposal=proposal,
+            ty=TyCheck(process=_successful_process(), diagnostics=()),
+            baseline_digest=ty_diagnostic_digest(()),
+        )
+        plan = _witness_plan()
+        witness = RuntimeWitnessAttempt(
+            plan=plan,
+            outcome=ToolFailure(
+                cause="TOOL_FAILURE",
+                stage="witness",
+                process=_successful_process(exit_code=1),
+            ),
+        )
+
+        with pytest.raises(ValidationError, match="witness tool failure"):
+            PassEvaluation(
+                proposal=proposal,
+                static=static,
+                witnesses=(witness,),
+                test=TestPass(process=_successful_process()),
+            )
+
+    def test_process_facts_match_requires_matching_presence(self) -> None:
+        assert process_facts_match(None, None) is True
+        assert process_facts_match(_successful_process(), None) is False
+
+    def test_runtime_witness_result_requires_a_successful_process(self) -> None:
+        with pytest.raises(ValidationError, match="normal exit 0"):
+            RuntimeWitnessResult(
+                status="PRESENT",
+                plan=_witness_plan(),
+                process=_successful_process(exit_code=1),
+            )
+
+    def test_runtime_witness_attempt_requires_the_same_plan(self) -> None:
+        plan = _witness_plan()
+        outcome = RuntimeWitnessResult(
+            status="PRESENT",
+            plan=_witness_plan("other"),
+            process=_successful_process(),
+        )
+
+        with pytest.raises(ValidationError, match="match its plan"):
+            RuntimeWitnessAttempt(plan=plan, outcome=outcome)
+
+    def test_runtime_witness_attempt_requires_the_witness_failure_stage(self) -> None:
+        with pytest.raises(ValidationError, match="witness stage"):
+            RuntimeWitnessAttempt(
+                plan=_witness_plan(),
+                outcome=ToolFailure(
+                    cause="TOOL_FAILURE",
+                    stage="test",
+                    process=_successful_process(exit_code=1),
+                ),
+            )
+
+    def test_static_unchanged_requires_the_empty_fingerprint(self) -> None:
+        with pytest.raises(ValidationError, match="fingerprint"):
+            StaticUnchangedEvaluation(
+                proposal=_proposal("proposal"),
+                ty=TyCheck(process=_successful_process(), diagnostics=()),
+                baseline_digest=ty_diagnostic_digest(()),
+                static_fingerprint="tampered",
+            )
+
+    def test_static_regression_requires_canonical_increment_order(self) -> None:
+        first = _diagnostic(line=1)
+        second = _diagnostic(line=2)
+
+        with pytest.raises(ValidationError, match="canonical diagnostic order"):
+            StaticRegressionEvaluation(
+                proposal=_proposal("proposal"),
+                ty=TyCheck(
+                    process=_successful_process(exit_code=1),
+                    diagnostics=(first, second),
+                ),
+                baseline_digest=ty_diagnostic_digest(()),
+                incremental=(second, first),
+                static_fingerprint=static_fingerprint((second.identity, first.identity)),
+                classifications=_general_classifications(second, first),
+            )
+
+    def test_static_regression_requires_one_classification_per_increment(self) -> None:
+        diagnostic = _diagnostic()
+
+        with pytest.raises(ValidationError, match="classifications"):
+            StaticRegressionEvaluation(
+                proposal=_proposal("proposal"),
+                ty=TyCheck(
+                    process=_successful_process(exit_code=1),
+                    diagnostics=(diagnostic,),
+                ),
+                baseline_digest=ty_diagnostic_digest(()),
+                incremental=(diagnostic,),
+                static_fingerprint=static_fingerprint((diagnostic.identity,)),
+                classifications=(),
+            )
+
+    def test_process_result_diagnostic_reports_a_start_error(self) -> None:
+        process = ProcessResult(
+            exit_code=None,
+            signal=None,
+            start_error="could not start",
+            duration_seconds=0,
+        )
+
+        assert process.diagnostic() == "could not start"
+
+    def test_process_result_diagnostic_reports_stderr(self) -> None:
+        process = ProcessResult(
+            exit_code=1,
+            signal=None,
+            duration_seconds=0,
+            stderr="failed",
+        )
+
+        assert process.diagnostic() == "failed"
+
+    def test_process_result_diagnostic_reports_a_timeout(self) -> None:
+        process = ProcessResult(
+            exit_code=None,
+            signal=9,
+            duration_seconds=0,
+            timed_out=True,
+        )
+
+        assert process.diagnostic() == "process timed out"
+
+    def test_process_result_diagnostic_reports_a_signal(self) -> None:
+        process = ProcessResult(exit_code=None, signal=9, duration_seconds=0)
+
+        assert process.diagnostic() == "terminated by signal 9"
+
+    def test_process_result_diagnostic_reports_an_exit_code(self) -> None:
+        process = ProcessResult(exit_code=2, signal=None, duration_seconds=0)
+
+        assert process.diagnostic() == "exit code 2"
+
+    @pytest.mark.parametrize(
+        "changes",
+        (
+            {
+                "requested_resolution": "highest",
+                "requested_managed_vector": (),
+            },
+            {
+                "requested_resolution": "exact-vector",
+                "requested_managed_vector": None,
+            },
+            {
+                "requested_resolution": "exact-vector",
+                "requested_managed_vector": (
+                    VersionPin(name="b", version="1"),
+                    VersionPin(name="a", version="1"),
+                ),
+            },
+        ),
+        ids=("highest-vector", "missing-vector", "vector-order"),
+    )
+    def test_attempt_identity_rejects_an_invalid_resolution_vector(
+        self,
+        changes: dict[str, object],
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        values: dict[str, object] = {
+            "source_snapshot_digest": "snapshot",
+            "cell": cell,
+            "requested_resolution": "highest",
+            "requested_managed_vector": None,
+            "active_declaration_ids": cell.active_declaration_ids,
+            "source_plan_identity": "sources",
+            "evaluation_policy_identity": "policy",
+        }
+        values.update(changes)
+
+        with pytest.raises(ValidationError):
+            AttemptIdentity.model_validate(values)
+
+    @pytest.mark.parametrize(
+        "changes",
+        (
+            {"resolution_context_digest": ""},
+            {"harness_declaration_ids": ("b", "a")},
+            {"harness_policy_identity": "harness-relaxation-v1"},
+            {"harness_baseline_digest": "unexpected"},
+            {"selected_candidate_evidence_digest": "unexpected"},
+        ),
+        ids=("context", "harness-order", "policy", "baseline", "selection"),
+    )
+    def test_attempt_identity_v2_rejects_incoherent_harness_evidence(
+        self,
+        changes: dict[str, object],
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        values: dict[str, object] = {
+            "identity_version": "attempt-v2",
+            "source_snapshot_digest": "snapshot",
+            "cell": cell,
+            "requested_resolution": "highest",
+            "requested_managed_vector": None,
+            "active_declaration_ids": cell.active_declaration_ids,
+            "source_plan_identity": "sources",
+            "evaluation_policy_identity": "policy",
+            "resolution_context_digest": "context",
+            "harness_policy_identity": "original-harness-v1",
+        }
+        values.update(changes)
+
+        with pytest.raises(ValidationError):
+            AttemptIdentity.model_validate(values)
+
+    def test_prepare_failure_requires_project_evidence_before_environment(self) -> None:
+        with pytest.raises(ValidationError, match="requires a project plan"):
+            PrepareFailure(
+                attempt=_attempt(),
+                failure=ToolFailure(
+                    cause="TOOL_FAILURE",
+                    stage="resolve-environment",
+                    process=_successful_process(exit_code=1),
+                ),
+                environment_plan_digest="environment",
+            )
+
+    @pytest.mark.parametrize(
+        "changes",
+        (
+            {"diagnostic_identities": ()},
+            {"diagnostic_identities": ("b", "a")},
+            {"managed_dependency": ""},
+            {"module": ""},
+            {"planner_policy_version": "unsupported"},
+            {"owner": "owner"},
+            {"operation": "import-symbol", "symbol_or_member": None},
+            {"operation": "has-member", "owner": None, "symbol_or_member": "member"},
+        ),
+        ids=(
+            "diagnostics",
+            "diagnostic-order",
+            "dependency",
+            "module",
+            "policy",
+            "module-owner",
+            "symbol",
+            "member-owner",
+        ),
+    )
+    def test_runtime_witness_plan_rejects_incoherent_operations(
+        self,
+        changes: dict[str, object],
+    ) -> None:
+        values: dict[str, object] = {
+            "diagnostic_identities": ("diagnostic",),
+            "managed_dependency": "demo",
+            "operation": "import-module",
+            "module": "demo",
+        }
+        values.update(changes)
+
+        with pytest.raises(ValidationError):
+            RuntimeWitnessPlan.model_validate(values)
+
+    @pytest.mark.parametrize(
+        "changes",
+        (
+            {"diagnostic_identity": ""},
+            {"reason_code": ""},
+            {"classifier_policy_version": "unsupported"},
+            {"classification": "strong", "witness_plan": None},
+            {
+                "classification": "strong",
+                "witness_plan": RuntimeWitnessPlan(
+                    diagnostic_identities=("other",),
+                    managed_dependency="demo",
+                    operation="import-module",
+                    module="demo",
+                ),
+            },
+            {
+                "classification": "general",
+                "witness_plan": RuntimeWitnessPlan(
+                    diagnostic_identities=("diagnostic",),
+                    managed_dependency="demo",
+                    operation="import-module",
+                    module="demo",
+                ),
+            },
+        ),
+        ids=("identity", "reason", "policy", "missing-plan", "wrong-plan", "general-plan"),
+    )
+    def test_diagnostic_classification_rejects_incoherent_witness_evidence(
+        self,
+        changes: dict[str, object],
+    ) -> None:
+        values: dict[str, object] = {
+            "diagnostic_identity": "diagnostic",
+            "classification": "general",
+            "reason_code": "reason",
+        }
+        values.update(changes)
+
+        with pytest.raises(ValidationError):
+            DiagnosticClassification.model_validate(values)
+
     def test_process_spec_rejects_empty_argv(self) -> None:
         with pytest.raises(ValidationError):
             ProcessSpec(argv=(), cwd=".", timeout_seconds=None)
@@ -1597,6 +2033,309 @@ class TestEvaluationSchemas:
 
 
 class TestReportSchemas:
+    def test_cell_success_requires_unique_candidate_snapshots(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["candidate_snapshots"] = (
+            *success.candidate_snapshots,
+            *success.candidate_snapshots,
+        )
+
+        with pytest.raises(ValidationError, match="dependencies must be unique"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_a_highest_baseline_attempt(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["baseline_attempt"] = _attempt(
+            resolution="exact-vector",
+            vector=success.final_vector,
+            cell=success.cell,
+        )
+
+        with pytest.raises(ValidationError, match="highest Attempt"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_baseline_attempt_cell(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        other = success.cell.model_copy(update={"python_minor": "3.11"})
+        values["baseline_attempt"] = _attempt(cell=other)
+
+        with pytest.raises(ValidationError, match="Attempt must match"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_baseline_proposal_attempt(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["static_baseline"] = success.static_baseline.model_copy(
+            update={
+                "proposal": success.static_baseline.proposal.model_copy(
+                    update={"attempt_id": "other-attempt"}
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="reference its Attempt"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_static_baseline_cell(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        other = success.cell.model_copy(update={"python_minor": "3.11"})
+        values["static_baseline"] = success.static_baseline.model_copy(
+            update={
+                "proposal": success.static_baseline.proposal.model_copy(
+                    update={"cell": other}
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="baseline must match"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_one_baseline_proposal(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["static_baseline"] = success.static_baseline.model_copy(
+            update={
+                "proposal": success.static_baseline.proposal.model_copy(
+                    update={"proposal_id": "other-proposal"}
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="identify V_hi"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_captured_ty_check(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["static_baseline"] = success.static_baseline.model_copy(
+            update={
+                "ty": success.static_baseline.ty.model_copy(
+                    update={"process": _successful_process(exit_code=1)}
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="reuse the captured TyCheck"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_captured_baseline_digest(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["baseline"] = success.baseline.model_copy(
+            update={
+                "static": success.baseline.static.model_copy(
+                    update={"baseline_digest": "other-digest"}
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="captured digest"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_unique_final_dependencies(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["final_vector"] = (*success.final_vector, *success.final_vector)
+
+        with pytest.raises(ValidationError, match="unique and sorted"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_final_proposal_vector(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        values["final_vector"] = ()
+        values["search"] = success.search.model_copy(
+            update={"vector": (), "boundaries": ()}
+        )
+
+        with pytest.raises(ValidationError, match="PASS Proposal"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_the_final_probe_observation(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        observation = success.search.observations[0]
+        rejected = TestFailEvaluation(
+            proposal=success.final_evaluation.proposal,
+            static=success.final_evaluation.static,
+            test=TestFail(process=_successful_process(exit_code=1)),
+        )
+        values["search"] = success.search.model_copy(
+            update={
+                "observations": (
+                    observation.model_copy(
+                        update={
+                            "evidence": ProbeRejection(
+                                attempt=observation.evidence.attempt,
+                                proposal_id=success.final_evaluation.proposal.proposal_id,
+                                failure_id="missing-failure",
+                                cause="TEST_FAILURE",
+                                evaluation=rejected,
+                            )
+                        }
+                    ),
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="final ProbePass"):
+            CellSuccess(**values)
+
+    @pytest.mark.parametrize(
+        "changes",
+        (
+            {"source_snapshot_digest": ""},
+            {"other_coordinates": (VersionPin(name="demo", version="1"),)},
+            {"candidate_order": ()},
+        ),
+        ids=("empty-context", "active-coordinate", "candidate-order"),
+    )
+    def test_static_region_slice_rejects_incoherent_coordinates(
+        self,
+        changes: dict[str, object],
+    ) -> None:
+        cell = _attempt().identity.cell
+        values: dict[str, object] = {
+            "cell": cell,
+            "source_snapshot_digest": "snapshot",
+            "policy_identity": "policy",
+            "baseline_digest": "baseline",
+            "active_dependency": "demo",
+            "other_coordinates": (),
+            "candidate_order": ("1", "2", "3"),
+        }
+        values.update(changes)
+
+        with pytest.raises(ValidationError):
+            StaticRegionSlice.model_validate(values)
+
+    @pytest.mark.parametrize(
+        "changes",
+        (
+            {"static_fingerprint": ""},
+            {"observed_versions": ("missing",)},
+            {"observed_versions": ("1", "3")},
+            {"runtime_references": ()},
+            {
+                "runtime_references": (
+                    StaticRegionRuntimeReference(proposal_id="proposal", status="PASS"),
+                    StaticRegionRuntimeReference(proposal_id="proposal", status="PASS"),
+                )
+            },
+        ),
+        ids=("fingerprint", "unknown-version", "noncontiguous", "runtime", "duplicate"),
+    )
+    def test_static_region_rejects_incomplete_runtime_evidence(
+        self,
+        changes: dict[str, object],
+    ) -> None:
+        values: dict[str, object] = {
+            "slice": StaticRegionSlice(
+                cell=_attempt().identity.cell,
+                source_snapshot_digest="snapshot",
+                policy_identity="policy",
+                baseline_digest="baseline",
+                active_dependency="demo",
+                other_coordinates=(),
+                candidate_order=("1", "2", "3"),
+            ),
+            "static_fingerprint": "fingerprint",
+            "observed_versions": ("1", "2"),
+            "runtime_references": (
+                StaticRegionRuntimeReference(proposal_id="proposal", status="PASS"),
+            ),
+        }
+        values.update(changes)
+
+        with pytest.raises(ValidationError):
+            StaticRegion.model_validate(values)
+
+    def test_static_region_id_rejects_duplicate_runtime_proposals(self) -> None:
+        reference = StaticRegionRuntimeReference(proposal_id="proposal", status="PASS")
+        region = StaticRegion(
+            slice=StaticRegionSlice(
+                cell=_attempt().identity.cell,
+                source_snapshot_digest="snapshot",
+                policy_identity="policy",
+                baseline_digest="baseline",
+                active_dependency="demo",
+                other_coordinates=(),
+                candidate_order=("1",),
+            ),
+            static_fingerprint="fingerprint",
+            observed_versions=("1",),
+            runtime_references=(reference,),
+        ).model_copy(update={"runtime_references": (reference, reference)})
+
+        with pytest.raises(ValueError, match="Proposal IDs must be unique"):
+            static_region_id(region)
+
+    @pytest.mark.parametrize(
+        "values",
+        (
+            {
+                "status": "NON_MONOTONIC",
+                "dependency": None,
+                "observations": (),
+            },
+            {
+                "status": "NON_MONOTONIC",
+                "dependency": "demo",
+                "counterexample": ("2", "1"),
+                "observations": (),
+            },
+            {
+                "status": "NO_PASS_IN_SEARCH_SPACE",
+                "counterexample": ("1", "2"),
+                "observations": (),
+            },
+            {
+                "status": "NONDETERMINISTIC",
+                "failure_id": "failure",
+                "observations": (),
+            },
+        ),
+        ids=("counterexample", "order", "unexpected-counterexample", "unexpected-failure"),
+    )
+    def test_coordinate_failure_rejects_incoherent_terminal_evidence(
+        self,
+        values: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValidationError):
+            CoordinateFailure.model_validate(values)
+
+    @pytest.mark.parametrize("evidence_type", (ProbeRejection, ProbeIndeterminate))
+    def test_probe_evidence_requires_an_exact_vector_attempt(
+        self,
+        evidence_type: type[ProbeRejection] | type[ProbeIndeterminate],
+    ) -> None:
+        with pytest.raises(ValidationError):
+            evidence_type(
+                attempt=_attempt(),
+                failure_id="failure",
+                cause="RESOLUTION_CONFLICT",
+            )
+
+    def test_probe_observation_pairs_the_active_coordinate(self) -> None:
+        attempt = _attempt(resolution="exact-vector", vector=())
+        evidence = ProbeRejection(
+            attempt=attempt,
+            failure_id="failure",
+            cause="RESOLUTION_CONFLICT",
+        )
+
+        with pytest.raises(ValidationError, match="must be paired"):
+            ProbeObservation(
+                dependency="demo",
+                candidate_version=None,
+                vector=(),
+                evidence=evidence,
+            )
+
     def test_cell_failure_rejects_probe_evidence_from_another_static_baseline(
         self,
     ) -> None:

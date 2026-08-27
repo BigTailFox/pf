@@ -11,6 +11,22 @@ from pf.windows_runlog import WindowsRunDirectory
 
 
 class TestWindowsRunDirectory:
+    def test_windows_run_directory_rejects_use_after_close(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        guard = WindowsRunDirectory(handles=(object(),), paths=(tmp_path,))
+        monkeypatch.setattr(
+            WindowsRunDirectory,
+            "_close_all",
+            classmethod(lambda cls, handles: None),
+        )
+        guard.close()
+
+        with pytest.raises(OSError, match="guard is closed"):
+            guard.assert_intact()
+
     def test_windows_run_directory_creates_private_run_before_opening_it(
         self,
         tmp_path: Path,

@@ -187,6 +187,55 @@ class TestTestAdapterProgress:
 
 
 class TestPytestProgressMonitor:
+    def test_stop_invalidates_a_monitor_with_a_stubborn_worker(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        observed: list[StageProgress | None] = []
+        monitor = PytestProgressMonitor(
+            tmp_path,
+            nonce="0" * 32,
+            consume=observed.append,
+        )
+        monitor.start()
+        monkeypatch.setattr(monitor._thread, "is_alive", lambda: True)
+
+        monitor.stop()
+
+        assert observed == []
+
+    def test_start_stop_contains_progress_consumer_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        consumed = Event()
+        calls = 0
+
+        def read_snapshot(path: Path, *, nonce: str) -> StageProgress:
+            del path, nonce
+            return StageProgress(completed=1, total=2, unit="tests")
+
+        def consume(progress: StageProgress | None) -> None:
+            nonlocal calls
+            calls += 1
+            consumed.set()
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("pf.adapters.pytest_progress._read_progress", read_snapshot)
+        monitor = PytestProgressMonitor(
+            tmp_path,
+            nonce="0" * 32,
+            consume=consume,
+        )
+
+        monitor.start()
+        assert consumed.wait(timeout=1)
+        monitor.stop()
+
+        assert calls == 1
+
     def test_start_stop_freezes_last_value_after_regression(
         self,
         tmp_path: Path,

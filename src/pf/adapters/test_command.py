@@ -141,12 +141,8 @@ class TestAdapter:
                     failure_details_temporary.name
                 )
             except Exception:
-                if failure_details_temporary is not None:
-                    try:
-                        failure_details_temporary.cleanup()
-                    except Exception:
-                        pass
-                    failure_details_temporary = None
+                _cleanup(failure_details_temporary)
+                failure_details_temporary = None
             if progress is not None:
                 try:
                     progress_temporary = tempfile.TemporaryDirectory(
@@ -161,12 +157,8 @@ class TestAdapter:
                     active_progress_directory = progress_directory
                 except Exception:
                     monitor = None
-                    if progress_temporary is not None:
-                        try:
-                            progress_temporary.cleanup()
-                        except Exception:
-                            pass
-                        progress_temporary = None
+                    _cleanup(progress_temporary)
+                    progress_temporary = None
             module = f"_pf_pytest_witness_{nonce}"
             source = resources.files("pf").joinpath(
                 "_pytest_failure_witness.py"
@@ -182,21 +174,9 @@ class TestAdapter:
                 nonce=nonce,
             )
         except Exception:
-            if failure_details_temporary is not None:
-                try:
-                    failure_details_temporary.cleanup()
-                except Exception:
-                    pass
-            if progress_temporary is not None:
-                try:
-                    progress_temporary.cleanup()
-                except Exception:
-                    pass
-            if temporary is not None:
-                try:
-                    temporary.cleanup()
-                except Exception:
-                    pass
+            _cleanup(failure_details_temporary)
+            _cleanup(progress_temporary)
+            _cleanup(temporary)
             result = self._run_process(
                 command=command,
                 cwd=cwd,
@@ -253,35 +233,14 @@ class TestAdapter:
                     if detail is not None:
                         outcome = outcome.model_copy(update={"detail": detail})
         except BaseException:
-            if failure_details_temporary is not None:
-                try:
-                    failure_details_temporary.cleanup()
-                except Exception:
-                    pass
-            if progress_temporary is not None:
-                try:
-                    progress_temporary.cleanup()
-                except Exception:
-                    pass
-            try:
-                temporary.cleanup()
-            except Exception:
-                pass
+            _cleanup(failure_details_temporary)
+            _cleanup(progress_temporary)
+            _cleanup(temporary)
             raise
-        if failure_details_temporary is not None:
-            try:
-                failure_details_temporary.cleanup()
-            except Exception:
-                if isinstance(outcome, TestFail):
-                    outcome = outcome.model_copy(update={"detail": None})
-        if progress_temporary is not None:
-            try:
-                progress_temporary.cleanup()
-            except Exception:
-                pass
-        try:
-            temporary.cleanup()
-        except Exception:
+        if not _cleanup(failure_details_temporary) and isinstance(outcome, TestFail):
+            outcome = outcome.model_copy(update={"detail": None})
+        _cleanup(progress_temporary)
+        if not _cleanup(temporary):
             if isinstance(outcome, ToolFailure):
                 return outcome
             return ToolFailure(
@@ -359,3 +318,13 @@ class TestAdapter:
             EnvironmentVariable(name=name, value=value)
             for name, value in values.items()
         )
+
+
+def _cleanup(temporary: tempfile.TemporaryDirectory[str] | None) -> bool:
+    if temporary is None:
+        return True
+    try:
+        temporary.cleanup()
+    except Exception:
+        return False
+    return True

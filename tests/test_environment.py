@@ -305,6 +305,31 @@ class TestEvaluationPolicy:
 
 
 class TestEnvironmentFactory:
+    def test_environment_factory_rejects_an_unqualified_uv_protocol(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = _write_demo(tmp_path)
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        uv = SuccessfulUv()
+        monkeypatch.setattr(
+            uv,
+            "resolution_run_context",
+            lambda **_kwargs: _failed_tool("TOOL_FAILURE", "uv-version"),
+        )
+
+        with pytest.raises(ConfigurationError, match="protocol could not be established"):
+            EnvironmentFactory(uv).prepare(
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                resolution=HighestResolution(),
+            )
+
+        snapshot.close()
+
     def test_environment_factory_materializes_an_isolated_proposal(
         self, tmp_path: Path
     ) -> None:

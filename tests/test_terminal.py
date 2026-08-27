@@ -83,6 +83,7 @@ from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
     CellSearchFailure,
+    CompleteReportResult,
     CoordinateFailure,
     IncompleteReportResult,
     ProjectionEvidence,
@@ -2960,6 +2961,63 @@ class TestSearchRendering:
 
 
 class TestExplainRendering:
+    def test_explain_separates_reports_and_marks_an_empty_projection(
+        self,
+    ) -> None:
+        declaration = requirement_declaration(
+            "demo:dependencies:foo",
+            name="foo",
+            raw="foo>=1",
+        )
+        report = incomplete_report(
+            "MISSING_CELL",
+            declarations=(declaration,),
+            projections=(
+                ProjectionEvidence(
+                    declaration_id=declaration.declaration_id,
+                    floors=(),
+                    projected_requirements=(),
+                    representable=True,
+                ),
+            ),
+        )
+        terminal, stdout, _ = presenter()
+
+        terminal.render_explain((report, report))
+
+        rendered = stdout.getvalue()
+        assert rendered.count("demo · package-floor.json") == 2
+        assert rendered.count("no applicable floor") == 2
+
+    def test_explain_renders_the_complete_report_next_action(self) -> None:
+        declaration = requirement_declaration(
+            "demo:dependencies:foo",
+            name="foo",
+            raw="foo>=1",
+        )
+        report = replace(
+            incomplete_report(
+                declarations=(declaration,),
+                projections=(
+                    ProjectionEvidence(
+                        declaration_id=declaration.declaration_id,
+                        floors=(),
+                        projected_requirements=("foo>=1",),
+                        representable=True,
+                    ),
+                ),
+            ),
+            result=CompleteReportResult(status="complete"),
+        )
+        terminal, stdout, _ = presenter()
+
+        terminal.render_explain((report,))
+
+        rendered = stdout.getvalue()
+        assert "Apply: authorized by this report" in rendered
+        assert "1 dependency declaration have verified floors" in rendered
+        assert "Next: pf apply demo" in rendered
+
     def test_explain_renders_report_strings_as_literal_text(self) -> None:
         malicious = "[link=https://evil.example]foo>=1[/link]"
         report = incomplete_report(

@@ -16,7 +16,7 @@ from pf.environment import (
     PreparedEnvironment,
     ResolutionRequest,
 )
-from pf.errors import InfrastructureError
+from pf.errors import InfrastructureError, NoApplicableFloorError
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     Attempt,
@@ -32,6 +32,7 @@ from pf.schemas.evaluation import (
     PrepareFailure,
     SearchFailureEvent,
     SearchProbeDetailIdentity,
+    SearchProbeRequest,
     StaticBaseline,
     StaticBaselineCapture,
     StaticRegressionEvaluation,
@@ -59,7 +60,12 @@ from pf.schemas.project import (
 )
 from pf.schemas.report import (
     CellIndeterminate,
+    CellSearchFailure,
     CellSuccess,
+    CoordinateBoundary,
+    CoordinateFailure,
+    CoordinateSuccess,
+    ProbeObservation,
     ProbePass,
     StaticOnlyEvidence,
 )
@@ -85,6 +91,7 @@ def search_coordinator(
     static: Any,
     full: Any,
     highest: Any | None = None,
+    coordinate_search: Any | None = None,
     **kwargs: Any,
 ) -> SearchCoordinator:
     return SearchCoordinator(
@@ -98,7 +105,7 @@ def search_coordinator(
             static=static,
             full=full,
         ),
-        coordinate_search=CoordinateSearch(),
+        coordinate_search=coordinate_search or CoordinateSearch(),
         **kwargs,
     )
 
@@ -371,7 +378,314 @@ class FrozenCandidates:
         )
 
 
+def search_case(tmp_path: Path) -> tuple[SourceSnapshot, Cell, PackagePlan]:
+    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+    cell = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    package = PackagePlan(
+        name="demo",
+        pyproject_path="pyproject.toml",
+        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+        declarations=(),
+        cells=(cell,),
+        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        test_group_present=True,
+    )
+    return snapshot, cell, package
+
+
+class FullProbeCoordinateFailure:
+    def minimize(
+        self,
+        *,
+        start: tuple[VersionPin, ...],
+        evaluator: Any,
+        **kwargs: Any,
+    ) -> CoordinateFailure:
+        evidence = evaluator.evaluate(start)
+        pin = start[0]
+        return CoordinateFailure(
+            status="NO_PASS_IN_SEARCH_SPACE",
+            observations=(
+                ProbeObservation(
+                    dependency=pin.name,
+                    candidate_version=pin.version,
+                    vector=start,
+                    evidence=evidence,
+                ),
+            ),
+        )
+
+
 class TestSearchCoordinator:
+    def test_search_reuses_a_full_probe_for_slice_evaluation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class KnownBaselineCoordinateSearch:
+            def minimize(
+                self,
+                *,
+                start: tuple[VersionPin, ...],
+                evaluator: Any,
+                **kwargs: Any,
+            ) -> CoordinateSuccess:
+                evidence = evaluator.evaluate(start)
+                pin = start[0]
+                reused = evaluator.evaluate_in_slice(
+                    SearchProbeRequest(
+                        vector=start,
+                        active_dependency=pin.name,
+                        candidate_version=pin.version,
+                        lower_version=pin.version,
+                        upper_version=pin.version,
+                        candidate_count=1,
+                    )
+                )
+                assert reused == evidence
+                return CoordinateSuccess(
+                    vector=start,
+                    observations=(
+                        ProbeObservation(
+                            dependency=pin.name,
+                            candidate_version=pin.version,
+                            vector=start,
+                            evidence=evidence,
+                        ),
+                    ),
+                    boundaries=(
+                        CoordinateBoundary(dependency=pin.name, floor=pin.version),
+                    ),
+                    sweeps=1,
+                )
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        class BaselineCandidates(FrozenCandidates):
+            def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
+                original = super().build(**kwargs)[0]
+                candidates = (original.candidates[-1],)
+                representatives = (("3", "3"),)
+                return (
+                    CandidateSnapshot(
+                        dependency=original.dependency,
+                        cell=original.cell,
+                        policy_identity=original.policy_identity,
+                        source=original.source,
+                        candidates=candidates,
+                        series_representatives=representatives,
+                        digest=candidate_snapshot_digest(
+                            dependency=original.dependency,
+                            cell=original.cell,
+                            policy_identity=original.policy_identity,
+                            source=original.source,
+                            candidates=candidates,
+                            series_representatives=representatives,
+                        ),
+                    ),
+                )
+
+        result = search_coordinator(
+            environments=ProposalFactory(),
+            candidates=BaselineCandidates(),
+            static=static,
+            full=FullPasses(static),
+            coordinate_search=KnownBaselineCoordinateSearch(),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSuccess)
+        assert result.final_vector == (VersionPin(name="a", version="3"),)
+        assert result.final_evaluation == result.baseline
+
+    def test_search_preserves_a_full_probe_prepare_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class CandidatePrepareFails:
+            def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
+                prepared = ProposalFactory().prepare(**kwargs)
+                if isinstance(kwargs["resolution"], HighestResolution):
+                    return prepared
+                attempt = prepared.attempt
+                prepared.close()
+                return PrepareFailure(
+                    attempt=attempt,
+                    failure=ToolFailure(
+                        cause="RESOLUTION_CONFLICT",
+                        stage="resolve-project",
+                        process=successful_process().model_copy(update={"exit_code": 1}),
+                    ),
+                )
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        result = search_coordinator(
+            environments=CandidatePrepareFails(),
+            candidates=FrozenCandidates(),
+            static=static,
+            full=FullPasses(static),
+            coordinate_search=FullProbeCoordinateFailure(),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSearchFailure)
+        assert result.coordinate_failure is not None
+        assert result.failure_records[0].cause == "RESOLUTION_CONFLICT"
+
+    def test_search_rejects_a_probe_prepare_without_an_attempt(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class CandidateWithoutAttempt(ProposalFactory):
+            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
+                prepared = super().prepare(**kwargs)
+                if isinstance(kwargs["resolution"], ExactSelection):
+                    cast(Any, prepared).attempt = None
+                return prepared
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        with pytest.raises(ValueError, match="retain its attempt"):
+            search_coordinator(
+                environments=CandidateWithoutAttempt(),
+                candidates=FrozenCandidates(),
+                static=static,
+                full=FullPasses(static),
+                coordinate_search=FullProbeCoordinateFailure(),
+            ).search(package=package, cell=cell, snapshot=snapshot)
+
+    def test_search_rejects_a_probe_prepare_without_attempt_identity(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class CandidateToolFailure:
+            def prepare(self, **kwargs: Any) -> PreparedEnvironment | ToolFailure:
+                if isinstance(kwargs["resolution"], ExactSelection):
+                    return ToolFailure(
+                        cause="TOOL_FAILURE",
+                        stage="resolve-project",
+                        process=successful_process().model_copy(update={"exit_code": 2}),
+                    )
+                return ProposalFactory().prepare(**kwargs)
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        with pytest.raises(ValueError, match="establish an Attempt"):
+            search_coordinator(
+                environments=CandidateToolFailure(),
+                candidates=FrozenCandidates(),
+                static=static,
+                full=FullPasses(static),
+                coordinate_search=FullProbeCoordinateFailure(),
+            ).search(package=package, cell=cell, snapshot=snapshot)
+
+    def test_search_records_probe_vector_drift_as_indeterminate(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class CandidateVectorDrift(ProposalFactory):
+            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
+                prepared = super().prepare(**kwargs)
+                if isinstance(kwargs["resolution"], ExactSelection):
+                    prepared.proposal = prepared.proposal.model_copy(
+                        update={
+                            "managed_vector": (VersionPin(name="a", version="1"),)
+                        }
+                    )
+                return prepared
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        result = search_coordinator(
+            environments=CandidateVectorDrift(),
+            candidates=FrozenCandidates(),
+            static=static,
+            full=FullPasses(static),
+            coordinate_search=FullProbeCoordinateFailure(),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSearchFailure)
+        assert result.failure_records[0].cause == "INTERNAL_INVARIANT"
+
+    def test_search_reports_an_empty_candidate_space(self, tmp_path: Path) -> None:
+        class EmptyCandidates:
+            def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
+                raise NoApplicableFloorError("no candidates")
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        result = search_coordinator(
+            environments=ProposalFactory(),
+            candidates=EmptyCandidates(),
+            static=static,
+            full=FullPasses(static),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSearchFailure)
+        assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
+        assert result.phase == "candidate-discovery"
+
+    def test_search_returns_a_coordinate_failure(self, tmp_path: Path) -> None:
+        class FailedCoordinateSearch:
+            def minimize(self, **kwargs: Any) -> CoordinateFailure:
+                return CoordinateFailure(
+                    status="NO_PASS_IN_SEARCH_SPACE",
+                    observations=(),
+                )
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        result = search_coordinator(
+            environments=ProposalFactory(),
+            candidates=FrozenCandidates(),
+            static=static,
+            full=FullPasses(static),
+            coordinate_search=FailedCoordinateSearch(),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSearchFailure)
+        assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
+        assert result.phase == "runtime-search"
+
+    def test_search_rejects_a_final_probe_that_changes_outcome(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class UnverifiedCoordinateSearch:
+            def minimize(self, **kwargs: Any) -> CoordinateSuccess:
+                return CoordinateSuccess(
+                    vector=(VersionPin(name="a", version="1"),),
+                    observations=(),
+                    boundaries=(CoordinateBoundary(dependency="a", floor="1"),),
+                    sweeps=1,
+                )
+
+        snapshot, cell, package = search_case(tmp_path)
+        static = StaticPasses()
+
+        result = search_coordinator(
+            environments=ProposalFactory(),
+            candidates=FrozenCandidates(),
+            static=static,
+            full=FullThreshold(static),
+            coordinate_search=UnverifiedCoordinateSearch(),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSearchFailure)
+        assert result.reason == "NONDETERMINISTIC"
+        assert result.phase == "runtime-final"
+
     def test_search_coordinator_requires_highest_and_coordinate_search(self) -> None:
         environments = ProposalFactory()
         candidates = FrozenCandidates()

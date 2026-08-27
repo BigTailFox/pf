@@ -10,7 +10,7 @@ import tomli
 import pytest
 
 from pf.editor import ProjectEditor
-from pf.errors import ConfigurationError
+from pf.errors import ConfigurationError, NoApplicableFloorError
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ValidatedReport
 from pf.resolution import environment_identity_digest
@@ -263,6 +263,158 @@ def _single_package_report(root: Path) -> ValidatedReport:
 
 
 class TestProjectEditor:
+    def test_apply_many_accepts_an_empty_workspace(self, tmp_path: Path) -> None:
+        assert (
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply_many(
+                reports=(),
+                root=tmp_path,
+            )
+            == ()
+        )
+
+    def test_apply_many_rejects_reports_from_different_snapshots(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\nversion = "1"\ndependencies = ["idna"]\n',
+            encoding="utf-8",
+        )
+        first = _single_package_report(tmp_path)
+        pyproject.write_text(pyproject.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        second = _single_package_report(tmp_path)
+
+        with pytest.raises(ConfigurationError, match="different source snapshots"):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply_many(
+                reports=(first, second),
+                root=tmp_path,
+            )
+
+    def test_apply_rejects_an_incomplete_report(self, tmp_path: Path) -> None:
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\nversion = "1"\ndependencies = ["idna"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+        try:
+            report = PackageReportBuilder().build(
+                package=package,
+                source_snapshot=snapshot.identity,
+                cell_results=(),
+            )
+        finally:
+            snapshot.close()
+
+        with pytest.raises(NoApplicableFloorError):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                report=report,
+                root=tmp_path,
+            )
+
+    def test_apply_rejects_a_missing_report_project(self, tmp_path: Path) -> None:
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\nversion = "1"\ndependencies = ["idna"]\n',
+            encoding="utf-8",
+        )
+        report = _single_package_report(tmp_path)
+        missing = replace(
+            report,
+            package=report.package.model_copy(
+                update={"pyproject_path": "missing/pyproject.toml"}
+            ),
+        )
+
+        with pytest.raises(ConfigurationError, match="pyproject does not exist"):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                report=missing,
+                root=tmp_path,
+            )
+
+    def test_apply_rejects_a_report_project_outside_the_workspace(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\ndependencies = ["idna"]\n',
+            encoding="utf-8",
+        )
+        report = _single_package_report(tmp_path)
+        escaped = replace(
+            report,
+            package=report.package.model_copy(update={"pyproject_path": "../pyproject.toml"}),
+        )
+
+        with pytest.raises(ConfigurationError, match="escapes project root"):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                report=escaped,
+                root=tmp_path,
+            )
+
+    def test_apply_rejects_an_unrepresentable_projection(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\ndependencies = ["idna"]\n',
+            encoding="utf-8",
+        )
+        report = _single_package_report(tmp_path)
+        projection = report.projection_evidence[0].model_copy(
+            update={"representable": False}
+        )
+
+        with pytest.raises(NoApplicableFloorError, match="not applicable"):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                report=replace(report, projection_evidence=(projection,)),
+                root=tmp_path,
+            )
+
+    def test_apply_rejects_an_unknown_projection_declaration(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\ndependencies = ["idna"]\n',
+            encoding="utf-8",
+        )
+        report = _single_package_report(tmp_path)
+        projection = report.projection_evidence[0].model_copy(
+            update={"declaration_id": "missing-declaration"}
+        )
+
+        with pytest.raises(ConfigurationError, match="unknown declaration"):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                report=replace(report, projection_evidence=(projection,)),
+                root=tmp_path,
+            )
+
+    def test_apply_many_rejects_invalid_recovery_state(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        journal = tmp_path / ".pf" / "apply-recovery.json"
+        journal.parent.mkdir()
+        journal.write_text("not JSON\n", encoding="utf-8")
+        editor = ProjectEditor(snapshots=SnapshotBuilder.without_processes())
+
+        with pytest.raises(ConfigurationError, match="invalid apply recovery log"):
+            editor.apply_many(reports=(), root=tmp_path)
+
+    def test_apply_many_discards_committed_recovery_state(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        journal = tmp_path / ".pf" / "apply-recovery.json"
+        journal.parent.mkdir()
+        journal.write_text(
+            '{"schema_version":2,"state":"COMMITTED","files":[]}\n',
+            encoding="utf-8",
+        )
+        editor = ProjectEditor(snapshots=SnapshotBuilder.without_processes())
+
+        assert editor.apply_many(reports=(), root=tmp_path) == ()
+
     def test_project_editor_preserves_toml_comments_and_is_idempotent(
         self,
         tmp_path: Path,

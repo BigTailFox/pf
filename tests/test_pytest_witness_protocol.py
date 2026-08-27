@@ -313,12 +313,21 @@ class TestPytestWitnessArtifactProtocol:
                     "total": 1,
                 }
             ),
+            lambda nonce: _canonical(
+                {
+                    "first": {"nodeid": "case", "phase": "call"},
+                    "protocol": "unknown",
+                    "run_nonce": nonce,
+                    "total": 1,
+                }
+            ),
         ),
         ids=(
             "invalid-json",
             "overlong-nodeid",
             "c1-control-nodeid",
             "surrogate-nodeid",
+            "wrong-protocol",
         ),
     )
     def test_invalid_runtime_detail_does_not_change_test_failure(

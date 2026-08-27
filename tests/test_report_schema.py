@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -1752,7 +1753,467 @@ class TestCompleteReportEvidence(_CompleteReportCase):
         assert case.search_failure_loaded == case.search_failure_report
 
 
+class TestValidatedReport(_CompleteReportCase):
+    def test_cell_result_returns_none_for_unknown_evidence(self) -> None:
+        assert self.case.regional_loaded.cell_result("cell-" + "f" * 64) is None
+
+    def test_failure_returns_none_for_unknown_evidence(self) -> None:
+        assert self.case.regional_loaded.failure("failure-ffffffffffffffff") is None
+
+    def test_failure_context_returns_none_for_unknown_evidence(self) -> None:
+        assert (
+            self.case.regional_loaded.failure_context("failure-ffffffffffffffff")
+            is None
+        )
+
+
 class TestCompleteReportStore(_CompleteReportCase):
+    def test_merge_requires_at_least_one_report(self) -> None:
+        with pytest.raises(ConfigurationError, match="at least one"):
+            ReportStore().merge(())
+
+    def test_merge_rejects_conflicting_results_for_one_cell(self) -> None:
+        case = self.case
+
+        with pytest.raises(ConfigurationError, match="conflicting result"):
+            ReportStore().merge((case.report, case.rejected_report))
+
+    def test_merge_preserves_a_report_without_cell_results(self) -> None:
+        case = self.case
+        report = PackageReportBuilder().build(
+            package=case.package,
+            source_snapshot=case.report.source_snapshot,
+            cell_results=(),
+        )
+
+        assert ReportStore().merge((report,)) is report
+
+    def test_update_preserves_existing_when_replacement_has_no_cells(self) -> None:
+        case = self.case
+        replacement = PackageReportBuilder().build(
+            package=case.package,
+            source_snapshot=case.report.source_snapshot,
+            cell_results=(),
+        )
+
+        assert ReportStore().update(case.report, replacement) is case.report
+
+    def test_merge_rejects_a_different_generation(self) -> None:
+        report = self.case.report
+
+        with pytest.raises(ConfigurationError, match="generation identity"):
+            ReportStore().merge(
+                (report, replace(report, report_generation_id="other-generation"))
+            )
+
+    def test_merge_rejects_generation_metadata_drift(self) -> None:
+        report = self.case.report
+        changed = replace(
+            report,
+            package=report.package.model_copy(update={"pyproject_path": "other.toml"}),
+        )
+
+        with pytest.raises(ConfigurationError, match="package identity"):
+            ReportStore().merge((report, changed))
+
+    def test_read_rejects_source_snapshot_identity_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["identity"]["source_snapshot"]["digest"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_cell_declaration(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["inputs"]["target_cells"][0]["active_declaration_refs"] = [
+            "missing-declaration"
+        ]
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_cell_identity_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["inputs"]["target_cells"][0]["cell_id"] = "cell-" + "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_candidate_snapshot_for_an_unknown_cell(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["inputs"]["candidate_snapshots"][0]["cell_ref"] = (
+            "cell-" + "f" * 64
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_noncanonical_resolution_graph(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        graph = document["evidence"]["resolution_graphs"][0]
+        graph["nodes"].append(copy.deepcopy(graph["nodes"][0]))
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_resolution_graph_identity_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["resolution_graphs"][0]["resolution_graph_id"] = (
+            "resolution-" + "f" * 64
+        )
+        document["evidence"]["resolution_graphs"].sort(
+            key=lambda item: item["resolution_graph_id"]
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_attempt_for_an_unknown_cell(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["attempts"][0]["cell_ref"] = "cell-" + "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_attempt_identity_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["attempts"][0]["resolution_context_digest"] = ""
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_proposal_for_an_unknown_attempt(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["proposals"][0]["attempt_ref"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_proposal_for_an_unknown_graph(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["proposals"][0]["resolution_graph_ref"] = (
+            "resolution-" + "f" * 64
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_invalid_interpreter_version(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["proposals"][0]["interpreter"]["version"] = "invalid"
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_fixed_declaration(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["proposals"][0]["fixed_declaration_refs"] = [
+            "missing-declaration"
+        ]
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_proposal_vector_drift(self, tmp_path: Path) -> None:
+        case = self.case
+        document = copy.deepcopy(case.regional_document)
+        proposal = next(
+            item
+            for item in document["evidence"]["proposals"]
+            if item["proposal_id"] == case.cheap_proposal.proposal_id
+        )
+        proposal["managed_vector"][0]["version"] = "9.9"
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_static_evidence_for_an_unknown_proposal(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["static_evaluations"][0]["proposal_ref"] = "f" * 64
+        document["evidence"]["static_evaluations"].sort(
+            key=lambda item: item["proposal_ref"]
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_static_evaluation_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["static_evaluations"][0]["static_fingerprint"] = (
+            "tampered"
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_evaluation_for_an_unknown_proposal(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["evaluations"][0]["proposal_ref"] = "f" * 64
+        document["evidence"]["evaluations"].sort(key=lambda item: item["proposal_ref"])
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_cross_proposal_static_reference(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        evaluations = document["evidence"]["evaluations"]
+        evaluations[0]["static_evaluation_ref"] = evaluations[1]["proposal_ref"]
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_failure_for_an_unknown_attempt(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["failures"][0]["scope"]["attempt_ref"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_failure_identity_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["evidence"]["failures"][0]["failure_id"] = (
+            "failure-ffffffffffffffff"
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_test_failure_without_its_record(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        failed = next(
+            item
+            for item in document["evidence"]["evaluations"]
+            if item["status"] == "TEST_FAIL"
+        )
+        failed["failure_ref"] = "failure-ffffffffffffffff"
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_indeterminate_evaluation_without_its_record(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.indeterminate_document)
+        document["evidence"]["evaluations"][0]["failure_ref"] = (
+            "failure-ffffffffffffffff"
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_direct_evidence_for_an_unknown_attempt(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        observation = next(
+            item
+            for item in document["cell_results"][0]["search"]["observations"]
+            if item["evidence"].get("status") == "PASS"
+        )
+        observation["evidence"]["attempt_ref"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_direct_pass_without_a_pass_evaluation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        case = self.case
+        document = copy.deepcopy(case.regional_document)
+        observation = next(
+            item
+            for item in document["cell_results"][0]["search"]["observations"]
+            if item["evidence"].get("status") == "PASS"
+        )
+        observation["evidence"]["attempt_ref"] = case.rejected_attempt.attempt_id
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_direct_rejection_without_its_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        observation = next(
+            item
+            for item in document["cell_results"][0]["search"]["observations"]
+            if item["evidence"].get("status") == "REJECTED"
+        )
+        observation["evidence"]["failure_ref"] = "failure-ffffffffffffffff"
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_direct_rejection_with_a_pass_evaluation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        case = self.case
+        document = copy.deepcopy(case.regional_document)
+        observation = next(
+            item
+            for item in document["cell_results"][0]["search"]["observations"]
+            if item["evidence"].get("status") == "REJECTED"
+        )
+        observation["evidence"]["attempt_ref"] = case.final_attempt.attempt_id
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_direct_indeterminate_without_its_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.indeterminate_document)
+        observation = document["cell_results"][0]["coordinate_failure"][
+            "observations"
+        ][0]
+        observation["evidence"]["failure_ref"] = "failure-ffffffffffffffff"
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_direct_indeterminate_with_a_pass_evaluation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        case = self.case
+        document = copy.deepcopy(case.indeterminate_document)
+        observation = document["cell_results"][0]["coordinate_failure"][
+            "observations"
+        ][0]
+        observation["evidence"]["attempt_ref"] = case.final_attempt.attempt_id
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_duplicate_region_runtime_references(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        references = document["cell_results"][0]["search"]["regions"][0][
+            "runtime_references"
+        ]
+        references.append(copy.deepcopy(references[0]))
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_static_region_identity_drift(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["cell_results"][0]["search"]["regions"][0]["region_id"] = (
+            "region-" + "f" * 64
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_duplicate_cell_failure_references(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        references = document["cell_results"][0]["failure_refs"]
+        references.append(references[0])
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_cell_failure_reference(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["cell_results"][0]["failure_refs"][0] = (
+            "failure-ffffffffffffffff"
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_cell_candidate_snapshot(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["cell_results"][0]["candidate_snapshot_refs"][0] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_duplicate_cell_candidate_snapshots(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        references = document["cell_results"][0]["candidate_snapshot_refs"]
+        references.append(references[0])
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_incomplete_search_failure_baseline(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.search_failure_document)
+        document["cell_results"][0]["baseline"]["attempt_ref"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_search_failure_candidate_snapshot(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.search_failure_document)
+        document["cell_results"][0]["candidate_snapshot_refs"][0] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_baseline_result_without_one_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.baseline_rejection_document)
+        document["cell_results"][0]["failure_refs"] = []
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_baseline_result_for_an_unknown_attempt(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.baseline_rejection_document)
+        document["cell_results"][0]["attempt_ref"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_baseline_result_with_unknown_evaluation_refs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.baseline_rejection_document)
+        document["cell_results"][0]["proposal_ref"] = "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_projection_declaration(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["projections"][0]["declaration_ref"] = "missing-declaration"
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_an_unknown_projection_cell(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["projections"][0]["floors"][0]["cell_ref"] = "cell-" + "f" * 64
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_incomplete_projection_coverage(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["projections"] = []
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_result_that_contradicts_cell_coverage(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["result"] = {
+            "status": "incomplete",
+            "reasons": ["MISSING_CELL"],
+        }
+
+        self._assert_read_rejects(tmp_path, document)
+
     def test_update_path_reports_removed_failures_for_same_generation(
         self,
         tmp_path: Path,

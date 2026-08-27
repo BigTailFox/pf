@@ -14,13 +14,38 @@ from pf.schemas.evaluation import (
     CellFailed,
     CellFailureScope,
     FailureDetail,
+    ProcessResult,
     VerificationJournal,
     VerificationJournalEntry,
+    ToolFailure,
 )
 from pf.schemas.project import Cell, PackagePlan, SourcePlan
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
-from pf.verification import VerificationRun, VerificationRunner, VerificationTask
+from pf.verification import (
+    VerificationRun,
+    VerificationRunner,
+    VerificationTask,
+    completion_outcome,
+)
+
+
+class _NoEvents:
+    def consume(self, event: ActivityEvent) -> None:
+        return
+
+
+def _tool_failure() -> ToolFailure:
+    return ToolFailure(
+        cause="TOOL_FAILURE",
+        stage="test",
+        process=ProcessResult(
+            exit_code=2,
+            signal=None,
+            duration_seconds=0.1,
+        ),
+    )
+
 
 def verification_case(
     tmp_path: Path,
@@ -67,6 +92,83 @@ def verification_case(
 
 
 class TestVerificationRunner:
+    @staticmethod
+    def _task(cell: Cell) -> VerificationTask[ToolFailure]:
+        return VerificationTask(
+            cell=cell,
+            execute=_tool_failure,
+            journal_entries=lambda outcome: (),
+        )
+
+    def test_run_rejects_unsorted_packages(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, cell, package, _ = verification_case(tmp_path)
+        other_cell = cell.model_copy(update={"package": "other"})
+        other_package = package.model_copy(
+            update={"name": "other", "cells": (other_cell,)}
+        )
+        request = VerificationRun(
+            command="search",
+            packages=(other_package, package),
+            snapshot=snapshot,
+            tasks=(self._task(cell),),
+            jobs=1,
+            max_duration_seconds=None,
+        )
+
+        with pytest.raises(ValueError, match="packages must be sorted and unique"):
+            VerificationRunner(events=_NoEvents(), logs=None).run(request)
+        snapshot.close()
+
+    def test_run_rejects_duplicate_tasks(self, tmp_path: Path) -> None:
+        snapshot, cell, package, _ = verification_case(tmp_path)
+        task = self._task(cell)
+        request = VerificationRun(
+            command="search",
+            packages=(package,),
+            snapshot=snapshot,
+            tasks=(task, task),
+            jobs=1,
+            max_duration_seconds=None,
+        )
+
+        with pytest.raises(ValueError, match="tasks must have unique cells"):
+            VerificationRunner(events=_NoEvents(), logs=None).run(request)
+        snapshot.close()
+
+    def test_run_rejects_a_task_outside_the_package_set(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, cell, package, _ = verification_case(tmp_path)
+        other_cell = cell.model_copy(update={"package": "other"})
+        request = VerificationRun(
+            command="search",
+            packages=(package,),
+            snapshot=snapshot,
+            tasks=(self._task(other_cell),),
+            jobs=1,
+            max_duration_seconds=None,
+        )
+
+        with pytest.raises(ValueError, match="package is outside the run"):
+            VerificationRunner(events=_NoEvents(), logs=None).run(request)
+        snapshot.close()
+
+    def test_completion_outcome_projects_tool_failure(self) -> None:
+        result = _tool_failure()
+
+        outcome = completion_outcome(result)
+
+        assert isinstance(outcome, CellFailed)
+        assert outcome.phase == "test"
+
+    def test_completion_outcome_rejects_an_unknown_result(self) -> None:
+        with pytest.raises(TypeError, match="unsupported verification result"):
+            completion_outcome(object())
+
     def test_verification_runner_persists_before_diagnose_and_confirms_final_journal(
         self,
         tmp_path: Path,

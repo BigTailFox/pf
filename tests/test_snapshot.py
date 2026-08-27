@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 
@@ -13,6 +14,64 @@ from pf.snapshot import SnapshotBuilder
 
 
 class TestSnapshotBuilder:
+    @pytest.mark.parametrize("target", ("/outside", "../../outside"))
+    def test_snapshot_rejects_a_symlink_outside_the_source_root(
+        self,
+        tmp_path: Path,
+        target: str,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / "unsafe").symlink_to(target)
+
+        with pytest.raises(ConfigurationError):
+            SnapshotBuilder.without_processes().build(root)
+
+    def test_snapshot_rejects_a_special_source_file(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        os.mkfifo(root / "pipe")
+
+        with pytest.raises(ConfigurationError, match="unsupported special source file"):
+            SnapshotBuilder.without_processes().build(root)
+
+    def test_git_snapshot_rejects_an_incomplete_manifest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / ".git").mkdir()
+
+        class Runner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                return ProcessResult(
+                    exit_code=0,
+                    signal=None,
+                    duration_seconds=0.1,
+                    stdout_complete=False,
+                )
+
+        with pytest.raises(InfrastructureError):
+            SnapshotBuilder(Runner()).build(root)
+
+    def test_git_snapshot_rejects_an_unsafe_path(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / ".git").mkdir()
+
+        class Runner:
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                return ProcessResult(
+                    exit_code=0,
+                    signal=None,
+                    duration_seconds=0.1,
+                    stdout="../outside\0",
+                )
+
+        with pytest.raises(ConfigurationError):
+            SnapshotBuilder(Runner()).build(root)
+
     def test_snapshot_materializes_source_and_excludes_runtime_state(
         self, tmp_path: Path
     ) -> None:

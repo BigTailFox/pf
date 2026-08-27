@@ -70,6 +70,37 @@ def process_result(
     )
 
 
+class TestRegistryAccess:
+    def test_environment_credentials_support_default_and_named_indexes(self) -> None:
+        access = RegistryAccess.from_environment(
+            {
+                "UV_INDEX_USERNAME": "default-user",
+                "UV_INDEX_PASSWORD": "default-password",
+                "UV_INDEX_PRIVATE_USERNAME": "private-user",
+                "UV_INDEX_PRIVATE_PASSWORD": "private-password",
+                "UNRELATED": "ignored",
+            }
+        )
+
+        assert access.authorization(SourceIdentity(kind="registry")) is not None
+        assert (
+            access.authorization(SourceIdentity(kind="registry", index="private"))
+            is not None
+        )
+        assert set(access.secret_literals) == {
+            "default-password",
+            "private-password",
+            "default-user",
+            "private-user",
+        }
+
+    def test_authorization_rejects_incomplete_credentials(self) -> None:
+        access = RegistryAccess.from_environment({"UV_INDEX_USERNAME": "user"})
+
+        with pytest.raises(InfrastructureError, match="credentials are incomplete"):
+            access.authorization(SourceIdentity(kind="registry"))
+
+
 class TestUvAdapter:
     def test_default_executable_comes_from_the_uv_runtime_dependency(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -638,6 +669,170 @@ packages = [
 
 
 class TestCandidateQuery:
+    @pytest.mark.parametrize(
+        ("filename", "python_minor", "target"),
+        (
+            (
+                "demo-1.0-cp39-abi3-manylinux_2_17_x86_64.whl",
+                "3.10",
+                "x86_64-unknown-linux-gnu",
+            ),
+            (
+                "demo-1.0-py3-none-musllinux_1_2_x86_64.whl",
+                "3.10",
+                "x86_64-unknown-linux-musl",
+            ),
+            (
+                "demo-1.0-py3-none-win_amd64.whl",
+                "3.10",
+                "x86_64-pc-windows-msvc",
+            ),
+        ),
+        ids=("abi3", "musl", "windows"),
+    )
+    def test_candidate_query_accepts_a_compatible_wheel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        filename: str,
+        python_minor: str,
+        target: str,
+    ) -> None:
+        document = json.dumps(
+            {
+                "files": [
+                    {
+                        "filename": filename,
+                        "url": filename,
+                        "hashes": {"sha256": "a" * 64},
+                    }
+                ]
+            }
+        ).encode()
+
+        class Response(BytesIO):
+            headers = {"Content-Length": str(len(document))}
+
+        monkeypatch.setattr(
+            "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
+        )
+
+        candidates = UvAdapter(RecordingRunner()).query(
+            dependency="demo",
+            source=SourceIdentity(kind="registry", locator=None),
+            cell=Cell(
+                package="demo",
+                target=target,
+                python_minor=python_minor,
+                extra_surface=(),
+            ),
+        )
+
+        assert candidates
+
+    @pytest.mark.parametrize(
+        "filename",
+        (
+            "demo-1.0-cp3x-abi3-manylinux_2_17_x86_64.whl",
+            "demo-1.0-cp312-cp312-manylinux_2_17_x86_64.whl",
+        ),
+        ids=("invalid-abi3", "newer-cpython"),
+    )
+    def test_candidate_query_rejects_an_incompatible_wheel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        filename: str,
+    ) -> None:
+        document = json.dumps(
+            {
+                "files": [
+                    {
+                        "filename": filename,
+                        "url": filename,
+                        "hashes": {"sha256": "a" * 64},
+                    }
+                ]
+            }
+        ).encode()
+
+        class Response(BytesIO):
+            headers = {"Content-Length": str(len(document))}
+
+        monkeypatch.setattr(
+            "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
+        )
+
+        candidates = UvAdapter(RecordingRunner()).query(
+            dependency="demo",
+            source=SourceIdentity(kind="registry", locator=None),
+            cell=Cell(
+                package="demo",
+                target="x86_64-unknown-linux-gnu",
+                python_minor="3.10",
+                extra_surface=(),
+            ),
+        )
+
+        assert candidates == ()
+
+    def test_candidate_query_rejects_an_invalid_artifact_url(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        document = json.dumps(
+            {
+                "files": [
+                    {
+                        "filename": "demo-1.0.tar.gz",
+                        "url": "file:///tmp/demo.tar.gz",
+                        "hashes": {"sha256": "a" * 64},
+                    }
+                ]
+            }
+        ).encode()
+
+        class Response(BytesIO):
+            headers = {}
+
+        monkeypatch.setattr(
+            "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
+        )
+
+        with pytest.raises(InfrastructureError, match="invalid Simple JSON"):
+            UvAdapter(RecordingRunner()).query(
+                dependency="demo",
+                source=SourceIdentity(kind="registry", locator=None),
+                cell=Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.10",
+                    extra_surface=(),
+                ),
+            )
+
+    def test_candidate_query_rejects_an_undeclared_oversized_response(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class Response(BytesIO):
+            headers = {}
+
+        payload = b"x" * (16 * 1024 * 1024 + 1)
+        monkeypatch.setattr(
+            "pf.adapters.uv.urlopen", lambda request, timeout: Response(payload)
+        )
+
+        with pytest.raises(InfrastructureError, match="too large"):
+            UvAdapter(RecordingRunner()).query(
+                dependency="demo",
+                source=SourceIdentity(kind="registry", locator=None),
+                cell=Cell(
+                    package="demo",
+                    target="x86_64-unknown-linux-gnu",
+                    python_minor="3.10",
+                    extra_surface=(),
+                ),
+            )
+
     def test_candidate_query_memoizes_raw_source_response_across_cells(
         self,
         monkeypatch: pytest.MonkeyPatch,

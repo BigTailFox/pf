@@ -11,6 +11,7 @@ from conftest import prepared_resolution_evidence
 
 from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
 from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.resolution import (
     InstalledResolution,
@@ -22,6 +23,7 @@ from pf.resolution import (
 )
 from pf.schemas.evaluation import (
     Attempt,
+    AttemptFailureScope,
     AttemptIdentity,
     CellStageEvent,
     CellFailed,
@@ -127,6 +129,67 @@ def prepared_for_static(tmp_path: Path, proposal_id: str) -> PreparedEnvironment
         **prepared_resolution_evidence(cell=cell),
         temporary_directory=temporary,
     )
+
+
+def runtime_interface_missing_evaluation(
+    tmp_path: Path,
+) -> tuple[PreparedEnvironment, RuntimeInterfaceMissingEvaluation, TyDiagnostic]:
+    prepared = prepared_for_static(tmp_path, "candidate")
+    related_one = diagnostic("snapshot|demo.py|1|2|missing-one")
+    related_two = diagnostic("snapshot|demo.py|2|2|missing-two")
+    unrelated = diagnostic("snapshot|demo.py|3|2|general")
+    plan = RuntimeWitnessPlan(
+        diagnostic_identities=(related_one.identity, related_two.identity),
+        managed_dependency="demo",
+        operation="import-module",
+        module="demo",
+    )
+    static = StaticRegressionEvaluation(
+        proposal=prepared.proposal,
+        ty=TyCheck(
+            process=process_result(exit_code=1),
+            diagnostics=(related_one, related_two, unrelated),
+        ),
+        baseline_digest=ty_diagnostic_digest(()),
+        incremental=(related_one, related_two, unrelated),
+        static_fingerprint=static_fingerprint(
+            (related_one.identity, related_two.identity, unrelated.identity)
+        ),
+        classifications=(
+            DiagnosticClassification(
+                diagnostic_identity=related_one.identity,
+                classification="strong",
+                reason_code="witness-planned",
+                witness_plan=plan,
+            ),
+            DiagnosticClassification(
+                diagnostic_identity=related_two.identity,
+                classification="strong",
+                reason_code="witness-planned",
+                witness_plan=plan,
+            ),
+            DiagnosticClassification(
+                diagnostic_identity=unrelated.identity,
+                classification="general",
+                reason_code="not-runtime-checkable",
+            ),
+        ),
+    )
+    evaluation = RuntimeInterfaceMissingEvaluation(
+        proposal=prepared.proposal,
+        static=static,
+        witnesses=(
+            RuntimeWitnessAttempt(
+                plan=plan,
+                outcome=RuntimeWitnessResult(
+                    status="CONFIRMED_MISSING",
+                    plan=plan,
+                    process=process_result(),
+                ),
+            ),
+        ),
+    )
+    return prepared, evaluation, related_one
 
 
 def empty_baseline(prepared: PreparedEnvironment) -> StaticBaseline:
@@ -558,61 +621,7 @@ class TestRuntimeWitnessEvaluator:
         self,
         tmp_path: Path,
     ) -> None:
-        prepared = prepared_for_static(tmp_path, "candidate")
-        related_one = diagnostic("snapshot|demo.py|1|2|missing-one")
-        related_two = diagnostic("snapshot|demo.py|2|2|missing-two")
-        unrelated = diagnostic("snapshot|demo.py|3|2|general")
-        plan = RuntimeWitnessPlan(
-            diagnostic_identities=(related_one.identity, related_two.identity),
-            managed_dependency="demo",
-            operation="import-module",
-            module="demo",
-        )
-        static = StaticRegressionEvaluation(
-            proposal=prepared.proposal,
-            ty=TyCheck(
-                process=process_result(exit_code=1),
-                diagnostics=(related_one, related_two, unrelated),
-            ),
-            baseline_digest=ty_diagnostic_digest(()),
-            incremental=(related_one, related_two, unrelated),
-            static_fingerprint=static_fingerprint(
-                (related_one.identity, related_two.identity, unrelated.identity)
-            ),
-            classifications=(
-                DiagnosticClassification(
-                    diagnostic_identity=related_one.identity,
-                    classification="strong",
-                    reason_code="witness-planned",
-                    witness_plan=plan,
-                ),
-                DiagnosticClassification(
-                    diagnostic_identity=related_two.identity,
-                    classification="strong",
-                    reason_code="witness-planned",
-                    witness_plan=plan,
-                ),
-                DiagnosticClassification(
-                    diagnostic_identity=unrelated.identity,
-                    classification="general",
-                    reason_code="not-runtime-checkable",
-                ),
-            ),
-        )
-        evaluation = RuntimeInterfaceMissingEvaluation(
-            proposal=prepared.proposal,
-            static=static,
-            witnesses=(
-                RuntimeWitnessAttempt(
-                    plan=plan,
-                    outcome=RuntimeWitnessResult(
-                        status="CONFIRMED_MISSING",
-                        plan=plan,
-                        process=process_result(),
-                    ),
-                ),
-            ),
-        )
+        prepared, evaluation, related_one = runtime_interface_missing_evaluation(tmp_path)
 
         completion = completion_outcome(evaluation)
 
@@ -621,6 +630,25 @@ class TestRuntimeWitnessEvaluator:
             first=related_one,
             total=2,
         )
+        prepared.close()
+
+
+class TestFailurePolicy:
+    def test_classify_evaluation_classifies_a_confirmed_missing_interface(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        prepared, evaluation, _ = runtime_interface_missing_evaluation(tmp_path)
+
+        failure = FailurePolicy().classify_evaluation(
+            AttemptFailureScope(attempt=prepared.attempt),
+            evaluation,
+        )
+
+        assert failure is not None
+        assert failure.cause == "RUNTIME_INTERFACE_MISSING"
+        assert failure.disposition == "REJECTED"
+        prepared.close()
 
 
 class TestRuntimeEvaluatorOutcomes:

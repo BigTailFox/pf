@@ -12,7 +12,6 @@ from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
     ActivityEvent,
-    AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
     CellCompletedEvent,
@@ -29,14 +28,12 @@ from pf.schemas.evaluation import (
     ProcessResult,
     RuntimeInterfaceMissingEvaluation,
     RuntimeWitnessResult,
-    SearchFailureEvent,
     StaticIssueDetail,
     TestFailEvaluation,
     ToolFailure,
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
-    VerificationRole,
 )
 from pf.schemas.project import Cell, PackagePlan, cell_identity
 from pf.schemas.report import CellIndeterminate, CellSearchFailure, CellSuccess
@@ -172,27 +169,9 @@ class _VerificationEvents(Generic[T]):
             cell_identity(task.cell): task
             for task in request.tasks
         }
-        self._buffered: dict[
-            tuple[str, str, str, tuple[str, ...]],
-            list[VerificationJournalEntry],
-        ] = {}
         self._entries: dict[str, VerificationJournalEntry] = {}
         self._lock = Lock()
         self._error: InfrastructureError | None = None
-
-    def consume(self, event: ActivityEvent) -> None:
-        if isinstance(event, SearchFailureEvent):
-            entry = self._entry_for_failure(
-                package=event.cell.package,
-                cell=event.cell,
-                role=None,
-                failure=event.failure,
-            )
-            with self._lock:
-                self._buffered.setdefault(cell_identity(event.cell), []).append(entry)
-            self._inner.consume(event)
-            return
-        self._inner.consume(event)
 
     def completed(
         self,
@@ -204,9 +183,8 @@ class _VerificationEvents(Generic[T]):
         key = cell_identity(task.cell)
         outcome = completion_outcome(result)
         with self._lock:
-            entries = list(self._buffered.pop(key, ()))
             verification_task = self._tasks[key]
-            entries.extend(verification_task.journal_entries(result))
+            entries = list(verification_task.journal_entries(result))
             self._merge(entries)
             available = False
             if entries and self._logs is not None and self._error is None:
@@ -273,38 +251,6 @@ class _VerificationEvents(Generic[T]):
             if existing is not None and existing != entry:
                 raise ValueError("journal failure ID maps to conflicting entries")
             self._entries.setdefault(entry.failure.failure_id, entry)
-
-    @staticmethod
-    def _entry_for_failure(
-        *,
-        package: str,
-        cell: Cell,
-        role: VerificationRole | None,
-        failure: FailureRecord,
-    ) -> VerificationJournalEntry:
-        attempt = (
-            failure.scope.attempt
-            if isinstance(failure.scope, AttemptFailureScope)
-            else None
-        )
-        resolved: VerificationRole
-        if role is not None:
-            resolved = role
-        elif attempt is None:
-            resolved = "probe"
-        elif attempt.identity.requested_resolution == "highest":
-            resolved = "baseline"
-        elif attempt.identity.requested_resolution == "lowest-direct":
-            resolved = "declaration"
-        else:
-            resolved = "probe"
-        return VerificationJournalEntry(
-            package=package,
-            cell=cell,
-            role=resolved,
-            attempt=attempt,
-            failure=failure,
-        )
 
 
 def completion_outcome(result: object) -> CellSucceeded | CellFailed:

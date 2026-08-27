@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import runpy
 import subprocess
 import sys
 from io import StringIO
@@ -171,6 +172,22 @@ def module_help() -> subprocess.CompletedProcess[str]:
 
 
 class TestCliInterface:
+    def test_module_entrypoint_routes_to_cli_help(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        called = False
+
+        def record_call() -> None:
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr("pf.cli.main", record_call)
+
+        runpy.run_module("pf.__main__", run_name="__main__")
+
+        assert called
+
     def test_module_help_lists_every_v1_command(
         self,
         module_help: subprocess.CompletedProcess[str],

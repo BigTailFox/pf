@@ -49,6 +49,10 @@ def _entry(*, package: str, policy: str) -> VerificationJournalEntry:
 
 
 class TestRunLogStoreJournal:
+    def test_run_log_store_rejects_an_unsafe_run_id(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="safe filename characters"):
+            RunLogStore(root=tmp_path, run_id="../outside")
+
     def test_diagnose_tail_uses_stdout_when_stderr_has_no_nonempty_lines(
         self,
         tmp_path: Path,

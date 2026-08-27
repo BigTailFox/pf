@@ -45,6 +45,136 @@ hashes = { sha256 = "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 
 class TestUvPylockParser:
+    @pytest.mark.parametrize(
+        "package",
+        (
+            "1",
+            '{ name = 1, directory = { path = "." } }',
+            '{ name = "demo", version = "invalid version", directory = { path = "." } }',
+            '{ name = "demo", version = 1, directory = { path = "." } }',
+            '{ name = "demo", marker = "not a marker", directory = { path = "." } }',
+            '{ name = "demo", marker = 1, directory = { path = "." } }',
+            '{ name = "demo", dependencies = 1, directory = { path = "." } }',
+            '{ name = "demo", dependencies = [1], directory = { path = "." } }',
+            '{ name = "demo", dependencies = [{ name = 1 }], directory = { path = "." } }',
+            '{ name = "demo", directory = "." }',
+            '{ name = "demo", directory = {} }',
+            '{ name = "demo", directory = { path = "../outside" } }',
+            '{ name = "demo", vcs = 1 }',
+            '{ name = "demo", vcs = { type = "hg", url = "https://example.test/x", commit-id = "abc" } }',
+            '{ name = "demo", vcs = { type = "git", url = 1, commit-id = "abc" } }',
+            '{ name = "demo", archive = 1 }',
+            '{ name = "demo", version = "1", index = 1, wheels = [{ path = "demo.whl", hashes = { sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }] }',
+            '{ name = "demo", version = "1", wheels = 1 }',
+            '{ name = "demo", version = "1", wheels = [1] }',
+            '{ name = "demo", version = "1", wheels = [{ path = "../demo.whl", hashes = { sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }] }',
+            '{ name = "demo", version = "1", wheels = [{}] }',
+            '{ name = "demo", version = "1", wheels = [{ path = "demo.whl" }] }',
+            '{ name = "demo", version = "1", wheels = [{ path = "demo.whl", hashes = { sha256 = "short" } }] }',
+            '{ name = "demo", version = "1", directory = { path = "." }, archive = { url = "https://example.test/demo.whl", hashes = { sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }',
+        ),
+    )
+    def test_parser_rejects_malformed_package_evidence(self, package: str) -> None:
+        content = (
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = ['
+            + package
+            + "]\n"
+        )
+
+        with pytest.raises(UvLockError):
+            parse_uv_pylock(content, python_minor="3.11")
+
+    @pytest.mark.parametrize(
+        "requires_python",
+        ("1", '"not a specifier"'),
+        ids=("non-string", "invalid"),
+    )
+    def test_parser_rejects_invalid_python_compatibility(
+        self,
+        requires_python: str,
+    ) -> None:
+        content = (
+            'lock-version = "1.0"\ncreated-by = "uv"\nrequires-python = '
+            + requires_python
+            + "\npackages = []\n"
+        )
+
+        with pytest.raises(UvLockError):
+            parse_uv_pylock(content, python_minor="3.11")
+
+    def test_parser_rejects_duplicate_package_selections(self) -> None:
+        package = (
+            '{ name = "demo", version = "1", wheels = ['
+            '{ path = "demo.whl", hashes = { sha256 = '
+            '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }] }'
+        )
+        content = (
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = ['
+            + package
+            + ", "
+            + package
+            + "]\n"
+        )
+
+        with pytest.raises(UvLockError, match="one entry per package"):
+            parse_uv_pylock(content, python_minor="3.11")
+
+    def test_parser_projects_vcs_and_local_artifact_sources(self) -> None:
+        sha256 = "a" * 64
+        content = f'''\
+lock-version = "1.0"
+created-by = "uv"
+packages = [
+  {{ name = "demo", vcs = {{ type = "git", url = "https://user:secret@example.test/demo.git?token=x", commit-id = "abc" }} }},
+  {{ name = "tool", version = "1", wheels = [{{ path = "artifacts/tool.whl", hashes = {{ sha256 = "{sha256}" }} }}] }}
+]
+'''
+
+        packages = parse_uv_pylock(content, python_minor="3.11")
+
+        assert packages[0].source.locator == "https://example.test/demo.git"
+        assert packages[1].available_artifacts[0].locator == "artifacts/tool.whl"
+
+    @pytest.mark.parametrize(
+        "content",
+        (
+            "not = [toml",
+            'lock-version = "1.0"\ncreated-by = "uv"\n',
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = [1]\n',
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = [{ name = "demo", directory = "." }]\n',
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = [{ name = "demo", directory = {} }]\n',
+        ),
+    )
+    def test_normalizer_rejects_malformed_directory_evidence(
+        self,
+        tmp_path: Path,
+        content: str,
+    ) -> None:
+        with pytest.raises(UvLockError):
+            normalize_uv_pylock_paths(
+                content,
+                source_root=tmp_path,
+                lock_root=tmp_path,
+            )
+
+    def test_normalizer_rejects_paths_outside_the_lock_root(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        source = tmp_path / "source"
+        source.mkdir()
+        outside = tmp_path.parent / "outside"
+        content = (
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = '
+            f'[{{ name = "demo", directory = {{ path = "{outside}" }} }}]\n'
+        )
+
+        with pytest.raises(UvLockError):
+            normalize_uv_pylock_paths(
+                content,
+                source_root=source,
+                lock_root=tmp_path,
+            )
     def test_parser_projects_registry_graph_and_secret_free_artifacts(self) -> None:
         packages = parse_uv_pylock(REGISTRY_LOCK, python_minor="3.11")
 

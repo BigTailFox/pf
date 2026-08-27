@@ -174,8 +174,62 @@ class TestStaticTransitionClassifier:
                 _diagnostic(line=1, column=8, code="unresolved-import"),
                 "managed-dependency-not-unique",
             ),
+            (
+                "import requests\n",
+                _diagnostic(
+                    line=1,
+                    column=8,
+                    code="unresolved-import",
+                ).model_copy(update={"origin": "environment"}),
+                "diagnostic-not-in-snapshot",
+            ),
+            (
+                "import requests\n",
+                _diagnostic(
+                    line=1,
+                    column=8,
+                    code="unresolved-import",
+                ).model_copy(update={"path": "../demo.py"}),
+                "source-path-invalid",
+            ),
+            (
+                "def broken(:\n",
+                _diagnostic(line=1, column=1, code="unresolved-import"),
+                "source-ast-unavailable",
+            ),
+            (
+                "import requests, flask\n",
+                _diagnostic(line=1, column=8, code="unresolved-import"),
+                "target-not-unique",
+            ),
+            (
+                "from .requests import thing\n",
+                _diagnostic(line=1, column=6, code="unresolved-import"),
+                "target-not-unique",
+            ),
+            (
+                "from requests import *\n",
+                _diagnostic(line=1, column=6, code="unresolved-import"),
+                "target-not-unique",
+            ),
+            (
+                "import requests\n",
+                _diagnostic(line=2, column=1, code="unresolved-import"),
+                "target-not-unique",
+            ),
         ),
-        ids=("unsupported-code", "ambiguous-target", "unmanaged-module"),
+        ids=(
+            "unsupported-code",
+            "ambiguous-target",
+            "unmanaged-module",
+            "external-diagnostic",
+            "unsafe-source",
+            "invalid-source",
+            "multiple-imports",
+            "relative-import",
+            "star-import",
+            "outside-node",
+        ),
     )
     def test_static_transition_classifier_downgrades_without_message_guessing(
         self,

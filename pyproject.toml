@@ -58,6 +58,7 @@ TESTMON_DATAFILE = "tests/.cache/testmon/.testmondata"
 [tool.coverage.run]
 branch = true
 data_file = "tests/.cache/cov/.coverage"
+source = ["pf"]
 
 [tool.coverage.html]
 directory = "tests/.cache/cov/html"
