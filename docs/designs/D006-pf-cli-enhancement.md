@@ -112,35 +112,49 @@ scope facts 首部卡片的运行中边框使用默认前景色 dim；完成固�
 命令最终 outcome 的 green/red/yellow。边框样式不得传给 `loaded project`、
 `built snapshot`、matrix facts 等正文。
 
+scope facts 首部卡片第一行是 `run-id: <id>`。matrix heading 为
+`selected N cells, P active packages (F pinned)`；`active packages` 是所选 Cell 中至少
+生效一次的唯一 direct dependency name，`pinned` 是其中 fixed declaration 的唯一
+package name。上述计数由 workflow 随 `CellMatrixEvent` 发布，Presenter 不读取项目或
+declaration。
+
 ## 5. Live Cell
 
 TTY 的每个运行中 Cell 使用独立卡片：
 
 ```text
 ⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [baseline][highest]
-  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests ETA 0:00:41
+  [baseline][highest][testing] ━━━━━━╺━━━━━━━━━━━━━ 37/120 ETA 00:00:41
 
 ⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [baseline][packaging=24.0][cyclopts=2.4.0]
-  [pydantic=1.7.4][1.7.4~2.13.4#18]
-  dynamic tests ━━━━━━╺━━━━━━━━━━━━━ 37/120 tests ETA 0:00:41
+  [cyclopts=2.4.0][packaging=24.0][rich=13.0]
+  [pydantic=1.7.4][1.7.4~2.13.4#18][testing] ━━━━━━╺━━━━ 37/120 ETA 00:00:41
 
 ⠋ searching cells · 3 running · 4 finished · 0 left                 0:00:12
 ```
 
-`CellSearchProgressEvent` 提供当前 coordinate sweep 已完成的包；search Cell 把它放在
-probe identity 上方，以绿色渲染 `[baseline]` 与按实际完成顺序追加的
-`[dependency=version]`；其中 version 使用 bold green。最高版本 baseline 一通过就发布 `[baseline]`，因此 candidate
-discovery 较慢或失败时仍保留这个已完成事实；每轮 sweep 开始重置为 `[baseline]`。
-完成包只属于运行期 Activity，不进入 report、cache、Journal、FailureRecord 或
-identity。
+`CellSearchProgressEvent` 提供当前 coordinate sweep 的完整有序 vector 与已完成前缀；
+search Cell 把 vector 放在 probe identity 上方，并排除正在下降的 coordinate。未搜索的
+token 内容使用 dim 默认前景色且 package name 不加粗；已完成 token 内容使用 green 且
+去掉 dim，其 package name 为 bold，`=version` 保持普通字重；bracket 始终为 dim 默认前景色。
+coordinate 完成后以新 floor 回填原搜索顺序位置并切为已完成样式；每轮 sweep 开始把
+全部 token 重置为未搜索样式。搜索进度只属于运行期 Activity，不进入 report、cache、
+Journal、FailureRecord 或 identity。
 
-Cell title `[py...][target][extra]` 使用 bold 默认前景色。`CellContextEvent` 提供当前 detail identity；baseline、declaration 与 search probe 都放在 title 后的 identity detail。Live identity 第一段使用当前上下文色的默认亮度，第二段 `[highest]` / `[lowest-direct]` / `[window#count]` 在同色基础上使用 dim。Search probe 的 active/lower/upper version 与 candidate count 使用 bold，dependency 与分隔符保持普通字重；候选窗口使用 `~`。Identity 切换清空旧 stage；同一 probe 的 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS 未执行真实 probe 时不制造 detail。
+Cell title `[py...][target][extra]` 的 token 内容使用 bold 默认前景色，bracket 使用 dim
+默认前景色。`CellContextEvent` 提供当前 detail identity；baseline、declaration 与
+search probe 都放在 title 后的 identity detail。Live identity 的 bracket 使用 dim 默认
+前景色；第一、第二 token 内容分别为 bold cyan 与 cyan。任意当前 stage 都作为第三个
+token 与 identity 保持在同一逻辑行，其内容使用默认前景色且不 dim；dynamic tests
+精简为 `[testing]`，并与 progress bar/count/ETA 保持同行。count 与 ETA 和第三个
+stage token 一样使用默认前景色且不 dim，count 只显示 `completed/total`，不追加
+`tests`。没有 identity 时只显示第三个 stage token。候选窗口使用 `~`。Identity 切换清空旧 stage；同一 probe 的
+static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS
+未执行真实 probe 时不制造 detail。
 
-只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total tests` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
+只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
-Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；不显示方块矩阵或 completed/total。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
+Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；不显示方块矩阵或 completed/total。Cell title elapsed 与 footer 总 elapsed 都使用 dim magenta。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
 
 外层 Console 最宽 120 列；内部 renderable 不设置固定 width/height。窄终端优先隐藏 bar、换行或改为 label block，不能丢失 package、Cell、artifact 或 next action。非 TTY 无 box drawing。
 

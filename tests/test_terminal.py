@@ -484,8 +484,12 @@ class TestErrorRendering:
             in output
         )
 
-    def test_render_error_colors_the_setup_border_as_failure(self) -> None:
+    def test_render_error_colors_the_setup_border_as_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
         terminal = TTYBuffer()
+        logs = RunLogStore(root=tmp_path, run_id="run-before-matrix")
         presenter = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
             stderr=Console(
@@ -494,13 +498,20 @@ class TestErrorRendering:
                 no_color=False,
                 color_system="standard",
             ),
+            logs=logs,
         )
 
+        presenter.bind_command("smoke")
         presenter.consume(StatusEvent(message="loading project"))
         presenter.consume(StatusEvent(message="building snapshot"))
         presenter.render_error(ConfigurationError("snapshot drifted"))
+        logs.close()
 
         raw = terminal.getvalue()
+        plain = visible(raw)
+        assert plain.index("run-id: run-before-matrix") < plain.index(
+            "loaded project"
+        )
         loaded_at = raw.rindex("loaded project")
         border_at = raw.rfind("╭", 0, loaded_at)
         border_style_at = raw.rfind("\x1b[", 0, border_at)
@@ -582,7 +593,8 @@ class TestProgressRendering:
             CellContextEvent(cell=cells[1], detail=BaselineDetailIdentity())
         )
 
-        lines = visible(stderr.getvalue()).splitlines()
+        raw = stderr.getvalue()
+        lines = visible(raw).splitlines()
         footer_at = max(
             index for index, line in enumerate(lines) if "smoke testing" in line
         )
@@ -606,6 +618,18 @@ class TestProgressRendering:
         assert "□" not in footer and "■" not in footer
         assert "0/4" not in footer
         assert footer.rstrip().endswith("0:00:00")
+        cell_elapsed_at = raw.index("0:00:00", raw.rindex("py3.10"))
+        cell_elapsed_style_at = raw.rfind("\x1b[", 0, cell_elapsed_at)
+        cell_elapsed_codes = sgr_codes(raw[cell_elapsed_style_at:cell_elapsed_at])
+        assert {"2", "35"} <= cell_elapsed_codes
+        assert "1" not in cell_elapsed_codes
+        footer_elapsed_at = raw.rindex("0:00:00")
+        footer_elapsed_style_at = raw.rfind("\x1b[", 0, footer_elapsed_at)
+        footer_elapsed_codes = sgr_codes(
+            raw[footer_elapsed_style_at:footer_elapsed_at]
+        )
+        assert {"2", "35"} <= footer_elapsed_codes
+        assert "1" not in footer_elapsed_codes
 
     def test_footer_excludes_completed_cells_from_running_and_left(self) -> None:
         first = Cell(
@@ -1153,20 +1177,26 @@ class TestProgressRendering:
                         python_minor="3.12",
                         extra_surface=("arrow", "cuda"),
                     ),
-                )
+                ),
+                active_packages=4,
+                pinned_packages=1,
             )
         )
 
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✓ selected 3 cells\n"
+            "✓ selected 3 cells, 4 active packages (1 pinned)\n"
             "  python: 3.10, 3.12\n"
             "  platform: aarch64-apple-darwin, x86_64-unknown-linux-gnu\n"
             "  extra surfaces: no-extra, cuda, arrow+cuda\n"
         )
 
-    def test_tty_setup_facts_render_in_one_rounded_card(self) -> None:
+    def test_tty_setup_facts_render_in_one_rounded_card(
+        self,
+        tmp_path: Path,
+    ) -> None:
         stderr = TTYBuffer()
+        logs = RunLogStore(root=tmp_path, run_id="run-123")
         terminal = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
             stderr=Console(
@@ -1175,6 +1205,7 @@ class TestProgressRendering:
                 no_color=False,
                 color_system="standard",
             ),
+            logs=logs,
         )
         cells = (
             Cell(
@@ -1200,14 +1231,21 @@ class TestProgressRendering:
         terminal.consume(StatusEvent(message="loading project"))
         terminal.consume(StatusEvent(message="building snapshot"))
         terminal.consume(StatusEvent(message="smoke testing"))
-        terminal.consume(CellMatrixEvent(cells=cells))
+        terminal.consume(
+            CellMatrixEvent(
+                cells=cells,
+                active_packages=4,
+                pinned_packages=1,
+            )
+        )
 
         raw = stderr.getvalue()
         output = visible(raw)
         assert output.count("╭") == 1
+        assert output.index("run-id: run-123") < output.index("✓ loaded project")
         assert "✓ loaded project" in output
         assert "✓ built snapshot" in output
-        assert "✓ selected 3 cells" in output
+        assert "✓ selected 3 cells, 4 active packages (1 pinned)" in output
         assert "python: 3.10, 3.11, 3.12" in output
         assert "platform: x86_64-unknown-linux-gnu" in output
         assert "extra surfaces: no-extra" in output
@@ -1221,6 +1259,7 @@ class TestProgressRendering:
         loaded_end = loaded_at + len("loaded project")
         assert "2" not in sgr_codes(raw[loaded_style_at:loaded_end])
         terminal.close()
+        logs.close()
 
     @pytest.mark.parametrize(
         ("status", "result_color"),
@@ -1268,7 +1307,10 @@ class TestProgressRendering:
         assert result_color in border_codes
         assert "2" in border_codes
         assert "1" not in border_codes
-        assert loaded_at < raw.rindex("[py3.10][x86_64-unknown-linux-gnu][no-extra]")
+        plain = visible(raw)
+        assert plain.rindex("loaded project") < plain.rindex(
+            "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
+        )
 
     def test_tty_setup_card_border_uses_the_command_result(self) -> None:
         cell = Cell(
@@ -1369,10 +1411,12 @@ class TestProgressRendering:
         plain = visible(output)
         assert "applying floors" in plain
         assert "1/2" in plain
-        assert "installing dependencies" in plain
+        assert "[installing dependencies]" in plain
         assert "━" not in plain
         stage_at = output.index("installing dependencies")
-        assert "\x1b[2m" in output[: stage_at + 1]
+        stage_style_at = output.rfind("\x1b[", 0, stage_at)
+        stage_codes = sgr_codes(output[stage_style_at:stage_at])
+        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & stage_codes
 
     def test_tty_live_cell_card_border_is_dim_without_adding_a_hue(self) -> None:
         cell = Cell(
@@ -1438,26 +1482,37 @@ class TestProgressRendering:
         frame = output[output.rfind("╭") :]
         title = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
         title_line = next(line for line in frame.splitlines() if title in line)
-        identity_line = next(
-            line for line in frame.splitlines() if "[baseline][highest]" in line
-        )
+        identity = "[baseline][highest][resolving project]"
+        identity_line = next(line for line in frame.splitlines() if identity in line)
 
         assert title_line != identity_line
         assert identity_line.index("[baseline]") == title_line.index(title)
-        assert frame.index("[baseline][highest]") < frame.index("resolving project")
-        title_at = raw.rindex(title)
-        title_style_at = raw.rfind("\x1b[", 0, title_at)
-        title_codes = sgr_codes(raw[title_style_at:title_at])
-        assert not (_FOREGROUND_SGR_CODES & title_codes)
-        identity_at = raw.rindex("[baseline]")
-        first_style_at = raw.rfind("\x1b[", 0, identity_at)
-        first_codes = sgr_codes(raw[first_style_at:identity_at])
-        highest_at = raw.index("[highest]", identity_at)
-        second_style_at = raw.rfind("\x1b[", identity_at, highest_at)
+        assert identity in frame
+        python_at = raw.rindex("py3.10")
+        title_at = raw.rfind("m[", 0, python_at) + 1
+        bracket_style_at = raw.rfind("\x1b[", 0, title_at)
+        bracket_codes = sgr_codes(raw[bracket_style_at:title_at])
+        assert "2" in bracket_codes
+        assert not ({"1"} | _FOREGROUND_SGR_CODES) & bracket_codes
+        python_style_at = raw.rfind("\x1b[", title_at, python_at)
+        python_codes = sgr_codes(raw[python_style_at:python_at])
+        assert "1" in python_codes
+        assert not ({"2"} | _FOREGROUND_SGR_CODES) & python_codes
+        baseline_at = raw.rindex("baseline")
+        identity_at = raw.rfind("m[", 0, baseline_at) + 1
+        bracket_style_at = raw.rfind("\x1b[", 0, identity_at)
+        bracket_codes = sgr_codes(raw[bracket_style_at:identity_at])
+        first_style_at = raw.rfind("\x1b[", identity_at, baseline_at)
+        first_codes = sgr_codes(raw[first_style_at:baseline_at])
+        highest_at = raw.index("highest", baseline_at)
+        second_style_at = raw.rfind("\x1b[", baseline_at, highest_at)
         second_codes = sgr_codes(raw[second_style_at:highest_at])
-        assert "36" in first_codes
+        assert "2" in bracket_codes
+        assert not ({"1"} | _FOREGROUND_SGR_CODES) & bracket_codes
+        assert {"1", "36"} <= first_codes
         assert "2" not in first_codes
-        assert {"2", "36"} <= second_codes
+        assert "36" in second_codes
+        assert not ({"1", "2"} & second_codes)
 
     def test_tty_live_cell_renders_declaration_identity_as_first_detail(self) -> None:
         cell = Cell(
@@ -1500,18 +1555,18 @@ class TestProgressRendering:
         )
         assert title_line != detail_line
         assert detail_line.index("[declaration]") == title_line.index(title)
-        assert output.index("[declaration][lowest-direct]") < output.index(
-            "dynamic tests"
-        )
-        identity_at = raw.rindex("[declaration]")
+        assert "[declaration][lowest-direct][testing]" in detail_line
+        assert "dynamic tests" not in output
+        identity_at = raw.rindex("declaration")
         first_style_at = raw.rfind("\x1b[", 0, identity_at)
         first_codes = sgr_codes(raw[first_style_at:identity_at])
-        lowest_at = raw.index("[lowest-direct]", identity_at)
+        lowest_at = raw.index("lowest-direct", identity_at)
         second_style_at = raw.rfind("\x1b[", identity_at, lowest_at)
         second_codes = sgr_codes(raw[second_style_at:lowest_at])
-        assert "36" in first_codes
+        assert {"1", "36"} <= first_codes
         assert "2" not in first_codes
-        assert {"2", "36"} <= second_codes
+        assert "36" in second_codes
+        assert not ({"1", "2"} & second_codes)
 
     def test_tty_live_identity_updates_keep_spinner_gap_and_elapsed_column_stable(
         self,
@@ -1598,7 +1653,8 @@ class TestProgressRendering:
         terminal.consume(CellMatrixEvent(cells=(cell,)))
         terminal.consume(CellContextEvent(cell=cell, detail=BaselineDetailIdentity()))
         terminal.consume(CellStageEvent(cell=cell, stage="static check"))
-        static_output = visible(stderr.getvalue())
+        static_raw = stderr.getvalue()
+        static_output = visible(static_raw)
         static_title_line = next(
             line for line in reversed(static_output.splitlines()) if title in line
         )
@@ -1615,22 +1671,33 @@ class TestProgressRendering:
                 progress=StageProgress(completed=3, total=8, unit="tests"),
             )
         )
-        dynamic_output = visible(stderr.getvalue())
+        dynamic_raw = stderr.getvalue()
+        dynamic_output = visible(dynamic_raw)
         dynamic_title_line = next(
             line for line in reversed(dynamic_output.splitlines()) if title in line
         )
-        dynamic_stage_line = next(
+        dynamic_detail_line = next(
             line
             for line in reversed(dynamic_output.splitlines())
-            if "dynamic tests" in line
+            if "[baseline][highest][testing]" in line
         )
         terminal.close()
 
-        assert static_stage_line.index("static check") == static_title_line.index(title)
-        assert dynamic_stage_line.index("dynamic tests") == dynamic_title_line.index(
-            title
+        assert "[baseline][highest][static check]" in static_stage_line
+        assert static_stage_line.index("[baseline]") == static_title_line.index(title)
+        static_check_at = static_raw.rindex("static check")
+        static_check_style_at = static_raw.rfind("\x1b[", 0, static_check_at)
+        static_check_codes = sgr_codes(
+            static_raw[static_check_style_at:static_check_at]
         )
-        assert re.search(r"dynamic tests [━╺╸]", dynamic_stage_line) is not None
+        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & static_check_codes
+        assert dynamic_detail_line.index("[baseline]") == dynamic_title_line.index(title)
+        assert re.search(r"\[testing\] [━╺╸]", dynamic_detail_line) is not None
+        assert "dynamic tests" not in dynamic_output
+        testing_at = dynamic_raw.rindex("testing")
+        testing_style_at = dynamic_raw.rfind("\x1b[", 0, testing_at)
+        testing_codes = sgr_codes(dynamic_raw[testing_style_at:testing_at])
+        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & testing_codes
 
     def test_tty_frozen_cell_moves_identity_to_result_colored_first_detail(
         self,
@@ -1669,10 +1736,16 @@ class TestProgressRendering:
             if "✓" in line and title in line
         )
         assert f"{title} 0:00:00" in frozen
-        title_at = output.rindex(title)
+        title_at = output.rindex("py3.12")
         title_style_at = output.rfind("\x1b[", 0, title_at)
         title_codes = sgr_codes(output[title_style_at:title_at])
-        assert not (_FOREGROUND_SGR_CODES & title_codes)
+        assert "1" in title_codes
+        assert not ({"2"} | _FOREGROUND_SGR_CODES) & title_codes
+        elapsed_at = output.rindex("0:00:00")
+        elapsed_style_at = output.rfind("\x1b[", 0, elapsed_at)
+        elapsed_codes = sgr_codes(output[elapsed_style_at:elapsed_at])
+        assert {"2", "35"} <= elapsed_codes
+        assert "1" not in elapsed_codes
         detail = next(
             line
             for line in reversed(visible(output).splitlines())
@@ -1729,9 +1802,9 @@ class TestProgressRendering:
 
         raw = stderr.getvalue()
         output = visible(raw)
-        identity = "[pydantic=1.7.4][1.7.4~2.13.4#18]"
+        identity = "[pydantic=1.7.4][1.7.4~2.13.4#18][testing]"
         assert identity in output
-        assert output.rindex(identity) < output.rindex("dynamic tests")
+        assert "dynamic tests" not in output
         title = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
         title_line = next(
             line for line in reversed(output.splitlines()) if title in line
@@ -1743,21 +1816,17 @@ class TestProgressRendering:
         dependency_at = raw.rindex("pydantic")
         dependency_style_at = raw.rfind("\x1b[", 0, dependency_at)
         dependency_codes = sgr_codes(raw[dependency_style_at:dependency_at])
-        assert "36" in dependency_codes
-        assert not ({"1", "2"} & dependency_codes)
+        assert {"1", "36"} <= dependency_codes
+        assert "2" not in dependency_codes
         active_at = raw.index("1.7.4", dependency_at)
-        active_style_at = raw.rfind("\x1b[", dependency_at, active_at)
-        active_codes = sgr_codes(raw[active_style_at:active_at])
-        assert {"1", "36"} <= active_codes
-        assert "2" not in active_codes
         lower_at = raw.index("1.7.4", active_at + len("1.7.4"))
-        for numeric_at in (lower_at, raw.rindex("2.13.4"), raw.rindex("18")):
-            numeric_style_at = raw.rfind("\x1b[", 0, numeric_at)
-            numeric_codes = sgr_codes(raw[numeric_style_at:numeric_at])
-            assert {"1", "2", "36"} <= numeric_codes
+        lower_style_at = raw.rfind("\x1b[", 0, lower_at)
+        lower_codes = sgr_codes(raw[lower_style_at:lower_at])
+        assert "36" in lower_codes
+        assert not ({"1", "2"} & lower_codes)
 
     @pytest.mark.parametrize("width", (56, 80, 120))
-    def test_tty_live_search_lists_completed_packages_above_probe(
+    def test_tty_live_search_lists_the_current_vector_around_the_active_probe(
         self,
         width: int,
     ) -> None:
@@ -1781,13 +1850,131 @@ class TestProgressRendering:
         )
 
         terminal.consume(CellMatrixEvent(cells=(cell,)))
+        packages = (
+            VersionPin(name="cyclopts", version="2.4.0"),
+            VersionPin(name="packaging", version="24.0"),
+            VersionPin(name="pydantic", version="2.13.4"),
+            VersionPin(name="rich", version="14.0"),
+        )
         terminal.consume(
             CellSearchProgressEvent(
                 cell=cell,
-                completed_packages=(
-                    VersionPin(name="packaging", version="24.0"),
-                    VersionPin(name="cyclopts", version="2.4.0"),
+                packages=packages,
+                completed_packages=packages[:2],
+            )
+        )
+        terminal.consume(
+            CellContextEvent(
+                cell=cell,
+                detail=SearchProbeDetailIdentity(
+                    dependency="pydantic",
+                    version="1.7.4",
+                    lower_version="1.7.4",
+                    upper_version="2.13.4",
+                    candidate_count=18,
                 ),
+            )
+        )
+        terminal.consume(
+            CellStageEvent(
+                cell=cell,
+                stage="dynamic tests",
+                progress=StageProgress(completed=3, total=8, unit="tests"),
+            )
+        )
+        terminal.close()
+
+        raw = stderr.getvalue()
+        output = visible(raw)
+        vector = "[cyclopts=2.4.0][packaging=24.0][rich=14.0]"
+        identity = "[pydantic=1.7.4][1.7.4~2.13.4#18][testing]"
+        latest_frame = output[output.rfind("╭") :]
+        compact_frame = "".join(
+            character
+            for character in latest_frame
+            if not character.isspace() and character not in "│╭╮╰╯─"
+        )
+        content_frame = re.sub(
+            r"3/8ETA\d{2}:\d{2}:\d{2}",
+            "",
+            compact_frame,
+        )
+        assert vector in content_frame, repr(content_frame)
+        assert identity in content_frame, repr(content_frame)
+        assert content_frame.index(vector) < content_frame.index(identity)
+        assert "[baseline]" not in output
+        vector_line = next(
+            line for line in reversed(output.splitlines()) if vector in line
+        )
+        assert "pydantic=2.13.4" not in vector_line
+        assert "[testing]" in output
+        if width > 56:
+            assert re.search(r"\[testing\] [━╺╸]", output) is not None
+
+        completed_at = raw.rindex("cyclopts")
+        completed_style_at = raw.rfind("\x1b[", 0, completed_at)
+        completed_codes = sgr_codes(raw[completed_style_at:completed_at])
+        assert {"1", "32"} <= completed_codes
+        assert "2" not in completed_codes
+        package_at = raw.rindex("cyclopts")
+        version_at = raw.rindex("2.4.0")
+        version_style_at = raw.rfind("\x1b[", package_at, version_at)
+        version_codes = sgr_codes(raw[version_style_at:version_at])
+        assert "32" in version_codes
+        assert not ({"1", "2"} & version_codes)
+
+        pending_at = raw.rindex("rich")
+        pending_style_at = raw.rfind("\x1b[", 0, pending_at)
+        pending_codes = sgr_codes(raw[pending_style_at:pending_at])
+        assert "2" in pending_codes
+        assert "1" not in pending_codes
+        assert not (_FOREGROUND_SGR_CODES & pending_codes)
+        pending_version_at = raw.rindex("14.0")
+        pending_version_style_at = raw.rfind("\x1b[", pending_at, pending_version_at)
+        pending_version_codes = sgr_codes(
+            raw[pending_version_style_at:pending_version_at]
+        )
+        assert "2" in pending_version_codes
+        assert not ({"1"} | _FOREGROUND_SGR_CODES) & pending_version_codes
+
+    def test_tty_live_search_reinserts_a_completed_coordinate_and_resets_next_sweep(
+        self,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                width=120,
+                theme=PF_THEME,
+            ),
+        )
+        before = (
+            VersionPin(name="cyclopts", version="2.4.0"),
+            VersionPin(name="packaging", version="24.0"),
+            VersionPin(name="pydantic", version="2.13.4"),
+            VersionPin(name="rich", version="14.0"),
+        )
+        after = before[:2] + (
+            VersionPin(name="pydantic", version="1.7.4"),
+            before[3],
+        )
+
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellSearchProgressEvent(
+                cell=cell,
+                packages=before,
+                completed_packages=before[:2],
             )
         )
         terminal.consume(
@@ -1803,29 +1990,44 @@ class TestProgressRendering:
             )
         )
         terminal.consume(CellStageEvent(cell=cell, stage="dynamic tests"))
+        terminal.consume(
+            CellSearchProgressEvent(
+                cell=cell,
+                packages=after,
+                completed_packages=after[:3],
+            )
+        )
+
+        completed_frame = visible(stderr.getvalue())
+        completed_frame = completed_frame[completed_frame.rfind("╭") :]
+        assert (
+            "[cyclopts=2.4.0][packaging=24.0][pydantic=1.7.4][rich=14.0]"
+            in completed_frame
+        )
+        assert "[1.7.4~2.13.4#18]" not in completed_frame
+
+        terminal.consume(
+            CellSearchProgressEvent(
+                cell=cell,
+                packages=after,
+                completed_packages=(),
+            )
+        )
         terminal.close()
 
-        raw = stderr.getvalue()
-        output = visible(raw)
-        completed = "[baseline][packaging=24.0][cyclopts=2.4.0]"
-        identity = "[pydantic=1.7.4][1.7.4~2.13.4#18]"
-        assert output.rindex(completed) < output.rindex(identity)
-        assert output.rindex(identity) < output.rindex("dynamic tests")
-        completed_at = raw.rindex("[baseline]")
-        style_at = raw.rfind("\x1b[", 0, completed_at)
-        baseline_codes = sgr_codes(raw[style_at:completed_at])
-        assert "32" in baseline_codes
-        assert not ({"1", "2", "36"} & baseline_codes)
-        package_at = raw.rindex("cyclopts")
-        package_style_at = raw.rfind("\x1b[", completed_at, package_at)
-        package_codes = sgr_codes(raw[package_style_at:package_at])
-        assert "32" in package_codes
-        assert "1" not in package_codes
-        version_at = raw.rindex("2.4.0")
-        version_style_at = raw.rfind("\x1b[", package_at, version_at)
-        version_codes = sgr_codes(raw[version_style_at:version_at])
-        assert {"1", "32"} <= version_codes
-        assert not ({"2", "36"} & version_codes)
+        reset_raw = stderr.getvalue()
+        reset_raw = reset_raw[reset_raw.rfind("╭") :]
+        reset_plain = visible(reset_raw)
+        assert (
+            "[cyclopts=2.4.0][packaging=24.0][pydantic=1.7.4][rich=14.0]"
+            in reset_plain
+        )
+        pydantic_at = reset_raw.rindex("pydantic")
+        pydantic_style_at = reset_raw.rfind("\x1b[", 0, pydantic_at)
+        pydantic_codes = sgr_codes(reset_raw[pydantic_style_at:pydantic_at])
+        assert "2" in pydantic_codes
+        assert "1" not in pydantic_codes
+        assert not (_FOREGROUND_SGR_CODES & pydantic_codes)
 
     def test_tty_live_stage_renders_uv_style_determinate_progress(self) -> None:
         cell = Cell(
@@ -1855,12 +2057,14 @@ class TestProgressRendering:
         )
         terminal.close()
 
-        output = visible(stderr.getvalue())
-        assert "dynamic tests" in output
-        assert "3/8 tests" in output
-        assert re.search(r"ETA \d+:\d{2}:\d{2}", output) is not None
-        stage_at = output.rindex("dynamic tests")
-        assert re.search(r"dynamic tests [━╺╸]", output) is not None, repr(
+        raw = stderr.getvalue()
+        output = visible(raw)
+        assert "[testing]" in output
+        assert "3/8" in output
+        assert "3/8 tests" not in output
+        assert re.search(r"ETA \d{2}:\d{2}:\d{2}", output) is not None
+        stage_at = output.rindex("[testing]")
+        assert re.search(r"\[testing\] [━╺╸]", output) is not None, repr(
             output[stage_at : stage_at + 40]
         )
         cell_line = next(
@@ -1873,9 +2077,17 @@ class TestProgressRendering:
         assert "━" in output
         assert "●" not in output
         dynamic_line = next(
-            line for line in reversed(output.splitlines()) if "dynamic tests" in line
+            line for line in reversed(output.splitlines()) if "[testing]" in line
         )
         assert "·" not in dynamic_line
+        count_at = raw.rindex("3/8")
+        count_style_at = raw.rfind("\x1b[", 0, count_at)
+        count_codes = sgr_codes(raw[count_style_at:count_at])
+        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & count_codes
+        eta_at = raw.rindex("ETA ")
+        eta_style_at = raw.rfind("\x1b[", 0, eta_at)
+        eta_codes = sgr_codes(raw[eta_style_at:eta_at])
+        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & eta_codes
 
     def test_tty_live_progress_updates_keep_the_same_stage_row(self) -> None:
         cell = Cell(
@@ -1914,9 +2126,10 @@ class TestProgressRendering:
         terminal.close()
 
         latest_frame = output[output.rfind("╭") :]
-        assert latest_frame.count("dynamic tests") == 1
-        assert "4/8 tests" in latest_frame
-        assert "3/8 tests" not in latest_frame
+        assert latest_frame.count("[testing]") == 1
+        assert "4/8" in latest_frame
+        assert "4/8 tests" not in latest_frame
+        assert "3/8" not in latest_frame
 
     def test_tty_live_view_refreshes_spinner_at_a_fixed_cadence(self) -> None:
         cell = Cell(
@@ -1945,7 +2158,9 @@ class TestProgressRendering:
         terminal.close()
 
         assert len(after_tick) > len(before_tick)
-        assert after_tick.count("[py3.10]") > before_tick.count("[py3.10]")
+        assert visible(after_tick).count("[py3.10]") > visible(before_tick).count(
+            "[py3.10]"
+        )
         before_frame = next(
             line
             for line in reversed(visible(before_tick).splitlines())
@@ -1987,8 +2202,9 @@ class TestProgressRendering:
         terminal.close()
 
         output = visible(stderr.getvalue())
-        assert "3/8 tests" in output
-        assert re.search(r"ETA \d+:\d{2}:\d{2}", output) is not None
+        assert "3/8" in output
+        assert "3/8 tests" not in output
+        assert re.search(r"ETA \d{2}:\d{2}:\d{2}", output) is not None
 
     def test_dynamic_eta_is_unknown_before_the_first_completed_test(self) -> None:
         cell = Cell(
@@ -2091,9 +2307,10 @@ class TestProgressRendering:
         terminal.close()
 
         output = visible(stderr.getvalue())
-        latest_stage = output[output.rindex("dynamic tests") :]
-        assert "3/8 tests" in latest_stage
-        assert re.search(r"ETA \d+:\d{2}:\d{2}", latest_stage) is not None
+        latest_stage = output[output.rindex("[testing]") :]
+        assert "3/8" in latest_stage
+        assert "3/8 tests" not in latest_stage
+        assert re.search(r"ETA \d{2}:\d{2}:\d{2}", latest_stage) is not None
         assert "━" in latest_stage
 
 
@@ -2471,7 +2688,7 @@ class TestProgressRendering:
         assert "  error: Unresolved import 'missing'" not in plain
         assert "STATIC_REGRESSION" not in plain
         assert "╭" in plain
-        title_at = output.index("[py3.10]")
+        title_at = output.index("py3.10")
         assert "31" in output[:title_at]
 
     def test_tty_failed_progress_uses_a_red_cross(self) -> None:
@@ -2611,6 +2828,10 @@ class TestVerificationRendering:
         terminal.consume(
             CellSearchProgressEvent(
                 cell=cell,
+                packages=(
+                    VersionPin(name="packaging", version="24.0"),
+                    VersionPin(name="cyclopts", version="2.4.0"),
+                ),
                 completed_packages=(
                     VersionPin(name="packaging", version="24.0"),
                     VersionPin(name="cyclopts", version="2.4.0"),
@@ -2661,6 +2882,10 @@ class TestVerificationRendering:
         terminal.consume(
             CellSearchProgressEvent(
                 cell=cell,
+                packages=(
+                    VersionPin(name="packaging", version="24.0"),
+                    VersionPin(name="cyclopts", version="2.4.0"),
+                ),
                 completed_packages=(
                     VersionPin(name="packaging", version="24.0"),
                     VersionPin(name="cyclopts", version="2.4.0"),

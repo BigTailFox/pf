@@ -863,14 +863,20 @@ class TestSearchCoordinator:
             ),
         ]
         assert [
-            event.completed_packages
+            (event.packages, event.completed_packages)
             for event in activity.events
             if isinstance(event, CellSearchProgressEvent)
         ] == [
-            (),
-            (VersionPin(name="a", version="1"),),
-            (),
-            (VersionPin(name="a", version="1"),),
+            ((VersionPin(name="a", version="3"),), ()),
+            (
+                (VersionPin(name="a", version="1"),),
+                (VersionPin(name="a", version="1"),),
+            ),
+            ((VersionPin(name="a", version="1"),), ()),
+            (
+                (VersionPin(name="a", version="1"),),
+                (VersionPin(name="a", version="1"),),
+            ),
         ]
         assert any(
             isinstance(event, CellStageEvent)
@@ -1368,7 +1374,7 @@ class TestSearchCoordinator:
             event.completed_packages
             for event in activity.events
             if isinstance(event, CellSearchProgressEvent)
-        ] == [()]
+        ] == []
 
     def test_search_coordinator_retains_candidate_source_failure_detail(
         self,

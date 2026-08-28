@@ -482,7 +482,9 @@ class TestCoordinateSearch:
     def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal(
         self,
     ) -> None:
-        progress: list[tuple[VersionPin, ...]] = []
+        progress: list[
+            tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]]
+        ] = []
         result = CoordinateSearch(small_threshold=4).minimize(
             start=(
                 VersionPin(name="a", version="3"),
@@ -490,7 +492,9 @@ class TestCoordinateSearch:
             ),
             candidates=(snapshot("a"), snapshot("b")),
             evaluator=InteractionEvaluator(),
-            progress=progress.append,
+            progress=lambda packages, completed: progress.append(
+                (packages, completed)
+            ),
         )
 
         assert isinstance(result, CoordinateSuccess)
@@ -506,25 +510,22 @@ class TestCoordinateSearch:
             ("b", "1"),
         ]
         assert result.sweeps == 3
-        assert progress == [
-            (),
-            (VersionPin(name="a", version="2"),),
+        assert [
             (
-                VersionPin(name="a", version="2"),
-                VersionPin(name="b", version="1"),
-            ),
-            (),
-            (VersionPin(name="a", version="1"),),
-            (
-                VersionPin(name="a", version="1"),
-                VersionPin(name="b", version="1"),
-            ),
-            (),
-            (VersionPin(name="a", version="1"),),
-            (
-                VersionPin(name="a", version="1"),
-                VersionPin(name="b", version="1"),
-            ),
+                tuple((pin.name, pin.version) for pin in packages),
+                tuple(pin.name for pin in completed),
+            )
+            for packages, completed in progress
+        ] == [
+            ((("a", "3"), ("b", "3")), ()),
+            ((("a", "2"), ("b", "3")), ("a",)),
+            ((("a", "2"), ("b", "1")), ("a", "b")),
+            ((("a", "2"), ("b", "1")), ()),
+            ((("a", "1"), ("b", "1")), ("a",)),
+            ((("a", "1"), ("b", "1")), ("a", "b")),
+            ((("a", "1"), ("b", "1")), ()),
+            ((("a", "1"), ("b", "1")), ("a",)),
+            ((("a", "1"), ("b", "1")), ("a", "b")),
         ]
 
     def test_coordinate_search_uses_hint_then_lower_bound_binary_search(self) -> None:
@@ -663,7 +664,9 @@ class TestCoordinateSearch:
                     )
                 return probe_pass(vector, "known-pass")
 
-        progress: list[tuple[VersionPin, ...]] = []
+        progress: list[
+            tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]]
+        ] = []
         result = CoordinateSearch().minimize(
             start=(
                 VersionPin(name="a", version="3"),
@@ -671,14 +674,28 @@ class TestCoordinateSearch:
             ),
             candidates=(snapshot("a"), snapshot("b")),
             evaluator=UnknownOnSecondPackage(),
-            progress=progress.append,
+            progress=lambda packages, completed: progress.append(
+                (packages, completed)
+            ),
         )
 
         assert isinstance(result, CoordinateFailure)
         assert result.status == "INDETERMINATE"
         assert progress == [
-            (),
-            (VersionPin(name="a", version="1"),),
+            (
+                (
+                    VersionPin(name="a", version="3"),
+                    VersionPin(name="b", version="3"),
+                ),
+                (),
+            ),
+            (
+                (
+                    VersionPin(name="a", version="1"),
+                    VersionPin(name="b", version="3"),
+                ),
+                (VersionPin(name="a", version="1"),),
+            ),
         ]
 
     @pytest.mark.parametrize(

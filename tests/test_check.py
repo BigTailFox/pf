@@ -754,6 +754,7 @@ class TestCheckWorkflow:
     [project]
     name = "demo"
     version = "0.1.0"
+    dependencies = ["packaging>=24", "rich==13.0"]
     optional-dependencies = {cuda = ["idna"]}
 
     [dependency-groups]
@@ -803,6 +804,8 @@ class TestCheckWorkflow:
             ("3.11", "x86_64-unknown-linux-gnu", ()),
             ("3.11", "x86_64-unknown-linux-gnu", ("cuda",)),
         ]
+        assert matrix.active_packages == 3
+        assert matrix.pinned_packages == 1
 
     def test_check_workflow_runs_host_cells_in_parallel(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(

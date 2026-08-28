@@ -43,6 +43,7 @@ from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
     cell_identity_text,
+    cell_title_text,
     completed_packages_text,
     completion_action,
     outcome_border_style,
@@ -246,23 +247,14 @@ def _impact_for(
 
 
 class ProcessLogReferences(Protocol):
+    @property
+    def run_id(self) -> str: ...
+
     def reference_for(self, result: ProcessResult) -> Path | None: ...
 
 
-def _format_extra_surface(surface: tuple[str, ...]) -> str:
-    if not surface:
-        return "no-extra"
-    return "+".join(surface)
-
 def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
     return (cell.package, cell.python_minor, cell.target, cell.extra_surface)
-
-
-def _cell_title(cell: Cell) -> str:
-    return (
-        f"[py{cell.python_minor}][{cell.target}]"
-        f"[{_format_extra_surface(cell.extra_surface)}]"
-    )
 
 
 def _single_line_summary(value: str) -> str:
@@ -403,15 +395,13 @@ def _format_elapsed(seconds: float | None) -> str:
 
 def _cell_title_line(
     *,
-    title: str,
+    cell: Cell,
     elapsed: float | None = None,
 ) -> Text:
-    parts: list[str | tuple[str, str]] = [
-        (title, "cell-title"),
-    ]
+    line = cell_title_text(cell)
     if elapsed is not None:
-        parts.extend([" ", (_format_elapsed(elapsed), "dim")])
-    line = Text.assemble(*parts)
+        line.append(" ")
+        line.append(_format_elapsed(elapsed), style="dim magenta")
     return _fold_text(line)
 
 
@@ -508,6 +498,7 @@ class TerminalPresenter:
         self._live = LiveVerificationView(
             stderr=self.stderr,
             render_cell=self._cell_report_renderables,
+            run_id=getattr(logs, "run_id", None),
         )
 
     def bind_command(self, command: str) -> None:
@@ -778,7 +769,7 @@ class TerminalPresenter:
     ) -> list[Text]:
         body: list[Text] = [
             _cell_title_line(
-                title=_cell_title(presentation.cell),
+                cell=presentation.cell,
                 elapsed=presentation.elapsed,
             )
         ]

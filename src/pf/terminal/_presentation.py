@@ -53,6 +53,54 @@ _COMMAND_COMPLETION_ACTIONS: dict[str, tuple[str, str]] = {
 }
 
 
+def _append_bracket_token(value: Text, content: str, *, style: str) -> None:
+    value.append("[", style="dim")
+    value.append(content, style=style)
+    value.append("]", style="dim")
+
+
+def cell_title_text(cell: Cell) -> Text:
+    extra = "no-extra" if not cell.extra_surface else "+".join(cell.extra_surface)
+    value = Text(overflow="fold", no_wrap=False)
+    for content in (f"py{cell.python_minor}", cell.target, extra):
+        _append_bracket_token(value, content, style="bold")
+    return value
+
+
+def live_cell_identity_text(
+    identity: CellDetailIdentity | None,
+    *,
+    stage: str | None = None,
+) -> Text:
+    value = Text(overflow="fold", no_wrap=False)
+    if isinstance(identity, BaselineDetailIdentity):
+        first, second = "baseline", "highest"
+    elif isinstance(identity, DeclarationDetailIdentity):
+        first, second = "declaration", "lowest-direct"
+    elif isinstance(identity, SearchProbeDetailIdentity):
+        first = f"{identity.dependency}={identity.version}"
+        second = (
+            f"{identity.lower_version}~{identity.upper_version}"
+            f"#{identity.candidate_count}"
+        )
+    elif identity is None:
+        first = second = None
+    else:
+        raise AssertionError(
+            f"unsupported cell identity: {type(identity).__name__}"
+        )
+    if first is not None and second is not None:
+        _append_bracket_token(value, first, style="bold cyan")
+        _append_bracket_token(value, second, style="cyan")
+    if stage is not None:
+        _append_bracket_token(
+            value,
+            "testing" if stage == "dynamic tests" else stage,
+            style="default",
+        )
+    return value
+
+
 def cell_identity_text(
     identity: CellDetailIdentity,
     *,
@@ -101,6 +149,27 @@ def completed_packages_text(
         value.append(f"[{pin.name}=")
         value.append(pin.version, style="bold")
         value.append("]")
+    return value
+
+
+def search_vector_text(
+    packages: tuple[VersionPin, ...],
+    completed_packages: tuple[VersionPin, ...],
+    *,
+    active_dependency: str | None = None,
+) -> Text:
+    value = Text(overflow="fold", no_wrap=False)
+    completed_names = {pin.name for pin in completed_packages}
+    for pin in packages:
+        completed = pin.name in completed_names
+        if pin.name == active_dependency and not completed:
+            continue
+        content_style = "green" if completed else "dim"
+        package_style = f"bold {content_style}" if completed else content_style
+        value.append("[", style="dim")
+        value.append(pin.name, style=package_style)
+        value.append(f"={pin.version}", style=content_style)
+        value.append("]", style="dim")
     return value
 
 

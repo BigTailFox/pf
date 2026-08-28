@@ -54,7 +54,12 @@ class _KnownPass:
 
 
 SearchEvidence = ProbeEvidence | StaticOnlyEvidence | _KnownPass
-CoordinateProgressConsumer = Callable[[tuple[VersionPin, ...]], None]
+
+
+CoordinateProgressConsumer = Callable[
+    [tuple[VersionPin, ...], tuple[VersionPin, ...]],
+    None,
+]
 
 
 class CoordinateSearch:
@@ -142,7 +147,7 @@ class _CoordinateRun:
                 sweeps += 1
                 changed = False
                 completed: list[VersionPin] = []
-                self._publish_progress(completed)
+                self._publish_progress(current, completed)
                 current_boundaries: dict[str, CoordinateBoundary] = {}
                 for dependency in sorted(snapshots):
                     floor, boundary = self._find_floor(
@@ -155,7 +160,7 @@ class _CoordinateRun:
                         current[dependency] = floor
                         changed = True
                     completed.append(VersionPin(name=dependency, version=floor))
-                    self._publish_progress(completed)
+                    self._publish_progress(current, completed)
                 boundaries = current_boundaries
                 if not changed:
                     break
@@ -169,9 +174,13 @@ class _CoordinateRun:
         except _SearchStopped as stopped:
             return stopped.result
 
-    def _publish_progress(self, completed: list[VersionPin]) -> None:
+    def _publish_progress(
+        self,
+        current: dict[str, str],
+        completed: list[VersionPin],
+    ) -> None:
         if self._progress is not None:
-            self._progress(tuple(completed))
+            self._progress(self._vector(current), tuple(completed))
 
     def _find_floor(
         self,

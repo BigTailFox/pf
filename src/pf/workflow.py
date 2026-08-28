@@ -93,6 +93,29 @@ def selected_host_cells(
     )
 
 
+def _cell_matrix_event(
+    packages: tuple[PackagePlan, ...],
+    cells: tuple[Cell, ...],
+) -> CellMatrixEvent:
+    packages_by_name = {package.name: package for package in packages}
+    active_names: set[str] = set()
+    pinned_names: set[str] = set()
+    for cell in cells:
+        package = packages_by_name[cell.package]
+        active_ids = set(cell.active_declaration_ids)
+        for declaration in package.declarations:
+            if declaration.declaration_id not in active_ids:
+                continue
+            active_names.add(declaration.name)
+            if declaration.kind == "fixed":
+                pinned_names.add(declaration.name)
+    return CellMatrixEvent(
+        cells=cells,
+        active_packages=len(active_names),
+        pinned_packages=len(pinned_names),
+    )
+
+
 class CheckEnvironmentOperations(Protocol):
     def prepare(
         self,
@@ -319,7 +342,7 @@ class CheckCommandWorkflow:
         try:
             self._emit(StatusEvent(message="checking declarations"))
             cells = selected_host_cells(project.packages, self._host_target)
-            self._emit(CellMatrixEvent(cells=cells))
+            self._emit(_cell_matrix_event(project.packages, cells))
             for package in project.packages:
                 require_full_evaluation_contract(package, "check")
             if not cells:
@@ -464,7 +487,7 @@ class SmokeCommandWorkflow:
         try:
             self._emit(StatusEvent(message="smoke testing"))
             cells = selected_host_cells(project.packages, self._host_target)
-            self._emit(CellMatrixEvent(cells=cells))
+            self._emit(_cell_matrix_event(project.packages, cells))
             for package in project.packages:
                 require_full_evaluation_contract(package, "smoke")
             if not cells:
@@ -633,7 +656,10 @@ class SearchCommandWorkflow:
                 if cell.target == self._host_target
             )
             self._events.consume(
-                CellMatrixEvent(cells=tuple(task.cell for task in tasks))
+                _cell_matrix_event(
+                    project.packages,
+                    tuple(task.cell for task in tasks),
+                )
             )
             results = self._verification.run(
                 VerificationRun(

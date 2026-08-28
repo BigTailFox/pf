@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from copy import copy
+from datetime import timedelta
 from math import ceil
 from threading import RLock
 from typing import Any
@@ -19,7 +20,6 @@ from rich.progress import (
     Task,
     TaskID,
     TextColumn,
-    TimeElapsedColumn,
 )
 from rich.progress_bar import ProgressBar
 from rich.segment import Segment
@@ -47,9 +47,11 @@ from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
     cell_identity_text,
-    completed_packages_text,
+    cell_title_text,
     escalate_outcome,
+    live_cell_identity_text,
     outcome_border_style,
+    search_vector_text,
 )
 
 
@@ -101,6 +103,7 @@ class LiveVerificationView:
         render_cell: Callable[
             [CellPresentation], tuple[RenderableType, ...] | None
         ],
+        run_id: str | None = None,
     ) -> None:
         self._stderr = stderr
         self._render_cell = render_cell
@@ -123,6 +126,12 @@ class LiveVerificationView:
         self._cell_completed_packages: dict[
             tuple[str, str, str, tuple[str, ...]], tuple[VersionPin, ...]
         ] = {}
+        self._cell_search_packages: dict[
+            tuple[str, str, str, tuple[str, ...]], tuple[VersionPin, ...]
+        ] = {}
+        self._cell_active_search_dependencies: dict[
+            tuple[str, str, str, tuple[str, ...]], str
+        ] = {}
         self._render_tasks: tuple[Task, ...] = ()
         self._pending_status: StatusEvent | None = None
         self._pending_outcome: OutcomeKind | None = None
@@ -132,9 +141,17 @@ class LiveVerificationView:
         self._completed_cards: list[RenderableType] = []
         self._command: str | None = None
         self._cell_matrix_active = False
+        self._run_id = run_id
+        self._run_id_rendered = False
 
     def bind_command(self, command: str) -> None:
         self._command = command
+        if command not in {"check", "minimize", "search", "smoke"}:
+            return
+        if self._stderr.is_terminal:
+            self._queue_run_id()
+        else:
+            self._print_run_id()
 
     def consume(self, event: ActivityEvent) -> None:
         with self._lock:
@@ -215,10 +232,15 @@ class LiveVerificationView:
 
     def _consume_matrix(self, event: CellMatrixEvent) -> None:
         self._cell_matrix_active = True
-        heading, *details = _matrix_summary_lines(event.cells)
+        heading, *details = _matrix_summary_lines(
+            event.cells,
+            active_packages=event.active_packages,
+            pinned_packages=event.pinned_packages,
+        )
         heading_line = Text.assemble((f"{_ICONS['success']} ", "success"), heading)
         detail_lines = [Text(f"  {line}", style="dim") for line in details]
         if self._stderr.is_terminal:
+            self._queue_run_id()
             self._complete_pending_setup()
             self._setup_lines.append(heading_line)
             self._setup_lines.extend(detail_lines)
@@ -239,6 +261,18 @@ class LiveVerificationView:
             completed=0,
         )
 
+    def _print_run_id(self) -> None:
+        if self._run_id is None or self._run_id_rendered:
+            return
+        self._stderr.print(Text(f"run-id: {self._run_id}"))
+        self._run_id_rendered = True
+
+    def _queue_run_id(self) -> None:
+        if self._run_id is None or self._run_id_rendered:
+            return
+        self._setup_lines.insert(0, Text(f"run-id: {self._run_id}"))
+        self._run_id_rendered = True
+
     def _consume_stage(self, event: CellStageEvent) -> None:
         if not self._stderr.is_terminal:
             return
@@ -247,26 +281,52 @@ class LiveVerificationView:
 
     def _consume_search_progress(self, event: CellSearchProgressEvent) -> None:
         key = _cell_key(event.cell)
+        self._cell_search_packages[key] = event.packages
         self._cell_completed_packages[key] = event.completed_packages
         if not self._stderr.is_terminal:
             return
         self._ensure_cell_task(event.cell, start=True)
         task_id = self._cell_search_progress_tasks.get(key)
         if task_id is not None and self._progress is not None:
+            active_dependency = self._cell_active_search_dependencies.get(key)
+            completed_names = {pin.name for pin in event.completed_packages}
+            if active_dependency in completed_names:
+                self._cell_active_search_dependencies.pop(key, None)
+                active_dependency = None
+                context_id = self._cell_context_tasks.get(key)
+                if context_id is not None:
+                    self._progress.update(
+                        context_id,
+                        description="",
+                        detail_identity=None,
+                    )
+                self._set_cell_stage(event.cell, "", None)
             self._progress.update(
                 task_id,
-                description=completed_packages_text(event.completed_packages).plain,
+                description=search_vector_text(
+                    event.packages,
+                    event.completed_packages,
+                    active_dependency=active_dependency,
+                ).plain,
+                packages=event.packages,
                 completed_packages=event.completed_packages,
+                active_dependency=active_dependency,
             )
 
     def _consume_context(self, event: CellContextEvent) -> None:
         key = _cell_key(event.cell)
         self._cell_identities[key] = event.detail
+        active_dependency = _active_search_dependency(event.detail)
+        if active_dependency is None:
+            self._cell_active_search_dependencies.pop(key, None)
+        else:
+            self._cell_active_search_dependencies[key] = active_dependency
         if not self._stderr.is_terminal:
             return
         self._ensure_cell_task(event.cell, start=True)
         cell_id = self._cell_tasks.get(key)
         context_id = self._cell_context_tasks.get(key)
+        search_progress_id = self._cell_search_progress_tasks.get(key)
         stage_id = self._cell_stage_tasks.get(key)
         if cell_id is not None and self._progress is not None:
             self._progress.update(cell_id)
@@ -280,6 +340,19 @@ class LiveVerificationView:
                 ),
                 detail_identity=event.detail,
             )
+        if search_progress_id is not None and self._progress is not None:
+            packages = self._cell_search_packages.get(key)
+            completed_packages = self._cell_completed_packages.get(key)
+            if packages is not None and completed_packages is not None:
+                self._progress.update(
+                    search_progress_id,
+                    description=search_vector_text(
+                        packages,
+                        completed_packages,
+                        active_dependency=active_dependency,
+                    ).plain,
+                    active_dependency=active_dependency,
+                )
         if stage_id is not None and self._progress is not None:
             self._set_cell_stage(event.cell, "", None)
 
@@ -362,6 +435,8 @@ class LiveVerificationView:
             self._progress.remove_task(search_progress_id)
         self._cell_identities.pop(key, None)
         self._cell_completed_packages.pop(key, None)
+        self._cell_search_packages.pop(key, None)
+        self._cell_active_search_dependencies.pop(key, None)
         self._sync_overall_running()
 
     def _ensure_progress(self) -> None:
@@ -441,9 +516,10 @@ class LiveVerificationView:
         task_id = self._cell_tasks.get(key)
         if task_id is None:
             task_id = self._progress.add_task(
-                _cell_title(cell),
+                cell_title_text(cell).plain,
                 total=None,
                 role="cell",
+                cell=cell,
                 start=start,
             )
             self._cell_tasks[key] = task_id
@@ -451,7 +527,9 @@ class LiveVerificationView:
                 "",
                 total=None,
                 role="cell-search-progress",
+                packages=None,
                 completed_packages=None,
+                active_dependency=None,
                 start=False,
             )
             self._cell_context_tasks[key] = self._progress.add_task(
@@ -513,7 +591,8 @@ class LiveVerificationView:
                 details.append(search_progress)
         if context_id is not None and context_id in by_id:
             context = by_id[context_id]
-            if context.description:
+            stage = by_id.get(stage_id) if stage_id is not None else None
+            if context.description and (stage is None or not stage.description):
                 details.append(context)
         if stage_id is not None and stage_id in by_id:
             stage = by_id[stage_id]
@@ -537,6 +616,7 @@ class LiveVerificationView:
             )
             stage_changed = stage_task.description != stage
             stage_progress = progress
+            detail_identity = self._cell_identities.get(key)
             if progress is None and stage_task.description == stage:
                 previous = stage_task.fields.get("stage_progress")
                 if isinstance(previous, StageProgress):
@@ -552,6 +632,7 @@ class LiveVerificationView:
                     description=stage,
                     role="cell-stage",
                     stage_progress=stage_progress,
+                    detail_identity=detail_identity,
                 )
                 return
             if stage_progress is not None:
@@ -561,12 +642,14 @@ class LiveVerificationView:
                     total=stage_progress.total,
                     completed=stage_progress.completed,
                     stage_progress=stage_progress,
+                    detail_identity=detail_identity,
                 )
                 return
             self._progress.update(
                 stage_id,
                 description=stage,
                 stage_progress=None,
+                detail_identity=detail_identity,
             )
 
     @staticmethod
@@ -683,7 +766,12 @@ def _format_extra_surface(surface: tuple[str, ...]) -> str:
     return "no-extra" if not surface else "+".join(surface)
 
 
-def _matrix_summary_lines(cells: tuple[Cell, ...]) -> tuple[str, ...]:
+def _matrix_summary_lines(
+    cells: tuple[Cell, ...],
+    *,
+    active_packages: int,
+    pinned_packages: int,
+) -> tuple[str, ...]:
     pythons = ", ".join(
         sorted({cell.python_minor for cell in cells}, key=_python_sort_key)
     )
@@ -696,8 +784,14 @@ def _matrix_summary_lines(cells: tuple[Cell, ...]) -> tuple[str, ...]:
         )
     )
     noun = "cell" if len(cells) == 1 else "cells"
+    heading = f"selected {len(cells)} {noun}"
+    package_noun = "package" if active_packages == 1 else "packages"
+    heading += (
+        f", {active_packages} active {package_noun} "
+        f"({pinned_packages} pinned)"
+    )
     return (
-        f"selected {len(cells)} {noun}",
+        heading,
         f"python: {pythons or 'none'}",
         f"platform: {platforms or 'none'}",
         f"extra surfaces: {surfaces or 'none'}",
@@ -708,11 +802,10 @@ def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
     return (cell.package, cell.python_minor, cell.target, cell.extra_surface)
 
 
-def _cell_title(cell: Cell) -> str:
-    return (
-        f"[py{cell.python_minor}][{cell.target}]"
-        f"[{_format_extra_surface(cell.extra_surface)}]"
-    )
+def _active_search_dependency(identity: CellDetailIdentity | None) -> str | None:
+    if isinstance(identity, SearchProbeDetailIdentity):
+        return identity.dependency
+    return None
 
 
 class _IconColumn(ProgressColumn):
@@ -743,9 +836,19 @@ class _TaskDescriptionColumn(TextColumn):
 
     def render(self, task: Task) -> Text:
         if task.fields.get("role") == "cell-search-progress":
+            packages = task.fields.get("packages")
             completed_packages = task.fields.get("completed_packages")
-            if isinstance(completed_packages, tuple):
-                return completed_packages_text(completed_packages)
+            active_dependency = task.fields.get("active_dependency")
+            if isinstance(packages, tuple) and isinstance(completed_packages, tuple):
+                return search_vector_text(
+                    packages,
+                    completed_packages,
+                    active_dependency=(
+                        active_dependency
+                        if isinstance(active_dependency, str)
+                        else None
+                    ),
+                )
         if task.fields.get("role") == "cell-context":
             identity = task.fields.get("detail_identity")
             if isinstance(
@@ -754,7 +857,17 @@ class _TaskDescriptionColumn(TextColumn):
                 | DeclarationDetailIdentity
                 | SearchProbeDetailIdentity,
             ):
-                return cell_identity_text(identity, style="cyan")
+                return live_cell_identity_text(identity)
+        if task.fields.get("role") == "cell-stage" and task.description:
+            identity = task.fields.get("detail_identity")
+            if not isinstance(
+                identity,
+                BaselineDetailIdentity
+                | DeclarationDetailIdentity
+                | SearchProbeDetailIdentity,
+            ):
+                identity = None
+            return live_cell_identity_text(identity, stage=task.description)
         rendered = super().render(task)
         role = task.fields.get("role")
         if role == "cell-stage":
@@ -772,7 +885,9 @@ class _TaskDescriptionColumn(TextColumn):
                     style="dim",
                 )
         elif role == "cell":
-            rendered.stylize("cell-title")
+            cell = task.fields.get("cell")
+            if isinstance(cell, Cell):
+                return cell_title_text(cell)
         return rendered
 
 
@@ -820,9 +935,8 @@ class _OverallCountColumn(MofNCompleteColumn):
             stage_progress, StageProgress
         ):
             rendered = Text(
-                f"{stage_progress.completed}/{stage_progress.total} "
-                f"{stage_progress.unit}",
-                style="dim",
+                f"{stage_progress.completed}/{stage_progress.total}",
+                style="default",
             )
             rendered.pad_left(1)
             return rendered
@@ -841,16 +955,19 @@ class _StageRemainingColumn(ProgressColumn):
         ):
             return Text()
         if progress.completed == 0:
-            return Text(" ETA --:--:--", style="dim")
+            return Text(" ETA --:--:--", style="default")
         remaining = max(0, progress.total - progress.completed)
         elapsed = task.elapsed or 0.0
         estimate = ceil(elapsed * remaining / progress.completed)
         hours, remainder = divmod(estimate, 3600)
         minutes, seconds = divmod(remainder, 60)
-        return Text(f" ETA {hours}:{minutes:02d}:{seconds:02d}", style="dim")
+        return Text(
+            f" ETA {hours:02d}:{minutes:02d}:{seconds:02d}",
+            style="default",
+        )
 
 
-class _DimElapsedColumn(TimeElapsedColumn):
+class _DimElapsedColumn(ProgressColumn):
     def __init__(self) -> None:
         super().__init__(table_column=Column(no_wrap=True))
 
@@ -861,10 +978,8 @@ class _DimElapsedColumn(TimeElapsedColumn):
             or task.elapsed is None
         ):
             return Text()
-        rendered = super().render(task)
-        rendered.stylize("dim")
-        rendered.pad_left(1)
-        return rendered
+        elapsed = str(timedelta(seconds=max(0, int(task.elapsed))))
+        return Text(f" {elapsed}", style="dim magenta")
 
 
 class _OrderedProgress(Progress):

@@ -1710,13 +1710,19 @@ class CellContextEvent(FrozenSchema):
 class CellSearchProgressEvent(FrozenSchema):
     kind: Literal["search-progress"] = "search-progress"
     cell: Cell
+    packages: tuple[VersionPin, ...]
     completed_packages: tuple[VersionPin, ...]
 
     @model_validator(mode="after")
     def validate_completed_packages(self) -> "CellSearchProgressEvent":
-        names = tuple(pin.name for pin in self.completed_packages)
-        if len(set(names)) != len(names):
-            raise ValueError("completed search packages must be unique")
+        package_names = tuple(pin.name for pin in self.packages)
+        completed_names = tuple(pin.name for pin in self.completed_packages)
+        if len(set(package_names)) != len(package_names):
+            raise ValueError("search vector packages must be unique")
+        if self.completed_packages != self.packages[: len(completed_names)]:
+            raise ValueError(
+                "completed search packages must be a current vector prefix"
+            )
         return self
 
 
@@ -1826,6 +1832,19 @@ class StatusEvent(FrozenSchema):
 
 class CellMatrixEvent(FrozenSchema):
     cells: tuple[Cell, ...]
+    active_packages: int = 0
+    pinned_packages: int = 0
+
+    @model_validator(mode="after")
+    def validate_package_counts(self) -> "CellMatrixEvent":
+        if (
+            self.active_packages < 0
+            or not 0 <= self.pinned_packages <= self.active_packages
+        ):
+            raise ValueError(
+                "cell matrix package counts must satisfy 0 <= pinned <= active"
+            )
+        return self
 
 
 class ProcessEvent(FrozenSchema):

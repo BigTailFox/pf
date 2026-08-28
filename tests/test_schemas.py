@@ -27,6 +27,8 @@ from pf.schemas.evaluation import (
     CellCompletedEvent,
     CellFailed,
     CellFailureScope,
+    CellMatrixEvent,
+    CellSearchProgressEvent,
     CellStageEvent,
     CellSucceeded,
     DiagnosticClassification,
@@ -2484,6 +2486,32 @@ class TestReportSchemas:
                 completed=0,
                 total=1,
                 outcome=CellSucceeded(status="PASS", phase="complete"),
+            )
+
+    def test_cell_matrix_event_defaults_and_validates_package_counts(self) -> None:
+        matrix = CellMatrixEvent(cells=())
+
+        assert matrix.active_packages == 0
+        assert matrix.pinned_packages == 0
+        with pytest.raises(ValidationError, match="0 <= pinned <= active"):
+            CellMatrixEvent(cells=(), active_packages=1, pinned_packages=2)
+
+    def test_cell_search_progress_requires_a_unique_vector_prefix(self) -> None:
+        cell = _attempt().identity.cell
+        first = VersionPin(name="a", version="1")
+        second = VersionPin(name="b", version="2")
+
+        with pytest.raises(ValidationError, match="vector packages must be unique"):
+            CellSearchProgressEvent(
+                cell=cell,
+                packages=(first, first),
+                completed_packages=(),
+            )
+        with pytest.raises(ValidationError, match="current vector prefix"):
+            CellSearchProgressEvent(
+                cell=cell,
+                packages=(first, second),
+                completed_packages=(second,),
             )
 
     def test_cell_result_detail_is_excluded_from_runtime_event_serialization(

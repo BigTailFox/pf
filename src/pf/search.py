@@ -958,16 +958,21 @@ class SearchCoordinator:
         events = self._events
         if events is None:
             return None
-        previous: tuple[VersionPin, ...] | None = None
+        previous: tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]] | None = None
 
-        def publish(completed_packages: tuple[VersionPin, ...]) -> None:
+        def publish(
+            packages: tuple[VersionPin, ...],
+            completed_packages: tuple[VersionPin, ...],
+        ) -> None:
             nonlocal previous
-            if completed_packages == previous:
+            progress = (packages, completed_packages)
+            if progress == previous:
                 return
-            previous = completed_packages
+            previous = progress
             events.consume(
                 CellSearchProgressEvent(
                     cell=cell,
+                    packages=packages,
                     completed_packages=completed_packages,
                 )
             )
@@ -995,8 +1000,6 @@ class SearchCoordinator:
             return capture
         baseline_evaluation = capture.evaluation
         coordinate_progress = self._coordinate_progress(cell)
-        if coordinate_progress is not None:
-            coordinate_progress(())
         if self._events is not None:
             self._events.consume(CellContextEvent(cell=cell, detail=None))
             self._events.consume(
