@@ -44,6 +44,7 @@ docs/
 
 ## 开放事项与归档
 
+- [D016](designs/D016-pf-apply-authorization.md) 是 `apply --force` 与单平台作用域 apply 的目标设计草案；尚未替代 D001/D002/D006/D014 的现行契约。
 - [R004](reviews/R004-pf-search-performance-review.md) 保留在现行目录，因为其中的性能优化候选尚未实施。
 - [归档索引](archived/README.md) 记录已归并设计、已完成计划、已解决评审和已吸收探索。
 
