@@ -34,7 +34,7 @@ class _PreparedApply:
 
 
 class ProjectEditor:
-    """Apply only projection evidence authorized by a complete Schema 2 report."""
+    """Apply only projection evidence authorized by a complete Schema 1 report."""
 
     _RECOVERY_SCHEMA = 2
 

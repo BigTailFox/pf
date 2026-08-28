@@ -18,13 +18,14 @@ from pf.schemas.project import (
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     TyCheck,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
     ty_diagnostic_digest,
 )
 from pf.schemas.report import (
@@ -250,15 +251,7 @@ def probe_pass(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbePass:
         evaluation=PassEvaluation(
             proposal=proposal,
             static=static,
-            test=TestPass(
-                process=ProcessResult(
-                    exit_code=0,
-                    signal=None,
-                    duration_seconds=0,
-                    stdout="",
-                    stderr="",
-                )
-            ),
+            verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         ),
     )
 
@@ -267,24 +260,16 @@ def probe_rejection(
     vector: tuple[VersionPin, ...], proposal_id: str
 ) -> ProbeRejection:
     passed = probe_pass(vector, proposal_id)
-    evaluation = TestFailEvaluation(
+    evaluation = VerifierRejectedEvaluation(
         proposal=passed.evaluation.proposal,
         static=passed.evaluation.static,
-        test=TestFail(
-            process=ProcessResult(
-                exit_code=1,
-                signal=None,
-                duration_seconds=0,
-                stdout="",
-                stderr="failed",
-            )
-        ),
+        verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
     )
     return ProbeRejection(
         attempt=passed.attempt,
         proposal_id=proposal_id,
         failure_id=f"failure-{proposal_id}",
-        cause="TEST_FAILURE",
+        cause="VERIFIER_EXITED_NONZERO",
         evaluation=evaluation,
     )
 
@@ -404,7 +389,7 @@ class TestCoordinateSearch:
         vector_two = (VersionPin(name="a", version="2"),)
         passed_two = probe_pass(vector_two, "a=2")
         rejected_one = probe_rejection(vector_one, "a=1")
-        assert isinstance(rejected_one.evaluation, TestFailEvaluation)
+        assert isinstance(rejected_one.evaluation, VerifierRejectedEvaluation)
         region_slice = StaticRegionSlice(
             cell=candidates.cell,
             source_snapshot_digest="snapshot",

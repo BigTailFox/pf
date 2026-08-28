@@ -2,7 +2,7 @@
   "cell_results": [
     {
       "baseline": {
-        "attempt_ref": "1c73f09f934b991f9b9915e8bd22f7c03a280b26b54677495301fdce78b1305d",
+        "attempt_ref": "bf221cd0003e3994a9f5268bf4979ea68b06b9aa96a5e63fbaeafc9fbb74fd1a",
         "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
         "static_baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f"
       },
@@ -23,7 +23,7 @@
   "evidence": {
     "attempts": [
       {
-        "attempt_id": "1c73f09f934b991f9b9915e8bd22f7c03a280b26b54677495301fdce78b1305d",
+        "attempt_id": "bf221cd0003e3994a9f5268bf4979ea68b06b9aa96a5e63fbaeafc9fbb74fd1a",
         "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
         "harness_declaration_ids": [],
         "harness_policy_identity": "original-harness-v1",
@@ -37,15 +37,9 @@
         "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
         "static_evaluation_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
         "status": "PASS",
-        "test": {
-          "process": {
-            "duration_seconds": 0.0,
-            "exit_code": 0,
-            "stderr_complete": true,
-            "stdout_complete": true,
-            "timed_out": false
-          },
-          "status": "TEST_PASS"
+        "terminal": {
+          "exit_code": 0,
+          "kind": "normal-exit"
         },
         "witnesses": []
       }
@@ -53,7 +47,7 @@
     "failures": [],
     "proposals": [
       {
-        "attempt_ref": "1c73f09f934b991f9b9915e8bd22f7c03a280b26b54677495301fdce78b1305d",
+        "attempt_ref": "bf221cd0003e3994a9f5268bf4979ea68b06b9aa96a5e63fbaeafc9fbb74fd1a",
         "environment_plan_digest": "environment-plan",
         "fixed_declaration_refs": [],
         "interpreter": {
@@ -104,12 +98,13 @@
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "a87bc79e485e166af0a6c86000dd746c99ab194829858a83b7dc9d5910814c87",
-    "report_generation_id": "ab39a04e9d14a9bb693800350fc8f34f97a97ec37760961bb2db97df169d6cc2",
+    "policy_identity": "485288849d5b189554d574a0a2253f60af00ee2a9cce92b57ebd13f7cb012181",
+    "report_generation_id": "ae8365696f5fd6b9e9395f3a8fc8b090cff7db92632d877eb6e3aaf47c088af6",
     "source_snapshot": {
       "digest": "7e6fd755e9c7cf62ae5dea94106049d58e04bfe1df225cc7f262b1124c00a1dc",
       "entries": []
-    }
+    },
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
   },
   "inputs": {
     "candidate_snapshots": [],
@@ -129,5 +124,5 @@
   "result": {
     "status": "complete"
   },
-  "schema_version": 2
+  "schema_version": 1
 }

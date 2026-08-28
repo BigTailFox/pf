@@ -7,14 +7,15 @@ import sys
 import pytest
 
 from pf.adapters.process import SubprocessRunner
-from pf.adapters.test_command import TestAdapter
+from pf.adapters.test_command import ConfiguredVerifier
+from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
     EnvironmentVariable,
     PytestFailureDetail,
     StageProgress,
-    TestFail,
-    TestPass,
-    ToolFailure,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRequest,
 )
 
 
@@ -24,21 +25,22 @@ def _run_pytest(
     autoload: bool = False,
     progress: Callable[[StageProgress | None], None] | None = None,
 ):
-    return TestAdapter(SubprocessRunner()).run(
-        command=(sys.executable, "-m", "pytest", "--no-header", "-q", *args),
-        cwd=root,
-        environment=(
-            ()
-            if autoload
-            else (
-                EnvironmentVariable(
-                    name="PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-                    value="1",
-                ),
-            )
+    return ConfiguredVerifier(SubprocessRunner()).run(
+        VerifierRequest(
+            command=(sys.executable, "-m", "pytest", "--no-header", "-q", *args),
+            cwd=root,
+            environment=(
+                ()
+                if autoload
+                else (
+                    EnvironmentVariable(
+                        name="PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+                        value="1",
+                    ),
+                )
+            ),
+            timeout_seconds=30,
         ),
-        failure_exit_codes=(1,),
-        timeout_seconds=30,
         progress=progress,
     )
 
@@ -47,7 +49,7 @@ def _write_test(root: Path, source: str) -> None:
     (root / "test_example.py").write_text(source, encoding="utf-8")
 
 
-class TestPytestWitnessIntegration:
+class TestPytestObserverIntegration:
     @pytest.mark.parametrize(
         ("source", "expected_nodeid", "expected_phase"),
         (
@@ -91,11 +93,12 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert isinstance(result.detail, PytestFailureDetail)
-        assert result.detail.first.nodeid == expected_nodeid
-        assert result.detail.first.phase == expected_phase
-        assert result.detail.total == 1
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert isinstance(result.diagnostics.detail, PytestFailureDetail)
+        assert result.diagnostics.detail.first.nodeid == expected_nodeid
+        assert result.diagnostics.detail.first.phase == expected_phase
+        assert result.diagnostics.detail.total == 1
 
     def test_pytest_failure_detail_counts_distinct_nodeids_once(
         self,
@@ -112,22 +115,22 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert isinstance(result.detail, PytestFailureDetail)
-        assert result.detail.first.nodeid == "test_example.py::test_first"
-        assert result.detail.first.phase == "call"
-        assert result.detail.total == 2
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert isinstance(result.diagnostics.detail, PytestFailureDetail)
+        assert result.diagnostics.detail.first.nodeid == "test_example.py::test_first"
+        assert result.diagnostics.detail.first.phase == "call"
+        assert result.diagnostics.detail.total == 2
 
     @pytest.mark.parametrize(
-        ("nodeid_escape", "expected"),
-        (("\\u009b31m", TestFail), ("\\ud800bad", ToolFailure)),
+        "nodeid_escape",
+        ("\\u009b31m", "\\ud800bad"),
         ids=("c1-control", "surrogate"),
     )
     def test_pytest_failure_detail_omits_an_unsafe_display_nodeid(
         self,
         tmp_path: Path,
         nodeid_escape: str,
-        expected: type[TestFail] | type[ToolFailure],
     ) -> None:
         (tmp_path / "conftest.py").write_text(
             "def pytest_collection_modifyitems(items):\n"
@@ -138,8 +141,9 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, expected)
-        assert getattr(result, "detail", None) is None
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail is None
 
     def test_serial_pytest_reports_determinate_collection_and_completion(
         self,
@@ -167,12 +171,12 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path, progress=observe)
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert None not in observed
         assert observed[0] == initial
         assert observed[-1] == StageProgress(completed=1, total=1, unit="tests")
 
-    def test_test_adapter_progress_reaches_completion_across_nested_pytest(
+    def test_configured_verifier_progress_reaches_completion_across_nested_pytest(
         self,
         tmp_path: Path,
     ) -> None:
@@ -181,8 +185,8 @@ class TestPytestWitnessIntegration:
             "import sys\n"
             "import time\n"
             "from pf.adapters.process import SubprocessRunner\n"
-            "from pf.adapters.test_command import TestAdapter\n"
-            "from pf.schemas.evaluation import EnvironmentVariable, TestPass\n"
+            "from pf.adapters.test_command import ConfiguredVerifier\n"
+            "from pf.schemas.evaluation import (EnvironmentVariable, VerifierPass, VerifierRequest)\n"
             "def test_outer_first():\n"
             "    time.sleep(0.2)\n"
             "def test_outer_runs_inner_pytest(tmp_path):\n"
@@ -192,44 +196,46 @@ class TestPytestWitnessIntegration:
             "        'import time\\ndef test_inner():\\n    time.sleep(0.2)\\n',\n"
             "        encoding='utf-8',\n"
             "    )\n"
-            "    result = TestAdapter(SubprocessRunner()).run(\n"
-            "        command=(sys.executable, '-m', 'pytest', '-q'),\n"
-            "        cwd=inner,\n"
-            "        environment=(EnvironmentVariable(\n"
-            "            name='PYTEST_DISABLE_PLUGIN_AUTOLOAD', value='1'\n"
-            "        ),),\n"
-            "        failure_exit_codes=(1,),\n"
-            "        timeout_seconds=10,\n"
+            "    result = ConfiguredVerifier(SubprocessRunner()).run(\n"
+            "        VerifierRequest(\n"
+            "            command=(sys.executable, '-m', 'pytest', '-q'),\n"
+            "            cwd=inner,\n"
+            "            environment=(EnvironmentVariable(\n"
+            "                name='PYTEST_DISABLE_PLUGIN_AUTOLOAD', value='1'\n"
+            "            ),),\n"
+            "            timeout_seconds=10,\n"
+            "        ),\n"
             "    )\n"
-            "    assert isinstance(result, TestPass)\n",
+            "    assert isinstance(result.authoritative, VerifierPass)\n",
         )
         observed: list[StageProgress | None] = []
 
         result = _run_pytest(tmp_path, progress=observed.append)
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert None not in observed
         assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
 
-    def test_test_adapter_progress_reaches_completion_across_qualification_pytest(
+    def test_configured_verifier_progress_reaches_completion_across_qualification_pytest(
         self,
     ) -> None:
         qualification = (
-            "tests/test_pytest_witness_qualification.py::"
-            "TestPytestWitnessQualificationRunner::"
+            "tests/test_pytest_observer_qualification.py::"
+            "TestPytestObserverQualificationRunner::"
         )
         observed: list[StageProgress | None] = []
 
         result = _run_pytest(
             Path(__file__).resolve().parents[1],
             qualification
-            + "test_qualification_runner_lists_the_committed_case_contracts",
-            qualification + "test_qualification_runner_executes_current_profile_case",
+            + "test_transparency_runner_lists_the_committed_case_contracts",
+            qualification
+            + "test_transparency_runner_replays_the_committed_current_profile",
             autoload=True,
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert None not in observed
         assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
 
@@ -243,46 +249,57 @@ class TestPytestWitnessIntegration:
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert observed == []
 
-    def test_pytest_witness_accepts_complete_pass(self, tmp_path: Path) -> None:
+    def test_pytest_observer_accepts_complete_pass(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_ok():\n    pass\n")
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
 
-    def test_pytest_witness_classifies_interrupt_as_indeterminate(
+    def test_importing_packaged_observer_does_not_compete_with_injected_plugin(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_test(
+            tmp_path,
+            "from pf import _pytest_observer\n"
+            "def test_ok():\n    assert _pytest_observer is not None\n",
+        )
+
+        result = _run_pytest(tmp_path)
+
+        assert isinstance(result.authoritative, VerifierPass)
+
+    def test_pytest_observer_does_not_override_interrupt_exit(
         self, tmp_path: Path
     ) -> None:
         _write_test(tmp_path, "raise KeyboardInterrupt\n")
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 2
-        assert result.summary_code == "pytest-failure-unwitnessed"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 2
 
-    def test_pytest_witness_classifies_usage_error_as_indeterminate(
+    def test_pytest_observer_does_not_override_usage_error_exit(
         self, tmp_path: Path
     ) -> None:
         result = _run_pytest(tmp_path, "--definitely-invalid-option")
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 4
-        assert result.summary_code == "pytest-failure-unwitnessed"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 4
 
-    def test_pytest_witness_classifies_plugin_bootstrap_failure_as_indeterminate(
+    def test_pytest_observer_does_not_override_plugin_bootstrap_exit(
         self, tmp_path: Path
     ) -> None:
         result = _run_pytest(tmp_path, "-p", "plugin_that_does_not_exist")
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 1
-        assert result.summary_code == "pytest-failure-unwitnessed"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 1
 
-    def test_pytest_witness_classifies_initial_conftest_failure_as_indeterminate(
+    def test_pytest_observer_does_not_override_initial_conftest_exit(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "conftest.py").write_text(
@@ -293,11 +310,10 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 4
-        assert result.summary_code == "pytest-failure-unwitnessed"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 4
 
-    def test_pytest_witness_classifies_late_conftest_failure_as_test_failure(
+    def test_pytest_observer_records_late_conftest_failure(
         self,
         tmp_path: Path,
     ) -> None:
@@ -315,10 +331,10 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.process.exit_code == 2
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 2
 
-    def test_pytest_witness_rejects_pass_rewritten_to_failure(
+    def test_pytest_observer_cannot_override_pass_rewritten_to_nonzero(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "conftest.py").write_text(
@@ -329,11 +345,12 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 1
-        assert result.summary_code == "pytest-failure-unwitnessed"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 1
+        assert result.diagnostics is not None
+        assert result.diagnostics.summary_code == "pytest-terminal-metadata-conflict"
 
-    def test_pytest_witness_rejects_failure_rewritten_to_pass(
+    def test_pytest_observer_cannot_override_failure_rewritten_to_pass(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "conftest.py").write_text(
@@ -344,11 +361,11 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 0
-        assert result.summary_code == "pytest-outcome-conflict"
+        assert isinstance(result.authoritative, VerifierPass)
+        assert result.diagnostics is not None
+        assert result.diagnostics.summary_code == "pytest-terminal-metadata-conflict"
 
-    def test_pytest_witness_retains_test_failure_before_interrupt(
+    def test_pytest_observer_retains_diagnostics_before_interrupt(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "conftest.py").write_text(
@@ -361,10 +378,10 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.process.exit_code == 2
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 2
 
-    def test_pytest_witness_retains_collection_failure_before_interrupt(
+    def test_pytest_observer_retains_collection_diagnostics_before_interrupt(
         self,
         tmp_path: Path,
     ) -> None:
@@ -378,10 +395,10 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.process.exit_code == 2
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 2
 
-    def test_pytest_witness_prioritizes_internal_error_over_failure(
+    def test_pytest_observer_internal_error_cannot_override_exit(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "conftest.py").write_text(
@@ -394,12 +411,11 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 3
-        assert result.summary_code == "pytest-internal-error"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 3
 
     @pytest.mark.parametrize("rewritten_exit", (1, 2))
-    def test_pytest_witness_prioritizes_internal_error_after_exit_rewrite(
+    def test_pytest_observer_internal_error_after_exit_rewrite_is_diagnostic_only(
         self,
         tmp_path: Path,
         rewritten_exit: int,
@@ -415,29 +431,22 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == rewritten_exit
-        assert result.summary_code == "pytest-internal-error"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == rewritten_exit
 
-    def test_pytest_witness_rejects_uncommitted_summary(self, tmp_path: Path) -> None:
+    def test_pytest_observer_rejects_uncommitted_summary(self, tmp_path: Path) -> None:
         (tmp_path / "conftest.py").write_text(
             "import os\n"
             "from pathlib import Path\n"
             "import shutil\n"
             "def pytest_sessionstart(session):\n"
-            "    shutil.rmtree(Path(os.environ['PF_PYTEST_WITNESS_DIR']))\n",
+            "    shutil.rmtree(Path(os.environ['PF_PYTEST_OBSERVER_DIR']))\n",
             encoding="utf-8",
         )
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-        result = _run_pytest(tmp_path)
-
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 1
-        assert result.summary_code in {
-            "pytest-evidence-invalid",
-            "pytest-failure-unwitnessed",
-        }
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            _run_pytest(tmp_path)
 
     def test_pytest_failure_detail_commit_failure_only_omits_detail(
         self,
@@ -449,34 +458,32 @@ class TestPytestWitnessIntegration:
             "import shutil\n"
             "def pytest_sessionfinish(session):\n"
             "    shutil.rmtree("
-            "Path(os.environ['PF_PYTEST_FAILURE_DETAILS_DIR']))\n",
+            "Path(os.environ['PF_PYTEST_OBSERVER_DETAILS_DIR']))\n",
             encoding="utf-8",
         )
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.detail is None
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail is None
 
-    def test_pytest_witness_rejects_residual_temporary_artifact(
+    def test_pytest_observer_rejects_residual_temporary_artifact(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "conftest.py").write_text(
             "import os\n"
             "from pathlib import Path\n"
             "def pytest_sessionfinish(session):\n"
-            "    directory = Path(os.environ['PF_PYTEST_WITNESS_DIR'])\n"
+            "    directory = Path(os.environ['PF_PYTEST_OBSERVER_DIR'])\n"
             "    (directory / 'leftover.tmp').write_text('partial')\n",
             encoding="utf-8",
         )
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
-        result = _run_pytest(tmp_path)
-
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 1
-        assert result.summary_code == "pytest-evidence-invalid"
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            _run_pytest(tmp_path)
 
     @pytest.mark.parametrize(
         "conftest_source",
@@ -491,7 +498,7 @@ class TestPytestWitnessIntegration:
         ),
         ids=("sessionfinish", "unconfigure", "config-cleanup"),
     )
-    def test_pytest_witness_records_finalization_exception_as_internal_error(
+    def test_pytest_observer_records_finalization_exception_as_diagnostics(
         self,
         tmp_path: Path,
         conftest_source: str,
@@ -501,12 +508,11 @@ class TestPytestWitnessIntegration:
 
         result = _run_pytest(tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-internal-error"
+        assert isinstance(result.authoritative, VerifierRejected)
 
 
-class TestPytestWitnessXdistIntegration:
-    def test_pytest_witness_accepts_xdist_pass_from_config(
+class TestPytestObserverXdistIntegration:
+    def test_pytest_observer_accepts_xdist_pass_from_config(
         self,
         tmp_path: Path,
     ) -> None:
@@ -523,19 +529,18 @@ class TestPytestWitnessXdistIntegration:
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert observed == []
 
-    def test_pytest_witness_rejects_xdist_test_failure(self, tmp_path: Path) -> None:
+    def test_pytest_observer_does_not_override_xdist_test_failure(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
         result = _run_pytest(tmp_path, "-n1", autoload=True)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 1
-        assert result.summary_code == "pytest-outcome-conflict"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 1
 
-    def test_pytest_witness_rejects_xdist_internal_error(self, tmp_path: Path) -> None:
+    def test_pytest_observer_does_not_override_xdist_internal_error(self, tmp_path: Path) -> None:
         (tmp_path / "conftest.py").write_text(
             "def pytest_runtest_logreport(report):\n"
             "    if report.failed and report.when == 'call':\n"
@@ -546,11 +551,10 @@ class TestPytestWitnessXdistIntegration:
 
         result = _run_pytest(tmp_path, "-n1", autoload=True)
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 3
-        assert result.summary_code == "pytest-internal-error"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 3
 
-    def test_pytest_witness_rejects_xdist_worker_crash(self, tmp_path: Path) -> None:
+    def test_pytest_observer_does_not_override_xdist_worker_crash(self, tmp_path: Path) -> None:
         _write_test(tmp_path, "import os\ndef test_crash():\n    os._exit(7)\n")
 
         result = _run_pytest(
@@ -560,6 +564,5 @@ class TestPytestWitnessXdistIntegration:
             autoload=True,
         )
 
-        assert isinstance(result, ToolFailure)
-        assert result.process.exit_code == 1
-        assert result.summary_code == "pytest-outcome-conflict"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.authoritative.terminal.exit_code == 1

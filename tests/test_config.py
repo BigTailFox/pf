@@ -64,7 +64,6 @@ class TestConfiguration:
         assert config.distribution == "wheel"
         assert config.allow_prereleases is False
         assert config.test_group == "test"
-        assert config.test_failure_exit_codes == (1,)
         assert config.command_cwd == "package"
         assert config.resolve_timeout == 600
         assert config.ty_timeout == 600
@@ -134,6 +133,10 @@ class TestConfiguration:
                 "duplicate search-space dependency",
             ),
             ("surprise = true", r"unknown \[tool.pf\] key: surprise"),
+            (
+                "test-failure-exit-codes = [1]",
+                r"unknown \[tool.pf\] key: test-failure-exit-codes",
+            ),
             (
                 'managed-deps = ["numpy"]\nunmanaged-deps = ["torch"]',
                 "managed-deps and unmanaged-deps are mutually exclusive",

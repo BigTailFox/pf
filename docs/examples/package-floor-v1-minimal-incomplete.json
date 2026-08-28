@@ -18,12 +18,13 @@
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "a87bc79e485e166af0a6c86000dd746c99ab194829858a83b7dc9d5910814c87",
-    "report_generation_id": "ab39a04e9d14a9bb693800350fc8f34f97a97ec37760961bb2db97df169d6cc2",
+    "policy_identity": "485288849d5b189554d574a0a2253f60af00ee2a9cce92b57ebd13f7cb012181",
+    "report_generation_id": "ae8365696f5fd6b9e9395f3a8fc8b090cff7db92632d877eb6e3aaf47c088af6",
     "source_snapshot": {
       "digest": "7e6fd755e9c7cf62ae5dea94106049d58e04bfe1df225cc7f262b1124c00a1dc",
       "entries": []
-    }
+    },
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
   },
   "inputs": {
     "candidate_snapshots": [],
@@ -46,5 +47,5 @@
     ],
     "status": "incomplete"
   },
-  "schema_version": 2
+  "schema_version": 1
 }

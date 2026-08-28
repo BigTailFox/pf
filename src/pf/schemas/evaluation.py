@@ -4,7 +4,8 @@ from collections import Counter
 import hashlib
 import json
 import math
-from typing import Annotated, ClassVar, Literal, Union
+from pathlib import Path
+from typing import Annotated, Literal, Union
 
 from packaging.version import Version
 from pydantic import Field, model_validator
@@ -71,6 +72,8 @@ class ProcessResult(FrozenSchema):
         )
         if facts != 1:
             raise ValueError("process result must have exactly one terminal fact")
+        if self.start_error is not None and self.timed_out:
+            raise ValueError("process start failure cannot also be timed out")
         return self
 
     def diagnostic(self) -> str:
@@ -91,9 +94,128 @@ class ProcessResult(FrozenSchema):
         return ""
 
 
+class ProcessTerminalUnavailable(FrozenSchema):
+    kind: Literal["terminal-unavailable"] = "terminal-unavailable"
+    duration_seconds: float = Field(default=0.0, ge=0, exclude=True)
+    detail: str | None = Field(default=None, exclude=True)
+
+
+ProcessObservation = ProcessResult | ProcessTerminalUnavailable
+
+
+class NormalExit(FrozenSchema):
+    kind: Literal["normal-exit"] = "normal-exit"
+    exit_code: int
+
+
+class StartFailed(FrozenSchema):
+    kind: Literal["start-failed"] = "start-failed"
+
+
+class TimedOut(FrozenSchema):
+    kind: Literal["timed-out"] = "timed-out"
+
+
+class Signaled(FrozenSchema):
+    kind: Literal["signaled"] = "signaled"
+    signal: int = Field(gt=0, strict=True)
+
+
+class Unavailable(FrozenSchema):
+    kind: Literal["unavailable"] = "unavailable"
+
+
+VerifierTerminal = Annotated[
+    Union[NormalExit, StartFailed, TimedOut, Signaled, Unavailable],
+    Field(discriminator="kind"),
+]
+
+
+class VerifierPass(FrozenSchema):
+    status: Literal["PASS"] = "PASS"
+    terminal: NormalExit
+
+    @model_validator(mode="after")
+    def validate_terminal(self) -> "VerifierPass":
+        if self.terminal.exit_code != 0:
+            raise ValueError("verifier pass requires normal exit 0")
+        return self
+
+
+class VerifierRejected(FrozenSchema):
+    status: Literal["REJECTED"] = "REJECTED"
+    terminal: NormalExit
+    reason: Literal["verifier-exited-nonzero"] = "verifier-exited-nonzero"
+
+    @model_validator(mode="after")
+    def validate_terminal(self) -> "VerifierRejected":
+        if self.terminal.exit_code == 0:
+            raise ValueError("verifier rejection requires a nonzero normal exit")
+        return self
+
+
+class VerifierIndeterminate(FrozenSchema):
+    status: Literal["INDETERMINATE"] = "INDETERMINATE"
+    terminal: StartFailed | TimedOut | Signaled | Unavailable
+    reason: Literal[
+        "process-start-failed",
+        "process-timed-out",
+        "process-signaled",
+        "terminal-unavailable",
+    ]
+
+    @model_validator(mode="after")
+    def validate_reason(self) -> "VerifierIndeterminate":
+        if isinstance(self.terminal, StartFailed):
+            expected = "process-start-failed"
+        elif isinstance(self.terminal, TimedOut):
+            expected = "process-timed-out"
+        elif isinstance(self.terminal, Signaled):
+            expected = "process-signaled"
+        else:
+            expected = "terminal-unavailable"
+        if self.reason != expected:
+            raise ValueError("verifier indeterminate reason must match its terminal")
+        return self
+
+
+VerifierOutcome = Annotated[
+    Union[VerifierPass, VerifierRejected, VerifierIndeterminate],
+    Field(discriminator="status"),
+]
+
+
+class VerifierDiagnostics(FrozenSchema):
+    process: ProcessObservation
+    detail: "PytestFailureDetail | None" = None
+    summary_code: str | None = None
+    pytest_execution_mode: Literal["serial", "xdist", "unknown"] | None = None
+    pytest_facts: tuple[tuple[str, str], ...] = ()
+    pytest_version: str | None = None
+    python_minor: str | None = None
+
+
+class VerifierRequest(FrozenSchema):
+    command: tuple[str, ...]
+    cwd: Path
+    environment: tuple[EnvironmentVariable, ...] = ()
+    timeout_seconds: int | None
+
+    @model_validator(mode="after")
+    def validate_request(self) -> "VerifierRequest":
+        if not self.command:
+            raise ValueError("verifier command cannot be empty")
+        return self
+
+
+class VerifierRun(FrozenSchema):
+    authoritative: VerifierOutcome
+    diagnostics: VerifierDiagnostics | None = Field(default=None, exclude=True)
+
+
 def process_facts_match(
-    left: ProcessResult | None,
-    right: ProcessResult | None,
+    left: ProcessObservation | None,
+    right: ProcessObservation | None,
 ) -> bool:
     """Return whether two results have the same report-portable process facts."""
     if left is None or right is None:
@@ -106,7 +228,7 @@ FailureCause = Literal[
     "BUILD_FAILURE",
     "HARNESS_CONFLICT",
     "RUNTIME_INTERFACE_MISSING",
-    "TEST_FAILURE",
+    "VERIFIER_EXITED_NONZERO",
     "SOURCE_FAILURE",
     "ENVIRONMENT_FAILURE",
     "TOOL_FAILURE",
@@ -120,7 +242,6 @@ _REJECTION_STAGES: dict[str, frozenset[str]] = {
     "RESOLUTION_CONFLICT": frozenset({"resolve-project"}),
     "HARNESS_CONFLICT": frozenset({"resolve-environment"}),
     "RUNTIME_INTERFACE_MISSING": frozenset({"witness"}),
-    "TEST_FAILURE": frozenset({"test"}),
 }
 
 
@@ -311,17 +432,66 @@ class FailureDetail(FrozenSchema):
         return self
 
 
+class ProcessFailureAuthority(FrozenSchema):
+    kind: Literal["process"] = "process"
+    process: ProcessResult
+    summary_code: str | None = None
+    detail: FailureDetail | None = None
+
+
+class ConfiguredVerifierFailureAuthority(FrozenSchema):
+    kind: Literal["configured-verifier"] = "configured-verifier"
+    terminal: VerifierTerminal
+
+
+class StructuredFailureAuthority(FrozenSchema):
+    kind: Literal["structured"] = "structured"
+    detail: FailureDetail
+    summary_code: str | None = None
+
+
+FailureAuthority = Annotated[
+    Union[
+        ProcessFailureAuthority,
+        ConfiguredVerifierFailureAuthority,
+        StructuredFailureAuthority,
+    ],
+    Field(discriminator="kind"),
+]
+
+
 class FailureRecord(FrozenSchema):
     failure_id: str
     scope: FailureScope
     disposition: Literal["REJECTED", "INDETERMINATE"]
     cause: FailureCause
     stage: str
-    process: ProcessResult | None = None
-    summary_code: str | None = None
-    detail: FailureDetail | None = None
+    authority: FailureAuthority
     project_plan_digest: str | None = None
     environment_plan_digest: str | None = None
+
+    @property
+    def process(self) -> ProcessResult | None:
+        authority = self.authority
+        return authority.process if isinstance(authority, ProcessFailureAuthority) else None
+
+    @property
+    def summary_code(self) -> str | None:
+        authority = self.authority
+        return (
+            authority.summary_code
+            if isinstance(authority, (ProcessFailureAuthority, StructuredFailureAuthority))
+            else None
+        )
+
+    @property
+    def detail(self) -> FailureDetail | None:
+        authority = self.authority
+        return (
+            authority.detail
+            if isinstance(authority, (ProcessFailureAuthority, StructuredFailureAuthority))
+            else None
+        )
 
     @classmethod
     def from_facts(
@@ -331,9 +501,74 @@ class FailureRecord(FrozenSchema):
         disposition: Literal["REJECTED", "INDETERMINATE"],
         cause: FailureCause,
         stage: str,
-        process: ProcessResult | None,
+        process: ProcessObservation | None,
         summary_code: str | None = None,
         detail: FailureDetail | None = None,
+        project_plan_digest: str | None = None,
+        environment_plan_digest: str | None = None,
+    ) -> "FailureRecord":
+        if isinstance(process, ProcessResult):
+            authority: FailureAuthority = ProcessFailureAuthority(
+                process=process,
+                summary_code=summary_code,
+                detail=detail,
+            )
+        elif isinstance(process, ProcessTerminalUnavailable):
+            authority = StructuredFailureAuthority(
+                detail=FailureDetail(
+                    code="terminal-unavailable",
+                    message="the process terminal observation was unavailable",
+                ),
+                summary_code=summary_code,
+            )
+        elif detail is not None:
+            authority = StructuredFailureAuthority(
+                detail=detail,
+                summary_code=summary_code,
+            )
+        else:
+            raise ValueError("failure requires process or structured authority")
+        return cls.from_authority(
+            scope=scope,
+            disposition=disposition,
+            cause=cause,
+            stage=stage,
+            authority=authority,
+            project_plan_digest=project_plan_digest,
+            environment_plan_digest=environment_plan_digest,
+        )
+
+    @classmethod
+    def from_verifier(
+        cls,
+        *,
+        scope: FailureScope,
+        disposition: Literal["REJECTED", "INDETERMINATE"],
+        cause: FailureCause,
+        stage: str,
+        terminal: VerifierTerminal,
+        project_plan_digest: str | None = None,
+        environment_plan_digest: str | None = None,
+    ) -> "FailureRecord":
+        return cls.from_authority(
+            scope=scope,
+            disposition=disposition,
+            cause=cause,
+            stage=stage,
+            authority=ConfiguredVerifierFailureAuthority(terminal=terminal),
+            project_plan_digest=project_plan_digest,
+            environment_plan_digest=environment_plan_digest,
+        )
+
+    @classmethod
+    def from_authority(
+        cls,
+        *,
+        scope: FailureScope,
+        disposition: Literal["REJECTED", "INDETERMINATE"],
+        cause: FailureCause,
+        stage: str,
+        authority: FailureAuthority,
         project_plan_digest: str | None = None,
         environment_plan_digest: str | None = None,
     ) -> "FailureRecord":
@@ -342,9 +577,7 @@ class FailureRecord(FrozenSchema):
             disposition=disposition,
             cause=cause,
             stage=stage,
-            process=process,
-            summary_code=summary_code,
-            detail=detail,
+            authority=authority,
             project_plan_digest=project_plan_digest,
             environment_plan_digest=environment_plan_digest,
         )
@@ -354,9 +587,7 @@ class FailureRecord(FrozenSchema):
             disposition=disposition,
             cause=cause,
             stage=stage,
-            process=process,
-            summary_code=summary_code,
-            detail=detail,
+            authority=authority,
             project_plan_digest=project_plan_digest,
             environment_plan_digest=environment_plan_digest,
         )
@@ -368,9 +599,7 @@ class FailureRecord(FrozenSchema):
         disposition: Literal["REJECTED", "INDETERMINATE"],
         cause: FailureCause,
         stage: str,
-        process: ProcessResult | None,
-        summary_code: str | None,
-        detail: FailureDetail | None,
+        authority: FailureAuthority,
         project_plan_digest: str | None,
         environment_plan_digest: str | None,
     ) -> str:
@@ -379,11 +608,7 @@ class FailureRecord(FrozenSchema):
             "disposition": disposition,
             "cause": cause,
             "stage": stage,
-            "process": (
-                process.model_dump(mode="json") if process is not None else None
-            ),
-            "summary_code": summary_code,
-            "detail": detail.model_dump(mode="json") if detail is not None else None,
+            "authority": authority.model_dump(mode="json"),
         }
         if project_plan_digest is not None:
             payload["project_plan_digest"] = project_plan_digest
@@ -391,7 +616,7 @@ class FailureRecord(FrozenSchema):
             payload["environment_plan_digest"] = environment_plan_digest
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return (
-            "failure-" + hashlib.sha256(b"pf:failure:v1\0" + canonical).hexdigest()[:16]
+            "failure-" + hashlib.sha256(b"pf:failure:v2\0" + canonical).hexdigest()[:16]
         )
 
     @model_validator(mode="after")
@@ -401,9 +626,7 @@ class FailureRecord(FrozenSchema):
             disposition=self.disposition,
             cause=self.cause,
             stage=self.stage,
-            process=self.process,
-            summary_code=self.summary_code,
-            detail=self.detail,
+            authority=self.authority,
             project_plan_digest=self.project_plan_digest,
             environment_plan_digest=self.environment_plan_digest,
         )
@@ -411,8 +634,6 @@ class FailureRecord(FrozenSchema):
             raise ValueError("failure ID does not match its structured facts")
         if not self.stage.strip():
             raise ValueError("failure stage cannot be empty")
-        if self.process is None and self.detail is None:
-            raise ValueError("failure requires process facts or structured detail")
         if (
             self.environment_plan_digest is not None
             and self.project_plan_digest is None
@@ -430,7 +651,17 @@ class FailureRecord(FrozenSchema):
                 if isinstance(self.scope, AttemptFailureScope)
                 else None
             )
-            if process is None or not rejection_is_supported(
+            if isinstance(self.authority, ConfiguredVerifierFailureAuthority):
+                if not (
+                    self.cause == "VERIFIER_EXITED_NONZERO"
+                    and self.stage == "test"
+                    and isinstance(self.authority.terminal, NormalExit)
+                    and self.authority.terminal.exit_code != 0
+                ):
+                    raise ValueError(
+                        "configured verifier rejection does not match its authority"
+                    )
+            elif process is None or not rejection_is_supported(
                 requested_resolution=requested_resolution,
                 cause=self.cause,
                 stage=self.stage,
@@ -442,6 +673,24 @@ class FailureRecord(FrozenSchema):
                 stderr_complete=process.stderr_complete,
             ):
                 raise ValueError("REJECTED disposition is not supported by its facts")
+        if isinstance(self.authority, ConfiguredVerifierFailureAuthority):
+            terminal = self.authority.terminal
+            if isinstance(terminal, NormalExit):
+                if terminal.exit_code == 0:
+                    raise ValueError("passing verifier terminal cannot form a failure")
+                expected = ("REJECTED", "VERIFIER_EXITED_NONZERO")
+            elif isinstance(terminal, TimedOut):
+                expected = ("INDETERMINATE", "TIMEOUT")
+            else:
+                expected = ("INDETERMINATE", "TOOL_FAILURE")
+            if self.stage != "test" or (self.disposition, self.cause) != expected:
+                raise ValueError(
+                    "configured verifier failure does not match its terminal"
+                )
+        elif self.cause == "VERIFIER_EXITED_NONZERO":
+            raise ValueError(
+                "verifier exit cause requires configured-verifier authority"
+            )
         return self
 
 
@@ -455,7 +704,7 @@ class ToolFailure(FrozenSchema):
     status: Literal["FAILURE"] = "FAILURE"
     cause: FailureCause
     stage: str
-    process: ProcessResult
+    process: ProcessObservation
     summary_code: str | None = None
 
 
@@ -572,26 +821,6 @@ InterpreterOutcome = Annotated[
 ]
 
 
-class TestPass(FrozenSchema):
-    __test__: ClassVar[bool] = False
-    status: Literal["TEST_PASS"] = "TEST_PASS"
-    process: ProcessResult
-
-    @model_validator(mode="after")
-    def validate_test_pass(self) -> "TestPass":
-        process = self.process
-        if (
-            process.exit_code != 0
-            or process.signal is not None
-            or process.start_error is not None
-            or process.timed_out
-            or not process.stdout_complete
-            or not process.stderr_complete
-        ):
-            raise ValueError("TEST_PASS requires a complete normal exit 0")
-        return self
-
-
 class PytestFailureCase(FrozenSchema):
     nodeid: str
     phase: Literal["collect", "setup", "call", "teardown"]
@@ -616,33 +845,6 @@ class PytestFailureDetail(FrozenSchema):
     kind: Literal["pytest-failure"] = "pytest-failure"
     first: PytestFailureCase
     total: int = Field(gt=0, le=10_000, strict=True)
-
-
-class TestFail(FrozenSchema):
-    __test__: ClassVar[bool] = False
-    status: Literal["TEST_FAIL"] = "TEST_FAIL"
-    process: ProcessResult
-    detail: PytestFailureDetail | None = Field(default=None, exclude=True)
-
-    @model_validator(mode="after")
-    def validate_test_fail(self) -> "TestFail":
-        process = self.process
-        if (
-            process.exit_code in {None, 0}
-            or process.signal is not None
-            or process.start_error is not None
-            or process.timed_out
-            or not process.stdout_complete
-            or not process.stderr_complete
-        ):
-            raise ValueError("TEST_FAIL requires a complete normal non-zero exit")
-        return self
-
-
-TestOutcome = Annotated[
-    Union[TestPass, TestFail, ToolFailure],
-    Field(discriminator="status"),
-]
 
 
 class GraphSuccess(FrozenSchema):
@@ -851,7 +1053,7 @@ class PassEvaluation(FrozenSchema):
     proposal: "Proposal"
     static: StaticUnchangedEvaluation | StaticRegressionEvaluation
     witnesses: tuple[RuntimeWitnessAttempt, ...] = ()
-    test: TestPass
+    verifier: VerifierPass
 
     @model_validator(mode="after")
     def validate_pass(self) -> "PassEvaluation":
@@ -871,31 +1073,30 @@ class PassEvaluation(FrozenSchema):
         return self
 
 
-class TestFailEvaluation(FrozenSchema):
-    __test__: ClassVar[bool] = False
-    status: Literal["TEST_FAIL"] = "TEST_FAIL"
+class VerifierRejectedEvaluation(FrozenSchema):
+    status: Literal["VERIFIER_REJECTED"] = "VERIFIER_REJECTED"
     proposal: "Proposal"
     static: StaticUnchangedEvaluation | StaticRegressionEvaluation
     witnesses: tuple[RuntimeWitnessAttempt, ...] = ()
-    test: TestFail
+    verifier: VerifierRejected
 
     @model_validator(mode="after")
-    def validate_test_failure(self) -> "TestFailEvaluation":
+    def validate_verifier_rejection(self) -> "VerifierRejectedEvaluation":
         if self.static.proposal != self.proposal:
-            raise ValueError("test failure static evidence must match its proposal")
+            raise ValueError("verifier rejection static evidence must match its proposal")
         if any(
             isinstance(attempt.outcome, RuntimeWitnessResult)
             and attempt.outcome.status == "CONFIRMED_MISSING"
             for attempt in self.witnesses
         ):
             raise ValueError(
-                "test failure cannot run after confirmed-missing witness evidence"
+                "verifier rejection cannot follow confirmed-missing witness evidence"
             )
         if any(isinstance(attempt.outcome, ToolFailure) for attempt in self.witnesses):
-            raise ValueError("test failure cannot retain witness tool failure")
+            raise ValueError("verifier rejection cannot retain witness tool failure")
         allowed = _require_witness_prefix(self.static, self.witnesses)
         if self.witnesses and len(self.witnesses) != len(allowed):
-            raise ValueError("test failure must complete every selected witness plan")
+            raise ValueError("verifier rejection must complete every witness plan")
         return self
 
 
@@ -933,15 +1134,33 @@ class IndeterminateEvaluation(FrozenSchema):
     status: Literal["INDETERMINATE"] = "INDETERMINATE"
     proposal: "Proposal"
     cause: FailureCause
-    failure: ToolFailure
+    failure: ToolFailure | None = None
+    verifier: VerifierIndeterminate | None = None
     static: StaticUnchangedEvaluation | StaticRegressionEvaluation | None = None
     witnesses: tuple[RuntimeWitnessAttempt, ...] = ()
 
     @model_validator(mode="after")
     def validate_failure_cause(self) -> "IndeterminateEvaluation":
-        if self.cause != self.failure.cause:
+        if (self.failure is None) == (self.verifier is None):
+            raise ValueError(
+                "indeterminate evaluation requires exactly one authority"
+            )
+        if self.failure is not None and self.cause != self.failure.cause:
             raise ValueError("indeterminate evaluation must retain its tool cause")
-        if self.failure.stage in {"witness", "test"} and self.static is None:
+        if self.verifier is not None:
+            expected = (
+                "TIMEOUT"
+                if isinstance(self.verifier.terminal, TimedOut)
+                else "TOOL_FAILURE"
+            )
+            if self.cause != expected:
+                raise ValueError(
+                    "verifier indeterminate cause must match its terminal"
+                )
+        if (
+            (self.failure is not None and self.failure.stage in {"witness", "test"})
+            or self.verifier is not None
+        ) and self.static is None:
             raise ValueError(
                 "runtime indeterminate evaluation requires its static evidence"
             )
@@ -951,18 +1170,27 @@ class IndeterminateEvaluation(FrozenSchema):
             if self.static is None:
                 raise ValueError("witness indeterminate requires static evidence")
             _require_witness_prefix(self.static, self.witnesses)
-            last = self.witnesses[-1].outcome
-            if not isinstance(last, ToolFailure) or last != self.failure:
-                raise ValueError(
-                    "witness indeterminate must end with its retained tool failure"
-                )
+            if self.failure is not None and self.failure.stage == "witness":
+                last = self.witnesses[-1].outcome
+                if not isinstance(last, ToolFailure) or last != self.failure:
+                    raise ValueError(
+                        "witness indeterminate must end with its retained tool failure"
+                    )
+                prior = self.witnesses[:-1]
+            else:
+                prior = self.witnesses
+                allowed = _require_witness_prefix(self.static, self.witnesses)
+                if len(self.witnesses) != len(allowed):
+                    raise ValueError(
+                        "verifier indeterminate must complete every witness plan"
+                    )
             if any(
                 isinstance(attempt.outcome, ToolFailure)
                 or (
                     isinstance(attempt.outcome, RuntimeWitnessResult)
                     and attempt.outcome.status == "CONFIRMED_MISSING"
                 )
-                for attempt in self.witnesses[:-1]
+                for attempt in prior
             ):
                 raise ValueError(
                     "witness evaluation must stop at its first terminal outcome"
@@ -984,10 +1212,62 @@ Evaluation = Annotated[
     Union[
         PassEvaluation,
         RuntimeInterfaceMissingEvaluation,
-        TestFailEvaluation,
+        VerifierRejectedEvaluation,
         IndeterminateEvaluation,
     ],
     Field(discriminator="status"),
+]
+
+
+class RuntimeEvaluationRun(FrozenSchema):
+    evaluation: Evaluation
+    diagnostics: VerifierDiagnostics | None = Field(default=None, exclude=True)
+
+
+def runtime_process_observation(
+    runtime: RuntimeEvaluationRun,
+) -> ProcessObservation | None:
+    if runtime.diagnostics is not None:
+        return runtime.diagnostics.process
+    evaluation = runtime.evaluation
+    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+        confirmed = evaluation.witnesses[-1].outcome
+        assert isinstance(confirmed, RuntimeWitnessResult)
+        return confirmed.process
+    if isinstance(evaluation, IndeterminateEvaluation):
+        return None if evaluation.failure is None else evaluation.failure.process
+    return None
+
+
+class FailureEvaluationRuntimeRun(FrozenSchema):
+    kind: Literal["evaluation"] = "evaluation"
+    failure_id: str
+    runtime: RuntimeEvaluationRun
+
+    @property
+    def process_observation(self) -> ProcessObservation | None:
+        return runtime_process_observation(self.runtime)
+
+    @model_validator(mode="after")
+    def validate_process_association(self) -> "FailureEvaluationRuntimeRun":
+        if self.process_observation is None:
+            raise ValueError("failure evaluation runtime requires a process")
+        return self
+
+
+class FailureProcessRuntimeRun(FrozenSchema):
+    kind: Literal["process"] = "process"
+    failure_id: str
+    process: ProcessTerminalUnavailable = Field(exclude=True)
+
+    @property
+    def process_observation(self) -> ProcessTerminalUnavailable:
+        return self.process
+
+
+FailureRuntimeRun = Annotated[
+    Union[FailureEvaluationRuntimeRun, FailureProcessRuntimeRun],
+    Field(discriminator="kind"),
 ]
 
 
@@ -1031,9 +1311,30 @@ class CheckCellOutcome(FrozenSchema):
     failure: FailureRecord | None = None
     evaluation: Evaluation | None = None
     static_baseline: StaticBaseline | None = None
+    runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
+    failure_process: ProcessTerminalUnavailable | None = Field(
+        default=None,
+        exclude=True,
+    )
 
     @model_validator(mode="after")
     def validate_check_cell_outcome(self) -> "CheckCellOutcome":
+        if self.runtime is not None and self.runtime.evaluation != self.evaluation:
+            raise ValueError("check runtime wrapper must match its evaluation")
+        if self.failure_process is not None:
+            if self.failure is None or self.runtime is not None:
+                raise ValueError(
+                    "check process sidecar requires one non-runtime FailureRecord"
+                )
+            authority = self.failure.authority
+            if not (
+                isinstance(self.failure_process, ProcessTerminalUnavailable)
+                and isinstance(authority, StructuredFailureAuthority)
+                and authority.detail.code == "terminal-unavailable"
+            ):
+                raise ValueError(
+                    "check process sidecar must match terminal-unavailable authority"
+                )
         if self.status == "PASS":
             if self.failure is not None:
                 raise ValueError("passing check cell cannot carry a failure")
@@ -1163,7 +1464,8 @@ class BaselineRejection(FrozenSchema):
     attempt: Attempt
     failure: FailureRecord
     static_baseline: StaticBaseline | None = None
-    evaluation: TestFailEvaluation | None = None
+    evaluation: VerifierRejectedEvaluation | None = None
+    runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
 
     @property
     def cell(self) -> Cell:
@@ -1179,20 +1481,17 @@ class BaselineRejection(FrozenSchema):
             raise ValueError("baseline rejection requires attempt scope")
         if self.failure.scope.attempt != self.attempt:
             raise ValueError("baseline rejection failure must match its attempt")
-        if self.failure.cause == "TEST_FAILURE" and self.evaluation is None:
-            raise ValueError("baseline test rejection requires structured evaluation")
-        if isinstance(self.evaluation, TestFailEvaluation) and (
-            self.failure.cause != "TEST_FAILURE"
-        ):
-            raise ValueError("baseline test rejection cause must match evaluation")
-        if isinstance(self.evaluation, TestFailEvaluation) and (
-            self.failure.stage != "test"
-            or not process_facts_match(
-                self.failure.process,
-                self.evaluation.test.process,
-            )
-        ):
-            raise ValueError("baseline test diagnosis must match its evaluation")
+        if self.failure.cause == "VERIFIER_EXITED_NONZERO" and self.evaluation is None:
+            raise ValueError("baseline verifier rejection requires its evaluation")
+        if self.evaluation is not None:
+            authority = self.failure.authority
+            if not (
+                self.failure.cause == "VERIFIER_EXITED_NONZERO"
+                and self.failure.stage == "test"
+                and isinstance(authority, ConfiguredVerifierFailureAuthority)
+                and authority.terminal == self.evaluation.verifier.terminal
+            ):
+                raise ValueError("baseline verifier diagnosis must match its evaluation")
         if self.evaluation is not None and (
             self.evaluation.proposal.attempt_id != self.attempt.attempt_id
         ):
@@ -1202,18 +1501,16 @@ class BaselineRejection(FrozenSchema):
                 raise ValueError("baseline evaluation requires its static baseline")
             if self.evaluation.proposal != self.static_baseline.proposal:
                 raise ValueError("baseline rejection must identify captured V_hi")
-            if isinstance(self.evaluation, TestFailEvaluation):
-                if self.evaluation.static.ty != self.static_baseline.ty:
-                    raise ValueError(
-                        "baseline rejection must reuse captured V_hi TyCheck"
-                    )
-                if (
-                    self.evaluation.static.baseline_digest
-                    != self.static_baseline.digest
-                ):
-                    raise ValueError(
-                        "baseline rejection must reuse captured V_hi digest"
-                    )
+            if self.evaluation.static.ty != self.static_baseline.ty:
+                raise ValueError(
+                    "baseline rejection must reuse captured V_hi TyCheck"
+                )
+            if self.evaluation.static.baseline_digest != self.static_baseline.digest:
+                raise ValueError(
+                    "baseline rejection must reuse captured V_hi digest"
+                )
+        if self.runtime is not None and self.runtime.evaluation != self.evaluation:
+            raise ValueError("baseline runtime wrapper must match its evaluation")
         return self
 
 
@@ -1223,6 +1520,11 @@ class BaselineIndeterminate(FrozenSchema):
     failure: FailureRecord
     static_baseline: StaticBaseline | None = None
     evaluation: IndeterminateEvaluation | None = None
+    runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
+    failure_process: ProcessTerminalUnavailable | None = Field(
+        default=None,
+        exclude=True,
+    )
 
     @property
     def cell(self) -> Cell:
@@ -1240,6 +1542,17 @@ class BaselineIndeterminate(FrozenSchema):
             raise ValueError("baseline indeterminate requires attempt scope")
         if self.failure.scope.attempt != self.attempt:
             raise ValueError("baseline indeterminate failure must match its attempt")
+        if self.failure_process is not None:
+            authority = self.failure.authority
+            if not (
+                self.runtime is None
+                and isinstance(self.failure_process, ProcessTerminalUnavailable)
+                and isinstance(authority, StructuredFailureAuthority)
+                and authority.detail.code == "terminal-unavailable"
+            ):
+                raise ValueError(
+                    "baseline process sidecar must match terminal-unavailable authority"
+                )
         if self.evaluation is not None and (
             self.evaluation.proposal.attempt_id != self.attempt.attempt_id
         ):
@@ -1250,17 +1563,31 @@ class BaselineIndeterminate(FrozenSchema):
             and (self.evaluation.proposal != self.static_baseline.proposal)
         ):
             raise ValueError("baseline indeterminate must identify captured V_hi")
-        if self.evaluation is not None and (
-            self.failure.cause != self.evaluation.cause
-            or self.failure.stage != self.evaluation.failure.stage
-            or not process_facts_match(
-                self.failure.process,
-                self.evaluation.failure.process,
-            )
-        ):
-            raise ValueError(
-                "baseline indeterminate diagnosis must match its evaluation"
-            )
+        if self.evaluation is not None:
+            if self.evaluation.verifier is not None:
+                authority = self.failure.authority
+                matches = (
+                    isinstance(authority, ConfiguredVerifierFailureAuthority)
+                    and authority.terminal == self.evaluation.verifier.terminal
+                    and self.failure.stage == "test"
+                    and self.failure.cause == self.evaluation.cause
+                )
+            else:
+                assert self.evaluation.failure is not None
+                matches = (
+                    self.failure.cause == self.evaluation.cause
+                    and self.failure.stage == self.evaluation.failure.stage
+                    and process_facts_match(
+                        self.failure.process,
+                        self.evaluation.failure.process,
+                    )
+                )
+            if not matches:
+                raise ValueError(
+                    "baseline indeterminate diagnosis must match its evaluation"
+                )
+        if self.runtime is not None and self.runtime.evaluation != self.evaluation:
+            raise ValueError("baseline runtime wrapper must match its evaluation")
         return self
 
 
@@ -1436,12 +1763,23 @@ class CellFailed(FrozenSchema):
     phase: str
     detail: CellResultDetail | None = Field(default=None, exclude=True)
     detail_failure_id: str | None = Field(default=None, exclude=True)
-    process: ProcessResult | None = None
+    process: ProcessObservation | None = Field(default=None, exclude=True)
+    process_failure_id: str | None = Field(default=None, exclude=True)
     failures: tuple[FailureRecord, ...] = ()
     verification_role: VerificationRole | None = None
 
     @model_validator(mode="after")
     def validate_detail_source(self) -> "CellFailed":
+        if self.process is None and self.process_failure_id is not None:
+            raise ValueError(
+                "cell process observation and failure source must be retained together"
+            )
+        if self.process is not None and self.failures and self.process_failure_id is None:
+            raise ValueError("retained cell process requires an explicit failure source")
+        if self.process_failure_id is not None and not any(
+            failure.failure_id == self.process_failure_id for failure in self.failures
+        ):
+            raise ValueError("cell process source must reference a retained failure")
         if self.detail is not None and self.failures and self.detail_failure_id is None:
             raise ValueError("retained cell detail requires an explicit failure source")
         if self.detail_failure_id is None:
@@ -1503,13 +1841,16 @@ class SearchFailureEvent(FrozenSchema):
     failure: FailureRecord
     evaluation: (
         RuntimeInterfaceMissingEvaluation
-        | TestFailEvaluation
+        | VerifierRejectedEvaluation
         | IndeterminateEvaluation
         | None
     ) = None
+    runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_cell(self) -> "SearchFailureEvent":
+        if self.runtime is not None and self.runtime.evaluation != self.evaluation:
+            raise ValueError("search runtime wrapper must match its evaluation")
         scope_cell = (
             self.failure.scope.attempt.identity.cell
             if isinstance(self.failure.scope, AttemptFailureScope)
@@ -1525,11 +1866,13 @@ class SearchFailureEvent(FrozenSchema):
                 != self.failure.scope.attempt.attempt_id
             ):
                 raise ValueError("search failure evaluation must match its attempt")
-            if isinstance(self.evaluation, TestFailEvaluation):
-                if (
-                    self.failure.cause != "TEST_FAILURE"
-                    or self.failure.stage != "test"
-                    or self.failure.process != self.evaluation.test.process
+            if isinstance(self.evaluation, VerifierRejectedEvaluation):
+                authority = self.failure.authority
+                if not (
+                    self.failure.cause == "VERIFIER_EXITED_NONZERO"
+                    and self.failure.stage == "test"
+                    and isinstance(authority, ConfiguredVerifierFailureAuthority)
+                    and authority.terminal == self.evaluation.verifier.terminal
                 ):
                     raise ValueError(
                         "search test evaluation must match its failure facts"
@@ -1548,14 +1891,27 @@ class SearchFailureEvent(FrozenSchema):
                     raise ValueError(
                         "search runtime evaluation must match its failure facts"
                     )
-            elif (
-                self.failure.cause != self.evaluation.failure.cause
-                or self.failure.stage != self.evaluation.failure.stage
-                or self.failure.process != self.evaluation.failure.process
-            ):
-                raise ValueError(
-                    "search indeterminate evaluation must match its failure facts"
-                )
+            elif self.evaluation.verifier is not None:
+                authority = self.failure.authority
+                if not (
+                    isinstance(authority, ConfiguredVerifierFailureAuthority)
+                    and authority.terminal == self.evaluation.verifier.terminal
+                    and self.failure.stage == "test"
+                    and self.failure.cause == self.evaluation.cause
+                ):
+                    raise ValueError(
+                        "search verifier indeterminate must match its failure facts"
+                    )
+            else:
+                assert self.evaluation.failure is not None
+                if (
+                    self.failure.cause != self.evaluation.failure.cause
+                    or self.failure.stage != self.evaluation.failure.stage
+                    or self.failure.process != self.evaluation.failure.process
+                ):
+                    raise ValueError(
+                        "search indeterminate evaluation must match its failure facts"
+                    )
         return self
 
 

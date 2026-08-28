@@ -18,11 +18,13 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
+    ProcessTerminalUnavailable,
+    NormalExit,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestPass,
     ToolFailure,
     TyCheck,
+    VerifierPass,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, Proposal, VersionPin
@@ -113,12 +115,32 @@ def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
             ty=check,
             baseline_digest=baseline.digest,
         ),
-        test=TestPass(process=check.process),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
     return attempt, baseline, passed
 
 
 class TestFailurePolicy:
+    def test_typed_terminal_unavailable_uses_portable_structured_authority(
+        self,
+    ) -> None:
+        unavailable = ProcessTerminalUnavailable(
+            duration_seconds=0.2,
+            detail="runner returned no terminal status",
+        )
+
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=_probe_attempt()),
+            cause="TOOL_FAILURE",
+            stage="resolve-project",
+            process=unavailable,
+        )
+
+        assert failure.process is None
+        assert failure.disposition == "INDETERMINATE"
+        assert "runtime_process" not in failure.model_dump(mode="json")
+        assert FailureRecord.model_validate(failure.model_dump()) == failure
+
     def test_failure_record_retains_only_acquired_resolution_plan_evidence(
         self,
     ) -> None:
@@ -183,7 +205,6 @@ class TestFailurePolicy:
             ("RESOLUTION_CONFLICT", "resolve-project"),
             ("HARNESS_CONFLICT", "resolve-environment"),
             ("RUNTIME_INTERFACE_MISSING", "witness"),
-            ("TEST_FAILURE", "test"),
         ),
     )
     def test_failure_policy_rejects_complete_probe_contract_failures(
@@ -228,7 +249,7 @@ class TestFailurePolicy:
     @pytest.mark.parametrize(
         ("attempt", "cause", "stage", "process"),
         (
-            (_probe_attempt(), "TEST_FAILURE", "install", _process()),
+            (_probe_attempt(), "RESOLUTION_CONFLICT", "install", _process()),
             (
                 _probe_attempt(),
                 "RESOLUTION_CONFLICT",
@@ -237,8 +258,8 @@ class TestFailurePolicy:
             ),
             (
                 _probe_attempt(),
-                "TEST_FAILURE",
-                "test",
+                "RESOLUTION_CONFLICT",
+                "resolve-project",
                 _process().model_copy(update={"stderr_complete": False}),
             ),
         ),
@@ -327,7 +348,7 @@ class TestFailurePolicy:
     def test_classify_evaluation_returns_none_for_pass(self) -> None:
         _, _, passed = _highest_evidence()
         assert (
-            FailurePolicy().classify_evaluation(
+            FailurePolicy().record_evaluation(
                 AttemptFailureScope(attempt=_highest_attempt()),
                 passed,
             )
@@ -336,19 +357,46 @@ class TestFailurePolicy:
 
 
 class TestFailureRecords:
+    def test_configured_verifier_failure_identity_contains_only_terminal_facts(
+        self,
+    ) -> None:
+        scope = AttemptFailureScope(attempt=_probe_attempt())
+
+        first = FailureRecord.from_verifier(
+            scope=scope,
+            disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO",
+            stage="test",
+            terminal=NormalExit(exit_code=4),
+        )
+        second = FailureRecord.from_verifier(
+            scope=scope,
+            disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO",
+            stage="test",
+            terminal=NormalExit(exit_code=4),
+        )
+
+        assert first.failure_id == second.failure_id
+        assert first.authority.kind == "configured-verifier"
+        assert first.model_dump(mode="json")["authority"] == {
+            "kind": "configured-verifier",
+            "terminal": {"kind": "normal-exit", "exit_code": 4},
+        }
+
     def test_failure_record_identity_ignores_captured_process_output(self) -> None:
         policy = FailurePolicy()
         scope = AttemptFailureScope(attempt=_probe_attempt())
         first = policy.classify(
             scope=scope,
-            cause="TEST_FAILURE",
-            stage="test",
+            cause="SOURCE_FAILURE",
+            stage="install-environment",
             process=_process().model_copy(update={"stdout": "first run"}),
         )
         second = policy.classify(
             scope=scope,
-            cause="TEST_FAILURE",
-            stage="test",
+            cause="SOURCE_FAILURE",
+            stage="install-environment",
             process=_process().model_copy(update={"stdout": "second run"}),
         )
 
@@ -371,8 +419,8 @@ class TestFailureRecords:
             FailureRecord.from_facts(
                 scope=AttemptFailureScope(attempt=_probe_attempt()),
                 disposition="REJECTED",
-                cause="TEST_FAILURE",
-                stage="test",
+                cause="RESOLUTION_CONFLICT",
+                stage="resolve-project",
                 process=process,
             )
 
@@ -472,7 +520,7 @@ class TestFailureRecords:
                 stage=" ",
                 process=_process(),
             )
-        with pytest.raises(ValidationError, match="process facts or structured detail"):
+        with pytest.raises(ValueError, match="process or structured authority"):
             FailureRecord.from_facts(
                 scope=scope,
                 disposition="INDETERMINATE",
@@ -489,7 +537,7 @@ class TestFailureRecords:
                     evaluation_policy_identity="policy",
                 ),
                 disposition="REJECTED",
-                cause="TEST_FAILURE",
-                stage="test",
+                cause="RESOLUTION_CONFLICT",
+                stage="resolve-project",
                 process=_process(),
             )

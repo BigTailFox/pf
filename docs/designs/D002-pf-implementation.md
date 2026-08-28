@@ -74,7 +74,7 @@ src/pf/
 ├── runlog.py                    Process Logs、Journal、Diagnosis Index
 ├── _secure_runlog.py            private secure-directory protocol/adapters
 ├── windows_runlog.py            Windows native handle/DACL implementation
-├── _pytest_failure_witness.py   wheel-packaged standalone pytest plugin
+├── _pytest_observer.py          wheel-packaged standalone pytest plugin
 ├── terminal/                    presenter 与 private live/explain/diagnose views
 ├── schemas/                     base/config/project/evaluation/report records
 └── adapters/                    process、uv、ty、test、witness 与 pylock seams
@@ -100,7 +100,7 @@ ConfigDict(
 | `schemas.config` | effective config、CLI/workflow requests | D001 / `ConfigLoader` |
 | `schemas.project` | declarations、Cells、source、candidates、Proposal、project plan | `ProjectLoader`、Candidate/Environment owner |
 | `schemas.evaluation` | process、Attempt、Failure、static/runtime outcome、Journal、activity events | D004、D005、D008、D013 |
-| `schemas.report` | search evidence、CellResult、projection、private Schema 2 wire | D003、D014 |
+| `schemas.report` | search evidence、CellResult、projection、private Schema 1 wire | D003、D014 |
 
 Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、两个 semantic plan digest、managed vector、fixed declarations、graph、interpreter 与 policy identity。Prepare failure 只能保存已取得的事实，不能虚构 Proposal。
 
@@ -157,6 +157,7 @@ EnvironmentFactory.prepare(package, cell, snapshot, resolution)
 StaticEvaluator.capture/evaluate(...)
 RuntimeEvaluator.evaluate(...)
 HighestVersionVerifier.verify(...) -> HighestVersionOutcome
+ConfiguredVerifier.run(VerifierRequest) -> VerifierRun
 
 CoordinateSearch.minimize(...) -> CoordinateOutcome
 SearchCoordinator.search(...) -> CellResult
@@ -167,22 +168,32 @@ VerificationRunner.run(VerificationRun) -> ordered outcomes
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；测试后标记为可能污染。不同 Proposal 不通过原地 upgrade/downgrade 复用环境。
 
-Evaluator 的 static transition/witness 由 D004 定义，test profile 由 D013 定义，failure classification 由 D005 定义。Adapter 只返回自己的稳定 operation facts，不能决定搜索 disposition。
+Evaluator 的 static transition/witness 由 D004 定义；configured verifier terminal outcome 由
+本章 interface 与 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的稳定
+operation facts，不能决定搜索 Role。
 
 `CoordinateSearch` 只拥有 invocation-local vector state；其算法由 D003 定义。`SearchCoordinator` 只拥有一个 Cell 的 baseline→candidates→coordinate-search 状态机。`VerificationRunner` 拥有跨 Cell scheduling、deadline outcome、completion projection 与 Journal timing；generic `Scheduler` 不导入领域结果。
 
 ## 8. Adapter 与 process boundary
 
 ```text
-ProcessRunner.run(ProcessSpec) -> ProcessResult
+ProcessRunner.run(ProcessSpec) -> ProcessObservation
 ```
 
-生产 `SubprocessRunner` 唯一执行 `shell=False` argv、cwd/env、进程组、timeout、output capture 与通用 redaction，并可把完整 Process Log 交给 RunLogStore。`ProcessSpec.environment_removals` 表达从继承 environment 删除的名字；runner 必须先删除、再应用 `environment` overlay，使 adapter 可以隔离私有 invocation 状态而不修改进程级 `os.environ`。ProcessResult、Process Log 与 Output Cache 的唯一契约是 D007。
+生产 `SubprocessRunner` 唯一执行 `shell=False` argv、cwd/env、进程组、timeout、output capture
+与通用 redaction，并可把完整 Process Log 交给 RunLogStore。
+`ProcessSpec.environment_removals` 表达从继承 environment 删除的名字；runner 必须先删除、
+再应用 `environment` overlay，使 adapter 可以隔离私有 invocation 状态而不修改进程级
+`os.environ`。`ProcessObservation`、Process Log 与 Output Cache 的唯一契约是 D007。
 
 - `UvAdapter` 拥有 uv argv、resolver protocol、candidate query、pylock parsing、venv、install 与 graph inspection；D012 拥有语义和资格边界。
 - `TyAdapter` 拥有 ty argv/JSON normalization；D004 拥有诊断语义。
 - `RuntimeWitnessAdapter` 只执行 D004 的 structured harness。
-- `TestAdapter` 拥有 generic/direct-pytest 私有 profile 与 UI telemetry；D013 拥有 outcome authority。
+- `ConfiguredVerifier` 是配置 verifier 的唯一 public module interface。它把正常 exit 0 映射为
+  `VerifierPass`、正常非零映射为 `VerifierRejected`，把 timeout/signal/start/unavailable
+  映射为 `VerifierIndeterminate`，并返回 runtime-only `VerifierDiagnostics`。
+- direct pytest selector、observer 注入与 telemetry projection 都是 `ConfiguredVerifier`
+  私有实现；D013 只拥有其透明性和诊断协议。
 
 所有 adapter 在返回前脱敏；Presenter、ReportStore 与 workflow 不补救 raw secret，也不解析 stderr 重新分类。
 
@@ -191,7 +202,7 @@ ProcessRunner.run(ProcessSpec) -> ProcessResult
 | Module | 唯一负责 | 不负责 |
 | --- | --- | --- |
 | `RunLogStore` | secure Process Logs、Verification Journal、Diagnosis Index 与 associations | disposition、报告 authority |
-| `ReportStore` | Schema 2 codec/validation、merge/update、canonical/atomic write | 搜索或领域 identity 算法 |
+| `ReportStore` | Schema 1 codec/validation、merge/update、canonical/atomic write | 搜索或领域 identity 算法 |
 | `PackageReportBuilder` | CellResult roots → interned report、projection/result | wire I/O |
 | `ProjectEditor` | complete report → TOML transaction、recovery、rollback | resolution、test、report validation |
 

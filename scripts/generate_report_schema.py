@@ -11,12 +11,13 @@ from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestPass,
     TyCheck,
+    VerifierPass,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -31,15 +32,15 @@ from pf.schemas.project import (
 from pf.schemas.report import (
     CellSuccess,
     CoordinateSuccess,
-    PackageFloorReportV2Wire,
+    PackageFloorReportV1Wire,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = ROOT / "docs" / "schemas" / "package-floor-v2.schema.json"
-COMPLETE_PATH = ROOT / "docs" / "examples" / "package-floor-v2-minimal-complete.json"
+SCHEMA_PATH = ROOT / "docs" / "schemas" / "package-floor-v1.schema.json"
+COMPLETE_PATH = ROOT / "docs" / "examples" / "package-floor-v1-minimal-complete.json"
 INCOMPLETE_PATH = (
-    ROOT / "docs" / "examples" / "package-floor-v2-minimal-incomplete.json"
+    ROOT / "docs" / "examples" / "package-floor-v1-minimal-incomplete.json"
 )
 
 
@@ -61,7 +62,7 @@ def _snapshot() -> SourceSnapshotIdentity:
     )
 
 
-def _complete_report() -> PackageFloorReportV2Wire:
+def _complete_report() -> PackageFloorReportV1Wire:
     cell = Cell(
         package="demo",
         target="x86_64-unknown-linux-gnu",
@@ -124,7 +125,7 @@ def _complete_report() -> PackageFloorReportV2Wire:
     evaluation = PassEvaluation(
         proposal=proposal,
         static=static,
-        test=TestPass(process=process),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
     report = PackageReportBuilder().build(
         package=package,
@@ -155,7 +156,7 @@ def _complete_report() -> PackageFloorReportV2Wire:
     return report._wire
 
 
-def _incomplete_report() -> PackageFloorReportV2Wire:
+def _incomplete_report() -> PackageFloorReportV1Wire:
     cell = Cell(
         package="demo",
         target="x86_64-unknown-linux-gnu",
@@ -171,7 +172,7 @@ def _incomplete_report() -> PackageFloorReportV2Wire:
 
 
 def generated_files() -> dict[Path, str]:
-    schema = PackageFloorReportV2Wire.model_json_schema(
+    schema = PackageFloorReportV1Wire.model_json_schema(
         mode="serialization",
         ref_template="#/$defs/{model}",
     )

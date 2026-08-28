@@ -31,7 +31,7 @@ from pf.schemas.evaluation import (
     SearchFailureEvent,
     SmokeResult,
     StaticIssueDetail,
-    TestFailEvaluation,
+    VerifierRejectedEvaluation,
     TyDiagnostic,
     VerificationRole,
 )
@@ -147,7 +147,7 @@ _FAILURE_TITLES: dict[FailureCause, str] = {
     "BUILD_FAILURE": "This version combination could not be built.",
     "HARNESS_CONFLICT": "The test dependencies cannot be installed without changing the versions being checked.",
     "RUNTIME_INTERFACE_MISSING": "A required runtime interface is missing from this version combination.",
-    "TEST_FAILURE": "The full test command failed for this version combination.",
+    "VERIFIER_EXITED_NONZERO": "The configured verifier rejected this version combination.",
     "SOURCE_FAILURE": "PF could not reach or read a configured package source.",
     "ENVIRONMENT_FAILURE": "The current Python or system environment cannot run this check.",
     "TOOL_FAILURE": "PF could not complete a verification tool operation reliably.",
@@ -161,7 +161,7 @@ _FAILURE_NEXT_STEPS: dict[FailureCause, str] = {
     "BUILD_FAILURE": "Inspect the build details and log; check build requirements, Python support, and available artifacts.",
     "HARNESS_CONFLICT": "Adjust the configured test dependencies so they preserve the dependency graph under test.",
     "RUNTIME_INTERFACE_MISSING": "Review the confirmed missing module or member before changing dependency constraints.",
-    "TEST_FAILURE": "Review the failing test summary and log before changing code or dependency constraints.",
+    "VERIFIER_EXITED_NONZERO": "Review the verifier diagnostics and log before changing code or dependency constraints.",
     "SOURCE_FAILURE": "Check the index URL, network, credentials, and source availability, then rerun PF.",
     "ENVIRONMENT_FAILURE": "Verify the interpreter, platform support, permissions, and required system tools.",
     "TOOL_FAILURE": "Inspect the technical details and log; verify that the named tool can run in this environment.",
@@ -653,7 +653,7 @@ class TerminalPresenter:
                 evaluation,
                 (
                     RuntimeInterfaceMissingEvaluation,
-                    TestFailEvaluation,
+                    VerifierRejectedEvaluation,
                     PassEvaluation,
                 ),
             ):

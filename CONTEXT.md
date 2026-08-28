@@ -60,9 +60,25 @@ _Avoid_: Disposition, exit code, stderr text
 
 **Disposition**
 
-验证结果对 Attempt 作出的 `PASS`、`REJECTED` 或 `INDETERMINATE` 处置；failure 路径由 FailurePolicy 根据 scope、stage、cause 和证据完整性分类。
+验证结果对 Attempt 作出的 `PASS`、`REJECTED` 或 `INDETERMINATE` 处置；配置 verifier
+由实际 child terminal 机械形成 disposition，其他 operation failure 由 FailurePolicy 按其
+资格规则记录。
 
 _Avoid_: Cause, status
+
+**Configured Verifier**
+
+用户通过 `test-command` 配置的完整运行时验证命令；其实际 normal exit 0/nonzero 分别授权
+Pass/Rejection，非正常 terminal 形成 Indeterminate。
+
+_Avoid_: Test adapter, pytest profile
+
+**Verifier Terminal**
+
+配置 verifier 的可移植权威终态：NormalExit、TimedOut、Signaled、StartFailed 或
+Unavailable；pytest facts 与输出正文不是 terminal authority。
+
+_Avoid_: Test failure evidence, diagnostic summary
 
 **Baseline Rejection**
 
@@ -124,9 +140,11 @@ _Avoid_: report log, ProcessResult output
 
 _Avoid_: capture limit, cross-process budget
 
-**Portable Process Facts**
+**Process Observation**
 
-进入 FailureRecord 的进程终态，例如 exit code、signal、timeout、耗时和完整性标志；不含输出文本。
+`ProcessResult | ProcessTerminalUnavailable` 的显式 union。Operation FailureAuthority 可保存
+portable `ProcessResult`；unavailable 转为 structured authority；configured verifier
+FailureAuthority 只保存投影后的 Verifier Terminal。
 
 _Avoid_: head/tail, summary
 

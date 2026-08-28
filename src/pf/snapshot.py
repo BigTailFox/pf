@@ -11,7 +11,7 @@ import tempfile
 from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
-from pf.schemas.evaluation import ProcessSpec
+from pf.schemas.evaluation import ProcessSpec, ProcessTerminalUnavailable
 from pf.schemas.project import (
     SnapshotEntry,
     SourceSnapshotIdentity,
@@ -252,6 +252,11 @@ class SnapshotBuilder:
                 timeout_seconds=30,
             )
         )
+        if isinstance(result, ProcessTerminalUnavailable):
+            raise InfrastructureError(
+                "git could not enumerate the source snapshot",
+                detail="process terminal observation was unavailable",
+            )
         if (
             result.timed_out
             or result.start_error is not None

@@ -28,6 +28,6 @@
 | Static baseline、fingerprint、diagnostic classifier 与 witness protocol | [D004](D004-pf-ty-enhancement.md) |
 | Runtime negative evidence 的 disposition 资格 | [D005](D005-pf-failure-and-diagnose.md) |
 | Attempt 序列与运行投影 | [D008](D008-pf-verification-run.md) |
-| Schema 2 中的 static/terminal evidence refs | [D014](D014-pf-report-schema.md) |
+| Schema 1 中的 static/terminal evidence refs | [D014](D014-pf-report-schema.md) |
 
 实施顺序、验收矩阵和命令结果只保留在 P010。

@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "AttemptFailureScopeV2": {
+    "AttemptFailureScopeV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -17,10 +17,10 @@
         "attempt_ref",
         "kind"
       ],
-      "title": "AttemptFailureScopeV2",
+      "title": "AttemptFailureScopeV1",
       "type": "object"
     },
-    "AttemptV2": {
+    "AttemptV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_id": {
@@ -100,7 +100,7 @@
         "resolution_context_digest",
         "source_plan_identity"
       ],
-      "title": "AttemptV2",
+      "title": "AttemptV1",
       "type": "object"
     },
     "AvailableArtifact": {
@@ -156,7 +156,7 @@
       "title": "AvailableArtifact",
       "type": "object"
     },
-    "BaselineIndeterminateV2": {
+    "BaselineIndeterminateV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -202,10 +202,10 @@
         "failure_refs",
         "status"
       ],
-      "title": "BaselineIndeterminateV2",
+      "title": "BaselineIndeterminateV1",
       "type": "object"
     },
-    "BaselineRefsV2": {
+    "BaselineRefsV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -226,10 +226,10 @@
         "proposal_ref",
         "static_baseline_digest"
       ],
-      "title": "BaselineRefsV2",
+      "title": "BaselineRefsV1",
       "type": "object"
     },
-    "BaselineRejectionV2": {
+    "BaselineRejectionV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -275,7 +275,7 @@
         "failure_refs",
         "status"
       ],
-      "title": "BaselineRejectionV2",
+      "title": "BaselineRejectionV1",
       "type": "object"
     },
     "Candidate": {
@@ -306,7 +306,7 @@
       "title": "Candidate",
       "type": "object"
     },
-    "CandidateSnapshotV2": {
+    "CandidateSnapshotV1": {
       "additionalProperties": false,
       "properties": {
         "candidate_snapshot_id": {
@@ -362,10 +362,10 @@
         "series_representatives",
         "source"
       ],
-      "title": "CandidateSnapshotV2",
+      "title": "CandidateSnapshotV1",
       "type": "object"
     },
-    "CellFailureScopeV2": {
+    "CellFailureScopeV1": {
       "additionalProperties": false,
       "properties": {
         "cell_ref": {
@@ -382,16 +382,16 @@
         "cell_ref",
         "kind"
       ],
-      "title": "CellFailureScopeV2",
+      "title": "CellFailureScopeV1",
       "type": "object"
     },
-    "CellIndeterminateV2": {
+    "CellIndeterminateV1": {
       "additionalProperties": false,
       "properties": {
         "baseline": {
           "anyOf": [
             {
-              "$ref": "#/$defs/BaselineRefsV2"
+              "$ref": "#/$defs/BaselineRefsV1"
             }
           ]
         },
@@ -413,7 +413,7 @@
         "coordinate_failure": {
           "anyOf": [
             {
-              "$ref": "#/$defs/CoordinateFailureV2"
+              "$ref": "#/$defs/CoordinateFailureV1"
             }
           ]
         },
@@ -445,14 +445,14 @@
         "phase",
         "status"
       ],
-      "title": "CellIndeterminateV2",
+      "title": "CellIndeterminateV1",
       "type": "object"
     },
-    "CellSearchFailureV2": {
+    "CellSearchFailureV1": {
       "additionalProperties": false,
       "properties": {
         "baseline": {
-          "$ref": "#/$defs/BaselineRefsV2"
+          "$ref": "#/$defs/BaselineRefsV1"
         },
         "candidate_snapshot_refs": {
           "items": {
@@ -468,7 +468,7 @@
         "coordinate_failure": {
           "anyOf": [
             {
-              "$ref": "#/$defs/CoordinateFailureV2"
+              "$ref": "#/$defs/CoordinateFailureV1"
             }
           ]
         },
@@ -507,14 +507,14 @@
         "reason",
         "status"
       ],
-      "title": "CellSearchFailureV2",
+      "title": "CellSearchFailureV1",
       "type": "object"
     },
-    "CellSuccessV2": {
+    "CellSuccessV1": {
       "additionalProperties": false,
       "properties": {
         "baseline": {
-          "$ref": "#/$defs/BaselineRefsV2"
+          "$ref": "#/$defs/BaselineRefsV1"
         },
         "candidate_snapshot_refs": {
           "items": {
@@ -539,7 +539,7 @@
           "type": "string"
         },
         "search": {
-          "$ref": "#/$defs/CoordinateSuccessV2"
+          "$ref": "#/$defs/CoordinateSuccessV1"
         },
         "status": {
           "const": "SUCCESS",
@@ -556,7 +556,7 @@
         "search",
         "status"
       ],
-      "title": "CellSuccessV2",
+      "title": "CellSuccessV1",
       "type": "object"
     },
     "CompleteReportResult": {
@@ -574,7 +574,53 @@
       "title": "CompleteReportResult",
       "type": "object"
     },
-    "CoordinateBoundaryV2": {
+    "ConfiguredVerifierFailureAuthority": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "configured-verifier",
+          "title": "Kind",
+          "type": "string"
+        },
+        "terminal": {
+          "discriminator": {
+            "mapping": {
+              "normal-exit": "#/$defs/NormalExit",
+              "signaled": "#/$defs/Signaled",
+              "start-failed": "#/$defs/StartFailed",
+              "timed-out": "#/$defs/TimedOut",
+              "unavailable": "#/$defs/Unavailable"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalExit"
+            },
+            {
+              "$ref": "#/$defs/StartFailed"
+            },
+            {
+              "$ref": "#/$defs/TimedOut"
+            },
+            {
+              "$ref": "#/$defs/Signaled"
+            },
+            {
+              "$ref": "#/$defs/Unavailable"
+            }
+          ],
+          "title": "Terminal"
+        }
+      },
+      "required": [
+        "kind",
+        "terminal"
+      ],
+      "title": "ConfiguredVerifierFailureAuthority",
+      "type": "object"
+    },
+    "CoordinateBoundaryV1": {
       "additionalProperties": false,
       "properties": {
         "dependency": {
@@ -606,10 +652,10 @@
         "dependency",
         "floor"
       ],
-      "title": "CoordinateBoundaryV2",
+      "title": "CoordinateBoundaryV1",
       "type": "object"
     },
-    "CoordinateFailureV2": {
+    "CoordinateFailureV1": {
       "additionalProperties": false,
       "properties": {
         "counterexample": {
@@ -648,14 +694,14 @@
         },
         "observations": {
           "items": {
-            "$ref": "#/$defs/ProbeObservationV2"
+            "$ref": "#/$defs/ProbeObservationV1"
           },
           "title": "Observations",
           "type": "array"
         },
         "regions": {
           "items": {
-            "$ref": "#/$defs/StaticRegionV2"
+            "$ref": "#/$defs/StaticRegionV1"
           },
           "title": "Regions",
           "type": "array"
@@ -676,29 +722,29 @@
         "regions",
         "status"
       ],
-      "title": "CoordinateFailureV2",
+      "title": "CoordinateFailureV1",
       "type": "object"
     },
-    "CoordinateSuccessV2": {
+    "CoordinateSuccessV1": {
       "additionalProperties": false,
       "properties": {
         "boundaries": {
           "items": {
-            "$ref": "#/$defs/CoordinateBoundaryV2"
+            "$ref": "#/$defs/CoordinateBoundaryV1"
           },
           "title": "Boundaries",
           "type": "array"
         },
         "observations": {
           "items": {
-            "$ref": "#/$defs/ProbeObservationV2"
+            "$ref": "#/$defs/ProbeObservationV1"
           },
           "title": "Observations",
           "type": "array"
         },
         "regions": {
           "items": {
-            "$ref": "#/$defs/StaticRegionV2"
+            "$ref": "#/$defs/StaticRegionV1"
           },
           "title": "Regions",
           "type": "array"
@@ -720,7 +766,7 @@
         "status",
         "sweeps"
       ],
-      "title": "CoordinateSuccessV2",
+      "title": "CoordinateSuccessV1",
       "type": "object"
     },
     "DiagnosticClassification": {
@@ -763,7 +809,7 @@
       "title": "DiagnosticClassification",
       "type": "object"
     },
-    "DirectIndeterminateV2": {
+    "DirectIndeterminateV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -791,10 +837,10 @@
         "kind",
         "status"
       ],
-      "title": "DirectIndeterminateV2",
+      "title": "DirectIndeterminateV1",
       "type": "object"
     },
-    "DirectPassV2": {
+    "DirectPassV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -817,10 +863,10 @@
         "kind",
         "status"
       ],
-      "title": "DirectPassV2",
+      "title": "DirectPassV1",
       "type": "object"
     },
-    "DirectRejectionV2": {
+    "DirectRejectionV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -848,7 +894,7 @@
         "kind",
         "status"
       ],
-      "title": "DirectRejectionV2",
+      "title": "DirectRejectionV1",
       "type": "object"
     },
     "FailureDetail": {
@@ -870,16 +916,38 @@
       "title": "FailureDetail",
       "type": "object"
     },
-    "FailureRecordV2": {
+    "FailureRecordV1": {
       "additionalProperties": false,
       "properties": {
+        "authority": {
+          "discriminator": {
+            "mapping": {
+              "configured-verifier": "#/$defs/ConfiguredVerifierFailureAuthority",
+              "process": "#/$defs/ProcessFailureAuthority",
+              "structured": "#/$defs/StructuredFailureAuthority"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ProcessFailureAuthority"
+            },
+            {
+              "$ref": "#/$defs/ConfiguredVerifierFailureAuthority"
+            },
+            {
+              "$ref": "#/$defs/StructuredFailureAuthority"
+            }
+          ],
+          "title": "Authority"
+        },
         "cause": {
           "enum": [
             "RESOLUTION_CONFLICT",
             "BUILD_FAILURE",
             "HARNESS_CONFLICT",
             "RUNTIME_INTERFACE_MISSING",
-            "TEST_FAILURE",
+            "VERIFIER_EXITED_NONZERO",
             "SOURCE_FAILURE",
             "ENVIRONMENT_FAILURE",
             "TOOL_FAILURE",
@@ -889,13 +957,6 @@
           ],
           "title": "Cause",
           "type": "string"
-        },
-        "detail": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/FailureDetail"
-            }
-          ]
         },
         "disposition": {
           "enum": [
@@ -917,13 +978,6 @@
           "title": "Failure Id",
           "type": "string"
         },
-        "process": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ProcessResult"
-            }
-          ]
-        },
         "project_plan_digest": {
           "anyOf": [
             {
@@ -935,17 +989,17 @@
         "scope": {
           "discriminator": {
             "mapping": {
-              "attempt": "#/$defs/AttemptFailureScopeV2",
-              "cell": "#/$defs/CellFailureScopeV2"
+              "attempt": "#/$defs/AttemptFailureScopeV1",
+              "cell": "#/$defs/CellFailureScopeV1"
             },
             "propertyName": "kind"
           },
           "oneOf": [
             {
-              "$ref": "#/$defs/CellFailureScopeV2"
+              "$ref": "#/$defs/CellFailureScopeV1"
             },
             {
-              "$ref": "#/$defs/AttemptFailureScopeV2"
+              "$ref": "#/$defs/AttemptFailureScopeV1"
             }
           ],
           "title": "Scope"
@@ -953,27 +1007,20 @@
         "stage": {
           "title": "Stage",
           "type": "string"
-        },
-        "summary_code": {
-          "anyOf": [
-            {
-              "type": "string"
-            }
-          ],
-          "title": "Summary Code"
         }
       },
       "required": [
+        "authority",
         "cause",
         "disposition",
         "failure_id",
         "scope",
         "stage"
       ],
-      "title": "FailureRecordV2",
+      "title": "FailureRecordV1",
       "type": "object"
     },
-    "FloorProjectionV2": {
+    "FloorProjectionV1": {
       "additionalProperties": false,
       "properties": {
         "cell_ref": {
@@ -989,7 +1036,7 @@
         "cell_ref",
         "version"
       ],
-      "title": "FloorProjectionV2",
+      "title": "FloorProjectionV1",
       "type": "object"
     },
     "GeneratorIdentity": {
@@ -1039,7 +1086,7 @@
       "title": "IncompleteReportResult",
       "type": "object"
     },
-    "IndeterminateEvaluationV2": {
+    "IndeterminateEvaluationV1": {
       "additionalProperties": false,
       "properties": {
         "failure_ref": {
@@ -1065,7 +1112,7 @@
         },
         "witnesses": {
           "items": {
-            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+            "$ref": "#/$defs/RuntimeWitnessAttemptV1"
           },
           "title": "Witnesses",
           "type": "array"
@@ -1077,7 +1124,7 @@
         "status",
         "witnesses"
       ],
-      "title": "IndeterminateEvaluationV2",
+      "title": "IndeterminateEvaluationV1",
       "type": "object"
     },
     "InterpreterIdentity": {
@@ -1105,6 +1152,26 @@
       "title": "InterpreterIdentity",
       "type": "object"
     },
+    "NormalExit": {
+      "additionalProperties": false,
+      "properties": {
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "normal-exit",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exit_code",
+        "kind"
+      ],
+      "title": "NormalExit",
+      "type": "object"
+    },
     "PackageIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -1124,7 +1191,7 @@
       "title": "PackageIdentity",
       "type": "object"
     },
-    "PassEvaluationV2": {
+    "PassEvaluationV1": {
       "additionalProperties": false,
       "properties": {
         "proposal_ref": {
@@ -1140,12 +1207,12 @@
           "title": "Status",
           "type": "string"
         },
-        "test": {
-          "$ref": "#/$defs/TestPass"
+        "terminal": {
+          "$ref": "#/$defs/NormalExit"
         },
         "witnesses": {
           "items": {
-            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+            "$ref": "#/$defs/RuntimeWitnessAttemptV1"
           },
           "title": "Witnesses",
           "type": "array"
@@ -1155,13 +1222,13 @@
         "proposal_ref",
         "static_evaluation_ref",
         "status",
-        "test",
+        "terminal",
         "witnesses"
       ],
-      "title": "PassEvaluationV2",
+      "title": "PassEvaluationV1",
       "type": "object"
     },
-    "ProbeObservationV2": {
+    "ProbeObservationV1": {
       "additionalProperties": false,
       "properties": {
         "candidate_version": {
@@ -1186,25 +1253,25 @@
               "DIRECT": {
                 "discriminator": {
                   "mapping": {
-                    "INDETERMINATE": "#/$defs/DirectIndeterminateV2",
-                    "PASS": "#/$defs/DirectPassV2",
-                    "REJECTED": "#/$defs/DirectRejectionV2"
+                    "INDETERMINATE": "#/$defs/DirectIndeterminateV1",
+                    "PASS": "#/$defs/DirectPassV1",
+                    "REJECTED": "#/$defs/DirectRejectionV1"
                   },
                   "propertyName": "status"
                 },
                 "oneOf": [
                   {
-                    "$ref": "#/$defs/DirectPassV2"
+                    "$ref": "#/$defs/DirectPassV1"
                   },
                   {
-                    "$ref": "#/$defs/DirectRejectionV2"
+                    "$ref": "#/$defs/DirectRejectionV1"
                   },
                   {
-                    "$ref": "#/$defs/DirectIndeterminateV2"
+                    "$ref": "#/$defs/DirectIndeterminateV1"
                   }
                 ]
               },
-              "STATIC_ONLY": "#/$defs/StaticOnlyEvidenceV2"
+              "STATIC_ONLY": "#/$defs/StaticOnlyEvidenceV1"
             },
             "propertyName": "kind"
           },
@@ -1212,26 +1279,26 @@
             {
               "discriminator": {
                 "mapping": {
-                  "INDETERMINATE": "#/$defs/DirectIndeterminateV2",
-                  "PASS": "#/$defs/DirectPassV2",
-                  "REJECTED": "#/$defs/DirectRejectionV2"
+                  "INDETERMINATE": "#/$defs/DirectIndeterminateV1",
+                  "PASS": "#/$defs/DirectPassV1",
+                  "REJECTED": "#/$defs/DirectRejectionV1"
                 },
                 "propertyName": "status"
               },
               "oneOf": [
                 {
-                  "$ref": "#/$defs/DirectPassV2"
+                  "$ref": "#/$defs/DirectPassV1"
                 },
                 {
-                  "$ref": "#/$defs/DirectRejectionV2"
+                  "$ref": "#/$defs/DirectRejectionV1"
                 },
                 {
-                  "$ref": "#/$defs/DirectIndeterminateV2"
+                  "$ref": "#/$defs/DirectIndeterminateV1"
                 }
               ]
             },
             {
-              "$ref": "#/$defs/StaticOnlyEvidenceV2"
+              "$ref": "#/$defs/StaticOnlyEvidenceV1"
             }
           ],
           "title": "Evidence"
@@ -1240,7 +1307,41 @@
       "required": [
         "evidence"
       ],
-      "title": "ProbeObservationV2",
+      "title": "ProbeObservationV1",
+      "type": "object"
+    },
+    "ProcessFailureAuthority": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FailureDetail"
+            }
+          ]
+        },
+        "kind": {
+          "const": "process",
+          "title": "Kind",
+          "type": "string"
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessResult"
+        },
+        "summary_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Summary Code"
+        }
+      },
+      "required": [
+        "kind",
+        "process"
+      ],
+      "title": "ProcessFailureAuthority",
       "type": "object"
     },
     "ProcessResult": {
@@ -1296,7 +1397,7 @@
       "title": "ProcessResult",
       "type": "object"
     },
-    "ProjectionEvidenceV2": {
+    "ProjectionEvidenceV1": {
       "additionalProperties": false,
       "properties": {
         "declaration_ref": {
@@ -1305,7 +1406,7 @@
         },
         "floors": {
           "items": {
-            "$ref": "#/$defs/FloorProjectionV2"
+            "$ref": "#/$defs/FloorProjectionV1"
           },
           "title": "Floors",
           "type": "array"
@@ -1328,10 +1429,10 @@
         "projected_requirements",
         "representable"
       ],
-      "title": "ProjectionEvidenceV2",
+      "title": "ProjectionEvidenceV1",
       "type": "object"
     },
-    "ProposalV2": {
+    "ProposalV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -1382,15 +1483,15 @@
         "proposal_id",
         "resolution_graph_ref"
       ],
-      "title": "ProposalV2",
+      "title": "ProposalV1",
       "type": "object"
     },
-    "ReportEvidenceV2": {
+    "ReportEvidenceV1": {
       "additionalProperties": false,
       "properties": {
         "attempts": {
           "items": {
-            "$ref": "#/$defs/AttemptV2"
+            "$ref": "#/$defs/AttemptV1"
           },
           "title": "Attempts",
           "type": "array"
@@ -1399,25 +1500,25 @@
           "items": {
             "discriminator": {
               "mapping": {
-                "INDETERMINATE": "#/$defs/IndeterminateEvaluationV2",
-                "PASS": "#/$defs/PassEvaluationV2",
-                "RUNTIME_INTERFACE_MISSING": "#/$defs/RuntimeInterfaceMissingEvaluationV2",
-                "TEST_FAIL": "#/$defs/TestFailEvaluationV2"
+                "INDETERMINATE": "#/$defs/IndeterminateEvaluationV1",
+                "PASS": "#/$defs/PassEvaluationV1",
+                "RUNTIME_INTERFACE_MISSING": "#/$defs/RuntimeInterfaceMissingEvaluationV1",
+                "VERIFIER_REJECTED": "#/$defs/VerifierRejectedEvaluationV1"
               },
               "propertyName": "status"
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/PassEvaluationV2"
+                "$ref": "#/$defs/PassEvaluationV1"
               },
               {
-                "$ref": "#/$defs/TestFailEvaluationV2"
+                "$ref": "#/$defs/VerifierRejectedEvaluationV1"
               },
               {
-                "$ref": "#/$defs/RuntimeInterfaceMissingEvaluationV2"
+                "$ref": "#/$defs/RuntimeInterfaceMissingEvaluationV1"
               },
               {
-                "$ref": "#/$defs/IndeterminateEvaluationV2"
+                "$ref": "#/$defs/IndeterminateEvaluationV1"
               }
             ]
           },
@@ -1426,21 +1527,21 @@
         },
         "failures": {
           "items": {
-            "$ref": "#/$defs/FailureRecordV2"
+            "$ref": "#/$defs/FailureRecordV1"
           },
           "title": "Failures",
           "type": "array"
         },
         "proposals": {
           "items": {
-            "$ref": "#/$defs/ProposalV2"
+            "$ref": "#/$defs/ProposalV1"
           },
           "title": "Proposals",
           "type": "array"
         },
         "resolution_graphs": {
           "items": {
-            "$ref": "#/$defs/ResolutionGraphV2"
+            "$ref": "#/$defs/ResolutionGraphV1"
           },
           "title": "Resolution Graphs",
           "type": "array"
@@ -1449,17 +1550,17 @@
           "items": {
             "discriminator": {
               "mapping": {
-                "STATIC_REGRESSION": "#/$defs/StaticRegressionEvaluationV2",
-                "STATIC_UNCHANGED": "#/$defs/StaticUnchangedEvaluationV2"
+                "STATIC_REGRESSION": "#/$defs/StaticRegressionEvaluationV1",
+                "STATIC_UNCHANGED": "#/$defs/StaticUnchangedEvaluationV1"
               },
               "propertyName": "status"
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/StaticUnchangedEvaluationV2"
+                "$ref": "#/$defs/StaticUnchangedEvaluationV1"
               },
               {
-                "$ref": "#/$defs/StaticRegressionEvaluationV2"
+                "$ref": "#/$defs/StaticRegressionEvaluationV1"
               }
             ]
           },
@@ -1475,10 +1576,10 @@
         "resolution_graphs",
         "static_evaluations"
       ],
-      "title": "ReportEvidenceV2",
+      "title": "ReportEvidenceV1",
       "type": "object"
     },
-    "ReportIdentityV2": {
+    "ReportIdentityV1": {
       "additionalProperties": false,
       "properties": {
         "generator": {
@@ -1497,6 +1598,11 @@
         },
         "source_snapshot": {
           "$ref": "#/$defs/SourceSnapshotIdentity"
+        },
+        "verifier_outcome_policy": {
+          "const": "configured-verifier-terminal-v1",
+          "title": "Verifier Outcome Policy",
+          "type": "string"
         }
       },
       "required": [
@@ -1504,17 +1610,18 @@
         "package",
         "policy_identity",
         "report_generation_id",
-        "source_snapshot"
+        "source_snapshot",
+        "verifier_outcome_policy"
       ],
-      "title": "ReportIdentityV2",
+      "title": "ReportIdentityV1",
       "type": "object"
     },
-    "ReportInputsV2": {
+    "ReportInputsV1": {
       "additionalProperties": false,
       "properties": {
         "candidate_snapshots": {
           "items": {
-            "$ref": "#/$defs/CandidateSnapshotV2"
+            "$ref": "#/$defs/CandidateSnapshotV1"
           },
           "title": "Candidate Snapshots",
           "type": "array"
@@ -1528,7 +1635,7 @@
         },
         "target_cells": {
           "items": {
-            "$ref": "#/$defs/TargetCellV2"
+            "$ref": "#/$defs/TargetCellV1"
           },
           "title": "Target Cells",
           "type": "array"
@@ -1539,7 +1646,7 @@
         "requirement_declarations",
         "target_cells"
       ],
-      "title": "ReportInputsV2",
+      "title": "ReportInputsV1",
       "type": "object"
     },
     "RequirementDeclaration": {
@@ -1632,7 +1739,7 @@
       "title": "RequirementDeclaration",
       "type": "object"
     },
-    "ResolutionGraphV2": {
+    "ResolutionGraphV1": {
       "additionalProperties": false,
       "properties": {
         "nodes": {
@@ -1651,7 +1758,7 @@
         "nodes",
         "resolution_graph_id"
       ],
-      "title": "ResolutionGraphV2",
+      "title": "ResolutionGraphV1",
       "type": "object"
     },
     "ResolvedNode": {
@@ -1681,7 +1788,7 @@
       "title": "ResolvedNode",
       "type": "object"
     },
-    "RuntimeInterfaceMissingEvaluationV2": {
+    "RuntimeInterfaceMissingEvaluationV1": {
       "additionalProperties": false,
       "properties": {
         "failure_ref": {
@@ -1703,7 +1810,7 @@
         },
         "witnesses": {
           "items": {
-            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
+            "$ref": "#/$defs/RuntimeWitnessAttemptV1"
           },
           "title": "Witnesses",
           "type": "array"
@@ -1716,28 +1823,28 @@
         "status",
         "witnesses"
       ],
-      "title": "RuntimeInterfaceMissingEvaluationV2",
+      "title": "RuntimeInterfaceMissingEvaluationV1",
       "type": "object"
     },
-    "RuntimeWitnessAttemptV2": {
+    "RuntimeWitnessAttemptV1": {
       "additionalProperties": false,
       "properties": {
         "outcome": {
           "discriminator": {
             "mapping": {
-              "CONFIRMED_MISSING": "#/$defs/RuntimeWitnessTerminalV2",
-              "FAILURE": "#/$defs/RuntimeWitnessTerminalV2",
-              "NOT_APPLICABLE": "#/$defs/RuntimeWitnessPositiveV2",
-              "PRESENT": "#/$defs/RuntimeWitnessPositiveV2"
+              "CONFIRMED_MISSING": "#/$defs/RuntimeWitnessTerminalV1",
+              "FAILURE": "#/$defs/RuntimeWitnessTerminalV1",
+              "NOT_APPLICABLE": "#/$defs/RuntimeWitnessPositiveV1",
+              "PRESENT": "#/$defs/RuntimeWitnessPositiveV1"
             },
             "propertyName": "status"
           },
           "oneOf": [
             {
-              "$ref": "#/$defs/RuntimeWitnessPositiveV2"
+              "$ref": "#/$defs/RuntimeWitnessPositiveV1"
             },
             {
-              "$ref": "#/$defs/RuntimeWitnessTerminalV2"
+              "$ref": "#/$defs/RuntimeWitnessTerminalV1"
             }
           ],
           "title": "Outcome"
@@ -1750,7 +1857,7 @@
         "outcome",
         "plan"
       ],
-      "title": "RuntimeWitnessAttemptV2",
+      "title": "RuntimeWitnessAttemptV1",
       "type": "object"
     },
     "RuntimeWitnessPlan": {
@@ -1811,7 +1918,7 @@
       "title": "RuntimeWitnessPlan",
       "type": "object"
     },
-    "RuntimeWitnessPositiveV2": {
+    "RuntimeWitnessPositiveV1": {
       "additionalProperties": false,
       "properties": {
         "process": {
@@ -1830,10 +1937,10 @@
         "process",
         "status"
       ],
-      "title": "RuntimeWitnessPositiveV2",
+      "title": "RuntimeWitnessPositiveV1",
       "type": "object"
     },
-    "RuntimeWitnessTerminalV2": {
+    "RuntimeWitnessTerminalV1": {
       "additionalProperties": false,
       "properties": {
         "failure_ref": {
@@ -1853,7 +1960,28 @@
         "failure_ref",
         "status"
       ],
-      "title": "RuntimeWitnessTerminalV2",
+      "title": "RuntimeWitnessTerminalV1",
+      "type": "object"
+    },
+    "Signaled": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "signaled",
+          "title": "Kind",
+          "type": "string"
+        },
+        "signal": {
+          "exclusiveMinimum": 0,
+          "title": "Signal",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "signal"
+      ],
+      "title": "Signaled",
       "type": "object"
     },
     "SnapshotEntry": {
@@ -1976,7 +2104,22 @@
       "title": "SourceSnapshotIdentity",
       "type": "object"
     },
-    "StaticOnlyEvidenceV2": {
+    "StartFailed": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "start-failed",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "StartFailed",
+      "type": "object"
+    },
+    "StaticOnlyEvidenceV1": {
       "additionalProperties": false,
       "properties": {
         "attempt_ref": {
@@ -2012,10 +2155,10 @@
         "region_ref",
         "representative_proposal_ref"
       ],
-      "title": "StaticOnlyEvidenceV2",
+      "title": "StaticOnlyEvidenceV1",
       "type": "object"
     },
-    "StaticRegionRuntimeReferenceV2": {
+    "StaticRegionRuntimeReferenceV1": {
       "additionalProperties": false,
       "properties": {
         "proposal_ref": {
@@ -2026,10 +2169,10 @@
       "required": [
         "proposal_ref"
       ],
-      "title": "StaticRegionRuntimeReferenceV2",
+      "title": "StaticRegionRuntimeReferenceV1",
       "type": "object"
     },
-    "StaticRegionV2": {
+    "StaticRegionV1": {
       "additionalProperties": false,
       "properties": {
         "baseline_digest": {
@@ -2060,7 +2203,7 @@
         },
         "runtime_references": {
           "items": {
-            "$ref": "#/$defs/StaticRegionRuntimeReferenceV2"
+            "$ref": "#/$defs/StaticRegionRuntimeReferenceV1"
           },
           "title": "Runtime References",
           "type": "array"
@@ -2079,10 +2222,10 @@
         "runtime_references",
         "static_fingerprint"
       ],
-      "title": "StaticRegionV2",
+      "title": "StaticRegionV1",
       "type": "object"
     },
-    "StaticRegressionEvaluationV2": {
+    "StaticRegressionEvaluationV1": {
       "additionalProperties": false,
       "properties": {
         "baseline_digest": {
@@ -2129,10 +2272,10 @@
         "status",
         "ty"
       ],
-      "title": "StaticRegressionEvaluationV2",
+      "title": "StaticRegressionEvaluationV1",
       "type": "object"
     },
-    "StaticUnchangedEvaluationV2": {
+    "StaticUnchangedEvaluationV1": {
       "additionalProperties": false,
       "properties": {
         "baseline_digest": {
@@ -2170,10 +2313,37 @@
         "status",
         "ty"
       ],
-      "title": "StaticUnchangedEvaluationV2",
+      "title": "StaticUnchangedEvaluationV1",
       "type": "object"
     },
-    "TargetCellV2": {
+    "StructuredFailureAuthority": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "$ref": "#/$defs/FailureDetail"
+        },
+        "kind": {
+          "const": "structured",
+          "title": "Kind",
+          "type": "string"
+        },
+        "summary_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Summary Code"
+        }
+      },
+      "required": [
+        "detail",
+        "kind"
+      ],
+      "title": "StructuredFailureAuthority",
+      "type": "object"
+    },
+    "TargetCellV1": {
       "additionalProperties": false,
       "properties": {
         "active_declaration_refs": {
@@ -2215,64 +2385,22 @@
         "python_minor",
         "target"
       ],
-      "title": "TargetCellV2",
+      "title": "TargetCellV1",
       "type": "object"
     },
-    "TestFailEvaluationV2": {
+    "TimedOut": {
       "additionalProperties": false,
       "properties": {
-        "failure_ref": {
-          "title": "Failure Ref",
-          "type": "string"
-        },
-        "proposal_ref": {
-          "title": "Proposal Ref",
-          "type": "string"
-        },
-        "static_evaluation_ref": {
-          "title": "Static Evaluation Ref",
-          "type": "string"
-        },
-        "status": {
-          "const": "TEST_FAIL",
-          "title": "Status",
-          "type": "string"
-        },
-        "witnesses": {
-          "items": {
-            "$ref": "#/$defs/RuntimeWitnessAttemptV2"
-          },
-          "title": "Witnesses",
-          "type": "array"
-        }
-      },
-      "required": [
-        "failure_ref",
-        "proposal_ref",
-        "static_evaluation_ref",
-        "status",
-        "witnesses"
-      ],
-      "title": "TestFailEvaluationV2",
-      "type": "object"
-    },
-    "TestPass": {
-      "additionalProperties": false,
-      "properties": {
-        "process": {
-          "$ref": "#/$defs/ProcessResult"
-        },
-        "status": {
-          "const": "TEST_PASS",
-          "title": "Status",
+        "kind": {
+          "const": "timed-out",
+          "title": "Kind",
           "type": "string"
         }
       },
       "required": [
-        "process",
-        "status"
+        "kind"
       ],
-      "title": "TestPass",
+      "title": "TimedOut",
       "type": "object"
     },
     "TyCheck": {
@@ -2363,6 +2491,59 @@
       "title": "TyDiagnostic",
       "type": "object"
     },
+    "Unavailable": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "unavailable",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Unavailable",
+      "type": "object"
+    },
+    "VerifierRejectedEvaluationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_ref": {
+          "title": "Failure Ref",
+          "type": "string"
+        },
+        "proposal_ref": {
+          "title": "Proposal Ref",
+          "type": "string"
+        },
+        "static_evaluation_ref": {
+          "title": "Static Evaluation Ref",
+          "type": "string"
+        },
+        "status": {
+          "const": "VERIFIER_REJECTED",
+          "title": "Status",
+          "type": "string"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/RuntimeWitnessAttemptV1"
+          },
+          "title": "Witnesses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "failure_ref",
+        "proposal_ref",
+        "static_evaluation_ref",
+        "status",
+        "witnesses"
+      ],
+      "title": "VerifierRejectedEvaluationV1",
+      "type": "object"
+    },
     "VersionPin": {
       "additionalProperties": false,
       "properties": {
@@ -2389,29 +2570,29 @@
       "items": {
         "discriminator": {
           "mapping": {
-            "BASELINE_INDETERMINATE": "#/$defs/BaselineIndeterminateV2",
-            "BASELINE_REJECTION": "#/$defs/BaselineRejectionV2",
-            "CELL_INDETERMINATE": "#/$defs/CellIndeterminateV2",
-            "SEARCH_FAILED": "#/$defs/CellSearchFailureV2",
-            "SUCCESS": "#/$defs/CellSuccessV2"
+            "BASELINE_INDETERMINATE": "#/$defs/BaselineIndeterminateV1",
+            "BASELINE_REJECTION": "#/$defs/BaselineRejectionV1",
+            "CELL_INDETERMINATE": "#/$defs/CellIndeterminateV1",
+            "SEARCH_FAILED": "#/$defs/CellSearchFailureV1",
+            "SUCCESS": "#/$defs/CellSuccessV1"
           },
           "propertyName": "status"
         },
         "oneOf": [
           {
-            "$ref": "#/$defs/CellSuccessV2"
+            "$ref": "#/$defs/CellSuccessV1"
           },
           {
-            "$ref": "#/$defs/CellIndeterminateV2"
+            "$ref": "#/$defs/CellIndeterminateV1"
           },
           {
-            "$ref": "#/$defs/BaselineRejectionV2"
+            "$ref": "#/$defs/BaselineRejectionV1"
           },
           {
-            "$ref": "#/$defs/BaselineIndeterminateV2"
+            "$ref": "#/$defs/BaselineIndeterminateV1"
           },
           {
-            "$ref": "#/$defs/CellSearchFailureV2"
+            "$ref": "#/$defs/CellSearchFailureV1"
           }
         ]
       },
@@ -2419,17 +2600,17 @@
       "type": "array"
     },
     "evidence": {
-      "$ref": "#/$defs/ReportEvidenceV2"
+      "$ref": "#/$defs/ReportEvidenceV1"
     },
     "identity": {
-      "$ref": "#/$defs/ReportIdentityV2"
+      "$ref": "#/$defs/ReportIdentityV1"
     },
     "inputs": {
-      "$ref": "#/$defs/ReportInputsV2"
+      "$ref": "#/$defs/ReportInputsV1"
     },
     "projections": {
       "items": {
-        "$ref": "#/$defs/ProjectionEvidenceV2"
+        "$ref": "#/$defs/ProjectionEvidenceV1"
       },
       "title": "Projections",
       "type": "array"
@@ -2453,7 +2634,7 @@
       "title": "Result"
     },
     "schema_version": {
-      "const": 2,
+      "const": 1,
       "title": "Schema Version",
       "type": "integer"
     }
@@ -2467,6 +2648,6 @@
     "result",
     "schema_version"
   ],
-  "title": "PackageFloorReportV2Wire",
+  "title": "PackageFloorReportV1Wire",
   "type": "object"
 }

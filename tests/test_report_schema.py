@@ -15,6 +15,7 @@ from pf.resolution import environment_identity_digest, resolution_graph_id
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
+from pf.schemas.base import canonical_identity_json
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     Attempt,
@@ -24,7 +25,9 @@ from pf.schemas.evaluation import (
     BaselineRejection,
     CellFailureScope,
     FailureDetail,
+    FailureRecord,
     DiagnosticClassification,
+    NormalExit,
     PassEvaluation,
     IndeterminateEvaluation,
     ProcessResult,
@@ -35,12 +38,15 @@ from pf.schemas.evaluation import (
     StaticBaseline,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
-    TestPass,
-    TestFail,
-    TestFailEvaluation,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
+    VerificationJournal,
+    VerificationJournalEntry,
+    VerificationPackagePolicy,
     ty_diagnostic_digest,
 )
 from pf.static_transition import static_fingerprint
@@ -243,7 +249,7 @@ class TestReportIdentity:
 
 
 class TestPackageReportBuilder:
-    def test_build_round_trips_minimal_incomplete_schema_2(
+    def test_build_round_trips_minimal_incomplete_schema_1(
         self,
         tmp_path: Path,
     ) -> None:
@@ -288,7 +294,23 @@ class TestPackageReportBuilder:
             "projections",
             "result",
         }
-        assert document["schema_version"] == 2
+        assert document["schema_version"] == 1
+        expected_identity = {
+            "generator": report.generator.model_dump(mode="json"),
+            "package": report.package.model_dump(mode="json"),
+            "source_snapshot": report.source_snapshot.model_dump(mode="json"),
+            "policy_identity": report.policy_identity,
+            "verifier_outcome_policy": report.verifier_outcome_policy,
+            "requirement_declarations": [],
+            "target_cells": [cell.model_dump(mode="json")],
+        }
+        assert (
+            report.report_generation_id
+            == hashlib.sha256(
+                b"pf:report-generation:v1\0"
+                + canonical_identity_json(expected_identity)
+            ).hexdigest()
+        )
         assert document["inputs"]["target_cells"] == [
             {
                 "cell_id": cell_id(cell),
@@ -365,9 +387,12 @@ class TestPackageReportBuilder:
                 "disposition": "INDETERMINATE",
                 "cause": "TIMEOUT",
                 "stage": "scheduler-deadline",
-                "detail": {
-                    "code": "deadline",
-                    "message": "cell deadline expired",
+                "authority": {
+                    "kind": "structured",
+                    "detail": {
+                        "code": "deadline",
+                        "message": "cell deadline expired",
+                    },
                 },
             }
         ]
@@ -390,7 +415,7 @@ class TestPackageReportBuilder:
         assert context.proposal_id is None
         assert context.boundary_role is None
 
-    def test_build_rejects_schema_1_attempt(self) -> None:
+    def test_build_rejects_legacy_attempt_identity(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -602,7 +627,7 @@ class TestPackageReportBuilder:
         evaluation = PassEvaluation(
             proposal=proposal,
             static=static,
-            test=TestPass(process=process),
+            verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         )
         result = CellSuccess(
             cell=cell,
@@ -790,7 +815,7 @@ class _CompleteReportCase:
             exit_code=0,
             signal=None,
             duration_seconds=0.1,
-            stdout="",
+            stdout="excluded ty output",
             stderr="",
         )
         baseline_digest = ty_diagnostic_digest(())
@@ -868,7 +893,7 @@ class _CompleteReportCase:
                 PassEvaluation(
                     proposal=proposal,
                     static=static,
-                    test=TestPass(process=process),
+                    verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
                 ),
             )
 
@@ -883,6 +908,23 @@ class _CompleteReportCase:
             suffix="final",
         )
         final_vector = final_proposal.managed_vector
+        search = CoordinateSuccess(
+            vector=final_vector,
+            observations=(
+                ProbeObservation(
+                    dependency=dependency,
+                    candidate_version="1.0",
+                    vector=final_vector,
+                    evidence=ProbePass(
+                        attempt=final_attempt,
+                        proposal_id=final_proposal.proposal_id,
+                        evaluation=final,
+                    ),
+                ),
+            ),
+            boundaries=(CoordinateBoundary(dependency=dependency, floor="1.0"),),
+            sweeps=1,
+        )
         result = CellSuccess(
             cell=cell,
             baseline_attempt=baseline_attempt,
@@ -893,23 +935,7 @@ class _CompleteReportCase:
             ),
             baseline=baseline,
             candidate_snapshots=(candidate_snapshot,),
-            search=CoordinateSuccess(
-                vector=final_vector,
-                observations=(
-                    ProbeObservation(
-                        dependency=dependency,
-                        candidate_version="1.0",
-                        vector=final_vector,
-                        evidence=ProbePass(
-                            attempt=final_attempt,
-                            proposal_id=final_proposal.proposal_id,
-                            evaluation=final,
-                        ),
-                    ),
-                ),
-                boundaries=(CoordinateBoundary(dependency=dependency, floor="1.0"),),
-                sweeps=1,
-            ),
+            search=CoordinateSuccess.model_validate(search.model_dump()),
             final_vector=final_vector,
             final_evaluation=final,
         )
@@ -1018,13 +1044,6 @@ class _CompleteReportCase:
         rejected_document = json.loads(rejected_path.read_text(encoding="utf-8"))
         rejected_loaded = ReportStore().read(rejected_path)
 
-        test_process = ProcessResult(
-            exit_code=1,
-            signal=None,
-            duration_seconds=0.2,
-            stdout="",
-            stderr="failed test",
-        )
         diagnostic = TyDiagnostic(
             identity="snapshot|demo.py|1|1|invalid-argument-type",
             origin="snapshot",
@@ -1052,16 +1071,17 @@ class _CompleteReportCase:
                 ),
             ),
         )
-        test_evaluation = TestFailEvaluation(
+        test_evaluation = VerifierRejectedEvaluation(
             proposal=rejected_proposal,
             static=regression,
-            test=TestFail(process=test_process),
+            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
-        test_failure = FailurePolicy().classify(
+        test_failure = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause="TEST_FAILURE",
+            disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO",
             stage="test",
-            process=test_process,
+            terminal=NormalExit(exit_code=1),
         )
         test_failed_result = CellSuccess(
             cell=cell,
@@ -1319,23 +1339,24 @@ class _CompleteReportCase:
         regional_final = PassEvaluation(
             proposal=final_proposal,
             static=regional_static(final_proposal),
-            test=TestPass(process=process),
+            verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         )
-        regional_rejection = TestFailEvaluation(
+        regional_rejection = VerifierRejectedEvaluation(
             proposal=rejected_proposal,
             static=regression,
-            test=TestFail(process=test_process),
+            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
-        baseline_test_failure = FailurePolicy().classify(
+        baseline_test_failure = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=baseline_attempt),
-            cause="TEST_FAILURE",
+            disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO",
             stage="test",
-            process=test_process,
+            terminal=NormalExit(exit_code=1),
         )
-        baseline_test_evaluation = TestFailEvaluation(
+        baseline_test_evaluation = VerifierRejectedEvaluation(
             proposal=baseline_proposal,
             static=baseline.static,
-            test=TestFail(process=test_process),
+            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         baseline_rejection_report = PackageReportBuilder().build(
             package=package,
@@ -1600,7 +1621,9 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                 "representable": True,
             }
         ]
-        assert case.loaded.cell_results == (case.result,)
+        assert case.loaded.cell_results[0].model_dump(mode="json") == (
+            case.result.model_dump(mode="json")
+        )
 
     def test_build_round_trips_prepare_rejection_without_proposal(
         self,
@@ -1653,13 +1676,44 @@ class TestCompleteReportEvidence(_CompleteReportCase):
         )
         context = case.test_failed_loaded.failure_context(case.test_failure.failure_id)
 
-        assert terminal["status"] == "TEST_FAIL"
+        assert terminal["status"] == "VERIFIER_REJECTED"
         assert terminal["failure_ref"] == case.test_failure.failure_id
         assert "test" not in terminal
         assert static["status"] == "STATIC_REGRESSION"
         assert static["classifications"][0]["reason_code"] == (
             "not-runtime-witnessable"
         )
+        journal = VerificationJournal(
+            run_id="same-authority",
+            command="search",
+            source_snapshot_digest=case.test_failure.scope.attempt.identity.source_snapshot_digest,
+            package_policies=(
+                VerificationPackagePolicy(
+                    package=case.cell.package,
+                    evaluation_policy_identity=(
+                        case.test_failure.scope.attempt.identity.evaluation_policy_identity
+                    ),
+                ),
+            ),
+            entries=(
+                VerificationJournalEntry(
+                    package=case.cell.package,
+                    cell=case.cell,
+                    role="probe",
+                    attempt=case.test_failure.scope.attempt,
+                    failure=case.test_failure,
+                ),
+            ),
+        )
+        journal_authority = journal.model_dump(mode="json")["entries"][0][
+            "failure"
+        ]["authority"]
+        report_failure = next(
+            item
+            for item in case.test_failed_document["evidence"]["failures"]
+            if item["failure_id"] == case.test_failure.failure_id
+        )
+        assert journal_authority == report_failure["authority"]
         assert case.test_failed_loaded == case.test_failed_report
         assert context is not None
         assert context.proposal_id == case.rejected_proposal.proposal_id
@@ -1971,12 +2025,48 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
+    def test_read_rejects_failure_without_authority(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.test_failed_document)
+        document["evidence"]["failures"][0].pop("authority")
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_failure_with_mixed_authority(self, tmp_path: Path) -> None:
+        document = copy.deepcopy(self.case.test_failed_document)
+        authority = document["evidence"]["failures"][0]["authority"]
+        authority["process"] = {
+            "exit_code": 1,
+            "signal": None,
+            "duration_seconds": 0.1,
+            "stdout_complete": True,
+            "stderr_complete": True,
+            "timed_out": False,
+            "start_error": None,
+        }
+
+        self._assert_read_rejects(tmp_path, document)
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        (("cause", "TIMEOUT"), ("stage", "resolve-project")),
+    )
+    def test_read_rejects_verifier_authority_mismatch(
+        self,
+        tmp_path: Path,
+        field: str,
+        value: str,
+    ) -> None:
+        document = copy.deepcopy(self.case.test_failed_document)
+        document["evidence"]["failures"][0][field] = value
+
+        self._assert_read_rejects(tmp_path, document)
+
     def test_read_rejects_test_failure_without_its_record(self, tmp_path: Path) -> None:
         document = copy.deepcopy(self.case.regional_document)
         failed = next(
             item
             for item in document["evidence"]["evaluations"]
-            if item["status"] == "TEST_FAIL"
+            if item["status"] == "VERIFIER_REJECTED"
         )
         failed["failure_ref"] = "failure-ffffffffffffffff"
 

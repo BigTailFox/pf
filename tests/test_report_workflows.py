@@ -255,12 +255,11 @@ class TestReportWorkflows:
             stage="scheduler-deadline",
             process=ProcessResult(
                 exit_code=None,
-                signal=None,
+                signal=9,
                 duration_seconds=0,
                 stdout="",
                 stderr="",
                 timed_out=True,
-                start_error="timeout",
             ),
         )
         logs = RunLogStore(root=tmp_path, run_id="check-run")

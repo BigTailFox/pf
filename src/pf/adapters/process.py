@@ -18,8 +18,10 @@ from typing import BinaryIO, Protocol
 from pf.schemas.evaluation import (
     EnvironmentVariable,
     ProcessEvent,
+    ProcessObservation,
     ProcessResult,
     ProcessSpec,
+    ProcessTerminalUnavailable,
 )
 
 OUTPUT_CACHE_LIMIT = 16 * 1024 * 1024
@@ -33,7 +35,7 @@ class ProcessOutput:
 
 
 class ProcessRunner(Protocol):
-    def run(self, spec: ProcessSpec) -> ProcessResult: ...
+    def run(self, spec: ProcessSpec) -> ProcessObservation: ...
 
 
 class ProcessListener(Protocol):
@@ -45,7 +47,7 @@ class ProcessLogWriter(Protocol):
 
     def write_stderr(self, chunk: str) -> None: ...
 
-    def finish(self, result: ProcessResult) -> Path: ...
+    def finish(self, result: ProcessObservation) -> Path: ...
 
 
 class ProcessLogRecorder(Protocol):
@@ -55,12 +57,12 @@ class ProcessLogRecorder(Protocol):
         self,
         process_id: int,
         spec: ProcessSpec,
-        result: ProcessResult,
+        result: ProcessObservation,
         stdout: str = "",
         stderr: str = "",
     ) -> Path: ...
 
-    def reference_for(self, result: ProcessResult) -> Path | None: ...
+    def reference_for(self, result: ProcessObservation) -> Path | None: ...
 
     def read_output(self, result: ProcessResult) -> tuple[str, str] | None: ...
 
@@ -282,7 +284,7 @@ class SubprocessRunner:
         self._outputs: dict[int, ProcessOutput] = {}
         self._output_full: dict[int, tuple[bool, bool]] = {}
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec) -> ProcessObservation:
         started = time.monotonic()
         process_id = next(self._process_ids)
         redactor = self._redactor.with_secrets(
@@ -362,14 +364,36 @@ class SubprocessRunner:
                 ),
                 redactor,
             )
+        cached_stdout, cached_stderr = cache.project()
         return_code = process.returncode
+        duration_seconds = time.monotonic() - started
+        if return_code is None:
+            unavailable = ProcessTerminalUnavailable(
+                duration_seconds=duration_seconds,
+                detail="managed process lifecycle returned no terminal status",
+            )
+            self._outputs[id(unavailable)] = ProcessOutput(
+                stdout=cached_stdout,
+                stderr=cached_stderr,
+            )
+            self._output_full[id(unavailable)] = cache.covered_full()
+            if writer is not None:
+                writer.finish(unavailable)
+            self._emit(
+                ProcessEvent(
+                    process_id=process_id,
+                    argv=argv,
+                    state="finished",
+                    duration_seconds=duration_seconds,
+                )
+            )
+            return unavailable
         exit_code = return_code if return_code >= 0 else None
         process_signal = -return_code if return_code < 0 else None
-        cached_stdout, cached_stderr = cache.project()
         result = ProcessResult(
             exit_code=exit_code,
             signal=process_signal,
-            duration_seconds=time.monotonic() - started,
+            duration_seconds=duration_seconds,
             stdout=cached_stdout,
             stderr=cached_stderr,
             timed_out=timed_out,

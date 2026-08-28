@@ -23,14 +23,20 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     BaselineDetailIdentity,
     CellContextEvent,
+    CellFailed,
     CellSearchProgressEvent,
     CellStageEvent,
     DiagnosticClassification,
     BaselineRejection,
     HighestVersionPass,
+    IndeterminateEvaluation,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
+    PytestFailureCase,
+    PytestFailureDetail,
     PrepareFailure,
+    RuntimeEvaluationRun,
     SearchFailureEvent,
     SearchProbeDetailIdentity,
     SearchProbeRequest,
@@ -38,12 +44,15 @@ from pf.schemas.evaluation import (
     StaticBaselineCapture,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
+    TimedOut,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
+    VerifierPass,
+    VerifierDiagnostics,
+    VerifierIndeterminate,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -66,6 +75,7 @@ from pf.schemas.report import (
     CoordinateBoundary,
     CoordinateFailure,
     CoordinateSuccess,
+    FailureEvaluationRuntimeRun,
     ProbeObservation,
     ProbePass,
     StaticOnlyEvidence,
@@ -73,6 +83,7 @@ from pf.schemas.report import (
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.static_transition import static_fingerprint
+from pf.verification import completion_outcome
 
 
 def successful_process() -> ProcessResult:
@@ -281,7 +292,7 @@ class FullPasses:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: object | None = None,
-    ) -> PassEvaluation | TestFailEvaluation:
+    ) -> RuntimeEvaluationRun:
         self.evaluated_vectors.append(prepared.proposal.managed_vector)
         static = (
             static_result
@@ -292,10 +303,12 @@ class FullPasses:
             else self.static.evaluate(prepared, package=package, baseline=baseline)
         )
         prepared.mark_tested()
-        return PassEvaluation(
-            proposal=prepared.proposal,
-            static=static,
-            test=TestPass(process=successful_process()),
+        return RuntimeEvaluationRun(
+            evaluation=PassEvaluation(
+                proposal=prepared.proposal,
+                static=static,
+                verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
+            )
         )
 
 
@@ -311,7 +324,7 @@ class FullThreshold:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: object | None = None,
-    ) -> PassEvaluation | TestFailEvaluation:
+    ) -> RuntimeEvaluationRun:
         self.evaluated_vectors.append(prepared.proposal.managed_vector)
         static = (
             static_result
@@ -323,18 +336,92 @@ class FullThreshold:
         )
         prepared.mark_tested()
         if int(prepared.proposal.managed_vector[0].version) >= 2:
-            return PassEvaluation(
+            return RuntimeEvaluationRun(
+                evaluation=PassEvaluation(
+                    proposal=prepared.proposal,
+                    static=static,
+                    verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
+                )
+            )
+        process = successful_process().model_copy(update={"exit_code": 1})
+        return RuntimeEvaluationRun(
+            evaluation=VerifierRejectedEvaluation(
                 proposal=prepared.proposal,
                 static=static,
-                test=TestPass(process=successful_process()),
+                verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
+            ),
+            diagnostics=VerifierDiagnostics(process=process),
+        )
+
+
+class FullTimesOutBelowTwo(FullThreshold):
+    def evaluate(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+        baseline: StaticBaseline,
+        static_result: object | None = None,
+    ) -> RuntimeEvaluationRun:
+        if int(prepared.proposal.managed_vector[0].version) >= 2:
+            return super().evaluate(
+                prepared,
+                package=package,
+                baseline=baseline,
+                static_result=static_result,
             )
-        return TestFailEvaluation(
-            proposal=prepared.proposal,
-            static=static,
-            test=TestFail(
-                process=successful_process().model_copy(update={"exit_code": 1})
+        static = (
+            static_result
+            if isinstance(
+                static_result,
+                (StaticUnchangedEvaluation, StaticRegressionEvaluation),
+            )
+            else self.static.evaluate(prepared, package=package, baseline=baseline)
+        )
+        prepared.mark_tested()
+        process = ProcessResult(
+            signal=9,
+            duration_seconds=30,
+            timed_out=True,
+        )
+        return RuntimeEvaluationRun(
+            evaluation=IndeterminateEvaluation(
+                proposal=prepared.proposal,
+                cause="TIMEOUT",
+                verifier=VerifierIndeterminate(
+                    terminal=TimedOut(),
+                    reason="process-timed-out",
+                ),
+                static=static,
+            ),
+            diagnostics=VerifierDiagnostics(
+                process=process,
+                detail=PytestFailureDetail(
+                    first=PytestFailureCase(nodeid="test_demo.py::test_old", phase="call"),
+                    total=1,
+                ),
             ),
         )
+
+
+class FullThresholdWithoutDiagnostics(FullThreshold):
+    def evaluate(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+        baseline: StaticBaseline,
+        static_result: object | None = None,
+    ) -> RuntimeEvaluationRun:
+        run = super().evaluate(
+            prepared,
+            package=package,
+            baseline=baseline,
+            static_result=static_result,
+        )
+        if isinstance(run.evaluation, VerifierRejectedEvaluation):
+            return RuntimeEvaluationRun(evaluation=run.evaluation)
+        return run
 
 
 class FrozenCandidates:
@@ -966,7 +1053,7 @@ class TestSearchCoordinator:
             package=package,
             baseline=capture.baseline,
             static_result=capture.static,
-        )
+        ).evaluation
         assert isinstance(baseline_evaluation, PassEvaluation)
         baseline_attempt = prepared.attempt
         assert baseline_attempt is not None
@@ -1123,8 +1210,21 @@ class TestSearchCoordinator:
         assert result.final_vector == (VersionPin(name="a", version="2"),)
         assert result.search.boundaries[0].predecessor == "1"
         assert any(
-            event.failure.cause == "TEST_FAILURE" for event in diagnostics.events
+            event.failure.cause == "VERIFIER_EXITED_NONZERO"
+            for event in diagnostics.events
         )
+        assert len(result.failure_runtime_runs) == 1
+        failure_runtime = result.failure_runtime_runs[0]
+        assert isinstance(failure_runtime, FailureEvaluationRuntimeRun)
+        assert failure_runtime.failure_id == result.failure_records[0].failure_id
+        assert failure_runtime.runtime.diagnostics is not None
+        assert isinstance(
+            failure_runtime.runtime.diagnostics.process,
+            ProcessResult,
+        )
+        assert failure_runtime.runtime.diagnostics.process.exit_code == 1
+        dumped = result.model_dump(mode="json")
+        assert "failure_runtime_runs" not in dumped
         assert full.evaluated_vectors.count((VersionPin(name="a", version="1"),)) == 1
         assert full.evaluated_vectors.count(result.final_vector) == 1
         cheap = next(
@@ -1141,6 +1241,86 @@ class TestSearchCoordinator:
             reference.status
             for reference in result.search.regions[0].runtime_references
         } == {"PASS", "REJECTED"}
+
+    def test_search_rejection_does_not_require_optional_runtime_diagnostics(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        package = PackagePlan(
+            name="demo",
+            pyproject_path="pyproject.toml",
+            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+            declarations=(),
+            cells=(cell,),
+            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            test_group_present=True,
+        )
+        static = StaticPasses()
+
+        result = search_coordinator(
+            environments=ProposalFactory(),
+            candidates=FrozenCandidates(),
+            static=static,
+            full=FullThresholdWithoutDiagnostics(static),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellSuccess)
+        assert result.final_vector == (VersionPin(name="a", version="2"),)
+        assert result.failure_records[0].cause == "VERIFIER_EXITED_NONZERO"
+        assert result.failure_runtime_runs == ()
+
+    def test_search_coordinator_retains_terminal_runtime_diagnostics(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        package = PackagePlan(
+            name="demo",
+            pyproject_path="pyproject.toml",
+            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
+            declarations=(),
+            cells=(cell,),
+            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            test_group_present=True,
+        )
+        static = StaticPasses()
+        result = search_coordinator(
+            environments=ProposalFactory(),
+            candidates=FrozenCandidates(),
+            static=static,
+            full=FullTimesOutBelowTwo(static),
+        ).search(package=package, cell=cell, snapshot=snapshot)
+
+        assert isinstance(result, CellIndeterminate)
+        assert len(result.failure_runtime_runs) == 1
+        runtime = result.failure_runtime_runs[0]
+        assert runtime.failure_id == result.failure_id
+        completion = completion_outcome(result)
+        assert isinstance(completion, CellFailed)
+        assert completion.detail_failure_id == result.failure_id
+        assert isinstance(completion.detail, PytestFailureDetail)
+        assert completion.detail.first.nodeid == "test_demo.py::test_old"
+        assert completion.process_failure_id == result.failure_id
+        assert isinstance(completion.process, ProcessResult)
+        assert completion.process.timed_out is True
+        dumped = result.model_dump(mode="json")
+        assert "failure_runtime_runs" not in dumped
+        assert "test_demo.py::test_old" not in repr(dumped)
 
     def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
         self,
@@ -1335,7 +1515,7 @@ class TestSearchCoordinator:
             package=package,
             baseline=capture.baseline,
             static_result=capture.static,
-        )
+        ).evaluation
         assert isinstance(baseline, PassEvaluation)
         baseline_attempt = prepared.attempt
         assert baseline_attempt is not None
@@ -1434,7 +1614,7 @@ class TestSearchCoordinator:
             package=package,
             baseline=capture.baseline,
             static_result=capture.static,
-        )
+        ).evaluation
         assert isinstance(baseline, PassEvaluation)
         baseline_attempt = highest_prepared.attempt
         assert baseline_attempt is not None

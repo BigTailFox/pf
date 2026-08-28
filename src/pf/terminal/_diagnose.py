@@ -8,8 +8,15 @@ from rich.text import Text
 
 from pf.schemas.evaluation import (
     AttemptFailureScope,
+    ConfiguredVerifierFailureAuthority,
     FailureRecord,
+    NormalExit,
     ProcessResult,
+    Signaled,
+    StartFailed,
+    TimedOut,
+    Unavailable,
+    VerifierTerminal,
     VerificationRole,
 )
 
@@ -126,6 +133,10 @@ def render(
             )
         if failure.process is not None:
             presenter.stdout.print(f"  process: {_process_terminal(failure.process)}")
+        elif isinstance(failure.authority, ConfiguredVerifierFailureAuthority):
+            presenter.stdout.print(
+                f"  process: {_verifier_terminal(failure.authority.terminal)}"
+            )
         if diagnosis.output_tail:
             presenter.stdout.print("  output:")
             for line in diagnosis.output_tail:
@@ -163,3 +174,16 @@ def _process_terminal(process: ProcessResult) -> str:
         return f"terminated by signal {process.signal}"
     assert process.exit_code is not None
     return f"exited {process.exit_code}"
+
+
+def _verifier_terminal(terminal: VerifierTerminal) -> str:
+    if isinstance(terminal, NormalExit):
+        return f"exited {terminal.exit_code}"
+    if isinstance(terminal, TimedOut):
+        return "timed out"
+    if isinstance(terminal, StartFailed):
+        return "could not start"
+    if isinstance(terminal, Signaled):
+        return f"terminated by signal {terminal.signal}"
+    assert isinstance(terminal, Unavailable)
+    return "terminal unavailable"

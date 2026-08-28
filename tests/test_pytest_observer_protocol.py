@@ -7,18 +7,22 @@ from pathlib import Path
 import pytest
 
 from pf.adapters import test_command as test_command_module
-from pf.adapters import pytest_witness as pytest_witness_module
-from pf.adapters.pytest_witness import read_pytest_failure_detail
-from pf.adapters.test_command import TestAdapter
+from pf.adapters import pytest_observer as pytest_observer_module
+from pf.adapters.process import ProcessRunner
+from pf.adapters.pytest_observer import read_pytest_observer_detail
+from pf.adapters.test_command import ConfiguredVerifier
+from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
     EnvironmentVariable,
     ProcessResult,
     ProcessSpec,
     PytestFailureCase,
     PytestFailureDetail,
-    TestFail,
-    TestPass,
-    ToolFailure,
+    VerifierPass,
+    VerifierIndeterminate,
+    VerifierRejected,
+    VerifierRequest,
+    VerifierRun,
 )
 
 
@@ -35,7 +39,7 @@ def _document(
         "execution_mode": "serial",
         "facts": [{"kind": kind, "phase": phase} for kind, phase in facts],
         "finalized": True,
-        "protocol": "pf-pytest-failure-witness-v1",
+        "protocol": "pf-pytest-observer-v1",
         "pytest_version": "9.1.1",
         "python_implementation": "cpython",
         "python_minor": "3.10",
@@ -77,8 +81,8 @@ class EvidenceRunner:
     def run(self, spec: ProcessSpec) -> ProcessResult:
         environment = {item.name: item.value for item in spec.environment}
         self._writer(
-            Path(environment["PF_PYTEST_WITNESS_DIR"]),
-            environment["PF_PYTEST_WITNESS_NONCE"],
+            Path(environment["PF_PYTEST_OBSERVER_DIR"]),
+            environment["PF_PYTEST_OBSERVER_NONCE"],
         )
         return ProcessResult(
             exit_code=self._exit_code,
@@ -87,27 +91,37 @@ class EvidenceRunner:
         )
 
 
-def _run(tmp_path: Path, writer: ArtifactWriter):
-    return TestAdapter(EvidenceRunner(writer)).run(
-        command=("pytest",),
-        cwd=tmp_path,
-        environment=(),
-        failure_exit_codes=(1,),
-        timeout_seconds=30,
+def _run_with(
+    runner: ProcessRunner,
+    tmp_path: Path,
+    *,
+    environment: tuple[EnvironmentVariable, ...] = (),
+) -> VerifierRun:
+    return ConfiguredVerifier(runner).run(
+        VerifierRequest(
+            command=("pytest",),
+            cwd=tmp_path,
+            environment=environment,
+            timeout_seconds=30,
+        )
     )
 
 
-class TestPytestWitnessArtifactProtocol:
-    def test_test_adapter_returns_runtime_pytest_failure_detail(
+def _run(tmp_path: Path, writer: ArtifactWriter) -> VerifierRun:
+    return _run_with(EvidenceRunner(writer), tmp_path)
+
+
+class TestPytestObserverArtifactProtocol:
+    def test_configured_verifier_returns_runtime_pytest_failure_detail(
         self,
         tmp_path: Path,
     ) -> None:
         class DetailRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 environment = {item.name: item.value for item in spec.environment}
-                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
-                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    Path(environment["PF_PYTEST_OBSERVER_DIR"]),
                     _document(nonce),
                 )
                 detail = {
@@ -115,12 +129,12 @@ class TestPytestWitnessArtifactProtocol:
                         "nodeid": "tests/test_cli.py::test_example",
                         "phase": "call",
                     },
-                    "protocol": "pf-pytest-failure-details-v1",
+                    "protocol": "pf-pytest-observer-details-v1",
                     "run_nonce": nonce,
                     "total": 3,
                 }
                 directory = Path(
-                    environment["PF_PYTEST_FAILURE_DETAILS_DIR"]
+                    environment["PF_PYTEST_OBSERVER_DETAILS_DIR"]
                 )
                 (directory / f"details-{'b' * 32}.json").write_bytes(
                     _canonical(detail)
@@ -131,16 +145,11 @@ class TestPytestWitnessArtifactProtocol:
                     duration_seconds=0.1,
                 )
 
-        result = TestAdapter(DetailRunner()).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
+        result = _run_with(DetailRunner(), tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.detail == PytestFailureDetail(
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail == PytestFailureDetail(
             first=PytestFailureCase(
                 nodeid="tests/test_cli.py::test_example",
                 phase="call",
@@ -156,12 +165,12 @@ class TestPytestWitnessArtifactProtocol:
         class NestedDetailRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 environment = {item.name: item.value for item in spec.environment}
-                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
-                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    Path(environment["PF_PYTEST_OBSERVER_DIR"]),
                     _document(nonce),
                 )
-                directory = Path(environment["PF_PYTEST_FAILURE_DETAILS_DIR"])
+                directory = Path(environment["PF_PYTEST_OBSERVER_DETAILS_DIR"])
                 for index, (run_nonce, nodeid) in enumerate(
                     (
                         ("nested-nonce", "nested.py::test_failure"),
@@ -170,7 +179,7 @@ class TestPytestWitnessArtifactProtocol:
                 ):
                     detail = {
                         "first": {"nodeid": nodeid, "phase": "call"},
-                        "protocol": "pf-pytest-failure-details-v1",
+                        "protocol": "pf-pytest-observer-details-v1",
                         "run_nonce": run_nonce,
                         "total": 1,
                     }
@@ -183,16 +192,11 @@ class TestPytestWitnessArtifactProtocol:
                     duration_seconds=0.1,
                 )
 
-        result = TestAdapter(NestedDetailRunner()).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
+        result = _run_with(NestedDetailRunner(), tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.detail == PytestFailureDetail(
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail == PytestFailureDetail(
             first=PytestFailureCase(
                 nodeid="tests/test_cli.py::test_example",
                 phase="call",
@@ -207,18 +211,18 @@ class TestPytestWitnessArtifactProtocol:
         class DuplicateDetailRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 environment = {item.name: item.value for item in spec.environment}
-                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
-                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    Path(environment["PF_PYTEST_OBSERVER_DIR"]),
                     _document(nonce),
                 )
                 detail = {
                     "first": {"nodeid": "test_example.py::test_bad", "phase": "call"},
-                    "protocol": "pf-pytest-failure-details-v1",
+                    "protocol": "pf-pytest-observer-details-v1",
                     "run_nonce": nonce,
                     "total": 1,
                 }
-                directory = Path(environment["PF_PYTEST_FAILURE_DETAILS_DIR"])
+                directory = Path(environment["PF_PYTEST_OBSERVER_DETAILS_DIR"])
                 for index in range(2):
                     (directory / f"details-{index:032x}.json").write_bytes(
                         _canonical(detail)
@@ -229,27 +233,22 @@ class TestPytestWitnessArtifactProtocol:
                     duration_seconds=0.1,
                 )
 
-        result = TestAdapter(DuplicateDetailRunner()).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
+        result = _run_with(DuplicateDetailRunner(), tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.detail is None
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail is None
 
     def test_runtime_detail_artifact_enumeration_is_bounded(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(pytest_witness_module, "_MAX_DETAIL_ARTIFACTS", 1)
+        monkeypatch.setattr(pytest_observer_module, "_MAX_DETAIL_ARTIFACTS", 1)
         for index in range(2):
             detail = {
                 "first": {"nodeid": f"test_{index}.py::test_bad", "phase": "call"},
-                "protocol": "pf-pytest-failure-details-v1",
+                "protocol": "pf-pytest-observer-details-v1",
                 "run_nonce": "current-nonce" if index == 0 else "nested-nonce",
                 "total": 1,
             }
@@ -278,10 +277,10 @@ class TestPytestWitnessArtifactProtocol:
                 return type("Entry", (), {"path": path.as_posix()})()
 
         scanner = LazyScandir()
-        monkeypatch.setattr(pytest_witness_module.os, "scandir", lambda _: scanner)
+        monkeypatch.setattr(pytest_observer_module.os, "scandir", lambda _: scanner)
 
         assert (
-            read_pytest_failure_detail(tmp_path, nonce="current-nonce") is None
+            read_pytest_observer_detail(tmp_path, nonce="current-nonce") is None
         )
         assert scanner.consumed == 2
 
@@ -292,7 +291,7 @@ class TestPytestWitnessArtifactProtocol:
             lambda nonce: _canonical(
                 {
                     "first": {"nodeid": "x" * 4_097, "phase": "call"},
-                    "protocol": "pf-pytest-failure-details-v1",
+                    "protocol": "pf-pytest-observer-details-v1",
                     "run_nonce": nonce,
                     "total": 1,
                 }
@@ -300,7 +299,7 @@ class TestPytestWitnessArtifactProtocol:
             lambda nonce: _canonical(
                 {
                     "first": {"nodeid": "case\u009b31mred", "phase": "call"},
-                    "protocol": "pf-pytest-failure-details-v1",
+                    "protocol": "pf-pytest-observer-details-v1",
                     "run_nonce": nonce,
                     "total": 1,
                 }
@@ -308,7 +307,7 @@ class TestPytestWitnessArtifactProtocol:
             lambda nonce: _canonical(
                 {
                     "first": {"nodeid": "case\ud800bad", "phase": "call"},
-                    "protocol": "pf-pytest-failure-details-v1",
+                    "protocol": "pf-pytest-observer-details-v1",
                     "run_nonce": nonce,
                     "total": 1,
                 }
@@ -338,13 +337,13 @@ class TestPytestWitnessArtifactProtocol:
         class InvalidDetailRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 environment = {item.name: item.value for item in spec.environment}
-                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
-                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    Path(environment["PF_PYTEST_OBSERVER_DIR"]),
                     _document(nonce),
                 )
                 directory = Path(
-                    environment["PF_PYTEST_FAILURE_DETAILS_DIR"]
+                    environment["PF_PYTEST_OBSERVER_DETAILS_DIR"]
                 )
                 (directory / f"details-{'b' * 32}.json").write_bytes(
                     payload_for(nonce)
@@ -355,16 +354,11 @@ class TestPytestWitnessArtifactProtocol:
                     duration_seconds=0.1,
                 )
 
-        result = TestAdapter(InvalidDetailRunner()).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
+        result = _run_with(InvalidDetailRunner(), tmp_path)
 
-        assert isinstance(result, TestFail)
-        assert result.detail is None
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail is None
 
     def test_detail_cleanup_failure_only_omits_optional_metadata(
         self,
@@ -383,7 +377,7 @@ class TestPytestWitnessArtifactProtocol:
                 raise OSError("detail cleanup failed")
 
         def temporary_directory(*, prefix: str):
-            if prefix == "pf-pytest-failure-details-":
+            if prefix == "pf-pytest-observer-details-":
                 return CleanupFailureDirectory(prefix)
             return real_temporary_directory(prefix=prefix)
 
@@ -400,8 +394,9 @@ class TestPytestWitnessArtifactProtocol:
             ),
         )
 
-        assert isinstance(result, TestFail)
-        assert result.detail is None
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail is None
 
     def test_detail_setup_failure_does_not_reuse_an_inherited_directory(
         self,
@@ -411,17 +406,17 @@ class TestPytestWitnessArtifactProtocol:
         real_temporary_directory = test_command_module.tempfile.TemporaryDirectory
 
         def temporary_directory(*, prefix: str):
-            if prefix == "pf-pytest-failure-details-":
+            if prefix == "pf-pytest-observer-details-":
                 raise OSError("detail setup failed")
             return real_temporary_directory(prefix=prefix)
 
         class SetupFailureRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 environment = {item.name: item.value for item in spec.environment}
-                assert "PF_PYTEST_FAILURE_DETAILS_DIR" not in environment
-                nonce = environment["PF_PYTEST_WITNESS_NONCE"]
+                assert "PF_PYTEST_OBSERVER_DETAILS_DIR" not in environment
+                nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
-                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
+                    Path(environment["PF_PYTEST_OBSERVER_DIR"]),
                     _document(nonce),
                 )
                 return ProcessResult(
@@ -435,21 +430,20 @@ class TestPytestWitnessArtifactProtocol:
             "TemporaryDirectory",
             temporary_directory,
         )
-        result = TestAdapter(SetupFailureRunner()).run(
-            command=("pytest",),
-            cwd=tmp_path,
+        result = _run_with(
+            SetupFailureRunner(),
+            tmp_path,
             environment=(
                 EnvironmentVariable(
-                    name="PF_PYTEST_FAILURE_DETAILS_DIR",
+                    name="PF_PYTEST_OBSERVER_DETAILS_DIR",
                     value=(tmp_path / "untrusted").as_posix(),
                 ),
             ),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
         )
 
-        assert isinstance(result, TestFail)
-        assert result.detail is None
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.detail is None
 
     @pytest.mark.parametrize(
         "writer",
@@ -532,10 +526,8 @@ class TestPytestWitnessArtifactProtocol:
         tmp_path: Path,
         writer: ArtifactWriter,
     ) -> None:
-        result = _run(tmp_path, writer)
-
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-evidence-invalid"
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            _run(tmp_path, writer)
 
     @pytest.mark.parametrize(
         "writer",
@@ -566,16 +558,14 @@ class TestPytestWitnessArtifactProtocol:
         tmp_path: Path,
         writer: ArtifactWriter,
     ) -> None:
-        result = _run(tmp_path, writer)
-
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-evidence-invalid"
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            _run(tmp_path, writer)
 
     @staticmethod
     def _run_with_final_summaries(
         tmp_path: Path,
         count: int,
-    ) -> TestFail | ToolFailure:
+    ) -> VerifierRun:
         def write_many(directory: Path, nonce: str) -> None:
             document = _document(nonce)
             for index in range(count):
@@ -589,16 +579,14 @@ class TestPytestWitnessArtifactProtocol:
     ) -> None:
         result = self._run_with_final_summaries(tmp_path, 1024)
 
-        assert isinstance(result, TestFail)
+        assert isinstance(result.authoritative, VerifierRejected)
 
     def test_protocol_rejects_too_many_final_summaries(
         self,
         tmp_path: Path,
     ) -> None:
-        result = self._run_with_final_summaries(tmp_path, 1025)
-
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-evidence-invalid"
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            self._run_with_final_summaries(tmp_path, 1025)
 
     def test_protocol_stops_enumerating_at_the_summary_limit(
         self,
@@ -622,10 +610,8 @@ class TestPytestWitnessArtifactProtocol:
 
         monkeypatch.setattr(Path, "iterdir", bounded_artifacts)
 
-        result = _run(tmp_path, remember_directory)
-
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-evidence-invalid"
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            _run(tmp_path, remember_directory)
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -651,10 +637,8 @@ class TestPytestWitnessArtifactProtocol:
                 token="e" * 32,
             )
 
-        result = _run(tmp_path, write_conflict)
-
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-evidence-invalid"
+        with pytest.raises(InfrastructureError, match="observer protocol"):
+            _run(tmp_path, write_conflict)
 
     def test_protocol_unions_equivalent_multiprocess_summaries(
         self, tmp_path: Path
@@ -678,16 +662,16 @@ class TestPytestWitnessArtifactProtocol:
 
         result = _run(tmp_path, write_equivalent)
 
-        assert isinstance(result, TestFail)
+        assert isinstance(result.authoritative, VerifierRejected)
 
 
-class TestPytestWitnessProfileQualification:
+class TestPytestObserverMetadata:
     @pytest.mark.parametrize(
         "pytest_version",
         ("6.2.5", "6.9.9", "7.0.1", "7.4.4", "8.0.2", "8.4.2", "9.0.2", "9.1.1"),
     )
     @pytest.mark.parametrize("python_minor", ("3.10", "3.11", "3.12"))
-    def test_profile_qualification_authorizes_test_failure(
+    def test_supported_version_metadata_does_not_decide_rejection(
         self,
         tmp_path: Path,
         pytest_version: str,
@@ -705,7 +689,10 @@ class TestPytestWitnessProfileQualification:
 
         result = _run(tmp_path, write_qualified)
 
-        assert isinstance(result, TestFail)
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.pytest_version == pytest_version
+        assert result.diagnostics.python_minor == python_minor
 
     @pytest.mark.parametrize(
         ("pytest_version", "python_minor", "execution_mode"),
@@ -724,7 +711,7 @@ class TestPytestWitnessProfileQualification:
             ("9.1.1", "3.10", "unknown"),
         ),
     )
-    def test_profile_qualification_rejects_negative_evidence(
+    def test_arbitrary_version_and_mode_metadata_does_not_decide_rejection(
         self,
         tmp_path: Path,
         pytest_version: str,
@@ -744,11 +731,14 @@ class TestPytestWitnessProfileQualification:
 
         result = _run(tmp_path, write_unqualified)
 
-        assert isinstance(result, ToolFailure)
-        assert result.summary_code == "pytest-outcome-conflict"
+        assert isinstance(result.authoritative, VerifierRejected)
+        assert result.diagnostics is not None
+        assert result.diagnostics.pytest_version == pytest_version
+        assert result.diagnostics.python_minor == python_minor
+        assert result.diagnostics.pytest_execution_mode == execution_mode
 
     @pytest.mark.parametrize("execution_mode", ("xdist", "unknown"))
-    def test_profile_qualification_retains_complete_witness_free_pass(
+    def test_execution_mode_metadata_does_not_decide_pass(
         self,
         tmp_path: Path,
         execution_mode: str,
@@ -759,20 +749,14 @@ class TestPytestWitnessProfileQualification:
                 _document(nonce, facts=(), execution_mode=execution_mode),
             )
 
-        result = TestAdapter(EvidenceRunner(write_pass, exit_code=0)).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
+        result = _run_with(EvidenceRunner(write_pass, exit_code=0), tmp_path)
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
 
 
-class TestPytestWitnessProcessPrecedence:
+class TestPytestObserverProcessPrecedence:
     @pytest.mark.parametrize(
-        ("process", "cause"),
+        ("process", "status"),
         (
             (
                 ProcessResult(
@@ -781,11 +765,11 @@ class TestPytestWitnessProcessPrecedence:
                     duration_seconds=0.1,
                     timed_out=True,
                 ),
-                "TIMEOUT",
+                "INDETERMINATE",
             ),
             (
                 ProcessResult(exit_code=None, signal=9, duration_seconds=0.1),
-                "TOOL_FAILURE",
+                "INDETERMINATE",
             ),
             (
                 ProcessResult(
@@ -794,7 +778,7 @@ class TestPytestWitnessProcessPrecedence:
                     start_error="missing",
                     duration_seconds=0.1,
                 ),
-                "TOOL_FAILURE",
+                "INDETERMINATE",
             ),
             (
                 ProcessResult(
@@ -803,7 +787,7 @@ class TestPytestWitnessProcessPrecedence:
                     duration_seconds=0.1,
                     stdout_complete=False,
                 ),
-                "TOOL_FAILURE",
+                "REJECTED",
             ),
             (
                 ProcessResult(
@@ -812,7 +796,7 @@ class TestPytestWitnessProcessPrecedence:
                     duration_seconds=0.1,
                     stderr_complete=False,
                 ),
-                "TOOL_FAILURE",
+                "REJECTED",
             ),
         ),
         ids=(
@@ -823,28 +807,25 @@ class TestPytestWitnessProcessPrecedence:
             "incomplete-stderr",
         ),
     )
-    def test_test_adapter_process_completeness_precedes_witness_evidence(
+    def test_terminal_facts_precede_observer_metadata(
         self,
         tmp_path: Path,
         process: ProcessResult,
-        cause: str,
+        status: str,
     ) -> None:
         class IncompleteRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 environment = {item.name: item.value for item in spec.environment}
                 _write_summary(
-                    Path(environment["PF_PYTEST_WITNESS_DIR"]),
-                    _document(environment["PF_PYTEST_WITNESS_NONCE"]),
+                    Path(environment["PF_PYTEST_OBSERVER_DIR"]),
+                    _document(environment["PF_PYTEST_OBSERVER_NONCE"]),
                 )
                 return process
 
-        result = TestAdapter(IncompleteRunner()).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
-        )
+        result = _run_with(IncompleteRunner(), tmp_path)
 
-        assert isinstance(result, ToolFailure)
-        assert result.cause == cause
+        assert result.authoritative.status == status
+        if status == "INDETERMINATE":
+            assert isinstance(result.authoritative, VerifierIndeterminate)
+        else:
+            assert isinstance(result.authoritative, VerifierRejected)

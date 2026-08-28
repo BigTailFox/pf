@@ -1,39 +1,58 @@
-# PF pytest failure evidence
+# PF pytest observer 与诊断遥测
 
 - **状态：** 现行
-- **日期：** 2026-08-26
-- **适用范围：** direct pytest `test-command` 的动态失败分类
-- **探索记录：** [I001](../investigation/I001-pf-pytest-witness-collection.md)
-- **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **CLI 显示：** [D006](D006-pf-cli-enhancement.md)
-- **验证运行：** [D008](D008-pf-verification-run.md)
-- **实施记录：** [P012](../plans/P012-pf-pytest-failure-evidence.md)
+- **协议：** `pf-pytest-observer-v1`
+- **最后核对：** 2026-08-28
+- **Verifier authority：** [D002](D002-pf-implementation.md)、[D005](D005-pf-failure-and-diagnose.md)
+- **进程事实：** [D007](D007-pf-process-output.md)
+- **运行时投影：** [D008](D008-pf-verification-run.md)
 
-本文是 pytest failure-witness profile 及其临时协议的唯一契约。它把 pytest 公开 report hook 产生的直接失败事实归一为现有 `TestOutcome`，但不把 pytest 细节扩散到 evaluator、search 或报告 Schema。
+本文只拥有 direct pytest 的私有 observer、progress 与 detail telemetry。pytest facts 不决定
+compatibility disposition；配置 verifier 的唯一 authority 是 D002/D005 定义的 child process
+terminal。
 
-## 1. Profile selection
+## 1. 边界
 
-`TestAdapter` 私有地选择两个 profile：
+`ConfiguredVerifier` 可机械识别以下 direct pytest command shape，仅用于注入 UI telemetry：
 
 ```text
-configured-exit-code-v1
-pytest-failure-witness-v1
+pytest ...
+py.test ...
+python -m pytest ...
+python3 -m pytest ...
+pythonX.Y -m pytest ...
 ```
 
-pytest profile 只在以下条件同时成立时启用：
+wrapper、tox、nox、coverage 或其他 generic command 不注入 observer。这个 selector 不进入
+evaluation policy identity，也不改变 terminal outcome：
 
-- `test-failure-exit-codes == [1]`；
-- command 是 direct `pytest`、`py.test`、`python -m pytest`、`python3 -m pytest` 或 `pythonX.Y -m pytest` invocation。
+```text
+normal exit 0   -> PASS
+normal exit N   -> REJECTED
+timeout/signal/start failure/unavailable terminal -> INDETERMINATE
+```
 
-可执行文件可以是绝对路径；selector 只看 basename。wrapper、`coverage run`、tox、nox、`env` 前缀和任何自定义 failure-code 集合都使用 generic profile：exit 0 为 Pass，配置列表中的非零码为 Fail，其余为 ToolFailure。
+pytest version、execution mode、facts、output completeness、progress 和 detail 都不能改写该
+映射。exit 0 与 failure metadata 冲突仍为 PASS；normal nonzero 且没有 failure metadata 仍为
+REJECTED。冲突只能形成 runtime `summary_code`。
 
-Profile selector 同时决定实际执行路径和 `evaluation_policy_identity`，不得复制 command-shape 判定。
+## 2. Trusted observer
 
-## 2. Embedded plugin
+PF 把 `pf/_pytest_observer.py` 复制到 invocation-local 私有目录，并通过 `-p <module>` 注入。
+私有环境变量是：
 
-pytest profile 把 PF wheel 中的 standalone plugin 复制到 run-unique 临时目录，通过前置 `PYTHONPATH` 和 `-p <unique-module>` 注入。Plugin 只依赖标准库和目标 pytest，不导入 PF 或 project source，也不修改用户参数、collection continuation、`maxfail` 或执行顺序。
+```text
+PF_PYTEST_OBSERVER_DIR
+PF_PYTEST_OBSERVER_NONCE
+PF_PYTEST_OBSERVER_DETAILS_DIR
+PF_PYTEST_PROGRESS_DIR
+PF_PYTEST_PROGRESS_NONCE
+```
 
-Authoritative hooks 只记录以下 facts：
+嵌套 invocation 必须先从继承环境删除全部私有变量，再应用本次 overlay。Observer 不得修改
+test selection、collection continuation、hook outcome、执行顺序或 pytest exit status。
+
+Observer 只观察 pytest 公开 hook：
 
 ```text
 pytest_collectreport(failed)                         -> COLLECTION_FAILED / collect
@@ -41,127 +60,71 @@ pytest_runtest_logreport(failed, setup|call|teardown) -> TEST_FAILED / phase
 pytest_internalerror                                 -> INTERNAL_ERROR / pytest
 ```
 
-`pytest_sessionstart` 记录 `serial | xdist | unknown` execution mode。`pytest_cmdline_main` 的 outer wrapper 在 pytest action 结束后原子提交最终 fact set；提交失败不能改变 pytest 自己的结果。
+normal exit 后，`ConfiguredVerifier` 要求恰有合法 finalized summary；缺失、损坏、非规范、
+冲突或超限 artifact 是 PF implementation/protocol failure，命令级抛出
+`InfrastructureError`，不产生 Evaluation，也不重跑未注入的原命令。timeout、signal、start
+failure 或 typed terminal unavailable 已有完整 authority，不要求 final summary。
 
-Facts 不含 traceback、longrepr、path、nodeid、异常正文或输出。PF 不判断失败属于 project、dependency、plugin 还是 harness，也不建立 pytest lifecycle 状态机。
+## 3. Summary protocol
 
-## 3. Failure-witness protocol
-
-协议 identity 为 `pf-pytest-failure-witness-v1`。每个完成 finalization 的 process 写一个 canonical UTF-8 JSON 文件：
+每个 summary 是 canonical UTF-8 JSON：字段精确、排序、无多余空白、单个末尾换行。协议
+identity 是 `pf-pytest-observer-v1`，record 至少包含：
 
 ```json
 {
   "execution_mode": "serial",
-  "facts": [{"kind": "COLLECTION_FAILED", "phase": "collect"}],
+  "facts": [],
   "finalized": true,
-  "protocol": "pf-pytest-failure-witness-v1",
+  "protocol": "pf-pytest-observer-v1",
   "pytest_version": "9.1.1",
   "python_implementation": "cpython",
   "python_minor": "3.12",
-  "run_nonce": "<32 lowercase hex>"
+  "run_nonce": "..."
 }
 ```
 
-文件以 `sort_keys=True`、compact separators、ASCII escaping 和末尾单个 LF 编码。Facts 去重并按 `(kind, phase)` 排序。合法 fact 仅为：
+Reader 一次有界枚举并逐文件有界读取；只接受 regular file、`summary-<32 hex>.json`、当前
+nonce、CPython identity、规范 fact 集合以及一致的 runtime identity。多个合法 worker
+summary 可以合并，facts 作 set union；未知文件、重复冲突 identity、临时文件或过量文件均
+使 mandatory protocol 失败。
 
-- `COLLECTION_FAILED / collect`；
-- `TEST_FAILED / setup | call | teardown`；
-- `INTERNAL_ERROR / pytest`。
+`execution_mode = serial | xdist | unknown` 只是诊断事实。PF 不维护 pytest 版本/执行模式的
+Rejection 白名单。
 
-Writer 先完整写临时文件，再原子替换为 `summary-<32 lowercase hex>.json`。不同 process 可以并发提交；adapter 对合法 facts 作 set union，但所有 summary 的 protocol、nonce、execution mode、Python identity 和 pytest version 必须一致。
+## 4. Optional progress 与 detail
 
-Adapter 最多读取 1024 个 summary，每个不超过 4 KiB，并要求 bounded regular file、精确字段、canonical bytes、当前 nonce 和合法枚举。未知文件、残留临时文件、非法 JSON/UTF-8、超限、重复 fact 或 identity 冲突都会使整个 evidence 无效。
+Progress 使用 invocation-local `pf-pytest-progress-v1` snapshot，表达
+`completed/total/unit=tests`。只有 serial、非 collect-only、nodeid 唯一且 nonce 匹配时发布；
+monitor 启动、读取、consumer 或 cleanup 失败只能丢弃 progress，不改变 terminal outcome。
+最后一个合法 determinate progress 可以由 D006 UI 冻结展示。
 
-## 4. Qualification 与分类
+Failure detail 使用 `pf-pytest-observer-details-v1`，只保存首个安全 nodeid/phase 与去重后的
+失败总数。Reader 有文件数、字节数与显示文本边界；缺失、损坏、写入失败、非法控制字符或
+多 artifact 只省略 detail。它通过：
 
-Negative-evidence authority 只授予：
-
-- CPython 3.10、3.11 或 3.12；
-- serial execution；
-- 规范 stable pytest release，且 major/minimum 为 6/6.2.5、7/7.0.1、8/8.0.2、9/9.0.2。
-
-Prerelease、postrelease、dev/local build、其他 major/minor、xdist 或 unknown mode 都未获 Rejection authority。资格证据位于 [`tests/pytest_witness_qualification/matrix-manifest.json`](../../tests/pytest_witness_qualification/matrix-manifest.json)；新增 major、扩大 execution mode 或修改协议时必须更新 matrix 和 policy identity。
-
-分类首先要求 process 正常、完整退出；timeout、signal、start error 或不完整 stdout/stderr 一律为 ToolFailure。随后按以下顺序：
-
-1. evidence 为空：只有 exit 0 为 `TestPass`，非零为 `ToolFailure`；
-2. 任意 artifact 非法：`ToolFailure`；
-3. 存在 `INTERNAL_ERROR`：`ToolFailure`；
-4. profile 未资格化：只有 exit 0 且无 failure fact 为 `TestPass`，其余为 `ToolFailure`；
-5. 已资格化 serial profile 按表分类。
-
-| Exit | Failure fact | Outcome |
-| ---: | --- | --- |
-| 0 | 无 | `TestPass` |
-| 1 或 2 | 至少一个 collection/test fact | `TestFail` |
-| 1 或 2 | 无 | `ToolFailure` |
-| 0 | 有 | `ToolFailure` |
-| 其他 | 任意 | `ToolFailure` |
-
-因此 ordinary collection failure 的 exit 2 可以成为 `TestFail`；无 witness 的 KeyboardInterrupt 不能。`TestFail` 到 `TEST_FAILURE` disposition 的映射只由 D005 定义。Internal error、事实矛盾和协议故障总是 fail closed。稳定 `summary_code` 可解释具体 ToolFailure，但不改变 disposition。
-
-`TestAdapter.run(...) -> TestPass | TestFail | ToolFailure` 是 pytest-specific 复杂度的边界。RuntimeEvaluator、FailurePolicy 与 CoordinateSearch 只消费这些既有领域结果。
-
-## 5. UI-only telemetry
-
-进度和失败详情使用独立临时目录与协议，不参与 outcome classification、policy identity、Process Log、Journal、cache 或公共报告。每次 direct-pytest invocation 在启动 child 前先删除继承的 pytest 私有 environment 名字，再注入自己的 witness、nonce 与可用 UI 目录；被测套件内的嵌套 pytest 不得继承或覆盖外层 telemetry。Progress 只有在 invocation-local `PF_PYTEST_PROGRESS_NONCE` 存在且等于当前 witness nonce 时才初始化和提交；仅继承目录或来自另一 invocation 的 activation 不能写 snapshot。任何准备、读取、校验、写入或 cleanup 故障都只能省略 UI 信息。
-
-### 5.1 Progress
-
-`pf-pytest-progress-v1` 的 snapshot 为：
-
-```json
-{
-  "completed": 37,
-  "protocol": "pf-pytest-progress-v1",
-  "run_nonce": "<32 lowercase hex>",
-  "total": 120,
-  "unit": "tests"
-}
+```text
+VerifierRun.diagnostics
+-> RuntimeEvaluationRun.diagnostics
+-> D008 completion projection
+-> CellResultDetail(detail_failure_id)
 ```
 
-只有 serial、非 collect-only 且无 collection failure 的唯一 nodeid 集合产生 determinate progress。Collection 完成提交 `0/total`；每个 nodeid 首次 `pytest_runtest_logfinish` 后递增一次。
+detail 不进入 disposition、cause、FailureRecord、Attempt、Proposal、cache、Journal、report、
+merge/apply 或 policy identity。
 
-Parent 每 50 ms 轮询不超过 1 KiB 的 bounded canonical file。首次合法 snapshot 后 `total` 固定、`completed` 单调且不超过 total。非法、倒退、缺失或 consumer 异常永久关闭本次 telemetry：首个合法值前继续显示 spinner，之后冻结最后值。
+## 5. 透明性资格与发布资源
 
-### 5.2 Failure detail
+`scripts/qualify_pytest_observer.py` 的版本矩阵只证明注入在已观察 case 中保持 pytest exit、
+selection、hook outcome、执行顺序与 canonical telemetry。资格结果不授予 Rejection
+authority，也不进入生产 selector 或 identity。
 
-`pf-pytest-failure-details-v1` 只在 authoritative classifier 已产生 `TestFail` 后提供：
+Wheel 与 sdist 必须包含 `pf/_pytest_observer.py` 和 `pf/adapters/pytest_observer.py`。公开行为
+测试只穿过 `ConfiguredVerifier.run(VerifierRequest) -> VerifierRun`；terminal classifier、
+command-shape selector、注入与 telemetry projection 都是私有实现。
 
-```json
-{
-  "first": {"nodeid": "tests/test_cli.py::test_example", "phase": "call"},
-  "protocol": "pf-pytest-failure-details-v1",
-  "run_nonce": "<32 lowercase hex>",
-  "total": 3
-}
-```
+## 6. 非目标
 
-Plugin 按 nodeid 首次出现去重，最多记录 10,000 个失败，每个 nodeid 最长 4,096 字符且不含控制字符。Adapter 最多枚举 1024 个 artifact、每个不超过 8 KiB；只接受唯一一个当前 nonce 的合法详情。详情存入从 model dump 排除的 `PytestFailureDetail`，只供当前 CLI 显示。
-
-## 6. Degradation
-
-| 场景 | 结果 |
-| --- | --- |
-| plugin resource、临时目录或注入准备失败 | 执行原 command；exit 0 可 Pass，非零为 ToolFailure |
-| plugin import/bootstrap 或 summary commit 失败 | 非零且无 finalized summary 为 ToolFailure |
-| initial conftest、config 或 usage failure | 无合格 witness，ToolFailure |
-| pytest internal error | ToolFailure，不受最终 exit 改写影响 |
-| collection、setup、call 或 teardown failure | 合格 exit 1/2 + witness 为 TestFail |
-| xdist pass | 完整 exit 0 且无 failure fact 可 Pass |
-| xdist 非零 | ToolFailure |
-
-该 classifier 可以漏掉真实 candidate incompatibility；它不能用不完整证据制造 Rejection。pytest process 和 embedded plugin 也不被视为安全工具。
-
-## 7. 持久化边界
-
-Ephemeral witness 只帮助 adapter 产生既有 `TestFail`。Schema 2 仍只保存 terminal Evaluation、`TEST_FAILURE @ test`、完整 `ProcessResult`、Attempt/Proposal 与 resolution identities，以及本地 Process Log association；pytest fact、nodeid、progress 和临时文件均不进入报告。
-
-## 8. 不变量
-
-- pytest profile 的 exit 1 和 2 都必须有 finalized、合法、已资格化的 direct failure witness，才能形成 TestFail。
-- Exit 0 与 failure fact 冲突；internal error、协议损坏和不完整 process 均为 ToolFailure。
-- User test selection、collection continuation 和 runtest order 保持不变。
-- Generic profile 与用户显式 failure-code contract 保持不变。
-- xdist/unknown execution mode 不具有 v1 Rejection authority。
-- UI telemetry 只能增加当次可读性，不能改变任何 authoritative outcome。
+- 不解析 traceback、stderr、exception type 或 pytest facts决定 disposition；
+- 不根据 observer 推测“未注入时会得到的 exit code”；
+- 不重跑 verifier、修复 pytest 配置或维护 test-runner classifier registry；
+- 不替代 D004 的 runtime interface witness；`RuntimeWitness` 仍是独立 pre-verifier operation。

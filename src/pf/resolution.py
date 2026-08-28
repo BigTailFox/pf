@@ -10,7 +10,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import Field, model_validator
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
-from pf.schemas.evaluation import FailureCause, ProcessResult
+from pf.schemas.evaluation import FailureCause, ProcessObservation, ProcessResult
 from pf.schemas.project import (
     Cell,
     HarnessSelection,
@@ -395,7 +395,7 @@ def environment_identity_digest(
 
 
 def resolution_graph_id(graph: tuple[ResolvedNode, ...]) -> str:
-    """Return the Schema 2 identity for one canonical resolved graph."""
+    """Return the Schema 1 identity for one canonical resolved graph."""
     names = tuple(node.name for node in graph)
     if names != tuple(sorted(set(names))):
         raise ValueError("resolution graph nodes must be sorted and unique")
@@ -487,7 +487,7 @@ class ResolutionIndeterminate(FrozenSchema):
     context: ResolutionContext
     cause: FailureCause
     summary_code: str
-    process: ProcessResult
+    process: ProcessObservation
 
     @model_validator(mode="after")
     def validate_indeterminate(self) -> "ResolutionIndeterminate":
@@ -521,7 +521,7 @@ class InstallFailure(FrozenSchema):
     plan_digest: str
     cause: FailureCause
     stage: Literal["install-environment"] = "install-environment"
-    process: ProcessResult
+    process: ProcessObservation
     summary_code: str | None = None
 
     @model_validator(mode="after")

@@ -16,8 +16,9 @@ from typing import TextIO
 from pf._secure_runlog import SecureLogDirectory, secure_log_directory
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.schemas.evaluation import (
-    ProcessResult,
+    ProcessObservation,
     ProcessSpec,
+    ProcessTerminalUnavailable,
     VerificationJournal,
     VerificationJournalRecord,
     VerificationJournalV1,
@@ -68,7 +69,7 @@ class RunLogStore:
         self,
         process_id: int,
         spec: ProcessSpec,
-        result: ProcessResult,
+        result: ProcessObservation,
         stdout: str = "",
         stderr: str = "",
     ) -> Path:
@@ -83,7 +84,7 @@ class RunLogStore:
         self,
         process_id: int,
         spec: ProcessSpec,
-        result: ProcessResult,
+        result: ProcessObservation,
         stdout_file: TextIO,
         stderr_file: TextIO,
     ) -> Path:
@@ -118,11 +119,11 @@ class RunLogStore:
                 detail=str(error),
             ) from error
 
-    def reference_for(self, result: ProcessResult) -> Path | None:
+    def reference_for(self, result: ProcessObservation) -> Path | None:
         with self._lock:
             return self._references.get(id(result))
 
-    def read_output(self, result: ProcessResult) -> tuple[str, str] | None:
+    def read_output(self, result: ProcessObservation) -> tuple[str, str] | None:
         path = self.reference_for(result)
         if path is None:
             return None
@@ -249,7 +250,7 @@ class RunLogStore:
         self,
         report_generation_id: str,
         failure_id: str,
-        result: ProcessResult,
+        result: ProcessObservation,
     ) -> None:
         """Associate a portable failure identity with this run's local log."""
         if self.reference_for(result) is None:
@@ -269,7 +270,7 @@ class RunLogStore:
     def replace_associations(
         self,
         report_generation_id: str,
-        failures: tuple[tuple[str, ProcessResult | None], ...],
+        failures: tuple[tuple[str, ProcessObservation | None], ...],
         *,
         replace_generation: bool = True,
         remove_failure_ids: tuple[str, ...] = (),
@@ -456,7 +457,7 @@ class RunLogStore:
             f"root: {self._bounded(self._root.as_posix(), self._METADATA_LIMIT)}\n"
         )
 
-    def _relative_reference(self, result: ProcessResult) -> str | None:
+    def _relative_reference(self, result: ProcessObservation) -> str | None:
         path = self._references.get(id(result))
         if path is None:
             return None
@@ -570,12 +571,34 @@ class RunLogStore:
         cls,
         process_id: int,
         spec: ProcessSpec,
-        result: ProcessResult,
+        result: ProcessObservation,
         *,
         stdout_characters: int,
         stderr_characters: int,
     ) -> str:
         environment_names = sorted(variable.name for variable in spec.environment)
+        if isinstance(result, ProcessTerminalUnavailable):
+            terminal = (
+                "terminal_kind: terminal-unavailable\n"
+                "exit_code: null\n"
+                "signal: null\n"
+                "start_error: null\n"
+                "timed_out: false\n"
+                f"duration_seconds: {result.duration_seconds}\n"
+                "stdout_complete: false\n"
+                "stderr_complete: false\n"
+            )
+        else:
+            terminal = (
+                "terminal_kind: process-result\n"
+                f"exit_code: {json.dumps(result.exit_code)}\n"
+                f"signal: {json.dumps(result.signal)}\n"
+                f"start_error: {cls._bounded_json(result.start_error)}\n"
+                f"timed_out: {json.dumps(result.timed_out)}\n"
+                f"duration_seconds: {result.duration_seconds}\n"
+                f"stdout_complete: {json.dumps(result.stdout_complete)}\n"
+                f"stderr_complete: {json.dumps(result.stderr_complete)}\n"
+            )
         return (
             "format: pf-process-log-v2\n"
             f"process_id: {process_id}\n"
@@ -586,13 +609,7 @@ class RunLogStore:
             f"start_new_session: {json.dumps(spec.start_new_session)}\n"
             "redaction_policy_identity: "
             f"{cls._bounded_json(spec.redaction_policy_identity)}\n"
-            f"exit_code: {json.dumps(result.exit_code)}\n"
-            f"signal: {json.dumps(result.signal)}\n"
-            f"start_error: {cls._bounded_json(result.start_error)}\n"
-            f"timed_out: {json.dumps(result.timed_out)}\n"
-            f"duration_seconds: {result.duration_seconds}\n"
-            f"stdout_complete: {json.dumps(result.stdout_complete)}\n"
-            f"stderr_complete: {json.dumps(result.stderr_complete)}\n"
+            f"{terminal}"
             f"stdout_characters: {stdout_characters}\n"
             f"stderr_characters: {stderr_characters}\n"
         )
@@ -602,7 +619,7 @@ class RunLogStore:
         cls,
         process_id: int,
         spec: ProcessSpec,
-        result: ProcessResult,
+        result: ProcessObservation,
         *,
         stdout: str,
         stderr: str,
@@ -770,7 +787,7 @@ class _ProcessLogWriter:
     def write_stderr(self, chunk: str) -> None:
         self._stderr.write(chunk)
 
-    def finish(self, result: ProcessResult) -> Path:
+    def finish(self, result: ProcessObservation) -> Path:
         try:
             return self._store._commit_process_log(
                 self._process_id,

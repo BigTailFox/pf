@@ -53,4 +53,4 @@ PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当�
 - [工程文档索引](docs/README.md)：契约所有权、状态词和文档布局
 - [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
 
-D001–D008、D012–D014 是现行契约；D009–D011 的实施决策已归并到这些所有者。D015 仍是草案。Plan、Review 与 Investigation 只记录历史执行或观察，不承担现行契约。
+D001–D008、D012–D014 是现行契约；D009–D011 的实施决策与 D015 的 verifier terminal authority 已归并到这些所有者。Plan、Review 与 Investigation 只记录历史执行或观察，不承担现行契约。

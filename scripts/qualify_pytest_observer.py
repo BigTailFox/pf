@@ -26,7 +26,7 @@ CURRENT_PLUGIN_REQUIREMENTS = (
     "pytest-benchmark==5.2.3",
     "pytest-xdist==3.8.0",
 )
-PROTOCOL = "pf-pytest-failure-witness-v1"
+PROTOCOL = "pf-pytest-observer-v1"
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,8 @@ class QualificationCase:
     args: tuple[str, ...]
     expected_exit: int
     expected_facts: tuple[tuple[str, str], ...]
-    summary: Literal["present", "absent", "either"] = "present"
+    summary: Literal["present", "either"] = "present"
+    execution_mode: Literal["serial", "unknown"] = "serial"
 
 
 CASES = (
@@ -116,7 +117,8 @@ CASES = (
         (),
         4,
         (),
-        "absent",
+        "present",
+        "unknown",
     ),
     QualificationCase(
         "internal-error",
@@ -151,7 +153,8 @@ CASES = (
         ("-p", "pf_qualification_missing_plugin"),
         1,
         (),
-        "absent",
+        "present",
+        "unknown",
     ),
     QualificationCase(
         "no-tests-collected",
@@ -166,18 +169,23 @@ CASES = (
         ("--pf-qualification-invalid-option",),
         4,
         (),
-        "absent",
+        "present",
+        "unknown",
     ),
 )
 
 
 class CaseResult(TypedDict):
     case: str
+    reference_exit_code: int
     exit_code: int
     execution_modes: list[str]
     facts: list[list[str]]
     summary_count: int
     canonical: bool
+    selection_matches: bool
+    hook_outcomes_match: bool
+    execution_order_matches: bool
     expected: bool
 
 
@@ -199,6 +207,91 @@ def _canonical(document: object) -> bytes:
     ).encode("utf-8")
 
 
+_TRACE_PLUGIN = """\
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+
+def _record(event):
+    path = Path(os.environ["PF_PYTEST_QUALIFICATION_TRACE"])
+    payload = json.dumps(event, sort_keys=True, separators=(",", ":")) + "\\n"
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(payload)
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_collection_modifyitems(session, config, items):
+    del session, config
+    yield
+    _record(["selection", [item.nodeid for item in items]])
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_logreport(report):
+    _record(["report", report.nodeid, report.when, report.outcome])
+"""
+
+
+def _trace(path: Path) -> tuple[object, ...]:
+    if not path.exists():
+        return ()
+    return tuple(
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+    )
+
+
+def _trace_projection(
+    events: tuple[object, ...],
+) -> tuple[tuple[object, ...], tuple[object, ...], tuple[object, ...]]:
+    selections: list[object] = []
+    reports: list[object] = []
+    execution: list[object] = []
+    for event in events:
+        if not isinstance(event, list) or not event:
+            continue
+        if event[0] == "selection":
+            selections.append(event[1:])
+        elif event[0] == "report":
+            reports.append(event[1:])
+            if len(event) >= 4 and event[2] == "call":
+                execution.append(event[1])
+    return tuple(selections), tuple(reports), tuple(execution)
+
+
+def _run_pytest(
+    *,
+    project: Path,
+    environment: dict[str, str],
+    trace_module: str,
+    observer_module: str | None,
+    case: QualificationCase,
+) -> subprocess.CompletedProcess[bytes]:
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-p",
+        trace_module,
+    ]
+    if observer_module is not None:
+        command.extend(("-p", observer_module))
+    command.extend(("--no-header", "-q", *case.args))
+    return subprocess.run(
+        command,
+        cwd=project,
+        env=environment,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+
 def _run_case(
     case: QualificationCase,
     *,
@@ -209,19 +302,27 @@ def _run_case(
 ) -> CaseResult:
     with tempfile.TemporaryDirectory(prefix="pf-pytest-qualification-") as root_value:
         root = Path(root_value)
-        project = root / "project"
+        reference_project = root / "reference-project"
+        injected_project = root / "injected-project"
         plugin_directory = root / "plugin"
         evidence = root / "evidence"
-        project.mkdir()
+        reference_project.mkdir()
+        injected_project.mkdir()
         plugin_directory.mkdir()
         evidence.mkdir()
         for relative, content in case.files:
-            target = project / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            for project in (reference_project, injected_project):
+                target = project / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
         nonce = secrets.token_hex(16)
-        module = f"_pf_pytest_witness_{nonce}"
+        module = f"_pf_pytest_observer_{nonce}"
+        trace_module = "_pf_pytest_qualification_trace"
         shutil.copyfile(plugin_source, plugin_directory / f"{module}.py")
+        (plugin_directory / f"{trace_module}.py").write_text(
+            _TRACE_PLUGIN,
+            encoding="utf-8",
+        )
         environment = os.environ.copy()
         pythonpath = environment.get("PYTHONPATH", "")
         environment["PYTHONPATH"] = (
@@ -229,28 +330,35 @@ def _run_case(
             if not pythonpath
             else plugin_directory.as_posix() + os.pathsep + pythonpath
         )
-        environment["PF_PYTEST_WITNESS_DIR"] = evidence.as_posix()
-        environment["PF_PYTEST_WITNESS_NONCE"] = nonce
+        environment["PF_PYTEST_OBSERVER_DIR"] = evidence.as_posix()
+        environment["PF_PYTEST_OBSERVER_NONCE"] = nonce
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         if autoload:
             environment.pop("PYTEST_DISABLE_PLUGIN_AUTOLOAD", None)
         else:
             environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
-        process = subprocess.run(
-            (
-                sys.executable,
-                "-m",
-                "pytest",
-                "-p",
-                module,
-                "--no-header",
-                "-q",
-                *case.args,
-            ),
-            cwd=project,
-            env=environment,
-            capture_output=True,
-            timeout=30,
-            check=False,
+        reference_trace_path = root / "reference-trace.jsonl"
+        reference_environment = environment.copy()
+        reference_environment.pop("PF_PYTEST_OBSERVER_DIR", None)
+        reference_environment.pop("PF_PYTEST_OBSERVER_NONCE", None)
+        reference_environment["PF_PYTEST_QUALIFICATION_TRACE"] = (
+            reference_trace_path.as_posix()
+        )
+        reference = _run_pytest(
+            project=reference_project,
+            environment=reference_environment,
+            trace_module=trace_module,
+            observer_module=None,
+            case=case,
+        )
+        injected_trace_path = root / "injected-trace.jsonl"
+        environment["PF_PYTEST_QUALIFICATION_TRACE"] = injected_trace_path.as_posix()
+        process = _run_pytest(
+            project=injected_project,
+            environment=environment,
+            trace_module=trace_module,
+            observer_module=module,
+            case=case,
         )
         summaries: list[dict[str, object]] = []
         canonical = True
@@ -288,28 +396,36 @@ def _run_case(
             and summary.get("pytest_version") == pytest_version
             for summary in summaries
         )
-        summary_expected = (
-            bool(summaries)
-            if case.summary == "present"
-            else not summaries
-            if case.summary == "absent"
-            else True
-        )
+        summary_expected = bool(summaries) if case.summary == "present" else True
+        reference_projection = _trace_projection(_trace(reference_trace_path))
+        injected_projection = _trace_projection(_trace(injected_trace_path))
+        selection_matches = reference_projection[0] == injected_projection[0]
+        hook_outcomes_match = reference_projection[1] == injected_projection[1]
+        execution_order_matches = reference_projection[2] == injected_projection[2]
         expected = (
-            process.returncode == case.expected_exit
+            reference.returncode == case.expected_exit
+            and process.returncode == case.expected_exit
+            and reference.returncode == process.returncode
             and tuple(facts) == case.expected_facts
             and summary_expected
             and canonical
             and identities_valid
-            and (not summaries or modes == ["serial"])
+            and (not summaries or modes == [case.execution_mode])
+            and selection_matches
+            and hook_outcomes_match
+            and execution_order_matches
         )
         return {
             "case": case.name,
+            "reference_exit_code": reference.returncode,
             "exit_code": process.returncode,
             "execution_modes": modes,
             "facts": [list(fact) for fact in facts],
             "summary_count": len(summaries),
             "canonical": canonical,
+            "selection_matches": selection_matches,
+            "hook_outcomes_match": hook_outcomes_match,
+            "execution_order_matches": execution_order_matches,
             "expected": expected,
         }
 
@@ -385,7 +501,7 @@ def _run_profile(
         return {
             "python_minor": python_minor,
             "requirements": list(requirements),
-            "qualified": False,
+            "transparent": False,
             "runner_error": process.stderr[-2000:],
             "cases": [],
         }
@@ -394,7 +510,7 @@ def _run_profile(
         "python_minor": result["python_minor"],
         "pytest_version": result["pytest_version"],
         "requirements": list(requirements),
-        "qualified": all(item["expected"] for item in result["cases"]),
+        "transparent": all(item["expected"] for item in result["cases"]),
         "cases": result["cases"],
     }
 
@@ -402,23 +518,23 @@ def _run_profile(
 def _compact_manifest(manifest: dict[str, object]) -> dict[str, object]:
     profiles_document = manifest.get("profiles")
     if not isinstance(profiles_document, list):
-        raise ValueError("qualification manifest profiles must be a list")
+        raise ValueError("observer transparency manifest profiles must be a list")
     profiles: list[dict[str, object]] = []
     for item in profiles_document:
         if not isinstance(item, dict):
-            raise ValueError("qualification profile must be an object")
+            raise ValueError("observer profile must be an object")
         profile = cast(dict[str, object], item)
         cases = profile.get("cases")
         requirements = profile.get("requirements")
         if not isinstance(cases, list) or not isinstance(requirements, list):
-            raise ValueError("qualification profile cases/requirements are invalid")
+            raise ValueError("observer profile cases/requirements are invalid")
         profiles.append(
             {
                 "case_count": len(cases),
                 "current_plugins": len(requirements) > 1,
                 "pytest_version": profile.get("pytest_version"),
                 "python_minor": profile.get("python_minor"),
-                "qualified": profile.get("qualified") is True,
+                "transparent": profile.get("transparent") is True,
                 "requirements": requirements,
                 "results_sha256": hashlib.sha256(_canonical(cases)).hexdigest(),
             }
@@ -434,12 +550,13 @@ def _compact_manifest(manifest: dict[str, object]) -> dict[str, object]:
                 "expected_exit": case.expected_exit,
                 "expected_facts": [list(fact) for fact in case.expected_facts],
                 "summary": case.summary,
+                "execution_mode": case.execution_mode,
             }
             for case in CASES
         ],
         "execution_count": manifest.get("execution_count"),
-        "all_profiles_qualified": all(
-            profile["qualified"] is True for profile in profiles
+        "all_profiles_transparent": all(
+            profile["transparent"] is True for profile in profiles
         ),
         "profiles": profiles,
     }
@@ -471,7 +588,7 @@ def main() -> int:
             print(payload, end="")
         return 0
     plugin_source = args.plugin_source or (
-        Path(__file__).resolve().parents[1] / "src/pf/_pytest_failure_witness.py"
+        Path(__file__).resolve().parents[1] / "src/pf/_pytest_observer.py"
     )
     selected = frozenset(args.case)
     unknown = sorted(selected - {case.name for case in CASES})
@@ -518,7 +635,7 @@ def main() -> int:
             for minor in python_minors
         )
     manifest = {
-        "schema": "pf-pytest-witness-qualification-v1",
+        "schema": "pf-pytest-observer-transparency-v1",
         "protocol": PROTOCOL,
         "cases": [case.name for case in cases],
         "execution_count": sum(
@@ -533,7 +650,7 @@ def main() -> int:
         args.output.write_text(payload, encoding="utf-8")
     else:
         print(payload, end="")
-    return 0 if all(profile.get("qualified") is True for profile in profiles) else 1
+    return 0 if all(profile.get("transparent") is True for profile in profiles) else 1
 
 
 if __name__ == "__main__":

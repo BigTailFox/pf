@@ -91,7 +91,7 @@ def report_for(
 
 
 class TestReportStore:
-    def test_write_round_trips_canonical_schema_2_json(
+    def test_write_round_trips_canonical_schema_1_json(
         self,
         tmp_path: Path,
     ) -> None:
@@ -104,7 +104,7 @@ class TestReportStore:
         content = path.read_text(encoding="utf-8")
         assert content.endswith("\n") and not content.endswith("\n\n")
         assert content.startswith('{"cell_results":')
-        assert '"schema_version":2' in content
+        assert '"schema_version":1' in content
         assert ":null" not in content
         loaded = store.read(path)
         assert loaded == report
@@ -117,12 +117,12 @@ class TestReportStore:
         (
             (None, "cannot read report"),
             ("not-json", "invalid report JSON"),
-            ('{"schema_version":1}', "unsupported report schema_version"),
+            ('{"schema_version":2}', "unsupported report schema_version"),
             ('{"schema_version":3}', "unsupported report schema_version"),
             ("[]", "unsupported report schema_version"),
         ),
     )
-    def test_read_rejects_unusable_or_non_schema_2_report(
+    def test_read_rejects_unusable_or_non_schema_1_report(
         self,
         tmp_path: Path,
         content: str | None,
@@ -158,7 +158,7 @@ class TestReportStore:
         tmp_path: Path,
     ) -> None:
         path = tmp_path / "package-floor.json"
-        path.write_bytes(b'{"schema_version":2,"invalid":"\xff"}')
+        path.write_bytes(b'{"schema_version":1,"invalid":"\xff"}')
 
         with pytest.raises(ConfigurationError, match="invalid report JSON"):
             ReportStore().read(path)
@@ -225,7 +225,7 @@ class TestReportStore:
         tmp_path: Path,
     ) -> None:
         path = tmp_path / "package-floor.json"
-        original = b'{"schema_version":1}\n'
+        original = b'{"schema_version":2}\n'
         path.write_bytes(original)
 
         with pytest.raises(

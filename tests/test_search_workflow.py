@@ -10,14 +10,27 @@ from pf.report import PackageReportBuilder, ReportStore
 from pf.runlog import RunLogStore
 from pf.schemas.config import SearchRequest
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptFailureScope,
+    AttemptIdentity,
+    BaselineIndeterminate,
     CellCompletedEvent,
     CellFailureScope,
     CellMatrixEvent,
     FailureDetail,
+    FailureEvaluationRuntimeRun,
+    IndeterminateEvaluation,
     ProcessResult,
     ProcessSpec,
+    ProcessTerminalUnavailable,
+    RuntimeEvaluationRun,
+    StaticUnchangedEvaluation,
+    TimedOut,
+    TyCheck,
+    VerifierDiagnostics,
+    VerifierIndeterminate,
 )
-from pf.schemas.project import Cell, PackagePlan
+from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.verification import VerificationRunner
@@ -58,6 +71,122 @@ class FailedSearch:
             phase=f"evaluation-{len(self.cells)}",
             failure_id=failure.failure_id,
             failure_records=(failure,),
+        )
+
+
+class TimedOutVerifierSearch:
+    def __init__(self, process: ProcessResult) -> None:
+        self.process = process
+
+    def search(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> CellIndeterminate:
+        policy = evaluation_policy_identity(package.config)
+        attempt = Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution="exact-vector",
+                requested_managed_vector=(),
+                active_declaration_ids=(),
+                source_plan_identity="sources",
+                evaluation_policy_identity=policy,
+                identity_version="attempt-v2",
+                resolution_context_digest="context",
+                harness_policy_identity="harness-relaxation-v1",
+                harness_baseline_digest="baseline",
+                selected_candidate_evidence_digest="candidate",
+            )
+        )
+        proposal = Proposal(
+            proposal_id="timed-out-proposal",
+            attempt_id=attempt.attempt_id,
+            snapshot_digest=snapshot.identity.digest,
+            cell=cell,
+            managed_vector=(),
+            fixed_declaration_ids=(),
+            resolved_graph=(),
+            policy_identity=policy,
+        )
+        static = StaticUnchangedEvaluation(
+            proposal=proposal,
+            ty=TyCheck(
+                process=ProcessResult(exit_code=0, duration_seconds=0.1),
+                diagnostics=(),
+            ),
+            baseline_digest="baseline",
+        )
+        evaluation = IndeterminateEvaluation(
+            proposal=proposal,
+            cause="TIMEOUT",
+            verifier=VerifierIndeterminate(
+                terminal=TimedOut(),
+                reason="process-timed-out",
+            ),
+            static=static,
+        )
+        failure = FailurePolicy().record_evaluation(
+            AttemptFailureScope(attempt=attempt),
+            evaluation,
+        )
+        assert failure is not None
+        runtime = RuntimeEvaluationRun(
+            evaluation=evaluation,
+            diagnostics=VerifierDiagnostics(process=self.process),
+        )
+        return CellIndeterminate(
+            cell=cell,
+            phase="test",
+            failure_id=failure.failure_id,
+            failure_records=(failure,),
+            failure_runtime_runs=(
+                FailureEvaluationRuntimeRun(
+                    failure_id=failure.failure_id,
+                    runtime=runtime,
+                ),
+            ),
+        )
+
+
+class UnavailableBaselineSearch:
+    def __init__(self, process: ProcessTerminalUnavailable) -> None:
+        self.process = process
+
+    def search(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> BaselineIndeterminate:
+        attempt = Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution="highest",
+                requested_managed_vector=None,
+                active_declaration_ids=cell.active_declaration_ids,
+                source_plan_identity="sources",
+                evaluation_policy_identity=evaluation_policy_identity(package.config),
+                identity_version="attempt-v2",
+                resolution_context_digest="context",
+                harness_policy_identity="original-harness-v1",
+            )
+        )
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="TOOL_FAILURE",
+            stage="resolve-project",
+            process=self.process,
+        )
+        return BaselineIndeterminate(
+            attempt=attempt,
+            failure=failure,
+            failure_process=self.process,
         )
 
 
@@ -234,6 +363,128 @@ class TestSearchWorkflow:
         assert {entry.failure.failure_id for entry in journal.entries} == {
             replacement_failure.failure_id
         }
+
+    def test_search_workflow_associates_runtime_only_verifier_process(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        logs = RunLogStore(root=tmp_path, run_id="runtime-search")
+        process = ProcessResult(
+            signal=9,
+            duration_seconds=1,
+            timed_out=True,
+        )
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=(sys.executable, "-c", "pass"),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            process,
+        )
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            coordinator=TimedOutVerifierSearch(process),
+            verification=VerificationRunner(events=Events(), logs=logs),
+            reports=ReportStore(),
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+            associations=logs,
+        )
+
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        failure = report.failure_records[0]
+        expected = Path(".pf/logs/runtime-search/process-0001.log")
+
+        assert failure.authority.kind == "configured-verifier"
+        assert logs.lookup(report.report_generation_id, failure.failure_id) == expected
+        assert logs.lookup_run("runtime-search", failure.failure_id) == expected
+        journal = logs.read_latest_journal("demo")
+        assert journal is not None
+        assert journal.command == "search"
+        assert journal.run_id == "runtime-search"
+        assert {entry.failure.failure_id for entry in journal.entries} == {
+            failure.failure_id
+        }
+
+    def test_search_workflow_associates_unavailable_baseline_process(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        logs = RunLogStore(root=tmp_path, run_id="unavailable-baseline")
+        process = ProcessTerminalUnavailable(
+            duration_seconds=0.2,
+            detail="runner returned no terminal status",
+        )
+        logs.record(
+            1,
+            ProcessSpec(
+                argv=(sys.executable, "-c", "pass"),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=1,
+            ),
+            process,
+        )
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            coordinator=UnavailableBaselineSearch(process),
+            verification=VerificationRunner(events=Events(), logs=logs),
+            reports=ReportStore(),
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+            associations=logs,
+        )
+
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        failure = report.failure_records[0]
+        expected = Path(
+            ".pf/logs/unavailable-baseline/process-0001.log"
+        )
+
+        assert failure.process is None
+        assert failure.detail is not None
+        assert failure.detail.code == "terminal-unavailable"
+        assert logs.lookup(report.report_generation_id, failure.failure_id) == expected
+        assert logs.lookup_run("unavailable-baseline", failure.failure_id) == expected
 
     def test_search_replaces_a_report_from_an_incompatible_source_generation(
         self,

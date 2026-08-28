@@ -9,19 +9,20 @@ from pf.schemas.evaluation import (
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
-    Evaluation,
     FailureDetail,
     HighestVersionOutcome,
     HighestVersionPass,
     IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
+    ProcessTerminalUnavailable,
     RuntimeInterfaceMissingEvaluation,
+    RuntimeEvaluationRun,
     RuntimeWitnessResult,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
-    TestFailEvaluation,
+    VerifierRejectedEvaluation,
     ToolFailure,
 )
 from pf.schemas.project import Cell, PackagePlan
@@ -56,7 +57,7 @@ class HighestFullOperations(Protocol):
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
-    ) -> Evaluation: ...
+    ) -> RuntimeEvaluationRun: ...
 
 
 class HighestVersionVerifier:
@@ -109,10 +110,19 @@ class HighestVersionVerifier:
             return BaselineIndeterminate(
                 attempt=prepared.attempt,
                 failure=failure,
+                failure_process=(
+                    prepared.failure.process
+                    if isinstance(
+                        prepared.failure.process,
+                        ProcessTerminalUnavailable,
+                    )
+                    else None
+                ),
             )
         try:
             capture = self._static.capture(prepared, package=package)
             if isinstance(capture, IndeterminateEvaluation):
+                assert capture.failure is not None
                 return BaselineIndeterminate(
                     attempt=prepared.attempt,
                     failure=self._failures.classify(
@@ -126,12 +136,13 @@ class HighestVersionVerifier:
                     ),
                     evaluation=capture,
                 )
-            evaluation = self._full.evaluate(
+            run = self._full.evaluate(
                 prepared,
                 package=package,
                 baseline=capture.baseline,
                 static_result=capture.static,
             )
+            evaluation = run.evaluation
             if isinstance(evaluation, PassEvaluation):
                 return HighestVersionPass(
                     attempt=prepared.attempt,
@@ -166,36 +177,21 @@ class HighestVersionVerifier:
                     failure=failure,
                     static_baseline=capture.baseline,
                 )
-            if isinstance(evaluation, TestFailEvaluation):
-                cause = "TEST_FAILURE"
-                process = evaluation.test.process
-            else:
-                cause = evaluation.cause
-                process = evaluation.failure.process
-            failure = self._failures.classify(
-                scope=AttemptFailureScope(attempt=prepared.attempt),
-                cause=cause,
-                stage=(
-                    "test"
-                    if isinstance(evaluation, TestFailEvaluation)
-                    else evaluation.failure.stage
-                ),
-                process=process,
-                summary_code=(
-                    evaluation.failure.summary_code
-                    if isinstance(evaluation, IndeterminateEvaluation)
-                    else None
-                ),
+            failure = self._failures.record_evaluation(
+                AttemptFailureScope(attempt=prepared.attempt),
+                evaluation,
                 project_plan_digest=prepared.project_plan.semantic_digest,
                 environment_plan_digest=prepared.environment_plan.semantic_digest,
             )
+            assert failure is not None
             if failure.disposition == "REJECTED":
-                assert isinstance(evaluation, TestFailEvaluation)
+                assert isinstance(evaluation, VerifierRejectedEvaluation)
                 return BaselineRejection(
                     attempt=prepared.attempt,
                     failure=failure,
                     static_baseline=capture.baseline,
                     evaluation=evaluation,
+                    runtime=run,
                 )
             assert isinstance(evaluation, IndeterminateEvaluation)
             return BaselineIndeterminate(
@@ -203,6 +199,7 @@ class HighestVersionVerifier:
                 failure=failure,
                 static_baseline=capture.baseline,
                 evaluation=evaluation,
+                runtime=run,
             )
         finally:
             prepared.close()

@@ -41,6 +41,10 @@ E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
 - Python、target、marker 与 wheel-tag 环境；
 - release cutoff 与共享 cache policy。
 
+`UvAdapter` 运行 resolver 与 installer 时必须隔离用户级 uv 配置文件及外部 source-selection
+环境变量，只消费 source snapshot 内的 `pyproject.toml [tool.uv]` 与显式 RegistryAccess
+凭据。进程级额外 index、find-links 或 config-file 不得绕过 `SourcePlan` 进入解析。
+
 它不表示完整或离线的 package universe。source、凭据、metadata、artifact 或 cache 问题不能被解释为版本无解。
 
 ### 2.1 Attempt 适用规则

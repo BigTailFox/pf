@@ -10,11 +10,16 @@ from pf.policy import evaluation_policy_identity
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     ActivityEvent,
+    Attempt,
+    AttemptIdentity,
     CellCompletedEvent,
     CellFailed,
     CellFailureScope,
+    CheckCellOutcome,
     FailureDetail,
+    ProcessObservation,
     ProcessResult,
+    ProcessTerminalUnavailable,
     VerificationJournal,
     VerificationJournalEntry,
     ToolFailure,
@@ -165,6 +170,114 @@ class TestVerificationRunner:
         assert isinstance(outcome, CellFailed)
         assert outcome.phase == "test"
 
+    def test_completion_outcome_retains_typed_terminal_unavailable(self) -> None:
+        unavailable = ProcessTerminalUnavailable(
+            duration_seconds=0.2,
+            detail="runner returned no terminal status",
+        )
+        outcome = completion_outcome(
+            ToolFailure(
+                cause="TOOL_FAILURE",
+                stage="test",
+                process=unavailable,
+            )
+        )
+
+        assert isinstance(outcome, CellFailed)
+        assert outcome.process == unavailable
+
+    def test_verification_runner_associates_typed_terminal_unavailable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, cell, package, _ = verification_case(tmp_path)
+        attempt = Attempt.from_identity(
+            AttemptIdentity(
+                source_snapshot_digest=snapshot.identity.digest,
+                cell=cell,
+                requested_resolution="lowest-direct",
+                requested_managed_vector=None,
+                active_declaration_ids=cell.active_declaration_ids,
+                source_plan_identity="sources",
+                evaluation_policy_identity=evaluation_policy_identity(package.config),
+            )
+        )
+        unavailable = ProcessTerminalUnavailable(
+            duration_seconds=0.2,
+            detail="runner returned no terminal status",
+        )
+        later_diagnostics = ProcessTerminalUnavailable(
+            duration_seconds=0.3,
+            detail="different runtime-only diagnostics",
+        )
+        failure = FailurePolicy().classify(
+            scope=CellFailureScope(
+                package=cell.package,
+                cell=cell,
+                source_snapshot_digest=snapshot.identity.digest,
+                evaluation_policy_identity=evaluation_policy_identity(package.config),
+            ),
+            cause="TOOL_FAILURE",
+            stage="prepare",
+            process=unavailable,
+        )
+        entry = VerificationJournalEntry(
+            package=cell.package,
+            cell=cell,
+            role="declaration",
+            failure=failure,
+        )
+        outcome = CheckCellOutcome(
+            status="INDETERMINATE",
+            role="declaration",
+            attempt=attempt,
+            failure=failure,
+            failure_process=unavailable,
+        )
+        associations: list[tuple[str, ProcessTerminalUnavailable]] = []
+
+        class Logs:
+            run_id = "unavailable-run"
+
+            def write_journal(self, journal: VerificationJournal) -> Path:
+                return tmp_path / "journal.json"
+
+            def associate(
+                self,
+                report_generation_id: str,
+                failure_id: str,
+                result: ProcessResult | ProcessTerminalUnavailable,
+            ) -> None:
+                assert report_generation_id == "journal:unavailable-run"
+                assert failure_id == failure.failure_id
+                assert isinstance(result, ProcessTerminalUnavailable)
+                associations.append((failure_id, result))
+
+        VerificationRunner(events=_NoEvents(), logs=Logs()).run(
+            VerificationRun(
+                command="check",
+                packages=(package,),
+                snapshot=snapshot,
+                tasks=(
+                    VerificationTask(
+                        cell=cell,
+                        execute=lambda: outcome,
+                        journal_entries=lambda result: (entry,),
+                        runtime_associations=lambda result: (
+                            (failure.failure_id, unavailable),
+                            (failure.failure_id, later_diagnostics),
+                        ),
+                    ),
+                ),
+                jobs=1,
+                max_duration_seconds=None,
+            )
+        )
+
+        assert associations
+        assert all(result == unavailable for _, result in associations)
+        snapshot.close()
+
     def test_completion_outcome_rejects_an_unknown_result(self) -> None:
         with pytest.raises(TypeError, match="unsupported verification result"):
             completion_outcome(object())
@@ -221,6 +334,14 @@ class TestVerificationRunner:
             def write_journal(self, journal: VerificationJournal) -> Path:
                 timeline.append(("journal", len(journal.entries)))
                 return tmp_path / "journal.json"
+
+            def associate(
+                self,
+                report_generation_id: str,
+                failure_id: str,
+                result: ProcessObservation,
+            ) -> None:
+                return
 
         runner = VerificationRunner(
             events=Events(),
@@ -318,6 +439,14 @@ class TestVerificationRunner:
 
             def write_journal(self, journal: VerificationJournal) -> Path:
                 raise InfrastructureError("could not write verification journal")
+
+            def associate(
+                self,
+                report_generation_id: str,
+                failure_id: str,
+                result: ProcessObservation,
+            ) -> None:
+                raise AssertionError("journal failure must prevent process association")
 
         runner = VerificationRunner(
             events=Events(),

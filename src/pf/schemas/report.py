@@ -15,11 +15,17 @@ from pf.schemas.evaluation import (
     Evaluation,
     DiagnosticClassification,
     FailureCause,
-    FailureDetail,
+    FailureAuthority,
+    ConfiguredVerifierFailureAuthority,
     FailureRecord,
+    FailureEvaluationRuntimeRun,
+    FailureProcessRuntimeRun,
+    FailureRuntimeRun,
     IndeterminateEvaluation,
+    NormalExit,
     PassEvaluation,
     RuntimeInterfaceMissingEvaluation,
+    SearchFailureEvent,
     RuntimeWitnessPlan,
     RuntimeWitnessResult,
     ProcessResult,
@@ -27,11 +33,11 @@ from pf.schemas.evaluation import (
     StaticEvaluation,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
-    TestFailEvaluation,
-    TestPass,
+    VerifierRejectedEvaluation,
     TyCheck,
     TyDiagnostic,
     process_facts_match,
+    runtime_process_observation,
 )
 from pf.schemas.project import (
     CandidateSnapshot,
@@ -91,7 +97,7 @@ def _require_evaluation_evidence(
         evaluation,
         (
             PassEvaluation,
-            TestFailEvaluation,
+            VerifierRejectedEvaluation,
             RuntimeInterfaceMissingEvaluation,
         ),
     ):
@@ -181,7 +187,8 @@ def _require_search_evidence(
                 raise ValueError("runtime-backed probe PASS requires full evaluation")
             if (
                 isinstance(evidence, ProbeRejection)
-                and evidence.cause in {"RUNTIME_INTERFACE_MISSING", "TEST_FAILURE"}
+                and evidence.cause
+                in {"RUNTIME_INTERFACE_MISSING", "VERIFIER_EXITED_NONZERO"}
                 and evidence.evaluation is None
             ):
                 raise ValueError(
@@ -220,7 +227,7 @@ def _require_attempt_proposal(
     | PassEvaluation
     | StaticRegressionEvaluation
     | RuntimeInterfaceMissingEvaluation
-    | TestFailEvaluation
+    | VerifierRejectedEvaluation
     | IndeterminateEvaluation,
 ) -> None:
     proposal = evaluation.proposal
@@ -265,13 +272,18 @@ class ProbeRejection(FrozenSchema):
     proposal_id: str | None = None
     failure_id: str
     cause: FailureCause
-    evaluation: RuntimeInterfaceMissingEvaluation | TestFailEvaluation | None = None
+    evaluation: (
+        RuntimeInterfaceMissingEvaluation | VerifierRejectedEvaluation | None
+    ) = None
 
     @model_validator(mode="after")
     def validate_evaluation(self) -> "ProbeRejection":
         if self.attempt.identity.requested_resolution != "exact-vector":
             raise ValueError("probe rejection requires an exact-vector Attempt")
-        if self.cause in {"RUNTIME_INTERFACE_MISSING", "TEST_FAILURE"} and (
+        if self.cause in {
+            "RUNTIME_INTERFACE_MISSING",
+            "VERIFIER_EXITED_NONZERO",
+        } and (
             self.evaluation is None
         ):
             raise ValueError(
@@ -279,8 +291,8 @@ class ProbeRejection(FrozenSchema):
             )
         if self.evaluation is None and self.proposal_id is not None:
             raise ValueError("prepare rejection cannot claim a Proposal")
-        if isinstance(self.evaluation, TestFailEvaluation) and (
-            self.cause != "TEST_FAILURE"
+        if isinstance(self.evaluation, VerifierRejectedEvaluation) and (
+            self.cause != "VERIFIER_EXITED_NONZERO"
         ):
             raise ValueError("test probe rejection cause must match its evaluation")
         if isinstance(self.evaluation, RuntimeInterfaceMissingEvaluation) and (
@@ -289,7 +301,7 @@ class ProbeRejection(FrozenSchema):
             raise ValueError("runtime probe rejection cause must match its evaluation")
         if self.evaluation is not None and self.cause not in {
             "RUNTIME_INTERFACE_MISSING",
-            "TEST_FAILURE",
+            "VERIFIER_EXITED_NONZERO",
         }:
             raise ValueError("prepare rejection cannot retain evaluation evidence")
         if self.evaluation is not None:
@@ -302,7 +314,7 @@ class ProbeRejection(FrozenSchema):
     def static_evaluation(
         self,
     ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation | None:
-        if isinstance(self.evaluation, TestFailEvaluation):
+        if isinstance(self.evaluation, VerifierRejectedEvaluation):
             return self.evaluation.static
         if isinstance(self.evaluation, RuntimeInterfaceMissingEvaluation):
             return self.evaluation.static
@@ -461,7 +473,7 @@ class StaticRegion(FrozenSchema):
 
 
 def static_region_id(region: StaticRegion) -> str:
-    """Return the Schema 2 identity for one expanded static region."""
+    """Return the Schema 1 identity for one expanded static region."""
 
     proposal_ids = tuple(
         sorted(reference.proposal_id for reference in region.runtime_references)
@@ -589,11 +601,14 @@ def _require_failure_matches_evidence(
     ):
         raise ValueError("probe evidence must match its FailureRecord")
     evaluation = evidence.evaluation
-    if isinstance(evaluation, TestFailEvaluation) and (
-        failure.stage != "test"
-        or not process_facts_match(failure.process, evaluation.test.process)
-    ):
-        raise ValueError("test rejection diagnosis must match its evaluation")
+    if isinstance(evaluation, VerifierRejectedEvaluation):
+        authority = failure.authority
+        if not (
+            failure.stage == "test"
+            and isinstance(authority, ConfiguredVerifierFailureAuthority)
+            and authority.terminal == evaluation.verifier.terminal
+        ):
+            raise ValueError("verifier rejection diagnosis must match its evaluation")
     if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
         confirmed = next(
             attempt.outcome
@@ -606,11 +621,51 @@ def _require_failure_matches_evidence(
             confirmed.process,
         ):
             raise ValueError("runtime rejection diagnosis must match its witness")
-    if isinstance(evaluation, IndeterminateEvaluation) and (
-        failure.stage != evaluation.failure.stage
-        or not process_facts_match(failure.process, evaluation.failure.process)
-    ):
-        raise ValueError("indeterminate diagnosis must match its evaluation")
+    if isinstance(evaluation, IndeterminateEvaluation):
+        if evaluation.verifier is not None:
+            authority = failure.authority
+            matches = (
+                failure.stage == "test"
+                and isinstance(authority, ConfiguredVerifierFailureAuthority)
+                and authority.terminal == evaluation.verifier.terminal
+            )
+        else:
+            assert evaluation.failure is not None
+            matches = (
+                failure.stage == evaluation.failure.stage
+                and process_facts_match(
+                    failure.process,
+                    evaluation.failure.process,
+                )
+            )
+        if not matches:
+            raise ValueError("indeterminate diagnosis must match its evaluation")
+
+
+def _validate_failure_runtime_runs(
+    cell: Cell,
+    failures: dict[str, FailureRecord],
+    runs: tuple[FailureRuntimeRun, ...],
+) -> None:
+    by_failure = {item.failure_id: item for item in runs}
+    if len(by_failure) != len(runs):
+        raise ValueError("cell failure runtime IDs must be unique")
+    for failure_id, item in by_failure.items():
+        failure = failures.get(failure_id)
+        if failure is None:
+            raise ValueError("cell runtime diagnostics require their FailureRecord")
+        if isinstance(item, FailureProcessRuntimeRun):
+            continue
+        assert isinstance(item, FailureEvaluationRuntimeRun)
+        evaluation = item.runtime.evaluation
+        if isinstance(evaluation, PassEvaluation):
+            raise ValueError("failure runtime diagnostics cannot retain a PASS")
+        SearchFailureEvent(
+            cell=cell,
+            failure=failure,
+            evaluation=evaluation,
+            runtime=item.runtime,
+        )
 
 
 class ProbeObservation(FrozenSchema):
@@ -796,6 +851,9 @@ class CellSuccess(FrozenSchema):
     final_vector: tuple[VersionPin, ...]
     final_evaluation: PassEvaluation
     failure_records: tuple[FailureRecord, ...] = ()
+    failure_runtime_runs: tuple[FailureRuntimeRun, ...] = Field(
+        default=(), exclude=True
+    )
     observed_upper: None = None
 
     @model_validator(mode="after")
@@ -910,6 +968,7 @@ class CellSuccess(FrozenSchema):
 
     def _validate_failure_references(self) -> None:
         known = self._failure_map()
+        _validate_failure_runtime_runs(self.cell, known, self.failure_runtime_runs)
         referenced = {
             evidence.failure_id
             for search in _searches_for_cell(self)
@@ -966,6 +1025,9 @@ class CellIndeterminate(FrozenSchema):
     baseline: PassEvaluation | None = None
     candidate_snapshots: tuple[CandidateSnapshot, ...] = ()
     coordinate_failure: CoordinateFailure | None = None
+    failure_runtime_runs: tuple[FailureRuntimeRun, ...] = Field(
+        default=(), exclude=True
+    )
 
     @model_validator(mode="after")
     def validate_indeterminate(self) -> "CellIndeterminate":
@@ -979,6 +1041,7 @@ class CellIndeterminate(FrozenSchema):
         terminal = failures.get(self.failure_id)
         if terminal is None or terminal.disposition != "INDETERMINATE":
             raise ValueError("cell indeterminate requires its FailureRecord")
+        _validate_failure_runtime_runs(self.cell, failures, self.failure_runtime_runs)
         if self.coordinate_failure is not None and (
             self.coordinate_failure.status == "INDETERMINATE"
             and self.coordinate_failure.failure_id != self.failure_id
@@ -1063,6 +1126,9 @@ class CellSearchFailure(FrozenSchema):
     candidate_snapshots: tuple[CandidateSnapshot, ...] = ()
     coordinate_failure: CoordinateFailure | None = None
     failure_records: tuple[FailureRecord, ...] = ()
+    failure_runtime_runs: tuple[FailureRuntimeRun, ...] = Field(
+        default=(), exclude=True
+    )
 
     @model_validator(mode="after")
     def validate_search_failure(self) -> "CellSearchFailure":
@@ -1073,6 +1139,7 @@ class CellSearchFailure(FrozenSchema):
             _failure_scope_cell(failure) != self.cell for failure in failures.values()
         ):
             raise ValueError("cell FailureRecord scope must match its result cell")
+        _validate_failure_runtime_runs(self.cell, failures, self.failure_runtime_runs)
         if self.static_baseline.proposal != self.baseline.proposal:
             raise ValueError("search failure baseline must identify V_hi")
         if self.baseline_attempt.identity.requested_resolution != "highest":
@@ -1170,15 +1237,16 @@ ReportResult = Annotated[
 ]
 
 
-class ReportIdentityV2(FrozenSchema):
+class ReportIdentityV1(FrozenSchema):
     report_generation_id: str
     generator: GeneratorIdentity
     package: PackageIdentity
     source_snapshot: SourceSnapshotIdentity
     policy_identity: str
+    verifier_outcome_policy: Literal["configured-verifier-terminal-v1"]
 
 
-class TargetCellV2(FrozenSchema):
+class TargetCellV1(FrozenSchema):
     cell_id: str
     package: str
     target: str
@@ -1187,7 +1255,7 @@ class TargetCellV2(FrozenSchema):
     active_declaration_refs: tuple[str, ...]
 
 
-class CandidateSnapshotV2(FrozenSchema):
+class CandidateSnapshotV1(FrozenSchema):
     candidate_snapshot_id: str
     dependency: str
     cell_ref: str
@@ -1197,42 +1265,40 @@ class CandidateSnapshotV2(FrozenSchema):
     series_representatives: tuple[tuple[str, str], ...]
 
 
-class ReportInputsV2(FrozenSchema):
+class ReportInputsV1(FrozenSchema):
     requirement_declarations: tuple[RequirementDeclaration, ...]
-    target_cells: tuple[TargetCellV2, ...]
-    candidate_snapshots: tuple[CandidateSnapshotV2, ...]
+    target_cells: tuple[TargetCellV1, ...]
+    candidate_snapshots: tuple[CandidateSnapshotV1, ...]
 
 
-class CellFailureScopeV2(FrozenSchema):
+class CellFailureScopeV1(FrozenSchema):
     kind: Literal["cell"]
     cell_ref: str
 
 
-class AttemptFailureScopeV2(FrozenSchema):
+class AttemptFailureScopeV1(FrozenSchema):
     kind: Literal["attempt"]
     attempt_ref: str
 
 
-FailureScopeV2 = Annotated[
-    Union[CellFailureScopeV2, AttemptFailureScopeV2],
+FailureScopeV1 = Annotated[
+    Union[CellFailureScopeV1, AttemptFailureScopeV1],
     Field(discriminator="kind"),
 ]
 
 
-class FailureRecordV2(FrozenSchema):
+class FailureRecordV1(FrozenSchema):
     failure_id: str
-    scope: FailureScopeV2
+    scope: FailureScopeV1
     disposition: Literal["REJECTED", "INDETERMINATE"]
     cause: FailureCause
     stage: str
-    process: ProcessResult | None = None
-    summary_code: str | None = None
-    detail: FailureDetail | None = None
+    authority: FailureAuthority
     project_plan_digest: str | None = None
     environment_plan_digest: str | None = None
 
 
-class AttemptV2(FrozenSchema):
+class AttemptV1(FrozenSchema):
     attempt_id: str
     cell_ref: str
     requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
@@ -1245,12 +1311,12 @@ class AttemptV2(FrozenSchema):
     selected_candidate_evidence_digest: str | None = None
 
 
-class ResolutionGraphV2(FrozenSchema):
+class ResolutionGraphV1(FrozenSchema):
     resolution_graph_id: str
     nodes: tuple[ResolvedNode, ...]
 
 
-class ProposalV2(FrozenSchema):
+class ProposalV1(FrozenSchema):
     proposal_id: str
     attempt_ref: str
     managed_vector: tuple[VersionPin, ...]
@@ -1261,7 +1327,7 @@ class ProposalV2(FrozenSchema):
     interpreter: InterpreterIdentity
 
 
-class StaticUnchangedEvaluationV2(FrozenSchema):
+class StaticUnchangedEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["STATIC_UNCHANGED"]
     ty: TyCheck
@@ -1270,7 +1336,7 @@ class StaticUnchangedEvaluationV2(FrozenSchema):
     static_fingerprint: str
 
 
-class StaticRegressionEvaluationV2(FrozenSchema):
+class StaticRegressionEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["STATIC_REGRESSION"]
     ty: TyCheck
@@ -1280,112 +1346,112 @@ class StaticRegressionEvaluationV2(FrozenSchema):
     classifications: tuple[DiagnosticClassification, ...]
 
 
-StaticEvaluationV2 = Annotated[
-    Union[StaticUnchangedEvaluationV2, StaticRegressionEvaluationV2],
+StaticEvaluationV1 = Annotated[
+    Union[StaticUnchangedEvaluationV1, StaticRegressionEvaluationV1],
     Field(discriminator="status"),
 ]
 
 
-class RuntimeWitnessPositiveV2(FrozenSchema):
+class RuntimeWitnessPositiveV1(FrozenSchema):
     status: Literal["PRESENT", "NOT_APPLICABLE"]
     process: ProcessResult
 
 
-class RuntimeWitnessTerminalV2(FrozenSchema):
+class RuntimeWitnessTerminalV1(FrozenSchema):
     status: Literal["CONFIRMED_MISSING", "FAILURE"]
     failure_ref: str
 
 
-RuntimeWitnessOutcomeV2 = Annotated[
-    Union[RuntimeWitnessPositiveV2, RuntimeWitnessTerminalV2],
+RuntimeWitnessOutcomeV1 = Annotated[
+    Union[RuntimeWitnessPositiveV1, RuntimeWitnessTerminalV1],
     Field(discriminator="status"),
 ]
 
 
-class RuntimeWitnessAttemptV2(FrozenSchema):
+class RuntimeWitnessAttemptV1(FrozenSchema):
     plan: RuntimeWitnessPlan
-    outcome: RuntimeWitnessOutcomeV2
+    outcome: RuntimeWitnessOutcomeV1
 
 
-class PassEvaluationV2(FrozenSchema):
+class PassEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["PASS"]
     static_evaluation_ref: str
-    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
-    test: TestPass
+    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
+    terminal: NormalExit
 
 
-class TestFailEvaluationV2(FrozenSchema):
+class VerifierRejectedEvaluationV1(FrozenSchema):
     proposal_ref: str
-    status: Literal["TEST_FAIL"]
+    status: Literal["VERIFIER_REJECTED"]
     static_evaluation_ref: str
-    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
     failure_ref: str
 
 
-class RuntimeInterfaceMissingEvaluationV2(FrozenSchema):
+class RuntimeInterfaceMissingEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["RUNTIME_INTERFACE_MISSING"]
     static_evaluation_ref: str
-    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
     failure_ref: str
 
 
-class IndeterminateEvaluationV2(FrozenSchema):
+class IndeterminateEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["INDETERMINATE"]
     static_evaluation_ref: str | None = None
-    witnesses: tuple[RuntimeWitnessAttemptV2, ...]
+    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
     failure_ref: str
 
 
-TerminalEvaluationV2 = Annotated[
+TerminalEvaluationV1 = Annotated[
     Union[
-        PassEvaluationV2,
-        TestFailEvaluationV2,
-        RuntimeInterfaceMissingEvaluationV2,
-        IndeterminateEvaluationV2,
+        PassEvaluationV1,
+        VerifierRejectedEvaluationV1,
+        RuntimeInterfaceMissingEvaluationV1,
+        IndeterminateEvaluationV1,
     ],
     Field(discriminator="status"),
 ]
 
 
-class ReportEvidenceV2(FrozenSchema):
-    resolution_graphs: tuple[ResolutionGraphV2, ...]
-    attempts: tuple[AttemptV2, ...]
-    proposals: tuple[ProposalV2, ...]
-    static_evaluations: tuple[StaticEvaluationV2, ...]
-    evaluations: tuple[TerminalEvaluationV2, ...]
-    failures: tuple[FailureRecordV2, ...]
+class ReportEvidenceV1(FrozenSchema):
+    resolution_graphs: tuple[ResolutionGraphV1, ...]
+    attempts: tuple[AttemptV1, ...]
+    proposals: tuple[ProposalV1, ...]
+    static_evaluations: tuple[StaticEvaluationV1, ...]
+    evaluations: tuple[TerminalEvaluationV1, ...]
+    failures: tuple[FailureRecordV1, ...]
 
 
-class BaselineRefsV2(FrozenSchema):
+class BaselineRefsV1(FrozenSchema):
     attempt_ref: str
     proposal_ref: str
     static_baseline_digest: str
 
 
-class DirectPassV2(FrozenSchema):
+class DirectPassV1(FrozenSchema):
     kind: Literal["DIRECT"]
     attempt_ref: str
     status: Literal["PASS"]
 
 
-class DirectRejectionV2(FrozenSchema):
+class DirectRejectionV1(FrozenSchema):
     kind: Literal["DIRECT"]
     attempt_ref: str
     status: Literal["REJECTED"]
     failure_ref: str
 
 
-class DirectIndeterminateV2(FrozenSchema):
+class DirectIndeterminateV1(FrozenSchema):
     kind: Literal["DIRECT"]
     attempt_ref: str
     status: Literal["INDETERMINATE"]
     failure_ref: str
 
 
-class StaticOnlyEvidenceV2(FrozenSchema):
+class StaticOnlyEvidenceV1(FrozenSchema):
     kind: Literal["STATIC_ONLY"]
     attempt_ref: str
     guidance: Literal["PASS", "REJECTED"]
@@ -1393,54 +1459,54 @@ class StaticOnlyEvidenceV2(FrozenSchema):
     representative_proposal_ref: str
 
 
-DirectEvidenceV2 = Annotated[
-    Union[DirectPassV2, DirectRejectionV2, DirectIndeterminateV2],
+DirectEvidenceV1 = Annotated[
+    Union[DirectPassV1, DirectRejectionV1, DirectIndeterminateV1],
     Field(discriminator="status"),
 ]
 
 
-ObservationEvidenceV2 = Annotated[
-    Union[DirectEvidenceV2, StaticOnlyEvidenceV2],
+ObservationEvidenceV1 = Annotated[
+    Union[DirectEvidenceV1, StaticOnlyEvidenceV1],
     Field(discriminator="kind"),
 ]
 
 
-class ProbeObservationV2(FrozenSchema):
+class ProbeObservationV1(FrozenSchema):
     dependency: str | None = None
     candidate_version: str | None = None
-    evidence: ObservationEvidenceV2
+    evidence: ObservationEvidenceV1
 
 
-class CoordinateBoundaryV2(FrozenSchema):
+class CoordinateBoundaryV1(FrozenSchema):
     dependency: str
     floor: str
     predecessor: str | None = None
     predecessor_failure_ref: str | None = None
 
 
-class StaticRegionRuntimeReferenceV2(FrozenSchema):
+class StaticRegionRuntimeReferenceV1(FrozenSchema):
     proposal_ref: str
 
 
-class StaticRegionV2(FrozenSchema):
+class StaticRegionV1(FrozenSchema):
     region_id: str
     candidate_snapshot_ref: str
     baseline_digest: str
     other_coordinates: tuple[VersionPin, ...]
     static_fingerprint: str
     observed_versions: tuple[str, ...]
-    runtime_references: tuple[StaticRegionRuntimeReferenceV2, ...]
+    runtime_references: tuple[StaticRegionRuntimeReferenceV1, ...]
 
 
-class CoordinateSuccessV2(FrozenSchema):
+class CoordinateSuccessV1(FrozenSchema):
     status: Literal["SUCCESS"]
-    observations: tuple[ProbeObservationV2, ...]
-    boundaries: tuple[CoordinateBoundaryV2, ...]
-    regions: tuple[StaticRegionV2, ...]
+    observations: tuple[ProbeObservationV1, ...]
+    boundaries: tuple[CoordinateBoundaryV1, ...]
+    regions: tuple[StaticRegionV1, ...]
     sweeps: int
 
 
-class CoordinateFailureV2(FrozenSchema):
+class CoordinateFailureV1(FrozenSchema):
     status: Literal[
         "NON_MONOTONIC",
         "NO_PASS_IN_SEARCH_SPACE",
@@ -1448,24 +1514,24 @@ class CoordinateFailureV2(FrozenSchema):
         "NONDETERMINISTIC",
     ]
     dependency: str | None = None
-    observations: tuple[ProbeObservationV2, ...]
-    regions: tuple[StaticRegionV2, ...]
+    observations: tuple[ProbeObservationV1, ...]
+    regions: tuple[StaticRegionV1, ...]
     counterexample: tuple[str, str] | None = None
     failure_ref: str | None = None
 
 
-class CellIndeterminateV2(FrozenSchema):
+class CellIndeterminateV1(FrozenSchema):
     status: Literal["CELL_INDETERMINATE"]
     cell_ref: str
     phase: str
     failure_ref: str
     failure_refs: tuple[str, ...]
-    baseline: BaselineRefsV2 | None = None
+    baseline: BaselineRefsV1 | None = None
     candidate_snapshot_refs: tuple[str, ...] | None = None
-    coordinate_failure: CoordinateFailureV2 | None = None
+    coordinate_failure: CoordinateFailureV1 | None = None
 
 
-class BaselineRejectionV2(FrozenSchema):
+class BaselineRejectionV1(FrozenSchema):
     status: Literal["BASELINE_REJECTION"]
     cell_ref: str
     attempt_ref: str
@@ -1474,7 +1540,7 @@ class BaselineRejectionV2(FrozenSchema):
     static_baseline_digest: str | None = None
 
 
-class BaselineIndeterminateV2(FrozenSchema):
+class BaselineIndeterminateV1(FrozenSchema):
     status: Literal["BASELINE_INDETERMINATE"]
     cell_ref: str
     attempt_ref: str
@@ -1483,17 +1549,17 @@ class BaselineIndeterminateV2(FrozenSchema):
     static_baseline_digest: str | None = None
 
 
-class CellSuccessV2(FrozenSchema):
+class CellSuccessV1(FrozenSchema):
     status: Literal["SUCCESS"]
     cell_ref: str
-    baseline: BaselineRefsV2
+    baseline: BaselineRefsV1
     candidate_snapshot_refs: tuple[str, ...]
-    search: CoordinateSuccessV2
+    search: CoordinateSuccessV1
     final_proposal_ref: str
     failure_refs: tuple[str, ...]
 
 
-class CellSearchFailureV2(FrozenSchema):
+class CellSearchFailureV1(FrozenSchema):
     status: Literal["SEARCH_FAILED"]
     cell_ref: str
     phase: str
@@ -1502,43 +1568,43 @@ class CellSearchFailureV2(FrozenSchema):
         "NONDETERMINISTIC",
         "NO_PASS_IN_SEARCH_SPACE",
     ]
-    baseline: BaselineRefsV2
+    baseline: BaselineRefsV1
     candidate_snapshot_refs: tuple[str, ...]
-    coordinate_failure: CoordinateFailureV2 | None = None
+    coordinate_failure: CoordinateFailureV1 | None = None
     failure_refs: tuple[str, ...]
 
 
-class FloorProjectionV2(FrozenSchema):
+class FloorProjectionV1(FrozenSchema):
     cell_ref: str
     version: str
 
 
-class ProjectionEvidenceV2(FrozenSchema):
+class ProjectionEvidenceV1(FrozenSchema):
     declaration_ref: str
-    floors: tuple[FloorProjectionV2, ...]
+    floors: tuple[FloorProjectionV1, ...]
     projected_requirements: tuple[str, ...]
     representable: bool
 
 
-CellResultV2 = Annotated[
+CellResultV1 = Annotated[
     Union[
-        CellSuccessV2,
-        CellIndeterminateV2,
-        BaselineRejectionV2,
-        BaselineIndeterminateV2,
-        CellSearchFailureV2,
+        CellSuccessV1,
+        CellIndeterminateV1,
+        BaselineRejectionV1,
+        BaselineIndeterminateV1,
+        CellSearchFailureV1,
     ],
     Field(discriminator="status"),
 ]
 
 
-class PackageFloorReportV2Wire(FrozenSchema):
-    schema_version: Literal[2]
-    identity: ReportIdentityV2
-    inputs: ReportInputsV2
-    evidence: ReportEvidenceV2
-    cell_results: tuple[CellResultV2, ...]
-    projections: tuple[ProjectionEvidenceV2, ...]
+class PackageFloorReportV1Wire(FrozenSchema):
+    schema_version: Literal[1]
+    identity: ReportIdentityV1
+    inputs: ReportInputsV1
+    evidence: ReportEvidenceV1
+    cell_results: tuple[CellResultV1, ...]
+    projections: tuple[ProjectionEvidenceV1, ...]
     result: ReportResult
 
 
@@ -1554,12 +1620,42 @@ def failure_records_for_result(result: CellResult) -> tuple[FailureRecord, ...]:
     return result.failure_records
 
 
+def failure_runtime_runs_for_result(
+    result: CellResult,
+) -> tuple[FailureRuntimeRun, ...]:
+    if isinstance(result, (CellSuccess, CellIndeterminate, CellSearchFailure)):
+        return result.failure_runtime_runs
+    if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+        if (
+            result.runtime is not None
+            and runtime_process_observation(result.runtime) is not None
+        ):
+            return (
+                FailureEvaluationRuntimeRun(
+                    failure_id=result.failure.failure_id,
+                    runtime=result.runtime,
+                ),
+            )
+        if (
+            isinstance(result, BaselineIndeterminate)
+            and result.failure_process is not None
+        ):
+            return (
+                FailureProcessRuntimeRun(
+                    failure_id=result.failure.failure_id,
+                    process=result.failure_process,
+                ),
+            )
+    return ()
+
+
 def report_generation_id(
     *,
     generator: GeneratorIdentity,
     package: PackageIdentity,
     source_snapshot: SourceSnapshotIdentity,
     policy_identity: str,
+    verifier_outcome_policy: Literal["configured-verifier-terminal-v1"],
     requirement_declarations: tuple[RequirementDeclaration, ...],
     target_cells: tuple[Cell, ...],
 ) -> str:
@@ -1575,11 +1671,12 @@ def report_generation_id(
         "package": package.model_dump(mode="json"),
         "source_snapshot": source_snapshot.model_dump(mode="json"),
         "policy_identity": policy_identity,
+        "verifier_outcome_policy": verifier_outcome_policy,
         "requirement_declarations": [
             declaration.model_dump(mode="json") for declaration in declarations
         ],
         "target_cells": [cell.model_dump(mode="json") for cell in cells],
     }
     return hashlib.sha256(
-        b"pf:report-generation:v2\0" + canonical_identity_json(identity)
+        b"pf:report-generation:v1\0" + canonical_identity_json(identity)
     ).hexdigest()

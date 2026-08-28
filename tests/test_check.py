@@ -30,14 +30,14 @@ from pf.schemas.evaluation import (
     CheckCellOutcome,
     DeclarationDetailIdentity,
     Evaluation,
+    NormalExit,
     PassEvaluation,
     PrepareFailure,
     ProcessResult,
-    RuntimeInterfaceMissingEvaluation,
+    RuntimeEvaluationRun,
     StaticBaseline,
     StaticBaselineCapture,
     StatusEvent,
-    TestPass,
     ToolFailure,
     TyCheck,
     ty_diagnostic_digest,
@@ -46,8 +46,9 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     StaticUnchangedEvaluation,
     StaticEvaluation,
-    TestFail,
-    TestFailEvaluation,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.snapshot import SnapshotBuilder
@@ -104,7 +105,7 @@ def passing_check(cell: Cell) -> PassEvaluation:
             baseline_digest=ty_diagnostic_digest(()),
             incremental=(),
         ),
-        test=TestPass(process=process),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
 
@@ -284,7 +285,7 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 baseline: StaticBaseline,
                 static_result: StaticEvaluation | None = None,
-            ) -> PassEvaluation:
+            ) -> RuntimeEvaluationRun:
                 assert prepared.proposal.proposal_id == "lowest-direct"
                 assert baseline.proposal.proposal_id == "highest"
                 assert static_result is None
@@ -295,10 +296,14 @@ class TestCompatibilityChecker:
                     baseline_digest=baseline.digest,
                     incremental=(),
                 )
-                return PassEvaluation(
-                    proposal=prepared.proposal,
-                    static=static,
-                    test=TestPass(process=process.model_copy(update={"exit_code": 0})),
+                return RuntimeEvaluationRun(
+                    evaluation=PassEvaluation(
+                        proposal=prepared.proposal,
+                        static=static,
+                        verifier=VerifierPass(
+                            terminal=NormalExit(exit_code=0)
+                        ),
+                    )
                 )
 
         result = CompatibilityChecker(
@@ -382,12 +387,7 @@ class TestCompatibilityChecker:
         class NeverFull:
             def evaluate(
                 self, *args: object, **kwargs: object
-            ) -> (
-                PassEvaluation
-                | RuntimeInterfaceMissingEvaluation
-                | TestFailEvaluation
-                | IndeterminateEvaluation
-            ):
+            ) -> RuntimeEvaluationRun:
                 raise AssertionError(
                     "lowest-direct must not start after capture failure"
                 )
@@ -547,7 +547,7 @@ class TestCheckWorkflow:
 
     @pytest.mark.parametrize(
         "evaluation_status",
-        ("TEST_FAIL", "INDETERMINATE"),
+        ("VERIFIER_REJECTED", "INDETERMINATE"),
     )
     def test_check_preserves_compatibility_and_indeterminate_outcomes(
         self,
@@ -637,7 +637,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 baseline: StaticBaseline,
                 static_result: object | None = None,
-            ) -> Evaluation:
+            ) -> RuntimeEvaluationRun:
                 process = ProcessResult(
                     exit_code=1,
                     signal=None,
@@ -645,7 +645,7 @@ class TestCheckWorkflow:
                     stdout="",
                     stderr="",
                 )
-                if evaluation_status == "TEST_FAIL":
+                if evaluation_status == "VERIFIER_REJECTED":
                     static = StaticUnchangedEvaluation(
                         proposal=prepared.proposal,
                         ty=TyCheck(
@@ -655,16 +655,22 @@ class TestCheckWorkflow:
                         baseline_digest=baseline.digest,
                         incremental=(),
                     )
-                    return TestFailEvaluation(
-                        proposal=prepared.proposal,
-                        static=static,
-                        test=TestFail(process=process),
+                    return RuntimeEvaluationRun(
+                        evaluation=VerifierRejectedEvaluation(
+                            proposal=prepared.proposal,
+                            static=static,
+                            verifier=VerifierRejected(
+                                terminal=NormalExit(exit_code=1)
+                            ),
+                        )
                     )
                 failure = ToolFailure(cause="TOOL_FAILURE", stage="ty", process=process)
-                return IndeterminateEvaluation(
-                    proposal=prepared.proposal,
-                    cause="TOOL_FAILURE",
-                    failure=failure,
+                return RuntimeEvaluationRun(
+                    evaluation=IndeterminateEvaluation(
+                        proposal=prepared.proposal,
+                        cause="TOOL_FAILURE",
+                        failure=failure,
+                    )
                 )
 
         result = CompatibilityChecker(
@@ -676,7 +682,7 @@ class TestCheckWorkflow:
         assert (
             result.status
             == {
-                "TEST_FAIL": "REJECTED",
+                "VERIFIER_REJECTED": "REJECTED",
                 "INDETERMINATE": "INDETERMINATE",
             }[evaluation_status]
         )
@@ -686,14 +692,14 @@ class TestCheckWorkflow:
         assert (
             result.failure.cause
             == {
-                "TEST_FAIL": "TEST_FAILURE",
+                "VERIFIER_REJECTED": "VERIFIER_EXITED_NONZERO",
                 "INDETERMINATE": "TOOL_FAILURE",
             }[evaluation_status]
         )
         assert (
             result.failure.stage
             == {
-                "TEST_FAIL": "test",
+                "VERIFIER_REJECTED": "test",
                 "INDETERMINATE": "ty",
             }[evaluation_status]
         )

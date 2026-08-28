@@ -7,7 +7,13 @@ import pytest
 
 from pf.adapters.ty import TyAdapter
 from pf.errors import ConfigurationError
-from pf.schemas.evaluation import ProcessResult, ProcessSpec, ToolFailure, TyCheck
+from pf.schemas.evaluation import (
+    ProcessResult,
+    ProcessSpec,
+    ProcessTerminalUnavailable,
+    ToolFailure,
+    TyCheck,
+)
 
 
 class DiagnosticRunner:
@@ -43,16 +49,29 @@ class DiagnosticRunner:
 
 
 class ResultRunner:
-    def __init__(self, result: ProcessResult) -> None:
+    def __init__(self, result: ProcessResult | ProcessTerminalUnavailable) -> None:
         self.result = result
         self.spec: ProcessSpec | None = None
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
         self.spec = spec
         return self.result
 
 
 class TestTyAdapter:
+    def test_ty_adapter_handles_unavailable_process_terminal(self, tmp_path: Path) -> None:
+        result = TyAdapter(ResultRunner(ProcessTerminalUnavailable())).check(
+            interpreter=tmp_path / ".venv/bin/python",
+            package=tmp_path,
+            python_minor="3.11",
+            target="x86_64-unknown-linux-gnu",
+            args=(),
+            timeout_seconds=600,
+        )
+
+        assert isinstance(result, ToolFailure)
+        assert isinstance(result.process, ProcessTerminalUnavailable)
+
     def test_ty_adapter_collects_snapshot_diagnostics_and_owns_target_argv(
         self,
         tmp_path: Path,

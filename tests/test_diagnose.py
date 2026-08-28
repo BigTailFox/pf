@@ -23,15 +23,16 @@ from pf.schemas.evaluation import (
     CellFailureScope,
     FailureDetail,
     FailureRecord,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
     ProcessSpec,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     TyCheck,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
@@ -284,7 +285,7 @@ def _pass_evaluation(
             ty=baseline_check,
             baseline_digest=baseline_digest,
         ),
-        test=TestPass(process=_process()),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
 
@@ -295,6 +296,16 @@ def _process(exit_code: int = 0) -> ProcessResult:
         duration_seconds=0.1,
         stdout="",
         stderr="tests failed" if exit_code else "",
+    )
+
+
+def _verifier_failure(attempt: Attempt, *, exit_code: int = 1) -> FailureRecord:
+    return FailureRecord.from_verifier(
+        scope=AttemptFailureScope(attempt=attempt),
+        disposition="REJECTED",
+        cause="VERIFIER_EXITED_NONZERO",
+        stage="test",
+        terminal=NormalExit(exit_code=exit_code),
     )
 
 
@@ -346,17 +357,12 @@ def _write_success_with_predecessor_report(
             baseline_digest=digest,
             policy_identity=policy_identity,
         )
-        failed_test = TestFailEvaluation(
+        failed_test = VerifierRejectedEvaluation(
             proposal=rejected_pass.proposal,
             static=rejected_pass.static,
-            test=TestFail(process=_process(exit_code=1)),
+            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=failed_test.test.process,
-        )
+        failure = _verifier_failure(rejected_attempt)
 
         final_vector = (VersionPin(name="idna", version="3.0"),)
         final_attempt = _attempt(
@@ -472,12 +478,7 @@ class TestDiagnoseWorkflow:
             requested_resolution="lowest-direct",
         )
         process = _process(exit_code=1)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process,
-        )
+        failure = _verifier_failure(attempt)
         logs = RunLogStore(root=tmp_path, run_id="diagnose-tail")
         logs.record(
             1,
@@ -516,6 +517,7 @@ class TestDiagnoseWorkflow:
                 ),
             )
         )
+        logs.associate("journal:diagnose-tail", failure.failure_id, process)
         diagnoses = DiagnoseCommandWorkflow(
             discovery=ProjectDiscovery(),
             reports=ReportStore(),
@@ -770,9 +772,8 @@ class TestDiagnoseWorkflow:
             reports=ReportStore(),
             logs=RecordingLogLocator(),
         ).run(DiagnoseRequest(root=tmp_path.as_posix()))[0]
-        second_failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(
-                attempt=_attempt(
+        second_failure = _verifier_failure(
+            _attempt(
                     cell=first.failure.scope.cell
                     if isinstance(first.failure.scope, CellFailureScope)
                     else first.failure.scope.attempt.identity.cell,
@@ -780,10 +781,6 @@ class TestDiagnoseWorkflow:
                     vector=None,
                     policy_identity="policy",
                 )
-            ),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_process(exit_code=1),
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -817,12 +814,7 @@ class TestDiagnoseWorkflow:
             policy_identity="policy",
             requested_resolution="lowest-direct",
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_process(exit_code=1),
-        )
+        failure = _verifier_failure(attempt)
         logs = RunLogStore(root=tmp_path, run_id="check-run")
         logs.write_journal(
             VerificationJournal(

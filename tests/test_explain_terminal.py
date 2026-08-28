@@ -17,17 +17,21 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     CellFailureScope,
+    FailureRecord,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
     PytestFailureCase,
     PytestFailureDetail,
+    RuntimeEvaluationRun,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     TyCheck,
     TyDiagnostic,
+    VerifierDiagnostics,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -149,11 +153,12 @@ class TestExplainCellCards:
             python_minor="3.10",
             extra_surface=(),
         )
-        historical = FailurePolicy().classify(
+        historical = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=_attempt(cell)),
-            cause="TEST_FAILURE",
+            disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO",
             stage="test",
-            process=_process_result(),
+            terminal=NormalExit(exit_code=1),
         )
         terminal = FailurePolicy().classify(
             scope=CellFailureScope(
@@ -505,7 +510,7 @@ class TestExplainCellCards:
         baseline_pass = PassEvaluation(
             proposal=proposal,
             static=static,
-            test=TestPass(process=_process_result(exit_code=0)),
+            verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         )
         terminal = FailurePolicy().classify(
             scope=CellFailureScope(
@@ -546,7 +551,7 @@ class TestExplainCellCards:
     def test_explain_missing_target_cell_has_an_explicit_warning_card(self) -> None:
         report = ReportStore().read(
             Path(__file__).parents[1]
-            / "docs/examples/package-floor-v2-minimal-incomplete.json"
+            / "docs/examples/package-floor-v1-minimal-incomplete.json"
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -565,7 +570,7 @@ class TestExplainCellCards:
     def test_explain_success_cell_shows_only_its_final_status(self) -> None:
         report = ReportStore().read(
             Path(__file__).parents[1]
-            / "docs/examples/package-floor-v2-minimal-complete.json"
+            / "docs/examples/package-floor-v1-minimal-complete.json"
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -619,10 +624,14 @@ class TestExplainCellCards:
             baseline_digest=baseline.digest,
         )
         test_process = _process_result()
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(
+            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
+        )
+        runtime = RuntimeEvaluationRun(
+            evaluation=evaluation,
+            diagnostics=VerifierDiagnostics(
                 process=test_process,
                 detail=PytestFailureDetail(
                     first=PytestFailureCase(
@@ -633,17 +642,19 @@ class TestExplainCellCards:
                 ),
             ),
         )
-        failure = FailurePolicy().classify(
+        failure = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
+            disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO",
             stage="test",
-            process=test_process,
+            terminal=NormalExit(exit_code=1),
         )
         result = BaselineRejection(
             attempt=attempt,
             failure=failure,
             static_baseline=baseline,
             evaluation=evaluation,
+            runtime=runtime,
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -656,7 +667,7 @@ class TestExplainCellCards:
         )
 
         rendered = stdout.getvalue()
-        assert "The full test command failed for this version combination." in rendered
+        assert "The configured verifier rejected this version combination." in rendered
         assert failure.failure_id in rendered
         assert "tests/test_widget.py" not in rendered
         assert "... and 1 more" not in rendered
@@ -706,7 +717,7 @@ class TestExplainCellCards:
     def test_explain_tty_colors_report_and_cell_outcomes(self) -> None:
         report = ReportStore().read(
             Path(__file__).parents[1]
-            / "docs/examples/package-floor-v2-minimal-incomplete.json"
+            / "docs/examples/package-floor-v1-minimal-incomplete.json"
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -805,7 +816,7 @@ class TestExplainCellCards:
     ) -> None:
         report = ReportStore().read(
             Path(__file__).parents[1]
-            / "docs/examples/package-floor-v2-minimal-incomplete.json"
+            / "docs/examples/package-floor-v1-minimal-incomplete.json"
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -833,7 +844,7 @@ class TestExplainCellCards:
     ) -> None:
         report = ReportStore().read(
             Path(__file__).parents[1]
-            / "docs/examples/package-floor-v2-minimal-complete.json"
+            / "docs/examples/package-floor-v1-minimal-complete.json"
         )
         stdout = StringIO()
         presenter = TerminalPresenter(

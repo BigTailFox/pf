@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pf.adapters.process import ProcessRunner, read_process_output
 from pf.schemas.evaluation import (
+    ProcessTerminalUnavailable,
     ProcessSpec,
     RuntimeWitnessOutcome,
     RuntimeWitnessPlan,
@@ -103,6 +104,8 @@ class RuntimeWitnessAdapter:
                 timeout_seconds=timeout_seconds,
             )
         )
+        if isinstance(process, ProcessTerminalUnavailable):
+            return ToolFailure(cause="TOOL_FAILURE", stage="witness", process=process)
         if process.timed_out:
             return ToolFailure(cause="TIMEOUT", stage="witness", process=process)
         if (

@@ -13,6 +13,7 @@ from pf.schemas.evaluation import (
     FailureDetail,
     ProcessResult,
     ProcessSpec,
+    ProcessTerminalUnavailable,
     VerificationJournal,
     VerificationJournalEntry,
     VerificationJournalV1,
@@ -49,6 +50,32 @@ def _entry(*, package: str, policy: str) -> VerificationJournalEntry:
 
 
 class TestRunLogStoreJournal:
+    def test_process_log_records_unavailable_terminal_without_fabricated_facts(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="unavailable-terminal")
+        result = ProcessTerminalUnavailable(
+            duration_seconds=0.2,
+            detail="runner returned no terminal status",
+        )
+
+        path = store.record(
+            1,
+            ProcessSpec(
+                argv=("tool",),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=None,
+            ),
+            result,
+        )
+        content = path.read_text(encoding="utf-8")
+
+        assert "terminal_kind: terminal-unavailable\n" in content
+        assert "exit_code: null\n" in content
+        assert "signal: null\n" in content
+        assert "runner returned no terminal status" not in content
+
     def test_run_log_store_rejects_an_unsafe_run_id(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="safe filename characters"):
             RunLogStore(root=tmp_path, run_id="../outside")

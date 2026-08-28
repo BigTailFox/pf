@@ -29,7 +29,6 @@ _PACKAGE_FIELDS = frozenset(
         "ty-args",
         "test-group",
         "test-command",
-        "test-failure-exit-codes",
         "command-cwd",
         "jobs",
         "resolve-timeout",
@@ -137,9 +136,6 @@ class ConfigLoader:
                 ty_args=tuple(merged.get("ty-args", ())),
                 test_group=merged.get("test-group", "test"),
                 test_command=test_command,
-                test_failure_exit_codes=tuple(
-                    merged.get("test-failure-exit-codes", (1,))
-                ),
                 command_cwd=merged.get("command-cwd", "package"),
                 jobs=merged.get("jobs", "auto"),
                 resolve_timeout=self._duration(

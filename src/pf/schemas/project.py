@@ -252,7 +252,7 @@ def cell_identity(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
 
 
 def cell_id(cell: Cell) -> str:
-    """Return the stable Schema 2 reference identity for a compatibility Cell."""
+    """Return the stable Schema 1 reference identity for a compatibility Cell."""
     payload = {
         "package": cell.package,
         "target": cell.target,

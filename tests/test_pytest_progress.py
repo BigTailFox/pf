@@ -9,8 +9,14 @@ from threading import Event
 import pytest
 
 from pf.adapters.pytest_progress import PytestProgressMonitor
-from pf.adapters.test_command import TestAdapter
-from pf.schemas.evaluation import ProcessResult, ProcessSpec, StageProgress, TestPass
+from pf.adapters.test_command import ConfiguredVerifier
+from pf.schemas.evaluation import (
+    ProcessResult,
+    ProcessSpec,
+    StageProgress,
+    VerifierPass,
+    VerifierRequest,
+)
 
 
 def _canonical(document: object) -> str:
@@ -34,13 +40,13 @@ class ProgressRunner:
 
     def run(self, spec: ProcessSpec) -> ProcessResult:
         environment = {item.name: item.value for item in spec.environment}
-        nonce = environment["PF_PYTEST_WITNESS_NONCE"]
-        evidence = Path(environment["PF_PYTEST_WITNESS_DIR"])
+        nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
+        evidence = Path(environment["PF_PYTEST_OBSERVER_DIR"])
         summary = {
             "execution_mode": "serial",
             "facts": [],
             "finalized": True,
-            "protocol": "pf-pytest-failure-witness-v1",
+            "protocol": "pf-pytest-observer-v1",
             "pytest_version": "9.1.1",
             "python_implementation": "cpython",
             "python_minor": "3.10",
@@ -75,20 +81,16 @@ def _progress_document(nonce: str, **changes: object) -> dict[str, object]:
     return document
 
 
-class TestTestAdapterProgress:
+class TestConfiguredVerifierProgress:
     def test_run_reports_valid_direct_pytest_progress(self, tmp_path: Path) -> None:
         observed: list[StageProgress | None] = []
 
-        result = TestAdapter(ProgressRunner(_progress_document)).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
+        result = ConfiguredVerifier(ProgressRunner(_progress_document)).run(
+            VerifierRequest(command=("pytest",), cwd=tmp_path, timeout_seconds=30),
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert observed == [StageProgress(completed=3, total=8, unit="tests")]
 
     @pytest.mark.parametrize(
@@ -115,16 +117,12 @@ class TestTestAdapterProgress:
     ) -> None:
         observed: list[StageProgress | None] = []
 
-        result = TestAdapter(ProgressRunner(document)).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
+        result = ConfiguredVerifier(ProgressRunner(document)).run(
+            VerifierRequest(command=("pytest",), cwd=tmp_path, timeout_seconds=30),
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert observed == []
 
     def test_run_keeps_generic_command_progress_indeterminate(
@@ -137,16 +135,16 @@ class TestTestAdapterProgress:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 return ProcessResult(exit_code=0, signal=None, duration_seconds=0.1)
 
-        result = TestAdapter(PassRunner()).run(
-            command=("custom-test-runner",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
+        result = ConfiguredVerifier(PassRunner()).run(
+            VerifierRequest(
+                command=("custom-test-runner",),
+                cwd=tmp_path,
+                timeout_seconds=30,
+            ),
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert observed == []
 
     def test_run_ignores_progress_cleanup_failure(
@@ -173,16 +171,12 @@ class TestTestAdapterProgress:
         )
         observed: list[StageProgress | None] = []
 
-        result = TestAdapter(ProgressRunner(_progress_document)).run(
-            command=("pytest",),
-            cwd=tmp_path,
-            environment=(),
-            failure_exit_codes=(1,),
-            timeout_seconds=30,
+        result = ConfiguredVerifier(ProgressRunner(_progress_document)).run(
+            VerifierRequest(command=("pytest",), cwd=tmp_path, timeout_seconds=30),
             progress=observed.append,
         )
 
-        assert isinstance(result, TestPass)
+        assert isinstance(result.authoritative, VerifierPass)
         assert observed == [StageProgress(completed=3, total=8, unit="tests")]
 
 

@@ -7,11 +7,13 @@ from pf.schemas.evaluation import (
     FailureDetail,
     FailureRecord,
     FailureScope,
+    IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
+    ProcessObservation,
     RuntimeInterfaceMissingEvaluation,
     RuntimeWitnessResult,
-    TestFailEvaluation,
+    VerifierRejectedEvaluation,
     rejection_is_supported,
 )
 
@@ -19,7 +21,7 @@ from pf.schemas.evaluation import (
 class FailurePolicy:
     """Turn scoped operation facts into one conservative search disposition."""
 
-    identity = "failure-runtime-v1"
+    identity = "failure-runtime-v2"
 
     def classify(
         self,
@@ -27,7 +29,7 @@ class FailurePolicy:
         scope: FailureScope,
         cause: FailureCause,
         stage: str,
-        process: ProcessResult | None,
+        process: ProcessObservation | None,
         summary_code: str | None = None,
         detail: FailureDetail | None = None,
         project_plan_digest: str | None = None,
@@ -38,7 +40,7 @@ class FailurePolicy:
             if isinstance(scope, AttemptFailureScope)
             else None
         )
-        supported = process is not None and rejection_is_supported(
+        supported = isinstance(process, ProcessResult) and rejection_is_supported(
             requested_resolution=requested_resolution,
             cause=cause,
             stage=stage,
@@ -61,7 +63,7 @@ class FailurePolicy:
             environment_plan_digest=environment_plan_digest,
         )
 
-    def classify_evaluation(
+    def record_evaluation(
         self,
         scope: FailureScope,
         evaluation: Evaluation,
@@ -71,6 +73,16 @@ class FailurePolicy:
     ) -> FailureRecord | None:
         if isinstance(evaluation, PassEvaluation):
             return None
+        if isinstance(evaluation, VerifierRejectedEvaluation):
+            return FailureRecord.from_verifier(
+                scope=scope,
+                disposition="REJECTED",
+                cause="VERIFIER_EXITED_NONZERO",
+                stage="test",
+                terminal=evaluation.verifier.terminal,
+                project_plan_digest=project_plan_digest,
+                environment_plan_digest=environment_plan_digest,
+            )
         if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
             confirmed = next(
                 attempt.outcome
@@ -86,15 +98,20 @@ class FailurePolicy:
                 project_plan_digest=project_plan_digest,
                 environment_plan_digest=environment_plan_digest,
             )
-        if isinstance(evaluation, TestFailEvaluation):
-            return self.classify(
+        if (
+            isinstance(evaluation, IndeterminateEvaluation)
+            and evaluation.verifier is not None
+        ):
+            return FailureRecord.from_verifier(
                 scope=scope,
-                cause="TEST_FAILURE",
+                disposition="INDETERMINATE",
+                cause=evaluation.cause,
                 stage="test",
-                process=evaluation.test.process,
+                terminal=evaluation.verifier.terminal,
                 project_plan_digest=project_plan_digest,
                 environment_plan_digest=environment_plan_digest,
             )
+        assert evaluation.failure is not None
         return self.classify(
             scope=scope,
             cause=evaluation.cause,

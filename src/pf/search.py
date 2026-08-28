@@ -23,13 +23,19 @@ from pf.schemas.evaluation import (
     FailureDetail,
     FailureCause,
     FailureRecord,
+    FailureEvaluationRuntimeRun,
+    FailureProcessRuntimeRun,
+    FailureRuntimeRun,
     CellFailureScope,
     HighestVersionOutcome,
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
+    ProcessObservation,
+    ProcessTerminalUnavailable,
     PrepareFailure,
     RuntimeInterfaceMissingEvaluation,
+    RuntimeEvaluationRun,
     SearchFailureEvent,
     SearchProbeRequest,
     SearchProbeDetailIdentity,
@@ -38,8 +44,9 @@ from pf.schemas.evaluation import (
     StaticEvaluation,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
-    TestFailEvaluation,
+    VerifierRejectedEvaluation,
     ToolFailure,
+    runtime_process_observation,
 )
 from pf.schemas.project import (
     CandidateSnapshot,
@@ -160,7 +167,7 @@ class FullOperations(Protocol):
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
-    ) -> Evaluation: ...
+    ) -> RuntimeEvaluationRun: ...
 
 
 class HighestOperations(Protocol):
@@ -188,6 +195,7 @@ class SearchActivityConsumer(Protocol):
 class ProbeRun:
     evidence: ProbeEvidence
     evaluation: Evaluation | None
+    runtime: RuntimeEvaluationRun | None = None
 
 
 @dataclass(frozen=True)
@@ -252,6 +260,7 @@ class _ProposalRunner:
         self._events = events
         self._failures = failures or FailurePolicy()
         self._failure_records: dict[str, FailureRecord] = {}
+        self._failure_runtime_runs: dict[str, FailureRuntimeRun] = {}
         self._emitted_diagnostics: set[str] = set()
         self._cache = EvaluationCache()
         self._prepared: dict[tuple[tuple[str, str], ...], PreparedEnvironment] = {}
@@ -294,14 +303,14 @@ class _ProposalRunner:
                 prepared.proposal.proposal_id,
                 baseline_digest=self._static_baseline.digest,
             )
-            result = self._full.evaluate(
+            runtime = self._full.evaluate(
                 prepared,
                 package=self._package,
                 baseline=self._static_baseline,
                 static_result=static,
             )
             stored = self._cache.record_full(
-                result,
+                runtime.evaluation,
                 baseline_digest=self._static_baseline.digest,
             )
             if isinstance(stored, CacheConflict):
@@ -318,11 +327,13 @@ class _ProposalRunner:
                         ),
                     ),
                     evaluation=None,
+                    runtime=None,
                 )
             else:
                 run = ProbeRun(
-                    evidence=self._full_evidence(prepared, stored),
+                    evidence=self._full_evidence(prepared, stored, runtime=runtime),
                     evaluation=stored,
+                    runtime=runtime,
                 )
             self._full_runs[key] = run
             return run
@@ -400,14 +411,14 @@ class _ProposalRunner:
                     region_slice=region_slice,
                     representative_proposal_id=representative,
                 )
-            result = self._full.evaluate(
+            runtime = self._full.evaluate(
                 prepared,
                 package=self._package,
                 baseline=self._static_baseline,
                 static_result=static,
             )
             stored_full = self._cache.record_full(
-                result,
+                runtime.evaluation,
                 baseline_digest=self._static_baseline.digest,
             )
             if isinstance(stored_full, CacheConflict):
@@ -424,11 +435,17 @@ class _ProposalRunner:
                         ),
                     ),
                     evaluation=None,
+                    runtime=None,
                 )
             else:
                 run = ProbeRun(
-                    evidence=self._full_evidence(prepared, stored_full),
+                    evidence=self._full_evidence(
+                        prepared,
+                        stored_full,
+                        runtime=runtime,
+                    ),
                     evaluation=stored_full,
+                    runtime=runtime,
                 )
             self._full_runs[key] = run
             direct = (
@@ -636,6 +653,10 @@ class _ProposalRunner:
     def failure_records(self) -> tuple[FailureRecord, ...]:
         return tuple(self._failure_records.values())
 
+    @property
+    def failure_runtime_runs(self) -> tuple[FailureRuntimeRun, ...]:
+        return tuple(self._failure_runtime_runs.values())
+
     def failure_record(self, failure_id: str) -> FailureRecord:
         return self._failure_records[failure_id]
 
@@ -649,14 +670,30 @@ class _ProposalRunner:
         failure: FailureRecord,
         *,
         evaluation: RuntimeInterfaceMissingEvaluation
-        | TestFailEvaluation
+        | VerifierRejectedEvaluation
         | IndeterminateEvaluation
         | None,
+        runtime: RuntimeEvaluationRun | None = None,
+        runtime_process: ProcessObservation | None = None,
     ) -> None:
         existing = self._failure_records.get(failure.failure_id)
         if existing is not None and existing != failure:
             raise ValueError("failure ID collision within one cell search")
         self._failure_records.setdefault(failure.failure_id, failure)
+        if runtime is not None and runtime_process_observation(runtime) is not None:
+            runtime_run: FailureRuntimeRun = FailureEvaluationRuntimeRun(
+                failure_id=failure.failure_id,
+                runtime=runtime,
+            )
+            self._failure_runtime_runs.setdefault(failure.failure_id, runtime_run)
+        elif isinstance(runtime_process, ProcessTerminalUnavailable):
+            self._failure_runtime_runs.setdefault(
+                failure.failure_id,
+                FailureProcessRuntimeRun(
+                    failure_id=failure.failure_id,
+                    process=runtime_process,
+                ),
+            )
         if self._diagnostics is None or failure.failure_id in self._emitted_diagnostics:
             return
         self._emitted_diagnostics.add(failure.failure_id)
@@ -665,6 +702,7 @@ class _ProposalRunner:
                 cell=self._cell,
                 failure=failure,
                 evaluation=evaluation,
+                runtime=runtime,
             )
         )
 
@@ -730,19 +768,20 @@ class _ProposalRunner:
         result: IndeterminateEvaluation,
     ) -> ProbeEvidence:
         assert prepared.attempt is not None
-        failure = self._failures.classify_evaluation(
+        failure = self._failures.record_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             result,
             project_plan_digest=prepared.project_plan.semantic_digest,
             environment_plan_digest=prepared.environment_plan.semantic_digest,
         )
         assert failure is not None
+        assert result.failure is not None
         return self._failure_evidence(
             attempt=prepared.attempt,
             proposal_id=result.proposal.proposal_id,
             cause=failure.cause,
             stage=failure.stage,
-            process=failure.process,
+            process=result.failure.process,
             summary_code=failure.summary_code,
             evaluation=result,
             record=failure,
@@ -752,11 +791,13 @@ class _ProposalRunner:
         self,
         prepared: PreparedEnvironment,
         result: Evaluation,
+        *,
+        runtime: RuntimeEvaluationRun,
     ) -> ProbeEvidence:
         assert prepared.attempt is not None
         if isinstance(result, PassEvaluation):
             return self._pass_evidence(prepared.attempt, result)
-        failure = self._failures.classify_evaluation(
+        failure = self._failures.record_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             result,
             project_plan_digest=prepared.project_plan.semantic_digest,
@@ -768,10 +809,18 @@ class _ProposalRunner:
             proposal_id=result.proposal.proposal_id,
             cause=failure.cause,
             stage=failure.stage,
-            process=failure.process,
+            process=(
+                runtime.diagnostics.process
+                if runtime.diagnostics is not None
+                else result.failure.process
+                if isinstance(result, IndeterminateEvaluation)
+                and result.failure is not None
+                else failure.process
+            ),
             summary_code=failure.summary_code,
             evaluation=result,
             record=failure,
+            runtime=runtime,
         )
 
     @staticmethod
@@ -795,9 +844,9 @@ class _ProposalRunner:
         proposal_id: str | None,
         cause: FailureCause,
         stage: str,
-        process: ProcessResult | None,
+        process: ProcessObservation | None,
         evaluation: RuntimeInterfaceMissingEvaluation
-        | TestFailEvaluation
+        | VerifierRejectedEvaluation
         | IndeterminateEvaluation
         | None,
         summary_code: str | None = None,
@@ -805,6 +854,7 @@ class _ProposalRunner:
         record: FailureRecord | None = None,
         project_plan_digest: str | None = None,
         environment_plan_digest: str | None = None,
+        runtime: RuntimeEvaluationRun | None = None,
     ) -> ProbeEvidence:
         failure = record or self._failures.classify(
             scope=AttemptFailureScope(attempt=attempt),
@@ -816,7 +866,12 @@ class _ProposalRunner:
             project_plan_digest=project_plan_digest,
             environment_plan_digest=environment_plan_digest,
         )
-        self._record(failure, evaluation=evaluation)
+        self._record(
+            failure,
+            evaluation=evaluation,
+            runtime=runtime,
+            runtime_process=process,
+        )
         if failure.disposition == "REJECTED":
             assert not isinstance(evaluation, IndeterminateEvaluation)
             return ProbeRejection(
@@ -1045,6 +1100,7 @@ class SearchCoordinator:
                         baseline=baseline_evaluation,
                         candidate_snapshots=candidate_snapshots,
                         failure_records=runner.failure_records,
+                        failure_runtime_runs=runner.failure_runtime_runs,
                     )
             search = CoordinateSuccess.model_validate(
                 {**search.model_dump(), "regions": runner.regions}
@@ -1059,6 +1115,7 @@ class SearchCoordinator:
                 final_vector=search.vector,
                 final_evaluation=final_evaluation,
                 failure_records=runner.failure_records,
+                failure_runtime_runs=runner.failure_runtime_runs,
             )
 
     @staticmethod
@@ -1117,6 +1174,7 @@ class SearchCoordinator:
                 baseline=baseline,
                 candidate_snapshots=candidates,
                 coordinate_failure=outcome,
+                failure_runtime_runs=runner.failure_runtime_runs,
             )
         return CellSearchFailure(
             reason=outcome.status,
@@ -1128,4 +1186,5 @@ class SearchCoordinator:
             candidate_snapshots=candidates,
             coordinate_failure=outcome,
             failure_records=runner.failure_records,
+            failure_runtime_runs=runner.failure_runtime_runs,
         )

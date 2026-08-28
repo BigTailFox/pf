@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from verifier_fixtures import verifier_pass, verifier_rejected
 
 from conftest import empty_harness_baseline
 from rich.console import Console
@@ -48,6 +49,8 @@ from pf.schemas.evaluation import (
     FailureCause,
     FailureRecord,
     HighestVersionPass,
+    NormalExit,
+    RuntimeEvaluationRun,
     SearchFailureEvent,
     SearchProbeDetailIdentity,
     SmokeBaselineRejection,
@@ -59,13 +62,12 @@ from pf.schemas.evaluation import (
     StaticUnchangedEvaluation,
     StatusEvent,
     StageProgress,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
     VerificationRole,
+    VerifierDiagnostics,
+    VerifierRejectedEvaluation,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -190,6 +192,11 @@ def completed_event(
                 else None
             ),
             process=process,
+            process_failure_id=(
+                failure.failure_id
+                if process is not None and failure is not None
+                else None
+            ),
             failures=() if failure is None else (failure,),
             verification_role=role,
         )
@@ -314,6 +321,16 @@ def attempt_for(
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
         )
+    )
+
+
+def verifier_failure(attempt: Attempt, *, exit_code: int = 1) -> FailureRecord:
+    return FailureRecord.from_verifier(
+        scope=AttemptFailureScope(attempt=attempt),
+        disposition="REJECTED",
+        cause="VERIFIER_EXITED_NONZERO",
+        stage="test",
+        terminal=NormalExit(exit_code=exit_code),
     )
 
 
@@ -688,13 +705,7 @@ class TestProgressRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell)
-        process = process_result(exit_code=1)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process,
-        )
+        failure = verifier_failure(attempt)
         stderr = StringIO()
         terminal = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True, width=width),
@@ -906,14 +917,7 @@ class TestProgressRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell, resolution="lowest-direct")
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(
-                exit_code=1, stderr="error: Unresolved import 'missing'"
-            ),
-        )
+        failure = verifier_failure(attempt)
         terminal, stdout, stderr = presenter()
 
         terminal.consume(
@@ -929,7 +933,7 @@ class TestProgressRendering:
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
         assert "failed at [testing]" in output
-        assert "The full test command failed for this version combination." in output
+        assert "The configured verifier rejected this version combination." in output
         assert "The declared lower bounds did not pass" not in output
         assert f"pf diagnose demo --failure {failure.failure_id}" in output
         assert "STATIC_REGRESSION" not in output
@@ -1079,12 +1083,7 @@ class TestProgressRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell, resolution="exact-vector", vector=())
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=1, stderr="1 failed"),
-        )
+        failure = verifier_failure(attempt)
         terminal, stdout, stderr = presenter()
 
         terminal.consume(SearchFailureEvent(cell=cell, failure=failure))
@@ -2141,10 +2140,14 @@ class TestProgressRendering:
             ty=check,
             digest=ty_diagnostic_digest(check.diagnostics),
         )
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(
+            verifier=verifier_rejected(test_process),
+        )
+        runtime = RuntimeEvaluationRun(
+            evaluation=evaluation,
+            diagnostics=VerifierDiagnostics(
                 process=test_process,
                 detail=PytestFailureDetail(
                     first=PytestFailureCase(
@@ -2155,12 +2158,7 @@ class TestProgressRendering:
                 ),
             ),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=test_process,
-        )
+        failure = verifier_failure(attempt)
         logs = RunLogStore(root=tmp_path, run_id="tty-run")
         logs.record(
             2,
@@ -2194,6 +2192,7 @@ class TestProgressRendering:
                         failure=failure,
                         static_baseline=baseline,
                         evaluation=evaluation,
+                        runtime=runtime,
                     ),
                 )
             )
@@ -2216,19 +2215,21 @@ class TestProgressRendering:
             line for line in plain.splitlines() if "smoke failed at" in line
         )
         reason_line = next(
-            line for line in plain.splitlines() if "The full test command failed" in line
+            line
+            for line in plain.splitlines()
+            if "The configured verifier rejected" in line
         )
         diagnose_line = next(line for line in plain.splitlines() if "-> run" in line)
         detail_indent = title_line.index("[py3.11]")
         assert completion_line.index("smoke failed at") == detail_indent
-        assert reason_line.index("The full test command failed") == detail_indent
+        assert reason_line.index("The configured verifier rejected") == detail_indent
         assert diagnose_line.index("-> run") == detail_indent
         failed_at = output.index("FAILED tests/test_cli.py::test_example")
         failed_style_at = output.rfind("\x1b[", 0, failed_at)
         failed_codes = sgr_codes(output[failed_style_at:failed_at])
         assert "2" in failed_codes
         assert not (_FOREGROUND_SGR_CODES & failed_codes)
-        reason = "The full test command failed for this version combination."
+        reason = "The configured verifier rejected this version combination."
         reason_at = output.index(reason)
         reason_style_at = output.rfind("\x1b[", 0, reason_at)
         reason_codes = re.findall(
@@ -2291,7 +2292,7 @@ class TestProgressRendering:
             for code in hint_codes
             for token in code.split(";")
         )
-        assert "The full test command failed for this version combination." in collapsed
+        assert "The configured verifier rejected this version combination." in collapsed
         assert "The highest-version resolution did not pass" not in collapsed
         assert ".pf/logs/tty-run/process-0002.log" not in collapsed
         assert "test session starts" not in collapsed
@@ -2301,9 +2302,9 @@ class TestProgressRendering:
         assert "... and 1 more" in collapsed
         assert "=== 2 failed, 1 passed in 0.51s ===" not in collapsed
         assert collapsed.index("smoke failed at [baseline][highest][testing]") < collapsed.index(
-            "The full test command failed for this version combination."
+            "The configured verifier rejected this version combination."
         )
-        assert collapsed.index("The full test command failed") < collapsed.index(
+        assert collapsed.index("The configured verifier rejected") < collapsed.index(
             "FAILED tests/test_cli.py"
         )
         assert collapsed.index("... and 1 more") < collapsed.index(
@@ -2711,7 +2712,6 @@ class TestVerificationRendering:
                         process=process_result(
                             stderr="timeout",
                             timed_out=True,
-                            start_error="timeout",
                         ),
                     )
                 ),
@@ -2812,10 +2812,14 @@ class TestVerificationRendering:
             ty=check,
             digest=ty_diagnostic_digest(check.diagnostics),
         )
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(
+            verifier=verifier_rejected(test_process),
+        )
+        runtime = RuntimeEvaluationRun(
+            evaluation=evaluation,
+            diagnostics=VerifierDiagnostics(
                 process=test_process,
                 detail=PytestFailureDetail(
                     first=PytestFailureCase(
@@ -2826,12 +2830,7 @@ class TestVerificationRendering:
                 ),
             ),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=test_process,
-        )
+        failure = verifier_failure(attempt)
         logs = RunLogStore(root=tmp_path, run_id="smoke-run")
         logs.record(
             2,
@@ -2859,6 +2858,7 @@ class TestVerificationRendering:
                         failure=failure,
                         static_baseline=baseline,
                         evaluation=evaluation,
+                        runtime=runtime,
                     ),
                 )
             )
@@ -2869,7 +2869,7 @@ class TestVerificationRendering:
         assert stderr.getvalue() == (
             "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
             "  smoke failed at [baseline][highest][testing]\n"
-            "  The full test command failed for this version combination.\n"
+            "  The configured verifier rejected this version combination.\n"
             "  FAILED tests/test_cli.py::test_example\n"
             "  ... and 1 more\n"
             f"  -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
@@ -2998,8 +2998,8 @@ class TestVerificationRendering:
                         evaluation=PassEvaluation(
                             proposal=proposal,
                             static=static,
-                            test=TestPass(
-                                process=process.model_copy(update={"exit_code": 0})
+                            verifier=verifier_pass(
+                                process.model_copy(update={"exit_code": 0})
                             ),
                         ),
                     ),
@@ -3052,8 +3052,8 @@ class TestVerificationRendering:
                     PassEvaluation(
                         proposal=proposal,
                         static=static,
-                        test=TestPass(
-                            process=process.model_copy(update={"exit_code": 0})
+                        verifier=verifier_pass(
+                            process.model_copy(update={"exit_code": 0})
                         ),
                     ),
                 )
@@ -3110,10 +3110,10 @@ class TestVerificationRendering:
             classifications=general_classifications(increment),
         )
         terminal, stdout, stderr = presenter()
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=process),
+            verifier=verifier_rejected(process),
         )
 
         exit_code = terminal.render_check(
@@ -3166,15 +3166,15 @@ class TestVerificationRendering:
             classifications=general_classifications(increment),
         )
         terminal, stdout, stderr = presenter()
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=process),
+            verifier=verifier_rejected(process),
         )
         terminal.consume(
             completed_event(
                 cell,
-                status="TEST_FAIL",
+                status="VERIFIER_REJECTED",
                 process=process,
                 stage="test",
             )
@@ -3202,12 +3202,7 @@ class TestVerificationRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=1, stderr="1 failed"),
-        )
+        failure = verifier_failure(attempt)
         terminal, _, stderr = presenter()
         terminal.bind_command("smoke")
 
@@ -3229,7 +3224,7 @@ class TestVerificationRendering:
         assert lines[0] == "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]"
         assert lines[1] == "  smoke failed at [baseline][highest][testing]"
         assert "The highest-version resolution did not pass" not in output
-        assert "The full test command failed for this version combination." in output
+        assert "The configured verifier rejected this version combination." in output
         assert "did not start the floor search" not in output
 
     def test_smoke_completion_defaults_to_baseline_identity_without_context(
@@ -3321,12 +3316,7 @@ class TestVerificationRendering:
             python_minor="3.10",
             extra_surface=(),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt_for(cell)),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=1),
-        )
+        failure = verifier_failure(attempt_for(cell))
         terminal, _, stderr = presenter()
         terminal.bind_command(command)
 
@@ -3352,12 +3342,7 @@ class TestVerificationRendering:
             python_minor="3.10",
             extra_surface=(),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt_for(cell)),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=1),
-        )
+        failure = verifier_failure(attempt_for(cell))
         stderr = TTYBuffer()
         terminal = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
@@ -3416,12 +3401,7 @@ class TestVerificationRendering:
             python_minor="3.10",
             extra_surface=(),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt_for(cell)),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=1),
-        )
+        failure = verifier_failure(attempt_for(cell))
         identity = SearchProbeDetailIdentity(
             dependency="pydantic",
             version="2.0.1",
@@ -3526,12 +3506,7 @@ class TestSearchRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell, resolution="exact-vector", vector=())
-        rejected = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=1),
-        )
+        rejected = verifier_failure(attempt)
         unknown = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause="TIMEOUT",
@@ -3625,19 +3600,10 @@ class TestSearchRendering:
             classifications=general_classifications(increment),
         )
         dynamic_process = process_result(stderr="1 failed\n2 passed")
-        dynamic = TestFailEvaluation(
+        dynamic = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(
-                process=dynamic_process,
-                detail=PytestFailureDetail(
-                    first=PytestFailureCase(
-                        nodeid="tests/test_search.py::test_candidate",
-                        phase="call",
-                    ),
-                    total=2,
-                ),
-            ),
+            verifier=verifier_rejected(dynamic_process),
         )
         install_process = process_result(stderr="No solution found\nconflicting pins")
         install = ToolFailure(
@@ -3666,18 +3632,8 @@ class TestSearchRendering:
             logs=logs,
             root=tmp_path,
         )
-        dynamic_failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=dynamic_process,
-        )
-        earlier_failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process_result(exit_code=2, stderr="earlier failure"),
-        )
+        dynamic_failure = verifier_failure(attempt)
+        earlier_failure = verifier_failure(attempt, exit_code=2)
         install_failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause=install.cause,
@@ -3697,7 +3653,7 @@ class TestSearchRendering:
         output = stderr.getvalue()
         assert exit_code == 2
         assert "demo.py:4:2 [bad-argument-type]" not in output
-        assert "The full test command failed for this version combination." not in output
+        assert "The configured verifier rejected this version combination." not in output
         assert "FAILED tests/test_search.py::test_candidate" not in output
         assert "... and 1 more" not in output
         assert "test dependencies cannot be installed" in output
@@ -3901,17 +3857,12 @@ class TestSearchRendering:
             baseline_digest=baseline.digest,
         )
         test_process = process_result(stderr="1 failed, 2 passed")
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=test_process),
+            verifier=verifier_rejected(test_process),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=test_process,
-        )
+        failure = verifier_failure(attempt)
         report = incomplete_report(
             "BASELINE_REJECTION",
             cell_results=(
@@ -3932,7 +3883,7 @@ class TestSearchRendering:
         assert stderr.getvalue() == (
             "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
             "  search stopped at [baseline][highest][testing]\n"
-            "  The full test command failed for this version combination.\n"
+            "  The configured verifier rejected this version combination.\n"
             f"  -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
             "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
         )
@@ -4162,17 +4113,12 @@ class TestExplainRendering:
             static_fingerprint=static_fingerprint((increment.identity,)),
             classifications=general_classifications(increment),
         )
-        runtime_failure = TestFailEvaluation(
+        runtime_failure = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=process),
+            verifier=verifier_rejected(process),
         )
-        rejection = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=candidate_attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=runtime_failure.test.process,
-        )
+        rejection = verifier_failure(candidate_attempt)
         baseline_static = StaticUnchangedEvaluation(
             proposal=baseline_proposal,
             ty=baseline.ty,
@@ -4187,7 +4133,9 @@ class TestExplainRendering:
             baseline=PassEvaluation(
                 proposal=baseline_proposal,
                 static=baseline_static,
-                test=TestPass(process=process.model_copy(update={"exit_code": 0})),
+                verifier=verifier_pass(
+                    process.model_copy(update={"exit_code": 0})
+                ),
             ),
             failure_records=(rejection,),
             coordinate_failure=CoordinateFailure(
@@ -4201,7 +4149,7 @@ class TestExplainRendering:
                             attempt=candidate_attempt,
                             proposal_id=proposal.proposal_id,
                             failure_id=rejection.failure_id,
-                            cause="TEST_FAILURE",
+                            cause="VERIFIER_EXITED_NONZERO",
                             evaluation=runtime_failure,
                         ),
                     ),
@@ -4321,17 +4269,12 @@ class TestExplainRendering:
             ),
             classifications=general_classifications(*incremental),
         )
-        runtime_failure = TestFailEvaluation(
+        runtime_failure = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=process),
+            verifier=verifier_rejected(process),
         )
-        rejection = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=candidate_attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=runtime_failure.test.process,
-        )
+        rejection = verifier_failure(candidate_attempt)
         baseline_static = StaticUnchangedEvaluation(
             proposal=baseline_proposal,
             ty=baseline.ty,
@@ -4346,7 +4289,9 @@ class TestExplainRendering:
             baseline=PassEvaluation(
                 proposal=baseline_proposal,
                 static=baseline_static,
-                test=TestPass(process=process.model_copy(update={"exit_code": 0})),
+                verifier=verifier_pass(
+                    process.model_copy(update={"exit_code": 0})
+                ),
             ),
             failure_records=(rejection,),
             coordinate_failure=CoordinateFailure(
@@ -4360,7 +4305,7 @@ class TestExplainRendering:
                             attempt=candidate_attempt,
                             proposal_id=proposal.proposal_id,
                             failure_id=rejection.failure_id,
-                            cause="TEST_FAILURE",
+                            cause="VERIFIER_EXITED_NONZERO",
                             evaluation=runtime_failure,
                         ),
                     ),

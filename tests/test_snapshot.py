@@ -9,11 +9,33 @@ import pytest
 from pf.adapters.process import SubprocessRunner
 from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
-from pf.schemas.evaluation import ProcessResult, ProcessSpec
+from pf.schemas.evaluation import (
+    ProcessResult,
+    ProcessSpec,
+    ProcessTerminalUnavailable,
+)
 from pf.snapshot import SnapshotBuilder
 
 
 class TestSnapshotBuilder:
+    def test_git_snapshot_handles_unavailable_process_terminal(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / ".git").mkdir()
+
+        class Runner:
+            def run(self, spec: ProcessSpec) -> ProcessTerminalUnavailable:
+                return ProcessTerminalUnavailable()
+
+        with pytest.raises(
+            InfrastructureError,
+            match="git could not enumerate the source snapshot",
+        ):
+            SnapshotBuilder(Runner()).build(root)
+
     @pytest.mark.parametrize("target", ("/outside", "../../outside"))
     def test_snapshot_rejects_a_symlink_outside_the_source_root(
         self,

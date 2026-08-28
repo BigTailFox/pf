@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 from typing import Any, cast
 
 import pytest
 
-_DIRECTORY_VARIABLE = "PF_PYTEST_WITNESS_DIR"
-_NONCE_VARIABLE = "PF_PYTEST_WITNESS_NONCE"
-_PROTOCOL = "pf-pytest-failure-witness-v1"
+_DIRECTORY_VARIABLE = "PF_PYTEST_OBSERVER_DIR"
+_NONCE_VARIABLE = "PF_PYTEST_OBSERVER_NONCE"
+_PROTOCOL = "pf-pytest-observer-v1"
 _PROGRESS_DIRECTORY_VARIABLE = "PF_PYTEST_PROGRESS_DIR"
 _PROGRESS_NONCE_VARIABLE = "PF_PYTEST_PROGRESS_NONCE"
 _PROGRESS_PROTOCOL = "pf-pytest-progress-v1"
-_FAILURE_DETAILS_DIRECTORY_VARIABLE = "PF_PYTEST_FAILURE_DETAILS_DIR"
-_FAILURE_DETAILS_PROTOCOL = "pf-pytest-failure-details-v1"
+_FAILURE_DETAILS_DIRECTORY_VARIABLE = "PF_PYTEST_OBSERVER_DETAILS_DIR"
+_FAILURE_DETAILS_PROTOCOL = "pf-pytest-observer-details-v1"
 _MAX_FAILURE_DETAILS = 10_000
 _MAX_NODEID_LENGTH = 4_096
 _facts: set[tuple[str, str]] = set()
@@ -282,3 +284,7 @@ def _commit_progress() -> None:
         os.replace(temporary, final)
     except Exception:
         return
+
+
+if re.fullmatch(r"_pf_pytest_observer_[0-9a-f]{32}", __name__) is not None:
+    atexit.register(_commit_summary)

@@ -16,22 +16,23 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     BaselineIndeterminate,
     BaselineRejection,
-    Evaluation,
     HighestVersionPass,
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
     PrepareFailure,
+    RuntimeEvaluationRun,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     TyCheck,
     ty_diagnostic_digest,
     ToolFailure,
+    NormalExit,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
@@ -143,7 +144,7 @@ class _NeverFull:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
-    ) -> Evaluation:
+    ) -> RuntimeEvaluationRun:
         raise AssertionError("full evaluation must not run")
 
 
@@ -254,14 +255,18 @@ class TestHighestVersionVerifier:
                 package: PackagePlan,
                 baseline: StaticBaseline,
                 static_result: StaticEvaluation | None = None,
-            ) -> PassEvaluation:
+            ) -> RuntimeEvaluationRun:
                 assert isinstance(static_result, StaticUnchangedEvaluation)
                 assert static_result.ty is baseline.ty
                 prepared.mark_tested()
-                return PassEvaluation(
-                    proposal=prepared.proposal,
-                    static=static_result,
-                    test=TestPass(process=successful_process()),
+                return RuntimeEvaluationRun(
+                    evaluation=PassEvaluation(
+                        proposal=prepared.proposal,
+                        static=static_result,
+                        verifier=VerifierPass(
+                            terminal=NormalExit(exit_code=0)
+                        ),
+                    )
                 )
 
         result = HighestVersionVerifier(
@@ -341,7 +346,7 @@ class TestHighestVersionVerifier:
                 raise AssertionError("baseline rejection must stop before ty")
 
         class NeverFull:
-            def evaluate(self, *args: object, **kwargs: object) -> PassEvaluation:
+            def evaluate(self, *args: object, **kwargs: object) -> RuntimeEvaluationRun:
                 raise AssertionError("baseline rejection must stop before tests")
 
         result = HighestVersionVerifier(
@@ -446,7 +451,7 @@ class TestHighestVersionVerifier:
     @pytest.mark.parametrize(
         ("kind", "expected_status", "expected_cause"),
         (
-            ("test", "BASELINE_REJECTION", "TEST_FAILURE"),
+            ("test", "BASELINE_REJECTION", "VERIFIER_EXITED_NONZERO"),
             ("tool", "BASELINE_INDETERMINATE", "TOOL_FAILURE"),
         ),
     )
@@ -470,26 +475,34 @@ class TestHighestVersionVerifier:
                 return capture
 
         class Full:
-            def evaluate(self, *args: object, **kwargs: object) -> Evaluation:
+            def evaluate(self, *args: object, **kwargs: object) -> RuntimeEvaluationRun:
                 failed_process = successful_process().model_copy(
                     update={"exit_code": 1}
                 )
                 if kind == "test":
-                    return TestFailEvaluation(
-                        proposal=prepared.proposal,
-                        static=capture.static,
-                        test=TestFail(process=failed_process),
+                    return RuntimeEvaluationRun(
+                        evaluation=VerifierRejectedEvaluation(
+                            proposal=prepared.proposal,
+                            static=capture.static,
+                            verifier=VerifierRejected(
+                                terminal=NormalExit(
+                                    exit_code=failed_process.exit_code or 1
+                                )
+                            ),
+                        )
                     )
                 failure = ToolFailure(
                     cause="TOOL_FAILURE",
                     stage="test",
                     process=failed_process,
                 )
-                return IndeterminateEvaluation(
-                    proposal=prepared.proposal,
-                    cause=failure.cause,
-                    failure=failure,
-                    static=capture.static,
+                return RuntimeEvaluationRun(
+                    evaluation=IndeterminateEvaluation(
+                        proposal=prepared.proposal,
+                        cause=failure.cause,
+                        failure=failure,
+                        static=capture.static,
+                    )
                 )
 
         result = HighestVersionVerifier(

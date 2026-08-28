@@ -43,23 +43,22 @@ Plan、Review 和 Investigation 中的状态、命令、计数与结论都属于
 | [D007](designs/D007-pf-process-output.md) | Process Log、Output Cache、输出完整性与日志保密 |
 | [D008](designs/D008-pf-verification-run.md) | 命令的 Attempt 序列、Verification Role、Journal、运行终态与 diagnose 读取面 |
 | [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、两次 resolution/一次 installation、resolver 资格边界 |
-| [D013](designs/D013-pf-pytest-failure-evidence.md) | 现行 direct pytest failure-witness profile 与 UI-only pytest telemetry |
-| [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 2 wire、typed refs、规范编码与跨引用验证 |
+| [D013](designs/D013-pf-pytest-failure-evidence.md) | trusted pytest observer、progress/detail 与 UI-only telemetry |
+| [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、规范编码与跨引用验证 |
 
-[D014](designs/D014-pf-report-schema.md) 的 Schema 2 是现行唯一报告布局；Schema 1 不在兼容性或资格化范围内。
+[D014](designs/D014-pf-report-schema.md) 的 Schema 1 是现行唯一报告布局；未发布的开发期旧内联布局不在兼容性或资格化范围内。
 
 以下 Design 已实施并归并，不再拥有现行条款：
 
 - [D009](designs/D009-pf-v1-refactor.md)：安全、证据授权、apply transaction、discovery 与模块加深决策；现行所有者见文内映射。
 - [D010](designs/D010-pf-v1-architecture.md)：判别 request/event、Runner/Scheduler、平台日志 seam、终端私有视图与 composition 决策；现行结构由 D002 等文档拥有。
 - [D011](designs/D011-pf-runtime-backed-static-search.md)：runtime-backed static search 的迁移决策；现行算法与证据分别由 D003/D004/D005 拥有。
-
-[D015](designs/D015-pf-authoritative-verification-outcome.md) 是草案，只描述可能替换 D013 outcome classifier 的方案，不解释当前行为。
+- [D015](designs/D015-pf-authoritative-verification-outcome.md)：configured verifier terminal authority 的迁移决策；现行接口与语义已归并到 D001/D002/D005/D007/D008/D013/D014。
 
 ## 非规范性记录
 
 - [I001](investigation/I001-pf-pytest-witness-collection.md) 是 D013 的 pytest 6–9 实验输入快照。
 - [P001](plans/P001-pf-v1.md)–[P016](plans/P016-pf-cli-live-presentation.md) 是实施与验证记录；其中 P013 如实保留 D014 固定样本资格化尚未完成时的状态。
-- [R001](reviews/R001-pf-v1-review.md)–[R003](reviews/R003-pf-search-indeterminate-review.md) 是对应提交和运行证据的评审快照。
+- [R001](reviews/R001-pf-v1-review.md)–[R004](reviews/R004-pf-search-performance-review.md) 是对应提交和运行证据的评审快照。
 
-根目录 [README](../README.md) 只提供使用入口；[CONTEXT.md](../CONTEXT.md) 只约束现行术语。机器可读报告结构见 [JSON Schema](schemas/package-floor-v2.schema.json)，最小文档见 [complete](examples/package-floor-v2-minimal-complete.json) 与 [incomplete](examples/package-floor-v2-minimal-incomplete.json) 示例。
+根目录 [README](../README.md) 只提供使用入口；[CONTEXT.md](../CONTEXT.md) 只约束现行术语。机器可读报告结构见 [JSON Schema](schemas/package-floor-v1.schema.json)，最小文档见 [complete](examples/package-floor-v1-minimal-complete.json) 与 [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例。

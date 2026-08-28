@@ -6,6 +6,7 @@ import pytest
 
 from conftest import empty_harness_baseline
 from pydantic import ValidationError
+from verifier_fixtures import verifier_pass, verifier_rejected
 
 from pf.failure import FailurePolicy
 from pf.schemas.base import FrozenSchema
@@ -30,6 +31,7 @@ from pf.schemas.evaluation import (
     CellSucceeded,
     DiagnosticClassification,
     FailureDetail,
+    FailureRecord,
     HighestVersionPass,
     IndeterminateEvaluation,
     PassEvaluation,
@@ -48,12 +50,13 @@ from pf.schemas.evaluation import (
     StaticBaselineCapture,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
+    NormalExit,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
     process_facts_match,
     ty_diagnostic_digest,
 )
@@ -103,6 +106,16 @@ def _successful_process(*, exit_code: int = 0) -> ProcessResult:
         duration_seconds=0,
         stdout="",
         stderr="",
+    )
+
+
+def _verifier_failure(attempt: Attempt, *, exit_code: int = 1) -> FailureRecord:
+    return FailureRecord.from_verifier(
+        scope=AttemptFailureScope(attempt=attempt),
+        disposition="REJECTED",
+        cause="VERIFIER_EXITED_NONZERO",
+        stage="test",
+        terminal=NormalExit(exit_code=exit_code),
     )
 
 
@@ -192,7 +205,7 @@ def _baseline_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
             ty=check,
             baseline_digest=baseline.digest,
         ),
-        test=TestPass(process=_successful_process()),
+        verifier=verifier_pass(_successful_process()),
     )
     return attempt, baseline, passed
 
@@ -229,7 +242,7 @@ def _cell_success() -> CellSuccess:
             ty=baseline.ty,
             baseline_digest=baseline.digest,
         ),
-        test=TestPass(process=_successful_process()),
+        verifier=verifier_pass(_successful_process()),
     )
     search = CoordinateSuccess(
         vector=vector,
@@ -545,12 +558,7 @@ class TestPlanningSchemas:
     def test_structured_probe_rejections_require_their_evaluation(self) -> None:
         attempt = _attempt(resolution="exact-vector", vector=())
         baseline_attempt, baseline, passed = _baseline_evidence()
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(attempt)
         with pytest.raises(ValidationError, match="structured evaluation"):
             CellSearchFailure(
                 reason="NO_PASS_IN_SEARCH_SPACE",
@@ -571,7 +579,7 @@ class TestPlanningSchemas:
                                 attempt=attempt,
                                 proposal_id="candidate",
                                 failure_id=failure.failure_id,
-                                cause="TEST_FAILURE",
+                                cause="VERIFIER_EXITED_NONZERO",
                             ),
                         ),
                     ),
@@ -613,7 +621,7 @@ class TestSearchSchemas:
             evaluation = PassEvaluation(
                 proposal=proposal,
                 static=static,
-                test=TestPass(process=_successful_process()),
+                verifier=verifier_pass(_successful_process()),
             )
             observations.append(
                 ProbeObservation(
@@ -827,7 +835,7 @@ class TestSearchSchemas:
             evaluation = PassEvaluation(
                 proposal=indeterminate.proposal,
                 static=static,
-                test=TestPass(process=_successful_process()),
+                verifier=verifier_pass(_successful_process()),
             )
             constructor = ProbePass
             payload: dict[str, object] = {
@@ -841,17 +849,17 @@ class TestSearchSchemas:
                 ty=TyCheck(process=_successful_process(), diagnostics=()),
                 baseline_digest=ty_diagnostic_digest(()),
             )
-            evaluation = TestFailEvaluation(
+            evaluation = VerifierRejectedEvaluation(
                 proposal=indeterminate.proposal,
                 static=static,
-                test=TestFail(process=_successful_process(exit_code=1)),
+                verifier=verifier_rejected(_successful_process(exit_code=1)),
             )
             constructor = ProbeRejection
             payload = {
                 "attempt": evidence_attempt,
                 "proposal_id": proposal_id,
                 "failure_id": "failure",
-                "cause": "TEST_FAILURE",
+                "cause": "VERIFIER_EXITED_NONZERO",
                 "evaluation": evaluation,
             }
         else:
@@ -888,7 +896,7 @@ class TestSearchSchemas:
                     evaluation=PassEvaluation(
                         proposal=proposal,
                         static=static,
-                        test=TestPass(process=_successful_process()),
+                        verifier=verifier_pass(_successful_process()),
                     ),
                 ),
             )
@@ -931,7 +939,7 @@ class TestSearchSchemas:
                 evaluation=PassEvaluation(
                     proposal=proposal,
                     static=static,
-                    test=TestPass(process=_successful_process()),
+                    verifier=verifier_pass(_successful_process()),
                 ),
             )
 
@@ -958,10 +966,10 @@ class TestSearchSchemas:
                 proposal_id=proposal.proposal_id,
                 failure_id="failure",
                 cause="RESOLUTION_CONFLICT",
-                evaluation=TestFailEvaluation(
+                evaluation=VerifierRejectedEvaluation(
                     proposal=proposal,
                     static=static,
-                    test=TestFail(process=_successful_process(exit_code=1)),
+                    verifier=verifier_rejected(_successful_process(exit_code=1)),
                 ),
             )
 
@@ -1075,7 +1083,7 @@ class TestSearchSchemas:
                 evaluation=PassEvaluation(
                     proposal=low_proposal,
                     static=low_static,
-                    test=TestPass(process=_successful_process()),
+                    verifier=verifier_pass(_successful_process()),
                 ),
             ),
         )
@@ -1199,26 +1207,16 @@ class TestSearchSchemas:
 
     def test_baseline_outcome_requires_a_highest_attempt(self) -> None:
         attempt = _attempt(resolution="exact-vector", vector=())
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(attempt)
 
         with pytest.raises(ValidationError, match="highest Attempt"):
             BaselineRejection(attempt=attempt, failure=failure)
 
     def test_baseline_test_rejection_requires_its_structured_evaluation(self) -> None:
         attempt, baseline, _ = _baseline_evidence()
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(attempt)
 
-        with pytest.raises(ValidationError, match="structured evaluation"):
+        with pytest.raises(ValidationError, match="requires its evaluation"):
             BaselineRejection(
                 attempt=attempt,
                 failure=failure,
@@ -1261,18 +1259,12 @@ class TestSearchSchemas:
 
     def test_baseline_rejection_diagnosis_must_match_its_evaluation(self) -> None:
         attempt, baseline, passed = _baseline_evidence()
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=baseline.proposal,
             static=passed.static,
-            test=TestFail(process=_successful_process(exit_code=1)),
+            verifier=verifier_rejected(_successful_process(exit_code=1)),
         )
-        other_process = _successful_process(exit_code=2)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=other_process,
-        )
+        failure = _verifier_failure(attempt, exit_code=2)
 
         with pytest.raises(ValidationError, match="diagnosis must match"):
             BaselineRejection(
@@ -1317,12 +1309,7 @@ class TestSearchSchemas:
                 update={"source_plan_identity": "another-source-plan"}
             )
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=candidate_attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(candidate_attempt)
         candidate_proposal = _proposal(
             "candidate",
             attempt=candidate_attempt,
@@ -1333,10 +1320,10 @@ class TestSearchSchemas:
             ty=TyCheck(process=_successful_process(), diagnostics=()),
             baseline_digest=baseline.digest,
         )
-        candidate_failure = TestFailEvaluation(
+        candidate_failure = VerifierRejectedEvaluation(
             proposal=candidate_proposal,
             static=candidate_static,
-            test=TestFail(process=_successful_process(exit_code=1)),
+            verifier=verifier_rejected(_successful_process(exit_code=1)),
         )
 
         with pytest.raises(ValidationError, match="evaluation context"):
@@ -1414,7 +1401,7 @@ class TestEvaluationSchemas:
                 proposal=proposal,
                 static=static,
                 witnesses=(witness,),
-                test=TestPass(process=_successful_process()),
+                verifier=verifier_pass(_successful_process()),
             )
 
     def test_pass_rejects_witness_tool_failure(self) -> None:
@@ -1439,7 +1426,7 @@ class TestEvaluationSchemas:
                 proposal=proposal,
                 static=static,
                 witnesses=(witness,),
-                test=TestPass(process=_successful_process()),
+                verifier=verifier_pass(_successful_process()),
             )
 
     def test_process_facts_match_requires_matching_presence(self) -> None:
@@ -1557,6 +1544,24 @@ class TestEvaluationSchemas:
         process = ProcessResult(exit_code=2, signal=None, duration_seconds=0)
 
         assert process.diagnostic() == "exit code 2"
+
+    @pytest.mark.parametrize(
+        "facts",
+        (
+            {},
+            {"exit_code": 1, "signal": 9},
+            {"exit_code": 1, "start_error": "failed"},
+            {"signal": 9, "start_error": "failed"},
+            {"start_error": "failed", "timed_out": True},
+        ),
+        ids=("none", "exit-signal", "exit-start", "signal-start", "start-timeout"),
+    )
+    def test_process_result_requires_one_valid_terminal_observation(
+        self,
+        facts: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValidationError):
+            ProcessResult.model_validate({"duration_seconds": 0, **facts})
 
     @pytest.mark.parametrize(
         "changes",
@@ -1824,7 +1829,7 @@ class TestEvaluationSchemas:
                 baseline_digest=baseline.digest,
             ),
         )
-        failure = FailurePolicy().classify_evaluation(
+        failure = FailurePolicy().record_evaluation(
             AttemptFailureScope(attempt=attempt),
             evaluation,
         )
@@ -1866,29 +1871,19 @@ class TestEvaluationSchemas:
         assert result.failure_id == failure.failure_id
 
     @pytest.mark.parametrize(
-        ("outcome", "process"),
+        ("outcome", "terminal"),
         (
-            (TestPass, _successful_process(exit_code=1)),
-            (TestFail, _successful_process(exit_code=0)),
-            (
-                TestFail,
-                _successful_process(exit_code=1).model_copy(update={"timed_out": True}),
-            ),
-            (
-                TestFail,
-                _successful_process(exit_code=1).model_copy(
-                    update={"stderr_complete": False}
-                ),
-            ),
+            (VerifierPass, NormalExit(exit_code=1)),
+            (VerifierRejected, NormalExit(exit_code=0)),
         ),
     )
-    def test_test_outcomes_require_complete_normal_terminal_facts(
+    def test_verifier_outcomes_require_matching_normal_terminal_facts(
         self,
-        outcome: type[TestPass] | type[TestFail],
-        process: ProcessResult,
+        outcome: type[VerifierPass] | type[VerifierRejected],
+        terminal: NormalExit,
     ) -> None:
-        with pytest.raises(ValidationError, match="complete normal"):
-            outcome(process=process)
+        with pytest.raises(ValidationError, match="requires"):
+            outcome(terminal=terminal)
 
     @pytest.mark.parametrize(
         "changes",
@@ -2159,10 +2154,10 @@ class TestReportSchemas:
         success = _cell_success()
         values = _model_values(success)
         observation = success.search.observations[0]
-        rejected = TestFailEvaluation(
+        rejected = VerifierRejectedEvaluation(
             proposal=success.final_evaluation.proposal,
             static=success.final_evaluation.static,
-            test=TestFail(process=_successful_process(exit_code=1)),
+            verifier=verifier_rejected(_successful_process(exit_code=1)),
         )
         values["search"] = success.search.model_copy(
             update={
@@ -2173,7 +2168,7 @@ class TestReportSchemas:
                                 attempt=observation.evidence.attempt,
                                 proposal_id=success.final_evaluation.proposal.proposal_id,
                                 failure_id="missing-failure",
-                                cause="TEST_FAILURE",
+                                cause="VERIFIER_EXITED_NONZERO",
                                 evaluation=rejected,
                             )
                         }
@@ -2355,17 +2350,12 @@ class TestReportSchemas:
             static_fingerprint=static_fingerprint((increment.identity,)),
             classifications=_general_classifications(increment),
         )
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=candidate,
             static=wrong_static,
-            test=TestFail(process=_successful_process(exit_code=1)),
+            verifier=verifier_rejected(_successful_process(exit_code=1)),
         )
-        rejection = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=evaluation.test.process,
-        )
+        rejection = _verifier_failure(attempt)
 
         with pytest.raises(ValidationError, match="frozen static baseline"):
             CellSearchFailure(
@@ -2387,7 +2377,7 @@ class TestReportSchemas:
                                 attempt=attempt,
                                 proposal_id=candidate.proposal_id,
                                 failure_id=rejection.failure_id,
-                                cause="TEST_FAILURE",
+                                cause="VERIFIER_EXITED_NONZERO",
                                 evaluation=evaluation,
                             ),
                         ),
@@ -2413,17 +2403,12 @@ class TestReportSchemas:
             static_fingerprint=static_fingerprint((diagnostic.identity,)),
             classifications=_general_classifications(diagnostic),
         )
-        evaluation = TestFailEvaluation(
+        evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
             static=static,
-            test=TestFail(process=_successful_process(exit_code=1)),
+            verifier=verifier_rejected(_successful_process(exit_code=1)),
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=evaluation.test.process,
-        )
+        failure = _verifier_failure(attempt)
         event = SearchFailureEvent(
             cell=proposal.cell,
             failure=failure,
@@ -2436,7 +2421,7 @@ class TestReportSchemas:
             scope=AttemptFailureScope(attempt=attempt),
             cause="HARNESS_CONFLICT",
             stage="install-harness",
-            process=evaluation.test.process,
+            process=_successful_process(exit_code=1),
         )
         with pytest.raises(ValidationError, match="test evaluation"):
             SearchFailureEvent(
@@ -2448,7 +2433,7 @@ class TestReportSchemas:
     def test_search_failure_event_matches_indeterminate_failure_facts(self) -> None:
         attempt = _attempt(resolution="exact-vector", vector=())
         evaluation = _indeterminate_evaluation(attempt)
-        failure = FailurePolicy().classify_evaluation(
+        failure = FailurePolicy().record_evaluation(
             AttemptFailureScope(attempt=attempt),
             evaluation,
         )
@@ -2461,6 +2446,7 @@ class TestReportSchemas:
         )
 
         assert event.evaluation == evaluation
+        assert evaluation.failure is not None
         mismatched = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=attempt),
             cause=evaluation.failure.cause,
@@ -2505,13 +2491,7 @@ class TestReportSchemas:
     ) -> None:
         attempt = _attempt()
         cell = attempt.identity.cell
-        process = _successful_process(exit_code=1)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=process,
-        )
+        failure = _verifier_failure(attempt)
         event = CellCompletedEvent(
             cell=cell,
             completed=1,
@@ -2553,12 +2533,7 @@ class TestReportSchemas:
 
     def test_search_diagnostic_event_rejects_a_mismatched_cell(self) -> None:
         attempt = _attempt()
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(attempt)
         wrong_cell = attempt.identity.cell.model_copy(update={"package": "other"})
 
         with pytest.raises(ValidationError, match="failure scope"):
@@ -2566,12 +2541,7 @@ class TestReportSchemas:
 
     def test_cell_failure_record_ids_are_unique(self) -> None:
         cell = _attempt().identity.cell
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_attempt()),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(_attempt())
         with pytest.raises(ValidationError, match="unique"):
             CellIndeterminate(
                 cell=cell,
@@ -2581,12 +2551,7 @@ class TestReportSchemas:
             )
 
     def test_failure_record_rejects_a_tampered_stable_id(self) -> None:
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_attempt()),
-            cause="TEST_FAILURE",
-            stage="test",
-            process=_successful_process(exit_code=1),
-        )
+        failure = _verifier_failure(_attempt())
         document = failure.model_dump(mode="python")
         document["failure_id"] = "failure-0000000000000000"
 
@@ -2654,6 +2619,6 @@ class TestReportSchemas:
 
     def test_package_floor_report_dump_excludes_process_output_bodies(self) -> None:
         success = _cell_success()
-        dumped = success.final_evaluation.test.process.model_dump()
+        dumped = success.final_evaluation.verifier.model_dump()
         assert "stdout" not in dumped
         assert "stderr" not in dumped

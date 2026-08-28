@@ -14,12 +14,13 @@ from pf.resolution import environment_identity_digest
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestPass,
     TyCheck,
+    VerifierPass,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -175,7 +176,7 @@ def passing_evaluation(
             baseline_digest=ty_diagnostic_digest(()),
             incremental=(),
         ),
-        test=TestPass(process=successful_process()),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
 
@@ -311,6 +312,7 @@ class TestReportProjection:
         )
         incomplete_coverage["identity"]["report_generation_id"] = report_generation_id(
             generator=report.generator,
+            verifier_outcome_policy=report.verifier_outcome_policy,
             package=report.package,
             source_snapshot=report.source_snapshot,
             policy_identity=report.policy_identity,

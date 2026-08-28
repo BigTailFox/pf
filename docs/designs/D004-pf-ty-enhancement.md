@@ -157,11 +157,11 @@ Adapter 在当前 prepared environment 中执行：
 - `PRESENT`：目标 runtime 名称存在；
 - `CONFIRMED_MISSING`：精确目标 module/symbol/member 缺失；
 - `NOT_APPLICABLE`：执行完成但不能无歧义回答；
-- `ToolFailure`：timeout、signal、启动失败、非零退出、截断或非法输出。
+- `ToolFailure`：timeout、signal、启动失败、typed terminal unavailable、非零退出、截断或非法输出。
 
 ModuleNotFoundError 必须指向目标 module 或其前缀；AttributeError 必须携带目标 owner 对象和 member name。`import-symbol` 使用 Python `fromlist` 导入语义后再核对属性，不能把可导入的 package submodule 误判为缺失。Import side-effect exception、任意 traceback 或无关缺失不能解释为 confirmed missing。
 
-Witness result 必须完整正常 exit 0，并保留 plan 与 ProcessResult。Schema 要求 witness attempts 按本 Proposal 保序去重后的 classification plans 形成前缀；PASS/TestFail 不得保留 confirmed missing 或 tool failure，RuntimeInterfaceMissing 必须在首个 confirmed missing 停止，witness Indeterminate 必须在对应 ToolFailure 停止。
+Witness result 必须完整正常 exit 0，并保留 plan 与 ProcessResult。Schema 要求 witness attempts 按本 Proposal 保序去重后的 classification plans 形成前缀；PassEvaluation/VerifierRejectedEvaluation 不得保留 confirmed missing 或 tool failure，RuntimeInterfaceMissingEvaluation 必须在首个 confirmed missing 停止，witness IndeterminateEvaluation 必须在对应 ToolFailure 停止。
 
 ## 8. RuntimeEvaluator 路由
 
@@ -176,11 +176,11 @@ run static transition
         ↓
 run configured test-command
   ├── pass -> PassEvaluation
-  ├── D001/D013 ordinary test failure -> TestFailEvaluation
+  ├── configured verifier normal nonzero -> VerifierRejectedEvaluation
   └── incomplete/tool result -> IndeterminateEvaluation
 ```
 
-Witness 是内部负向优化，不产生正向 compatibility。未选择 witness 时直接运行 test-command。Pass/TestFail/RuntimeInterfaceMissing/Indeterminate 都保留本 Proposal 的 static evidence；运行过的 witness attempts 同样保留。
+Witness 是内部负向优化，不产生正向 compatibility。未选择 witness 时直接运行 test-command。PassEvaluation/VerifierRejectedEvaluation/RuntimeInterfaceMissingEvaluation/IndeterminateEvaluation 都保留本 Proposal 的 static evidence；运行过的 witness attempts 同样保留。
 
 ## 9. check、smoke 与 search
 
@@ -192,7 +192,7 @@ Witness 是内部负向优化，不产生正向 compatibility。未选择 witnes
 
 ## 10. Schema、cache 与报告
 
-公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。Schema 2 只改变这些事实的持久化所有权：StaticEvaluation、terminal Evaluation、Proposal 和 FailureRecord 按 D014 的 typed refs 关联，不改变本节的静态证据语义。
+公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。Schema 1 只改变这些事实的持久化所有权：StaticEvaluation、terminal Evaluation、Proposal 和 FailureRecord 按 D014 的 typed refs 关联，不改变本节的静态证据语义。
 
 概念 cache key：
 
@@ -234,7 +234,7 @@ final_verification = direct-test-command-pass
 3. Regression 当且仅当 multiset increment 非空；它没有 disposition。
 4. 每个 increment occurrence 有同序 classification 和显式 fingerprint。
 5. 只有 confirmed-missing witness 或 test failure 可从 static 路径形成 runtime negative evidence。
-6. 完整 PASS 必须含本 Proposal 的 TestPass。
+6. 完整 PASS 必须由本 Proposal 的 PassEvaluation 证明。
 7. 截断、坏 JSON、side-effect exception 或归因歧义不能形成 compatibility boundary。
 
 非目标包括要求仓库 type-clean、为所有 unresolved 自动建 witness、解析 message、static-only floor、region runtime 等价证明和跨运行 baseline/evaluation cache。

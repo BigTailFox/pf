@@ -20,16 +20,19 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     BaselineIndeterminate,
     BaselineRejection,
+    FailureRecord,
     HighestVersionOutcome,
     HighestVersionPass,
+    NormalExit,
     PassEvaluation,
+    ProcessObservation,
     ProcessResult,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestFail,
-    TestFailEvaluation,
-    TestPass,
     TyCheck,
+    VerifierPass,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
     VerificationJournal,
     ty_diagnostic_digest,
 )
@@ -92,6 +95,14 @@ class FailingJournal:
 
     def write_journal(self, journal: VerificationJournal) -> Path:
         raise InfrastructureError("could not write PF verification journal")
+
+    def associate(
+        self,
+        report_generation_id: str,
+        failure_id: str,
+        result: ProcessObservation,
+    ) -> None:
+        raise AssertionError("journal failure must prevent process association")
 
 
 class TestSmokeWorkflow:
@@ -165,7 +176,7 @@ class TestSmokeWorkflow:
                     evaluation=PassEvaluation(
                         proposal=proposal,
                         static=static,
-                        test=TestPass(process=process),
+                        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
                     ),
                 )
 
@@ -250,16 +261,17 @@ class TestSmokeWorkflow:
                     ty=check,
                     baseline_digest=baseline.digest,
                 )
-                evaluation = TestFailEvaluation(
+                evaluation = VerifierRejectedEvaluation(
                     proposal=proposal,
                     static=static,
-                    test=TestFail(process=process),
+                    verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
                 )
-                failure = FailurePolicy().classify(
+                failure = FailureRecord.from_verifier(
                     scope=AttemptFailureScope(attempt=attempt),
-                    cause="TEST_FAILURE",
+                    disposition="REJECTED",
+                    cause="VERIFIER_EXITED_NONZERO",
                     stage="test",
-                    process=process,
+                    terminal=NormalExit(exit_code=1),
                 )
                 return BaselineRejection(
                     attempt=attempt,
@@ -405,20 +417,21 @@ class TestSmokeWorkflow:
                     ty=check,
                     digest=ty_diagnostic_digest(check.diagnostics),
                 )
-                evaluation = TestFailEvaluation(
+                evaluation = VerifierRejectedEvaluation(
                     proposal=proposal,
                     static=StaticUnchangedEvaluation(
                         proposal=proposal,
                         ty=check,
                         baseline_digest=baseline.digest,
                     ),
-                    test=TestFail(process=process),
+                    verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
                 )
-                failure = FailurePolicy().classify(
+                failure = FailureRecord.from_verifier(
                     scope=AttemptFailureScope(attempt=attempt),
-                    cause="TEST_FAILURE",
+                    disposition="REJECTED",
+                    cause="VERIFIER_EXITED_NONZERO",
                     stage="test",
-                    process=process,
+                    terminal=NormalExit(exit_code=1),
                 )
                 failure_id = failure.failure_id
                 return BaselineRejection(
@@ -443,7 +456,7 @@ class TestSmokeWorkflow:
 
         output = stderr.getvalue()
         assert "smoke failed at [baseline][highest][testing]" in output
-        assert "The full test command failed for this version combination." in output
+        assert "The configured verifier rejected this version combination." in output
         assert "pf diagnose" not in output
         assert failure_id not in output
         assert "1 failed" not in output

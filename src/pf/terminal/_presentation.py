@@ -280,7 +280,12 @@ class CellPresentation:
             failures=failures,
             detail=detail,
             primary_failure_id=primary_failure_id,
-            process=outcome.process if isinstance(outcome, CellFailed) else None,
+            process=(
+                outcome.process
+                if isinstance(outcome, CellFailed)
+                and isinstance(outcome.process, ProcessResult)
+                else None
+            ),
             stage=primary_failure.stage if primary_failure is not None else outcome.phase,
             role=(
                 outcome.verification_role

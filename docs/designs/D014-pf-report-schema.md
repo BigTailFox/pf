@@ -1,24 +1,25 @@
-# PF 报告 Schema 2
+# PF 报告 Schema 1
 
 - **状态：** 现行
-- **版本：** `schema_version = 2`
-- **最后核对：** 2026-08-26
+- **版本：** `schema_version = 1`
+- **最后核对：** 2026-08-28
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-failure-evidence.md)
-- **机器结构：** [package-floor-v2.schema.json](../schemas/package-floor-v2.schema.json)
-- **最小示例：** [complete](../examples/package-floor-v2-minimal-complete.json)、[incomplete](../examples/package-floor-v2-minimal-incomplete.json)
+- **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
+- **最小示例：** [complete](../examples/package-floor-v1-minimal-complete.json)、[incomplete](../examples/package-floor-v1-minimal-incomplete.json)
 - **实施记录：** [P013](../plans/P013-pf-report-schema.md)
 
 本文是 `package-floor.json` wire interface、typed refs、规范编码和跨引用验证的唯一所有者。JSON Schema 是由同一 Pydantic wire model 生成的机器可读结构投影；搜索、failure、static/runtime evidence、harness 和 apply 的领域含义仍由上列文档拥有。
 
-Schema 2 已一次性替换开发期内联 Schema 1。Reader 只接受版本 2，不提供旧 reader、migrator、alias、dual-read 或 dual-write。
+规范化引用图是首发 Schema 1。它已原地替换此前未发布、未命名的开发期内联布局；Reader
+只接受版本 1，不提供旧 reader、migrator、alias、dual-read 或 dual-write。
 
 ## 1. 文档模型
 
 报告是一个自包含、规范化的有向引用图：每类高扇出实体只定义一次，CellResult 与其他证据只保存 typed ref。顶层固定为：
 
 ```text
-schema_version = 2
+schema_version = 1
 identity        generation identity 与 source/policy
 inputs          declarations、target Cells、CandidateSnapshots
 evidence        graphs、Attempts、Proposals、static/terminal Evaluations、Failures
@@ -38,16 +39,18 @@ result          complete | incomplete
 - canonical package name 与项目相对 `pyproject.toml` 路径；
 - 完整 SourceSnapshot identity；
 - evaluation policy identity。
+- required `verifier_outcome_policy = configured-verifier-terminal-v1`。
 
 Generation ID 的唯一算法是：
 
 ```text
 sha256(
-  "pf:report-generation:v2\0" + canonical_identity_json({
+  "pf:report-generation:v1\0" + canonical_identity_json({
     generator,
     package,
     source_snapshot,
     policy_identity,
+    verifier_outcome_policy,
     requirement_declarations sorted by declaration_id,
     target_cells sorted by cell_identity,
   })
@@ -76,12 +79,18 @@ CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事�
 | `attempts` | `attempt_id` | Cell、source/policy、resolution context、harness facts、request |
 | `proposals` | `proposal_id` | Attempt、managed vector、fixed declarations、graph、两个 plan digest、interpreter |
 | `static_evaluations` | `proposal_ref` | Proposal、TyCheck、baseline digest、increment/fingerprint/classification |
-| `evaluations` | `proposal_ref` | Proposal、static evaluation、witnesses、test/failure terminal |
-| `failures` | `failure_id` | Cell/Attempt scope、disposition、cause、stage、portable facts、已取得 plan digests |
+| `evaluations` | `proposal_ref` | Proposal、static evaluation、witnesses、verifier terminal/failure ref |
+| `failures` | `failure_id` | Cell/Attempt scope、disposition、cause、stage、FailureAuthority、已取得 plan digests |
 
 Proposal 只有在 prepare 成功并复证实际 graph 后才能存在；prepare failure 可以引用 Attempt，但不能虚构 Proposal。成功 Proposal 的 `project_plan_digest` 与 `environment_plan_digest` 必须非空，interpreter Python minor 必须匹配 Attempt Cell。
 
-Static Evaluation 只能是 `STATIC_UNCHANGED | STATIC_REGRESSION`。Terminal Evaluation 只能是现行领域 union `PASS | TEST_FAIL | RUNTIME_INTERFACE_MISSING | INDETERMINATE`。D015 是草案，不改变这些 Schema 2 值。
+Static Evaluation 只能是 `STATIC_UNCHANGED | STATIC_REGRESSION`。Terminal Evaluation 只能是
+现行领域 union `PASS | VERIFIER_REJECTED | RUNTIME_INTERFACE_MISSING | INDETERMINATE`。
+Verifier evaluation 保存 `VerifierTerminal`；不保存完整 `ProcessResult` 或 pytest diagnostics。
+
+Failure wire 必须恰有一个判别 `authority`：`process | configured-verifier | structured`。Reader
+拒绝缺失、混合、额外或与 cause/stage/disposition 不匹配的 authority，并以完整
+`pf:failure:v2` preimage 重算 failure ID。
 
 ### 1.4 Roots 与 projection
 
@@ -116,18 +125,18 @@ Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Eval
 `ReportStore.read` 按以下顺序 fail closed：
 
 1. `stat` 预拒绝超过 64 MiB 的输入，读取后再次检查以覆盖竞态；
-2. 只按 UTF-8 解析 JSON，拒绝非法编码、语法、递归深度、非对象根和非版本 2；
+2. 只按 UTF-8 解析 JSON，拒绝非法编码、语法、递归深度、非对象根和非版本 1；
 3. 以严格 wire model 验证字段、类型、判别 union、无额外字段和无显式 null；
 4. 要求输入与 `model_dump(exclude_none=True)` 完全一致，禁止 coercion/default 补事实；
 5. 建立线性的 typed indexes，拒绝重复、未知或错误种类的 ref；
-6. 复算 source、generation、Cell、CandidateSnapshot、ResolutionGraph、Attempt、Proposal、region 与 Failure identity；
+6. 复算 source、generation、Cell、CandidateSnapshot、ResolutionGraph、Attempt、Proposal、region 与 Failure v2 identity；
 7. 验证 cross-cell scope、Evaluation/Failure/Proposal 闭环、搜索边界、projection 与 result；
 8. 从 roots 检查全图可达性和规范顺序；
 9. 返回 immutable、resolved `ValidatedReport`，不向调用方泄漏 wire refs 或 join 规则。
 
 任何失败都映射为不含输入正文、凭据、路径或不可信动态 ID 的 `ConfigurationError`。Reader 不访问网络、不读取当前项目来补事实，也不根据本地日志改变报告 authority。
 
-公共 locator 必须是规范、可移植且无凭据的相对路径或安全 source/artifact locator；绝对路径、file URL、credential/query 泄漏、Windows drive 路径和越界 `..` 均无效。Process output、run ID、临时路径和本地日志 locator 不进入报告。
+公共 locator 必须是规范、可移植且无凭据的相对路径或安全 source/artifact locator；绝对路径、file URL、credential/query 泄漏、Windows drive 路径和越界 `..` 均无效。Process output、`RuntimeEvaluationRun`/pytest diagnostics、run ID、临时路径和本地日志 locator 不进入报告。
 
 ## 4. 规范编码与持久化
 
@@ -169,7 +178,7 @@ ReportStore.update_path(path, replacement) -> ReportUpdate
 
 - JSON Schema 和两个最小示例只能由 `scripts/generate_report_schema.py` 从唯一 wire model 生成；`--check` 必须无漂移。
 - 示例必须同时通过 Draft 2020-12 JSON Schema 与 `ReportStore.read`。
-- Schema 2 的 canonical encoding、identity、typed refs、可达性与 merge/update 契约由独立的 public-behavior 测试验证。
-- Schema 1 不是可读布局，也不作为 Schema 2 的兼容性、体积或性能验收基线。
+- Schema 1 的 canonical encoding、identity、typed refs、可达性与 merge/update 契约由独立的 public-behavior 测试验证。
+- 开发期旧内联布局不是可读布局，也不作为 Schema 1 的兼容性、体积或性能验收基线。
 
-`schema_version = 2` 是唯一可读写布局。
+`schema_version = 1` 是唯一可读写布局。

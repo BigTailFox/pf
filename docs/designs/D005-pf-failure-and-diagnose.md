@@ -1,28 +1,30 @@
 # PF failure 语义与 diagnose
 
 - **状态：** 现行
-- **策略版本：** `failure-runtime-v1`
-- **最后核对：** 2026-08-27
+- **策略版本：** `failure-runtime-v2`
+- **最后核对：** 2026-08-28
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
 - **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行角色与读取面：** [D008](D008-pf-verification-run.md)
 - **Harness negative evidence：** [D012](D012-pf-harness-relaxation.md)
-- **pytest negative evidence：** [D013](D013-pf-pytest-failure-evidence.md)
+- **pytest diagnostics：** [D013](D013-pf-pytest-failure-evidence.md)
 
-本文是 Attempt、cause、disposition、FailureRecord 和 `diagnose` 语义的唯一所有者。Adapter 提供机械 operation facts；FailurePolicy 分类；搜索只消费 disposition；Presenter 只组织本文与 D008 提供的文案事实。
+本文是 Attempt、cause、disposition、FailureRecord identity 和 `diagnose` 语义的唯一
+所有者。Adapter 提供机械 operation facts；FailurePolicy 只记录已经形成的 disposition；
+搜索只消费 disposition；Presenter 只组织稳定文案。
 
 ## 1. 三层结果模型
 
 ```text
 完整成功事实                         -> PASS
-process/operation failure facts
-  -> Cause                           稳定说明发生了什么
-  -> FailurePolicy                   -> REJECTED | INDETERMINATE
+完整负向事实                         -> REJECTED
+没有可信完整终态                     -> INDETERMINATE
 ```
 
-Cause 不是 disposition，也不声称单个 dependency 是根因。相同 cause 在证据完整性、stage 或 scope 不同时可以得到不同 disposition。不得解析 stderr substring、traceback 或自然语言来补 classification。
+Cause 回答发生了什么，不等于 disposition，也不声称单个 dependency 是根因。不得解析
+stderr substring、traceback、pytest facts 或自然语言来补 classification。
 
 现行 cause 集合：
 
@@ -31,7 +33,7 @@ RESOLUTION_CONFLICT
 BUILD_FAILURE
 HARNESS_CONFLICT
 RUNTIME_INTERFACE_MISSING
-TEST_FAILURE
+VERIFIER_EXITED_NONZERO
 SOURCE_FAILURE
 ENVIRONMENT_FAILURE
 TOOL_FAILURE
@@ -44,17 +46,9 @@ NONDETERMINISTIC
 
 ## 2. Attempt 与 scope
 
-Attempt 在 environment resolution 前建立。它的 identity 至少绑定：
-
-- source snapshot digest 与完整 Cell；
-- `highest | lowest-direct | exact-vector` request；
-- exact request 的 managed vector；
-- active declaration IDs 与 source-plan identity；
-- evaluation policy、resolution context 与 harness policy；
-- relaxed request 的 harness baseline；
-- exact request 的 selected-candidate evidence。
-
-Schema 2 持久化只接受 `attempt-v2`；开发期 `attempt-v1` 仍只存在于内部兼容的领域 model，不是可写 wire 变体。
+Attempt 在 environment resolution 前建立，identity 绑定 source snapshot、完整 Cell、
+resolution request、exact managed vector、active declarations、source/evaluation/resolution/
+harness policy 以及可用 selected-candidate evidence。Schema 1 只接受 `attempt-v2`。
 
 Failure scope 是判别 union：
 
@@ -63,50 +57,33 @@ AttemptFailureScope(attempt)
 CellFailureScope(package, cell, source_snapshot_digest, policy_identity)
 ```
 
-Candidate discovery 或 scheduling 在 Attempt 建立前失败时使用 Cell scope；它只能是 Indeterminate，不得虚构 resolution、managed vector 或 Proposal。
+Candidate discovery 或 scheduling 在 Attempt 建立前失败时使用 Cell scope；它只能是
+Indeterminate，不得虚构 Proposal 或 managed vector。
 
 ## 3. Rejection 资格
 
-Rejection 是明确负向证据，只否定完整 Attempt。现行 v1 仅允许下表四种组合：
+Rejection 只否定完整 Attempt。现行允许：
 
-| Cause | Stage | 附加权威 |
+| Cause | Stage | Authority |
 | --- | --- | --- |
-| `RESOLUTION_CONFLICT` | `resolve-project` | D012 资格 profile 认证的完整 project requirement contradiction |
-| `HARNESS_CONFLICT` | `resolve-environment` | D012 资格 profile 认证的完整 final-environment contradiction |
-| `RUNTIME_INTERFACE_MISSING` | `witness` | D004 adapter-owned witness 的 `CONFIRMED_MISSING` |
-| `TEST_FAILURE` | `test` | D013 direct-pytest witness 或用户显式 generic failure-exit contract |
+| `RESOLUTION_CONFLICT` | `resolve-project` | D012 资格 profile 证明 project request UNSAT |
+| `HARNESS_CONFLICT` | `resolve-environment` | D012 资格 profile 证明 final environment request UNSAT |
+| `RUNTIME_INTERFACE_MISSING` | `witness` | D004 structured witness 的 `CONFIRMED_MISSING` |
+| `VERIFIER_EXITED_NONZERO` | `test` | configured verifier 的 `NormalExit(exit_code != 0)` |
 
-此外必须同时满足：
+Configured verifier 的 terminal disposition 已由 `ConfiguredVerifier` 机械形成；
+FailurePolicy 不再读取 exit code、output completeness、pytest facts 或 cause 重新判断。
+normal nonzero 的具体整数、stdout/stderr 是否完整、pytest phase 与 observer metadata 都不
+改变 Rejection。
 
-- scope 是 `highest | lowest-direct | exact-vector` Attempt；
-- 有可信 `ProcessResult`；
-- 没有 start error、timeout 或 signal；
-- `stdout_complete` 与 `stderr_complete` 都为 true；
-- resolution/test 路径具有正常非零 exit；runtime witness 的 confirmed-missing 允许其结构化成功进程；
-- cause 与 stage 精确匹配上表。
+Cell scope、source/build/environment/tool/internal/nondeterministic failure、timeout、signal、
+start failure、typed terminal unavailable 或未建模异常始终不足以 Rejection。它们形成
+Indeterminate，或在 adapter/schema invariant 破坏时以命令级 `InfrastructureError` 结束。
 
-`lowest-direct` 与 exact Probe 使用同一 Rejection 资格，但 Role 的产品影响不同。Baseline 不降低证据门槛。
+D004 runtime witness 的资格保持独立：`PRESENT | NOT_APPLICABLE` 继续 verifier；
+`CONFIRMED_MISSING` 可形成 Rejection；witness `ToolFailure` 形成 Indeterminate。
 
-以下情况始终不足以 Rejection：
-
-- Cell scope；
-- `BUILD_FAILURE`、`SOURCE_FAILURE`、`ENVIRONMENT_FAILURE`、`TOOL_FAILURE`、`TIMEOUT`、`INTERNAL_INVARIANT` 或 `NONDETERMINISTIC`；
-- candidate unavailable、index/DNS/auth、artifact、build、installation、graph inspection、parser 或未知 resolver failure；
-- start error、timeout、signal、缺失 process facts 或不完整输出；
-- D013 未资格化、缺失或冲突的 pytest witness；
-- stderr 文本看似冲突或测试失败。
-
-其中的失败结果形成 Indeterminate。保守漏掉 Rejection 会停止 Cell；错误 Rejection 会移动边界，因此不能放宽。
-
-Static regression 与 runtime witness `PRESENT | NOT_APPLICABLE` 不是失败结果，也不单独形成 `FailureRecord`。它们没有 PASS 或 Rejection authority：static regression 只触发 D004 runtime 路由；`PRESENT | NOT_APPLICABLE` 后，D004 evaluator 必须继续剩余 witness，并在没有终态 witness 时运行配置 test-command。
-
-只有 runtime witness `ToolFailure` 形成 `INDETERMINATE`；evaluation 必须在首个 `ToolFailure` 停止并保留对应 process evidence。
-
-## 4. Baseline、declaration 与 probe
-
-Request 决定 evidence scope，Role 不改变本章的 Rejection 资格。Verification Run 的编排与 Baseline/Declaration/Probe 影响只由 D008 定义；D003 只消费已经分类的 Probe Rejection 或 Indeterminate。
-
-## 5. FailureRecord
+## 4. FailureRecord v2
 
 ```text
 FailureRecord
@@ -115,88 +92,89 @@ FailureRecord
   disposition: REJECTED | INDETERMINATE
   cause
   stage
-  process?
-  summary_code?
-  detail?
+  authority:
+    ProcessFailureAuthority(process)
+    | ConfiguredVerifierFailureAuthority(terminal)
+    | StructuredFailureAuthority(detail)
   project_plan_digest?
   environment_plan_digest?
 ```
 
-`failure_id` 对上述结构化可移植 facts 做 `pf:failure:v1` canonical hash 并使用 `failure-` 前缀。Environment plan digest 存在时 project plan digest 必须存在；Failure 只能保存失败发生前已经取得的 plan evidence。
+每条记录必须恰有一种 authority：
 
-`ProcessResult` 只保存 D007 定义的 portable facts，不保存 stdout/stderr、run ID 或 log path。`FailureDetail` 必须非空、有界、脱敏且可移植；不能保存绝对路径、credential、动态异常正文或本地 locator。详细输出只在 Process Log。
+- uv/ty/resolver/runtime witness 等 operation 可保存 D007 portable `ProcessResult`；typed
+  terminal unavailable 转为稳定 structured authority，不伪造 process facts；
+- configured verifier 只保存 `VerifierTerminal`，不重复保存完整 `ProcessResult`；
+- scheduler/source 等无进程路径保存稳定、脱敏、可移植 `FailureDetail`。
 
-Schema 2 只定义一次 FailureRecord；observation、boundary、CellResult 与 diagnosis 都引用 `failure_id`。Wire ownership、ref closure 与 public-locator validation 由 D014 定义。
-
-## 6. FailurePolicy interface
+`failure_id` 对完整 v2 preimage 做 canonical hash：
 
 ```text
-FailurePolicy.classify(
-    scope, cause, stage, process,
-    summary_code=None,
-    detail=None,
-    project_plan_digest=None,
-    environment_plan_digest=None,
-) -> FailureRecord
+sha256("pf:failure:v2\0" + canonical_identity_json(payload))
+-> failure-<16 hex>
+```
 
-FailurePolicy.classify_evaluation(scope, evaluation, ...)
+Preimage 包含 scope、disposition、cause、stage、完整 authority 与已有 plan digests。Verifier
+identity 吸收 terminal kind、normal exit code 或 signal；不吸收 duration、output
+completeness、stdout/stderr、start-error 正文、pytest facts/detail/progress、summary、run ID 或
+日志 locator。相同 Attempt 的 exit 1 与 exit 4 因而是不同 failure ID。
+
+Environment plan digest 存在时 project plan digest 必须存在。`FailureDetail` 必须非空、
+有界、脱敏且可移植；不能保存绝对路径、credential、动态异常正文或本地 locator。
+
+## 5. FailurePolicy interface
+
+```text
+FailurePolicy.classify(scope, cause, stage, process?, detail?, plan digests?)
+    -> FailureRecord
+
+FailurePolicy.record_evaluation(scope, evaluation, ...)
     -> FailureRecord | None
 ```
 
-`classify_evaluation` 的映射固定为：
+Evaluation 映射固定为：
 
 ```text
 PassEvaluation                    -> None
 RuntimeInterfaceMissingEvaluation -> RUNTIME_INTERFACE_MISSING @ witness
-TestFailEvaluation                -> TEST_FAILURE @ test
-IndeterminateEvaluation           -> evaluation 自带 cause/stage/process
+VerifierRejectedEvaluation        -> VERIFIER_EXITED_NONZERO @ test
+IndeterminateEvaluation           -> evaluation 自带 verifier/process authority
 ```
 
-Adapter、RuntimeEvaluator、workflow、CoordinateSearch、ReportStore 与 Presenter 不复制 `rejection_is_supported`。
+Adapter、RuntimeEvaluator、workflow、CoordinateSearch、ReportStore 与 Presenter 不复制
+Rejection classifier。Role 不改变分类或 identity。
 
-## 7. Diagnose 语义与排序
+## 6. Diagnose
 
-报告、latest Journal 和 Diagnosis Index 的读取范围、优先级与去重只由 D008 定义。对解析后的 FailureRecords，`pf diagnose [package] [--failure FAILURE_ID]` 保持以下语义：
+报告、latest Journal 和 Diagnosis Index 的读取范围、优先级与去重只由 D008 定义。
+`pf diagnose [package] [--failure FAILURE_ID]`：
 
-- 指定的 failure ID 不存在时配置失败；
-- 省略 ID 时按 package、target、Python、extra、resolution/vector 与 failure ID 稳定排序；
+- 指定 ID 不存在时配置失败；
+- 省略 ID 时按 package、Cell、Attempt/vector 与 failure ID 稳定排序；
 - 成功展示零条或多条记录都返回 `0`；
-- 不做自动根因归属、重试、环境重建、项目修改或报告修改。
+- 不做自动归因、重试、环境重建、项目或报告修改。
 
-每条诊断按以下层级表达：
-
-```text
-Failure / Outcome
-What happened
-Impact
-Next step
-Context
-Technical details
-optional output tail / Process Log link
-```
-
-D005 拥有 cause 对应的 title 与 next step，以及 `REJECTED`/`INDETERMINATE` 的通用含义；D008 拥有 Role→impact；D006 只拥有布局与通道。
-
-Cause 的稳定用户语义：
+每条诊断按 `Failure / Outcome → What happened → Impact → Next step → Context →
+Technical details → optional log tail` 表达。Cause 的稳定用户语义：
 
 | Cause | What happened | Next step |
 | --- | --- | --- |
-| `RESOLUTION_CONFLICT` | requirements 明确冲突，组合无法安装 | 检查冲突约束后重跑 |
+| `RESOLUTION_CONFLICT` | requirements 明确冲突 | 检查冲突约束后重跑 |
 | `BUILD_FAILURE` | 组合未能构建 | 检查 build requirements、Python support 与 artifacts |
-| `HARNESS_CONFLICT` | test dependencies 无法在保持 project graph 时安装 | 调整 test dependencies |
-| `RUNTIME_INTERFACE_MISSING` | witness 确认所需 runtime interface 缺失 | 检查 module/member，再决定约束 |
-| `TEST_FAILURE` | 完整 test command 失败 | 查看结构化摘要与日志 |
+| `HARNESS_CONFLICT` | test dependencies 与 project graph 冲突 | 调整 test dependencies |
+| `RUNTIME_INTERFACE_MISSING` | witness 确认 runtime interface 缺失 | 检查 module/member 后决定约束 |
+| `VERIFIER_EXITED_NONZERO` | 配置 verifier 正常非零退出 | 查看 verifier 诊断与日志 |
 | `SOURCE_FAILURE` | source 不可达或不可读 | 检查 URL、network、credentials 与 availability |
-| `ENVIRONMENT_FAILURE` | 当前 Python/system 无法执行 | 检查 interpreter、platform、permissions 与 system tools |
+| `ENVIRONMENT_FAILURE` | 当前 Python/system 无法执行 | 检查 interpreter、platform 与 system tools |
 | `TOOL_FAILURE` | verification tool 未可靠完成 | 查看 technical facts/log 并验证工具 |
 | `TIMEOUT` | operation 超时 | 先查日志，仅在预期可完成时调大 timeout |
-| `INTERNAL_INVARIANT` | PF 观察到内部不一致 | 保留 failure ID 与 technical facts，不信任 Cell result |
-| `NONDETERMINISTIC` | 同一组合得到冲突结果 | 稳定测试或外部输入后全量重跑 |
+| `INTERNAL_INVARIANT` | PF 观察到内部不一致 | 保留 failure ID，不信任 Cell result |
+| `NONDETERMINISTIC` | 同一 Proposal 得到冲突 authority | 稳定测试或外部输入后全量重跑 |
 
-## 8. 不变量与非目标
+## 7. 不变量
 
-- Rejection 必须能由 FailureRecord 的可移植 facts 单独复证；本地日志不可提升 authority。
-- 一个 FailureRecord 只属于一个 scope；一个 failure ID 不能在不同 payload 下复用。
-- Probe Rejection 不证明某个 dependency version 是根因，也不证明整个版本区间失败。
-- `diagnose` 不做自动根因分析、环境重建、隐式重放、日志上传或修复建议执行。
-- v1 不对多次随机 observation 做 quorum；flaky/nondeterministic 结果 fail closed。
+- Rejection 必须由 FailureRecord portable authority 单独复证；本地 diagnostics/log 不提升 authority。
+- 一个 failure ID 不能映射到不同 payload；reader 必须复算 v2 preimage。
+- Probe Rejection 不证明单个 version 是根因，也不证明整个区间失败。
+- 相同 Proposal 的 exit code、signal 或 terminal kind 漂移是 `NONDETERMINISTIC`，不能因 disposition 相同复用。
+- v1 不做 flaky quorum、自动重放、日志上传或根因推断。

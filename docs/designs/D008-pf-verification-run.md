@@ -95,7 +95,7 @@ prepare(highest, original harness)
 
 每个宿主 Cell 先运行一次 full highest baseline；只有 `HighestVersionPass` 才冻结 candidates 并进入 D003。每个真实 probe 是 exact-vector Attempt。Candidate discovery/scheduler deadline 可形成 Cell-scoped Indeterminate。
 
-Search 同时把 FailureRecord 放入 Journal 与 Schema 2 report。Report 是 apply/explain/merge 的唯一公共接口；Journal 只用于本机 diagnose。
+Search 同时把 FailureRecord 放入 Journal 与 Schema 1 report。Report 是 apply/explain/merge 的唯一公共接口；Journal 只用于本机 diagnose。
 
 ## 4. VerificationRunner 与 Scheduler
 
@@ -136,7 +136,21 @@ CellSucceeded(status, phase)
 CellFailed(status, phase, failures, process?, role?, runtime detail?)
 ```
 
-Non-success `phase` 来自 FailureRecord stage；Presenter 不从 Schema status 猜 stage。`CellResultDetail` 是 excluded runtime-only union：pytest failure detail 或 confirmed-missing static issue。它必须绑定 retained failure ID，不进入 Journal、report、FailureRecord 或 identity。
+`RuntimeEvaluator.evaluate` 返回 `RuntimeEvaluationRun(evaluation, diagnostics?)`。Evaluation 是
+cache/report/Journal authority；diagnostics 是 invocation-local、excluded 数据。唯一投影路径是：
+
+```text
+VerifierRun.diagnostics
+-> RuntimeEvaluationRun.diagnostics
+-> completion projector
+-> CellResultDetail(detail_failure_id)
+```
+
+Non-success `phase` 来自 FailureRecord stage；Presenter 不从 Schema status 猜 stage。
+`CellResultDetail` 是 excluded runtime-only union：pytest failure detail 或 confirmed-missing
+static issue。它必须绑定 retained failure ID，不进入 Journal、report、FailureRecord、cache 或
+identity。搜索结果只在内存中按 Failure ID 保留相应 `RuntimeEvaluationRun`，用于 terminal
+completion 与本地 Process Log association；序列化必须排除该映射。
 
 ## 6. 命令聚合
 
@@ -167,12 +181,16 @@ entries[]
   Cell
   Role
   Attempt?       CellFailureScope 时省略
-  FailureRecord
+  FailureRecord v2 authority
 ```
 
 Packages 与 policies 必须 sorted/unique。每个 entry 的 package、Cell、scope、Attempt、source digest 与该 package policy 必须闭合；同 failure ID 的不同 payload 冲突。Entries 按 package/Cell/failure ID 规范排序。
 
-Journal 不保存 stdout/stderr、完整 Evaluation、absolute path 或 report refs。Process 原文在 D007 Process Log；search 的完整 portable evidence 在 D014 report。Writer 只写 V2；`verification-journal-v1` 仅作历史本机日志的严格 reader compatibility，不是第二个写 contract。
+Journal 不保存 stdout/stderr、完整 Evaluation、`RuntimeEvaluationRun` diagnostics、absolute path
+或 report refs。对于同一 Failure ID，其展开后的 `FailureAuthority` 必须与 D014 report 完全
+一致。Process 原文在 D007 Process Log；search 的完整 portable evidence 在 D014 report。
+Writer 只写 V2；`verification-journal-v1` 仅作历史本机日志的严格 reader compatibility，不是
+第二个写 contract。
 
 ## 8. Diagnosis Index 与 report association
 

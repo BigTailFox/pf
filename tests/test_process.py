@@ -21,6 +21,7 @@ from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
     EnvironmentVariable,
     ProcessEvent,
+    ProcessObservation,
     ProcessResult,
     ProcessSpec,
 )
@@ -51,7 +52,7 @@ class _ChunkLog:
     def write_stderr(self, chunk: str) -> None:
         self.stderr_chunks.append(chunk)
 
-    def finish(self, result: ProcessResult) -> Path:
+    def finish(self, result: ProcessObservation) -> Path:
         self._path.write_text(
             "".join(self.stdout_chunks) + "".join(self.stderr_chunks),
             encoding="utf-8",
@@ -62,13 +63,13 @@ class _ChunkLog:
         self,
         process_id: int,
         spec: ProcessSpec,
-        result: ProcessResult,
+        result: ProcessObservation,
         stdout: str = "",
         stderr: str = "",
     ) -> Path:
         raise AssertionError("streaming redaction must not fall back to record()")
 
-    def reference_for(self, result: ProcessResult) -> Path | None:
+    def reference_for(self, result: ProcessObservation) -> Path | None:
         return self._path if self._path.is_file() else None
 
     def read_output(self, result: ProcessResult) -> tuple[str, str] | None:
@@ -118,6 +119,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code == 0
         assert result.signal is None
         assert result.timed_out is False
@@ -187,6 +189,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.stdout == "***\n"
         log_path = logs.reference_for(result)
         assert log_path is not None
@@ -218,6 +221,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.stdout == "missing ***\n"
 
     def test_subprocess_runner_persists_complete_output_within_the_capture_limit(
@@ -236,6 +240,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         log_path = logs.reference_for(result)
         assert result.stdout_complete is True
         assert payload in result.stdout
@@ -257,6 +262,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code is None
         assert result.start_error is not None
         assert "missing-secret" not in result.start_error
@@ -295,6 +301,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.timed_out is True
         assert result.signal is not None
 
@@ -311,6 +318,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code is None
         assert result.signal is not None
         assert result.timed_out is False
@@ -330,6 +338,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.stdout_complete is True
         assert result.stdout == "ghij"
         assert len(result.stdout.encode()) <= 4
@@ -352,6 +361,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         cached = runner.output(result)
         assert result.stdout == "ghij"
         assert cached.stdout == "ghij"
@@ -372,6 +382,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.stdout == payload
         assert result.stdout_complete is True
 
@@ -403,6 +414,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code == 0
         assert result.stdout == "120 40\n"
 
@@ -432,6 +444,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code == 0
         assert result.stdout == "100 30\n"
 
@@ -458,6 +471,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code == 0
         assert result.stdout == "120 ***\n"
 
@@ -480,6 +494,7 @@ class TestSubprocessRunner:
             )
         )
 
+        assert isinstance(result, ProcessResult)
         assert result.exit_code == 0
         assert [event.state for event in listener.events] == ["started", "finished"]
         assert listener.events[0].process_id == listener.events[1].process_id
@@ -1003,6 +1018,7 @@ class TestStreamRedaction:
         )
         streamed = "".join(logs.stdout_chunks)
         expected = redactor.redact(payload)
+        assert isinstance(result, ProcessResult)
         assert secret not in streamed
         assert streamed == expected
         assert runner.output(result).stdout == expected
@@ -1037,6 +1053,7 @@ class TestStreamRedaction:
         )
         streamed = "".join(logs.stdout_chunks)
         expected = redactor.redact(payload)
+        assert isinstance(result, ProcessResult)
         assert userinfo not in streamed
         assert userinfo not in result.stdout
         assert streamed == expected
@@ -1088,6 +1105,7 @@ class TestStreamRedaction:
             )
         )
         expected = redactor.redact(payload)
+        assert isinstance(result, ProcessResult)
         assert expected == "pre *** mid *** end"
         assert "".join(logs.stdout_chunks) == expected
         assert "".join(logs.stderr_chunks) == expected
@@ -1117,6 +1135,7 @@ class TestStreamRedaction:
                 timeout_seconds=5,
             )
         )
+        assert isinstance(result, ProcessResult)
         logged = store.read_output(result)
         log_path = store.reference_for(result)
         assert logged is not None

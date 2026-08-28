@@ -37,7 +37,9 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
-    ProcessResult,
+    ProcessObservation,
+    ProcessTerminalUnavailable,
+    RuntimeEvaluationRun,
     SmokeIndeterminate,
     SmokeBaselineRejection,
     SmokePass,
@@ -66,6 +68,7 @@ from pf.schemas.report import (
     CellResult,
     ProjectEditResult,
     failure_records_for_result,
+    failure_runtime_runs_for_result,
 )
 from pf.project import ProjectLoader, host_target as current_host_target
 from pf.project_discovery import ProjectDiscovery
@@ -118,7 +121,7 @@ class CheckFullOperations(Protocol):
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
-    ) -> Evaluation: ...
+    ) -> RuntimeEvaluationRun: ...
 
 
 class CheckCellOperations(Protocol):
@@ -199,7 +202,7 @@ class CompatibilityChecker:
         if isinstance(prepared, PrepareFailure):
             return self._prepare_outcome(prepared, role="declaration")
         try:
-            evaluation = self._full.evaluate(
+            runtime = self._full.evaluate(
                 prepared,
                 package=package,
                 baseline=capture.baseline,
@@ -209,7 +212,8 @@ class CompatibilityChecker:
         return self._evaluation_outcome(
             attempt=prepared.attempt,
             role="declaration",
-            evaluation=evaluation,
+            evaluation=runtime.evaluation,
+            runtime=runtime,
             static_baseline=capture.baseline,
             project_plan_digest=prepared.project_plan.semantic_digest,
             environment_plan_digest=prepared.environment_plan.semantic_digest,
@@ -235,6 +239,14 @@ class CompatibilityChecker:
             role=role,
             attempt=prepared.attempt,
             failure=failure,
+            failure_process=(
+                prepared.failure.process
+                if isinstance(
+                    prepared.failure.process,
+                    ProcessTerminalUnavailable,
+                )
+                else None
+            ),
         )
 
     def _evaluation_outcome(
@@ -243,6 +255,7 @@ class CompatibilityChecker:
         attempt: Attempt,
         role: Literal["declaration-capture", "declaration"],
         evaluation: Evaluation,
+        runtime: RuntimeEvaluationRun | None = None,
         static_baseline: StaticBaseline | None,
         project_plan_digest: str,
         environment_plan_digest: str,
@@ -254,8 +267,9 @@ class CompatibilityChecker:
                 attempt=attempt,
                 evaluation=evaluation,
                 static_baseline=static_baseline,
+                runtime=runtime,
             )
-        failure = self._failures.classify_evaluation(
+        failure = self._failures.record_evaluation(
             AttemptFailureScope(attempt=attempt),
             evaluation,
             project_plan_digest=project_plan_digest,
@@ -269,6 +283,7 @@ class CompatibilityChecker:
             failure=failure,
             evaluation=evaluation,
             static_baseline=static_baseline,
+            runtime=runtime,
         )
 
 
@@ -554,7 +569,7 @@ class FailureLogAssociations(Protocol):
     def replace_associations(
         self,
         report_generation_id: str,
-        failures: tuple[tuple[str, ProcessResult | None], ...],
+        failures: tuple[tuple[str, ProcessObservation | None], ...],
         *,
         replace_generation: bool = True,
         remove_failure_ids: tuple[str, ...] = (),
@@ -603,6 +618,7 @@ class SearchCommandWorkflow:
                     cell=cell,
                     execute=self._cell_task(package, cell, snapshot),
                     journal_entries=self._journal_entries_for_result,
+                    runtime_associations=self._runtime_associations_for_result,
                     deadline_scope=CellFailureScope(
                         package=package.name,
                         cell=cell,
@@ -645,8 +661,19 @@ class SearchCommandWorkflow:
                 update = self._reports.update_path(report_path, report)
                 report = update.report
                 if self._associations is not None:
+                    runtime_processes = {
+                        item.failure_id: item.process_observation
+                        for result in package_results
+                        for item in failure_runtime_runs_for_result(result)
+                    }
                     current_failures = tuple(
-                        (failure.failure_id, failure.process)
+                        (
+                            failure.failure_id,
+                            runtime_processes.get(
+                                failure.failure_id,
+                                failure.process,
+                            ),
+                        )
                         for result in package_results
                         for failure in failure_records_for_result(result)
                     )
@@ -682,6 +709,16 @@ class SearchCommandWorkflow:
         result: CellResult,
     ) -> tuple[VerificationJournalEntry, ...]:
         return cls._journal_entries((result,))
+
+    @staticmethod
+    def _runtime_associations_for_result(
+        result: CellResult,
+    ) -> tuple[tuple[str, ProcessObservation], ...]:
+        return tuple(
+            (item.failure_id, process)
+            for item in failure_runtime_runs_for_result(result)
+            if (process := item.process_observation) is not None
+        )
 
     @classmethod
     def _journal_entries(

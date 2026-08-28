@@ -10,7 +10,7 @@ from cyclopts.exceptions import CycloptsError
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.runtime_witness import RuntimeWitnessAdapter
-from pf.adapters.test_command import TestAdapter
+from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import RegistryAccess, UvAdapter
 from pf.baseline import HighestVersionVerifier
@@ -352,7 +352,7 @@ def _assemble_context(
     static = StaticEvaluator(TyAdapter(runner), events=presenter)
     full = RuntimeEvaluator(
         static=static,
-        tests=TestAdapter(runner),
+        verifier=ConfiguredVerifier(runner),
         witnesses=RuntimeWitnessAdapter(runner),
         events=presenter,
     )

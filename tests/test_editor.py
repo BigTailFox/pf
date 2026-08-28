@@ -17,12 +17,13 @@ from pf.resolution import environment_identity_digest
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
+    NormalExit,
     PassEvaluation,
     ProcessResult,
     StaticBaseline,
     StaticUnchangedEvaluation,
-    TestPass,
     TyCheck,
+    VerifierPass,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -180,7 +181,7 @@ def evaluation(
             baseline_digest=ty_diagnostic_digest(()),
             incremental=(),
         ),
-        test=TestPass(process=process()),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
 

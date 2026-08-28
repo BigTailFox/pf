@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **日志格式：** `pf-process-log-v2`
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-28
 - **Failure 消费：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 展示：** [D006](D006-pf-cli-enhancement.md)
 - **Journal 与 Index：** [D008](D008-pf-verification-run.md)
@@ -16,16 +16,35 @@
   -> 匿名接收缓冲
   -> 脱敏正文写入 Process Log       磁盘原文
   -> Output Cache                  当前进程内投影，每 process <= 16 MiB
-  -> Portable Process Facts        可移植终态，可进入 FailureRecord
+  -> ProcessObservation            可移植终态，可进入 FailureRecord 或本地诊断关联
 ```
 
 - Process Log 是脱敏输出正文的来源；Output Cache 是可丢弃派生数据。
-- 报告只保存 portable terminal facts；日志、cache 与 locator 不进入 report/Proposal/failure identity。
+- 报告只保存对应 operation 允许的 portable authority；configured verifier 仅保存 D005 的
+  `VerifierTerminal`。日志、cache 与 locator 不进入 report/Proposal/failure identity。
 - Process Log 正文没有产品字节上限；每个 process 的 stdout+stderr cache 合计最多 16 MiB，优先保留尾部。
 - Cache 中的文本必须来自相应日志，不得合成日志不存在的输出。
 - 匿名缓冲可以随运行增长，进程结束后删除；它不是产品日志或配额。
 
-## 2. ProcessResult
+## 2. ProcessObservation
+
+```text
+ProcessObservation = ProcessResult | ProcessTerminalUnavailable
+```
+
+`ProcessTerminalUnavailable` 表示 runner 已安全管理 child，但底层 API 无法提供可信 terminal
+status；它不能伪造 exit code、signal、timeout 或 start error。所有共享 ProcessRunner consumer
+必须显式处理该 variant：configured verifier 映射为 `Unavailable / INDETERMINATE`；需要结构化
+输出的 uv/ty/snapshot/runtime-witness adapter 按自己的现行 ToolFailure/InfrastructureError
+契约 fail closed。RunLogStore 与 Diagnosis Index association 接受完整 union。
+
+生产 interface 是：
+
+```text
+ProcessRunner.run(ProcessSpec) -> ProcessObservation
+```
+
+### 2.1 ProcessResult
 
 Portable facts 是：
 
@@ -37,7 +56,11 @@ stdout_complete
 stderr_complete
 ```
 
-`ProcessResult.stdout/stderr` 仅是运行期 excluded cache projection；`model_dump`、FailureRecord 和 Schema 2 不包含它们。`failure_id` 只吸收 portable facts 与 D005 的其他结构化字段。
+`ProcessResult.stdout/stderr` 仅是运行期 excluded cache projection；`model_dump`、FailureRecord 和 Schema 1 不包含它们。`failure_id` 只吸收 portable facts 与 D005 的其他结构化字段。
+
+`exit_code | signal | start_error` 必须恰有一种。`start_error + timed_out` 无效；timeout 在
+cleanup 后必须仍有 exit 或 signal，且分类时 `TimedOut` 优先于该次级 fact。非法组合属于
+adapter/runner invariant 失败，不能缓存为 unknown。
 
 `stdout_complete` / `stderr_complete` 表示磁盘 Process Log 完整保存了该流的脱敏正文。Cache 未覆盖全文、CLI 只展示 tail、日志 header 元数据被截断都不得把它们设为 false。只有日志正文写入失败、磁盘耗尽或完成前中止才为 false。
 
@@ -48,7 +71,7 @@ stderr_complete
 每个外部 process 写入 `.pf/logs/<run-id>/process-NNNN.log`。V2 header 至少记录：
 
 - process ID、redacted argv/cwd、environment names、timeout、session 与 redaction policy；
-- exit/signal/start-error/timeout/duration；
+- terminal kind、exit/signal/start-error/timeout/duration；typed unavailable 明确写 null facts；
 - stdout/stderr completeness 与字符长度。
 
 随后以字符长度 framing 写连续 stdout 与 stderr 正文。正文中出现 section marker 不得改变分流；生产 text handle 禁用平台换行转换，使 POSIX/Windows framing 一致。

@@ -294,6 +294,12 @@ def _failed_tool(cause: FailureCause, stage: str) -> ToolFailure:
     )
 
 
+def _failed_process(cause: FailureCause, stage: str) -> ProcessResult:
+    process = _failed_tool(cause, stage).process
+    assert isinstance(process, ProcessResult)
+    return process
+
+
 class TestEvaluationPolicy:
     def test_evaluation_policy_identity_ignores_scheduler_concurrency(self) -> None:
         automatic = EffectiveConfig(jobs="auto")
@@ -388,7 +394,7 @@ class TestEnvironmentFactory:
         policy_document = {
             "config": package.config.model_dump(mode="json", exclude={"jobs"}),
             "tool_versions": {"ty": distribution_version("ty")},
-            "test_outcome_policy": "configured-exit-code-v1",
+            "verifier_outcome_policy": "configured-verifier-terminal-v1",
             "ty_diagnostic_policy": {
                 "comparison": "multiset-subtraction",
                 "identity_rule": (
@@ -404,7 +410,7 @@ class TestEnvironmentFactory:
                 "boundary_rule": "runtime-evidence-only",
                 "final_verification": "direct-test-command-pass",
             },
-            "failure_policy": "failure-runtime-v1",
+            "failure_policy": "failure-runtime-v2",
         }
         expected_policy = hashlib.sha256(
             (
@@ -715,9 +721,9 @@ class TestEnvironmentFactory:
                     context=context,
                     proof_code="direct-version-contradiction",
                     diagnostic_digest="diagnostic",
-                    process=_failed_tool(
+                    process=_failed_process(
                         "RESOLUTION_CONFLICT", "resolve-project"
-                    ).process,
+                    ),
                 )
 
         root = tmp_path / "project"
@@ -887,9 +893,9 @@ class TestEnvironmentFactory:
                     context=context,
                     proof_code="transitive-version-contradiction",
                     diagnostic_digest="diagnostic",
-                    process=_failed_tool(
+                    process=_failed_process(
                         "HARNESS_CONFLICT", "resolve-environment"
-                    ).process,
+                    ),
                 )
 
         root = tmp_path / "project"
@@ -1251,9 +1257,9 @@ class TestEnvironmentFactory:
                     context=context,
                     proof_code="direct-version-contradiction",
                     diagnostic_digest="diagnostic",
-                    process=_failed_tool(
+                    process=_failed_process(
                         "HARNESS_CONFLICT", "resolve-environment"
-                    ).process,
+                    ),
                 )
 
         root = _write_demo(tmp_path, harness=True)

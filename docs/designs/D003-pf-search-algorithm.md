@@ -76,7 +76,7 @@ FREEZE CANDIDATE SNAPSHOTS
   └── candidates
         ↓
 ONE RUNTIME-BACKED COORDINATE SEARCH FROM B
-  ├── CoordinateSuccess     -> exact final TestPass -> CellSuccess
+  ├── CoordinateSuccess     -> exact final PassEvaluation -> CellSuccess
   ├── ProbeIndeterminate    -> CellIndeterminate
   └── NON_MONOTONIC / NONDETERMINISTIC / NO_PASS -> CellSearchFailure
 ```
@@ -196,9 +196,9 @@ until not changed
 - Rejection/Indeterminate 的 FailureRecord；
 - 最终向量、该向量自身的 PassEvaluation、坐标边界和 sweep 数。
 
-若 final 等于 `B`，复用 baseline direct PASS；否则 final vector、Attempt、Proposal、ProbePass、TestPass 必须形成同一精确闭环。Schema 2 以 D014 定义的 refs 保存这些证据，validator 拒绝跨 Slice region、A-B-A 合并、static-only boundary、representative pass 复制和未直接测试的 final。
+若 final 等于 `B`，复用 baseline direct PASS；否则 final vector、Attempt、Proposal、ProbePass、PassEvaluation 必须形成同一精确闭环。Schema 1 以 D014 定义的 refs 保存这些证据，validator 拒绝跨 Slice region、A-B-A 合并、static-only boundary、representative pass 复制和未直接测试的 final。
 
-`observed_upper` 没有独立语义，不进入 Schema 2；final vector 与 final Evaluation 从 `final_proposal_ref` 唯一展开。跨 cell 覆盖、marker 投影和 apply 授权由 D001/D002 的报告模块决定，wire ownership 与规范验证由 D014 拥有。
+`observed_upper` 没有独立语义，不进入 Schema 1；final vector 与 final Evaluation 从 `final_proposal_ref` 唯一展开。跨 cell 覆盖、marker 投影和 apply 授权由 D001/D002 的报告模块决定，wire ownership 与规范验证由 D014 拥有。
 
 ## 12. 非目标
 

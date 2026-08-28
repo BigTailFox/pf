@@ -26,6 +26,7 @@ from pf.schemas.evaluation import (
     InterpreterSuccess,
     ProcessResult,
     ProcessSpec,
+    ProcessTerminalUnavailable,
     ToolFailure,
 )
 from pf.schemas.project import (
@@ -122,6 +123,73 @@ class TestUvAdapter:
             "/runtime-dependency/bin/uv",
             "--version",
         )
+
+    def test_resolution_ignores_user_level_uv_configuration(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        user_config = tmp_path / "user-config"
+        uv_config = user_config / "uv" / "uv.toml"
+        uv_config.parent.mkdir(parents=True)
+        uv_config.write_text("this is not valid toml = [\n", encoding="utf-8")
+        monkeypatch.setenv("XDG_CONFIG_HOME", user_config.as_posix())
+        monkeypatch.setenv("UV_CONFIG_FILE", uv_config.as_posix())
+
+        work_directory = tmp_path / "work"
+        package = work_directory / "source"
+        package.mkdir(parents=True)
+        dependency = package / "vendor" / "tool"
+        dependency.mkdir(parents=True)
+        (dependency / "pyproject.toml").write_text(
+            '[project]\nname = "tool"\nversion = "1.0"\n',
+            encoding="utf-8",
+        )
+        (package / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["tool"]
+
+[tool.uv.sources]
+tool = { path = "vendor/tool" }
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-28T00:00:00+00:00",
+            ),
+            cell=cell,
+            source_policy_identity="source-policy",
+            allow_prereleases=False,
+        )
+
+        outcome = UvAdapter(SubprocessRunner()).resolve_project(
+            package=package,
+            package_name="demo",
+            cell=cell,
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="request",
+            work_directory=work_directory,
+            allow_prereleases=False,
+            timeout_seconds=30,
+        )
+
+        assert isinstance(outcome, ResolutionPlan)
+        assert [item.name for item in outcome.packages] == ["tool"]
+        assert outcome.packages[0].source.kind == "path"
 
     def test_uv_adapter_resolves_two_pylocks_and_syncs_only_the_final_plan(
         self, tmp_path: Path
@@ -570,6 +638,24 @@ packages = [
 
         assert isinstance(outcome, ToolFailure)
         assert outcome.cause == expected
+
+    def test_uv_adapter_handles_unavailable_process_terminal(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class Runner:
+            def run(self, spec: ProcessSpec) -> ProcessTerminalUnavailable:
+                return ProcessTerminalUnavailable()
+
+        outcome = UvAdapter(Runner()).create_environment(
+            environment=tmp_path / ".venv",
+            python_minor="3.10",
+            cwd=tmp_path,
+            timeout_seconds=None,
+        )
+
+        assert isinstance(outcome, ToolFailure)
+        assert isinstance(outcome.process, ProcessTerminalUnavailable)
 
     def test_uv_adapter_inspects_interpreter_identity(self, tmp_path: Path) -> None:
         class Runner:

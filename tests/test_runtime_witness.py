@@ -10,6 +10,7 @@ from pf.adapters.runtime_witness import RuntimeWitnessAdapter
 from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
+    ProcessTerminalUnavailable,
     RuntimeWitnessPlan,
     RuntimeWitnessResult,
     ToolFailure,
@@ -35,16 +36,32 @@ def _plan(
 
 
 class ResultRunner:
-    def __init__(self, result: ProcessResult) -> None:
+    def __init__(self, result: ProcessResult | ProcessTerminalUnavailable) -> None:
         self.result = result
         self.spec: ProcessSpec | None = None
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
         self.spec = spec
         return self.result
 
 
 class TestRuntimeWitnessAdapter:
+    def test_runtime_witness_handles_unavailable_process_terminal(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        outcome = RuntimeWitnessAdapter(
+            ResultRunner(ProcessTerminalUnavailable())
+        ).run(
+            plan=_plan("json"),
+            interpreter=Path(sys.executable),
+            cwd=tmp_path,
+            timeout_seconds=10,
+        )
+
+        assert isinstance(outcome, ToolFailure)
+        assert isinstance(outcome.process, ProcessTerminalUnavailable)
+
     @pytest.mark.parametrize(
         ("plan", "expected"),
         (

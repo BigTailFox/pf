@@ -32,6 +32,7 @@ from pf.schemas.evaluation import (
     GraphSuccess,
     IndeterminateEvaluation,
     InterpreterSuccess,
+    NormalExit,
     ProcessResult,
     RuntimeInterfaceMissingEvaluation,
     RuntimeWitnessAttempt,
@@ -42,13 +43,18 @@ from pf.schemas.evaluation import (
     StaticRegressionEvaluation,
     StaticIssueDetail,
     StageProgress,
-    TestOutcome,
-    TestFail,
-    TestPass,
     ToolFailure,
     ToolSuccess,
     TyCheck,
     TyDiagnostic,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
+    VerifierOutcome,
+    VerifierRequest,
+    VerifierRun,
+    VerifierPass,
+    VerifierIndeterminate,
+    TimedOut,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -269,9 +275,11 @@ class PassingTests:
     def __init__(self) -> None:
         self.calls = 0
 
-    def run(self, **kwargs: object) -> TestOutcome:
+    def run(self, *args: object, **kwargs: object) -> VerifierRun:
         self.calls += 1
-        return TestPass(process=process_result())
+        return VerifierRun(
+            authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+        )
 
 
 class PassingTy:
@@ -394,6 +402,195 @@ class TestStaticEvaluator:
 
 
 class TestRuntimeEvaluator:
+    def test_runtime_evaluator_preserves_authoritative_verifier_indeterminate(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["custom-verifier"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        prepared = EnvironmentFactory(PreparedUv()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=SnapshotBuilder.without_processes().build(root),
+            resolution=HighestResolution(),
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+
+        class Verifier:
+            def run(
+                self,
+                request: VerifierRequest,
+                progress: Callable[[StageProgress | None], None] | None = None,
+            ) -> VerifierRun:
+                del request, progress
+                return VerifierRun(
+                    authoritative=VerifierIndeterminate(
+                        terminal=TimedOut(),
+                        reason="process-timed-out",
+                    )
+                )
+
+        run = RuntimeEvaluator(
+            static=StaticEvaluator(PassingTy()),
+            verifier=Verifier(),
+        ).evaluate(
+            prepared,
+            package=package,
+            baseline=empty_baseline(prepared),
+        )
+
+        assert isinstance(run.evaluation, IndeterminateEvaluation)
+        assert run.evaluation.cause == "TIMEOUT"
+        assert run.evaluation.failure is None
+        assert run.evaluation.verifier is not None
+        assert isinstance(run.evaluation.verifier.terminal, TimedOut)
+        failure = FailurePolicy().record_evaluation(
+            AttemptFailureScope(attempt=prepared.attempt),
+            run.evaluation,
+        )
+        assert failure is not None
+        assert failure.disposition == "INDETERMINATE"
+        assert failure.cause == "TIMEOUT"
+        assert failure.authority.kind == "configured-verifier"
+
+    def test_runtime_evaluator_preserves_authoritative_verifier_pass(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["custom-verifier"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        prepared = EnvironmentFactory(PreparedUv()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=SnapshotBuilder.without_processes().build(root),
+            resolution=HighestResolution(),
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+
+        class Verifier:
+            def run(
+                self,
+                request: VerifierRequest,
+                progress: Callable[[StageProgress | None], None] | None = None,
+            ) -> VerifierRun:
+                del request, progress
+                return VerifierRun(
+                    authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+                )
+
+        run = RuntimeEvaluator(
+            static=StaticEvaluator(PassingTy()),
+            verifier=Verifier(),
+        ).evaluate(
+            prepared,
+            package=package,
+            baseline=empty_baseline(prepared),
+        )
+
+        assert run.evaluation.status == "PASS"
+        assert run.evaluation.verifier.terminal == NormalExit(exit_code=0)
+        assert prepared.tested is True
+
+    def test_runtime_evaluator_preserves_authoritative_verifier_rejection(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    test-command = ["custom-verifier"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        prepared = EnvironmentFactory(PreparedUv()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            resolution=HighestResolution(),
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+
+        class Verifier:
+            request: VerifierRequest | None = None
+
+            def run(
+                self,
+                request: VerifierRequest,
+                progress: Callable[[StageProgress | None], None] | None = None,
+            ) -> VerifierRun:
+                del progress
+                self.request = request
+                return VerifierRun(
+                    authoritative=VerifierRejected(
+                        terminal=NormalExit(exit_code=4)
+                    )
+                )
+
+        verifier = Verifier()
+        evaluator = RuntimeEvaluator(
+            static=StaticEvaluator(PassingTy()),
+            verifier=verifier,
+        )
+
+        run = evaluator.evaluate(
+            prepared,
+            package=package,
+            baseline=empty_baseline(prepared),
+        )
+
+        assert isinstance(run.evaluation, VerifierRejectedEvaluation)
+        assert run.evaluation.verifier.terminal.exit_code == 4
+        assert run.diagnostics is None
+        assert verifier.request is not None
+        assert verifier.request.command == ("custom-verifier",)
+        failure = FailurePolicy().record_evaluation(
+            AttemptFailureScope(attempt=prepared.attempt),
+            run.evaluation,
+        )
+        assert failure is not None
+        assert failure.disposition == "REJECTED"
+        assert failure.cause == "VERIFIER_EXITED_NONZERO"
+        assert failure.authority.kind == "configured-verifier"
+        assert failure.process is None
+
     def test_runtime_evaluator_runs_tests_for_a_general_static_regression(
         self, tmp_path: Path
     ) -> None:
@@ -422,10 +619,10 @@ class TestRuntimeEvaluator:
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
-        tests = PassingTests()
+        verifier = PassingTests()
         evaluator = RuntimeEvaluator(
             static=StaticEvaluator(FailingTy()),
-            tests=tests,
+            verifier=verifier,
         )
         baseline_check = TyCheck(process=process_result(exit_code=1), diagnostics=())
         baseline = StaticBaseline(
@@ -436,9 +633,9 @@ class TestRuntimeEvaluator:
 
         result = evaluator.evaluate(prepared, package=package, baseline=baseline)
 
-        assert result.status == "PASS"
-        assert result.static.status == "STATIC_REGRESSION"
-        assert tests.calls == 1
+        assert result.evaluation.status == "PASS"
+        assert result.evaluation.static.status == "STATIC_REGRESSION"
+        assert verifier.calls == 1
         assert prepared.tested is True
 
 
@@ -498,10 +695,10 @@ class TestRuntimeWitnessEvaluator:
                     }
                 )
 
-        tests = PassingTests()
+        verifier = PassingTests()
         result = RuntimeEvaluator(
             static=StaticEvaluator(PassingTy()),
-            tests=tests,
+            verifier=verifier,
             witnesses=Witnesses(),
         ).evaluate(
             prepared,
@@ -512,7 +709,7 @@ class TestRuntimeWitnessEvaluator:
             static_result=static,
         )
 
-        return result, tests.calls, increment
+        return result.evaluation, verifier.calls, increment
 
     @pytest.mark.parametrize("witness_status", ("PRESENT", "NOT_APPLICABLE"))
     def test_runtime_evaluator_continues_after_nonterminal_witness(
@@ -602,7 +799,7 @@ class TestRuntimeWitnessEvaluator:
         witnesses = Witnesses()
         result = RuntimeEvaluator(
             static=StaticEvaluator(PassingTy()),
-            tests=PassingTests(),
+            verifier=PassingTests(),
             witnesses=witnesses,
         ).evaluate(
             prepared,
@@ -613,9 +810,9 @@ class TestRuntimeWitnessEvaluator:
             static_result=static,
         )
 
-        assert result.status == "PASS"
+        assert result.evaluation.status == "PASS"
         assert witnesses.calls == 1
-        assert len(result.witnesses) == 1
+        assert len(result.evaluation.witnesses) == 1
 
     def test_completion_outcome_reports_only_confirmed_witness_issues(
         self,
@@ -640,7 +837,7 @@ class TestFailurePolicy:
     ) -> None:
         prepared, evaluation, _ = runtime_interface_missing_evaluation(tmp_path)
 
-        failure = FailurePolicy().classify_evaluation(
+        failure = FailurePolicy().record_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             evaluation,
         )
@@ -655,7 +852,7 @@ class TestRuntimeEvaluatorOutcomes:
     @staticmethod
     def _evaluate_test_outcome(
         tmp_path: Path,
-        outcome: TestOutcome,
+        outcome: VerifierOutcome,
     ) -> tuple[Evaluation, PreparedEnvironment, Path | None]:
         root = tmp_path / "project"
         root.mkdir()
@@ -687,24 +884,27 @@ class TestRuntimeEvaluatorOutcomes:
             def __init__(self) -> None:
                 self.cwd: Path | None = None
 
-            def run(self, **kwargs: object) -> TestOutcome:
-                cwd = kwargs["cwd"]
-                assert isinstance(cwd, Path)
-                self.cwd = cwd
-                return outcome
+            def run(
+                self,
+                request: VerifierRequest,
+                progress: Callable[[StageProgress | None], None] | None = None,
+            ) -> VerifierRun:
+                del progress
+                self.cwd = request.cwd
+                return VerifierRun(authoritative=outcome)
 
         tests = Tests()
         result = RuntimeEvaluator(
             static=StaticEvaluator(PassingTy()),
-            tests=tests,
+            verifier=tests,
         ).evaluate(prepared, package=package, baseline=empty_baseline(prepared))
 
-        return result, prepared, tests.cwd
+        return result.evaluation, prepared, tests.cwd
 
     def test_runtime_evaluator_preserves_test_pass(self, tmp_path: Path) -> None:
         result, prepared, test_cwd = self._evaluate_test_outcome(
             tmp_path,
-            TestPass(process=process_result()),
+            VerifierPass(terminal=NormalExit(exit_code=0)),
         )
 
         assert result.status == "PASS"
@@ -714,10 +914,10 @@ class TestRuntimeEvaluatorOutcomes:
     def test_runtime_evaluator_preserves_test_failure(self, tmp_path: Path) -> None:
         result, prepared, test_cwd = self._evaluate_test_outcome(
             tmp_path,
-            TestFail(process=process_result(exit_code=1)),
+            VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
 
-        assert result.status == "TEST_FAIL"
+        assert result.status == "VERIFIER_REJECTED"
         assert prepared.tested is True
         assert test_cwd == prepared.proposal_root
 
@@ -727,17 +927,9 @@ class TestRuntimeEvaluatorOutcomes:
     ) -> None:
         result, prepared, test_cwd = self._evaluate_test_outcome(
             tmp_path,
-            ToolFailure(
-                cause="TIMEOUT",
-                stage="test",
-                process=ProcessResult(
-                    exit_code=None,
-                    signal=9,
-                    duration_seconds=1,
-                    stdout="",
-                    stderr="",
-                    timed_out=True,
-                ),
+            VerifierIndeterminate(
+                terminal=TimedOut(),
+                reason="process-timed-out",
             ),
         )
 
@@ -827,11 +1019,13 @@ class TestEvaluationProgress:
             self.events.append(event)
 
     class Tests:
-        def run(self, **kwargs: object) -> TestOutcome:
+        def run(self, *args: object, **kwargs: object) -> VerifierRun:
             progress = kwargs["progress"]
             assert isinstance(progress, Callable)
             progress(StageProgress(completed=3, total=5, unit="tests"))
-            return TestPass(process=process_result())
+            return VerifierRun(
+                authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+            )
 
     @classmethod
     def _progress_case(
@@ -890,7 +1084,7 @@ class TestEvaluationProgress:
 
         result = RuntimeEvaluator(
             static=static,
-            tests=self.Tests(),
+            verifier=self.Tests(),
             events=events,
         ).evaluate(
             prepared,
@@ -899,7 +1093,7 @@ class TestEvaluationProgress:
             static_result=baseline.static,
         )
 
-        assert result.status == "PASS"
+        assert result.evaluation.status == "PASS"
         assert [event.stage for event in events.events] == [
             "dynamic tests",
             "dynamic tests",

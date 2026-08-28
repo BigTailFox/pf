@@ -21,15 +21,17 @@ from pf.schemas.evaluation import (
     CellSucceeded,
     CheckCellOutcome,
     FailureDetail,
+    FailureEvaluationRuntimeRun,
     FailureRecord,
     HighestVersionPass,
     IndeterminateEvaluation,
     PassEvaluation,
-    ProcessResult,
+    ProcessObservation,
     RuntimeInterfaceMissingEvaluation,
+    RuntimeEvaluationRun,
     RuntimeWitnessResult,
     StaticIssueDetail,
-    TestFailEvaluation,
+    VerifierRejectedEvaluation,
     ToolFailure,
     VerificationJournal,
     VerificationJournalEntry,
@@ -58,6 +60,9 @@ class VerificationTask(Generic[T]):
     cell: Cell
     execute: Callable[[], T]
     journal_entries: Callable[[T], tuple[VerificationJournalEntry, ...]]
+    runtime_associations: (
+        Callable[[T], tuple[tuple[str, ProcessObservation], ...]] | None
+    ) = None
     deadline_scope: CellFailureScope | None = None
 
 
@@ -76,6 +81,13 @@ class JournalStore(Protocol):
     def run_id(self) -> str: ...
 
     def write_journal(self, journal: VerificationJournal) -> Path: ...
+
+    def associate(
+        self,
+        report_generation_id: str,
+        failure_id: str,
+        result: ProcessObservation,
+    ) -> None: ...
 
 
 class VerificationRunner:
@@ -170,6 +182,7 @@ class _VerificationEvents(Generic[T]):
             for task in request.tasks
         }
         self._entries: dict[str, VerificationJournalEntry] = {}
+        self._runtime_processes: dict[str, ProcessObservation] = {}
         self._lock = Lock()
         self._error: InfrastructureError | None = None
 
@@ -186,6 +199,17 @@ class _VerificationEvents(Generic[T]):
             verification_task = self._tasks[key]
             entries = list(verification_task.journal_entries(result))
             self._merge(entries)
+            if verification_task.runtime_associations is not None:
+                for failure_id, process in verification_task.runtime_associations(
+                    result
+                ):
+                    self._runtime_processes.setdefault(failure_id, process)
+            if isinstance(outcome, CellFailed) and outcome.process is not None:
+                assert outcome.process_failure_id is not None
+                self._runtime_processes.setdefault(
+                    outcome.process_failure_id,
+                    outcome.process,
+                )
             available = False
             if entries and self._logs is not None and self._error is None:
                 available = self._persist()
@@ -210,6 +234,12 @@ class _VerificationEvents(Generic[T]):
         assert self._logs is not None
         try:
             self._logs.write_journal(self._journal())
+            for failure_id, process in self._runtime_processes.items():
+                self._logs.associate(
+                    f"journal:{self._logs.run_id}",
+                    failure_id,
+                    process,
+                )
         except InfrastructureError as error:
             self._error = error
             return False
@@ -262,13 +292,23 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
                 phase="complete",
             )
         assert result.failure is not None
-        detail = _evaluation_detail(result.evaluation)
+        detail = _evaluation_detail(result.evaluation, runtime=result.runtime)
         return CellFailed(
             status=result.status,
             phase=result.failure.stage,
             detail=detail,
             detail_failure_id=(result.failure.failure_id if detail is not None else None),
-            process=_failed_evaluation_process(result.evaluation, result.failure),
+            process=(
+                process := _failed_evaluation_process(
+                    result.evaluation,
+                    result.failure,
+                    runtime=result.runtime,
+                )
+                or result.failure_process
+            ),
+            process_failure_id=(
+                result.failure.failure_id if process is not None else None
+            ),
             failures=(result.failure,),
             verification_role=result.role,
         )
@@ -280,13 +320,27 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
         )
 
     if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
-        detail = _evaluation_detail(result.evaluation)
+        detail = _evaluation_detail(result.evaluation, runtime=result.runtime)
         return CellFailed(
             status=result.status,
             phase=result.failure.stage,
             detail=detail,
             detail_failure_id=(result.failure.failure_id if detail is not None else None),
-            process=_failed_evaluation_process(result.evaluation, result.failure),
+            process=(
+                process := _failed_evaluation_process(
+                    result.evaluation,
+                    result.failure,
+                    runtime=result.runtime,
+                )
+                or (
+                    result.failure_process
+                    if isinstance(result, BaselineIndeterminate)
+                    else None
+                )
+            ),
+            process_failure_id=(
+                result.failure.failure_id if process is not None else None
+            ),
             failures=(result.failure,),
             verification_role="baseline",
         )
@@ -311,10 +365,39 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
             for failure in result.failure_records
             if failure.failure_id == result.failure_id
         )
+        runtime_run = next(
+            (
+                item
+                for item in result.failure_runtime_runs
+                if item.failure_id == terminal.failure_id
+            ),
+            None,
+        )
+        runtime = (
+            runtime_run.runtime
+            if isinstance(runtime_run, FailureEvaluationRuntimeRun)
+            else None
+        )
+        detail = _evaluation_detail(
+            None if runtime is None else runtime.evaluation,
+            runtime=runtime,
+        )
+        process = (
+            None if runtime_run is None else runtime_run.process_observation
+        ) or _failed_evaluation_process(
+            None if runtime is None else runtime.evaluation,
+            terminal,
+            runtime=runtime,
+        )
         return CellFailed(
             status=result.status,
             phase=result.phase,
-            process=terminal.process,
+            detail=detail,
+            detail_failure_id=(terminal.failure_id if detail is not None else None),
+            process=process,
+            process_failure_id=(
+                terminal.failure_id if process is not None else None
+            ),
             failures=result.failure_records,
             verification_role="probe",
         )
@@ -335,15 +418,16 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
             process=confirmed.process,
         )
 
-    if isinstance(result, TestFailEvaluation):
+    if isinstance(result, VerifierRejectedEvaluation):
         return CellFailed(
             status=result.status,
             phase="test",
-            detail=_evaluation_detail(result),
-            process=result.test.process,
         )
 
     if isinstance(result, IndeterminateEvaluation):
+        if result.verifier is not None:
+            return CellFailed(status=result.status, phase="test")
+        assert result.failure is not None
         return CellFailed(
             status=result.status,
             phase=result.failure.stage,
@@ -363,21 +447,32 @@ def completion_outcome(result: object) -> CellSucceeded | CellFailed:
 def _failed_evaluation_process(
     evaluation: object,
     failure: FailureRecord | None,
-) -> ProcessResult | None:
-    if isinstance(evaluation, TestFailEvaluation):
-        return evaluation.test.process
+    *,
+    runtime: RuntimeEvaluationRun | None = None,
+) -> ProcessObservation | None:
+    process = _runtime_process(runtime)
+    if process is not None:
+        return process
     if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
         confirmed = evaluation.witnesses[-1].outcome
         assert isinstance(confirmed, RuntimeWitnessResult)
         return confirmed.process
     if isinstance(evaluation, IndeterminateEvaluation):
+        if evaluation.failure is None:
+            return None
         return evaluation.failure.process
     return None if failure is None else failure.process
 
 
-def _evaluation_detail(evaluation: object | None) -> CellResultDetail | None:
-    if isinstance(evaluation, TestFailEvaluation):
-        return evaluation.test.detail
+def _evaluation_detail(
+    evaluation: object | None,
+    *,
+    runtime: RuntimeEvaluationRun | None = None,
+) -> CellResultDetail | None:
+    if runtime is not None and runtime.diagnostics is not None:
+        detail = runtime.diagnostics.detail
+        if detail is not None:
+            return detail
     if not isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
         return None
     confirmed = evaluation.witnesses[-1].outcome
@@ -391,3 +486,9 @@ def _evaluation_detail(evaluation: object | None) -> CellResultDetail | None:
     if not relevant:
         return None
     return StaticIssueDetail(first=relevant[0], total=len(relevant))
+
+
+def _runtime_process(runtime: RuntimeEvaluationRun | None) -> ProcessObservation | None:
+    if runtime is None or runtime.diagnostics is None:
+        return None
+    return runtime.diagnostics.process

@@ -44,12 +44,14 @@ from pf.environment import (
     ResolutionRequest,
 )
 from pf.schemas.evaluation import (
+    EnvironmentVariable,
     GraphOutcome,
     GraphSuccess,
     InterpreterOutcome,
     InterpreterSuccess,
-    ProcessResult,
+    ProcessObservation,
     ProcessSpec,
+    ProcessTerminalUnavailable,
     ToolFailure,
     ToolOutcome,
     ToolSuccess,
@@ -82,6 +84,16 @@ from pf.schemas.project import (
 )
 
 _JSON_SUMMARY_LIMIT = 16 * 1024 * 1024
+_UV_SOURCE_ENVIRONMENT_REMOVALS = (
+    "UV_CONFIG_FILE",
+    "UV_NO_CONFIG",
+    "UV_INDEX",
+    "UV_DEFAULT_INDEX",
+    "UV_INDEX_URL",
+    "UV_EXTRA_INDEX_URL",
+    "UV_FIND_LINKS",
+    "UV_INDEX_STRATEGY",
+)
 
 
 class RegistryAccess:
@@ -216,6 +228,14 @@ class UvAdapter:
                     timeout_seconds=timeout_seconds,
                 )
             )
+            if isinstance(process, ProcessTerminalUnavailable):
+                self._resolution_run = ToolFailure(
+                    cause="TOOL_FAILURE",
+                    stage="resolver-context",
+                    process=process,
+                    summary_code="terminal-unavailable",
+                )
+                return self._resolution_run
             output = read_process_output(self._runner, process)
             match = re.fullmatch(
                 r"uv (?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?: \([^\n]+\))?\s*",
@@ -385,8 +405,19 @@ class UvAdapter:
                 argv=tuple(argv),
                 cwd=package.as_posix(),
                 timeout_seconds=timeout_seconds,
+                environment=self._isolated_uv_environment(work_directory),
+                environment_removals=_UV_SOURCE_ENVIRONMENT_REMOVALS,
             )
         )
+        if isinstance(process, ProcessTerminalUnavailable):
+            return ResolutionIndeterminate(
+                stage=stage,
+                request_digest=request_digest,
+                context=context,
+                cause="TOOL_FAILURE",
+                summary_code="terminal-unavailable",
+                process=process,
+            )
         output = read_process_output(self._runner, process)
         if process.exit_code != 0:
             classification = classify_resolution_diagnostic(
@@ -505,6 +536,8 @@ class UvAdapter:
                 ),
                 cwd=cwd.as_posix(),
                 timeout_seconds=timeout_seconds,
+                environment=self._isolated_uv_environment(work_directory),
+                environment_removals=_UV_SOURCE_ENVIRONMENT_REMOVALS,
             )
         )
         outcome = self._classify(process, stage="install-environment")
@@ -657,6 +690,11 @@ class UvAdapter:
                 timeout_seconds=30,
             )
         )
+        if isinstance(process, ProcessTerminalUnavailable):
+            raise InfrastructureError(
+                "uv could not list available Python versions",
+                detail="process terminal observation was unavailable",
+            )
         outcome = self._classify(process, stage="python-list")
         if isinstance(outcome, ToolFailure) or not process.stdout_complete:
             raise InfrastructureError(
@@ -705,6 +743,13 @@ class UvAdapter:
                 timeout_seconds=timeout_seconds,
             )
         )
+        if isinstance(process, ProcessTerminalUnavailable):
+            return ToolFailure(
+                cause="TOOL_FAILURE",
+                stage="inspect-interpreter",
+                process=process,
+                summary_code="terminal-unavailable",
+            )
         outcome = self._classify(process, stage="inspect-interpreter")
         if isinstance(outcome, ToolFailure) or not process.stdout_complete:
             return ToolFailure(
@@ -733,6 +778,16 @@ class UvAdapter:
         assert selected.artifact.locator is not None
         digest = selected.artifact.content_hash.removeprefix("sha256:")
         return f"{selected.dependency} @ {selected.artifact.locator}#sha256={digest}"
+
+    @staticmethod
+    def _isolated_uv_environment(
+        work_directory: Path,
+    ) -> tuple[EnvironmentVariable, ...]:
+        config_home = (work_directory / ".pf-uv-user-config").as_posix()
+        return (
+            EnvironmentVariable(name="APPDATA", value=config_home),
+            EnvironmentVariable(name="XDG_CONFIG_HOME", value=config_home),
+        )
 
     def create_environment(
         self,
@@ -780,6 +835,13 @@ class UvAdapter:
                 timeout_seconds=timeout_seconds,
             )
         )
+        if isinstance(process, ProcessTerminalUnavailable):
+            return ToolFailure(
+                cause="TOOL_FAILURE",
+                stage="inspect",
+                process=process,
+                summary_code="terminal-unavailable",
+            )
         outcome = self._classify(process, stage="inspect")
         if isinstance(outcome, ToolFailure):
             return outcome
@@ -1035,7 +1097,9 @@ class UvAdapter:
             return platform_tag == f"win_{windows_arch}"
         return False
 
-    def _classify(self, result: ProcessResult, *, stage: str) -> ToolOutcome:
+    def _classify(self, result: ProcessObservation, *, stage: str) -> ToolOutcome:
+        if isinstance(result, ProcessTerminalUnavailable):
+            return ToolFailure(cause="TOOL_FAILURE", stage=stage, process=result)
         if result.timed_out:
             return ToolFailure(cause="TIMEOUT", stage=stage, process=result)
         if result.exit_code == 0:

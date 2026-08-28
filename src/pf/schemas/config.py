@@ -25,7 +25,6 @@ class EffectiveConfig(FrozenSchema):
     ty_args: tuple[str, ...] = ()
     test_group: str = "test"
     test_command: tuple[str, ...] = ()
-    test_failure_exit_codes: tuple[int, ...] = (1,)
     command_cwd: Literal["package", "root"] = "package"
     jobs: Literal["auto"] | StrictInt = "auto"
     resolve_timeout: int | None = 600
@@ -51,10 +50,6 @@ class EffectiveConfig(FrozenSchema):
             isinstance(self.jobs, int) and self.jobs <= 0
         ):
             raise ValueError("jobs must be 'auto' or a positive integer")
-        if len(set(self.test_failure_exit_codes)) != len(
-            self.test_failure_exit_codes
-        ) or any(code <= 0 for code in self.test_failure_exit_codes):
-            raise ValueError("test failure exit codes must be unique positive integers")
         return self
 
 

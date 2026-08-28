@@ -18,20 +18,23 @@ from pf.schemas.evaluation import (
     RuntimeWitnessAttempt,
     RuntimeWitnessOutcome,
     RuntimeWitnessPlan,
+    RuntimeEvaluationRun,
     StaticBaseline,
     StaticBaselineCapture,
     StaticEvaluation,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     StageProgress,
-    TestFail,
-    TestFailEvaluation,
-    TestOutcome,
-    TestPass,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
     ty_diagnostic_digest,
+    VerifierRejected,
+    VerifierRejectedEvaluation,
+    VerifierRequest,
+    VerifierRun,
+    VerifierPass,
+    VerifierIndeterminate,
 )
 from pf.schemas.project import PackagePlan
 from pf.static_transition import StaticTransitionClassifier, static_fingerprint
@@ -89,6 +92,17 @@ class EvaluationCache:
             return evaluation
         return existing
 
+    @staticmethod
+    def _full_authority(evaluation: Evaluation) -> tuple[str, object | None]:
+        if isinstance(evaluation, (PassEvaluation, VerifierRejectedEvaluation)):
+            return evaluation.status, evaluation.verifier
+        if (
+            isinstance(evaluation, IndeterminateEvaluation)
+            and evaluation.verifier is not None
+        ):
+            return evaluation.status, evaluation.verifier
+        return evaluation.status, None
+
     def record_full(
         self,
         evaluation: Evaluation,
@@ -99,7 +113,9 @@ class EvaluationCache:
         self._require_matching_baseline(evaluation, baseline_digest)
         key = self._key(proposal_id, baseline_digest)
         existing = self._full.get(key)
-        if existing is not None and existing.status != evaluation.status:
+        if existing is not None and self._full_authority(existing) != self._full_authority(
+            evaluation
+        ):
             return CacheConflict(
                 proposal_id=proposal_id,
                 observed_statuses=(existing.status, evaluation.status),
@@ -130,7 +146,7 @@ class EvaluationCache:
             evaluation,
             (
                 PassEvaluation,
-                TestFailEvaluation,
+                VerifierRejectedEvaluation,
                 RuntimeInterfaceMissingEvaluation,
             ),
         ):
@@ -155,17 +171,12 @@ class TyOperations(Protocol):
     ) -> TyCheck | ToolFailure: ...
 
 
-class TestOperations(Protocol):
+class VerifierOperations(Protocol):
     def run(
         self,
-        *,
-        command: tuple[str, ...],
-        cwd: Path,
-        environment: tuple[EnvironmentVariable, ...],
-        failure_exit_codes: tuple[int, ...],
-        timeout_seconds: int | None,
+        request: VerifierRequest,
         progress: Callable[[StageProgress | None], None] | None = None,
-    ) -> TestOutcome: ...
+    ) -> VerifierRun: ...
 
 
 class RuntimeWitnessOperations(Protocol):
@@ -309,12 +320,12 @@ class RuntimeEvaluator:
         self,
         *,
         static: StaticEvaluator,
-        tests: TestOperations,
+        verifier: VerifierOperations,
         witnesses: RuntimeWitnessOperations | None = None,
         events: StageConsumer | None = None,
     ) -> None:
         self._static = static
-        self._tests = tests
+        self._verifier = verifier
         self._witnesses = witnesses
         self._events = events
 
@@ -325,14 +336,14 @@ class RuntimeEvaluator:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
-    ) -> Evaluation:
+    ) -> RuntimeEvaluationRun:
         static = static_result or self._static.evaluate(
             prepared,
             package=package,
             baseline=baseline,
         )
         if isinstance(static, IndeterminateEvaluation):
-            return static
+            return RuntimeEvaluationRun(evaluation=static)
         witness_attempts: list[RuntimeWitnessAttempt] = []
         if isinstance(static, StaticRegressionEvaluation) and self._witnesses:
             plans: list[RuntimeWitnessPlan] = []
@@ -351,18 +362,22 @@ class RuntimeEvaluator:
                 attempt = RuntimeWitnessAttempt(plan=plan, outcome=witness)
                 witness_attempts.append(attempt)
                 if isinstance(witness, ToolFailure):
-                    return IndeterminateEvaluation(
-                        proposal=prepared.proposal,
-                        cause=witness.cause,
-                        failure=witness,
-                        static=static,
-                        witnesses=tuple(witness_attempts),
+                    return RuntimeEvaluationRun(
+                        evaluation=IndeterminateEvaluation(
+                            proposal=prepared.proposal,
+                            cause=witness.cause,
+                            failure=witness,
+                            static=static,
+                            witnesses=tuple(witness_attempts),
+                        )
                     )
                 if witness.status == "CONFIRMED_MISSING":
-                    return RuntimeInterfaceMissingEvaluation(
-                        proposal=prepared.proposal,
-                        static=static,
-                        witnesses=tuple(witness_attempts),
+                    return RuntimeEvaluationRun(
+                        evaluation=RuntimeInterfaceMissingEvaluation(
+                            proposal=prepared.proposal,
+                            static=static,
+                            witnesses=tuple(witness_attempts),
+                        )
                     )
         emit_cell_stage(self._events, prepared.proposal.cell, "dynamic tests")
         cwd = (
@@ -374,43 +389,55 @@ class RuntimeEvaluator:
         path = os.pathsep.join(
             part for part in (environment_bin, os.environ.get("PATH", "")) if part
         )
-        outcome = self._tests.run(
-            command=package.config.test_command,
-            cwd=cwd,
-            environment=(EnvironmentVariable(name="PATH", value=path),),
-            failure_exit_codes=package.config.test_failure_exit_codes,
-            timeout_seconds=package.config.test_timeout,
-            progress=(
-                None
-                if self._events is None
-                else lambda progress: emit_cell_stage(
-                    self._events,
-                    prepared.proposal.cell,
-                    "dynamic tests",
-                    progress=progress,
-                )
+        progress = (
+            None
+            if self._events is None
+            else lambda progress: emit_cell_stage(
+                self._events,
+                prepared.proposal.cell,
+                "dynamic tests",
+                progress=progress,
+            )
+        )
+        run = self._verifier.run(
+            VerifierRequest(
+                command=package.config.test_command,
+                cwd=cwd,
+                environment=(EnvironmentVariable(name="PATH", value=path),),
+                timeout_seconds=package.config.test_timeout,
             ),
+            progress=progress,
         )
         prepared.mark_tested()
-        if isinstance(outcome, TestPass):
-            return PassEvaluation(
+        authoritative = run.authoritative
+        if isinstance(authoritative, VerifierPass):
+            evaluation: Evaluation = PassEvaluation(
                 proposal=prepared.proposal,
                 static=static,
                 witnesses=tuple(witness_attempts),
-                test=outcome,
+                verifier=authoritative,
             )
-        if isinstance(outcome, TestFail):
-            return TestFailEvaluation(
+        elif isinstance(authoritative, VerifierRejected):
+            evaluation = VerifierRejectedEvaluation(
                 proposal=prepared.proposal,
                 static=static,
                 witnesses=tuple(witness_attempts),
-                test=outcome,
+                verifier=authoritative,
             )
-        assert isinstance(outcome, ToolFailure)
-        return IndeterminateEvaluation(
-            proposal=prepared.proposal,
-            cause=outcome.cause,
-            failure=outcome,
-            static=static,
-            witnesses=tuple(witness_attempts),
+        else:
+            assert isinstance(authoritative, VerifierIndeterminate)
+            evaluation = IndeterminateEvaluation(
+                proposal=prepared.proposal,
+                cause=(
+                    "TIMEOUT"
+                    if authoritative.reason == "process-timed-out"
+                    else "TOOL_FAILURE"
+                ),
+                verifier=authoritative,
+                static=static,
+                witnesses=tuple(witness_attempts),
+            )
+        return RuntimeEvaluationRun(
+            evaluation=evaluation,
+            diagnostics=run.diagnostics,
         )

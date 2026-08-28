@@ -13,7 +13,7 @@ from pf.report import ReportStore
 from pf.schemas.report import (
     CompleteReportResult,
     IncompleteReportResult,
-    PackageFloorReportV2Wire,
+    PackageFloorReportV1Wire,
 )
 
 
@@ -27,10 +27,10 @@ _generated_files = cast(
     Callable[[], dict[Path, str]],
     _generator["generated_files"],
 )
-SCHEMA_PATH = ROOT / "docs" / "schemas" / "package-floor-v2.schema.json"
+SCHEMA_PATH = ROOT / "docs" / "schemas" / "package-floor-v1.schema.json"
 EXAMPLE_PATHS = (
-    ROOT / "docs" / "examples" / "package-floor-v2-minimal-complete.json",
-    ROOT / "docs" / "examples" / "package-floor-v2-minimal-incomplete.json",
+    ROOT / "docs" / "examples" / "package-floor-v1-minimal-complete.json",
+    ROOT / "docs" / "examples" / "package-floor-v1-minimal-incomplete.json",
 )
 
 
@@ -69,7 +69,7 @@ class TestReportArtifacts:
             }
 
         monkeypatch.setattr(
-            PackageFloorReportV2Wire,
+            PackageFloorReportV1Wire,
             "model_json_schema",
             schema_without_const_types,
         )
@@ -101,7 +101,9 @@ class TestReportArtifacts:
         Draft202012Validator.check_schema(schema)
 
         assert schema["additionalProperties"] is False
+        assert schema["title"] == "PackageFloorReportV1Wire"
         assert "schema_version" in schema["required"]
+        assert schema["properties"]["schema_version"]["const"] == 1
         assert all(
             definition.get("additionalProperties") is False
             for definition in schema["$defs"].values()

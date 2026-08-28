@@ -1,17 +1,15 @@
 # PF 权威验证终态
 
-- **状态：** 草案
+- **状态：** 已归并
 - **日期：** 2026-08-25
-- **最后核对：** 2026-08-27
+- **最后核对：** 2026-08-28
 - **适用范围：** 配置 verifier 的权威终态、Attempt disposition、诊断 metadata 与迁移
-- **现行分类：** [D013](D013-pf-pytest-failure-evidence.md)
+- **现行分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **现行报告：** [D014](D014-pf-report-schema.md)
 
-本文不描述当前行为。当前代码仍使用 D013 的
-`TestPass | TestFail | ToolFailure`、pytest failure-witness authority 和
-`test-failure-exit-codes`；当前 Schema 2 仍使用
-`PASS | TEST_FAIL | RUNTIME_INTERFACE_MISSING | INDETERMINATE`。只有另行批准并
-完整落地 D015 后，下面的规则才生效。
+本文记录已经完成的迁移决策，不再拥有现行条款。configured verifier interface、failure、
+process、runtime diagnostics、pytest observer 与 Schema 1 的唯一现行所有者分别是
+D001/D002/D005/D007/D008/D013/D014；下文保留迁移理由与验收证据口径。
 
 ## 1. 决策
 
@@ -31,9 +29,10 @@ normal exit 精确定义为：`timed_out = false`、`start_error = null`、
 `signal = null` 且 `exit_code` 是整数。exit code 的具体整数不改变 disposition；pytest
 lifecycle、failure-witness、stdout/stderr、异常类型和推测根因都不参与映射。
 
-所有正常非零 exit 等价，包括 pytest 1–5、其他 verifier exit N，以及 wrapper 把内部
-signal 转换成的 128+N。PF 不从整数反推 wrapper 隐藏的 signal。若 PF 直接观察到
-`signal != null`，结果仍是 Indeterminate。
+所有正常非零 exit 在 **disposition** 上等价，包括 pytest 1–5、其他 verifier exit N，
+以及 wrapper 把内部 signal 转换成的 128+N。具体整数仍是 portable terminal fact，进入
+VerifierTerminal、Failure identity 与同一 Proposal 的冲突检测。PF 不从整数反推 wrapper
+隐藏的 signal。若 PF 直接观察到 `signal != null`，结果仍是 Indeterminate。
 
 Rejection 只否定完整 Attempt/context，不归因到某个 dependency version，也不声称
 assertion、import、plugin、CLI、网络或外部服务是根因。Baseline PASS 只提供已知通过
@@ -63,17 +62,33 @@ Attempt
   summary、原始输出和 Process Log association；只解释结果。
 
 authority 只形成一次：生产 `ConfiguredVerifier` module 从 terminal facts 返回
-Authoritative Result。RuntimeEvaluator 只把它装入 Evaluation；FailurePolicy 对配置
+Authoritative Result。RuntimeEvaluator 把 authoritative result 装入 Evaluation，并把
+runtime-only diagnostics 放在独立的 `RuntimeEvaluationRun` wrapper；FailurePolicy 对配置
 verifier 只机械记录并验证已经形成的 disposition，不得再次读取 exit code、output
 completeness、pytest facts、cause 或 Role 重分类。
 
 ```text
 ConfiguredVerifier
-  -> VerifierRun.authoritative
-  -> RuntimeEvaluator / Evaluation
-  -> FailurePolicy.record_evaluation
-  -> FailureRecord
-  -> CoordinateSearch(disposition only)
+  -> VerifierRun(authoritative, diagnostics)
+  -> RuntimeEvaluator / RuntimeEvaluationRun
+       ├── evaluation  -> FailurePolicy.record_evaluation
+       │                  -> FailureRecord
+       │                  -> CoordinateSearch(disposition only)
+       └── diagnostics -> D008 completion/event projection
+                          -> CellResultDetail(detail_failure_id)
+```
+
+`RuntimeEvaluationRun` 不是 Evaluation cache 或 report 的一部分。Evaluation cache 只接收
+`run.evaluation`；D008 在 FailurePolicy 已形成 Failure ID 后，才可把 final diagnostics
+投影为 `CellResultDetail` 并绑定 `detail_failure_id`。动态 progress 继续直接发布
+`CellStageEvent`，不进入 Evaluation、FailureRecord 或 wrapper identity。
+
+```text
+RuntimeEvaluator.evaluate(...) -> RuntimeEvaluationRun
+
+RuntimeEvaluationRun
+  evaluation: Evaluation
+  diagnostics: VerifierDiagnostics | None  # invocation-local
 ```
 
 `CoordinateSearch` 只消费 `PASS | REJECTED | INDETERMINATE`，不得导入 pytest、
@@ -102,6 +117,31 @@ VerifierRun
 
 `VerifierRun` 是运行期结果，不是 report wire type。`VerifierRequest` 不再包含
 `failure_exit_codes`、pytest profile 或 qualification selector。
+
+ConfiguredVerifier 使用 D007 拥有的既有 ProcessRunner seam，但 D015 落地时把其返回值
+收敛为一个可判别 union：
+
+```text
+ProcessRunner.run(ProcessSpec) -> ProcessObservation
+
+ProcessObservation
+  ProcessResult
+  ProcessTerminalUnavailable
+```
+
+`ProcessTerminalUnavailable` 不是 `None`、任意异常或非法 `ProcessResult` 的兜底。生产
+SubprocessRunner 只有在 child 已进入受管 process 生命周期、完成有界 cleanup，但受支持的
+平台 process primitive 明确无法提供 exit/signal/start-error 终态时才能返回它；动态错误
+正文只进入 runtime diagnostics。没有这类 typed fact 时，不得制造 `Unavailable`。
+未建模的 adapter 异常、schema validation error、programmer error 和 observer protocol
+invariant violation 必须上抛为命令级 `InfrastructureError`，由 D001 返回 PF command exit
+`4`；它们不产生 VerifierOutcome、FailureRecord 或 candidate observation。
+
+这是共享 ProcessRunner seam 的穷尽变更，不是 verifier-only duck type。uv、ty、resolver、
+runtime witness 等所有现有 consumer 都必须显式处理 `ProcessTerminalUnavailable`，并按各自
+现行 operation 契约映射为 ToolFailure/Indeterminate；它不能为这些 operation 新增
+Rejection authority。D007 的 Process Log/cache association 同样必须接受完整
+ProcessObservation，使 unavailable 的本地诊断不依赖伪造 ProcessResult。
 
 权威类型只保存规范 terminal projection：
 
@@ -133,25 +173,24 @@ Authoritative Result 字段。Terminal identity 只包含 terminal kind 与适�
 code/signal；duration、stdout/stderr completeness、start-error 正文和清理后观察到的
 次级 exit/signal 不进入。
 
-分类顺序固定为：
+ConfiguredVerifier 必须先验证 ProcessObservation，再按下表投影；不得用分支优先级掩盖
+非法组合：
 
-1. 没有预期的 typed process result：`Unavailable`；
-2. `start_error != null`：`StartFailed`；
-3. `timed_out == true`：`TimedOut`；
-4. `signal != null`：`Signaled(signal)`；
-5. `exit_code == 0`：`NormalExit(0)`；
-6. `exit_code != 0`：`NormalExit(nonzero)`；
-7. 违反 process terminal invariant：抛出命令级 `INTERNAL_INVARIANT`，不得制造
-   candidate observation。
+| observation | 必须满足 | VerifierTerminal |
+| --- | --- | --- |
+| `ProcessTerminalUnavailable` | typed variant，无伪造 process facts | `Unavailable` |
+| `ProcessResult(start_error)` | `timed_out=false`，无 exit/signal | `StartFailed` |
+| `ProcessResult(timed_out=true)` | 无 start error；cleanup 后恰有 exit 或 signal | `TimedOut` |
+| `ProcessResult(signal)` | `timed_out=false`，无 exit/start error | `Signaled(signal)` |
+| `ProcessResult(exit_code)` | `timed_out=false`，无 signal/start error | `NormalExit(exit_code)` |
 
-timeout 优先于 cleanup 后观察到的 signal/exit。预期的 process start failure 或 runner
-明确返回 terminal unavailable 可形成 VerifierIndeterminate；任意未建模的 adapter
-异常、schema invariant 或 programmer error 必须上抛到命令级 internal-failure 路径，
-不得缓存成兼容性未知。
+timeout 优先于 cleanup 后观察到的 signal/exit，因此 `TimedOut` 不吸收次级 terminal fact。
+D007 的 ProcessResult invariant 必须同步禁止 `start_error + timed_out` 等组合。任何不符合
+上表的输入都走命令级 `InfrastructureError`，不得缓存成 compatibility unknown。
 
 这个 module 的 interface 是 verifier 行为测试的唯一测试面。terminal classifier、pytest
-observer 准备和 fallback 都是 private implementation；不得为单一生产实现再公开一个
-classifier interface。
+observer 注入和 telemetry projection 都是 private implementation；不得为单一生产实现再
+公开一个 classifier interface。
 
 ## 4. Diagnostics 与 pytest observer
 
@@ -165,6 +204,21 @@ exit N  + stdout/stderr incomplete -> REJECTED，诊断降级
 这不适用于必须解析结构化输出才能知道 operation outcome 的 uv/ty/resolver adapter；
 它们继续按各自现行契约分类。
 
+Final diagnostics 的唯一数据路径是：
+
+```text
+VerifierRun.diagnostics
+  -> RuntimeEvaluationRun.diagnostics
+  -> D008 completion projector
+  -> CellResultDetail(detail_failure_id)
+```
+
+`VerifierDiagnostics` 可以包含完整运行期 ProcessObservation、pytest phase/failure count 与
+有界 detail。它不得嵌入 Evaluation，也不得由 Evaluation cache 保存或返回；completion
+projector 只能在对应 FailureRecord 已形成后保留 detail。Pass 的 diagnostics 可以用于当前
+live/final UI，命令结束后丢弃。Process Log association 仍由 D007/D008 的本地 diagnosis
+seam 管理，不进入这个 wrapper。
+
 D013 的 pytest failure-witness 在落地后改为 **pytest observer**。它可以继续提供 phase、
 execution mode、progress、failure count 和有界 detail，但不得进入：
 
@@ -173,16 +227,16 @@ execution mode、progress、failure count 和有界 detail，但不得进入：
 - Attempt、Proposal、cache、Journal 或 report authority；
 - merge、apply 或 CoordinateSearch 决策。
 
-Observer 的运行语义固定为：
+PF 注入的 pytest observer/plugin 是简单、可信的 implementation 基座。它必须保持
+transparent：不得重写 pytest exit status、test selection、collection continuation、hook
+outcome 或执行顺序。注入准备、plugin import、强制 protocol artifact 或 serialization
+invariant 违反该假设时属于 PF implementation bug，走命令级 `InfrastructureError`；PF
+不得把它分类为 verifier Rejection/Indeterminate，也不得再执行一次未经注入的原命令。
 
-1. child 启动前 observer 准备或注入失败：清理全部 PF 私有环境，执行一次未经注入的
-   原始命令；
-2. child 已启动后，实际 child terminal facts 是 authority；
-3. observer artifact 缺失/损坏、读取、校验、serialization、monitor 或 cleanup 失败
-   只能省略 diagnostics，不能覆盖已经取得的 terminal outcome；
-4. PF 不推断“若没有 observer 注入，child 会得到什么 exit code”的反事实；
-5. observer implementation 必须 fail-open，不得主动重写 pytest exit status、test
-   selection、collection continuation 或执行顺序。
+child 启动后，实际 child terminal facts 始终是 verifier authority。已取得合法 observer
+facts 后，可选 progress monitor、detail 读取或 UI projection 失败只能省略相应
+diagnostics，不能覆盖 terminal outcome。PF 不推断“若没有 observer 注入，child 会得到
+什么 exit code”的反事实。
 
 observer 的安全/透明性 qualification 可以保留，但只证明 telemetry implementation，
 不授予 Rejection authority，也不进入 evaluation policy identity。exit 0 与 pytest
@@ -217,7 +271,9 @@ D015 只改变成功 prepare 后的配置 verifier，不扩大 D005/D012 的 pre
 
 Resolver 的结构化 UNSAT 是该 operation 自己的权威负终态，不从 stderr 或裸 nonzero
 exit 推断。D015 不改变 ty/static transition、runtime interface witness 或
-EnvironmentFactory 的 authority。
+EnvironmentFactory 的 authority。共享 ProcessRunner 返回
+`ProcessTerminalUnavailable` 时，这些 consumer 只走其现有 ToolFailure/Indeterminate
+路径，不改变 cause/disposition 资格。
 
 ## 7. Role 消费
 
@@ -261,48 +317,96 @@ VerifierIndeterminate(StartFailed | Signaled | Unavailable)
 `rejection_is_supported` 重新判断 verifier disposition。其他 prepare/resolver/witness
 operation 继续使用 D005 的现行 classification。
 
-配置 verifier Failure identity 使用 `pf:failure:v2`，其 preimage 只包含：
+Schema 1 的全部 FailureRecord 在本次迁移中统一使用 `pf:failure:v2`。FailureRecord 用一个
+可判别 authority union 代替顶层 `process? + detail?` 的重叠 optional fields：
 
-- Attempt scope；
+```text
+FailureAuthority
+  ProcessFailureAuthority
+    kind = process
+    process: ProcessResult
+    summary_code?
+    detail?
+
+  ConfiguredVerifierFailureAuthority
+    kind = configured-verifier
+    terminal: VerifierTerminal
+
+  StructuredFailureAuthority
+    kind = structured
+    detail: FailureDetail
+    summary_code?
+```
+
+`ProcessFailureAuthority` 保留非 verifier operation 现行 portable process/detail facts；
+`StructuredFailureAuthority` 表达没有 process 的结构化失败。Configured verifier 必须使用
+`ConfiguredVerifierFailureAuthority`，且不得携带 summary、detail 或完整 ProcessResult。
+cross-validator 固定为：
+
+- `VERIFIER_EXITED_NONZERO @ test` 只能是 `REJECTED + NormalExit(nonzero)`；
+- `TIMEOUT @ test` 只能是 `INDETERMINATE + TimedOut`；
+- `TOOL_FAILURE @ test` 只能是 `INDETERMINATE + StartFailed | Signaled |
+  Unavailable`；
+- 其他 cause/stage 不得使用 configured-verifier authority，继续按 D005/D007/D012
+  使用 process 或 structured authority。
+
+`pf:failure:v2` canonical preimage 对全部 FailureRecord 只包含：
+
+- Failure scope（`AttemptFailureScope | CellFailureScope`）；
 - disposition、cause、stage；
-- VerifierTerminal kind 与适用的 exit code/signal；
+- 完整 `FailureAuthority` canonical payload；
 - 已取得的 project/environment plan digests。
 
-duration、stdout/stderr completeness、start-error 正文、pytest facts/detail、summary、
-Process Log locator 和 cleanup facts 不进入 Failure ID。同一 Attempt 的相同 terminal facts
-必须在 diagnostics 降级或展示细节变化后得到相同 Failure ID。
+对 configured-verifier authority，payload 只有 VerifierTerminal kind 与适用的 exit
+code/signal；duration、stdout/stderr completeness、start-error 正文、pytest facts/detail、
+summary、Process Log locator 和 cleanup facts 不进入 Failure ID。同一 Attempt 的相同
+terminal facts 必须在 diagnostics 降级或展示细节变化后得到相同 Failure ID。其他
+authority 的 process/detail identity 规则保持其现行语义，但改用 v2 prefix 与判别形状。
+
+D008 Verification Journal 与 D014 report 必须保存同一个 `FailureAuthority` 领域形状与
+同一个 `pf:failure:v2` ID；Journal 不保留顶层 process/detail 布局。
+
+Evaluation cache 对配置 verifier 比较 canonical Authoritative Result，不得只比较
+Evaluation status。相同 Proposal/terminal、不同 diagnostics 复用同一结果；相同 Proposal
+得到不同 terminal kind、不同 exit code 或不同 signal 时形成 `CacheConflict /
+NONDETERMINISTIC`。因此 exit 1 与 exit 4 虽同为 Rejected，仍是冲突的 authoritative facts。
 
 `evaluation_policy_identity` 增加固定
 `configured-verifier-terminal-v1` policy，删除 test failure code、command-shape profile、
 pytest version、execution mode、failure-witness、progress 和 observer qualification。test
 command、cwd、timeout 等真实 verifier 配置仍按 D002/D008 进入现行 config/Attempt facts。
 
-旧 evaluation policy、Attempt/Proposal/Failure identity 和 cache entry 不得与新结果合并
-或复用。项目尚未发布，不提供开发期 cache/report 迁移器。
+落地时直接删除现有开发期 evaluation cache、report、Journal 与 diagnosis association，
+再按新 identity 重新生成；不读取、转换、合并或复用旧开发产物。
 
-## 9. Schema 2 一次性修订
+## 9. Schema 1 一次性修订
 
-项目尚未发布，因此 D015 落地时直接修订未发布的 Schema 2，不提升
-`schema_version`，也不提供 dual-read、dual-write 或 migrator。该选择只适用于首次
-公开发布前；若 Schema 2 已对外发布，必须另行设计 Schema 3，不能继续按本节实施。
+项目尚未上线，Schema 1 也不是公开兼容接口。因此 D015 直接原地修订 Schema 1，不提升
+`schema_version`，不提供 dual-read、dual-write、legacy reader 或 migrator。现有开发期
+`package-floor.json`、evaluation cache、Journal 和 diagnosis index 可以直接删除并重生。
 
-Schema 2 同一变更中必须：
+Schema 1 同一变更中必须：
 
 1. 在 report identity 增加 required literal
    `verifier_outcome_policy = "configured-verifier-terminal-v1"`，并让它进入
-   evaluation/report generation identity；旧报告因缺失该字段 fail closed；
+   evaluation/report generation identity；
 2. terminal Evaluation union 从
    `PASS | TEST_FAIL | RUNTIME_INTERFACE_MISSING | INDETERMINATE` 改为
    `PASS | VERIFIER_REJECTED | RUNTIME_INTERFACE_MISSING | INDETERMINATE`；
 3. 删除 `TEST_FAILURE` cause，增加 `VERIFIER_EXITED_NONZERO`；
-4. verifier Evaluation/Failure 只保存 `VerifierTerminal`，不保存完整
-   `ProcessResult` 或 observer diagnostics；
-5. 更新 `pf:failure:v2` identity validator、typed refs、reachability 与 merge/update；
-6. 重新生成 JSON Schema 和 complete/incomplete 示例；
-7. 证明旧 report/cache 不能 read、merge、reuse 或 apply；当前开发报告由新的
-   `pf search` 重生。
+4. 用 `FailureAuthority` 判别 union 替换 FailureRecord 的 `process? + detail?`，全部
+   FailureRecord 使用 `pf:failure:v2`，禁止 authority both/neither；
+5. PASS Evaluation 唯一保存 `NormalExit(0)`；VERIFIER_REJECTED 和 verifier
+   INDETERMINATE Evaluation 只引用拥有 VerifierTerminal 的 FailureRecord，不重复保存
+   terminal；其他 INDETERMINATE 通过 referenced FailureAuthority 区分 process/structured
+   evidence；
+6. verifier wire 不保存完整 `ProcessResult`、observer diagnostics 或
+   `RuntimeEvaluationRun`；
+7. 更新 identity validator、typed refs、reachability 与 merge/update；
+8. 重新生成 JSON Schema 和 complete/incomplete 示例；
+9. 删除现有开发期 report/cache/Journal/index，并由新实现重生，不实现或测试兼容读取。
 
-Schema 2 的其他 operation 仍可按 D005/D007/D012/D014 保存其现行 portable process
+Schema 1 的其他 operation 仍可按 D005/D007/D012/D014 保存其现行 portable process
 facts；本节不全局重写 uv/ty/resolver 的结构化协议。
 
 ## 10. 配置、文档与最终所有者
@@ -324,11 +428,11 @@ D015 标为“已归并”：
 | --- | --- |
 | ConfiguredVerifier module/interface 与依赖方向 | D002 |
 | verifier disposition、cause、FailureRecord/identity | D005 |
-| Role 消费、Journal、completion | D008 |
+| Role 消费、RuntimeEvaluationRun diagnostics、Journal、completion | D008 |
 | pytest observer 与 UI telemetry | D013 |
-| Schema 2 wire、reader、merge/update | D014 |
+| Schema 1 wire、reader、merge/update | D014 |
 | 用户配置、命令结果与退出码 | D001 |
-| 进程执行与 Process Log | D007 |
+| ProcessObservation、进程执行与 Process Log | D007 |
 
 D001、D002、D005、D007、D008、D013、D014、CONTEXT、JSON Schema、示例和生成器必须
 一次同步，不允许中间状态同时保留两套 authority。
@@ -342,12 +446,13 @@ D001、D002、D005、D007、D008、D013、D014、CONTEXT、JSON Schema、示例�
 | Process facts | diagnostics | outcome |
 | --- | --- | --- |
 | exit 0 | 完整或截断 | PASS |
-| exit 1/2/3/4/5/137 | 无/合法/损坏 observer facts，完整或截断输出 | REJECTED |
+| exit 1/2/3/4/5/137 | generic 无 observer 或合法 observer facts；完整或截断输出 | REJECTED |
 | timeout，cleanup 后另有 exit/signal | 任意 | INDETERMINATE |
 | 原生 signal | 任意 | INDETERMINATE |
 | start error | 任意 | INDETERMINATE |
 | typed terminal unavailable | 任意 | INDETERMINATE |
-| 非法 terminal facts / unexpected adapter exception | 任意 | INTERNAL_INVARIANT，不产生 outcome |
+| `start_error + timed_out` 等非法组合 | 任意 | InfrastructureError，不产生 outcome |
+| 损坏/缺失强制 observer artifact 或 unexpected adapter exception | 任意 | InfrastructureError，不产生 outcome |
 
 generic command、direct pytest、`python -m pytest`、wrapper、pytest 6–9、xdist 和 unknown
 execution mode 对相同 terminal facts 必须产生相同 outcome。旧的 shallow
@@ -358,26 +463,36 @@ profile/classifier 测试由 interface 行为测试替换，不在删除 authori
 
 必须证明：
 
-1. observer setup 失败只执行一次未经注入的原命令；
-2. observer artifact/monitor/read/cleanup 失败不改变 child terminal outcome；
-3. exit 0 与 failure metadata 冲突仍为 Pass；
-4. 相同 Attempt/terminal、不同 duration、output completeness、detail、summary 或日志得到
+1. trusted observer qualification 证明注入不改变 exit status、selection、hook outcome 或
+   执行顺序；plugin/protocol invariant 失败走命令级 InfrastructureError，且不重跑原命令；
+2. 合法 observer facts 之后的可选 monitor/detail/UI projection 失败不改变 child terminal
+   outcome；
+3. `RuntimeEvaluationRun.diagnostics` 能投影到绑定对应 Failure ID 的
+   `CellResultDetail`，但 Evaluation cache/Journal/report 中不存在该 wrapper；
+4. exit 0 与 failure metadata 冲突仍为 Pass；
+5. 相同 Attempt/terminal、不同 duration、output completeness、detail、summary 或日志得到
    相同 disposition、Failure ID、policy/cache identity 和 report authority；
-5. pytest diagnostics 不出现在 Evaluation cache、Journal、report、merge/apply identity；
-6. runtime interface witness 现行 Rejection 路径保持通过。
+6. 相同 Proposal 的 exit 1→4、signal 9→15 或 terminal kind 变化形成
+   `NONDETERMINISTIC`，不能因 disposition/status 相同而复用；
+7. pytest diagnostics 不出现在 Evaluation cache、Journal、report、merge/apply identity；
+8. runtime interface witness 现行 Rejection 路径保持通过。
 
 ### 11.3 Schema、配置与 fail-closed
 
 必须证明：
 
-1. `test-failure-exit-codes` 与 authority profile 从 config/schema/help/source 完全删除，旧
-   key 配置失败；
-2. 新 reader 拒绝缺少/未知 `verifier_outcome_policy`、旧 `TEST_FAIL` 和
-   `TEST_FAILURE`；
-3. JSON Schema、两个示例和 Pydantic wire model 无漂移；
-4. 旧 report/cache 不能 merge、reuse 或 apply；
-5. prepare、resolver、ty/static、runtime witness 与 D003 的 disposition-only interface
-   保持不变。
+1. `test-failure-exit-codes` 与 authority profile 从 config/schema/help/source 完全删除，
+   配置模型只接受新字段集合；
+2. reader 只接受 required `verifier_outcome_policy`、新 Evaluation union 与新 cause 集合；
+3. reader 拒绝 FailureAuthority both/neither、cause/stage/authority 不匹配，并复算全部
+   `pf:failure:v2` preimage；
+4. JSON Schema、两个示例和 Pydantic wire model 无漂移；
+5. 实施不包含 legacy reader、alias、migrator 或兼容测试；开发期
+   report/cache/Journal/index 由新实现重生；
+6. 所有共享 ProcessRunner consumer 穷尽处理 `ProcessTerminalUnavailable`，且
+   prepare、resolver、ty/static、runtime witness 与 D003 的 disposition-only interface
+   保持不变；
+7. Verification Journal 与 report 对同一 Failure ID 展开为相同 FailureAuthority。
 
 ### 11.4 产品路径与 dogfood
 
@@ -385,11 +500,12 @@ profile/classifier 测试由 interface 行为测试替换，不在删除 authori
 
 1. `packaging==20.9` × Python 3.12 的正常 pytest bootstrap nonzero 是 direct Probe
    Rejection，search 继续寻找更高 PASS；
-2. `pydantic==1.7.4` 的 conftest/import exit 4 是 direct Probe Rejection，search 继续到
-   Pydantic 2.x，而不是以 ToolFailure 停止 Cell；
+2. `pydantic==1.7.4` 的 conftest/import **child verifier exit 4** 是 direct Probe
+   Rejection，search 继续到 Pydantic 2.x，而不是以 ToolFailure 停止 Cell；
 3. smoke/search baseline normal nonzero 分别形成 Baseline Rejection；
 4. check declaration normal nonzero 形成声明 Rejection；
-5. timeout/signal/start error 仍产生 exit 4/compatibility unknown，并立即停止 Probe Cell；
+5. timeout/signal/start error 仍产生 **PF command exit 4 / compatibility unknown**，并立即
+   停止 Probe Cell；
 6. `pf explain`、`pf diagnose`、search terminal card 的 Failure ID、title、disposition 与
    terminal attempt 一致，不回退到历史 probe diagnostics。
 
@@ -406,4 +522,4 @@ profile/classifier 测试由 interface 行为测试替换，不在删除 authori
 - 不扩大 prepare、resolver、ty 或 runtime witness 的负向证据资格；
 - 不把诊断正文、test ID、本地日志或 duration 放入公共 authority identity；
 - 不新增 test-runner classifier registry 或 pytest authority profile；
-- 不为未发布的旧配置、cache 或 report 提供兼容迁移。
+- 不保留、读取或转换任何旧开发期配置、cache、report、Journal 或 diagnosis index。

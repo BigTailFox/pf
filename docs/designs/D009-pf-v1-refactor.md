@@ -34,6 +34,6 @@ D009 先修复安全与证据授权，再加深现有模块：
 | 终端展示 | [D006](D006-pf-cli-enhancement.md) |
 | 脱敏、Process Log 与 Output Cache | [D007](D007-pf-process-output.md) |
 | VerificationRunner、Journal 与 diagnose 读取面 | [D008](D008-pf-verification-run.md) |
-| Schema 2 引用图、complete authority 与 report transaction | [D014](D014-pf-report-schema.md) |
+| Schema 1 引用图、complete authority 与 report transaction | [D014](D014-pf-report-schema.md) |
 
 实施顺序、测试计数、命令与完成证据只保留在 P008；评审发现只保留在 R001。
