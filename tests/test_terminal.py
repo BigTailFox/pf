@@ -851,8 +851,8 @@ class TestProgressRendering:
         )
         terminal = StringIO()
         tty_presenter = TerminalPresenter(
-            stdout=Console(file=StringIO(), force_terminal=True),
-            stderr=Console(file=terminal, force_terminal=True),
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(file=terminal, force_terminal=True, width=80),
         )
 
         plain_presenter.consume(first)
@@ -1322,8 +1322,8 @@ class TestProgressRendering:
         cell_b = cell_a.model_copy(update={"python_minor": "3.11"})
         stderr = TTYBuffer()
         terminal = TerminalPresenter(
-            stdout=Console(file=StringIO(), force_terminal=True),
-            stderr=Console(file=stderr, force_terminal=True),
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
+            stderr=Console(file=stderr, force_terminal=True, width=80),
         )
 
         terminal.consume(StatusEvent(message="searching cells"))
@@ -2428,12 +2428,13 @@ class TestProgressRendering:
     def test_tty_completed_cell_log_omits_unstructured_process_output(self) -> None:
         terminal = StringIO()
         presenter = TerminalPresenter(
-            stdout=Console(file=StringIO(), force_terminal=True),
+            stdout=Console(file=StringIO(), force_terminal=True, width=80),
             stderr=Console(
                 file=terminal,
                 force_terminal=True,
                 no_color=False,
                 color_system="standard",
+                width=80,
                 theme=PF_THEME,
             ),
         )
@@ -2480,6 +2481,7 @@ class TestProgressRendering:
                 force_terminal=True,
                 no_color=False,
                 color_system="standard",
+                width=80,
                 theme=PF_THEME,
             ),
             stderr=Console(
@@ -2487,6 +2489,7 @@ class TestProgressRendering:
                 force_terminal=True,
                 no_color=False,
                 color_system="standard",
+                width=80,
                 theme=PF_THEME,
             ),
         )
@@ -2522,6 +2525,7 @@ class TestProgressRendering:
                 force_terminal=True,
                 no_color=False,
                 color_system="standard",
+                width=80,
                 theme=PF_THEME,
             ),
             stderr=Console(
@@ -2529,6 +2533,7 @@ class TestProgressRendering:
                 force_terminal=True,
                 no_color=False,
                 color_system="standard",
+                width=80,
                 theme=PF_THEME,
             ),
         )

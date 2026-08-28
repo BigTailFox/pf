@@ -10,13 +10,22 @@ from jsonschema import Draft202012Validator
 import pytest
 
 from pf.report import ReportStore
-from pf.schemas.report import CompleteReportResult, IncompleteReportResult
+from pf.schemas.report import (
+    CompleteReportResult,
+    IncompleteReportResult,
+    PackageFloorReportV2Wire,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_generator = run_path(str(ROOT / "scripts" / "generate_report_schema.py"))
 _generate_schema_main = cast(
     Callable[[], int],
-    run_path(str(ROOT / "scripts" / "generate_report_schema.py"))["main"],
+    _generator["main"],
+)
+_generated_files = cast(
+    Callable[[], dict[Path, str]],
+    _generator["generated_files"],
 )
 SCHEMA_PATH = ROOT / "docs" / "schemas" / "package-floor-v2.schema.json"
 EXAMPLE_PATHS = (
@@ -44,6 +53,36 @@ def _contains_type(value: object, expected: str) -> bool:
 
 
 class TestReportArtifacts:
+    def test_generate_schema_canonicalizes_const_types_across_pydantic_versions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def schema_without_const_types(**_: object) -> dict[str, object]:
+            return {
+                "properties": {
+                    "enabled": {"const": True},
+                    "kind": {"const": "demo"},
+                    "ratio": {"const": 1.5},
+                    "schema_version": {"const": 1},
+                },
+                "type": "object",
+            }
+
+        monkeypatch.setattr(
+            PackageFloorReportV2Wire,
+            "model_json_schema",
+            schema_without_const_types,
+        )
+
+        schema = json.loads(_generated_files()[SCHEMA_PATH])
+
+        assert schema["properties"] == {
+            "enabled": {"const": True, "type": "boolean"},
+            "kind": {"const": "demo", "type": "string"},
+            "ratio": {"const": 1.5, "type": "number"},
+            "schema_version": {"const": 1, "type": "integer"},
+        }
+
     def test_generate_schema_check_accepts_committed_artifacts(
         self,
         monkeypatch: pytest.MonkeyPatch,

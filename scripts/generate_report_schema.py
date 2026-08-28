@@ -175,6 +175,7 @@ def generated_files() -> dict[Path, str]:
         mode="serialization",
         ref_template="#/$defs/{model}",
     )
+    _require_const_types(schema)
     _require_serialized_defaults(schema)
     _remove_null_types(schema)
     return {
@@ -200,6 +201,33 @@ def generated_files() -> dict[Path, str]:
         )
         + "\n",
     }
+
+
+def _require_const_types(value: object) -> None:
+    if isinstance(value, list):
+        for item in value:
+            _require_const_types(item)
+        return
+    if not isinstance(value, dict):
+        return
+    if "const" in value:
+        constant = value["const"]
+        if isinstance(constant, bool):
+            value["type"] = "boolean"
+        elif isinstance(constant, str):
+            value["type"] = "string"
+        elif isinstance(constant, int):
+            value["type"] = "integer"
+        elif isinstance(constant, float):
+            value["type"] = "number"
+        elif isinstance(constant, list):
+            value["type"] = "array"
+        elif isinstance(constant, dict):
+            value["type"] = "object"
+        elif constant is None:
+            value["type"] = "null"
+    for item in value.values():
+        _require_const_types(item)
 
 
 def _require_serialized_defaults(value: object) -> None:
