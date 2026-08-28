@@ -645,6 +645,7 @@ class SearchCommandWorkflow:
                     max_duration_seconds=request.max_duration_seconds,
                 )
             )
+            self._assert_source_snapshot_current(root=root, expected=snapshot)
             reports = []
             for package in project.packages:
                 package_results = tuple(
@@ -687,6 +688,21 @@ class SearchCommandWorkflow:
             return tuple(reports)
         finally:
             snapshot.close()
+
+    def _assert_source_snapshot_current(
+        self,
+        *,
+        root: Path,
+        expected: SourceSnapshot,
+    ) -> None:
+        current = self._snapshots.build(root)
+        try:
+            if current.identity != expected.identity:
+                raise ConfigurationError(
+                    "project source snapshot drifted during search"
+                )
+        finally:
+            current.close()
 
     def _cell_task(
         self,

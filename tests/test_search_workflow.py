@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pytest
+
+from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
@@ -72,6 +75,25 @@ class FailedSearch:
             failure_id=failure.failure_id,
             failure_records=(failure,),
         )
+
+
+class SourceDriftingSearch(FailedSearch):
+    def __init__(self, root: Path) -> None:
+        super().__init__()
+        self._root = root
+
+    def search(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+    ) -> CellIndeterminate:
+        (self._root / "new-source.py").write_text(
+            "VALUE = 1\n",
+            encoding="utf-8",
+        )
+        return super().search(package=package, cell=cell, snapshot=snapshot)
 
 
 class TimedOutVerifierSearch:
@@ -199,6 +221,46 @@ class Events:
 
 
 class TestSearchWorkflow:
+    def test_search_does_not_publish_a_report_if_source_drifts_during_run(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            coordinator=SourceDriftingSearch(tmp_path),
+            verification=VerificationRunner(events=Events(), logs=None),
+            reports=ReportStore(),
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+        )
+
+        with pytest.raises(
+            ConfigurationError,
+            match="project source snapshot drifted during search",
+        ):
+            workflow.run(SearchRequest(root=tmp_path.as_posix()))
+
+        assert not (tmp_path / "package-floor.json").exists()
+
     def test_search_workflow_schedules_cells_and_writes_incomplete_report(
         self,
         tmp_path: Path,
