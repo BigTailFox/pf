@@ -1,14 +1,14 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **日期：** 2026-08-26
+- **最后核对：** 2026-08-28
 - **适用范围：** search probe 与 `check` Declaration Attempt 的环境准备
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **验证运行：** [D008](D008-pf-verification-run.md)
-- **实施记录：** [P011](../plans/P011-pf-harness-relaxation.md)
+- **实施记录：** [P011](../archived/plans/P011-pf-harness-relaxation.md)
 
 本文是 harness requirement relaxation、双阶段 resolution 和 uv 诊断认证的唯一契约。其他 Design 只定义各自消费这些结果的方式。
 

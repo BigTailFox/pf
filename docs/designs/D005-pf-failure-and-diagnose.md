@@ -9,11 +9,11 @@
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行角色与读取面：** [D008](D008-pf-verification-run.md)
 - **Harness negative evidence：** [D012](D012-pf-harness-relaxation.md)
-- **pytest diagnostics：** [D013](D013-pf-pytest-failure-evidence.md)
+- **pytest diagnostics：** [D013](D013-pf-pytest-observer.md)
 
 本文是 Attempt、cause、disposition、FailureRecord identity 和 `diagnose` 语义的唯一
-所有者。Adapter 提供机械 operation facts；FailurePolicy 只记录已经形成的 disposition；
-搜索只消费 disposition；Presenter 只组织稳定文案。
+所有者。Configured verifier 先形成 terminal disposition；FailurePolicy 记录它，并对其他
+operation facts应用本节资格规则。搜索只消费 disposition；Presenter 只组织稳定文案。
 
 ## 1. 三层结果模型
 
@@ -125,7 +125,7 @@ Environment plan digest 存在时 project plan digest 必须存在。`FailureDet
 ## 5. FailurePolicy interface
 
 ```text
-FailurePolicy.classify(scope, cause, stage, process?, detail?, plan digests?)
+FailurePolicy.classify(scope, cause, stage, process?, summary_code?, detail?, plan digests?)
     -> FailureRecord
 
 FailurePolicy.record_evaluation(scope, evaluation, ...)

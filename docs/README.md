@@ -1,64 +1,50 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-28
 
-本页只负责文档治理、契约所有权和导航。一个规则只有一个规范性所有者；其他文档只能引用它。代码与现行契约冲突时，应在同一变更中修正实现或所有者文档。
+本页只负责文档治理、契约所有权和导航。每条现行规则只有一个规范性所有者；其他文档只引用，不复述。代码与文档冲突时，同一变更必须修正实现或所有者文档。
 
-## 文档类型与状态
+## 目录
 
 ```text
-README.md                 # 使用入口
-CONTEXT.md                # 现行领域词汇，不定义行为
+README.md                  使用入口
+CONTEXT.md                 领域词汇；不定义行为
 docs/
-├── README.md             # 本页
-├── designs/              # 现行契约、草案与已归并设计 D001–D015
-├── investigation/        # 非规范性实验快照 I001–
-├── plans/                # 非规范性实施记录 P001–P016
-├── reviews/              # 非规范性评审快照 R001–
-├── schemas/              # 机器可读公共 Schema
-└── examples/             # 由 Schema 模型生成的示例
+├── designs/               现行或草案设计
+├── reviews/               尚未解决的评审
+├── schemas/               D014 生成的机器可读投影
+├── examples/              D014 生成的最小示例
+└── archived/
+    ├── designs/           已被现行设计覆盖的决策
+    ├── plans/             已完成的实施记录
+    ├── reviews/           问题已解决的评审
+    └── investigations/    结论已被设计吸收的探索
 ```
 
-| 状态 | 规范性 | 含义 |
-| --- | --- | --- |
-| 现行 | 是 | 已落地且必须与代码一致 |
-| 草案 | 否 | 尚未批准或落地，不能解释当前行为 |
-| 已归并 | 否 | 设计已经实施，现行规则已移入列明的所有者；本文只保留决策边界 |
-| 已完成 | 否 | Plan 的历史执行与验证记录 |
-| 快照 | 否 | Review 或 Investigation 对当时状态的记录 |
+现行文档使用“现行”或“草案”；归档文档不再承担规范性。Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
 
-Plan、Review 和 Investigation 中的状态、命令、计数与结论都属于历史快照，不随当前实现回写。它们不能覆盖现行 Design，也不能作为当前行为的第二份契约。
+## 契约所有权
 
-## 现行契约所有权
-
-| 所有者 | 唯一负责 |
+| 唯一所有者 | 负责的现行契约 |
 | --- | --- |
-| [D001](designs/D001-pf.md) | 产品边界、命令和参数、配置、报告用途、apply 条件、退出码 |
-| [D002](designs/D002-pf-implementation.md) | 当前模块、接口、依赖方向、组合与持久化边界 |
-| [D003](designs/D003-pf-search-algorithm.md) | 单 cell 坐标搜索、probe 顺序、static region、终止和非单调处理 |
-| [D004](designs/D004-pf-ty-enhancement.md) | `ty` 基线、诊断 identity、static transition、runtime witness |
-| [D005](designs/D005-pf-failure-and-diagnose.md) | Attempt、cause、disposition、FailureRecord 与 `diagnose` 语义 |
-| [D006](designs/D006-pf-cli-enhancement.md) | help、调用错误、输出通道、终端层级、摘要与 `explain` 展示 |
-| [D007](designs/D007-pf-process-output.md) | Process Log、Output Cache、输出完整性与日志保密 |
-| [D008](designs/D008-pf-verification-run.md) | 命令的 Attempt 序列、Verification Role、Journal、运行终态与 diagnose 读取面 |
-| [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、两次 resolution/一次 installation、resolver 资格边界 |
-| [D013](designs/D013-pf-pytest-failure-evidence.md) | trusted pytest observer、progress/detail 与 UI-only telemetry |
-| [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、规范编码与跨引用验证 |
+| [D001](designs/D001-pf.md) | 产品边界、命令与配置、报告用途、apply 条件、数值退出码 |
+| [D002](designs/D002-pf-implementation.md) | 模块 interface、seam、依赖方向、composition 与持久化边界 |
+| [D003](designs/D003-pf-search-algorithm.md) | 单 Cell 搜索、probe、static region、边界提交与终止 |
+| [D004](designs/D004-pf-ty-enhancement.md) | `ty` 基线、诊断 identity、static transition 与 runtime witness |
+| [D005](designs/D005-pf-failure-and-diagnose.md) | disposition、Rejection 资格、cause、FailureRecord identity 与诊断语义 |
+| [D006](designs/D006-pf-cli-enhancement.md) | help、通道、live/final Cell、summary、`explain` 与 `diagnose` 展示 |
+| [D007](designs/D007-pf-process-output.md) | ProcessObservation、Process Log、Output Cache、脱敏与安全读取 |
+| [D008](designs/D008-pf-verification-run.md) | Attempt 序列、Role、跨 Cell 调度、命令聚合、Journal 与 Diagnosis Index |
+| [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、resolution/install 与 uv 资格边界 |
+| [D013](designs/D013-pf-pytest-observer.md) | direct pytest observer、progress/detail telemetry 与透明性资格 |
+| [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、编码与 reader 验证 |
 
-[D014](designs/D014-pf-report-schema.md) 的 Schema 1 是现行唯一报告布局；未发布的开发期旧内联布局不在兼容性或资格化范围内。
+[JSON Schema](schemas/package-floor-v1.schema.json) 与 [complete](examples/package-floor-v1-minimal-complete.json) / [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例是 D014 Pydantic wire model 的生成物，不建立第二份契约。
 
-以下 Design 已实施并归并，不再拥有现行条款：
+## 开放事项与归档
 
-- [D009](designs/D009-pf-v1-refactor.md)：安全、证据授权、apply transaction、discovery 与模块加深决策；现行所有者见文内映射。
-- [D010](designs/D010-pf-v1-architecture.md)：判别 request/event、Runner/Scheduler、平台日志 seam、终端私有视图与 composition 决策；现行结构由 D002 等文档拥有。
-- [D011](designs/D011-pf-runtime-backed-static-search.md)：runtime-backed static search 的迁移决策；现行算法与证据分别由 D003/D004/D005 拥有。
-- [D015](designs/D015-pf-authoritative-verification-outcome.md)：configured verifier terminal authority 的迁移决策；现行接口与语义已归并到 D001/D002/D005/D007/D008/D013/D014。
+- [R004](reviews/R004-pf-search-performance-review.md) 保留在现行目录，因为其中的性能优化候选尚未实施。
+- [归档索引](archived/README.md) 记录已归并设计、已完成计划、已解决评审和已吸收探索。
 
-## 非规范性记录
-
-- [I001](investigation/I001-pf-pytest-witness-collection.md) 是 D013 的 pytest 6–9 实验输入快照。
-- [P001](plans/P001-pf-v1.md)–[P016](plans/P016-pf-cli-live-presentation.md) 是实施与验证记录；其中 P013 如实保留 D014 固定样本资格化尚未完成时的状态。
-- [R001](reviews/R001-pf-v1-review.md)–[R004](reviews/R004-pf-search-performance-review.md) 是对应提交和运行证据的评审快照。
-
-根目录 [README](../README.md) 只提供使用入口；[CONTEXT.md](../CONTEXT.md) 只约束现行术语。机器可读报告结构见 [JSON Schema](schemas/package-floor-v1.schema.json)，最小文档见 [complete](examples/package-floor-v1-minimal-complete.json) 与 [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例。
+新增文档先放入对应现行目录；Plan 完成、Design 被替代、Review 解决或 Investigation 被吸收后，在同一变更中移入 `archived/<type>/` 并修复引用。

@@ -2,12 +2,12 @@
 
 - **状态：** 现行
 - **策略版本：** `static-transition-v1`
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-28
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **已归并决策：** [D011](D011-pf-runtime-backed-static-search.md)
+- **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)
 
 本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线、增量 transition、diagnostic 分类和 runtime witness 的唯一契约。静态事实不决定 compatibility disposition；边界由 D003/D005 的 runtime evidence 决定。
 
@@ -174,10 +174,9 @@ run static transition
   │     └── ToolFailure -> Indeterminate
   └── unchanged / general / no selected witness -> continue
         ↓
-run configured test-command
-  ├── pass -> PassEvaluation
-  ├── configured verifier normal nonzero -> VerifierRejectedEvaluation
-  └── incomplete/tool result -> IndeterminateEvaluation
+run configured verifier
+  -> D005 terminal disposition
+  -> PassEvaluation | VerifierRejectedEvaluation | IndeterminateEvaluation
 ```
 
 Witness 是内部负向优化，不产生正向 compatibility。未选择 witness 时直接运行 test-command。PassEvaluation/VerifierRejectedEvaluation/RuntimeInterfaceMissingEvaluation/IndeterminateEvaluation 都保留本 Proposal 的 static evidence；运行过的 witness attempts 同样保留。
@@ -233,7 +232,7 @@ final_verification = direct-test-command-pass
 2. `V_hi` capture 是空增量 unchanged，不重跑 ty。
 3. Regression 当且仅当 multiset increment 非空；它没有 disposition。
 4. 每个 increment occurrence 有同序 classification 和显式 fingerprint。
-5. 只有 confirmed-missing witness 或 test failure 可从 static 路径形成 runtime negative evidence。
+5. 只有 confirmed-missing witness 或 D005 授权的 Verifier Rejection 可从 static 路径形成 runtime negative evidence。
 6. 完整 PASS 必须由本 Proposal 的 PassEvaluation 证明。
 7. 截断、坏 JSON、side-effect exception 或归因歧义不能形成 compatibility boundary。
 

@@ -1,12 +1,13 @@
 # R004 — PF 自搜索空间裁剪与运行成本评审
 
-- **状态：** 快照
+- **状态：** 开放（性能优化候选尚未实施）
 - **日期：** 2026-08-28
 - **性质：** 非规范性性能评审；不定义命令、算法、Schema 或 module interface
-- **对照：** D015 落地工作树；运行 ID `20260828T063807.140981Z-999683-d803a27c`
-- **契约所有者：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D011](../designs/D011-pf-runtime-backed-static-search.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D015](../designs/D015-pf-authoritative-verification-outcome.md)
+- **对照：** configured-verifier authority 落地工作树；运行 ID `20260828T063807.140981Z-999683-d803a27c`
+- **契约所有者：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D012](../designs/D012-pf-harness-relaxation.md)
+- **历史决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、[D015](../archived/designs/D015-pf-authoritative-verification-outcome.md)
 
-本文回答一次 PF 自搜索为何持续约 37 分钟、是否进入死循环，以及现行裁剪是否有效。本文只记录性能与可观测性证据；D015 交付不据此修改搜索算法、runtime authority 或环境生命周期。
+本文回答一次 PF 自搜索为何持续约 37 分钟、是否进入死循环，以及现行裁剪是否有效。本文只记录性能与可观测性证据，不修改搜索算法、runtime authority 或环境生命周期。
 
 ## 1. 结论
 
@@ -29,11 +30,11 @@
 | Python 3.11 | 62 | 54 | 8 | 46 | 16 | 114,048 | success；`tomlkit=0.5.11` |
 | Python 3.12 | 62 | 54 | 8 | 46 | 16 | 114,048 | success；`tomlkit=0.5.11` |
 
-配置 verifier 的 106 次终态分布为：exit 0 共 28 次、exit 1 共 68 次、exit 2 共 5 次、exit 4 共 5 次。D015 下 normal nonzero 都是权威 Rejection；退出码分布只解释运行成本，不改变 disposition。
+配置 verifier 的 106 次终态分布为：exit 0 共 28 次、exit 1 共 68 次、exit 2 共 5 次、exit 4 共 5 次。按 D005，normal nonzero 都是权威 Rejection；退出码分布只解释运行成本，不改变 disposition。
 
 37 个无 pytest 的 prepare 中，19 个属于同一向量的 static-only probe，随后各有一次不再运行 ty、但运行 pytest 的 promotion prepare。剩余 18 个唯一向量才是本次 static region guidance 真正免掉的完整 verifier。
 
-3.10 的最后一次解析在 Process Log 423 中访问 `https://pypi.nvidia.com/coverage/`，三次重试后于 123.5 秒失败。该 index 来自用户级 `~/.config/uv/uv.toml`，不在项目 SourcePlan 中；这是配置隔离正确性问题，已在本次 D015 交付中独立修复，不作为搜索性能优化。
+3.10 的最后一次解析在 Process Log 423 中访问 `https://pypi.nvidia.com/coverage/`，三次重试后于 123.5 秒失败。该 index 来自用户级 `~/.config/uv/uv.toml`，不在项目 SourcePlan 中；这是配置隔离正确性问题，已在同一实现工作树中独立修复，不作为搜索性能优化。
 
 ## 3. 为什么不是死循环
 
@@ -66,12 +67,12 @@ Python 3.11 与 3.12 访问了相同数量和形状的向量，但 interpreter�
 
 ## 5. 后续优化候选
 
-以下均不在 D015 实现范围内，实施前需要独立设计与资格证明：
+以下候选尚未实施，落地前需要独立设计与资格证明：
 
 1. **P1：保留 promotion 所需的 prepared environment。** 让同向量 static probe 到 runtime promotion 的短生命周期内复用环境，消除本次 19 次重复 prepare；必须继续保证不同 Proposal 不原地升级/降级，且运行 verifier 后环境立即视为污染。
-2. **P1：提高昂贵 verifier 的有效裁剪率。** 评估能否调整探针顺序或 static region 建立方式，使相同 fingerprint 的直接 runtime reference 更早服务后续点；任何 shortcut 都只能提供 guidance，最终 floor 和 predecessor 仍须满足 D003/D015 的 runtime certification。
+2. **P1：提高昂贵 verifier 的有效裁剪率。** 评估能否调整探针顺序或 static region 建立方式，使相同 fingerprint 的直接 runtime reference 更早服务后续点；任何 shortcut 都只能提供 guidance，最终 floor 和 predecessor 仍须满足 D003/D005 的 runtime certification。
 3. **P2：增加非交互搜索遥测。** 重定向输出在阶段开始后直到终态都没有刷新，用户只能看到 Process Log 增长。可记录 invocation-local 的唯一向量、prepare、runtime promotion、active dependency 和候选窗口计数，明确区分“有限但昂贵”与“无进展”。这些 presentation/activity 数据不得进入 report identity。
-4. **P2：在昂贵工作前检查旧 report compatibility。** 本次完成 cell 搜索后才发现旧开发期 Schema 2 报告不可读取。D015 明确要求删除旧产物而不是兼容读取；未来可以只把同一校验前移，避免完成搜索后才失败。
+4. **P2：在昂贵工作前检查旧 report compatibility。** 本次完成 Cell 搜索后才发现旧开发期内联报告不可读取。D014 要求 reader 拒绝该布局；未来可以把同一校验前移，避免完成搜索后才失败。
 5. **P3：审查 resolver 层的安全共享。** Candidate HTTP response 已跨 cell 缓存；可以继续量化相同 source/cutoff 下 metadata、artifact 与 plan 的可复用边界，但 Cell-specific resolution context 和终态不得被弱化。
 
 不建议由 PF 隐式改写用户的 `test-command`、自动启用 testmon、跳过完整 verifier，或把未运行 runtime 的 static PASS 称为 floor。这些做法会改变验证契约，而不是单纯优化实现。
@@ -86,4 +87,4 @@ Python 3.11 与 3.12 访问了相同数量和形状的向量，但 interpreter�
 - packaging/pydantic dogfood、三 Python cell 和 source timeout case 不改变产品分类；
 - 性能 qualification 不以减少测试覆盖或放松 runtime certification 换取通过。
 
-本评审不要求当前 D015 提交实现上述优化。
+本评审不要求当前实现同步完成上述优化。

@@ -1,15 +1,15 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-28
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
 - **Harness：** [D012](D012-pf-harness-relaxation.md)
-- **pytest profile：** [D013](D013-pf-pytest-failure-evidence.md)
+- **pytest observer：** [D013](D013-pf-pytest-observer.md)
 - **报告 wire：** [D014](D014-pf-report-schema.md)
 
-本文是当前模块、interface、依赖方向、composition 与持久化边界的唯一所有者。它只说明“规则位于哪里、模块如何连接”，不复制产品、算法、failure、展示或 wire 规则。D009–D011 是已归并的设计记录，不再覆盖本文。
+本文是当前模块、interface、依赖方向、composition 与持久化边界的唯一所有者。它只说明“规则位于哪里、模块如何连接”，不复制产品、算法、failure、展示或 wire 规则。D009–D011 已归档，不再覆盖本文。
 
 ## 1. 结构原则
 
@@ -77,7 +77,7 @@ src/pf/
 ├── _pytest_observer.py          wheel-packaged standalone pytest plugin
 ├── terminal/                    presenter 与 private live/explain/diagnose views
 ├── schemas/                     base/config/project/evaluation/report records
-└── adapters/                    process、uv、ty、test、witness 与 pylock seams
+└── adapters/                    process、uv/uv-lock、ty、verifier/pytest 与 runtime-witness seams
 ```
 
 ## 4. Schema boundary
@@ -168,9 +168,9 @@ VerificationRunner.run(VerificationRun) -> ordered outcomes
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；测试后标记为可能污染。不同 Proposal 不通过原地 upgrade/downgrade 复用环境。
 
-Evaluator 的 static transition/witness 由 D004 定义；configured verifier terminal outcome 由
-本章 interface 与 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的稳定
-operation facts，不能决定搜索 Role。
+Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
+terminal disposition 由 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的
+稳定 operation facts，不能决定搜索 Role。
 
 `CoordinateSearch` 只拥有 invocation-local vector state；其算法由 D003 定义。`SearchCoordinator` 只拥有一个 Cell 的 baseline→candidates→coordinate-search 状态机。`VerificationRunner` 拥有跨 Cell scheduling、deadline outcome、completion projection 与 Journal timing；generic `Scheduler` 不导入领域结果。
 
@@ -189,9 +189,8 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 - `UvAdapter` 拥有 uv argv、resolver protocol、candidate query、pylock parsing、venv、install 与 graph inspection；D012 拥有语义和资格边界。
 - `TyAdapter` 拥有 ty argv/JSON normalization；D004 拥有诊断语义。
 - `RuntimeWitnessAdapter` 只执行 D004 的 structured harness。
-- `ConfiguredVerifier` 是配置 verifier 的唯一 public module interface。它把正常 exit 0 映射为
-  `VerifierPass`、正常非零映射为 `VerifierRejected`，把 timeout/signal/start/unavailable
-  映射为 `VerifierIndeterminate`，并返回 runtime-only `VerifierDiagnostics`。
+- `ConfiguredVerifier.run(VerifierRequest) -> VerifierRun` 是配置 verifier 的唯一 public
+  module interface；D005 独占 terminal disposition，`VerifierDiagnostics` 只在运行期存在。
 - direct pytest selector、observer 注入与 telemetry projection 都是 `ConfiguredVerifier`
   私有实现；D013 只拥有其透明性和诊断协议。
 
@@ -216,4 +215,4 @@ ReportStore 的 interface 与交易语义只见 D014；Process Log 只见 D007�
 
 测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
 
-历史设计与证据分别保留在 [D009](D009-pf-v1-refactor.md)–[D011](D011-pf-runtime-backed-static-search.md) 及其 Plan；它们不覆盖本页当前结构。
+历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

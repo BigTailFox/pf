@@ -4,10 +4,10 @@
 - **版本：** `schema_version = 1`
 - **最后核对：** 2026-08-28
 - **产品语义：** [D001](D001-pf.md)
-- **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-failure-evidence.md)
+- **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
 - **最小示例：** [complete](../examples/package-floor-v1-minimal-complete.json)、[incomplete](../examples/package-floor-v1-minimal-incomplete.json)
-- **实施记录：** [P013](../plans/P013-pf-report-schema.md)
+- **实施记录：** [P013](../archived/plans/P013-pf-report-schema.md)
 
 本文是 `package-floor.json` wire interface、typed refs、规范编码和跨引用验证的唯一所有者。JSON Schema 是由同一 Pydantic wire model 生成的机器可读结构投影；搜索、failure、static/runtime evidence、harness 和 apply 的领域含义仍由上列文档拥有。
 

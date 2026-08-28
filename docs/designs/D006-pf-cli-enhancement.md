@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-28
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -65,7 +65,7 @@ Duration 只停止新增调度，不承诺杀死运行中 process。`merge` 必�
 
 ## 3. 调用错误
 
-未知 command/option、缺失或多余参数、非法 jobs/duration、未知 package 与 request 构造错误都返回 D001 退出码 `3`。结构错误尽早由 Cyclopts 拒绝；Request Schema 只作 defense-in-depth。不得宽泛捕获深模块 ValidationError 并伪装成调用错误。
+未知 command/option、缺失或多余参数、非法 jobs/duration、未知 package 与 request 构造错误都形成 D001 的调用错误结果。结构错误尽早由 Cyclopts 拒绝；Request Schema 只作 defense-in-depth。不得宽泛捕获深模块 ValidationError 并伪装成调用错误。
 
 错误写 stderr，格式固定为：
 
@@ -85,7 +85,7 @@ Try 'pf <command> --help' for more information.
 | warning、failure、incomplete/stopped summary | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
-`explain` 成功读取后全文在 stdout，即使报告 incomplete；读取失败仍走 stderr/exit 3。一个顶层命令只有一个 final summary，且它是最后一条结果信息。`minimize` 只调用 `render_minimize(reports, edits)`，不能连续渲染 search/apply 两份 summary。
+`explain` 成功读取后全文在 stdout，即使报告 incomplete；读取失败走 stderr 与 D001 的配置错误结果。一个顶层命令只有一个 final summary，且它是最后一条结果信息。`minimize` 只调用 `render_minimize(reports, edits)`，不能连续渲染 search/apply 两份 summary。
 
 TTY 运行中顺序固定：
 
@@ -229,13 +229,13 @@ Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 
 Search/incomplete reason 的主导映射：
 
-| 主导 reason | 文案 | 图标 | exit |
-| --- | --- | --- | --- |
-| `BASELINE_REJECTION` | stopped | `✗` | 1 |
-| `INDETERMINATE` | stopped | `!` | 4 |
-| `NO_PASS_IN_SEARCH_SPACE`、`NON_MONOTONIC`、`NONDETERMINISTIC`、`MISSING_CELL`、`UNREPRESENTABLE_PROJECTION` | incomplete | `⚠` | 2 |
+| 主导 reason | 文案 | 图标 |
+| --- | --- | --- |
+| `BASELINE_REJECTION` | stopped | `✗` |
+| `INDETERMINATE` | stopped | `!` |
+| `NO_PASS_IN_SEARCH_SPACE`、`NON_MONOTONIC`、`NONDETERMINISTIC`、`MISSING_CELL`、`UNREPRESENTABLE_PROJECTION` | incomplete | `⚠` |
 
-多 reason 使用 D001 优先级。Summary 使用人类语言，不回显 Enum，也不把一个 Proposal 的结果说成 dependency version 的全局结论。
+多 reason 使用 D008 聚合结果；数值退出码只见 D001。Summary 使用人类语言，不回显 Enum，也不把一个 Proposal 的结果说成 dependency version 的全局结论。
 
 ## 8. Explain
 

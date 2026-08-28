@@ -34,9 +34,9 @@ ProcessObservation = ProcessResult | ProcessTerminalUnavailable
 
 `ProcessTerminalUnavailable` 表示 runner 已安全管理 child，但底层 API 无法提供可信 terminal
 status；它不能伪造 exit code、signal、timeout 或 start error。所有共享 ProcessRunner consumer
-必须显式处理该 variant：configured verifier 映射为 `Unavailable / INDETERMINATE`；需要结构化
-输出的 uv/ty/snapshot/runtime-witness adapter 按自己的现行 ToolFailure/InfrastructureError
-契约 fail closed。RunLogStore 与 Diagnosis Index association 接受完整 union。
+必须显式处理该 variant：configured verifier disposition 只见 D005；需要结构化输出的
+uv/ty/snapshot/runtime-witness adapter 按自己的现行 ToolFailure/InfrastructureError 契约 fail
+closed。RunLogStore 与 Diagnosis Index association 接受完整 union。
 
 生产 interface 是：
 

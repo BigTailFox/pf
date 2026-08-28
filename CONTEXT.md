@@ -60,23 +60,22 @@ _Avoid_: Disposition, exit code, stderr text
 
 **Disposition**
 
-验证结果对 Attempt 作出的 `PASS`、`REJECTED` 或 `INDETERMINATE` 处置；配置 verifier
-由实际 child terminal 机械形成 disposition，其他 operation failure 由 FailurePolicy 按其
-资格规则记录。
+验证结果对 Attempt 作出的 `PASS`、`REJECTED` 或 `INDETERMINATE` 处置。资格与映射只见
+[D005](docs/designs/D005-pf-failure-and-diagnose.md)。
 
 _Avoid_: Cause, status
 
 **Configured Verifier**
 
-用户通过 `test-command` 配置的完整运行时验证命令；其实际 normal exit 0/nonzero 分别授权
-Pass/Rejection，非正常 terminal 形成 Indeterminate。
+用户通过 `test-command` 配置的完整运行时验证命令；其 terminal authority 只见
+[D005](docs/designs/D005-pf-failure-and-diagnose.md)。
 
-_Avoid_: Test adapter, pytest profile
+_Avoid_: Test adapter, pytest observer
 
 **Verifier Terminal**
 
-配置 verifier 的可移植权威终态：NormalExit、TimedOut、Signaled、StartFailed 或
-Unavailable；pytest facts 与输出正文不是 terminal authority。
+配置 verifier 的可移植权威终态。具体 union 与 disposition 映射只见
+[D005](docs/designs/D005-pf-failure-and-diagnose.md)。
 
 _Avoid_: Test failure evidence, diagnostic summary
 
@@ -142,9 +141,8 @@ _Avoid_: capture limit, cross-process budget
 
 **Process Observation**
 
-`ProcessResult | ProcessTerminalUnavailable` 的显式 union。Operation FailureAuthority 可保存
-portable `ProcessResult`；unavailable 转为 structured authority；configured verifier
-FailureAuthority 只保存投影后的 Verifier Terminal。
+外部进程的显式终态 union；结构、完整性与持久化规则只见
+[D007](docs/designs/D007-pf-process-output.md)。
 
 _Avoid_: head/tail, summary
 

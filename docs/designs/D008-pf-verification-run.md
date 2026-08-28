@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v2`
-- **最后核对：** 2026-08-26
+- **最后核对：** 2026-08-28
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -154,9 +154,13 @@ completion 与本地 Process Log association；序列化必须排除该映射。
 
 ## 6. 命令聚合
 
-`check` 对每个 Cell 使用 declaration 结果；若未启动，则使用 declaration-capture 结果。任一 Rejected → compatibility failure/exit 1；否则任一 Indeterminate → exit 4；否则全部 declaration PASS → exit 0。
+`check` 对每个 Cell 使用 declaration 结果；若未启动，则使用 declaration-capture 结果。任一
+Rejected 聚合为 `COMPATIBILITY_FAILED`；否则任一 Indeterminate 聚合为 `INDETERMINATE`；其余
+为 `PASS`。
 
-`smoke` 任一 BaselineRejection → exit 1；否则任一 BaselineIndeterminate → exit 4；否则 PASS。Search 的 baseline 聚合相同；Probe Rejections 只是搜索证据，其他 no-floor 原因按 D001 exit 2。
+`smoke` 按 `BaselineRejection > BaselineIndeterminate > PASS` 聚合。`search` 按
+`BASELINE_REJECTION > INDETERMINATE > 其他 no-floor reason > complete` 聚合；Probe Rejection
+只作为搜索证据。D001 独占这些结果的数值退出码。
 
 ## 7. Verification Journal
 
@@ -222,7 +226,7 @@ union
 该 package 的 latest Verification Journal（若存在）
 ```
 
-指定 failure ID 时先查 report，再查 latest Journal；不存在则 exit 3，不遍历历史 runs。省略时合并 report records 与 latest Journal 中尚未出现的 failure ID，并标注来源；最终稳定排序和诊断语义由 D005 定义。两边都无记录时展示 0 failures、exit 0。
+指定 failure ID 时先查 report，再查 latest Journal；不存在则形成 D001 的配置错误结果，不遍历历史 runs。省略时合并 report records 与 latest Journal 中尚未出现的 failure ID，并标注来源；最终稳定排序和诊断语义由 D005 定义。两边都无记录时返回成功的空诊断。
 
 `explain`、`apply` 与 `merge` 只使用 report；Journal 缺失不削弱 report authority，report 缺失不阻止诊断最近一次 run。读取必须离线，不规划 environment、不启动 process、不修改项目。
 
