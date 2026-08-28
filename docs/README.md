@@ -12,6 +12,7 @@ README.md                  使用入口
 CONTEXT.md                 领域词汇；不定义行为
 docs/
 ├── designs/               现行或草案设计
+├── experiments/           非规范性实验事实与 dogfood 结论
 ├── reviews/               尚未解决的评审
 ├── schemas/               D014 生成的机器可读投影
 ├── examples/              D014 生成的最小示例
@@ -22,7 +23,7 @@ docs/
     └── investigations/    结论已被设计吸收的探索
 ```
 
-现行文档使用“现行”或“草案”；归档文档不再承担规范性。Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
+现行文档使用“现行”或“草案”；归档文档不再承担规范性。Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
 
 ## 契约所有权
 
@@ -41,6 +42,10 @@ docs/
 | [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、编码与 reader 验证 |
 
 [JSON Schema](schemas/package-floor-v1.schema.json) 与 [complete](examples/package-floor-v1-minimal-complete.json) / [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例是 D014 Pydantic wire model 的生成物，不建立第二份契约。
+
+## 实验报告
+
+- [E001](experiments/E001-pf-self-bootstrap-validation-contract.md) 记录 PF 自举 full-repository contract 下 `packaging>=22` 的 dogfood 归因，以及当前单测锁定的 pytest、uv、ty 兼容性证据边界；它是非规范性实验证据。
 
 ## 开放事项与归档
 
