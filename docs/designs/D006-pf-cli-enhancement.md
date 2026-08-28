@@ -112,25 +112,29 @@ scope facts 首部卡片的运行中边框使用默认前景色 dim；完成固�
 命令最终 outcome 的 green/red/yellow。边框样式不得传给 `loaded project`、
 `built snapshot`、matrix facts 等正文。
 
-scope facts 首部卡片第一行是 `run-id: <id>`。matrix heading 为
-`selected N cells, P active packages (F pinned)`；`active packages` 是所选 Cell 中至少
+scope facts 首部卡片先显示 setup 完成状态，再显示 matrix heading
+`selected N cells, P active packages (F pinned)`；其下一行是 `run-id: <id>`，随后显示
+Python、platform 与 extra surface。`active packages` 是所选 Cell 中至少
 生效一次的唯一 direct dependency name，`pinned` 是其中 fixed declaration 的唯一
 package name。上述计数由 workflow 随 `CellMatrixEvent` 发布，Presenter 不读取项目或
-declaration。
+declaration。run ID 整行 dim；`YYYYMMDD` 与 `HHMMSS` 分别使用 dim bold green，点号后
+三个连字符分段分别使用 dim bold magenta。Python minor 版本使用 dim bold 默认前景色。
+setup、run ID、live/footer、完成 Cell、错误与 final summary 都使用 native Rich marker/content
+表格；marker 固定一列，marker 与正文之间统一为 2 个空格宽的 gutter，不以字符串空格实现对齐。
 
 ## 5. Live Cell
 
 TTY 的每个运行中 Cell 使用独立卡片：
 
 ```text
-⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [baseline][highest][testing] ━━━━━━╺━━━━━━━━━━━━━ 37/120 ETA 00:00:41
+⠋  [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+   [baseline][highest][testing]  ━━━━━━╺━━━━━━━━━━━━━ 37/120 ETA 00:00:41
 
-⠋ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [cyclopts=2.4.0][packaging=24.0][rich=13.0]
-  [pydantic=1.7.4][1.7.4~2.13.4#18][testing] ━━━━━━╺━━━━ 37/120 ETA 00:00:41
+⠋  [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+   [cyclopts=2.4.0][packaging=24.0][rich=13.0]
+   [pydantic=1.7.4][1.7.4~2.13.4#18][testing]  ━━━━━━╺━━━━ 37/120 ETA 00:00:41
 
-⠋ searching cells · 3 running · 4 finished · 0 left                 0:00:12
+⠋  searching cells · 3 running · 4 finished · 0 left                 0:00:12
 ```
 
 `CellSearchProgressEvent` 提供当前 coordinate sweep 的完整有序 vector 与已完成前缀；
@@ -146,15 +150,15 @@ Cell title `[py...][target][extra]` 的 token 内容使用 bold 默认前景色�
 search probe 都放在 title 后的 identity detail。Live identity 的 bracket 使用 dim 默认
 前景色；第一、第二 token 内容分别为 bold cyan 与 cyan。任意当前 stage 都作为第三个
 token 与 identity 保持在同一逻辑行，其内容使用默认前景色且不 dim；dynamic tests
-精简为 `[testing]`，并与 progress bar/count/ETA 保持同行。count 与 ETA 和第三个
-stage token 一样使用默认前景色且不 dim，count 只显示 `completed/total`，不追加
+精简为 `[testing]`，其中 `testing` 使用 cyan，并与 progress bar/count/ETA 保持同行。
+count 与 ETA 使用 dim 默认前景色，count 只显示 `completed/total`，不追加
 `tests`。没有 identity 时只显示第三个 stage token。候选窗口使用 `~`。Identity 切换清空旧 stage；同一 probe 的
 static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS
 未执行真实 probe 时不制造 detail。
 
 只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
-Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；不显示方块矩阵或 completed/total。Cell title elapsed 与 footer 总 elapsed 都使用 dim magenta。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
+Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；三个数字使用 dim bold 默认前景色，不显示方块矩阵或 completed/total。Cell title elapsed 与 footer 总 elapsed 都使用 dim cyan。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
 
 外层 Console 最宽 120 列；内部 renderable 不设置固定 width/height。窄终端优先隐藏 bar、换行或改为 label block，不能丢失 package、Cell、artifact 或 next action。非 TTY 无 box drawing。
 
@@ -165,27 +169,27 @@ TTY Cell 卡片边框统一使用 dim，并保留原有颜色：live 卡片仍�
 成功 Cell 的 header 只有结果图标、Cell 与 elapsed；普通 identity 紧随其后：
 
 ```text
-✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  check passed at [declaration][lowest-direct]
+✓  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+   check passed at [declaration][lowest-direct]
 ```
 
 search 若已有 coordinate progress，则先显示绿色已完成包行，再显示当前 probe：
 
 ```text
-✓ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
-  [baseline][packaging=24.0][cyclopts=2.4.0]
-  search completed at [pydantic=1.7.4][1.7.4~2.13.4#18]
+✓  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12
+   [baseline][packaging=24.0][cyclopts=2.4.0]
+   search completed at [pydantic=1.7.4][1.7.4~2.13.4#18]
 ```
 
 有 FailureRecord 的 Cell 块为：
 
 ```text
-✗ [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
-  smoke failed at [baseline][highest][testing]
-  The full test command failed for this version combination.
-  FAILED tests/test_cli.py::test_example
-  ... and 2 more
-  -> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
+✗  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:19
+   smoke failed at [baseline][highest][testing]
+   The full test command failed for this version combination.
+   FAILED tests/test_cli.py::test_example
+   ... and 2 more
+   -> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
 ```
 
 固定层级：
@@ -197,7 +201,7 @@ search 若已有 coordinate progress，则先显示绿色已完成包行，再�
 5. 可选 `CellResultDetail` 的第一条典型详情与 `... and N more`；
 6. Journal/Index 可用时显示精确 diagnose command。
 
-TTY completion 使用固定 icon/content 两列；title、每条 detail 及其所有物理换行都从同一 content 列开始，不以字符串空格猜测 Rich 的换行位置。icon 与 content 间的具体空白宽度不是展示契约。非 TTY 保持等价的两字符 detail 缩进。completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。失败阶段作为 identity 后的第三个 bracket token；没有 identity 时仍使用单独的 bracket token。completion action 与全部 identity segment 使用对应结果色的默认亮度，不继承 live identity 的次段 dim；search probe 的版本与 candidate count 保留局部 bold。
+TTY 与非 TTY completion 都使用固定 icon/content 两列；title、每条 detail 及其所有物理换行都从同一 content 列开始，不以字符串空格猜测 Rich 的换行位置。icon 与 content 间固定为 2 个空格宽的 gutter。completion action 统一为 smoke `passed/failed at`、check `passed/failed at`、search `completed/stopped at`。失败阶段作为 identity 后的第三个 bracket token；没有 identity 时仍使用单独的 bracket token。result detail 整行使用对应结果色并 bold；identity/stage 的 bracket 例外，始终使用 dim 默认前景色且不 bold。
 
 search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收到的最新 `SearchFailureEvent`。末事件没有 detail 时不得回退到历史 probe；历史 failure 仍留在报告、Journal 与 `pf diagnose`。Reason 使用默认前景色，另行表达 Cell 为何结束：`INDETERMINATE` 明示搜索空间尚未评估完成并附终止 failure title；`NO_PASS_IN_SEARCH_SPACE` 明示搜索空间已完整评估但没有兼容组合。`NON_MONOTONIC` / `NONDETERMINISTIC` 显示各自的搜索结论，不借用某次历史候选拒绝作为 Cell 结论。
 
@@ -218,7 +222,7 @@ path[:line[:column]] [check_name] single-line message
 格式按需组合：
 
 ```text
-<icon> <command outcome> · <count/scope> · <artifact or next state>
+<icon>  <command outcome> · <count/scope> · <artifact or next state>
 ```
 
 所有 renderer 复用统一 `0/1/N` 单复数 formatter。只有实际写入/修改的 artifact 能使用 `written | updated | merged`。多 package 先逐行列 artifact，再输出一条命令级 summary。

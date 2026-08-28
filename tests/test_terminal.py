@@ -388,7 +388,7 @@ class TestErrorRendering:
 
         assert exit_code == 3
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == "✗ configuration: unknown key: surprise\n"
+        assert stderr.getvalue() == "✗  configuration: unknown key: surprise\n"
         assert "\x1b[" not in stderr.getvalue()
 
     def test_render_error_lists_known_package_candidates(self) -> None:
@@ -439,8 +439,8 @@ class TestErrorRendering:
         assert exit_code == 4
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✗ infrastructure: uv could not list available Python versions\n"
-            "uv: failed to execute 'uv python list'\n"
+            "✗  infrastructure: uv could not list available Python versions\n"
+            "   uv: failed to execute 'uv python list'\n"
         )
 
     def test_render_error_does_not_claim_in_progress_apply_succeeded(self) -> None:
@@ -460,7 +460,7 @@ class TestErrorRendering:
         assert "✓" not in output
         assert exit_code == 2
         assert (
-            "✗ no-applicable-floor: cannot apply an incomplete floor report" in output
+            "✗  no-applicable-floor: cannot apply an incomplete floor report" in output
         )
 
     def test_render_error_keeps_completed_steps_and_drops_in_progress(self) -> None:
@@ -477,10 +477,10 @@ class TestErrorRendering:
         )
 
         output = visible(terminal.getvalue())
-        assert "✓ loaded project" in output
+        assert "✓  loaded project" in output
         assert "built snapshot" not in output
         assert (
-            "✗ configuration: project source snapshot has drifted since search"
+            "✗  configuration: project source snapshot has drifted since search"
             in output
         )
 
@@ -509,8 +509,8 @@ class TestErrorRendering:
 
         raw = terminal.getvalue()
         plain = visible(raw)
-        assert plain.index("run-id: run-before-matrix") < plain.index(
-            "loaded project"
+        assert plain.index("loaded project") < plain.index(
+            "run-id: run-before-matrix"
         )
         loaded_at = raw.rindex("loaded project")
         border_at = raw.rfind("╭", 0, loaded_at)
@@ -618,18 +618,33 @@ class TestProgressRendering:
         assert "□" not in footer and "■" not in footer
         assert "0/4" not in footer
         assert footer.rstrip().endswith("0:00:00")
+        status_at = footer.index("smoke testing")
+        assert footer[status_at - 2 : status_at] == "  "
+        assert not footer[status_at - 3].isspace()
         cell_elapsed_at = raw.index("0:00:00", raw.rindex("py3.10"))
         cell_elapsed_style_at = raw.rfind("\x1b[", 0, cell_elapsed_at)
         cell_elapsed_codes = sgr_codes(raw[cell_elapsed_style_at:cell_elapsed_at])
-        assert {"2", "35"} <= cell_elapsed_codes
+        assert {"2", "36"} <= cell_elapsed_codes
+        assert "35" not in cell_elapsed_codes
         assert "1" not in cell_elapsed_codes
         footer_elapsed_at = raw.rindex("0:00:00")
         footer_elapsed_style_at = raw.rfind("\x1b[", 0, footer_elapsed_at)
         footer_elapsed_codes = sgr_codes(
             raw[footer_elapsed_style_at:footer_elapsed_at]
         )
-        assert {"2", "35"} <= footer_elapsed_codes
+        assert {"2", "36"} <= footer_elapsed_codes
+        assert "35" not in footer_elapsed_codes
         assert "1" not in footer_elapsed_codes
+        for count, label in (("2", "running"), ("0", "finished"), ("2", "left")):
+            matches = tuple(
+                re.finditer(
+                    rf"\x1b\[([0-9;]*)m{count}\x1b\[0m"
+                    rf"\x1b\[2m {label}",
+                    raw,
+                )
+            )
+            assert matches
+            assert {"1", "2"} <= set(matches[-1].group(1).split(";"))
 
     def test_footer_excludes_completed_cells_from_running_and_left(self) -> None:
         first = Cell(
@@ -712,8 +727,8 @@ class TestProgressRendering:
         )
         terminal.close()
 
-        assert "1 running · 0 finished · 39" in footer
-        assert "left" in rendered
+        assert "1 running · 0 finished" in footer
+        assert "39 left" in rendered
         assert footer.rstrip().endswith("0:00:00")
         assert "□" not in footer and "■" not in footer
 
@@ -895,8 +910,8 @@ class TestProgressRendering:
         tty_presenter.consume(last)
         tty_presenter.close()
 
-        assert plain.getvalue() == "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-        assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in visible(
+        assert plain.getvalue() == "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+        assert "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in visible(
             terminal.getvalue()
         )
         assert "╭" in visible(terminal.getvalue())
@@ -927,8 +942,8 @@ class TestProgressRendering:
 
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  failed at [static checking]\n"
+            "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   failed at [static checking]\n"
         )
 
     def test_completed_cell_with_failure_record_prints_title_and_diagnose(
@@ -1117,7 +1132,7 @@ class TestProgressRendering:
 
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
-        assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in output
+        assert "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in output
         assert "failed at" not in output
         assert "pf diagnose" not in output
         assert failure.failure_id not in output
@@ -1149,8 +1164,8 @@ class TestProgressRendering:
 
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✗ [py3.12][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  failed at [installing dependencies]\n"
+            "✗  [py3.12][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   failed at [installing dependencies]\n"
         )
 
     def test_cell_matrix_summary_lists_count_and_axes(self) -> None:
@@ -1185,10 +1200,10 @@ class TestProgressRendering:
 
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✓ selected 3 cells, 4 active packages (1 pinned)\n"
-            "  python: 3.10, 3.12\n"
-            "  platform: aarch64-apple-darwin, x86_64-unknown-linux-gnu\n"
-            "  extra surfaces: no-extra, cuda, arrow+cuda\n"
+            "✓  selected 3 cells, 4 active packages (1 pinned)\n"
+            "   python: 3.10, 3.12\n"
+            "   platform: aarch64-apple-darwin, x86_64-unknown-linux-gnu\n"
+            "   extra surfaces: no-extra, cuda, arrow+cuda\n"
         )
 
     def test_tty_setup_facts_render_in_one_rounded_card(
@@ -1196,7 +1211,8 @@ class TestProgressRendering:
         tmp_path: Path,
     ) -> None:
         stderr = TTYBuffer()
-        logs = RunLogStore(root=tmp_path, run_id="run-123")
+        run_id = "20260828T110743.12345-67890-abcde"
+        logs = RunLogStore(root=tmp_path, run_id=run_id)
         terminal = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True),
             stderr=Console(
@@ -1207,6 +1223,7 @@ class TestProgressRendering:
             ),
             logs=logs,
         )
+        terminal.bind_command("smoke")
         cells = (
             Cell(
                 package="demo",
@@ -1242,10 +1259,11 @@ class TestProgressRendering:
         raw = stderr.getvalue()
         output = visible(raw)
         assert output.count("╭") == 1
-        assert output.index("run-id: run-123") < output.index("✓ loaded project")
-        assert "✓ loaded project" in output
-        assert "✓ built snapshot" in output
-        assert "✓ selected 3 cells, 4 active packages (1 pinned)" in output
+        assert output.index("✓  selected 3 cells") < output.index(f"run-id: {run_id}")
+        assert output.index(f"run-id: {run_id}") < output.index("python: 3.10")
+        assert "✓  loaded project" in output
+        assert "✓  built snapshot" in output
+        assert "✓  selected 3 cells, 4 active packages (1 pinned)" in output
         assert "python: 3.10, 3.11, 3.12" in output
         assert "platform: x86_64-unknown-linux-gnu" in output
         assert "extra surfaces: no-extra" in output
@@ -1258,6 +1276,27 @@ class TestProgressRendering:
         loaded_style_at = raw.rfind("\x1b[", 0, loaded_at)
         loaded_end = loaded_at + len("loaded project")
         assert "2" not in sgr_codes(raw[loaded_style_at:loaded_end])
+        run_label_at = raw.rindex("run-id:")
+        run_label_style_at = raw.rfind("\x1b[", 0, run_label_at)
+        run_label_codes = sgr_codes(raw[run_label_style_at:run_label_at])
+        assert "2" in run_label_codes
+        assert not ({"1"} | _FOREGROUND_SGR_CODES) & run_label_codes
+        for segment in ("20260828", "110743"):
+            segment_at = raw.rindex(segment)
+            segment_style_at = raw.rfind("\x1b[", 0, segment_at)
+            segment_codes = sgr_codes(raw[segment_style_at:segment_at])
+            assert {"1", "2", "32"} <= segment_codes
+        for segment in ("12345", "67890", "abcde"):
+            segment_at = raw.rindex(segment)
+            segment_style_at = raw.rfind("\x1b[", 0, segment_at)
+            segment_codes = sgr_codes(raw[segment_style_at:segment_at])
+            assert {"1", "2", "35"} <= segment_codes
+        python_label_at = raw.rindex("python:")
+        python_at = raw.index("3.10", python_label_at)
+        python_style_at = raw.rfind("\x1b[", python_label_at, python_at)
+        python_codes = sgr_codes(raw[python_style_at:python_at])
+        assert {"1", "2"} <= python_codes
+        assert not (_FOREGROUND_SGR_CODES & python_codes)
         terminal.close()
         logs.close()
 
@@ -1376,8 +1415,8 @@ class TestProgressRendering:
         terminal.close()
 
         output = visible(stderr.getvalue())
-        assert "✓ selected 2 cells" in output
-        assert "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in output
+        assert "✓  selected 2 cells" in output
+        assert "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:00" in output
         assert "[py3.11][x86_64-unknown-linux-gnu][no-extra]" not in output
         assert "0 running · 1 finished · 1 left" in output
         assert "╭" in output
@@ -1583,6 +1622,8 @@ class TestProgressRendering:
             stderr=Console(
                 file=stderr,
                 force_terminal=True,
+                no_color=False,
+                color_system="standard",
                 width=120,
                 theme=PF_THEME,
             ),
@@ -1621,10 +1662,15 @@ class TestProgressRendering:
 
         baseline_title_at = baseline_title_line.index(title)
         declaration_title_at = declaration_title_line.index(title)
-        assert not baseline_title_line[baseline_title_at - 2].isspace()
-        assert baseline_title_line[baseline_title_at - 1] == " "
-        assert not declaration_title_line[declaration_title_at - 2].isspace()
-        assert declaration_title_line[declaration_title_at - 1] == " "
+        assert baseline_title_line[baseline_title_at - 2 : baseline_title_at] == "  "
+        assert not baseline_title_line[baseline_title_at - 3].isspace()
+        assert (
+            declaration_title_line[
+                declaration_title_at - 2 : declaration_title_at
+            ]
+            == "  "
+        )
+        assert not declaration_title_line[declaration_title_at - 3].isspace()
         assert baseline_title_line.index("0:00:") == declaration_title_line.index(
             "0:00:"
         )
@@ -1644,6 +1690,8 @@ class TestProgressRendering:
             stderr=Console(
                 file=stderr,
                 force_terminal=True,
+                no_color=False,
+                color_system="standard",
                 width=120,
                 theme=PF_THEME,
             ),
@@ -1692,12 +1740,13 @@ class TestProgressRendering:
         )
         assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & static_check_codes
         assert dynamic_detail_line.index("[baseline]") == dynamic_title_line.index(title)
-        assert re.search(r"\[testing\] [━╺╸]", dynamic_detail_line) is not None
+        assert re.search(r"\[testing\] {2}[━╺╸]", dynamic_detail_line) is not None
         assert "dynamic tests" not in dynamic_output
         testing_at = dynamic_raw.rindex("testing")
         testing_style_at = dynamic_raw.rfind("\x1b[", 0, testing_at)
         testing_codes = sgr_codes(dynamic_raw[testing_style_at:testing_at])
-        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & testing_codes
+        assert "36" in testing_codes
+        assert not ({"1", "2"} & testing_codes)
 
     def test_tty_frozen_cell_moves_identity_to_result_colored_first_detail(
         self,
@@ -1744,7 +1793,8 @@ class TestProgressRendering:
         elapsed_at = output.rindex("0:00:00")
         elapsed_style_at = output.rfind("\x1b[", 0, elapsed_at)
         elapsed_codes = sgr_codes(output[elapsed_style_at:elapsed_at])
-        assert {"2", "35"} <= elapsed_codes
+        assert {"2", "36"} <= elapsed_codes
+        assert "35" not in elapsed_codes
         assert "1" not in elapsed_codes
         detail = next(
             line
@@ -1753,15 +1803,15 @@ class TestProgressRendering:
         )
         assert "smoke passed at [baseline][highest]" in detail
         completion_at = output.rindex("smoke passed")
-        baseline_at = output.index("[baseline]", completion_at)
+        baseline_at = output.index("baseline", completion_at)
         first_style_at = output.rfind("\x1b[", completion_at, baseline_at)
         first_codes = sgr_codes(output[first_style_at:baseline_at])
-        highest_at = output.index("[highest]", baseline_at)
+        highest_at = output.index("highest", baseline_at)
         second_style_at = output.rfind("\x1b[", 0, highest_at)
         second_codes = sgr_codes(output[second_style_at:highest_at])
-        assert "32" in first_codes
+        assert {"1", "32"} <= first_codes
         assert not ({"2", "36"} & first_codes)
-        assert "32" in second_codes
+        assert {"1", "32"} <= second_codes
         assert not ({"2", "36"} & second_codes)
 
     def test_tty_live_cell_renders_search_probe_identity_above_stage(self) -> None:
@@ -1899,6 +1949,7 @@ class TestProgressRendering:
             "",
             compact_frame,
         )
+        content_frame = re.sub(r"[━╺╸]", "", content_frame)
         assert vector in content_frame, repr(content_frame)
         assert identity in content_frame, repr(content_frame)
         assert content_frame.index(vector) < content_frame.index(identity)
@@ -1909,7 +1960,7 @@ class TestProgressRendering:
         assert "pydantic=2.13.4" not in vector_line
         assert "[testing]" in output
         if width > 56:
-            assert re.search(r"\[testing\] [━╺╸]", output) is not None
+            assert re.search(r"\[testing\] {2}[━╺╸]", output) is not None
 
         completed_at = raw.rindex("cyclopts")
         completed_style_at = raw.rfind("\x1b[", 0, completed_at)
@@ -2064,7 +2115,7 @@ class TestProgressRendering:
         assert "3/8 tests" not in output
         assert re.search(r"ETA \d{2}:\d{2}:\d{2}", output) is not None
         stage_at = output.rindex("[testing]")
-        assert re.search(r"\[testing\] [━╺╸]", output) is not None, repr(
+        assert re.search(r"\[testing\] {2}[━╺╸]", output) is not None, repr(
             output[stage_at : stage_at + 40]
         )
         cell_line = next(
@@ -2083,11 +2134,13 @@ class TestProgressRendering:
         count_at = raw.rindex("3/8")
         count_style_at = raw.rfind("\x1b[", 0, count_at)
         count_codes = sgr_codes(raw[count_style_at:count_at])
-        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & count_codes
+        assert "2" in count_codes
+        assert not ({"1"} | _FOREGROUND_SGR_CODES) & count_codes
         eta_at = raw.rindex("ETA ")
         eta_style_at = raw.rfind("\x1b[", 0, eta_at)
         eta_codes = sgr_codes(raw[eta_style_at:eta_at])
-        assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & eta_codes
+        assert "2" in eta_codes
+        assert not ({"1"} | _FOREGROUND_SGR_CODES) & eta_codes
 
     def test_tty_live_progress_updates_keep_the_same_stage_row(self) -> None:
         cell = Cell(
@@ -2273,7 +2326,7 @@ class TestProgressRendering:
         )
         assert "[py3.12][x86_64-unknown-linux-gnu][no-extra]" in compact
         assert "[declaration][lowest-direct]" in compact
-        assert re.search(r"\S \[py3\.12", frame) is not None
+        assert re.search(r"\S {2}\[py3\.12", frame) is not None
         assert "0:00:00" in frame
         assert "…" not in frame
 
@@ -2604,7 +2657,7 @@ class TestProgressRendering:
         )
 
         output = terminal.getvalue()
-        assert "✓ loaded project" in visible(output)
+        assert "✓  loaded project" in visible(output)
         check_at = output.index("✓")
         assert "\x1b[32m" in output[: check_at + 1]
 
@@ -2637,7 +2690,7 @@ class TestProgressRendering:
         python_at = output.index("python:")
         assert "\x1b[2m" in output[: python_at + 1]
         plain = visible(output)
-        assert "✓ selected 1 cell" in plain
+        assert "✓  selected 1 cell" in plain
         assert "python: 3.10" in plain
         assert "platform: x86_64-unknown-linux-gnu" in plain
         assert "extra surfaces: no-extra" in plain
@@ -2681,7 +2734,7 @@ class TestProgressRendering:
 
         output = terminal.getvalue()
         plain = visible(output)
-        assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
+        assert "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
         assert "failed at [static checking]" in plain
         assert "0:00:00" in plain
         assert "error: Unresolved import 'missing'" not in plain
@@ -2729,7 +2782,7 @@ class TestProgressRendering:
 
         output = terminal.getvalue()
         plain = visible(output)
-        assert "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
+        assert "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
         assert "STATIC_REGRESSION" not in plain
         assert "checked declarations" not in plain
         cross_at = output.index("✗")
@@ -2769,7 +2822,7 @@ class TestProgressRendering:
 
         output = terminal.getvalue()
         plain = visible(output)
-        assert "⚠ [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
+        assert "⚠  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
         assert "NO_PASS_IN_SEARCH_SPACE" not in plain
         assert "searched cells" not in plain
         warn_at = output.index("⚠")
@@ -2853,9 +2906,9 @@ class TestVerificationRendering:
         terminal.consume(completed_event(cell, status="SUCCESS"))
 
         assert stderr.getvalue().splitlines() == [
-            "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]",
-            "  [baseline][packaging=24.0][cyclopts=2.4.0]",
-            "  search completed at [pydantic=1.7.4][1.7.4~2.13.4#18]",
+            "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra]",
+            "   [baseline][packaging=24.0][cyclopts=2.4.0]",
+            "   search completed at [pydantic=1.7.4][1.7.4~2.13.4#18]",
         ]
 
     def test_tty_search_completion_keeps_completed_packages_green(self) -> None:
@@ -2908,8 +2961,8 @@ class TestVerificationRendering:
         terminal.close()
 
         raw = stderr.getvalue()
-        action_at = raw.rindex("search completed at")
-        completed_at = raw.rfind("[baseline]", 0, action_at)
+        action_at = raw.rindex("search completed")
+        completed_at = raw.rfind("baseline", 0, action_at)
         assert completed_at != -1
         style_at = raw.rfind("\x1b[", 0, completed_at)
         baseline_codes = sgr_codes(raw[style_at:completed_at])
@@ -2999,8 +3052,9 @@ class TestVerificationRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "! Check indeterminate · This version combination has conflicting dependency requirements and cannot be installed. · 0 cells\n"
+        assert " ".join(stderr.getvalue().split()) == (
+            "! Check indeterminate · This version combination has conflicting "
+            "dependency requirements and cannot be installed. · 0 cells"
         )
 
     def test_smoke_test_failure_prints_structured_detail_without_output_tail(
@@ -3091,15 +3145,15 @@ class TestVerificationRendering:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  smoke failed at [baseline][highest][testing]\n"
-            "  The configured verifier rejected this version combination.\n"
-            "  FAILED tests/test_cli.py::test_example\n"
-            "  ... and 1 more\n"
-            f"  -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "✗ Smoke failed · highest-version resolution did not pass · 1 cell\n"
-        )
+        assert " ".join(stderr.getvalue().split()) == " ".join((
+            "✗  [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   smoke failed at [baseline][highest][testing]\n"
+            "   The configured verifier rejected this version combination.\n"
+            "   FAILED tests/test_cli.py::test_example\n"
+            "   ... and 1 more\n"
+            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+            "✗  Smoke failed · highest-version resolution did not pass · 1 cell\n"
+        ).split())
 
     @pytest.mark.parametrize(
         ("adapter_stage", "failed_at"),
@@ -3233,7 +3287,7 @@ class TestVerificationRendering:
         )
 
         assert exit_code == 0
-        assert stdout.getvalue() == "✓ Smoke passed · 1 cell\n"
+        assert stdout.getvalue() == "✓  Smoke passed · 1 cell\n"
         assert stderr.getvalue() == ""
 
     def test_check_hides_baseline_ty_warnings(self) -> None:
@@ -3286,7 +3340,7 @@ class TestVerificationRendering:
         )
 
         assert exit_code == 0
-        assert stdout.getvalue() == "✓ Check passed · 1 cell\n"
+        assert stdout.getvalue() == "✓  Check passed · 1 cell\n"
         assert stderr.getvalue() == ""
 
     def test_test_failure_does_not_blame_a_static_increment(self) -> None:
@@ -3348,9 +3402,9 @@ class TestVerificationRendering:
         assert exit_code == 1
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "✗ [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  check failed at [declaration][lowest-direct][testing]\n"
-            "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
+            "✗  [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   check failed at [declaration][lowest-direct][testing]\n"
+            "✗  Check failed · declared lower bounds are incompatible · 1 cell\n"
         )
 
     def test_check_does_not_show_static_increment_for_test_failure(
@@ -3416,7 +3470,7 @@ class TestVerificationRendering:
         assert "STATIC_REGRESSION" not in output
         assert "ty: 1 new diagnostic" not in output
         assert output.endswith(
-            "✗ Check failed · declared lower bounds are incompatible · 1 cell\n"
+            "✗  Check failed · declared lower bounds are incompatible · 1 cell\n"
         )
 
     def test_smoke_live_completion_omits_smoke_baseline_impact(self) -> None:
@@ -3446,8 +3500,8 @@ class TestVerificationRendering:
 
         output = stderr.getvalue()
         lines = output.splitlines()
-        assert lines[0] == "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]"
-        assert lines[1] == "  smoke failed at [baseline][highest][testing]"
+        assert lines[0] == "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]"
+        assert lines[1] == "   smoke failed at [baseline][highest][testing]"
         assert "The highest-version resolution did not pass" not in output
         assert "The configured verifier rejected this version combination." in output
         assert "did not start the floor search" not in output
@@ -3467,8 +3521,8 @@ class TestVerificationRendering:
         terminal.consume(completed_event(cell, status="SUCCESS"))
 
         assert stderr.getvalue().splitlines() == [
-            "✓ [py3.10][x86_64-unknown-linux-gnu][no-extra]",
-            "  smoke passed at [baseline][highest]",
+            "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra]",
+            "   smoke passed at [baseline][highest]",
         ]
 
     @pytest.mark.parametrize("command", ("smoke", "check"))
@@ -3556,9 +3610,9 @@ class TestVerificationRendering:
             )
         )
 
-        assert stderr.getvalue().splitlines()[1] == f"  {expected}"
+        assert stderr.getvalue().splitlines()[1] == f"   {expected}"
 
-    def test_completed_declaration_identity_keeps_all_segments_default_brightness(
+    def test_completed_declaration_result_is_bold_with_dim_default_brackets(
         self,
     ) -> None:
         cell = Cell(
@@ -3601,23 +3655,79 @@ class TestVerificationRendering:
         action_at = raw.rindex("check failed")
         action_style_at = raw.rfind("\x1b[", 0, action_at)
         action_codes = sgr_codes(raw[action_style_at:action_at])
-        declaration_at = raw.index("[declaration]", action_at)
-        declaration_style_at = raw.rfind("\x1b[", 0, declaration_at)
+        declaration_at = raw.index("declaration", action_at)
+        bracket_at = raw.rfind("m[", action_at, declaration_at) + 1
+        bracket_style_at = raw.rfind("\x1b[", action_at, bracket_at)
+        bracket_codes = sgr_codes(raw[bracket_style_at:bracket_at])
+        declaration_style_at = raw.rfind("\x1b[", bracket_at, declaration_at)
         declaration_codes = sgr_codes(raw[declaration_style_at:declaration_at])
-        lowest_at = raw.index("[lowest-direct]", declaration_at)
-        lowest_style_at = raw.rfind("\x1b[", 0, lowest_at)
+        lowest_at = raw.index("lowest-direct", declaration_at)
+        lowest_style_at = raw.rfind("\x1b[", declaration_at, lowest_at)
         lowest_codes = sgr_codes(raw[lowest_style_at:lowest_at])
-        stage_at = raw.index("[testing]", lowest_at)
-        stage_style_at = raw.rfind("\x1b[", 0, stage_at)
+        stage_at = raw.index("testing", lowest_at)
+        stage_style_at = raw.rfind("\x1b[", lowest_at, stage_at)
         stage_codes = sgr_codes(raw[stage_style_at:stage_at])
 
-        for default_codes in (action_codes, declaration_codes, stage_codes):
-            assert "31" in default_codes
-            assert not ({"1", "2", "36"} & default_codes)
-        assert "31" in lowest_codes
-        assert not ({"1", "2", "36"} & lowest_codes)
+        for result_codes in (
+            action_codes,
+            declaration_codes,
+            lowest_codes,
+            stage_codes,
+        ):
+            assert {"1", "31"} <= result_codes
+            assert not ({"2", "36"} & result_codes)
+        assert {"2", "39"} <= bracket_codes
+        assert not ({"1", "31", "36"} & bracket_codes)
 
-    def test_completed_search_probe_identity_uses_result_color_and_bold_numeric_tokens(
+    def test_completed_check_result_is_bold_with_dim_default_brackets(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+            ),
+        )
+        terminal.bind_command("check")
+
+        terminal.consume(
+            CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
+        )
+        terminal.consume(
+            completed_event(cell, status="SUCCESS", role="declaration")
+        )
+        terminal.close()
+
+        raw = stderr.getvalue()
+        assert "check passed at [declaration][lowest-direct]" in visible(raw)
+        action_at = raw.rindex("check passed")
+        action_style_at = raw.rfind("\x1b[", 0, action_at)
+        action_codes = sgr_codes(raw[action_style_at:action_at])
+        declaration_at = raw.index("declaration", action_at)
+        bracket_at = raw.rfind("m[", action_at, declaration_at) + 1
+        bracket_style_at = raw.rfind("\x1b[", action_at, bracket_at)
+        bracket_codes = sgr_codes(raw[bracket_style_at:bracket_at])
+        declaration_style_at = raw.rfind("\x1b[", bracket_at, declaration_at)
+        declaration_codes = sgr_codes(
+            raw[declaration_style_at:declaration_at]
+        )
+
+        assert {"1", "32"} <= action_codes
+        assert {"2", "39"} <= bracket_codes
+        assert "1" not in bracket_codes
+        assert {"1", "32"} <= declaration_codes
+        assert "2" not in declaration_codes
+
+    def test_completed_search_probe_result_is_bold_with_dim_default_brackets(
         self,
     ) -> None:
         cell = Cell(
@@ -3663,30 +3773,23 @@ class TestVerificationRendering:
         expected = "search stopped at [pydantic=2.0.1][1.0~3.0#14][testing]"
         assert expected in visible(raw)
         action_at = raw.rindex("search stopped")
-        style_start = raw.rfind("\x1b[", 0, action_at)
-        stage_end = raw.index("[testing]", action_at) + len("[testing]")
-        codes = sgr_codes(raw[style_start:stage_end])
-        assert {"1", "33"} <= codes
-        assert not ({"2", "36"} & codes)
+        action_style_at = raw.rfind("\x1b[", 0, action_at)
+        action_codes = sgr_codes(raw[action_style_at:action_at])
         dependency_at = raw.index(identity.dependency, action_at)
-        dependency_style_at = raw.rfind("\x1b[", 0, dependency_at)
+        bracket_at = raw.rfind("m[", action_at, dependency_at) + 1
+        bracket_style_at = raw.rfind("\x1b[", action_at, bracket_at)
+        bracket_codes = sgr_codes(raw[bracket_style_at:bracket_at])
+        dependency_style_at = raw.rfind("\x1b[", bracket_at, dependency_at)
         dependency_codes = sgr_codes(raw[dependency_style_at:dependency_at])
-        assert "33" in dependency_codes
-        assert not ({"1", "2"} & dependency_codes)
-        active_at = raw.index(identity.version, dependency_at)
-        active_style_at = raw.rfind("\x1b[", dependency_at, active_at)
-        active_codes = sgr_codes(raw[active_style_at:active_at])
-        assert {"1", "33"} <= active_codes
-        assert "2" not in active_codes
-        for numeric_at in (
-            raw.index(identity.lower_version, active_at + len(identity.version)),
-            raw.index(identity.upper_version, active_at),
-            raw.index(str(identity.candidate_count), active_at),
-        ):
-            numeric_style_at = raw.rfind("\x1b[", 0, numeric_at)
-            numeric_codes = sgr_codes(raw[numeric_style_at:numeric_at])
-            assert {"1", "33"} <= numeric_codes
-            assert not ({"2", "36"} & numeric_codes)
+        stage_at = raw.index("testing", dependency_at)
+        stage_style_at = raw.rfind("\x1b[", dependency_at, stage_at)
+        stage_codes = sgr_codes(raw[stage_style_at:stage_at])
+
+        for result_codes in (action_codes, dependency_codes, stage_codes):
+            assert {"1", "33"} <= result_codes
+            assert not ({"2", "36"} & result_codes)
+        assert {"2", "39"} <= bracket_codes
+        assert not ({"1", "33", "36"} & bracket_codes)
 
 
 class TestSearchRendering:
@@ -3717,7 +3820,8 @@ class TestSearchRendering:
         output = stderr.getvalue()
         assert exit_code == 4
         assert re.search(
-            r"\x1b\[[0-9;]*1[0-9;]*33m! Search stopped",
+            r"\x1b\[[0-9;]*1[0-9;]*33m!\x1b\[0m {2}"
+            r"\x1b\[[0-9;]*1[0-9;]*33mSearch stopped",
             output,
         ) is not None
 
@@ -3771,16 +3875,18 @@ class TestSearchRendering:
             )
         )
 
+        exhausted_output = " ".join(exhausted_stderr.getvalue().split())
         assert (
             "The configured search space was fully evaluated, but no compatible "
             "version combination was found."
-            in exhausted_stderr.getvalue()
+            in exhausted_output
         )
         assert "full test command failed" not in exhausted_stderr.getvalue()
+        indeterminate_output = " ".join(indeterminate_stderr.getvalue().split())
         assert (
             "Search stopped before the configured search space was fully evaluated. "
             "The operation timed out, so compatibility is unknown."
-            in indeterminate_stderr.getvalue()
+            in indeterminate_output
         )
         assert "fully evaluated, but no compatible" not in indeterminate_stderr.getvalue()
 
@@ -3912,23 +4018,23 @@ class TestSearchRendering:
         expected_stderr: dict[tuple[str, ...], str] = {
             (): "",
             ("BASELINE_REJECTION",): (
-                "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
+                "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
             ),
             ("INDETERMINATE",): (
-                "! Search stopped · compatibility is unknown · 1 report written\n"
+                "!  Search stopped · compatibility is unknown · 1 report written\n"
             ),
             ("BASELINE_REJECTION", "INDETERMINATE"): (
-                "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
+                "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
             ),
             ("NO_PASS_IN_SEARCH_SPACE",): (
-                "⚠ Search incomplete · 1 report written · no applicable floor\n"
+                "⚠  Search incomplete · 1 report written · no applicable floor\n"
             ),
         }
         if not reasons:
             assert stderr.getvalue() == ""
             assert (
                 stdout.getvalue()
-                == "✓ Search complete · 1 report · package-floor.json\n"
+                == "✓  Search complete · 1 report · package-floor.json\n"
             )
         else:
             assert stdout.getvalue() == ""
@@ -3960,13 +4066,13 @@ class TestSearchRendering:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  search stopped at [baseline][highest][resolving the test environment]\n"
-            "  The test dependencies cannot be installed without changing the versions being checked.\n"
-            f"  -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
-        )
+        assert " ".join(stderr.getvalue().split()) == " ".join((
+            "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   search stopped at [baseline][highest][resolving the test environment]\n"
+            "   The test dependencies cannot be installed without changing the versions being checked.\n"
+            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+            "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
+        ).split())
 
     def test_search_infra_failure_prints_message_detail_without_a_process(self) -> None:
         cell = Cell(
@@ -3990,13 +4096,13 @@ class TestSearchRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "! [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  search stopped at [candidate discovery]\n"
-            "  Search stopped before the configured search space was fully evaluated. PF could not reach or read a configured package source.\n"
-            f"  -> run `pf diagnose demo --failure {terminal_result.failure_id}` for more information.\n"
-            "! Search stopped · compatibility is unknown · 1 report written\n"
-        )
+        assert " ".join(stderr.getvalue().split()) == " ".join((
+            "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   search stopped at [candidate discovery]\n"
+            "   Search stopped before the configured search space was fully evaluated. PF could not reach or read a configured package source.\n"
+            f"   -> run `pf diagnose demo --failure {terminal_result.failure_id}` for more information.\n"
+            "!  Search stopped · compatibility is unknown · 1 report written\n"
+        ).split())
 
     def test_search_probe_indeterminate_prints_candidate_unknown_impact(self) -> None:
         cell = Cell(
@@ -4033,13 +4139,13 @@ class TestSearchRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "! [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  search stopped at [testing]\n"
-            "  Search stopped before the configured search space was fully evaluated. The operation timed out, so compatibility is unknown.\n"
-            f"  -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "! Search stopped · compatibility is unknown · 1 report written\n"
-        )
+        assert " ".join(stderr.getvalue().split()) == " ".join((
+            "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   search stopped at [testing]\n"
+            "   Search stopped before the configured search space was fully evaluated. The operation timed out, so compatibility is unknown.\n"
+            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+            "!  Search stopped · compatibility is unknown · 1 report written\n"
+        ).split())
 
     def test_search_hides_highest_baseline_ty_warnings(self) -> None:
         cell = Cell(
@@ -4105,13 +4211,13 @@ class TestSearchRendering:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "✗ [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "  search stopped at [baseline][highest][testing]\n"
-            "  The configured verifier rejected this version combination.\n"
-            f"  -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "✗ Search stopped · highest-version baseline did not pass · 1 report written\n"
-        )
+        assert " ".join(stderr.getvalue().split()) == " ".join((
+            "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+            "   search stopped at [baseline][highest][testing]\n"
+            "   The configured verifier rejected this version combination.\n"
+            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
+            "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
+        ).split())
 
 
 class TestExplainRendering:

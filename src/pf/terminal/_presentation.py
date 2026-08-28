@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Literal
 
+from rich.console import Group, RenderableType
+from rich.table import Column, Table
 from rich.text import Text
 
 from pf.schemas.evaluation import (
@@ -51,6 +54,46 @@ _COMMAND_COMPLETION_ACTIONS: dict[str, tuple[str, str]] = {
     "check": ("check passed", "check failed"),
     "search": ("search completed", "search stopped"),
 }
+_RUN_ID_PATTERN = re.compile(
+    r"^(?P<date>\d{8})T(?P<time>\d{6})\."
+    r"(?P<first>[^-]+)-(?P<second>[^-]+)-(?P<third>[^-]+)$"
+)
+
+
+def marker_group(
+    rows: tuple[tuple[RenderableType | None, RenderableType], ...],
+    *,
+    expand: bool,
+) -> Group:
+    """Lay out marker/content rows with a stable two-column Rich gutter."""
+    renderables: list[Table] = []
+    for marker, content in rows:
+        row = Table.grid(
+            Column(width=1, no_wrap=True),
+            Column(ratio=1 if expand else None, overflow="fold", no_wrap=False),
+            padding=(0, 2),
+            expand=expand,
+        )
+        row.add_row(marker or Text(), content)
+        renderables.append(row)
+    return Group(*renderables)
+
+
+def run_id_text(run_id: str) -> Text:
+    value = Text("run-id: ", style="dim", overflow="fold", no_wrap=False)
+    matched = _RUN_ID_PATTERN.fullmatch(run_id)
+    if matched is None:
+        value.append(run_id, style="dim")
+        return value
+    value.append(matched.group("date"), style="dim bold green")
+    value.append("T", style="dim")
+    value.append(matched.group("time"), style="dim bold green")
+    value.append(".", style="dim")
+    for index, name in enumerate(("first", "second", "third")):
+        if index:
+            value.append("-", style="dim")
+        value.append(matched.group(name), style="dim bold magenta")
+    return value
 
 
 def _append_bracket_token(value: Text, content: str, *, style: str) -> None:
@@ -93,10 +136,11 @@ def live_cell_identity_text(
         _append_bracket_token(value, first, style="bold cyan")
         _append_bracket_token(value, second, style="cyan")
     if stage is not None:
+        dynamic = stage == "dynamic tests"
         _append_bracket_token(
             value,
-            "testing" if stage == "dynamic tests" else stage,
-            style="default",
+            "testing" if dynamic else stage,
+            style="cyan" if dynamic else "default",
         )
     return value
 
@@ -133,6 +177,43 @@ def cell_identity_text(
         raise AssertionError(
             f"unsupported cell identity: {type(identity).__name__}"
         )
+
+
+def result_identity_text(
+    identity: CellDetailIdentity,
+    *,
+    content_style: str,
+) -> Text:
+    if isinstance(identity, BaselineDetailIdentity):
+        tokens = ("baseline", "highest")
+    elif isinstance(identity, DeclarationDetailIdentity):
+        tokens = ("declaration", "lowest-direct")
+    elif isinstance(identity, SearchProbeDetailIdentity):
+        tokens = (
+            f"{identity.dependency}={identity.version}",
+            (
+                f"{identity.lower_version}~{identity.upper_version}"
+                f"#{identity.candidate_count}"
+            ),
+        )
+    else:
+        raise AssertionError(
+            f"unsupported cell identity: {type(identity).__name__}"
+        )
+    value = Text(overflow="fold", no_wrap=False)
+    for token in tokens:
+        value.append("[", style="dim default not bold")
+        value.append(token, style=content_style)
+        value.append("]", style="dim default not bold")
+    return value
+
+
+def result_stage_text(stage: str, *, content_style: str) -> Text:
+    value = Text(overflow="fold", no_wrap=False)
+    value.append("[", style="dim default not bold")
+    value.append(stage, style=content_style)
+    value.append("]", style="dim default not bold")
+    return value
 
 
 def cell_identity_title(identity: CellDetailIdentity) -> str:

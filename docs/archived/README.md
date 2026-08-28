@@ -8,7 +8,7 @@
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
 | [designs](designs/) | D009–D011、D015 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P020 | 实施与验证已完成 |
+| [plans](plans/) | P001–P021 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003 | 发现已由后续设计和实现解决 |
 | [investigations](investigations/) | I001 | 结论已纳入 D013 |
 

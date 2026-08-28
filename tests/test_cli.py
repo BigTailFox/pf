@@ -508,7 +508,7 @@ class TestCommandDispatch:
         assert workflow.request.package == "demo"
         assert workflow.request.root == tmp_path.as_posix()
         assert workflow.request.jobs == "auto"
-        assert stdout.getvalue() == "✓ Check passed · 0 cells\n"
+        assert stdout.getvalue() == "✓  Check passed · 0 cells\n"
         assert stderr.getvalue() == ""
 
     def test_smoke_command_builds_a_request_and_renders_the_workflow_result(
@@ -549,7 +549,7 @@ class TestCommandDispatch:
             package="demo",
             jobs=2,
         )
-        assert stdout.getvalue() == "✓ Smoke passed · 0 cells\n"
+        assert stdout.getvalue() == "✓  Smoke passed · 0 cells\n"
         assert stderr.getvalue() == ""
 
     def test_search_command_normalizes_jobs_and_duration_before_workflow(
@@ -591,7 +591,7 @@ class TestCommandDispatch:
             jobs=2,
             max_duration_seconds=60,
         )
-        assert stdout.getvalue() == "✓ Search complete · 0 reports\n"
+        assert stdout.getvalue() == "✓  Search complete · 0 reports\n"
         assert stderr.getvalue() == ""
 
     def test_explain_command_only_requests_existing_reports(
@@ -712,7 +712,9 @@ class TestCommandDispatch:
             reports=(source.as_posix(),),
             output=output.as_posix(),
         )
-        assert stdout.getvalue() == f"✓ Merged 1 report · {output.as_posix()}\n"
+        rendered = stdout.getvalue()
+        assert rendered.startswith("✓  Merged 1 report ·")
+        assert output.as_posix() in "".join(rendered.split())
 
     def test_apply_command_uses_report_only_workflow(
         self,
@@ -759,7 +761,7 @@ class TestCommandDispatch:
         )
         assert (
             stdout.getvalue()
-            == "✓ Applied floors · 1 project updated · pyproject.toml\n"
+            == "✓  Applied floors · 1 project updated · pyproject.toml\n"
         )
 
     def test_cli_context_requires_the_complete_object_graph(self) -> None:
@@ -899,7 +901,7 @@ class TestMinimizeCommand:
         assert exit_code == 0
         assert search.request == SearchRequest(root=expected_root, package="demo")
         assert apply.request == ApplyRequest(root=expected_root, package="demo")
-        assert stdout.getvalue() == "✓ Minimized floors · no metadata changes\n"
+        assert stdout.getvalue() == "✓  Minimized floors · no metadata changes\n"
 
 
 class TestDefaultContext:

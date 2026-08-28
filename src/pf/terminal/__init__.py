@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from rich import box
 from rich.console import Console, ConsoleDimensions, Group
 from rich.panel import Panel
-from rich.table import Column, Table
 from rich.text import Text
 from rich.theme import Theme
 
@@ -42,11 +41,13 @@ from pf.terminal._live import LiveVerificationView
 from pf.terminal._presentation import (
     CellPresentation,
     OutcomeKind,
-    cell_identity_text,
     cell_title_text,
     completed_packages_text,
     completion_action,
+    marker_group,
     outcome_border_style,
+    result_identity_text,
+    result_stage_text,
 )
 
 if TYPE_CHECKING:
@@ -98,6 +99,14 @@ _ICONS = {
     "warning": "⚠",
     "indeterminate": "!",
 }
+_RESULT_STYLES: dict[OutcomeKind, str] = {
+    "success": "bold green",
+    "failure": "bold red",
+    "warning": "bold yellow",
+    "indeterminate": "bold yellow",
+}
+
+
 def _outcome_card(
     lines: tuple[Text, ...] | list[Text],
     *,
@@ -113,15 +122,13 @@ def _outcome_card(
 
 def _cell_outcome_card(lines: list[Text], *, kind: OutcomeKind) -> Panel:
     header, *details = lines
-    content = Table.grid(
-        Column(no_wrap=True),
-        Column(overflow="fold", no_wrap=False),
-        padding=(0, 0),
+    content = marker_group(
+        (
+            (Text(_ICONS[kind], style=kind), header),
+            *((None, detail) for detail in details),
+        ),
         expand=True,
     )
-    content.add_row(Text(_ICONS[kind], style=kind), header)
-    for detail in details:
-        content.add_row(Text(), detail)
     return Panel(
         content,
         box=box.ROUNDED,
@@ -294,20 +301,21 @@ def _cell_detail_lines(
     )
 
 
-def _plain_cell_result_lines(
+def _plain_cell_result(
     lines: list[Text],
     *,
     kind: OutcomeKind,
-) -> list[Text]:
+) -> Group:
     if not lines:
-        return []
-    return [
-        Text.assemble((f"{_ICONS[kind]} ", kind), lines[0]),
-        *(
-            _fold_text(Text.assemble("  ", line))
-            for line in lines[1:]
+        return Group()
+    header, *details = lines
+    return marker_group(
+        (
+            (Text(_ICONS[kind], style=kind), header),
+            *((None, detail) for detail in details),
         ),
-    ]
+        expand=False,
+    )
 
 
 def _primary_failure(presentation: CellPresentation) -> FailureRecord:
@@ -401,7 +409,7 @@ def _cell_title_line(
     line = cell_title_text(cell)
     if elapsed is not None:
         line.append(" ")
-        line.append(_format_elapsed(elapsed), style="dim magenta")
+        line.append(_format_elapsed(elapsed), style="dim cyan")
     return _fold_text(line)
 
 
@@ -416,24 +424,25 @@ def _cell_completion_detail_line(
     action = completion_action(presentation.command, presentation.kind)
     if action is None and presentation.identity is None and failed_at is None:
         return None
-    base_style = f"reason.{presentation.kind}"
-    line = Text(style=base_style, overflow="fold", no_wrap=False)
+    result_style = _RESULT_STYLES[presentation.kind]
+    line = Text(overflow="fold", no_wrap=False)
     if action is not None:
-        line.append(action)
+        line.append(action, style=result_style)
         if presentation.identity is not None or failed_at is not None:
-            line.append(" at ")
+            line.append(" at ", style=result_style)
     elif failed_at is not None:
-        line.append("failed at ")
+        line.append("failed at ", style=result_style)
     if presentation.identity is not None:
         line.append_text(
-            cell_identity_text(
+            result_identity_text(
                 presentation.identity,
-                style=base_style,
-                dim_secondary=False,
+                content_style=result_style,
             )
         )
     if failed_at is not None:
-        line.append(f"[{failed_at}]")
+        line.append_text(
+            result_stage_text(failed_at, content_style=result_style)
+        )
     return line
 
 
@@ -511,19 +520,20 @@ class TerminalPresenter:
         ):
             return self._render_invocation(error)
         self._live.close(abandon_pending=True, final_outcome="failure")
-        self.stderr.print(
-            Text.assemble(
-                (f"{_ICONS['failure']} ", "failure"),
-                (f"{error.category}: ", "failure"),
-                str(error),
-            ),
-            soft_wrap=True,
-        )
-        if error.detail:
-            self.stderr.print(
-                Text(_single_line_summary(error.detail)),
-                soft_wrap=True,
+        rows: list[tuple[Text | None, Text]] = [
+            (
+                Text(_ICONS["failure"], style="failure"),
+                Text.assemble(
+                    (f"{error.category}: ", "failure"),
+                    str(error),
+                ),
             )
+        ]
+        if error.detail:
+            rows.append(
+                (None, Text(_single_line_summary(error.detail)))
+            )
+        self.stderr.print(marker_group(tuple(rows), expand=False), soft_wrap=True)
         return int(error.exit_code)
 
     def _render_invocation(self, error: ConfigurationError) -> int:
@@ -739,7 +749,7 @@ class TerminalPresenter:
         self._emitted_cell_keys.add(key)
         if self.stderr.is_terminal:
             return (_cell_outcome_card(lines, kind=presentation.kind),)
-        return tuple(_plain_cell_result_lines(lines, kind=presentation.kind))
+        return (_plain_cell_result(lines, kind=presentation.kind),)
 
     def _render_explain_cell(self, presentation: CellPresentation) -> None:
         """Render one report Cell with the shared final-card presentation."""
@@ -747,8 +757,7 @@ class TerminalPresenter:
         if self.stdout.is_terminal:
             self.stdout.print(_cell_outcome_card(lines, kind=presentation.kind))
             return
-        for line in _plain_cell_result_lines(lines, kind=presentation.kind):
-            self.stdout.print(line)
+        self.stdout.print(_plain_cell_result(lines, kind=presentation.kind))
 
     def _render_explain_overview(
         self,
@@ -883,8 +892,12 @@ class TerminalPresenter:
         *,
         console: Console | None = None,
     ) -> None:
+        style = f"summary.{kind}"
         (console or self.stderr).print(
-            Text(f"{_ICONS[kind]} {message}", style=f"summary.{kind}"),
+            marker_group(
+                ((Text(_ICONS[kind], style=style), Text(message, style=style)),),
+                expand=False,
+            ),
             soft_wrap=True,
         )
 

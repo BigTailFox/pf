@@ -562,7 +562,7 @@ class TestExplainCellCards:
         presenter.render_explain((report,))
 
         rendered = stdout.getvalue()
-        assert "⚠ [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        assert "⚠  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
         assert "search stopped" in rendered
         assert "This target cell has no result in this report." in rendered
         assert "pf diagnose" not in rendered
@@ -587,7 +587,7 @@ class TestExplainCellCards:
 
         rendered = stdout.getvalue()
         assert rendered.count("╭") == 2
-        assert "✓ [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        assert "✓  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
         assert "search completed" in rendered
         assert "ty baseline" not in rendered
         assert "What happened:" not in rendered
@@ -703,7 +703,7 @@ class TestExplainCellCards:
 
         rendered = stdout.getvalue()
         normalized = " ".join(rendered.split())
-        assert "! [py3.10][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        assert "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in rendered
         assert (
             "search stopped at [baseline][highest][installing dependencies]"
             in normalized

@@ -10,7 +10,6 @@ from typing import Any
 from rich import box
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.measure import Measurement
-from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress import (
     MofNCompleteColumn,
@@ -50,7 +49,9 @@ from pf.terminal._presentation import (
     cell_title_text,
     escalate_outcome,
     live_cell_identity_text,
+    marker_group,
     outcome_border_style,
+    run_id_text,
     search_vector_text,
 )
 
@@ -73,6 +74,8 @@ _ICONS = {
     "warning": "⚠",
     "indeterminate": "!",
 }
+
+_MarkerRow = tuple[RenderableType | None, RenderableType]
 
 
 class _ElasticSpace:
@@ -136,8 +139,8 @@ class LiveVerificationView:
         self._pending_status: StatusEvent | None = None
         self._pending_outcome: OutcomeKind | None = None
         self._search_diagnostics: list[SearchFailureEvent] = []
-        self._setup_lines: list[Text] = []
-        self._setup_card_lines: tuple[Text, ...] = ()
+        self._setup_lines: list[_MarkerRow] = []
+        self._setup_card_lines: tuple[_MarkerRow, ...] = ()
         self._completed_cards: list[RenderableType] = []
         self._command: str | None = None
         self._cell_matrix_active = False
@@ -146,12 +149,6 @@ class LiveVerificationView:
 
     def bind_command(self, command: str) -> None:
         self._command = command
-        if command not in {"check", "minimize", "search", "smoke"}:
-            return
-        if self._stderr.is_terminal:
-            self._queue_run_id()
-        else:
-            self._print_run_id()
 
     def consume(self, event: ActivityEvent) -> None:
         with self._lock:
@@ -181,6 +178,8 @@ class LiveVerificationView:
         final_outcome: OutcomeKind | None = None,
     ) -> None:
         with self._lock:
+            if not self._stderr.is_terminal:
+                self._print_run_id()
             if abandon_pending:
                 self._pending_status = None
             if final_outcome is not None:
@@ -217,11 +216,11 @@ class LiveVerificationView:
             and self._pending_status.message != event.message
             and self._pending_status.message not in _CELL_PHASE_MESSAGES
         ):
-            line = self._completed_status_line(self._pending_status, "success")
+            line = self._completed_status_row(self._pending_status, "success")
             if self._pending_status.message in _SETUP_MESSAGES:
                 self._setup_lines.append(line)
             else:
-                self.print_step(line)
+                self.print_step(marker_group((line,), expand=False))
             self._pending_outcome = None
         self._pending_status = event
         self._ensure_overall(
@@ -237,18 +236,27 @@ class LiveVerificationView:
             active_packages=event.active_packages,
             pinned_packages=event.pinned_packages,
         )
-        heading_line = Text.assemble((f"{_ICONS['success']} ", "success"), heading)
-        detail_lines = [Text(f"  {line}", style="dim") for line in details]
+        heading_row: _MarkerRow = (
+            Text(_ICONS["success"], style="success"),
+            heading,
+        )
+        detail_rows: tuple[_MarkerRow, ...] = tuple(
+            (None, line) for line in details
+        )
         if self._stderr.is_terminal:
-            self._queue_run_id()
             self._complete_pending_setup()
-            self._setup_lines.append(heading_line)
-            self._setup_lines.extend(detail_lines)
+            self._setup_lines.append(heading_row)
+            self._queue_run_id()
+            self._setup_lines.extend(detail_rows)
             self._flush_setup_card()
         else:
-            self.print_step(heading_line)
-            for line in detail_lines:
-                self.print_step(line)
+            rows = [heading_row]
+            run_id_row = self._run_id_row()
+            if run_id_row is not None:
+                rows.append(run_id_row)
+                self._run_id_rendered = True
+            rows.extend(detail_rows)
+            self.print_step(marker_group(tuple(rows), expand=False))
             return
         description = (
             self._status_description(self._pending_status)
@@ -262,16 +270,27 @@ class LiveVerificationView:
         )
 
     def _print_run_id(self) -> None:
-        if self._run_id is None or self._run_id_rendered:
+        row = self._run_id_row()
+        if row is None:
             return
-        self._stderr.print(Text(f"run-id: {self._run_id}"))
+        self._stderr.print(marker_group((row,), expand=False))
         self._run_id_rendered = True
 
     def _queue_run_id(self) -> None:
-        if self._run_id is None or self._run_id_rendered:
+        row = self._run_id_row()
+        if row is None:
             return
-        self._setup_lines.insert(0, Text(f"run-id: {self._run_id}"))
+        self._setup_lines.append(row)
         self._run_id_rendered = True
+
+    def _run_id_row(self) -> _MarkerRow | None:
+        if (
+            self._run_id is None
+            or self._run_id_rendered
+            or self._command not in {"check", "minimize", "search", "smoke"}
+        ):
+            return None
+        return (None, run_id_text(self._run_id))
 
     def _consume_stage(self, event: CellStageEvent) -> None:
         if not self._stderr.is_terminal:
@@ -659,10 +678,13 @@ class LiveVerificationView:
         return event.message
 
     @staticmethod
-    def _completed_status_line(event: StatusEvent, kind: OutcomeKind) -> Text:
+    def _completed_status_row(
+        event: StatusEvent,
+        kind: OutcomeKind,
+    ) -> _MarkerRow:
         done = _COMPLETED_STATUS.get(event.message, event.message)
         text = f"{event.package} {done}" if event.package else done
-        return Text.assemble((f"{_ICONS[kind]} ", kind), text)
+        return (Text(_ICONS[kind], style=kind), Text(text))
 
     def _complete_pending_setup(self) -> None:
         if (
@@ -671,7 +693,7 @@ class LiveVerificationView:
         ):
             return
         self._setup_lines.append(
-            self._completed_status_line(self._pending_status, "success")
+            self._completed_status_row(self._pending_status, "success")
         )
         self._pending_status = None
         self._pending_outcome = None
@@ -684,8 +706,7 @@ class LiveVerificationView:
         if self._stderr.is_terminal:
             self._setup_card_lines = lines
             return
-        for line in lines:
-            self.print_step(line)
+        self.print_step(marker_group(lines, expand=False))
 
     def _pinned_renderable(self) -> RenderableType | None:
         if not self._setup_card_lines:
@@ -697,12 +718,12 @@ class LiveVerificationView:
 
     @staticmethod
     def _setup_card(
-        lines: tuple[Text, ...],
+        lines: tuple[_MarkerRow, ...],
         *,
         border_style: str,
     ) -> Panel:
         return Panel(
-            Group(*lines),
+            marker_group(lines, expand=True),
             box=box.ROUNDED,
             border_style=border_style,
             padding=(0, 1),
@@ -731,14 +752,15 @@ class LiveVerificationView:
             self._pending_status is not None
             and self._pending_status.message not in _CELL_PHASE_MESSAGES
         ):
-            line = self._completed_status_line(
+            line = self._completed_status_row(
                 self._pending_status,
                 outcome,
             )
             if self._pending_status.message in _SETUP_MESSAGES:
                 self._setup_lines.append(line)
             else:
-                self.print_step(line)
+                self.print_step(marker_group((line,), expand=False))
+        self._queue_run_id()
         self._flush_setup_card()
         self._persist_setup_card(outcome)
         self._pending_status = None
@@ -771,8 +793,8 @@ def _matrix_summary_lines(
     *,
     active_packages: int,
     pinned_packages: int,
-) -> tuple[str, ...]:
-    pythons = ", ".join(
+) -> tuple[Text, ...]:
+    pythons = tuple(
         sorted({cell.python_minor for cell in cells}, key=_python_sort_key)
     )
     platforms = ", ".join(sorted({cell.target for cell in cells}))
@@ -790,11 +812,19 @@ def _matrix_summary_lines(
         f", {active_packages} active {package_noun} "
         f"({pinned_packages} pinned)"
     )
+    python_line = Text("python: ", style="dim")
+    if pythons:
+        for index, python in enumerate(pythons):
+            if index:
+                python_line.append(", ", style="dim")
+            python_line.append(python, style="dim bold")
+    else:
+        python_line.append("none", style="dim")
     return (
-        heading,
-        f"python: {pythons or 'none'}",
-        f"platform: {platforms or 'none'}",
-        f"extra surfaces: {surfaces or 'none'}",
+        Text(heading),
+        python_line,
+        Text(f"platform: {platforms or 'none'}", style="dim"),
+        Text(f"extra surfaces: {surfaces or 'none'}", style="dim"),
     )
 
 
@@ -813,16 +843,18 @@ class _IconColumn(ProgressColumn):
         super().__init__()
         self._spinner = SpinnerColumn()
 
+    def get_table_column(self) -> Column:
+        return Column(width=1, no_wrap=True)
+
     def render(self, task: Task) -> RenderableType:
         role = task.fields.get("role")
         if role in {"cell-search-progress", "cell-context", "cell-stage"} or (
             role == "cell" and not task.started
         ):
-            return Text("  ")
+            return Text()
         rendered = self._spinner.render(task)
         if not isinstance(rendered, Text):
             return Text()
-        rendered.append(" ")
         return rendered
 
 
@@ -880,10 +912,13 @@ class _TaskDescriptionColumn(TextColumn):
             running = task.fields.get("running")
             if isinstance(running, int):
                 left = max(0, int(task.total - task.completed - running))
-                rendered.append(
-                    f" · {running} running · {int(task.completed)} finished · {left} left",
-                    style="dim",
-                )
+                rendered.append(" · ", style="dim")
+                rendered.append(str(running), style="dim bold")
+                rendered.append(" running · ", style="dim")
+                rendered.append(str(int(task.completed)), style="dim bold")
+                rendered.append(" finished · ", style="dim")
+                rendered.append(str(left), style="dim bold")
+                rendered.append(" left", style="dim")
         elif role == "cell":
             cell = task.fields.get("cell")
             if isinstance(cell, Cell):
@@ -904,16 +939,12 @@ class _ProgressVisualColumn(ProgressColumn):
         ):
             if stage_progress.total == 0:
                 return Text()
-            return Padding(
-                ProgressBar(
-                    total=stage_progress.total,
-                    completed=stage_progress.completed,
-                    style="bar.back",
-                    complete_style="bar.complete",
-                    finished_style="bar.finished",
-                ),
-                (0, 0, 0, 1),
-                expand=False,
+            return ProgressBar(
+                total=stage_progress.total,
+                completed=stage_progress.completed,
+                style="bar.back",
+                complete_style="bar.complete",
+                finished_style="bar.finished",
             )
         if task.fields.get("role") == "cell":
             return _ElasticSpace()
@@ -928,7 +959,6 @@ class _OverallCountColumn(MofNCompleteColumn):
             and task.fields.get("cell_activity") is not True
         ):
             rendered = super().render(task)
-            rendered.pad_left(1)
             return rendered
         stage_progress = task.fields.get("stage_progress")
         if task.fields.get("role") == "cell-stage" and isinstance(
@@ -936,9 +966,8 @@ class _OverallCountColumn(MofNCompleteColumn):
         ):
             rendered = Text(
                 f"{stage_progress.completed}/{stage_progress.total}",
-                style="default",
+                style="dim",
             )
-            rendered.pad_left(1)
             return rendered
         return Text()
 
@@ -955,15 +984,15 @@ class _StageRemainingColumn(ProgressColumn):
         ):
             return Text()
         if progress.completed == 0:
-            return Text(" ETA --:--:--", style="default")
+            return Text("ETA --:--:--", style="dim")
         remaining = max(0, progress.total - progress.completed)
         elapsed = task.elapsed or 0.0
         estimate = ceil(elapsed * remaining / progress.completed)
         hours, remainder = divmod(estimate, 3600)
         minutes, seconds = divmod(remainder, 60)
         return Text(
-            f" ETA {hours:02d}:{minutes:02d}:{seconds:02d}",
-            style="default",
+            f"ETA {hours:02d}:{minutes:02d}:{seconds:02d}",
+            style="dim",
         )
 
 
@@ -979,7 +1008,7 @@ class _DimElapsedColumn(ProgressColumn):
         ):
             return Text()
         elapsed = str(timedelta(seconds=max(0, int(task.elapsed))))
-        return Text(f" {elapsed}", style="dim magenta")
+        return Text(elapsed, style="dim cyan")
 
 
 class _OrderedProgress(Progress):
@@ -1053,7 +1082,7 @@ class _OrderedProgress(Progress):
                 else column.get_table_column().copy()
                 for column in columns
             ),
-            padding=(0, 0),
+            padding=(0, 2),
             expand=self._expands_for(task),
         )
         table.add_row(
