@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
 import hashlib
 import fnmatch
+import math
 import os
 from pathlib import Path
 import shutil
 import stat
 import tempfile
+from typing import Any
+
+import tomli
 
 from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.errors import InfrastructureError
+from pf.schemas.base import canonical_identity_json
 from pf.schemas.evaluation import ProcessSpec, ProcessTerminalUnavailable
 from pf.schemas.project import (
+    PyprojectIdentity,
     SnapshotEntry,
     SourceSnapshotIdentity,
     source_snapshot_digest,
@@ -71,11 +78,23 @@ class SnapshotBuilder:
         builder._runner = None
         return builder
 
-    def build(self, root: Path) -> SourceSnapshot:
+    def build(
+        self,
+        root: Path,
+        *,
+        owned_pyproject_paths: tuple[str, ...] = (),
+    ) -> SourceSnapshot:
         root = root.resolve()
+        owned_paths = frozenset(owned_pyproject_paths)
+        if len(owned_paths) != len(owned_pyproject_paths) or any(
+            Path(path).is_absolute() or ".." in Path(path).parts
+            for path in owned_paths
+        ):
+            raise ConfigurationError("owned pyproject paths must be unique and relative")
         temporary_directory = tempfile.TemporaryDirectory(prefix="pf-source-")
         staged_root = Path(temporary_directory.name)
         entries: list[SnapshotEntry] = []
+        pyproject_identities: list[PyprojectIdentity] = []
         if (root / ".git").exists() and self._runner is None:
             temporary_directory.cleanup()
             raise ConfigurationError(
@@ -89,14 +108,29 @@ class SnapshotBuilder:
                 source_directory=root,
                 staged_root=staged_root,
                 entries=entries,
+                pyproject_identities=pyproject_identities,
+                owned_pyproject_paths=owned_paths,
                 ignore_patterns=ignore_patterns,
                 manifest=manifest,
             )
             canonical_entries = tuple(sorted(entries, key=lambda entry: entry.path))
+            canonical_pyprojects = tuple(
+                sorted(pyproject_identities, key=lambda identity: identity.path)
+            )
+            observed_owned = {identity.path for identity in canonical_pyprojects}
+            if observed_owned != owned_paths:
+                missing = sorted(owned_paths - observed_owned)
+                raise ConfigurationError(
+                    f"owned pyproject is not a regular source file: {missing[0]}"
+                )
             return SourceSnapshot(
                 identity=SourceSnapshotIdentity(
-                    digest=source_snapshot_digest(canonical_entries),
+                    digest=source_snapshot_digest(
+                        canonical_entries,
+                        canonical_pyprojects,
+                    ),
                     entries=canonical_entries,
+                    pyproject_identities=canonical_pyprojects,
                 ),
                 temporary_directory=temporary_directory,
             )
@@ -111,6 +145,8 @@ class SnapshotBuilder:
         source_directory: Path,
         staged_root: Path,
         entries: list[SnapshotEntry],
+        pyproject_identities: list[PyprojectIdentity],
+        owned_pyproject_paths: frozenset[str],
         ignore_patterns: tuple[str, ...],
         manifest: frozenset[str] | None,
     ) -> None:
@@ -166,23 +202,116 @@ class SnapshotBuilder:
                     source_directory=source,
                     staged_root=staged_root,
                     entries=entries,
+                    pyproject_identities=pyproject_identities,
+                    owned_pyproject_paths=owned_pyproject_paths,
                     ignore_patterns=ignore_patterns,
                     manifest=manifest,
                 )
             elif stat.S_ISREG(metadata.st_mode):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination, follow_symlinks=False)
-                content_digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+                content = destination.read_bytes()
+                relative_path = relative.as_posix()
+                owned = relative_path in owned_pyproject_paths
+                content_digest = (
+                    None if owned else hashlib.sha256(content).hexdigest()
+                )
                 entries.append(
                     SnapshotEntry(
-                        path=relative.as_posix(),
+                        path=relative_path,
                         kind="file",
                         mode=mode,
                         content_digest=content_digest,
                     )
                 )
+                if owned:
+                    pyproject_identities.append(
+                        self.pyproject_identity(
+                            path=relative_path,
+                            mode=mode,
+                            content=content,
+                        )
+                    )
             else:
                 raise ConfigurationError(f"unsupported special source file: {relative}")
+
+    @staticmethod
+    def pyproject_identity(
+        *,
+        path: str,
+        mode: int,
+        content: bytes,
+    ) -> PyprojectIdentity:
+        """Return the structured identity for one owned pyproject file."""
+        try:
+            document = tomli.loads(content.decode("utf-8"))
+        except (UnicodeDecodeError, tomli.TOMLDecodeError) as error:
+            raise ConfigurationError(f"invalid owned pyproject: {path}") from error
+        project = document.get("project")
+        dependency_arrays: dict[str, Any] = {}
+        remainder = dict(document)
+        if isinstance(project, dict):
+            remainder_project = dict(project)
+            if "dependencies" in project:
+                dependency_arrays["dependencies"] = project["dependencies"]
+                remainder_project.pop("dependencies", None)
+            if "optional-dependencies" in project:
+                dependency_arrays["optional-dependencies"] = project[
+                    "optional-dependencies"
+                ]
+                remainder_project.pop("optional-dependencies", None)
+            remainder["project"] = remainder_project
+        tagged_remainder = SnapshotBuilder._tag_toml(remainder)
+        tagged_dependencies = SnapshotBuilder._tag_toml(dependency_arrays)
+        return PyprojectIdentity(
+            path=path,
+            mode=mode,
+            remainder_digest=hashlib.sha256(
+                b"pf:pyproject-remainder:v1\0"
+                + canonical_identity_json(tagged_remainder)
+            ).hexdigest(),
+            dependency_arrays_digest=hashlib.sha256(
+                b"pf:pyproject-dependencies:v1\0"
+                + canonical_identity_json(tagged_dependencies)
+            ).hexdigest(),
+        )
+
+    @staticmethod
+    def _tag_toml(value: Any) -> object:
+        if isinstance(value, dict):
+            return [
+                "table",
+                [
+                    [key, SnapshotBuilder._tag_toml(value[key])]
+                    for key in sorted(value)
+                ],
+            ]
+        if isinstance(value, list):
+            return ["array", [SnapshotBuilder._tag_toml(item) for item in value]]
+        if isinstance(value, str):
+            return ["string", value]
+        if isinstance(value, bool):
+            return ["bool", value]
+        if isinstance(value, int):
+            return ["int", str(value)]
+        if isinstance(value, float):
+            if math.isnan(value):
+                token = "nan"
+            elif math.isinf(value):
+                token = "inf" if value > 0 else "-inf"
+            else:
+                token = value.hex()
+            return ["float", token]
+        if isinstance(value, datetime):
+            tag = "offset-datetime" if value.tzinfo is not None else "local-datetime"
+            return [tag, value.isoformat()]
+        if isinstance(value, date):
+            return ["local-date", value.isoformat()]
+        if isinstance(value, time):
+            return ["local-time", value.isoformat()]
+        raise ConfigurationError(
+            f"unsupported TOML identity value: {type(value).__name__}"
+        )
 
     @staticmethod
     def _excluded(

@@ -57,8 +57,9 @@ def _package(cell: Cell) -> PackagePlan:
 
 def _snapshot() -> SourceSnapshotIdentity:
     return SourceSnapshotIdentity(
-        digest=source_snapshot_digest(()),
+        digest=source_snapshot_digest((), ()),
         entries=(),
+        pyproject_identities=(),
     )
 
 

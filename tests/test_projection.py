@@ -24,6 +24,7 @@ from pf.schemas.evaluation import (
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
+    ApplySelector,
     AvailableArtifact,
     Candidate,
     CandidateSnapshot,
@@ -246,6 +247,297 @@ def successful_cell(
 
 
 class TestReportProjection:
+    def test_group_projection_does_not_add_a_marker_for_declared_matrix(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna<4"]\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+        cell = package.cells[0]
+
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=(FloorProjection(cell=cell, version="2.0"),),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+            ),
+            platform_scoped=False,
+        )
+
+        assert projection.representable is True
+        assert len(projection.projected_requirements) == 1
+        requirement = Requirement(projection.projected_requirements[0])
+        assert str(requirement.specifier) == "<4,>=2.0"
+        assert requirement.marker is None
+
+    def test_group_projection_scopes_selected_selector_and_preserves_complement(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna<4"]\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["aarch64-apple-darwin", '
+            '"x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+        linux = next(cell for cell in package.cells if "linux" in cell.target)
+
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=(FloorProjection(cell=linux, version="2.0"),),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+            ),
+            platform_scoped=True,
+        )
+
+        assert projection.representable is True
+        requirements = tuple(
+            Requirement(raw) for raw in projection.projected_requirements
+        )
+        assert {str(requirement.specifier) for requirement in requirements} == {
+            "<4",
+            "<4,>=2.0",
+        }
+        markers = {str(requirement.marker) for requirement in requirements}
+        assert 'sys_platform == "linux" and platform_machine == "x86_64"' in markers
+        complement = next(marker for marker in markers if "!=" in marker)
+        assert 'sys_platform != "linux"' in complement
+        assert 'platform_machine != "x86_64"' in complement
+        assert "win32" not in complement
+        assert "darwin" not in complement
+
+    def test_group_projection_complement_only_negates_selected_selectors(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna<4"]\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["aarch64-apple-darwin", '
+            '"x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+        linux = next(cell for cell in package.cells if "linux" in cell.target)
+        windows = next(cell for cell in package.cells if "windows" in cell.target)
+
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=(
+                FloorProjection(cell=linux, version="2.0"),
+                FloorProjection(cell=windows, version="3.0"),
+            ),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+                ApplySelector(sys_platform="win32", platform_machine="AMD64"),
+            ),
+            platform_scoped=True,
+        )
+
+        assert projection.representable is True
+        complement = next(
+            str(requirement.marker)
+            for requirement in map(Requirement, projection.projected_requirements)
+            if requirement.marker is not None and "!=" in str(requirement.marker)
+        )
+        assert 'sys_platform != "linux"' in complement
+        assert 'sys_platform != "win32"' in complement
+        assert "darwin" not in complement
+
+    def test_group_projection_inherits_one_libc_floor_within_selector(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna<4"]\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["x86_64-unknown-linux-gnu", '
+            '"x86_64-unknown-linux-musl"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+        gnu = next(cell for cell in package.cells if cell.target.endswith("gnu"))
+
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=(FloorProjection(cell=gnu, version="2.0"),),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+            ),
+            platform_scoped=False,
+        )
+
+        assert projection.representable is True
+        requirement = Requirement(projection.projected_requirements[0])
+        assert str(requirement.specifier) == "<4,>=2.0"
+        assert requirement.marker is None
+
+    def test_group_projection_rejects_conflicting_libc_floors(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna<4"]\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["x86_64-unknown-linux-gnu", '
+            '"x86_64-unknown-linux-musl"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=tuple(
+                FloorProjection(cell=cell, version=version)
+                for cell, version in zip(
+                    package.cells,
+                    ("2.0", "3.0"),
+                    strict=True,
+                )
+            ),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+            ),
+            platform_scoped=False,
+        )
+
+        assert projection.representable is False
+        assert projection.projected_requirements == ()
+
+    def test_group_projection_combines_existing_marker_with_minor_and_selector(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna[socks]!=2.5,<4; python_version >= \'3.10\'"]\n'
+            '[tool.pf]\npython = ["3.10", "3.11"]\n'
+            'platform = ["x86_64-pc-windows-msvc", '
+            '"x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+        linux_cells = tuple(
+            cell for cell in package.cells if "linux" in cell.target
+        )
+
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=tuple(
+                FloorProjection(
+                    cell=cell,
+                    version="2.0" if cell.python_minor == "3.10" else "3.0",
+                )
+                for cell in linux_cells
+            ),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+            ),
+            platform_scoped=True,
+        )
+
+        assert projection.representable is True
+        requirements = tuple(
+            Requirement(raw) for raw in projection.projected_requirements
+        )
+        selected = tuple(
+            requirement
+            for requirement in requirements
+            if ">=" in str(requirement.specifier)
+        )
+        assert len(selected) == 2
+        assert all(requirement.extras == {"socks"} for requirement in selected)
+        assert {str(requirement.specifier) for requirement in selected} == {
+            "!=2.5,<4,>=2.0",
+            "!=2.5,<4,>=3.0",
+        }
+        assert all(
+            'python_version >= "3.10"' in str(requirement.marker)
+            and 'sys_platform == "linux"' in str(requirement.marker)
+            for requirement in selected
+        )
+
+    def test_group_projection_round_trips_an_optional_dependency_group(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            '[project.optional-dependencies]\ndocs = ["idna<4"]\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(
+            root=tmp_path,
+            package_selection=None,
+        ).packages[0]
+        declaration = package.declarations[0]
+        active = next(
+            cell
+            for cell in package.cells
+            if declaration.declaration_id in cell.active_declaration_ids
+        )
+
+        projection = PackageReportBuilder().project(
+            declarations=(declaration,),
+            target_cells=package.cells,
+            floors=(FloorProjection(cell=active, version="2.0"),),
+            selected_selectors=(
+                ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+            ),
+            platform_scoped=False,
+        )
+
+        assert projection.representable is True
+        requirement = Requirement(projection.projected_requirements[0])
+        assert str(requirement.specifier) == "<4,>=2.0"
+        assert requirement.marker is None
+
     def test_report_builder_projects_exact_floor_and_preserves_constraints(
         self,
         tmp_path: Path,
@@ -317,6 +609,7 @@ class TestReportProjection:
             source_snapshot=report.source_snapshot,
             policy_identity=report.policy_identity,
             requirement_declarations=report.requirement_declarations,
+            source_plan=package.source_plan,
             target_cells=target_cells,
         )
         path.write_text(json.dumps(incomplete_coverage), encoding="utf-8")
@@ -491,7 +784,7 @@ class TestReportProjection:
             extra_surface=(),
         )
 
-        projection = PackageReportBuilder().project(
+        projection = PackageReportBuilder().project_declaration(
             declaration=declaration,
             target_cells=(gnu, musl),
             active_cells=(gnu,),

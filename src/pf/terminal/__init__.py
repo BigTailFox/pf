@@ -34,9 +34,9 @@ from pf.schemas.evaluation import (
     TyDiagnostic,
     VerificationRole,
 )
-from pf.schemas.project import Cell
+from pf.schemas.project import ApplySelector, Cell
 from pf.report import ValidatedReport
-from pf.schemas.report import ProjectEditResult
+from pf.schemas.apply import ApplyCommandResult
 from pf.terminal._live import LiveVerificationView
 from pf.terminal._presentation import (
     CellPresentation,
@@ -370,6 +370,19 @@ def _counted(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {noun}"
 
 
+def _selector_label(selector: ApplySelector) -> str:
+    platform = {
+        "darwin": "macos",
+        "win32": "windows",
+    }.get(selector.sys_platform, selector.sys_platform)
+    machine = {
+        "AMD64": "x86_64",
+        "ARM64": "arm64",
+        "aarch64": "arm64",
+    }.get(selector.platform_machine, selector.platform_machine)
+    return f"{platform}/{machine}"
+
+
 def _report_path(report: ValidatedReport) -> str:
     parent = Path(report.package.pyproject_path).parent
     relative = Path("package-floor.json") if parent == Path(".") else parent / "package-floor.json"
@@ -551,7 +564,7 @@ class TerminalPresenter:
         self.stderr.print(command_usage(command))
         help_target = f"pf {command}" if command else "pf"
         self.stderr.print(f"Try '{help_target} --help' for more information.")
-        return int(error.exit_code)
+        return 1
 
     def render_check(self, result: CheckResult) -> int:
         check_kind: OutcomeKind = (
@@ -941,16 +954,10 @@ class TerminalPresenter:
     def render_minimize(
         self,
         reports: tuple[ValidatedReport, ...],
-        edits: tuple[ProjectEditResult, ...] | None,
+        result: ApplyCommandResult,
     ) -> int:
         self.close()
-        if edits is None:
-            self._print_outcome(
-                "warning",
-                "Minimize stopped before apply · search report is incomplete",
-            )
-            return _search_exit_code(_search_reasons(reports)) or 2
-        return self.render_apply(edits, command="minimize")
+        return self.render_apply(result, command="minimize")
 
 
     def _print_step(self, message: str | Text | Panel | Group) -> None:
@@ -981,25 +988,53 @@ class TerminalPresenter:
 
     def render_apply(
         self,
-        edits: tuple[ProjectEditResult, ...],
+        result: ApplyCommandResult,
         *,
         command: Literal["apply", "minimize"] = "apply",
     ) -> int:
         self.close()
+        edits = result.edits
+        facts = result.presentation_facts
         changed = tuple(edit for edit in edits if edit.changed)
         verb = "Minimized floors" if command == "minimize" else "Applied floors"
-        if not changed:
+        outcome = (
+            f"{_counted(len(changed), 'project')} updated"
+            if changed
+            else "no metadata changes"
+        )
+        selected = ", ".join(_selector_label(item) for item in facts.selected_selectors)
+        preserved = ", ".join(
+            _selector_label(item) for item in facts.preserved_selectors
+        )
+        scope = (
+            f" · platform-scoped to {selected} · preserved {preserved}"
+            if preserved
+            else ""
+        )
+        if facts.source_drift_path_count:
+            self.stderr.print(
+                f"evidence  {facts.observed_cells}/{facts.observed_cells} "
+                f"observed cells passed{f' · {selected}' if selected else ''}"
+            )
+            if preserved:
+                self.stderr.print(f"preserved {preserved}")
+            self.stderr.print(
+                f"waived    source drift ({_counted(facts.source_drift_path_count, 'path')})"
+            )
+            if facts.source_drift_paths:
+                hidden = facts.source_drift_path_count - len(facts.source_drift_paths)
+                suffix = f" (+{hidden} more)" if hidden else ""
+                self.stderr.print(
+                    f"paths     {', '.join(facts.source_drift_paths)}{suffix}"
+                )
             self._print_outcome(
-                "success",
-                f"{verb} · no metadata changes",
-                console=self.stdout,
+                "warning",
+                f"{verb} with operator override · {outcome}",
             )
             return 0
-        path = changed[0].pyproject_path if len(changed) == 1 else ""
-        artifact = f" · {path}" if path else ""
         self._print_outcome(
             "success",
-            f"{verb} · {_counted(len(changed), 'project')} updated{artifact}",
+            f"{verb} · {outcome}{scope}",
             console=self.stdout,
         )
         return 0

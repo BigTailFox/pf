@@ -98,8 +98,9 @@ def _report(
         source_plan=SourcePlan(identities=()),
     )
     snapshot = SourceSnapshotIdentity(
-        digest=source_snapshot_digest(()),
+        digest=source_snapshot_digest((), ()),
         entries=(),
+        pyproject_identities=(),
     )
     base = PackageReportBuilder().build(
         package=package,
@@ -253,8 +254,8 @@ class TestExplainCellCards:
         card = rendered[rendered.index("╭") : rendered.index("╰")]
         assert "demo · package-floor.json" in card
         assert "Status: incomplete" in card
-        assert "Apply: not authorized by this report" in card
-        assert "Cells: 0/0 covered" in card
+        assert "Apply: blocked by report evidence" in card
+        assert "Cells: 0/0 passed" in card
         assert "Requirements" in card
         assert "rich>=14" in card
         assert "projection blocked" in card
@@ -739,7 +740,7 @@ class TestExplainCellCards:
         assert "\x1b[1;36mdemo" in rendered
         assert "\x1b[36mpackage-floor.json" in rendered
         assert "Status: \x1b[33mincomplete" in rendered
-        assert "Apply: \x1b[33mnot authorized by this report" in rendered
+        assert "Apply: \x1b[33mblocked; no applicable final floor" in rendered
         assert "\x1b[33m⚠" in rendered
 
     def test_explain_summary_uses_red_when_any_cell_is_red(self) -> None:

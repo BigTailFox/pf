@@ -24,7 +24,7 @@ from pf.cli import (
     build_context,
     create_app,
 )
-from pf.errors import NoApplicableFloorError, PfError
+from pf.errors import ApplyAuthorizationError, NoApplicableFloorError, PfError
 from pf.report import PackageReportBuilder, ValidatedReport
 from pf.runlog import RunLogStore
 from pf.schemas.config import (
@@ -37,8 +37,10 @@ from pf.schemas.config import (
     SearchRequest,
     SmokeRequest,
 )
+from pf.schemas.apply import ApplyCommandResult, ApplyPresentationFacts
 from pf.schemas.evaluation import CheckPass, SmokePass, StatusEvent
 from pf.schemas.project import (
+    ApplySelector,
     PackagePlan,
     SourcePlan,
     SourceSnapshotIdentity,
@@ -63,6 +65,32 @@ class NeverCalledWorkflow:
 class NoOpRunLogs:
     def close(self) -> None:
         return
+
+
+def apply_result(
+    *,
+    changed: bool,
+    selected: tuple[ApplySelector, ...] = (),
+    preserved: tuple[ApplySelector, ...] = (),
+    source_drift_path_count: int = 0,
+    source_drift_paths: tuple[str, ...] = (),
+) -> ApplyCommandResult:
+    return ApplyCommandResult(
+        edits=(
+            ProjectEditResult(
+                changed=changed,
+                pyproject_path="pyproject.toml",
+                recovery_log_path=".pf/apply-recovery.json",
+            ),
+        ),
+        presentation_facts=ApplyPresentationFacts(
+            observed_cells=2,
+            selected_selectors=selected,
+            preserved_selectors=preserved,
+            source_drift_path_count=source_drift_path_count,
+            source_drift_paths=source_drift_paths,
+        ),
+    )
 
 
 def make_context(
@@ -118,8 +146,9 @@ def minimal_report() -> ValidatedReport:
         source_plan=SourcePlan(identities=()),
     )
     snapshot = SourceSnapshotIdentity(
-        digest=source_snapshot_digest(()),
+        digest=source_snapshot_digest((), ()),
         entries=(),
+        pyproject_identities=(),
     )
     return PackageReportBuilder().build(
         package=package,
@@ -147,7 +176,7 @@ def invoke_app(*args: str) -> subprocess.CompletedProcess[str]:
     except PfError as error:
         return_code = context.presenter.render_error(error)
     except CycloptsError:
-        return_code = 3
+        return_code = 1
     finally:
         context.close()
     return subprocess.CompletedProcess(
@@ -236,7 +265,7 @@ class TestCliInterface:
             text=True,
         )
 
-        assert result.returncode == 3
+        assert result.returncode == 1
         assert result.stdout == ""
         assert "Error:" in result.stderr
         assert max(map(len, result.stderr.splitlines())) <= 120
@@ -253,7 +282,7 @@ class TestCliInterface:
     def test_merge_without_reports_is_a_usage_error(self) -> None:
         result = invoke_app("merge", "--output", "merged.json")
 
-        assert result.returncode == 3
+        assert result.returncode == 1
         assert "Error:" in result.stderr
         assert "Usage: pf merge REPORT [REPORT ...] --output PATH" in result.stderr
         assert "Try 'pf merge --help'" in result.stderr
@@ -281,7 +310,7 @@ class TestCliInterface:
     def test_unknown_option_is_an_invocation_error(self) -> None:
         result = invoke_app("check", "--not-a-flag")
 
-        assert result.returncode == 3
+        assert result.returncode == 1
         assert result.stdout == ""
         assert "Error:" in result.stderr
         assert "Usage:" in result.stderr
@@ -292,7 +321,7 @@ class TestCliInterface:
     def test_illegal_jobs_is_an_invocation_error(self) -> None:
         result = invoke_app("check", "--jobs", "nope")
 
-        assert result.returncode == 3
+        assert result.returncode == 1
         assert "Error:" in result.stderr
         assert "positive integer" in result.stderr
         assert "Usage: pf check [OPTIONS] [PACKAGE]" in result.stderr
@@ -303,7 +332,7 @@ class TestCliInterface:
     def test_illegal_duration_restates_accepted_format(self) -> None:
         result = invoke_app("search", "--max-duration", "10minutes")
 
-        assert result.returncode == 3
+        assert result.returncode == 1
         assert "Error:" in result.stderr
         assert "30s" in result.stderr
         assert "10m" in result.stderr
@@ -345,7 +374,7 @@ class TestCliInterface:
             text=True,
         )
 
-        assert result.returncode == 3
+        assert result.returncode == 1
         assert "Error:" in result.stderr
         assert "unknown package selection: other" in result.stderr
         assert "Known packages: demo" in result.stderr
@@ -374,7 +403,7 @@ class TestCliInterface:
         )
 
         class ApplyWorkflow:
-            def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
                 presenter.consume(StatusEvent(message="applying floors"))
                 raise NoApplicableFloorError("cannot apply an incomplete floor report")
 
@@ -404,6 +433,38 @@ class TestCliInterface:
             in stderr.getvalue()
         )
 
+    def test_apply_authorization_failure_exits_three_without_success(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class ApplyWorkflow:
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
+                raise ApplyAuthorizationError("dependency declarations drifted")
+
+        monkeypatch.chdir(tmp_path)
+        stdout = StringIO()
+        stderr = StringIO()
+        context = make_context(
+            apply_workflow=ApplyWorkflow(),
+            presenter=TerminalPresenter(
+                stdout=Console(file=stdout, force_terminal=False, color_system=None),
+                stderr=Console(file=stderr, force_terminal=False, color_system=None),
+            ),
+        )
+
+        with pytest.raises(ApplyAuthorizationError) as caught:
+            create_app(context)(
+                ["apply"],
+                exit_on_error=False,
+                result_action="return_value",
+            )
+
+        assert context.presenter.render_error(caught.value) == 3
+        assert stdout.getvalue() == ""
+        assert "dependency declarations drifted" in stderr.getvalue()
+        assert "Applied floors" not in stderr.getvalue()
+
 
 class TestCommandDispatch:
     @pytest.mark.parametrize(
@@ -413,7 +474,7 @@ class TestCommandDispatch:
             ("check", ("--jobs", "auto")),
             ("search", ("--jobs", "auto", "--max-duration", "none")),
             ("explain", ()),
-            ("apply", ()),
+            ("apply", ("--force",)),
             ("minimize", ()),
             (
                 "diagnose",
@@ -725,15 +786,9 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: ApplyRequest | None = None
 
-            def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
                 self.request = request
-                return (
-                    ProjectEditResult(
-                        changed=True,
-                        pyproject_path="pyproject.toml",
-                        recovery_log_path=".pf/apply-recovery.json",
-                    ),
-                )
+                return apply_result(changed=True)
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
@@ -759,10 +814,125 @@ class TestCommandDispatch:
         assert workflow.request == ApplyRequest(
             root=tmp_path.as_posix(), package="demo"
         )
-        assert (
-            stdout.getvalue()
-            == "✓  Applied floors · 1 project updated · pyproject.toml\n"
+        assert stdout.getvalue() == "✓  Applied floors · 1 project updated\n"
+
+    @pytest.mark.parametrize("force_terminal", (False, True))
+    def test_apply_reports_platform_scope_in_one_stdout_summary(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        force_terminal: bool,
+    ) -> None:
+        class ApplyWorkflow:
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
+                assert request.force is False
+                return apply_result(
+                    changed=True,
+                    selected=(
+                        ApplySelector(
+                            sys_platform="linux", platform_machine="x86_64"
+                        ),
+                    ),
+                    preserved=(
+                        ApplySelector(
+                            sys_platform="win32", platform_machine="AMD64"
+                        ),
+                    ),
+                )
+
+        monkeypatch.chdir(tmp_path)
+        stdout = StringIO()
+        stderr = StringIO()
+        context = make_context(
+            presenter=TerminalPresenter(
+                stdout=Console(
+                    file=stdout,
+                    force_terminal=force_terminal,
+                    color_system=None,
+                ),
+                stderr=Console(
+                    file=stderr,
+                    force_terminal=force_terminal,
+                    color_system=None,
+                ),
+            ),
+            apply_workflow=ApplyWorkflow(),
         )
+
+        exit_code = create_app(context)(
+            ["apply", "demo"],
+            exit_on_error=False,
+            result_action="return_value",
+        )
+
+        assert exit_code == 0
+        assert stderr.getvalue() == ""
+        assert " ".join(stdout.getvalue().split()) == (
+            "✓ Applied floors · 1 project updated · platform-scoped to "
+            "linux/x86_64 · preserved windows/x86_64"
+        )
+
+    @pytest.mark.parametrize("force_terminal", (False, True))
+    def test_apply_force_reports_the_used_source_waiver_only_on_stderr(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        force_terminal: bool,
+    ) -> None:
+        class ApplyWorkflow:
+            def __init__(self) -> None:
+                self.request: ApplyRequest | None = None
+
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
+                self.request = request
+                return apply_result(
+                    changed=True,
+                    selected=(
+                        ApplySelector(
+                            sys_platform="linux", platform_machine="x86_64"
+                        ),
+                    ),
+                    source_drift_path_count=10,
+                    source_drift_paths=tuple(f"src/path-{index}.py" for index in range(8)),
+                )
+
+        monkeypatch.chdir(tmp_path)
+        stdout = StringIO()
+        stderr = StringIO()
+        workflow = ApplyWorkflow()
+        context = make_context(
+            presenter=TerminalPresenter(
+                stdout=Console(
+                    file=stdout,
+                    force_terminal=force_terminal,
+                    color_system=None,
+                ),
+                stderr=Console(
+                    file=stderr,
+                    force_terminal=force_terminal,
+                    color_system=None,
+                ),
+            ),
+            apply_workflow=workflow,
+        )
+
+        exit_code = create_app(context)(
+            ["apply", "demo", "--force"],
+            exit_on_error=False,
+            result_action="return_value",
+        )
+
+        assert exit_code == 0
+        assert workflow.request == ApplyRequest(
+            root=tmp_path.as_posix(), package="demo", force=True
+        )
+        assert stdout.getvalue() == ""
+        rendered = stderr.getvalue()
+        assert "evidence  2/2 observed cells passed · linux/x86_64" in rendered
+        assert "waived    source drift (10 paths)" in rendered
+        assert "src/path-7.py (+2 more)" in rendered
+        assert rendered.count("Applied floors") == 1
+        assert "⚠  Applied floors with operator override · 1 project updated" in rendered
 
     def test_cli_context_requires_the_complete_object_graph(self) -> None:
         with pytest.raises(TypeError, match="required positional argument"):
@@ -810,7 +980,7 @@ class TestCommandDispatch:
 
 
 class TestMinimizeCommand:
-    def test_minimize_does_not_apply_when_search_report_is_incomplete(
+    def test_minimize_reuses_default_apply_for_an_incomplete_search_report(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -820,16 +990,21 @@ class TestMinimizeCommand:
                 return (minimal_report(),)
 
         class ApplyWorkflow:
-            def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
-                raise AssertionError("incomplete search must not enter apply")
+            def __init__(self) -> None:
+                self.request: ApplyRequest | None = None
+
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
+                self.request = request
+                return apply_result(changed=False)
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
         stderr = StringIO()
+        apply = ApplyWorkflow()
         context = make_context(
             check_workflow=NeverCheck(),
             search_workflow=SearchWorkflow(),
-            apply_workflow=ApplyWorkflow(),
+            apply_workflow=apply,
             presenter=TerminalPresenter(
                 stdout=Console(file=stdout, force_terminal=False, color_system=None),
                 stderr=Console(file=stderr, force_terminal=False, color_system=None),
@@ -842,11 +1017,10 @@ class TestMinimizeCommand:
             result_action="return_value",
         )
 
-        assert exit_code == 2
-        assert stdout.getvalue() == ""
-        assert "Minimize stopped before apply" in stderr.getvalue()
-        assert "search completed" not in stderr.getvalue()
-        assert "Search complete" not in stdout.getvalue()
+        assert exit_code == 0
+        assert apply.request == ApplyRequest(root=tmp_path.as_posix(), package="demo")
+        assert stdout.getvalue() == "✓  Minimized floors · no metadata changes\n"
+        assert stderr.getvalue() == ""
 
     def test_minimize_applies_after_a_complete_search(
         self,
@@ -865,15 +1039,9 @@ class TestMinimizeCommand:
             def __init__(self) -> None:
                 self.request: ApplyRequest | None = None
 
-            def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
                 self.request = request
-                return (
-                    ProjectEditResult(
-                        changed=False,
-                        pyproject_path="pyproject.toml",
-                        recovery_log_path=".pf/apply-recovery.json",
-                    ),
-                )
+                return apply_result(changed=False)
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()

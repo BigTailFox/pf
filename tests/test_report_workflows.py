@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from pf.authorization import ApplyAuthorizer
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
@@ -16,6 +17,7 @@ from pf.schemas.config import (
     MergeRequest,
     ReportRequest,
 )
+from pf.schemas.apply import ApplyPresentationFacts, AuthorizedWorkspaceApply
 from pf.schemas.evaluation import (
     CellFailureScope,
     ProcessResult,
@@ -26,6 +28,7 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     PackagePlan,
+    ProjectPlan,
     SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
@@ -33,6 +36,7 @@ from pf.schemas.project import (
 from pf.schemas.report import (
     ProjectEditResult,
 )
+from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.workflow import (
     ApplyCommandWorkflow,
     ExplainCommandWorkflow,
@@ -54,8 +58,9 @@ def report(
         source_plan=SourcePlan(identities=()),
     )
     snapshot = SourceSnapshotIdentity(
-        digest=source_snapshot_digest(()),
+        digest=source_snapshot_digest((), ()),
         entries=(),
+        pyproject_identities=(),
     )
     return PackageReportBuilder().build(
         package=package,
@@ -132,16 +137,40 @@ class TestReportWorkflows:
             def apply_many(
                 self,
                 *,
-                reports: tuple[ValidatedReport, ...],
+                authorization: AuthorizedWorkspaceApply,
                 root: Path,
             ) -> tuple[ProjectEditResult, ...]:
-                assert reports == (current_report,)
+                assert authorization.mode == "DEFAULT"
                 assert root == tmp_path
                 return (
                     ProjectEditResult(
                         changed=False,
                         pyproject_path="pyproject.toml",
                         recovery_log_path=".pf/apply-recovery.json",
+                    ),
+                )
+
+        class Authorizer:
+            def authorize(
+                self,
+                *,
+                reports: tuple[ValidatedReport, ...],
+                project: ProjectPlan,
+                current_snapshot: SourceSnapshot,
+                force: bool,
+            ) -> AuthorizedWorkspaceApply:
+                assert reports == (current_report,)
+                assert project.packages == (package,)
+                assert force is False
+                return AuthorizedWorkspaceApply(
+                    mode="DEFAULT",
+                    expected_snapshot=current_snapshot.identity,
+                    owned_pyproject_paths=("pyproject.toml",),
+                    package_applies=(),
+                    presentation_facts=ApplyPresentationFacts(
+                        observed_cells=0,
+                        selected_selectors=(),
+                        preserved_selectors=(),
                     ),
                 )
 
@@ -153,14 +182,16 @@ class TestReportWorkflows:
                 self.items.append(event)
 
         events = Events()
-        edits = ApplyCommandWorkflow(
+        result = ApplyCommandWorkflow(
             projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
             reports=store,
+            authorizer=Authorizer(),
             editor=Editor(),
             events=events,
         ).run(ApplyRequest(root=tmp_path.as_posix()))
 
-        assert edits[0].changed is False
+        assert result.edits[0].changed is False
         status = [event for event in events.items if isinstance(event, StatusEvent)]
         assert [event.message for event in status] == ["applying floors"]
         assert status[0].total == 1
@@ -180,15 +211,19 @@ class TestReportWorkflows:
             def apply_many(
                 self,
                 *,
-                reports: tuple[ValidatedReport, ...],
+                authorization: AuthorizedWorkspaceApply,
                 root: Path,
             ) -> tuple[ProjectEditResult, ...]:
                 raise AssertionError("policy drift must fail before editing")
 
-        with pytest.raises(ConfigurationError, match="report policy identity mismatch"):
+        with pytest.raises(
+            ConfigurationError, match="report evaluation policy mismatch"
+        ):
             ApplyCommandWorkflow(
                 projects=ProjectLoader(),
+                snapshots=SnapshotBuilder.without_processes(),
                 reports=store,
+                authorizer=ApplyAuthorizer(),
                 editor=NeverEditor(),
             ).run(ApplyRequest(root=tmp_path.as_posix()))
 
@@ -207,7 +242,7 @@ class TestReportWorkflows:
             def apply_many(
                 self,
                 *,
-                reports: tuple[ValidatedReport, ...],
+                authorization: AuthorizedWorkspaceApply,
                 root: Path,
             ) -> tuple[ProjectEditResult, ...]:
                 raise AssertionError("identity mismatch must fail before editing")
@@ -217,7 +252,9 @@ class TestReportWorkflows:
         ):
             ApplyCommandWorkflow(
                 projects=ProjectLoader(),
+                snapshots=SnapshotBuilder.without_processes(),
                 reports=store,
+                authorizer=ApplyAuthorizer(),
                 editor=NeverEditor(),
             ).run(ApplyRequest(root=tmp_path.as_posix()))
 

@@ -12,7 +12,8 @@ from rich.text import Text
 from pf.errors import ConfigurationError
 from pf.report import ValidatedReport
 from pf.schemas.evaluation import BaselineIndeterminate, BaselineRejection
-from pf.schemas.project import Cell
+from pf.project import marker_platform
+from pf.schemas.project import Cell, cell_identity
 from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
@@ -72,6 +73,7 @@ def _render_report(
             "report projection is missing its requirement declaration"
         )
     complete = report.result.status == "complete"
+    apply_message, apply_kind, scoped_eligible = _apply_status(report)
     kind = _report_kind(report)
     covered = sum(
         1 for result in report.cell_results if isinstance(result, CellSuccess)
@@ -89,14 +91,9 @@ def _render_report(
         ),
         Text.assemble(
             "Apply: ",
-            (
-                "authorized by this report"
-                if complete
-                else "not authorized by this report",
-                f"reason.{kind}",
-            ),
+            (apply_message, f"reason.{apply_kind}"),
         ),
-        Text(f"Cells: {covered}/{targets} covered"),
+        Text(f"Cells: {covered}/{targets} passed"),
     ]
     if report.requirement_declarations or report.projection_evidence:
         overview.extend((Text(), Text("Requirements", style="bold")))
@@ -180,6 +177,15 @@ def _render_report(
             )
         )
         presenter.stdout.print(Text(f"Next: pf apply {report.package.name}"))
+    elif scoped_eligible:
+        presenter.stdout.print(
+            Text(
+                "Summary: report has complete evidence for some platform selectors; "
+                "current project authorization is still required.",
+                style=f"summary.{summary_kind}",
+            )
+        )
+        presenter.stdout.print(Text(f"Next: pf apply {report.package.name}"))
     else:
         presenter.stdout.print(
             Text(
@@ -187,6 +193,49 @@ def _render_report(
                 style=f"summary.{summary_kind}",
             )
         )
+
+
+def _apply_status(report: ValidatedReport) -> tuple[str, OutcomeKind, bool]:
+    if report.result.status == "complete":
+        return "eligible; current project will be rechecked", "success", False
+    reasons = set(report.result.reasons)
+    if "MISSING_CELL" not in reasons or not reasons <= {
+        "MISSING_CELL",
+        "UNREPRESENTABLE_PROJECTION",
+    }:
+        return "blocked by report evidence", "warning", False
+
+    targets_by_platform: dict[str, set[tuple[str, str, str, tuple[str, ...]]]] = {}
+    roots_by_platform: dict[str, list[CellResult]] = {}
+    for cell in report.target_cells:
+        targets_by_platform.setdefault(cell.target, set()).add(cell_identity(cell))
+    for result in report.cell_results:
+        roots_by_platform.setdefault(result.cell.target, []).append(result)
+    if not roots_by_platform:
+        return "blocked; no applicable final floor", "warning", False
+
+    complete_platforms: set[str] = set()
+    for platform, roots in roots_by_platform.items():
+        if {cell_identity(result.cell) for result in roots} != targets_by_platform.get(
+            platform, set()
+        ) or not all(isinstance(result, CellSuccess) for result in roots):
+            return "blocked by partial or non-success evidence", "warning", False
+        complete_platforms.add(platform)
+
+    selectors = {
+        tuple(marker_platform(platform).values()) for platform in targets_by_platform
+    }
+    complete_selectors = {
+        tuple(marker_platform(platform).values()) for platform in complete_platforms
+    }
+    if len(selectors) > 1 and complete_selectors and selectors - complete_selectors:
+        return (
+            "eligible for platform-scoped apply if the current declaration still "
+            "matches",
+            "warning",
+            True,
+        )
+    return "blocked by report evidence", "warning", False
 
 
 def _cell_presentation(

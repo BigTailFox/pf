@@ -42,8 +42,9 @@ def snapshot_for(
     entries: tuple[SnapshotEntry, ...] = (),
 ) -> SourceSnapshotIdentity:
     return SourceSnapshotIdentity(
-        digest=source_snapshot_digest(entries),
+        digest=source_snapshot_digest(entries, ()),
         entries=entries,
+        pyproject_identities=(),
     )
 
 

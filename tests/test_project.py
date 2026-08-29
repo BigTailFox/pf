@@ -220,6 +220,46 @@ class TestProjectDiscovery:
 
         assert [package.name for package in plan.packages] == ["alpha"]
         assert plan.packages[0].pyproject_path == "packages/alpha/pyproject.toml"
+        assert plan.owned_pyproject_paths == (
+            "packages/alpha/pyproject.toml",
+            "packages/beta/pyproject.toml",
+            "pyproject.toml",
+        )
+
+    def test_project_plan_owns_recursive_in_tree_path_package_metadata(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        first = tmp_path / "vendor" / "first"
+        second = tmp_path / "vendor" / "second"
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["first"]\n'
+            '[tool.uv.sources]\nfirst = { path = "vendor/first" }\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        (first / "pyproject.toml").write_text(
+            '[project]\nname = "first"\nversion = "1"\n'
+            '[tool.uv.sources]\nsecond = { path = "../second" }\n',
+            encoding="utf-8",
+        )
+        (second / "pyproject.toml").write_text(
+            '[project]\nname = "second"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+
+        plan = ProjectLoader().load(root=tmp_path, package_selection=None)
+
+        assert plan.owned_pyproject_paths == (
+            "pyproject.toml",
+            "vendor/first/pyproject.toml",
+            "vendor/second/pyproject.toml",
+        )
 
     def test_project_discovery_rejects_duplicate_canonical_names_before_selection(
         self,

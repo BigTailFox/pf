@@ -150,7 +150,10 @@ class ProjectLoader:
             for package, location in zip(packages, locations, strict=True)
         ):
             raise ConfigurationError("package identity changed during project loading")
-        return ProjectPlan(packages=packages)
+        return ProjectPlan(
+            packages=packages,
+            owned_pyproject_paths=self._discovery.owned_pyproject_paths(root=root),
+        )
 
     def _load_package(self, *, root: Path, package_path: Path) -> PackagePlan:
         document = self._read(package_path / "pyproject.toml")
@@ -332,6 +335,7 @@ class ProjectLoader:
         return PackagePlan(
             name=package_name,
             pyproject_path=pyproject_path,
+            requires_python=requires_python,
             config=config,
             declarations=tuple(declarations),
             cells=cells,

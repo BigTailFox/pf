@@ -40,6 +40,7 @@ from pf.schemas.evaluation import (
     runtime_process_observation,
 )
 from pf.schemas.project import (
+    DependencyGroupKey,
     CandidateSnapshot,
     Candidate,
     Cell,
@@ -49,6 +50,7 @@ from pf.schemas.project import (
     SelectedCandidate,
     SourceSnapshotIdentity,
     SourceIdentity,
+    SourcePlan,
     VersionPin,
     cell_identity,
     is_canonical_distribution_name,
@@ -1196,6 +1198,7 @@ class GeneratorIdentity(FrozenSchema):
 class PackageIdentity(FrozenSchema):
     name: str
     pyproject_path: str
+    requires_python: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -1218,6 +1221,14 @@ class FloorProjection(FrozenSchema):
 class ProjectionEvidence(FrozenSchema):
     declaration_id: str
     floors: tuple[FloorProjection, ...]
+    projected_requirements: tuple[str, ...]
+    representable: bool
+
+
+class DependencyGroupProjection(FrozenSchema):
+    key: DependencyGroupKey
+    floors: tuple[FloorProjection, ...]
+    original_requirements: tuple[str, ...]
     projected_requirements: tuple[str, ...]
     representable: bool
 
@@ -1266,6 +1277,7 @@ class CandidateSnapshotV1(FrozenSchema):
 
 
 class ReportInputsV1(FrozenSchema):
+    source_plan: SourcePlan
     requirement_declarations: tuple[RequirementDeclaration, ...]
     target_cells: tuple[TargetCellV1, ...]
     candidate_snapshots: tuple[CandidateSnapshotV1, ...]
@@ -1656,6 +1668,7 @@ def report_generation_id(
     source_snapshot: SourceSnapshotIdentity,
     policy_identity: str,
     verifier_outcome_policy: Literal["configured-verifier-terminal-v1"],
+    source_plan: SourcePlan,
     requirement_declarations: tuple[RequirementDeclaration, ...],
     target_cells: tuple[Cell, ...],
 ) -> str:
@@ -1672,6 +1685,7 @@ def report_generation_id(
         "source_snapshot": source_snapshot.model_dump(mode="json"),
         "policy_identity": policy_identity,
         "verifier_outcome_policy": verifier_outcome_policy,
+        "source_plan": source_plan.model_dump(mode="json"),
         "requirement_declarations": [
             declaration.model_dump(mode="json") for declaration in declarations
         ],

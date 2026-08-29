@@ -262,8 +262,9 @@ def incomplete_report(
         source_plan=SourcePlan(identities=()),
     )
     snapshot = SourceSnapshotIdentity(
-        digest=source_snapshot_digest(()),
+        digest=source_snapshot_digest((), ()),
         entries=(),
+        pyproject_identities=(),
     )
     target_cells = tuple(result.cell for result in cell_results)
     base = PackageReportBuilder().build(
@@ -401,7 +402,7 @@ class TestErrorRendering:
             )
         )
 
-        assert exit_code == 3
+        assert exit_code == 1
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
             "Error: unknown package selection: other\n"
@@ -4274,7 +4275,7 @@ class TestExplainRendering:
         terminal.render_explain((report,))
 
         rendered = stdout.getvalue()
-        assert "Apply: authorized by this report" in rendered
+        assert "Apply: eligible; current project will be rechecked" in rendered
         assert "1 dependency declaration have verified floors" in rendered
         assert "Next: pf apply demo" in rendered
 
@@ -4342,7 +4343,7 @@ class TestExplainRendering:
         rendered = stdout.getvalue()
         assert "demo · package-floor.json" in rendered
         assert "Status: incomplete" in rendered
-        assert "Apply: not authorized by this report" in rendered
+        assert "Apply: blocked; no applicable final floor" in rendered
         assert "foo>=1" in rendered
         assert "projection blocked" in rendered
         assert "Summary: report is incomplete and cannot be applied." in rendered
@@ -4497,7 +4498,7 @@ class TestExplainRendering:
 
         assert exit_code == 0
         rendered = stdout.getvalue()
-        assert "Apply: not authorized by this report" in rendered
+        assert "Apply: blocked by report evidence" in rendered
         assert "configured search space was fully evaluated" in rendered
         assert "no compatible version" in rendered
         assert rejection.failure_id not in rendered
@@ -4684,7 +4685,7 @@ class TestExplainRendering:
         rendered = stdout.getvalue()
         assert "demo · package-floor.json" in rendered
         assert "Status: incomplete" in rendered
-        assert "Apply: not authorized by this report" in rendered
+        assert "Apply: blocked; no applicable final floor" in rendered
         assert "Summary:" in rendered
         for line in rendered.splitlines():
             assert len(line) <= width

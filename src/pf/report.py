@@ -49,6 +49,7 @@ from pf.resolution import environment_identity_digest, resolution_graph_id
 from pf.project import marker_applies, marker_platform
 from pf.policy import CONFIGURED_VERIFIER_OUTCOME_POLICY
 from pf.schemas.project import (
+    ApplySelector,
     AvailableArtifact,
     CandidateSnapshot,
     Cell,
@@ -60,6 +61,7 @@ from pf.schemas.project import (
     SourceSnapshotIdentity,
     cell_id,
     cell_identity,
+    dependency_group_key,
     public_locator,
     source_snapshot_digest,
 )
@@ -99,6 +101,7 @@ from pf.schemas.report import (
     CellSearchFailureV1,
     CellSuccess,
     CompleteReportResult,
+    DependencyGroupProjection,
     FloorProjection,
     FloorProjectionV1,
     GeneratorIdentity,
@@ -246,6 +249,7 @@ class ValidatedReport:
     source_snapshot: SourceSnapshotIdentity
     policy_identity: str
     verifier_outcome_policy: Literal["configured-verifier-terminal-v1"]
+    source_plan: SourcePlan
     requirement_declarations: tuple[RequirementDeclaration, ...]
     target_cells: tuple[Cell, ...]
     cell_results: tuple[CellResult, ...]
@@ -400,6 +404,7 @@ class PackageReportBuilder:
         package_identity = PackageIdentity(
             name=package.name,
             pyproject_path=package.pyproject_path,
+            requires_python=package.requires_python,
         )
         policy_identity = _policy_identity or self._policy_identity(
             package, cell_results
@@ -414,6 +419,7 @@ class PackageReportBuilder:
             source_snapshot=source_snapshot,
             policy_identity=policy_identity,
             verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
+            source_plan=package.source_plan,
             requirement_declarations=declarations,
             target_cells=target_cells,
         )
@@ -844,6 +850,7 @@ class PackageReportBuilder:
                 verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
             ),
             inputs=ReportInputsV1(
+                source_plan=package.source_plan,
                 requirement_declarations=declarations,
                 target_cells=tuple(
                     TargetCellV1(
@@ -1367,14 +1374,14 @@ class PackageReportBuilder:
             )
             if floor is not None:
                 floors.append(FloorProjection(cell=cell, version=floor))
-        return self.project(
+        return self.project_declaration(
             declaration=declaration,
             target_cells=package.cells,
             active_cells=active_cells,
             floors=tuple(floors),
         )
 
-    def project(
+    def project_declaration(
         self,
         *,
         declaration: RequirementDeclaration,
@@ -1413,6 +1420,260 @@ class PackageReportBuilder:
             projected_requirements=requirements,
             representable=complete and bool(requirements),
         )
+
+    def project(
+        self,
+        *,
+        declarations: tuple[RequirementDeclaration, ...],
+        target_cells: tuple[Cell, ...],
+        floors: tuple[FloorProjection, ...],
+        selected_selectors: tuple[ApplySelector, ...],
+        platform_scoped: bool,
+    ) -> DependencyGroupProjection:
+        """Project one complete dependency group from Cell intent."""
+        if not declarations:
+            raise ConfigurationError("dependency group projection requires declarations")
+        ordered_declarations = tuple(
+            sorted(declarations, key=lambda declaration: declaration.declaration_id)
+        )
+        key = dependency_group_key(ordered_declarations[0])
+        if any(
+            dependency_group_key(declaration) != key
+            for declaration in ordered_declarations[1:]
+        ):
+            raise ConfigurationError("dependency group projection mixes group keys")
+        selector_keys = tuple(
+            sorted(
+                {
+                    (selector.sys_platform, selector.platform_machine)
+                    for selector in selected_selectors
+                }
+            )
+        )
+        ordered_floors = tuple(
+            sorted(floors, key=lambda floor: self._cell_key(floor.cell))
+        )
+        result = DependencyGroupProjection(
+            key=key,
+            floors=ordered_floors,
+            original_requirements=tuple(
+                declaration.raw for declaration in ordered_declarations
+            ),
+            projected_requirements=(),
+            representable=False,
+        )
+        if not selector_keys:
+            return result
+        target_keys = {self._cell_key(cell) for cell in target_cells}
+        floor_by_cell: dict[CellKey, str] = {}
+        floor_by_selector_coordinate: dict[
+            tuple[str, tuple[str, ...], tuple[str, str]], str
+        ] = {}
+        for floor in ordered_floors:
+            cell_key = self._cell_key(floor.cell)
+            if cell_key not in target_keys:
+                return result
+            previous = floor_by_cell.get(cell_key)
+            if previous is not None and previous != floor.version:
+                return result
+            floor_by_cell[cell_key] = floor.version
+            selector_coordinate = (
+                floor.cell.python_minor,
+                floor.cell.extra_surface,
+                self._selector_key(floor.cell),
+            )
+            selector_previous = floor_by_selector_coordinate.get(selector_coordinate)
+            if selector_previous is not None and selector_previous != floor.version:
+                return result
+            floor_by_selector_coordinate[selector_coordinate] = floor.version
+
+        projected: list[str] = []
+        intended_floor_by_cell: dict[CellKey, str] = {}
+        for declaration in ordered_declarations:
+            if not declaration.managed:
+                projected.append(declaration.raw)
+                continue
+            active_selected = tuple(
+                cell
+                for cell in target_cells
+                if declaration.declaration_id in cell.active_declaration_ids
+                and self._selector_key(cell) in selector_keys
+            )
+            coordinates: dict[tuple[str, tuple[str, str]], str] = {}
+            for cell in active_selected:
+                cell_key = self._cell_key(cell)
+                version = floor_by_cell.get(cell_key) or floor_by_selector_coordinate.get(
+                    (
+                        cell.python_minor,
+                        cell.extra_surface,
+                        self._selector_key(cell),
+                    )
+                )
+                if version is None:
+                    return result
+                intended_floor_by_cell[cell_key] = version
+                coordinate = (cell.python_minor, self._selector_key(cell))
+                previous = coordinates.get(coordinate)
+                if previous is not None and previous != version:
+                    return result
+                coordinates[coordinate] = version
+            if coordinates:
+                versions = set(coordinates.values())
+                if not platform_scoped and len(versions) == 1:
+                    projected.append(
+                        self._project_requirement(declaration, next(iter(versions)))
+                    )
+                else:
+                    python_dimension = len(
+                        {minor for minor, _ in coordinates}
+                    ) > 1
+                    selector_dimension = platform_scoped or len(
+                        {selector for _, selector in coordinates}
+                    ) > 1
+                    by_version: dict[str, list[str]] = {}
+                    for (minor, selector), version in sorted(coordinates.items()):
+                        parts = []
+                        if python_dimension:
+                            parts.append(f'python_version == "{minor}"')
+                        if selector_dimension:
+                            parts.extend(
+                                (
+                                    f'sys_platform == "{selector[0]}"',
+                                    f'platform_machine == "{selector[1]}"',
+                                )
+                            )
+                        condition = " and ".join(parts)
+                        if not condition:
+                            return result
+                        by_version.setdefault(version, []).append(condition)
+                    for version in sorted(by_version, key=Version):
+                        alternatives = tuple(sorted(set(by_version[version])))
+                        selector = " or ".join(
+                            f"({alternative})" if " and " in alternative else alternative
+                            for alternative in alternatives
+                        )
+                        projected.append(
+                            self._project_requirement(
+                                declaration,
+                                version,
+                                selector=selector,
+                            )
+                        )
+            else:
+                projected.append(declaration.raw)
+            if platform_scoped and coordinates:
+                projected.append(
+                    self._preserve_requirement(
+                        declaration,
+                        selector=self._selector_complement(selector_keys),
+                    )
+                )
+        projected_requirements = tuple(projected)
+        if not self._group_projection_is_equivalent(
+            declarations=ordered_declarations,
+            target_cells=target_cells,
+            floor_by_cell=intended_floor_by_cell,
+            selected_selectors=frozenset(selector_keys),
+            projected_requirements=projected_requirements,
+        ):
+            return result
+        return result.model_copy(
+            update={
+                "projected_requirements": projected_requirements,
+                "representable": True,
+            }
+        )
+
+    def _group_projection_is_equivalent(
+        self,
+        *,
+        declarations: tuple[RequirementDeclaration, ...],
+        target_cells: tuple[Cell, ...],
+        floor_by_cell: dict[CellKey, str],
+        selected_selectors: frozenset[tuple[str, str]],
+        projected_requirements: tuple[str, ...],
+    ) -> bool:
+        for cell in target_cells:
+            active = tuple(
+                declaration
+                for declaration in declarations
+                if declaration.declaration_id in cell.active_declaration_ids
+            )
+            expected = []
+            for declaration in active:
+                if declaration.managed and self._selector_key(cell) in selected_selectors:
+                    floor = floor_by_cell.get(self._cell_key(cell))
+                    if floor is None:
+                        return False
+                    raw = self._project_requirement(declaration, floor)
+                else:
+                    raw = declaration.raw
+                expected.append(self._effective_requirement(raw))
+            observed = []
+            for raw in projected_requirements:
+                requirement = Requirement(raw)
+                marker = (
+                    str(requirement.marker)
+                    if requirement.marker is not None
+                    else None
+                )
+                if (
+                    declarations[0].location == "optional"
+                    and declarations[0].extra not in cell.extra_surface
+                ):
+                    continue
+                if marker_applies(marker, cell):
+                    observed.append(self._effective_requirement(raw))
+            if sorted(expected) != sorted(observed):
+                return False
+        return True
+
+    @staticmethod
+    def _effective_requirement(raw: str) -> tuple[object, ...]:
+        requirement = Requirement(raw)
+        return (
+            requirement.name.lower().replace("_", "-"),
+            tuple(sorted(requirement.extras)),
+            tuple(
+                sorted(
+                    (specifier.operator, specifier.version)
+                    for specifier in requirement.specifier
+                )
+            ),
+            requirement.url,
+        )
+
+    @staticmethod
+    def _selector_key(cell: Cell) -> tuple[str, str]:
+        values = marker_platform(cell.target)
+        return values["sys_platform"], values["platform_machine"]
+
+    @staticmethod
+    def _selector_complement(
+        selectors: tuple[tuple[str, str], ...],
+    ) -> str:
+        return " and ".join(
+            f'(sys_platform != "{sys_platform}" or '
+            f'platform_machine != "{platform_machine}")'
+            for sys_platform, platform_machine in selectors
+        )
+
+    @staticmethod
+    def _preserve_requirement(
+        declaration: RequirementDeclaration,
+        *,
+        selector: str,
+    ) -> str:
+        original = Requirement(declaration.raw)
+        original_marker = str(original.marker) if original.marker is not None else None
+        marker_value = (
+            f"({original_marker}) and ({selector})"
+            if original_marker is not None
+            else selector
+        )
+        name = original.name
+        extras = f"[{','.join(sorted(original.extras))}]" if original.extras else ""
+        return f"{name}{extras}{original.specifier}; {marker_value}"
 
     def _project_distinct_floors(
         self,
@@ -1564,6 +1825,7 @@ class ReportStore:
         ("package", "package"),
         ("source_snapshot", "source snapshot"),
         ("policy_identity", "policy"),
+        ("source_plan", "source plan"),
         ("requirement_declarations", "declarations"),
         ("target_cells", "target cell coverage"),
     )
@@ -1664,6 +1926,11 @@ class ReportStore:
             raise ConfigurationError(
                 "invalid v1 report: explicit wire facts are missing or not canonical"
             )
+        source_plan = wire.inputs.source_plan
+        if any(not _is_public_source(item) for item in source_plan.identities):
+            raise ConfigurationError(
+                "invalid v1 report: SourcePlan has a non-public locator"
+            )
         declarations = wire.inputs.requirement_declarations
         declaration_ids = tuple(item.declaration_id for item in declarations)
         if declaration_ids != tuple(sorted(set(declaration_ids))):
@@ -1672,8 +1939,24 @@ class ReportStore:
             )
         source_snapshot = wire.identity.source_snapshot
         paths = tuple(entry.path for entry in source_snapshot.entries)
-        if paths != tuple(sorted(set(paths))) or source_snapshot.digest != (
-            source_snapshot_digest(source_snapshot.entries)
+        pyproject_paths = tuple(
+            identity.path for identity in source_snapshot.pyproject_identities
+        )
+        entry_by_path = {entry.path: entry for entry in source_snapshot.entries}
+        if (
+            paths != tuple(sorted(set(paths)))
+            or pyproject_paths != tuple(sorted(set(pyproject_paths)))
+            or any(
+                path not in entry_by_path
+                or entry_by_path[path].kind != "file"
+                or entry_by_path[path].content_digest is not None
+                for path in pyproject_paths
+            )
+            or source_snapshot.digest
+            != source_snapshot_digest(
+                source_snapshot.entries,
+                source_snapshot.pyproject_identities,
+            )
         ):
             raise ConfigurationError(
                 "invalid v1 report: source snapshot identity mismatch"
@@ -3002,7 +3285,7 @@ class ReportStore:
                 for cell in target_cells
                 if declaration.declaration_id in cell.active_declaration_ids
             )
-            expected_projection = PackageReportBuilder().project(
+            expected_projection = PackageReportBuilder().project_declaration(
                 declaration=declaration,
                 target_cells=target_cells,
                 active_cells=active_cells,
@@ -3031,6 +3314,7 @@ class ReportStore:
             source_snapshot=source_snapshot,
             policy_identity=wire.identity.policy_identity,
             verifier_outcome_policy=wire.identity.verifier_outcome_policy,
+            source_plan=source_plan,
             requirement_declarations=declarations,
             target_cells=target_cells,
         )
@@ -3076,6 +3360,7 @@ class ReportStore:
             source_snapshot=source_snapshot,
             policy_identity=wire.identity.policy_identity,
             verifier_outcome_policy=wire.identity.verifier_outcome_policy,
+            source_plan=source_plan,
             requirement_declarations=declarations,
             target_cells=target_cells,
             cell_results=cell_results,
@@ -3188,10 +3473,11 @@ class ReportStore:
         package = PackagePlan(
             name=generation.package.name,
             pyproject_path=generation.package.pyproject_path,
+            requires_python=generation.package.requires_python,
             config=EffectiveConfig(),
             declarations=generation.requirement_declarations,
             cells=generation.target_cells,
-            source_plan=SourcePlan(identities=()),
+            source_plan=generation.source_plan,
         )
         rebuilt = PackageReportBuilder().build(
             package=package,

@@ -2,7 +2,7 @@
   "cell_results": [
     {
       "baseline": {
-        "attempt_ref": "bf221cd0003e3994a9f5268bf4979ea68b06b9aa96a5e63fbaeafc9fbb74fd1a",
+        "attempt_ref": "d3c1cc0b01bba1626553f8abbd95e73ac3eb347d7cc9994892890330c8ad6d1a",
         "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
         "static_baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f"
       },
@@ -23,7 +23,7 @@
   "evidence": {
     "attempts": [
       {
-        "attempt_id": "bf221cd0003e3994a9f5268bf4979ea68b06b9aa96a5e63fbaeafc9fbb74fd1a",
+        "attempt_id": "d3c1cc0b01bba1626553f8abbd95e73ac3eb347d7cc9994892890330c8ad6d1a",
         "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
         "harness_declaration_ids": [],
         "harness_policy_identity": "original-harness-v1",
@@ -47,7 +47,7 @@
     "failures": [],
     "proposals": [
       {
-        "attempt_ref": "bf221cd0003e3994a9f5268bf4979ea68b06b9aa96a5e63fbaeafc9fbb74fd1a",
+        "attempt_ref": "d3c1cc0b01bba1626553f8abbd95e73ac3eb347d7cc9994892890330c8ad6d1a",
         "environment_plan_digest": "environment-plan",
         "fixed_declaration_refs": [],
         "interpreter": {
@@ -99,16 +99,20 @@
       "pyproject_path": "pyproject.toml"
     },
     "policy_identity": "485288849d5b189554d574a0a2253f60af00ee2a9cce92b57ebd13f7cb012181",
-    "report_generation_id": "ae8365696f5fd6b9e9395f3a8fc8b090cff7db92632d877eb6e3aaf47c088af6",
+    "report_generation_id": "847398099ade7e1a42a7e15aea0c3f5a6e752d8e1daa4a4c1a9b03c8d666feab",
     "source_snapshot": {
-      "digest": "7e6fd755e9c7cf62ae5dea94106049d58e04bfe1df225cc7f262b1124c00a1dc",
-      "entries": []
+      "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
+      "entries": [],
+      "pyproject_identities": []
     },
     "verifier_outcome_policy": "configured-verifier-terminal-v1"
   },
   "inputs": {
     "candidate_snapshots": [],
     "requirement_declarations": [],
+    "source_plan": {
+      "identities": []
+    },
     "target_cells": [
       {
         "active_declaration_refs": [],

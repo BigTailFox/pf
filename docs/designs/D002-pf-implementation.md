@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-08-29
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -69,14 +69,15 @@ src/pf/
 ├── scheduling.py                generic Scheduler 与 schedule order
 ├── verification.py              VerificationRunner、completion、Journal timing
 ├── report.py                    builder、resolved facade、store transaction
-├── editor.py                    report-to-TOML transaction/recovery
+├── authorization.py             report/current plan/snapshot → frozen apply grant
+├── editor.py                    authorized TOML transaction/recovery
 ├── workflow.py                  seven command use cases
 ├── runlog.py                    Process Logs、Journal、Diagnosis Index
 ├── _secure_runlog.py            private secure-directory protocol/adapters
 ├── windows_runlog.py            Windows native handle/DACL implementation
 ├── _pytest_observer.py          wheel-packaged standalone pytest plugin
 ├── terminal/                    presenter 与 private live/explain/diagnose views
-├── schemas/                     base/config/project/evaluation/report records
+├── schemas/                     base/config/project/evaluation/report/apply records
 └── adapters/                    process、uv/uv-lock、ty、verifier/pytest 与 runtime-witness seams
 ```
 
@@ -101,10 +102,11 @@ ConfigDict(
 | `schemas.project` | declarations、Cells、source、candidates、Proposal、project plan | `ProjectLoader`、Candidate/Environment owner |
 | `schemas.evaluation` | process、Attempt、Failure、static/runtime outcome、Journal、activity events | D004、D005、D008、D013 |
 | `schemas.report` | search evidence、CellResult、projection、private Schema 1 wire | D003、D014 |
+| `schemas.apply` | workspace/package/group授权、presentation facts与command result | `ApplyAuthorizer`、`ProjectEditor` |
 
 Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、两个 semantic plan digest、managed vector、fixed declarations、graph、interpreter 与 policy identity。Prepare failure 只能保存已取得的事实，不能虚构 Proposal。
 
-`ValidatedReport` 是 report module 暴露给 workflow/editor/explain/diagnose 的 immutable resolved facade。Wire records、typed indexes、refs 和 join 规则都是私有 implementation；完整契约见 D014。
+`ValidatedReport` 是report module暴露给workflow/authorizer/explain/diagnose的immutable resolved facade。Wire records、typed indexes、refs和join规则都是私有implementation；editor不读取report。完整wire契约见D014。
 
 ## 5. Application boundary
 
@@ -126,7 +128,7 @@ main() -> None
 | `ExplainCommandWorkflow` | offline discovery → report read |
 | `DiagnoseCommandWorkflow` | offline discovery → report/Journal → optional local log |
 | `MergeCommandWorkflow` | report read → merge → write |
-| `ApplyCommandWorkflow` | planning/current-policy check → report → ProjectEditor transaction |
+| `ApplyCommandWorkflow` | planning → current owned snapshot → reports → ApplyAuthorizer → ProjectEditor transaction |
 
 ## 6. Planning 与 source snapshot
 
@@ -137,12 +139,12 @@ ProjectDiscovery.discover(root=..., package_selection=...)
 ProjectLoader.load(root=..., package_selection=...)
     -> ProjectPlan
 
-SnapshotBuilder.build(root) -> SourceSnapshot
+SnapshotBuilder.build(root, owned_pyproject_paths=...) -> SourceSnapshot
 ```
 
 `ProjectDiscovery` 只读取 identity/path 与 workspace/package selection，供在线与离线命令复用；canonical package name 必须唯一。`ProjectLoader` 在其上唯一完成三层配置、PEP 508 declaration、marker/extra Cell、source/index 与 recursive test-group planning，调用方只消费 `ProjectPlan`。
 
-`SnapshotBuilder` 负责 Git/non-Git discovery、路径与 symlink 安全、摘要、immutable staging、独立 materialize 和 cleanup。Git 模式使用注入的 ProcessRunner；`without_processes()` 只允许 non-Git traversal。Snapshot 产品范围由 D001 定义。
+`ProjectPlan.owned_pyproject_paths`由discovery收集root、全部workspace candidates（包括未选中/排除member）和递归in-tree path packages。`SnapshotBuilder`负责Git/non-Git discovery、路径与symlink安全、普通blob、owned `PyprojectIdentity`的type-tagged canonical TOML编码、完整摘要、immutable staging、独立materialize和cleanup；所有在线workflow、authorizer与editor复用同一builder和owned paths。Git模式使用注入的ProcessRunner；`without_processes()`只允许non-Git traversal。Snapshot产品范围由D001、wire编码由D014定义。
 
 ## 7. Verification modules
 
@@ -202,10 +204,13 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 | --- | --- | --- |
 | `RunLogStore` | secure Process Logs、Verification Journal、Diagnosis Index 与 associations | disposition、报告 authority |
 | `ReportStore` | Schema 1 codec/validation、merge/update、canonical/atomic write | 搜索或领域 identity 算法 |
-| `PackageReportBuilder` | CellResult roots → interned report、projection/result | wire I/O |
-| `ProjectEditor` | complete report → TOML transaction、recovery、rollback | resolution、test、report validation |
+| `PackageReportBuilder` | CellResult roots → interned report/result；dependency group Cell→PEP 508 projection与重求值 | wire I/O、TOML I/O、apply授权 |
+| `ApplyAuthorizer` | report/current plan/snapshot的前置条件、platform scope、dependency state、source waiver与frozen authorized edits | TOML I/O、终端措辞、wire join |
+| `ProjectEditor` | expected snapshot/pyproject复核、authorized group replacement、raw CAS、写后验证、recovery/rollback | report internals、scope/projection/waiver推导 |
 
-ReportStore 的 interface 与交易语义只见 D014；Process Log 只见 D007，Journal/Index 只见 D008；apply 产品授权只见 D001。
+`ApplyAuthorizer.authorize(reports, project, current_snapshot, force) -> AuthorizedWorkspaceApply`在任一package失败时不返回授权。`ProjectEditor.apply_many(authorization, root)`只执行冻结授权；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`只把edit结果和结构化presentation facts交给TerminalPresenter。
+
+ReportStore的interface与交易语义只见D014；Process Log只见D007，Journal/Index只见D008；apply产品授权只见D001，展示只见D006。
 
 ## 10. Terminal boundary
 

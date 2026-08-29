@@ -206,17 +206,22 @@ class TestReportIdentity:
         )
         canonical = tuple(sorted(entries, key=lambda entry: entry.path))
         expected = hashlib.sha256(
-            b"pf:snapshot:v1\0"
+            b"pf:source-snapshot:v1\0"
             + json.dumps(
-                [entry.model_dump(mode="json") for entry in canonical],
+                {
+                    "entries": [
+                        entry.model_dump(mode="json") for entry in canonical
+                    ],
+                    "pyproject_identities": [],
+                },
                 sort_keys=True,
                 separators=(",", ":"),
                 ensure_ascii=True,
             ).encode("utf-8")
         ).hexdigest()
 
-        assert source_snapshot_digest(entries) == expected
-        assert source_snapshot_digest(tuple(reversed(entries))) == expected
+        assert source_snapshot_digest(entries, ()) == expected
+        assert source_snapshot_digest(tuple(reversed(entries)), ()) == expected
 
     def test_resolution_graph_id_hashes_canonical_graph(self) -> None:
         graph = (
@@ -269,8 +274,9 @@ class TestPackageReportBuilder:
         )
         entries: tuple[SnapshotEntry, ...] = ()
         snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest(entries),
+            digest=source_snapshot_digest(entries, ()),
             entries=entries,
+            pyproject_identities=(),
         )
         report = PackageReportBuilder().build(
             package=package,
@@ -301,6 +307,7 @@ class TestPackageReportBuilder:
             "source_snapshot": report.source_snapshot.model_dump(mode="json"),
             "policy_identity": report.policy_identity,
             "verifier_outcome_policy": report.verifier_outcome_policy,
+            "source_plan": package.source_plan.model_dump(mode="json"),
             "requirement_declarations": [],
             "target_cells": [cell.model_dump(mode="json")],
         }
@@ -347,8 +354,9 @@ class TestPackageReportBuilder:
             source_plan=SourcePlan(identities=()),
         )
         snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest(()),
+            digest=source_snapshot_digest((), ()),
             entries=(),
+            pyproject_identities=(),
         )
         policy = evaluation_policy_identity(package.config)
         failure = FailurePolicy().classify(
@@ -431,8 +439,9 @@ class TestPackageReportBuilder:
             source_plan=SourcePlan(identities=()),
         )
         snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest(()),
+            digest=source_snapshot_digest((), ()),
             entries=(),
+            pyproject_identities=(),
         )
         attempt = Attempt.from_identity(
             AttemptIdentity(
@@ -485,8 +494,9 @@ class TestPackageReportBuilder:
             source_plan=SourcePlan(identities=()),
         )
         snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest(()),
+            digest=source_snapshot_digest((), ()),
             entries=(),
+            pyproject_identities=(),
         )
         policy = evaluation_policy_identity(package.config)
         attempt = Attempt.from_identity(
@@ -568,8 +578,9 @@ class TestPackageReportBuilder:
             source_plan=SourcePlan(identities=()),
         )
         snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest(()),
+            digest=source_snapshot_digest((), ()),
             entries=(),
+            pyproject_identities=(),
         )
         policy = evaluation_policy_identity(package.config)
         attempt = Attempt.from_identity(
@@ -776,8 +787,9 @@ class _CompleteReportCase:
             source_plan=SourcePlan(identities=()),
         )
         snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest(()),
+            digest=source_snapshot_digest((), ()),
             entries=(),
+            pyproject_identities=(),
         )
         policy = evaluation_policy_identity(package.config)
         candidate_policy = "candidate-policy-v1"
@@ -1822,6 +1834,30 @@ class TestValidatedReport(_CompleteReportCase):
 
 
 class TestCompleteReportStore(_CompleteReportCase):
+    @pytest.mark.parametrize(
+        "field_path",
+        (
+            ("identity", "source_snapshot", "pyproject_identities"),
+            ("inputs", "source_plan"),
+        ),
+        ids=("pyproject-identity", "source-plan"),
+    )
+    def test_read_rejects_a_legacy_report_missing_apply_identity(
+        self,
+        tmp_path: Path,
+        field_path: tuple[str, ...],
+    ) -> None:
+        document = copy.deepcopy(self.case.document)
+        owner: dict[str, Any] = document
+        for field in field_path[:-1]:
+            owner = owner[field]
+        del owner[field_path[-1]]
+        path = tmp_path / "legacy-report.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+        with pytest.raises(ConfigurationError, match="invalid v1 report structure"):
+            ReportStore().read(path)
+
     def test_merge_requires_at_least_one_report(self) -> None:
         with pytest.raises(ConfigurationError, match="at least one"):
             ReportStore().merge(())
@@ -2337,8 +2373,9 @@ class TestCompleteReportStore(_CompleteReportCase):
         replacement = PackageReportBuilder().build(
             package=case.package,
             source_snapshot=SourceSnapshotIdentity(
-                digest=source_snapshot_digest(entries),
+                digest=source_snapshot_digest(entries, ()),
                 entries=entries,
+                pyproject_identities=(),
             ),
             cell_results=(),
         )

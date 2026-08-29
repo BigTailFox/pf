@@ -22,6 +22,55 @@ class PackageLocation:
 class ProjectDiscovery:
     """Locate package identities and reports without planning an environment."""
 
+    def owned_pyproject_paths(self, *, root: Path) -> tuple[str, ...]:
+        """Return root, workspace, and recursive in-tree path metadata."""
+        root = root.resolve()
+        root_pyproject = root / "pyproject.toml"
+        root_document = self._read(root_pyproject)
+        pending = {
+            root_pyproject,
+            *(
+                path / "pyproject.toml"
+                for path in self._candidate_paths(root, root_document)
+            ),
+        }
+        observed: set[Path] = set()
+        while pending:
+            pyproject = pending.pop().resolve()
+            self._within_root(pyproject, root)
+            if pyproject in observed:
+                continue
+            if not pyproject.is_file():
+                raise ConfigurationError(
+                    "owned package path has no pyproject.toml: "
+                    f"{self._relative(pyproject, root)}"
+                )
+            observed.add(pyproject)
+            document = self._read(pyproject)
+            tool = document.get("tool", {})
+            uv = tool.get("uv", {}) if isinstance(tool, Mapping) else {}
+            sources = uv.get("sources", {}) if isinstance(uv, Mapping) else {}
+            if not isinstance(sources, Mapping):
+                raise ConfigurationError("tool.uv.sources must be a table")
+            for value in sources.values():
+                if not isinstance(value, Mapping) or "path" not in value:
+                    continue
+                raw_path = value["path"]
+                if not isinstance(raw_path, str):
+                    raise ConfigurationError("uv source path must be a string")
+                package_path = (pyproject.parent / raw_path).resolve()
+                self._within_root(package_path, root)
+                candidate = (
+                    package_path
+                    if package_path.name == "pyproject.toml"
+                    else package_path / "pyproject.toml"
+                )
+                if candidate.is_file():
+                    pending.add(candidate)
+        return tuple(
+            sorted(path.relative_to(root).as_posix() for path in observed)
+        )
+
     def discover(
         self,
         *,

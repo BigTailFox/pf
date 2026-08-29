@@ -53,8 +53,9 @@ from pf.schemas.evaluation import (
     VerificationJournalRecord,
     VerificationRole,
 )
+from pf.schemas.apply import ApplyCommandResult, AuthorizedWorkspaceApply
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
-from pf.schemas.project import Cell, PackagePlan
+from pf.schemas.project import Cell, PackagePlan, ProjectPlan
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -338,7 +339,10 @@ class CheckCommandWorkflow:
             package_selection=request.package,
         )
         self._emit(StatusEvent(message="building snapshot"))
-        snapshot = self._snapshots.build(root)
+        snapshot = self._snapshots.build(
+            root,
+            owned_pyproject_paths=project.owned_pyproject_paths,
+        )
         try:
             self._emit(StatusEvent(message="checking declarations"))
             cells = selected_host_cells(project.packages, self._host_target)
@@ -483,7 +487,10 @@ class SmokeCommandWorkflow:
             package_selection=request.package,
         )
         self._emit(StatusEvent(message="building snapshot"))
-        snapshot = self._snapshots.build(root)
+        snapshot = self._snapshots.build(
+            root,
+            owned_pyproject_paths=project.owned_pyproject_paths,
+        )
         try:
             self._emit(StatusEvent(message="smoke testing"))
             cells = selected_host_cells(project.packages, self._host_target)
@@ -633,7 +640,10 @@ class SearchCommandWorkflow:
             package_selection=request.package,
         )
         self._events.consume(StatusEvent(message="building snapshot"))
-        snapshot = self._snapshots.build(root)
+        snapshot = self._snapshots.build(
+            root,
+            owned_pyproject_paths=project.owned_pyproject_paths,
+        )
         try:
             self._events.consume(StatusEvent(message="searching cells"))
             tasks = tuple(
@@ -721,7 +731,13 @@ class SearchCommandWorkflow:
         root: Path,
         expected: SourceSnapshot,
     ) -> None:
-        current = self._snapshots.build(root)
+        current = self._snapshots.build(
+            root,
+            owned_pyproject_paths=tuple(
+                identity.path
+                for identity in expected.identity.pyproject_identities
+            ),
+        )
         try:
             if current.identity != expected.identity:
                 raise ConfigurationError(
@@ -993,11 +1009,22 @@ class MergeCommandWorkflow:
         return merged
 
 
+class ApplyAuthorizationOperations(Protocol):
+    def authorize(
+        self,
+        *,
+        reports: tuple[ValidatedReport, ...],
+        project: ProjectPlan,
+        current_snapshot: SourceSnapshot,
+        force: bool,
+    ) -> AuthorizedWorkspaceApply: ...
+
+
 class ProjectEditOperations(Protocol):
     def apply_many(
         self,
         *,
-        reports: tuple[ValidatedReport, ...],
+        authorization: AuthorizedWorkspaceApply,
         root: Path,
     ) -> tuple[ProjectEditResult, ...]: ...
 
@@ -1009,16 +1036,20 @@ class ApplyCommandWorkflow:
         self,
         *,
         projects: ProjectLoader,
+        snapshots: SnapshotBuilder,
         reports: ReportStore,
+        authorizer: ApplyAuthorizationOperations,
         editor: ProjectEditOperations,
         events: ActivityConsumer | None = None,
     ) -> None:
         self._projects = projects
+        self._snapshots = snapshots
         self._reports = reports
+        self._authorizer = authorizer
         self._editor = editor
         self._events = events
 
-    def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]:
+    def run(self, request: ApplyRequest) -> ApplyCommandResult:
         root = Path(request.root)
         project = self._projects.load(
             root=root,
@@ -1031,18 +1062,30 @@ class ApplyCommandWorkflow:
                     total=len(project.packages) or None,
                 )
             )
-        reports = []
-        for package in project.packages:
-            report_path = (
+        reports = tuple(
+            self._reports.read(
                 root / Path(package.pyproject_path).parent / "package-floor.json"
             )
-            report = self._reports.read(report_path)
-            if (
-                report.package.name != package.name
-                or report.package.pyproject_path != package.pyproject_path
-            ):
-                raise ConfigurationError("report package identity mismatch")
-            if report.policy_identity != evaluation_policy_identity(package.config):
-                raise ConfigurationError("report policy identity mismatch")
-            reports.append(report)
-        return self._editor.apply_many(reports=tuple(reports), root=root)
+            for package in project.packages
+        )
+        snapshot = self._snapshots.build(
+            root,
+            owned_pyproject_paths=project.owned_pyproject_paths,
+        )
+        try:
+            authorization = self._authorizer.authorize(
+                reports=reports,
+                project=project,
+                current_snapshot=snapshot,
+                force=request.force,
+            )
+            edits = self._editor.apply_many(
+                authorization=authorization,
+                root=root,
+            )
+            return ApplyCommandResult(
+                edits=edits,
+                presentation_facts=authorization.presentation_facts,
+            )
+        finally:
+            snapshot.close()

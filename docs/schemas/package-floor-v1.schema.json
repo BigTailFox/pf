@@ -1182,6 +1182,14 @@
         "pyproject_path": {
           "title": "Pyproject Path",
           "type": "string"
+        },
+        "requires_python": {
+          "anyOf": [
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Requires Python"
         }
       },
       "required": [
@@ -1486,6 +1494,35 @@
       "title": "ProposalV1",
       "type": "object"
     },
+    "PyprojectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_arrays_digest": {
+          "title": "Dependency Arrays Digest",
+          "type": "string"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "remainder_digest": {
+          "title": "Remainder Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dependency_arrays_digest",
+        "mode",
+        "path",
+        "remainder_digest"
+      ],
+      "title": "PyprojectIdentity",
+      "type": "object"
+    },
     "ReportEvidenceV1": {
       "additionalProperties": false,
       "properties": {
@@ -1633,6 +1670,9 @@
           "title": "Requirement Declarations",
           "type": "array"
         },
+        "source_plan": {
+          "$ref": "#/$defs/SourcePlan"
+        },
         "target_cells": {
           "items": {
             "$ref": "#/$defs/TargetCellV1"
@@ -1644,6 +1684,7 @@
       "required": [
         "candidate_snapshots",
         "requirement_declarations",
+        "source_plan",
         "target_cells"
       ],
       "title": "ReportInputsV1",
@@ -2082,6 +2123,23 @@
       "title": "SourceIdentity",
       "type": "object"
     },
+    "SourcePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "identities": {
+          "items": {
+            "$ref": "#/$defs/SourceIdentity"
+          },
+          "title": "Identities",
+          "type": "array"
+        }
+      },
+      "required": [
+        "identities"
+      ],
+      "title": "SourcePlan",
+      "type": "object"
+    },
     "SourceSnapshotIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -2095,11 +2153,19 @@
           },
           "title": "Entries",
           "type": "array"
+        },
+        "pyproject_identities": {
+          "items": {
+            "$ref": "#/$defs/PyprojectIdentity"
+          },
+          "title": "Pyproject Identities",
+          "type": "array"
         }
       },
       "required": [
         "digest",
-        "entries"
+        "entries",
+        "pyproject_identities"
       ],
       "title": "SourceSnapshotIdentity",
       "type": "object"

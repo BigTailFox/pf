@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-08-29
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -59,13 +59,18 @@ PACKAGE  Package name, directory, or pyproject.toml path. Omit to select all
 --max-duration DURATION
     Stop scheduling after DURATION and save an incomplete report.
     Accepts a positive integer followed by s, m, or h; use none for no limit.
+
+--force
+    Accept source-layer drift after structural authorization.
 ```
 
-Duration 只停止新增调度，不承诺杀死运行中 process。`merge` 必须显示 `REPORT [REPORT ...] --output PATH` 并在 parser 层要求至少一个 REPORT。`diagnose --failure` 说明省略时列出全部记录。
+`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose --failure`说明省略时列出全部记录。
 
 ## 3. 调用错误
 
 未知 command/option、缺失或多余参数、非法 jobs/duration、未知 package 与 request 构造错误都形成 D001 的调用错误结果。结构错误尽早由 Cyclopts 拒绝；Request Schema 只作 defense-in-depth。不得宽泛捕获深模块 ValidationError 并伪装成调用错误。
+
+所有按本节格式渲染的调用错误退出`1`；配置、Schema或apply授权错误不带Usage块并按D001退出`3`。
 
 错误写 stderr，格式固定为：
 
@@ -85,7 +90,7 @@ Try 'pf <command> --help' for more information.
 | warning、failure、incomplete/stopped summary | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
-`explain` 成功读取后全文在 stdout，即使报告 incomplete；读取失败走 stderr 与 D001 的配置错误结果。一个顶层命令只有一个 final summary，且它是最后一条结果信息。`minimize` 只调用 `render_minimize(reports, edits)`，不能连续渲染 search/apply 两份 summary。
+`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的配置错误结果。无waiver的apply成功final summary走stdout；实际使用source waiver时，evidence/preserved/waived facts与warning final全部走stderr且退出0。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(reports, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。
 
 TTY 运行中顺序固定：
 
@@ -238,12 +243,24 @@ Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 ⚠ Search incomplete · 1 report written · 3 cells have no applicable floor
 ! Search stopped · compatibility is unknown for 1 cell · report written: package-floor.json
 ✗ Search stopped · highest-version baseline did not pass · 1 report written
-✓ Applied floors · 1 project updated · pyproject.toml
+✓ Applied floors · 1 project updated
+✓ Applied floors · 1 project updated · platform-scoped to linux/x86_64 · preserved windows/x86_64
 ✓ Applied floors · no metadata changes
 ✓ Merged 3 reports · merged.json
 ✓ Minimized floors · 1 project updated
-⚠ Minimize stopped before apply · search report is incomplete
 ```
+
+实际source waiver的结构固定为有界事实行加一个warning final；changed paths最多展示8条规范相对路径，不能显示内容、diff或digest：
+
+```text
+evidence  6/6 observed cells passed · linux/x86_64
+preserved windows/x86_64, macos/arm64
+waived    source drift (31 paths)
+paths     src/a.py, ... (+23 more)
+⚠ Applied floors with operator override · 1 project updated
+```
+
+selector标签把`win32/AMD64`显示为`windows/x86_64`、`darwin/arm64`显示为`macos/arm64`；preserved只表示本generation未验证而保持original约束，不得用passed/covered措辞。TTY与非TTY的事实、通道和final数量相同，只有颜色、边框和换行可降级。
 
 Search/incomplete reason 的主导映射：
 
@@ -257,7 +274,7 @@ Search/incomplete reason 的主导映射：
 
 ## 8. Explain
 
-`explain` 只回答：读取的 package/report、report complete 状态、该 report 是否授权 apply、Cell coverage、每条 declaration 的 floor/projection、每个目标 Cell 的最终状态与终止原因，以及可用的精确 diagnose 入口。它不核对当前 source/policy drift，不转储 observation、Proposal、process output 或技术 Enum。
+`explain`只回答：读取的package/report、report complete状态、report intrinsic apply eligibility/blocker、final success Cell计数、每条declaration的floor/projection、每个目标Cell的最终状态与终止原因，以及可用的精确diagnose入口。它不读取当前项目树，不能断言当前apply已授权、force可用或apply-time dependency/source identity匹配；不转储observation、Proposal、process output或技术Enum。
 
 默认结构：
 
@@ -265,8 +282,11 @@ Search/incomplete reason 的主导映射：
 ╭─ report card ─────────────────────────────────────────────╮
 │ PACKAGE · package-floor.json                              │
 │ Status: complete | incomplete                             │
-│ Apply: authorized by this report | not authorized ...     │
-│ Cells: covered/total                                      │
+│ Apply: eligible; current project will be rechecked        │
+│      | eligible for platform-scoped apply if the current  │
+│        declaration still matches                          │
+│      | blocked by report evidence                         │
+│ Cells: passed/total                                       │
 │                                                          │
 │ Requirements                                              │
 │   <raw declaration> <projection | no floor | blocked>     │
@@ -284,6 +304,8 @@ Next: pf apply PACKAGE
 ```
 
 Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。多 marker requirements 在声明下缩进。Cell 卡片复用 smoke/check/search 的 outcome、identity、边框、Reason 和 diagnose-hint 视觉语言；TTY 使用 Rich Panel，非 TTY 保留相同信息顺序的纯文本降级。
+
+完整report只说eligible并明确当前项目仍会复核。Incomplete report若已有至少一个完整EvidencePlatform、缺失项只来自完整MissingSelector及其full-matrix projection不可表示，可条件式说明默认apply将platform-scoped；没有final success、selector内局部/非成功root、non-monotonic或其它reason仍说blocked。`UNREPRESENTABLE_PROJECTION`在上述MissingSelector情形只描述complete report projection，不冒充apply-time scoped blocker。
 
 Requirements 的 declaration 与单条 projection/detail 使用按当前内容计算的对齐列，
 不得固定终端宽度。原始 declaration 的 dependency specifier 使用 cyan，其中 version

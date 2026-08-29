@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-08-29
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -36,7 +36,7 @@ result          complete | incomplete
 
 - `report_generation_id`；
 - generator name/version/algorithm；
-- canonical package name 与项目相对 `pyproject.toml` 路径；
+- canonical package name、项目相对`pyproject.toml`路径与`requires_python`；
 - 完整 SourceSnapshot identity；
 - evaluation policy identity。
 - required `verifier_outcome_policy = configured-verifier-terminal-v1`。
@@ -51,6 +51,7 @@ sha256(
     source_snapshot,
     policy_identity,
     verifier_outcome_policy,
+    source_plan,
     requirement_declarations sorted by declaration_id,
     target_cells sorted by cell_identity,
   })
@@ -59,6 +60,17 @@ sha256(
 
 CandidateSnapshot、CellResult、Projection、Failure、Evaluation 和 wire refs 不进入 generation ID。它们仍必须属于该 generation，并由 reader 复证。
 
+SourceSnapshot identity包含普通`entries`和全部owned `pyproject_identities`。owned pyproject在entries中仍保留path/kind/mode与空content digest以维持路径成员集合，同时要求：
+
+```text
+PyprojectIdentity = (path, mode, remainder_digest, dependency_arrays_digest)
+sha256("pf:pyproject-remainder:v1\0" + canonical_identity_json(tagged(remainder)))
+sha256("pf:pyproject-dependencies:v1\0" + canonical_identity_json(tagged(dependency_arrays)))
+sha256("pf:source-snapshot:v1\0" + canonical_identity_json({entries, pyproject_identities}))
+```
+
+`dependency_arrays`保留`project.dependencies`与`project.optional-dependencies`字段是否存在；remainder是移除这两项后的parsed TOML。tagged TOML tree区分table/array/string/bool/int/float、offset/local datetime、date与time；table key排序、array保序，finite float用hex并保留`-0.0`，inf/-inf/nan使用规范token。缺`pyproject_identities`的旧Schema 1开发期报告fail closed，不提供fallback。
+
 ### 1.2 Inputs
 
 `inputs` 是 generation 的声明与搜索输入：
@@ -66,6 +78,7 @@ CandidateSnapshot、CellResult、Projection、Failure、Evaluation 和 wire refs
 - `requirement_declarations` 以 `declaration_id` 唯一、排序；
 - `target_cells` 以内容寻址 `cell_id` 唯一、排序，并只引用本表声明；
 - `candidate_snapshots` 以 `candidate_snapshot_id` 唯一、排序，每个 `(cell_ref, dependency)` 最多一条。
+- `source_plan`是required generation input，绑定dependency source/index/path/workspace身份。
 
 CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带 `policy_identity`。Reader 以 record 自身 policy、完整 Cell、source、候选和 series representatives 重算现行 CandidateSnapshot digest。
 
@@ -108,7 +121,7 @@ SEARCH_FAILED
 
 Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Evaluation/Failure。Static-only observation 只能引用同 Cell、baseline、Slice 和 fingerprint 的 region 与 runtime representative；它不能成为 boundary 或 final authority。Boundary predecessor failure、failure disposition、region runtime reference、non-monotonic counterexample 和 coordinate outcome 必须与 D003–D005 的展开语义一致。
 
-`projections` 只保存 declaration ref、Cell ref、exact floor、生成 requirements 与 `representable`。Reader 展开后复证 D001 的 Cell→floor 映射和 complete authority。`result.status = complete` 当且仅当全部 target Cells 有成功 root 且全部投影可表示；否则为 `incomplete` 并保存规范 reason 集合。
+`projections`只保存declaration ref、Cell ref、exact floor、生成requirements与`representable`。Reader展开后复证D001的完整TargetCell→floor映射和complete authority。`result.status = complete`当且仅当全部target Cells有成功root且全部full-matrix projection可表示；否则为`incomplete`并保存规范reason集合。Incomplete的空/不可表示full-matrix projection本身不授权apply；`ApplyAuthorizer`只从final `CellSuccess` roots请求一次apply-time group projection，scope/waiver/history不写回wire。
 
 ## 2. 引用规则
 
@@ -160,6 +173,9 @@ json.dumps(
 ```text
 PackageReportBuilder.build(package, source_snapshot, cell_results)
     -> ValidatedReport
+PackageReportBuilder.project(declarations, target_cells, floors,
+                             selected_selectors, platform_scoped)
+    -> DependencyGroupProjection
 
 ReportStore.read(path) -> ValidatedReport
 ReportStore.write(path, report) -> None
@@ -168,9 +184,9 @@ ReportStore.update(existing, replacement) -> ValidatedReport
 ReportStore.update_path(path, replacement) -> ReportUpdate
 ```
 
-`PackageReportBuilder` 把领域 `CellResult` intern 为规范图并计算 projection/result。`ReportStore` 独占 wire codec、typed index、ref 展开、完整验证、merge/update 和原子事务。Workflow、editor、explain 与 diagnose 只消费 `ValidatedReport`；不得 import wire records、读取 `_wire` 或自行 join refs。
+`PackageReportBuilder`把领域`CellResult` intern为规范图并计算report projection/result；同一owner的`project`按dependency group重生成Cell→PEP 508 projection并重求值。`ReportStore`独占wire codec、typed index、ref展开、完整验证、merge/update和原子事务。Workflow、authorizer、explain与diagnose只消费`ValidatedReport`；editor只消费authorized edits。上述模块不得import wire records、读取`_wire`或自行join refs。
 
-同 generation merge/update 先展开为最终 CellResult roots，再重新 intern 整图；因此旧的不可达 evidence 被清理，共享 graph 只保留一次。相同 Cell 的冲突结果失败。不同 generation 的 `update_path` 整体替换；空 replacement 不删除 existing Cells。坏 existing report 必须在任何覆盖前失败。
+同generation merge/update要求generator、package/requires-python、source snapshot（含dependency-array identity）、policy、verifier policy、SourcePlan、declarations与target Cells完全兼容；先展开final CellResult roots，再重新intern整图，因此旧的不可达evidence被清理，共享graph只保留一次。相同Cell的冲突结果失败。`--force`不参与merge。不同generation的`update_path`整体替换；空replacement不删除existing Cells。坏existing report必须在任何覆盖前失败。合法apply会改变dependency-array/full snapshot identity并开始新generation，apply前后reports不可merge/rebase。
 
 `ReportUpdate` 只向 diagnosis association seam 暴露 `replace_generation` 与已移除 Failure IDs；ReportStore 不依赖 RunLogStore。
 

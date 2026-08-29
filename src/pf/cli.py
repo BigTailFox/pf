@@ -14,6 +14,7 @@ from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import RegistryAccess, UvAdapter
 from pf.baseline import HighestVersionVerifier
+from pf.authorization import ApplyAuthorizer
 from pf.candidates import CandidateBuilder
 from pf.config import parse_jobs, parse_max_duration
 from pf.coordinate_search import CoordinateSearch
@@ -36,7 +37,7 @@ from pf.schemas.config import (
 )
 from pf.schemas.evaluation import CheckResult, SmokeResult
 from pf.report import ValidatedReport
-from pf.schemas.report import ProjectEditResult
+from pf.schemas.apply import ApplyCommandResult
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
 from pf.terminal import TerminalPresenter, command_usage, command_usage_line
@@ -79,7 +80,7 @@ class MergeWorkflow(Protocol):
 
 
 class ApplyWorkflow(Protocol):
-    def run(self, request: ApplyRequest) -> tuple[ProjectEditResult, ...]: ...
+    def run(self, request: ApplyRequest) -> ApplyCommandResult: ...
 
 
 @dataclass
@@ -227,10 +228,24 @@ def create_app(context: CliContext) -> App:
         return context.presenter.render_explain(context.explain_workflow.run(request))
 
     @app.command(group=_FIND, sort_key=3)
-    def apply(package: _PACKAGE = None, /) -> int:
-        """Update project metadata from a complete, current floor report."""
+    def apply(
+        package: _PACKAGE = None,
+        /,
+        *,
+        force: Annotated[
+            bool,
+            Parameter(
+                help="Accept source-layer drift after structural authorization."
+            ),
+        ] = False,
+    ) -> int:
+        """Update project metadata from authorized final floor evidence."""
         context.presenter.bind_command("apply")
-        request = ApplyRequest(root=Path.cwd().as_posix(), package=package)
+        request = ApplyRequest(
+            root=Path.cwd().as_posix(),
+            package=package,
+            force=force,
+        )
         return context.presenter.render_apply(context.apply_workflow.run(request))
 
     @app.command(group=_FIND, sort_key=4)
@@ -241,7 +256,7 @@ def create_app(context: CliContext) -> App:
         jobs: _JOBS = "auto",
         max_duration: _DURATION = None,
     ) -> int:
-        """Search for floors, then apply only a complete result."""
+        """Search for floors, then apply the authorized result."""
         context.presenter.bind_command("minimize")
         root = Path.cwd().as_posix()
         reports = context.search_workflow.run(
@@ -252,10 +267,8 @@ def create_app(context: CliContext) -> App:
                 max_duration_seconds=_cli_duration(max_duration),
             )
         )
-        if any(report.result.status != "complete" for report in reports):
-            return context.presenter.render_minimize(reports, None)
-        edits = context.apply_workflow.run(ApplyRequest(root=root, package=package))
-        return context.presenter.render_minimize(reports, edits)
+        result = context.apply_workflow.run(ApplyRequest(root=root, package=package))
+        return context.presenter.render_minimize(reports, result)
 
     @app.command(group=_INSPECT, sort_key=1)
     def diagnose(
@@ -422,7 +435,9 @@ def _assemble_context(
         merge_workflow=MergeCommandWorkflow(reports=reports),
         apply_workflow=ApplyCommandWorkflow(
             projects=projects,
+            snapshots=snapshots,
             reports=reports,
+            authorizer=ApplyAuthorizer(),
             editor=ProjectEditor(snapshots=snapshots),
             events=presenter,
         ),
@@ -437,4 +452,4 @@ def main() -> None:
         except PfError as error:
             raise SystemExit(context.presenter.render_error(error)) from error
         except CycloptsError:
-            raise SystemExit(3)
+            raise SystemExit(1)

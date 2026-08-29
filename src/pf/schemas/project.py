@@ -86,18 +86,42 @@ class SnapshotEntry(FrozenSchema):
         return public_relative_path(value, allow_parent=True)
 
 
-def source_snapshot_digest(entries: tuple[SnapshotEntry, ...]) -> str:
+class PyprojectIdentity(FrozenSchema):
+    path: str
+    mode: int
+    remainder_digest: str
+    dependency_arrays_digest: str
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return public_relative_path(value)
+
+
+def source_snapshot_digest(
+    entries: tuple[SnapshotEntry, ...],
+    pyproject_identities: tuple[PyprojectIdentity, ...],
+) -> str:
     """Return the canonical identity for a complete source manifest."""
     canonical_entries = tuple(sorted(entries, key=lambda entry: entry.path))
-    payload = [entry.model_dump(mode="json") for entry in canonical_entries]
+    canonical_pyprojects = tuple(
+        sorted(pyproject_identities, key=lambda identity: identity.path)
+    )
+    payload = {
+        "entries": [entry.model_dump(mode="json") for entry in canonical_entries],
+        "pyproject_identities": [
+            identity.model_dump(mode="json") for identity in canonical_pyprojects
+        ],
+    }
     return hashlib.sha256(
-        b"pf:snapshot:v1\0" + canonical_identity_json(payload)
+        b"pf:source-snapshot:v1\0" + canonical_identity_json(payload)
     ).hexdigest()
 
 
 class SourceSnapshotIdentity(FrozenSchema):
     digest: str
     entries: tuple[SnapshotEntry, ...]
+    pyproject_identities: tuple[PyprojectIdentity, ...]
 
 
 class RequirementDeclaration(FrozenSchema):
@@ -126,6 +150,32 @@ class RequirementDeclaration(FrozenSchema):
     @classmethod
     def validate_pyproject_path(cls, value: str) -> str:
         return public_relative_path(value)
+
+
+class ApplySelector(FrozenSchema):
+    sys_platform: str
+    platform_machine: str
+
+
+class DependencyGroupKey(FrozenSchema):
+    pyproject_path: str
+    location: Literal["base", "optional"]
+    optional_group: str | None = None
+    name: str
+
+    @field_validator("pyproject_path")
+    @classmethod
+    def validate_pyproject_path(cls, value: str) -> str:
+        return public_relative_path(value)
+
+
+def dependency_group_key(declaration: RequirementDeclaration) -> DependencyGroupKey:
+    return DependencyGroupKey(
+        pyproject_path=declaration.pyproject_path,
+        location=declaration.location,
+        optional_group=declaration.extra,
+        name=declaration.name,
+    )
 
 
 class HarnessGroupProvenance(FrozenSchema):
@@ -561,6 +611,7 @@ class CandidateSnapshot(FrozenSchema):
 class PackagePlan(FrozenSchema):
     name: str
     pyproject_path: str
+    requires_python: str | None = None
     config: EffectiveConfig
     declarations: tuple[RequirementDeclaration, ...]
     cells: tuple[Cell, ...]
@@ -572,3 +623,4 @@ class PackagePlan(FrozenSchema):
 class ProjectPlan(FrozenSchema):
     root: str = "."
     packages: tuple[PackagePlan, ...]
+    owned_pyproject_paths: tuple[str, ...] = ()

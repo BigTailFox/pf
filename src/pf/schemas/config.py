@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import StrictInt, field_validator, model_validator
+from pydantic import StrictBool, StrictInt, field_validator, model_validator
 
 from pf.schemas.base import FrozenSchema
 
@@ -112,6 +112,7 @@ class DiagnoseRequest(FrozenSchema):
 class ApplyRequest(FrozenSchema):
     root: str
     package: str | None = None
+    force: StrictBool = False
 
 
 class MergeRequest(FrozenSchema):

@@ -5,83 +5,91 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Any
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
 import tomli
 import tomlkit
 from tomlkit.items import Array
 
-from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
-from pf.report import PackageReportBuilder, ValidatedReport
-from pf.schemas.project import RequirementDeclaration
-from pf.schemas.report import (
-    ProjectEditResult,
-    ProjectionEvidence,
+from pf.errors import ConfigurationError, InfrastructureError
+from pf.schemas.apply import (
+    AuthorizedDependencyGroupEdit,
+    AuthorizedProjectEdit,
+    AuthorizedWorkspaceApply,
 )
+from pf.schemas.project import DependencyGroupKey
+from pf.schemas.report import ProjectEditResult
 from pf.snapshot import SnapshotBuilder
 
 
 @dataclass
 class _PreparedApply:
-    report: ValidatedReport
+    authorization: AuthorizedProjectEdit
     pyproject: Path
     relative: str
     original: bytes
     rendered: bytes
-    declarations: dict[str, RequirementDeclaration]
-    projections: tuple[ProjectionEvidence, ...]
 
 
 class ProjectEditor:
-    """Apply only projection evidence authorized by a complete Schema 1 report."""
+    """Execute a frozen workspace authorization with recovery and raw CAS."""
 
     _RECOVERY_SCHEMA = 2
 
     def __init__(self, *, snapshots: SnapshotBuilder) -> None:
         self._snapshots = snapshots
 
-    def apply(
-        self,
-        *,
-        report: ValidatedReport,
-        root: Path,
-    ) -> ProjectEditResult:
-        return self.apply_many(reports=(report,), root=root)[0]
-
     def apply_many(
         self,
         *,
-        reports: tuple[ValidatedReport, ...],
+        authorization: AuthorizedWorkspaceApply,
         root: Path,
     ) -> tuple[ProjectEditResult, ...]:
         root = root.resolve()
         journal = root / ".pf" / "apply-recovery.json"
         self._recover(root=root, journal=journal)
-        if not reports:
+        if not authorization.package_applies:
             return ()
-        source_identity = reports[0].source_snapshot
-        if any(report.source_snapshot != source_identity for report in reports[1:]):
-            raise ConfigurationError("workspace reports use different source snapshots")
-        prepared = tuple(self._prepare_report(report, root) for report in reports)
+        authorized_edits = tuple(
+            edit
+            for package_apply in authorization.package_applies
+            for edit in package_apply.authorized_edits
+        )
+        if len({edit.pyproject_path for edit in authorized_edits}) != len(
+            authorized_edits
+        ):
+            raise ConfigurationError("workspace authorization has duplicate edits")
+        prepared = tuple(
+            self._prepare_edit(edit, root) for edit in authorized_edits
+        )
         changing = tuple(item for item in prepared if item.rendered != item.original)
-        if not changing:
-            return tuple(
-                ProjectEditResult(
-                    changed=False,
-                    pyproject_path=item.relative,
-                    recovery_log_path=journal.relative_to(root).as_posix(),
-                )
-                for item in prepared
-            )
-        current_snapshot = self._snapshots.build(root)
+        current_snapshot = self._snapshots.build(
+            root,
+            owned_pyproject_paths=authorization.owned_pyproject_paths,
+        )
         try:
-            if current_snapshot.identity != source_identity:
+            if current_snapshot.identity != authorization.expected_snapshot:
                 raise ConfigurationError(
-                    "project source snapshot has drifted since search"
+                    "project source snapshot changed after apply authorization"
                 )
         finally:
             current_snapshot.close()
+        if not changing:
+            return self._results(
+                authorization,
+                changing=(),
+                journal=journal,
+                root=root,
+            )
+        for item in changing:
+            if self._digest(item.pyproject.read_bytes()) != self._digest(item.original):
+                raise ConfigurationError(
+                    f"pyproject changed after apply prepare: {item.relative}"
+                )
 
         state_dir = root / ".pf"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +117,12 @@ class ProjectEditor:
         self._write_journal(journal, recovery)
         try:
             for item in changing:
+                if self._digest(item.pyproject.read_bytes()) != self._digest(
+                    item.original
+                ):
+                    raise ConfigurationError(
+                        f"pyproject changed after apply prepare: {item.relative}"
+                    )
                 self._atomic_write(item.pyproject, item.rendered)
             recovery["state"] = "PROJECTS_REPLACED"
             self._write_journal(journal, recovery)
@@ -123,154 +137,153 @@ class ProjectEditor:
         except Exception:
             self._rollback(root=root, journal=journal, recovery=recovery)
             raise
-        return tuple(
-            ProjectEditResult(
-                changed=item.rendered != item.original,
-                pyproject_path=item.relative,
-                recovery_log_path=journal.relative_to(root).as_posix(),
-            )
-            for item in prepared
+        return self._results(
+            authorization,
+            changing=changing,
+            journal=journal,
+            root=root,
         )
 
-    def _prepare_report(
+    def _prepare_edit(
         self,
-        report: ValidatedReport,
+        authorization: AuthorizedProjectEdit,
         root: Path,
     ) -> _PreparedApply:
-        if report.result.status != "complete":
-            raise NoApplicableFloorError("cannot apply an incomplete floor report")
-        pyproject = (root / report.package.pyproject_path).resolve()
+        pyproject = (root / authorization.pyproject_path).resolve()
         if root != pyproject and root not in pyproject.parents:
-            raise ConfigurationError("report pyproject path escapes project root")
+            raise ConfigurationError("authorized pyproject path escapes project root")
         if not pyproject.is_file():
             raise ConfigurationError(f"pyproject does not exist: {pyproject}")
         original = pyproject.read_bytes()
+        current_identity = self._snapshots.pyproject_identity(
+            path=authorization.pyproject_path,
+            mode=stat.S_IMODE(pyproject.stat().st_mode),
+            content=original,
+        )
+        if current_identity != authorization.expected_pyproject_identity:
+            raise ConfigurationError(
+                "pyproject identity changed after apply authorization"
+            )
         document = tomlkit.parse(original.decode("utf-8"))
-        declarations = {
-            declaration.declaration_id: declaration
-            for declaration in report.requirement_declarations
-        }
-        projections = tuple(report.projection_evidence)
-        for projection in projections:
-            if not projection.representable or not projection.projected_requirements:
-                raise NoApplicableFloorError(
-                    f"projection is not applicable: {projection.declaration_id}"
-                )
-            if projection.declaration_id not in declarations:
-                raise ConfigurationError("projection references an unknown declaration")
-            declaration = declarations[projection.declaration_id]
-            active_cells = tuple(
-                cell
-                for cell in report.target_cells
-                if declaration.declaration_id in cell.active_declaration_ids
-            )
-            expected = PackageReportBuilder().project(
-                declaration=declaration,
-                target_cells=report.target_cells,
-                active_cells=active_cells,
-                floors=projection.floors,
-            )
-            if projection != expected:
-                raise ConfigurationError(
-                    f"unauthorized projected requirement: {projection.declaration_id}"
-                )
-        if all(
-            self._projection_is_applied(
-                document,
-                declarations[projection.declaration_id],
-                projection,
-            )
-            for projection in projections
-        ):
-            rendered = original
-        else:
-            for projection in projections:
-                self._apply_projection(
-                    document,
-                    declarations[projection.declaration_id],
-                    projection,
-                )
-            rendered = tomlkit.dumps(document).encode("utf-8")
+        for edit in authorization.group_edits:
+            self._apply_group_edit(document, edit)
+        rendered = tomlkit.dumps(document).encode("utf-8")
         return _PreparedApply(
-            report=report,
+            authorization=authorization,
             pyproject=pyproject,
-            relative=report.package.pyproject_path,
+            relative=authorization.pyproject_path,
             original=original,
             rendered=rendered,
-            declarations=declarations,
-            projections=projections,
         )
 
     def _validate_written(self, item: _PreparedApply) -> None:
         raw = item.pyproject.read_bytes()
         with item.pyproject.open("rb") as stream:
-            parsed = tomli.load(stream)
-        name = parsed.get("project", {}).get("name")
-        if name != item.report.package.name:
-            raise ConfigurationError("edited package identity does not match the report")
+            tomli.load(stream)
         document = tomlkit.parse(raw.decode("utf-8"))
-        for projection in item.projections:
-            if not self._projection_is_applied(
-                document,
-                item.declarations[projection.declaration_id],
-                projection,
-            ):
+        current_identity = self._snapshots.pyproject_identity(
+            path=item.relative,
+            mode=stat.S_IMODE(item.pyproject.stat().st_mode),
+            content=raw,
+        )
+        if (
+            current_identity.mode
+            != item.authorization.expected_pyproject_identity.mode
+            or current_identity.remainder_digest
+            != item.authorization.expected_pyproject_identity.remainder_digest
+        ):
+            raise ConfigurationError("edited pyproject changed unauthorized metadata")
+        for edit in item.authorization.group_edits:
+            values = self._group_requirements(document, edit.key)
+            if values != edit.replacement_requirements:
                 raise ConfigurationError(
-                    f"edited projection was not applied: {projection.declaration_id}"
+                    f"authorized dependency group was not applied: {edit.key.name}"
                 )
 
     @staticmethod
     def _dependency_array(
         document: Any,
-        declaration: RequirementDeclaration,
+        key: DependencyGroupKey,
     ) -> Array:
         try:
-            if declaration.location == "base":
+            if key.location == "base":
                 value = document["project"]["dependencies"]
             else:
-                assert declaration.extra is not None
-                value = document["project"]["optional-dependencies"][declaration.extra]
+                assert key.optional_group is not None
+                value = document["project"]["optional-dependencies"][
+                    key.optional_group
+                ]
         except (KeyError, TypeError) as error:
             raise ConfigurationError(
-                f"dependency location has drifted: {declaration.declaration_id}"
+                f"dependency location has drifted: {key.name}"
             ) from error
         if not isinstance(value, Array):
             raise ConfigurationError("dependency metadata is not a TOML array")
         return value
 
-    def _projection_is_applied(
+    def _group_requirements(
         self,
         document: Any,
-        declaration: RequirementDeclaration,
-        projection: ProjectionEvidence,
-    ) -> bool:
-        array = self._dependency_array(document, declaration)
-        values = tuple(str(value) for value in array)
-        projected = projection.projected_requirements
-        if declaration.raw in projected:
-            return all(value in values for value in projected)
-        return declaration.raw not in values and all(
-            value in values for value in projected
+        key: DependencyGroupKey,
+    ) -> tuple[str, ...]:
+        array = self._dependency_array(document, key)
+        return tuple(
+            str(value)
+            for value in array
+            if self._requirement_name(str(value)) == key.name
         )
 
-    def _apply_projection(
+    def _apply_group_edit(
         self,
         document: Any,
-        declaration: RequirementDeclaration,
-        projection: ProjectionEvidence,
+        edit: AuthorizedDependencyGroupEdit,
     ) -> None:
-        array = self._dependency_array(document, declaration)
+        array = self._dependency_array(document, edit.key)
         values = tuple(str(value) for value in array)
-        try:
-            index = values.index(declaration.raw)
-        except ValueError as error:
+        indices = tuple(
+            index
+            for index, value in enumerate(values)
+            if self._requirement_name(value) == edit.key.name
+        )
+        if not indices:
             raise ConfigurationError(
-                f"dependency declaration has drifted: {declaration.declaration_id}"
-            ) from error
-        first, *remaining = projection.projected_requirements
-        array[index] = first
+                f"authorized dependency group is missing: {edit.key.name}"
+            )
+        first_index = indices[0]
+        for index in reversed(indices[1:]):
+            del array[index]
+        if not edit.replacement_requirements:
+            del array[first_index]
+            return
+        first, *remaining = edit.replacement_requirements
+        array[first_index] = first
         for offset, requirement in enumerate(remaining, start=1):
-            array.insert(index + offset, requirement)
+            array.insert(first_index + offset, requirement)
+
+    @staticmethod
+    def _requirement_name(raw: str) -> str:
+        try:
+            return canonicalize_name(Requirement(raw).name)
+        except InvalidRequirement as error:
+            raise ConfigurationError("invalid dependency metadata during apply") from error
+
+    @staticmethod
+    def _results(
+        authorization: AuthorizedWorkspaceApply,
+        *,
+        changing: tuple[_PreparedApply, ...],
+        journal: Path,
+        root: Path,
+    ) -> tuple[ProjectEditResult, ...]:
+        changed_paths = {item.relative for item in changing}
+        return tuple(
+            ProjectEditResult(
+                changed=package_apply.package.pyproject_path in changed_paths,
+                pyproject_path=package_apply.package.pyproject_path,
+                recovery_log_path=journal.relative_to(root).as_posix(),
+            )
+            for package_apply in authorization.package_applies
+        )
 
     def _recover(self, *, root: Path, journal: Path) -> None:
         if not journal.is_file():
@@ -328,6 +341,9 @@ class ProjectEditor:
     @staticmethod
     def _atomic_write(path: Path, content: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        existing_mode = (
+            stat.S_IMODE(path.stat().st_mode) if path.exists() else None
+        )
         descriptor, temporary_name = tempfile.mkstemp(
             dir=path.parent,
             prefix=f".{path.name}.",
@@ -339,6 +355,8 @@ class ProjectEditor:
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
+            if existing_mode is not None:
+                temporary.chmod(existing_mode)
             os.replace(temporary, path)
             ProjectEditor._sync_directory(path.parent)
         finally:

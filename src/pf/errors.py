@@ -47,8 +47,14 @@ class ConfigurationError(PfError):
         self.candidates = candidates
 
 
+class ApplyAuthorizationError(ConfigurationError):
+    """A report has evidence, but current apply authorization failed."""
+
+
 class InvocationError(ConfigurationError):
     """A user-correctable CLI usage error rendered as Error/Usage/Try."""
+
+    exit_code = ExitCode.COMPATIBILITY_FAILED
 
 
 class InfrastructureError(PfError):

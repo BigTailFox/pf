@@ -64,4 +64,4 @@ class TestInstalledCli:
         )
         explained = results["explain"].stdout
         assert "Status: complete" in explained
-        assert "Apply: authorized by this report" in explained
+        assert "Apply: eligible; current project will be rechecked" in explained

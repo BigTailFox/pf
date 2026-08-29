@@ -18,6 +18,137 @@ from pf.snapshot import SnapshotBuilder
 
 
 class TestSnapshotBuilder:
+    def test_owned_pyproject_separates_dependency_and_remainder_identity(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        pyproject = root / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\ndependencies = ["httpx<1"]\n'
+            '[project.scripts]\ndemo = "demo:main"\n',
+            encoding="utf-8",
+        )
+
+        original = SnapshotBuilder.without_processes().build(
+            root,
+            owned_pyproject_paths=("pyproject.toml",),
+        )
+        original_identity = original.identity.pyproject_identities[0]
+        original.close()
+        pyproject.write_text(
+            '[project]\nname = "demo"\ndependencies = ["httpx>=0.27,<1"]\n'
+            '[project.scripts]\ndemo = "demo:main"\n',
+            encoding="utf-8",
+        )
+        dependency_edit = SnapshotBuilder.without_processes().build(
+            root,
+            owned_pyproject_paths=("pyproject.toml",),
+        )
+        dependency_identity = dependency_edit.identity.pyproject_identities[0]
+        dependency_entry = next(
+            entry
+            for entry in dependency_edit.identity.entries
+            if entry.path == "pyproject.toml"
+        )
+        dependency_edit.close()
+
+        assert dependency_identity.remainder_digest == original_identity.remainder_digest
+        assert (
+            dependency_identity.dependency_arrays_digest
+            != original_identity.dependency_arrays_digest
+        )
+        assert dependency_entry.content_digest is None
+
+        pyproject.write_text(
+            '[project]\nname = "demo"\ndependencies = ["httpx>=0.27,<1"]\n'
+            '[project.scripts]\ndemo = "demo.cli:main"\n',
+            encoding="utf-8",
+        )
+        remainder_edit = SnapshotBuilder.without_processes().build(
+            root,
+            owned_pyproject_paths=("pyproject.toml",),
+        )
+        remainder_identity = remainder_edit.identity.pyproject_identities[0]
+        remainder_edit.close()
+
+        assert (
+            remainder_identity.dependency_arrays_digest
+            == dependency_identity.dependency_arrays_digest
+        )
+        assert remainder_identity.remainder_digest != dependency_identity.remainder_digest
+
+    def test_pyproject_identity_is_stable_for_equal_parsed_toml_types(
+        self,
+    ) -> None:
+        first = b'''# layout does not matter
+[identity]
+text = "1"
+truth = true
+integer = 1
+float = 1.0
+negative_zero = -0.0
+infinity = inf
+not_a_number = nan
+offset = 1979-05-27T07:32:00Z
+local_datetime = 1979-05-27T07:32:00
+local_date = 1979-05-27
+local_time = 07:32:00
+values = [1, "1", true]
+'''
+        second = b'''[identity]
+values=[1,"1",true]
+local_time=07:32:00
+local_date=1979-05-27
+local_datetime=1979-05-27T07:32:00
+offset=1979-05-27T07:32:00+00:00
+not_a_number=+nan
+infinity=+inf
+negative_zero=-0.0
+float=1.0
+integer=1
+truth=true
+text="1"
+'''
+
+        left = SnapshotBuilder.pyproject_identity(
+            path="pyproject.toml",
+            mode=0o644,
+            content=first,
+        )
+        right = SnapshotBuilder.pyproject_identity(
+            path="pyproject.toml",
+            mode=0o644,
+            content=second,
+        )
+        positive_zero = SnapshotBuilder.pyproject_identity(
+            path="pyproject.toml",
+            mode=0o644,
+            content=first.replace(b"negative_zero = -0.0", b"negative_zero = 0.0"),
+        )
+
+        assert left == right
+        assert left.remainder_digest != positive_zero.remainder_digest
+
+    def test_dependency_identity_preserves_field_presence(self) -> None:
+        missing = SnapshotBuilder.pyproject_identity(
+            path="pyproject.toml",
+            mode=0o644,
+            content=b'[project]\nname = "demo"\n',
+        )
+        present_empty = SnapshotBuilder.pyproject_identity(
+            path="pyproject.toml",
+            mode=0o644,
+            content=b'[project]\nname = "demo"\ndependencies = []\n',
+        )
+
+        assert missing.remainder_digest == present_empty.remainder_digest
+        assert (
+            missing.dependency_arrays_digest
+            != present_empty.dependency_arrays_digest
+        )
+
     def test_git_snapshot_handles_unavailable_process_terminal(
         self,
         tmp_path: Path,
