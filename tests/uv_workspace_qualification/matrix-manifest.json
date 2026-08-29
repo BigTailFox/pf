@@ -1,0 +1,74 @@
+{
+  "schema": "pf-uv-workspace-sources-qualification-v1",
+  "as_of": "2026-08-29",
+  "host_scope": "linux-x86_64",
+  "resolution_target": "x86_64-unknown-linux-gnu",
+  "python_minor": "3.10",
+  "uv_version": "0.12.5",
+  "scenarios": [
+    {
+      "scenario": "root",
+      "candidate_dependencies": ["certifi", "idna"],
+      "managed_registry_dependencies": ["certifi", "idna"],
+      "exact_artifact_dependencies": ["certifi", "idna"],
+      "retained_local_dependencies": ["pf-qualification-local"],
+      "compile_suppressions": [
+        ["certifi", "idna"],
+        ["certifi", "idna"],
+        ["certifi", "idna"],
+        ["certifi", "idna"]
+      ],
+      "compile_count": 4,
+      "install_count": 2,
+      "installed_graph_contains_expected": true,
+      "source_tables_preserved": true,
+      "uv_version": "0.12.5"
+    },
+    {
+      "scenario": "member",
+      "candidate_dependencies": ["certifi", "idna"],
+      "managed_registry_dependencies": ["certifi", "idna"],
+      "exact_artifact_dependencies": ["certifi", "idna"],
+      "retained_local_dependencies": ["pf-qualification-local"],
+      "compile_suppressions": [
+        ["certifi", "idna"],
+        ["certifi", "idna"],
+        ["certifi", "idna"],
+        ["certifi", "idna"]
+      ],
+      "compile_count": 4,
+      "install_count": 2,
+      "installed_graph_contains_expected": true,
+      "source_tables_preserved": true,
+      "uv_version": "0.12.5"
+    },
+    {
+      "scenario": "root-and-member",
+      "candidate_dependencies": ["certifi", "idna"],
+      "managed_registry_dependencies": ["certifi", "idna"],
+      "exact_artifact_dependencies": ["certifi", "idna"],
+      "retained_local_dependencies": ["pf-qualification-local"],
+      "compile_suppressions": [
+        ["certifi", "idna"],
+        ["certifi", "idna"],
+        ["certifi", "idna"],
+        ["certifi", "idna"]
+      ],
+      "compile_count": 4,
+      "install_count": 2,
+      "installed_graph_contains_expected": true,
+      "source_tables_preserved": true,
+      "uv_version": "0.12.5"
+    }
+  ],
+  "unmanaged_workspace_fail_closed": {
+    "disposition": "INDETERMINATE",
+    "cause": "TOOL_FAILURE",
+    "stage": "resolve-project",
+    "summary_code": "resolution-diagnostic-unknown",
+    "compile_suppressions": ["certifi", "idna"],
+    "install_count": 0,
+    "source_tables_preserved": true
+  },
+  "all_passed": true
+}
