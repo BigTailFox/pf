@@ -2,8 +2,8 @@
 
 - **状态：** 已完成
 - **日期：** 2026-08-28
-- **展示契约：** [D006](../designs/D006-pf-cli-enhancement.md)
-- **前序实施：** [P020](../archived/plans/P020-pf-cli-live-density.md)
+- **展示契约：** [D006](../../designs/D006-pf-cli-enhancement.md)
+- **前序实施：** [P020](P020-pf-cli-live-density.md)
 
 ## 1. 目标
 
