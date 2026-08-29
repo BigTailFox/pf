@@ -43,22 +43,16 @@ class ProjectEditor:
     def __init__(self, *, snapshots: SnapshotBuilder) -> None:
         self._snapshots = snapshots
 
-    def apply_many(
+    def apply(
         self,
         *,
         authorization: AuthorizedWorkspaceApply,
         root: Path,
-    ) -> tuple[ProjectEditResult, ...]:
+    ) -> ProjectEditResult:
         root = root.resolve()
         journal = root / ".pf" / "apply-recovery.json"
         self._recover(root=root, journal=journal)
-        if not authorization.package_applies:
-            return ()
-        authorized_edits = tuple(
-            edit
-            for package_apply in authorization.package_applies
-            for edit in package_apply.authorized_edits
-        )
+        authorized_edits = authorization.package_apply.authorized_edits
         if len({edit.pyproject_path for edit in authorized_edits}) != len(
             authorized_edits
         ):
@@ -79,7 +73,7 @@ class ProjectEditor:
         finally:
             current_snapshot.close()
         if not changing:
-            return self._results(
+            return self._result(
                 authorization,
                 changing=(),
                 journal=journal,
@@ -137,7 +131,7 @@ class ProjectEditor:
         except Exception:
             self._rollback(root=root, journal=journal, recovery=recovery)
             raise
-        return self._results(
+        return self._result(
             authorization,
             changing=changing,
             journal=journal,
@@ -268,21 +262,19 @@ class ProjectEditor:
             raise ConfigurationError("invalid dependency metadata during apply") from error
 
     @staticmethod
-    def _results(
+    def _result(
         authorization: AuthorizedWorkspaceApply,
         *,
         changing: tuple[_PreparedApply, ...],
         journal: Path,
         root: Path,
-    ) -> tuple[ProjectEditResult, ...]:
+    ) -> ProjectEditResult:
         changed_paths = {item.relative for item in changing}
-        return tuple(
-            ProjectEditResult(
-                changed=package_apply.package.pyproject_path in changed_paths,
-                pyproject_path=package_apply.package.pyproject_path,
-                recovery_log_path=journal.relative_to(root).as_posix(),
-            )
-            for package_apply in authorization.package_applies
+        package_apply = authorization.package_apply
+        return ProjectEditResult(
+            changed=package_apply.package.pyproject_path in changed_paths,
+            pyproject_path=package_apply.package.pyproject_path,
+            recovery_log_path=journal.relative_to(root).as_posix(),
         )
 
     def _recover(self, *, root: Path, journal: Path) -> None:

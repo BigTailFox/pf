@@ -62,8 +62,103 @@ class SourceIdentity(FrozenSchema):
     content_hash: str | None = None
 
 
+ResolutionSourceMode = Literal["DEVELOPMENT", "SEARCH"]
+
+
+class StaticWorkspaceMemberVersion(FrozenSchema):
+    kind: Literal["static"] = "static"
+    value: str
+
+    @field_validator("value")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        try:
+            normalized = str(Version(value))
+        except InvalidVersion as error:
+            raise ValueError(
+                "workspace member version must be valid PEP 440"
+            ) from error
+        if normalized != value:
+            raise ValueError("workspace member version must be normalized")
+        return value
+
+
+class DynamicWorkspaceMemberVersion(FrozenSchema):
+    kind: Literal["dynamic"] = "dynamic"
+
+
+WorkspaceMemberVersion = StaticWorkspaceMemberVersion | DynamicWorkspaceMemberVersion
+
+
+class DependencySourceRoute(FrozenSchema):
+    dependency: str
+    development_source: SourceIdentity
+    search_source: SourceIdentity
+    workspace_member_version: WorkspaceMemberVersion | None = None
+
+    @model_validator(mode="after")
+    def validate_route(self) -> "DependencySourceRoute":
+        if not is_canonical_distribution_name(self.dependency):
+            raise ValueError("source route dependency must be canonical")
+        if self.development_source.kind == "workspace":
+            if self.workspace_member_version is None:
+                raise ValueError(
+                    "workspace source route requires member version metadata"
+                )
+        elif self.workspace_member_version is not None:
+            raise ValueError(
+                "non-workspace source route cannot retain member version metadata"
+            )
+        if (
+            self.development_source.kind != "workspace"
+            and self.development_source != self.search_source
+        ):
+            raise ValueError("only workspace development sources may use dual routes")
+        if (
+            self.search_source.kind == "workspace"
+            and self.search_source != self.development_source
+        ):
+            raise ValueError("a local workspace route must use one source identity")
+        if self.search_source.kind not in {
+            self.development_source.kind,
+            "registry",
+        }:
+            raise ValueError(
+                "workspace search source must remain local or use a registry"
+            )
+        return self
+
+
 class SourcePlan(FrozenSchema):
-    identities: tuple[SourceIdentity, ...]
+    source_mode: ResolutionSourceMode
+    routes: tuple[DependencySourceRoute, ...]
+
+    @model_validator(mode="after")
+    def validate_routes(self) -> "SourcePlan":
+        names = tuple(route.dependency for route in self.routes)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("source plan routes must be sorted and unique")
+        return self
+
+
+def source_plan_identity(source_plan: SourcePlan) -> str:
+    return hashlib.sha256(
+        b"pf:source-plan:v1\0"
+        + json.dumps(
+            source_plan.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+def effective_source(
+    route: DependencySourceRoute,
+    source_mode: ResolutionSourceMode,
+) -> SourceIdentity:
+    if source_mode == "DEVELOPMENT":
+        return route.development_source
+    return route.search_source
 
 
 class SnapshotEntry(FrozenSchema):
@@ -133,7 +228,6 @@ class RequirementDeclaration(FrozenSchema):
     requested_extras: tuple[str, ...] = ()
     specifier: str = ""
     marker: str | None = None
-    source: SourceIdentity
     pyproject_path: str
     raw: str
     kind: Literal["searchable", "fixed"]
@@ -218,7 +312,6 @@ class HarnessRequirement(FrozenSchema):
     requested_extras: tuple[str, ...] = ()
     specifier: tuple[HarnessSpecifierClause, ...] = ()
     marker: str | None = None
-    source: SourceIdentity
     prerelease_allowed: bool = False
     original_text: str
 
@@ -231,7 +324,6 @@ class HarnessRequirement(FrozenSchema):
         requested_extras: tuple[str, ...],
         specifier: tuple[HarnessSpecifierClause, ...],
         marker: str | None,
-        source: SourceIdentity,
         original_text: str,
     ) -> str:
         identity = {
@@ -241,7 +333,6 @@ class HarnessRequirement(FrozenSchema):
             "requested_extras": requested_extras,
             "specifier": [item.model_dump(mode="json") for item in specifier],
             "marker": marker,
-            "source": source.model_dump(mode="json"),
             "original_text": original_text,
         }
         return hashlib.sha256(
@@ -265,7 +356,6 @@ class HarnessRequirement(FrozenSchema):
             requested_extras=self.requested_extras,
             specifier=self.specifier,
             marker=self.marker,
-            source=self.source,
             original_text=self.original_text,
         )
         if self.declaration_id != expected:
@@ -518,6 +608,7 @@ def candidate_snapshot_digest(
     dependency: str,
     cell: Cell,
     policy_identity: str,
+    source_plan_identity: str,
     source: SourceIdentity,
     candidates: tuple[Candidate, ...],
     series_representatives: tuple[tuple[str, str], ...],
@@ -526,6 +617,7 @@ def candidate_snapshot_digest(
         "dependency": dependency,
         "cell": cell.model_dump(mode="json"),
         "policy_identity": policy_identity,
+        "source_plan_identity": source_plan_identity,
         "source": source.model_dump(mode="json"),
         "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
         "series_representatives": series_representatives,
@@ -558,10 +650,27 @@ class SelectedCandidate(FrozenSchema):
         return self
 
 
+def selected_candidate_evidence_digest(
+    selection: tuple[SelectedCandidate, ...],
+) -> str:
+    names = tuple(item.dependency for item in selection)
+    if names != tuple(sorted(set(names))):
+        raise ValueError("selected candidate dependencies must be sorted and unique")
+    return hashlib.sha256(
+        b"pf:selected-candidates:v1\0"
+        + json.dumps(
+            [item.model_dump(mode="json") for item in selection],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
 class CandidateSnapshot(FrozenSchema):
     dependency: str
     cell: Cell
     policy_identity: str
+    source_plan_identity: str
     source: SourceIdentity
     candidates: tuple[Candidate, ...]
     series_representatives: tuple[tuple[str, str], ...]
@@ -599,6 +708,7 @@ class CandidateSnapshot(FrozenSchema):
             dependency=self.dependency,
             cell=self.cell,
             policy_identity=self.policy_identity,
+            source_plan_identity=self.source_plan_identity,
             source=self.source,
             candidates=self.candidates,
             series_representatives=self.series_representatives,
@@ -615,12 +725,46 @@ class PackagePlan(FrozenSchema):
     config: EffectiveConfig
     declarations: tuple[RequirementDeclaration, ...]
     cells: tuple[Cell, ...]
-    source_plan: SourcePlan
+    source_routes: tuple[DependencySourceRoute, ...]
     harness_requirements: tuple[HarnessRequirement, ...] = ()
     test_group_present: bool = False
+
+    @model_validator(mode="after")
+    def validate_source_routes(self) -> "PackagePlan":
+        names = tuple(route.dependency for route in self.source_routes)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("package source routes must be sorted and unique")
+        dependency_names = {
+            *(declaration.name for declaration in self.declarations),
+            *(requirement.name for requirement in self.harness_requirements),
+        }
+        if not dependency_names <= set(names):
+            raise ValueError("package source routes must cover every direct dependency")
+        return self
+
+
+def package_source_plan(
+    package: PackagePlan,
+    source_mode: ResolutionSourceMode,
+) -> SourcePlan:
+    return SourcePlan(source_mode=source_mode, routes=package.source_routes)
+
+
+def package_source(
+    package: PackagePlan,
+    dependency: str,
+    source_mode: ResolutionSourceMode,
+) -> SourceIdentity:
+    route = next(
+        (item for item in package.source_routes if item.dependency == dependency),
+        None,
+    )
+    if route is None:
+        raise ValueError(f"package source route is missing: {dependency}")
+    return effective_source(route, source_mode)
 
 
 class ProjectPlan(FrozenSchema):
     root: str = "."
-    packages: tuple[PackagePlan, ...]
+    target: PackagePlan
     owned_pyproject_paths: tuple[str, ...] = ()

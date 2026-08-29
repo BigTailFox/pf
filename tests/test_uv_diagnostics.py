@@ -24,9 +24,7 @@ def _failed(
 
 class TestUvDiagnosticProfile:
     @pytest.mark.parametrize("uv_version", tuple(UV_DIAGNOSTIC_PROFILES))
-    def test_complete_direct_contradiction_is_certified(
-        self, uv_version: str
-    ) -> None:
+    def test_complete_direct_contradiction_is_certified(self, uv_version: str) -> None:
         stderr = """
   × No solution found when resolving dependencies:
   ╰─▶ Because you require demo==1 and demo==2, we can conclude that your
@@ -76,7 +74,11 @@ class TestUvDiagnosticProfile:
                 "TOOL_FAILURE",
                 "resolution-candidate-unavailable",
             ),
-            ("Request failed: 401 Unauthorized", "SOURCE_FAILURE", "resolution-source-failure"),
+            (
+                "Request failed: 401 Unauthorized",
+                "SOURCE_FAILURE",
+                "resolution-source-failure",
+            ),
             ("Failed to read metadata", "SOURCE_FAILURE", "resolution-source-failure"),
             ("Archive hash mismatch", "SOURCE_FAILURE", "resolution-source-failure"),
             ("Failed to build wheel", "BUILD_FAILURE", "resolution-build-failure"),

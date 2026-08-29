@@ -56,7 +56,11 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     RequirementDeclaration,
+    SelectedCandidate,
     SourcePlan,
+    package_source_plan,
+    source_plan_identity,
+    selected_candidate_evidence_digest,
     SourceIdentity,
     SourceSnapshotIdentity,
     cell_id,
@@ -419,7 +423,7 @@ class PackageReportBuilder:
             source_snapshot=source_snapshot,
             policy_identity=policy_identity,
             verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
-            source_plan=package.source_plan,
+            source_plan=package_source_plan(package, "SEARCH"),
             requirement_declarations=declarations,
             target_cells=target_cells,
         )
@@ -611,8 +615,7 @@ class PackageReportBuilder:
         ):
             raise ConfigurationError("conflicting StaticEvaluation for one Proposal")
         wire_static = tuple(
-            static_by_proposal[reference]
-            for reference in sorted(static_by_proposal)
+            static_by_proposal[reference] for reference in sorted(static_by_proposal)
         )
         evaluations = (
             tuple(
@@ -850,7 +853,7 @@ class PackageReportBuilder:
                 verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
             ),
             inputs=ReportInputsV1(
-                source_plan=package.source_plan,
+                source_plan=package_source_plan(package, "SEARCH"),
                 requirement_declarations=declarations,
                 target_cells=tuple(
                     TargetCellV1(
@@ -869,6 +872,7 @@ class PackageReportBuilder:
                         dependency=snapshot.dependency,
                         cell_ref=cell_id(snapshot.cell),
                         policy_identity=snapshot.policy_identity,
+                        source_plan_identity=snapshot.source_plan_identity,
                         source=snapshot.source,
                         candidates=snapshot.candidates,
                         series_representatives=snapshot.series_representatives,
@@ -1432,7 +1436,9 @@ class PackageReportBuilder:
     ) -> DependencyGroupProjection:
         """Project one complete dependency group from Cell intent."""
         if not declarations:
-            raise ConfigurationError("dependency group projection requires declarations")
+            raise ConfigurationError(
+                "dependency group projection requires declarations"
+            )
         ordered_declarations = tuple(
             sorted(declarations, key=lambda declaration: declaration.declaration_id)
         )
@@ -1502,7 +1508,9 @@ class PackageReportBuilder:
             coordinates: dict[tuple[str, tuple[str, str]], str] = {}
             for cell in active_selected:
                 cell_key = self._cell_key(cell)
-                version = floor_by_cell.get(cell_key) or floor_by_selector_coordinate.get(
+                version = floor_by_cell.get(
+                    cell_key
+                ) or floor_by_selector_coordinate.get(
                     (
                         cell.python_minor,
                         cell.extra_surface,
@@ -1524,12 +1532,11 @@ class PackageReportBuilder:
                         self._project_requirement(declaration, next(iter(versions)))
                     )
                 else:
-                    python_dimension = len(
-                        {minor for minor, _ in coordinates}
-                    ) > 1
-                    selector_dimension = platform_scoped or len(
-                        {selector for _, selector in coordinates}
-                    ) > 1
+                    python_dimension = len({minor for minor, _ in coordinates}) > 1
+                    selector_dimension = (
+                        platform_scoped
+                        or len({selector for _, selector in coordinates}) > 1
+                    )
                     by_version: dict[str, list[str]] = {}
                     for (minor, selector), version in sorted(coordinates.items()):
                         parts = []
@@ -1549,7 +1556,9 @@ class PackageReportBuilder:
                     for version in sorted(by_version, key=Version):
                         alternatives = tuple(sorted(set(by_version[version])))
                         selector = " or ".join(
-                            f"({alternative})" if " and " in alternative else alternative
+                            f"({alternative})"
+                            if " and " in alternative
+                            else alternative
                             for alternative in alternatives
                         )
                         projected.append(
@@ -1601,7 +1610,10 @@ class PackageReportBuilder:
             )
             expected = []
             for declaration in active:
-                if declaration.managed and self._selector_key(cell) in selected_selectors:
+                if (
+                    declaration.managed
+                    and self._selector_key(cell) in selected_selectors
+                ):
                     floor = floor_by_cell.get(self._cell_key(cell))
                     if floor is None:
                         return False
@@ -1613,9 +1625,7 @@ class PackageReportBuilder:
             for raw in projected_requirements:
                 requirement = Requirement(raw)
                 marker = (
-                    str(requirement.marker)
-                    if requirement.marker is not None
-                    else None
+                    str(requirement.marker) if requirement.marker is not None else None
                 )
                 if (
                     declarations[0].location == "optional"
@@ -1927,11 +1937,32 @@ class ReportStore:
                 "invalid v1 report: explicit wire facts are missing or not canonical"
             )
         source_plan = wire.inputs.source_plan
-        if any(not _is_public_source(item) for item in source_plan.identities):
+        if source_plan.source_mode != "SEARCH":
+            raise ConfigurationError(
+                "invalid v1 report: SourcePlan must use SEARCH mode"
+            )
+        if any(
+            not _is_public_source(source)
+            for route in source_plan.routes
+            for source in (route.development_source, route.search_source)
+        ):
             raise ConfigurationError(
                 "invalid v1 report: SourcePlan has a non-public locator"
             )
         declarations = wire.inputs.requirement_declarations
+        route_by_dependency = {route.dependency: route for route in source_plan.routes}
+        if any(
+            declaration.name not in route_by_dependency
+            or (
+                declaration.managed
+                and route_by_dependency[declaration.name].search_source.kind
+                != "registry"
+            )
+            for declaration in declarations
+        ):
+            raise ConfigurationError(
+                "invalid v1 report: requirement source route mismatch"
+            )
         declaration_ids = tuple(item.declaration_id for item in declarations)
         if declaration_ids != tuple(sorted(set(declaration_ids))):
             raise ConfigurationError(
@@ -1965,10 +1996,6 @@ class ReportStore:
         declaration_by_id = {
             declaration.declaration_id: declaration for declaration in declarations
         }
-        if any(not _is_public_source(item.source) for item in declarations):
-            raise ConfigurationError(
-                "invalid v1 report: RequirementDeclaration has a non-public source locator"
-            )
         cells: list[Cell] = []
         for record in wire.inputs.target_cells:
             if not set(record.active_declaration_refs) <= declaration_id_set:
@@ -2008,6 +2035,7 @@ class ReportStore:
             )
         candidate_by_id: dict[str, CandidateSnapshot] = {}
         candidate_key_ids: set[str] = set()
+        report_source_plan_identity = source_plan_identity(wire.inputs.source_plan)
         for record in wire.inputs.candidate_snapshots:
             cell = cell_by_id.get(record.cell_ref)
             if cell is None:
@@ -2027,6 +2055,7 @@ class ReportStore:
                     dependency=record.dependency,
                     cell=cell,
                     policy_identity=record.policy_identity,
+                    source_plan_identity=record.source_plan_identity,
                     source=record.source,
                     candidates=record.candidates,
                     series_representatives=record.series_representatives,
@@ -2037,6 +2066,21 @@ class ReportStore:
                     "invalid v1 report: CandidateSnapshot identity mismatch: "
                     f"{_safe_report_id(record.candidate_snapshot_id)}"
                 ) from error
+            if snapshot.source_plan_identity != report_source_plan_identity:
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot source plan mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                )
+            route = route_by_dependency.get(snapshot.dependency)
+            if (
+                route is None
+                or route.search_source.kind != "registry"
+                or snapshot.source != route.search_source
+            ):
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot search source mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                )
             if record.candidate_snapshot_id in candidate_key_ids:
                 raise ConfigurationError(
                     "invalid v1 report: duplicate CandidateSnapshot ID: "
@@ -2044,6 +2088,10 @@ class ReportStore:
                 )
             candidate_by_id[record.candidate_snapshot_id] = snapshot
             candidate_key_ids.add(record.candidate_snapshot_id)
+        candidate_by_cell_dependency = {
+            (cell_identity(snapshot.cell), snapshot.dependency): snapshot
+            for snapshot in candidate_by_id.values()
+        }
         graph_ids = tuple(
             item.resolution_graph_id for item in wire.evidence.resolution_graphs
         )
@@ -2080,7 +2128,7 @@ class ReportStore:
                     f"{_safe_report_id(record.attempt_id)}"
                 )
             try:
-                attempt_by_id[record.attempt_id] = Attempt(
+                attempt = Attempt(
                     attempt_id=record.attempt_id,
                     identity=AttemptIdentity(
                         identity_version="attempt-v2",
@@ -2105,6 +2153,43 @@ class ReportStore:
                     "invalid v1 report: Attempt identity mismatch: "
                     f"{_safe_report_id(record.attempt_id)}"
                 ) from error
+            if attempt.identity.source_plan_identity != report_source_plan_identity:
+                raise ConfigurationError(
+                    "invalid v1 report: Attempt source plan mismatch: "
+                    f"{_safe_report_id(record.attempt_id)}"
+                )
+            if attempt.identity.requested_resolution == "exact-vector":
+                assert attempt.identity.requested_managed_vector is not None
+                try:
+                    selected = tuple(
+                        SelectedCandidate(
+                            dependency=pin.name,
+                            version=pin.version,
+                            artifact=next(
+                                candidate.artifact
+                                for candidate in candidate_by_cell_dependency[
+                                    (cell_identity(cell), pin.name)
+                                ].candidates
+                                if candidate.version == pin.version
+                            ),
+                        )
+                        for pin in attempt.identity.requested_managed_vector
+                    )
+                    selected_digest = selected_candidate_evidence_digest(selected)
+                except (KeyError, StopIteration, ValidationError, ValueError) as error:
+                    raise ConfigurationError(
+                        "invalid v1 report: Attempt selected candidate mismatch: "
+                        f"{_safe_report_id(record.attempt_id)}"
+                    ) from error
+                if (
+                    attempt.identity.selected_candidate_evidence_digest
+                    != selected_digest
+                ):
+                    raise ConfigurationError(
+                        "invalid v1 report: Attempt selected candidate mismatch: "
+                        f"{_safe_report_id(record.attempt_id)}"
+                    )
+            attempt_by_id[record.attempt_id] = attempt
         proposal_ids = tuple(item.proposal_id for item in wire.evidence.proposals)
         if proposal_ids != tuple(sorted(set(proposal_ids))):
             raise ConfigurationError(
@@ -3477,7 +3562,7 @@ class ReportStore:
             config=EffectiveConfig(),
             declarations=generation.requirement_declarations,
             cells=generation.target_cells,
-            source_plan=generation.source_plan,
+            source_routes=generation.source_plan.routes,
         )
         rebuilt = PackageReportBuilder().build(
             package=package,

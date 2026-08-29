@@ -277,9 +277,7 @@ class PassingTests:
 
     def run(self, *args: object, **kwargs: object) -> VerifierRun:
         self.calls += 1
-        return VerifierRun(
-            authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
-        )
+        return VerifierRun(authoritative=VerifierPass(terminal=NormalExit(exit_code=0)))
 
 
 class PassingTy:
@@ -343,9 +341,7 @@ class TestStaticEvaluator:
         with pytest.raises(ValueError, match="cell, snapshot, and policy"):
             StaticEvaluator(Ty()).evaluate(
                 prepared,
-                package=ProjectLoader()
-                .load(root=Path.cwd(), package_selection=None)
-                .packages[0],
+                package=ProjectLoader().load(root=Path.cwd()).target,
                 baseline=baseline,
             )
 
@@ -378,9 +374,7 @@ class TestStaticEvaluator:
 
         baseline_environment = prepared_for_static(tmp_path, "baseline")
         candidate_environment = prepared_for_static(tmp_path, "candidate")
-        package = (
-            ProjectLoader().load(root=Path.cwd(), package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=Path.cwd()).target
         evaluator = StaticEvaluator(Ty())
 
         capture = evaluator.capture(baseline_environment, package=package)
@@ -421,11 +415,12 @@ class TestRuntimeEvaluator:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -486,11 +481,12 @@ class TestRuntimeEvaluator:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -538,12 +534,13 @@ class TestRuntimeEvaluator:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -559,9 +556,7 @@ class TestRuntimeEvaluator:
                 del progress
                 self.request = request
                 return VerifierRun(
-                    authoritative=VerifierRejected(
-                        terminal=NormalExit(exit_code=4)
-                    )
+                    authoritative=VerifierRejected(terminal=NormalExit(exit_code=4))
                 )
 
         verifier = Verifier()
@@ -610,12 +605,13 @@ class TestRuntimeEvaluator:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -702,9 +698,7 @@ class TestRuntimeWitnessEvaluator:
             witnesses=Witnesses(),
         ).evaluate(
             prepared,
-            package=ProjectLoader()
-            .load(root=Path.cwd(), package_selection=None)
-            .packages[0],
+            package=ProjectLoader().load(root=Path.cwd()).target,
             baseline=empty_baseline(prepared),
             static_result=static,
         )
@@ -803,9 +797,7 @@ class TestRuntimeWitnessEvaluator:
             witnesses=witnesses,
         ).evaluate(
             prepared,
-            package=ProjectLoader()
-            .load(root=Path.cwd(), package_selection=None)
-            .packages[0],
+            package=ProjectLoader().load(root=Path.cwd()).target,
             baseline=empty_baseline(prepared),
             static_result=static,
         )
@@ -818,7 +810,9 @@ class TestRuntimeWitnessEvaluator:
         self,
         tmp_path: Path,
     ) -> None:
-        prepared, evaluation, related_one = runtime_interface_missing_evaluation(tmp_path)
+        prepared, evaluation, related_one = runtime_interface_missing_evaluation(
+            tmp_path
+        )
 
         completion = completion_outcome(evaluation)
 
@@ -871,11 +865,12 @@ class TestRuntimeEvaluatorOutcomes:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -960,11 +955,12 @@ class TestStaticEvaluatorFailures:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -1048,11 +1044,12 @@ class TestEvaluationProgress:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         prepared = EnvironmentFactory(PreparedUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)

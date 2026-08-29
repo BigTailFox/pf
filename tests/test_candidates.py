@@ -10,8 +10,10 @@ from pf.project import ProjectLoader
 from pf.schemas.project import (
     AvailableArtifact,
     AvailableCandidate,
+    DependencySourceRoute,
     PackagePlan,
     SourceIdentity,
+    StaticWorkspaceMemberVersion,
     VersionPin,
 )
 
@@ -64,7 +66,7 @@ test-command = ["pytest"]
         + "\n",
         encoding="utf-8",
     )
-    return ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+    return ProjectLoader().load(root=tmp_path).target
 
 
 class TestCandidateBuilder:
@@ -113,9 +115,7 @@ test-command = ["pytest"]
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
         index = RecordingIndex()
 
         builder = CandidateBuilder(index)
@@ -123,6 +123,7 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="idna", version="3.10"),),
+            source_mode="SEARCH",
         )
 
         assert index.queries == ["idna"]
@@ -132,6 +133,7 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="idna", version="3.10"),),
+            source_mode="SEARCH",
         )
         assert index.queries == ["idna"]
 
@@ -155,14 +157,13 @@ test-command = ["pytest"]
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
 
         snapshots = CandidateBuilder(CandidateIndex()).build(
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="demo-dep", version="1.1.1"),),
+            source_mode="SEARCH",
         )
 
         assert len(snapshots) == 1
@@ -201,15 +202,14 @@ test-command = ["pytest"]
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
 
         with pytest.raises(NoApplicableFloorError, match="empty candidate space"):
             CandidateBuilder(EmptyIndex()).build(
                 package=package,
                 cell=package.cells[0],
                 baseline=(VersionPin(name="demo-dep", version="1.0"),),
+                source_mode="SEARCH",
             )
 
     @pytest.mark.parametrize(
@@ -247,44 +247,46 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="demo-dep", version=baseline),),
+            source_mode="SEARCH",
         )
 
         assert [candidate.version for candidate in snapshots[0].candidates] == expected
 
-    def test_candidate_builder_requires_baseline_and_unambiguous_source(
+    def test_candidate_builder_requires_baseline_and_registry_search_source(
         self,
         tmp_path: Path,
     ) -> None:
         package = configured_package(tmp_path, "")
         builder = CandidateBuilder(CandidateIndex())
         with pytest.raises(ConfigurationError, match="baseline is missing"):
-            builder.build(package=package, cell=package.cells[0], baseline=())
+            builder.build(
+                package=package,
+                cell=package.cells[0],
+                baseline=(),
+                source_mode="SEARCH",
+            )
 
-        original = package.declarations[0]
-        conflicting = original.model_copy(
+        local = SourceIdentity(kind="workspace", locator="packages/demo-dep")
+        local_only = package.model_copy(
             update={
-                "declaration_id": "conflicting",
-                "source": SourceIdentity(
-                    kind="registry",
-                    locator="https://other.example/simple",
-                ),
-            }
-        )
-        cell = package.cells[0].model_copy(
-            update={
-                "active_declaration_ids": tuple(
-                    sorted((original.declaration_id, conflicting.declaration_id))
+                "source_routes": (
+                    DependencySourceRoute(
+                        dependency="demo-dep",
+                        development_source=local,
+                        search_source=local,
+                        workspace_member_version=StaticWorkspaceMemberVersion(
+                            value="1.0"
+                        ),
+                    ),
                 )
             }
         )
-        ambiguous = package.model_copy(
-            update={"declarations": (original, conflicting), "cells": (cell,)}
-        )
-        with pytest.raises(ConfigurationError, match="ambiguous source"):
+        with pytest.raises(ConfigurationError, match="no registry search source"):
             builder.build(
-                package=ambiguous,
-                cell=cell,
+                package=local_only,
+                cell=local_only.cells[0],
                 baseline=(VersionPin(name="demo-dep", version="1.1.1"),),
+                source_mode="SEARCH",
             )
 
     def test_candidate_builder_rejects_candidates_without_the_requested_artifact(
@@ -315,4 +317,5 @@ test-command = ["pytest"]
                 package=package,
                 cell=package.cells[0],
                 baseline=(VersionPin(name="demo-dep", version="1.0"),),
+                source_mode="SEARCH",
             )

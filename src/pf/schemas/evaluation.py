@@ -287,9 +287,9 @@ class AttemptIdentity(FrozenSchema):
     source_plan_identity: str
     evaluation_policy_identity: str
     resolution_context_digest: str | None = None
-    harness_policy_identity: Literal[
-        "original-harness-v1", "harness-relaxation-v1"
-    ] | None = None
+    harness_policy_identity: (
+        Literal["original-harness-v1", "harness-relaxation-v1"] | None
+    ) = None
     harness_declaration_ids: tuple[str, ...] = ()
     harness_baseline_digest: str | None = None
     selected_candidate_evidence_digest: str | None = None
@@ -338,12 +338,10 @@ class AttemptIdentity(FrozenSchema):
                     self.harness_policy_identity != "harness-relaxation-v1"
                     or not self.harness_baseline_digest
                 ):
-                    raise ValueError(
-                        "relaxed attempt requires a harness baseline"
-                    )
-                if (
-                    self.requested_resolution == "exact-vector"
-                ) != (self.selected_candidate_evidence_digest is not None):
+                    raise ValueError("relaxed attempt requires a harness baseline")
+                if (self.requested_resolution == "exact-vector") != (
+                    self.selected_candidate_evidence_digest is not None
+                ):
                     raise ValueError(
                         "only exact attempts carry selected candidate evidence"
                     )
@@ -473,14 +471,20 @@ class FailureRecord(FrozenSchema):
     @property
     def process(self) -> ProcessResult | None:
         authority = self.authority
-        return authority.process if isinstance(authority, ProcessFailureAuthority) else None
+        return (
+            authority.process
+            if isinstance(authority, ProcessFailureAuthority)
+            else None
+        )
 
     @property
     def summary_code(self) -> str | None:
         authority = self.authority
         return (
             authority.summary_code
-            if isinstance(authority, (ProcessFailureAuthority, StructuredFailureAuthority))
+            if isinstance(
+                authority, (ProcessFailureAuthority, StructuredFailureAuthority)
+            )
             else None
         )
 
@@ -489,7 +493,9 @@ class FailureRecord(FrozenSchema):
         authority = self.authority
         return (
             authority.detail
-            if isinstance(authority, (ProcessFailureAuthority, StructuredFailureAuthority))
+            if isinstance(
+                authority, (ProcessFailureAuthority, StructuredFailureAuthority)
+            )
             else None
         )
 
@@ -704,8 +710,15 @@ class ToolFailure(FrozenSchema):
     status: Literal["FAILURE"] = "FAILURE"
     cause: FailureCause
     stage: str
-    process: ProcessObservation
+    process: ProcessObservation | None
     summary_code: str | None = None
+    detail: FailureDetail | None = None
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> "ToolFailure":
+        if self.process is None and self.detail is None:
+            raise ValueError("tool failure requires process or structured detail")
+        return self
 
 
 class PrepareFailure(FrozenSchema):
@@ -1083,7 +1096,9 @@ class VerifierRejectedEvaluation(FrozenSchema):
     @model_validator(mode="after")
     def validate_verifier_rejection(self) -> "VerifierRejectedEvaluation":
         if self.static.proposal != self.proposal:
-            raise ValueError("verifier rejection static evidence must match its proposal")
+            raise ValueError(
+                "verifier rejection static evidence must match its proposal"
+            )
         if any(
             isinstance(attempt.outcome, RuntimeWitnessResult)
             and attempt.outcome.status == "CONFIRMED_MISSING"
@@ -1126,7 +1141,9 @@ class RuntimeInterfaceMissingEvaluation(FrozenSchema):
             )
             for attempt in self.witnesses[:-1]
         ):
-            raise ValueError("runtime evaluation must stop at its first terminal witness")
+            raise ValueError(
+                "runtime evaluation must stop at its first terminal witness"
+            )
         return self
 
 
@@ -1142,9 +1159,7 @@ class IndeterminateEvaluation(FrozenSchema):
     @model_validator(mode="after")
     def validate_failure_cause(self) -> "IndeterminateEvaluation":
         if (self.failure is None) == (self.verifier is None):
-            raise ValueError(
-                "indeterminate evaluation requires exactly one authority"
-            )
+            raise ValueError("indeterminate evaluation requires exactly one authority")
         if self.failure is not None and self.cause != self.failure.cause:
             raise ValueError("indeterminate evaluation must retain its tool cause")
         if self.verifier is not None:
@@ -1154,9 +1169,7 @@ class IndeterminateEvaluation(FrozenSchema):
                 else "TOOL_FAILURE"
             )
             if self.cause != expected:
-                raise ValueError(
-                    "verifier indeterminate cause must match its terminal"
-                )
+                raise ValueError("verifier indeterminate cause must match its terminal")
         if (
             (self.failure is not None and self.failure.stage in {"witness", "test"})
             or self.verifier is not None
@@ -1491,7 +1504,9 @@ class BaselineRejection(FrozenSchema):
                 and isinstance(authority, ConfiguredVerifierFailureAuthority)
                 and authority.terminal == self.evaluation.verifier.terminal
             ):
-                raise ValueError("baseline verifier diagnosis must match its evaluation")
+                raise ValueError(
+                    "baseline verifier diagnosis must match its evaluation"
+                )
         if self.evaluation is not None and (
             self.evaluation.proposal.attempt_id != self.attempt.attempt_id
         ):
@@ -1502,13 +1517,9 @@ class BaselineRejection(FrozenSchema):
             if self.evaluation.proposal != self.static_baseline.proposal:
                 raise ValueError("baseline rejection must identify captured V_hi")
             if self.evaluation.static.ty != self.static_baseline.ty:
-                raise ValueError(
-                    "baseline rejection must reuse captured V_hi TyCheck"
-                )
+                raise ValueError("baseline rejection must reuse captured V_hi TyCheck")
             if self.evaluation.static.baseline_digest != self.static_baseline.digest:
-                raise ValueError(
-                    "baseline rejection must reuse captured V_hi digest"
-                )
+                raise ValueError("baseline rejection must reuse captured V_hi digest")
         if self.runtime is not None and self.runtime.evaluation != self.evaluation:
             raise ValueError("baseline runtime wrapper must match its evaluation")
         return self
@@ -1780,8 +1791,14 @@ class CellFailed(FrozenSchema):
             raise ValueError(
                 "cell process observation and failure source must be retained together"
             )
-        if self.process is not None and self.failures and self.process_failure_id is None:
-            raise ValueError("retained cell process requires an explicit failure source")
+        if (
+            self.process is not None
+            and self.failures
+            and self.process_failure_id is None
+        ):
+            raise ValueError(
+                "retained cell process requires an explicit failure source"
+            )
         if self.process_failure_id is not None and not any(
             failure.failure_id == self.process_failure_id for failure in self.failures
         ):
@@ -1793,8 +1810,7 @@ class CellFailed(FrozenSchema):
         if self.detail is None:
             raise ValueError("cell detail source requires structured detail")
         if not any(
-            failure.failure_id == self.detail_failure_id
-            for failure in self.failures
+            failure.failure_id == self.detail_failure_id for failure in self.failures
         ):
             raise ValueError("cell detail source must name one retained failure")
         return self

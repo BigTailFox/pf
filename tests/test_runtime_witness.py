@@ -50,9 +50,7 @@ class TestRuntimeWitnessAdapter:
         self,
         tmp_path: Path,
     ) -> None:
-        outcome = RuntimeWitnessAdapter(
-            ResultRunner(ProcessTerminalUnavailable())
-        ).run(
+        outcome = RuntimeWitnessAdapter(ResultRunner(ProcessTerminalUnavailable())).run(
             plan=_plan("json"),
             interpreter=Path(sys.executable),
             cwd=tmp_path,

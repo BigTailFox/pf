@@ -18,6 +18,7 @@ from pf.environment import (
     PreparedEnvironment,
 )
 from pf.errors import ConfigurationError
+from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.resolution import (
@@ -25,6 +26,7 @@ from pf.resolution import (
     InstallFailure,
     InstallOutcome,
     NativeResolutionPlan,
+    ResolutionArtifact,
     ResolutionContext,
     ResolutionOutcome,
     ResolutionPackage,
@@ -33,8 +35,9 @@ from pf.resolution import (
     ResolutionUnsat,
     environment_identity_digest,
 )
-from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import EffectiveConfig, WorkspacePackage
 from pf.schemas.evaluation import (
+    AttemptFailureScope,
     CellStageEvent,
     FailureCause,
     GraphOutcome,
@@ -56,7 +59,9 @@ from pf.schemas.project import (
     ResolvedNode,
     SelectedCandidate,
     SourceIdentity,
+    SourcePlan,
     VersionPin,
+    effective_source,
 )
 from pf.snapshot import SnapshotBuilder
 
@@ -136,20 +141,22 @@ class SuccessfulUv:
     def resolve_environment(self, **kwargs: object) -> ResolutionOutcome:
         project = kwargs["project_plan"]
         assert isinstance(project, ResolutionPlan)
-        harness = cast(
-            tuple[HarnessResolutionRequirement, ...], kwargs["harness"]
-        )
+        source_plan = kwargs["source_plan"]
+        assert isinstance(source_plan, SourcePlan)
+        harness = cast(tuple[HarnessResolutionRequirement, ...], kwargs["harness"])
         packages = list(project.packages)
         selections: list[HarnessSelection] = []
         for requirement in harness:
             name = requirement.declaration.name
+            route = next(item for item in source_plan.routes if item.dependency == name)
+            source = effective_source(route, source_plan.source_mode)
             if name in {item.name for item in packages}:
                 package = next(item for item in packages if item.name == name)
             else:
                 package = ResolutionPackage(
                     name=name,
                     version=requirement.ceiling or "8.4",
-                    source=requirement.declaration.source,
+                    source=source,
                 )
                 packages.append(package)
             assert package.version is not None
@@ -160,7 +167,7 @@ class SuccessfulUv:
                         version=package.version,
                         source=package.source,
                         ceiling_bound=requirement.ceiling is not None
-                        or requirement.declaration.source.kind == "registry",
+                        or source.kind == "registry",
                     )
                 )
         return self._plan(
@@ -249,7 +256,6 @@ class SuccessfulUv:
         )
 
 
-
 def _write_demo(root: Path, *, harness: bool = False) -> Path:
     project = root / "project"
     project.mkdir()
@@ -311,13 +317,217 @@ class TestEvaluationPolicy:
 
 
 class TestEnvironmentFactory:
+    @pytest.mark.parametrize(
+        ("resolved_source", "summary_code", "message"),
+        (
+            (
+                SourceIdentity(kind="workspace", locator="packages/idna"),
+                "managed-source-leakage",
+                "a managed workspace dependency resolved from a local source in SEARCH mode",
+            ),
+            (
+                SourceIdentity(kind="registry", locator="https://pypi.org/simple"),
+                "managed-source-mismatch",
+                "a managed workspace dependency did not resolve to the expected registry artifact",
+            ),
+        ),
+    )
+    def test_managed_workspace_source_failure_is_structured_and_indeterminate(
+        self,
+        tmp_path: Path,
+        resolved_source: SourceIdentity,
+        summary_code: str,
+        message: str,
+    ) -> None:
+        root = tmp_path / "workspace"
+        member = root / "packages" / "idna"
+        member.mkdir(parents=True)
+        (root / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna>=3"]
+
+[tool.uv.sources]
+idna = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            '[project]\nname = "idna"\nversion = "3.10"\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+
+        class WrongSourceUv(SuccessfulUv):
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+                return self._plan(
+                    "project",
+                    packages=(
+                        ResolutionPackage(
+                            name="idna",
+                            version="3.10",
+                            source=resolved_source,
+                        ),
+                    ),
+                    kwargs=kwargs,
+                )
+
+        result = EnvironmentFactory(WrongSourceUv()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+            resolution=HighestResolution(),
+        )
+
+        assert isinstance(result, PrepareFailure)
+        assert result.failure.process is None
+        assert result.failure.summary_code == summary_code
+        assert result.failure.detail is not None
+        assert result.failure.detail.code == summary_code
+        assert result.failure.detail.message == message
+        assert result.project_plan_digest is not None
+        assert result.environment_plan_digest is None
+        record = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=result.attempt),
+            cause=result.failure.cause,
+            stage=result.failure.stage,
+            process=result.failure.process,
+            summary_code=result.failure.summary_code,
+            detail=result.failure.detail,
+            project_plan_digest=result.project_plan_digest,
+        )
+        assert record.disposition == "INDETERMINATE"
+        assert record.process is None
+        assert record.detail == result.failure.detail
+        snapshot.close()
+
+    def test_managed_workspace_registry_and_exact_artifact_close_the_source_plan(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "workspace"
+        member = root / "packages" / "idna"
+        member.mkdir(parents=True)
+        (root / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["idna>=3"]
+
+[tool.uv.sources]
+idna = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            '[project]\nname = "idna"\nversion = "3.10"\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        selected = ResolutionArtifact(
+            filename="idna-3.10-py3-none-any.whl",
+            kind="archive",
+            locator="https://files.example/idna-3.10-py3-none-any.whl",
+            content_hash=f"sha256:{'a' * 64}",
+        )
+
+        class ClosedSourceUv(SuccessfulUv):
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+                resolution = kwargs["resolution"]
+                resolved = (
+                    ResolutionPackage(
+                        name="idna",
+                        version="3.10",
+                        source=SourceIdentity(
+                            kind="url",
+                            locator=selected.locator,
+                            content_hash=selected.content_hash,
+                        ),
+                        available_artifacts=(selected,),
+                        selected_artifact=selected,
+                    )
+                    if isinstance(resolution, ExactSelection)
+                    else ResolutionPackage(
+                        name="idna",
+                        version="3.10",
+                        source=SourceIdentity(kind="registry"),
+                        available_artifacts=(selected,),
+                    )
+                )
+                return self._plan(
+                    "project",
+                    packages=(resolved,),
+                    kwargs=kwargs,
+                )
+
+        factory = EnvironmentFactory(ClosedSourceUv())
+        highest = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+            resolution=HighestResolution(),
+        )
+        assert isinstance(highest, PreparedEnvironment)
+        highest.close()
+
+        exact = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+            resolution=ExactSelection(
+                selection=(
+                    SelectedCandidate(
+                        dependency="idna",
+                        version="3.10",
+                        artifact=AvailableArtifact(
+                            filename=selected.filename,
+                            kind="wheel",
+                            locator=selected.locator,
+                            content_hash=selected.content_hash,
+                        ),
+                    ),
+                ),
+                harness_baseline=empty_harness_baseline(package.cells[0]),
+            ),
+        )
+        assert isinstance(exact, PreparedEnvironment)
+        assert exact.project_plan.packages[0].selected_artifact == selected
+        exact.close()
+        snapshot.close()
+
     def test_environment_factory_rejects_an_unqualified_uv_protocol(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         uv = SuccessfulUv()
         monkeypatch.setattr(
@@ -326,11 +536,14 @@ class TestEnvironmentFactory:
             lambda **_kwargs: _failed_tool("TOOL_FAILURE", "uv-version"),
         )
 
-        with pytest.raises(ConfigurationError, match="protocol could not be established"):
+        with pytest.raises(
+            ConfigurationError, match="protocol could not be established"
+        ):
             EnvironmentFactory(uv).prepare(
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
+                source_mode="SEARCH",
                 resolution=HighestResolution(),
             )
 
@@ -356,13 +569,14 @@ class TestEnvironmentFactory:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         prepared = EnvironmentFactory(SuccessfulUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -446,7 +660,7 @@ class TestEnvironmentFactory:
                 return super().resolve_environment(**kwargs)
 
         root = _write_demo(tmp_path, harness=True)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         uv = CountingUv()
         factory = EnvironmentFactory(uv)
@@ -455,6 +669,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(first, PreparedEnvironment)
@@ -463,6 +678,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -485,8 +701,8 @@ class TestEnvironmentFactory:
             def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
                 package = kwargs["package"]
                 assert isinstance(package, Path)
-                replica = ProjectLoader().load(root=package, package_selection=None)
-                self.requirement = Requirement(replica.packages[0].declarations[0].raw)
+                replica = ProjectLoader().load(root=package)
+                self.requirement = Requirement(replica.target.declarations[0].raw)
                 return super().resolve_project(**kwargs)
 
             def inspect_environment(self, **kwargs: object) -> GraphSuccess:
@@ -515,7 +731,7 @@ class TestEnvironmentFactory:
             + "\n"
         )
         (root / "pyproject.toml").write_text(original, encoding="utf-8")
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         uv = ReplicaInspectingUv()
 
@@ -523,6 +739,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=exact_selection(
                 package.cells[0], VersionPin(name="idna", version="3.1")
             ),
@@ -588,7 +805,7 @@ class TestEnvironmentFactory:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         uv = ExactUv()
 
@@ -596,6 +813,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=ExactSelection(
                 selection,
                 harness_baseline=empty_harness_baseline(package.cells[0]),
@@ -630,7 +848,7 @@ class TestEnvironmentFactory:
         pins: tuple[VersionPin, ...],
     ) -> None:
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         with pytest.raises(ConfigurationError, match="sorted and unique"):
@@ -638,6 +856,7 @@ class TestEnvironmentFactory:
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
+                source_mode="SEARCH",
                 resolution=exact_selection(package.cells[0], *pins),
             )
         snapshot.close()
@@ -673,25 +892,26 @@ class TestEnvironmentFactory:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(DriftingUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=ExactSelection(
                 (
-                SelectedCandidate(
-                    dependency="idna",
-                    version="3.1",
-                    artifact=AvailableArtifact(
-                        filename="idna-3.1.tar.gz",
-                        kind="sdist",
-                        content_hash=f"sha256:{'a' * 64}",
-                        locator="https://files.example/idna-3.1.tar.gz",
+                    SelectedCandidate(
+                        dependency="idna",
+                        version="3.1",
+                        artifact=AvailableArtifact(
+                            filename="idna-3.1.tar.gz",
+                            kind="sdist",
+                            content_hash=f"sha256:{'a' * 64}",
+                            locator="https://files.example/idna-3.1.tar.gz",
+                        ),
                     ),
-                ),
                 ),
                 harness_baseline=empty_harness_baseline(package.cells[0]),
             ),
@@ -721,9 +941,7 @@ class TestEnvironmentFactory:
                     context=context,
                     proof_code="direct-version-contradiction",
                     diagnostic_digest="diagnostic",
-                    process=_failed_process(
-                        "RESOLUTION_CONFLICT", "resolve-project"
-                    ),
+                    process=_failed_process("RESOLUTION_CONFLICT", "resolve-project"),
                 )
 
         root = tmp_path / "project"
@@ -743,7 +961,7 @@ class TestEnvironmentFactory:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         requested = (VersionPin(name="idna", version="3.1"),)
 
@@ -751,6 +969,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=exact_selection(package.cells[0], *requested),
         )
 
@@ -840,9 +1059,9 @@ class TestEnvironmentFactory:
             ProjectLoader()
             .load(
                 root=root,
-                package_selection="demo",
+                selector=WorkspacePackage(canonical_name="demo"),
             )
-            .packages[0]
+            .target
         )
         cell = next(cell for cell in package.cells if cell.extra_surface == ("http",))
         snapshot = SnapshotBuilder.without_processes().build(root)
@@ -852,6 +1071,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=cell,
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=exact_selection(
                 cell,
                 VersionPin(name="certifi", version="2024.2"),
@@ -893,9 +1113,7 @@ class TestEnvironmentFactory:
                     context=context,
                     proof_code="transitive-version-contradiction",
                     diagnostic_digest="diagnostic",
-                    process=_failed_process(
-                        "HARNESS_CONFLICT", "resolve-environment"
-                    ),
+                    process=_failed_process("HARNESS_CONFLICT", "resolve-environment"),
                 )
 
         root = tmp_path / "project"
@@ -918,13 +1136,14 @@ class TestEnvironmentFactory:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(HarnessConflictUv()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -957,14 +1176,16 @@ class TestEnvironmentFactory:
                 return self._plan(
                     "environment",
                     packages=tuple(
-                        sorted((*outcome.packages, transitive), key=lambda item: item.name)
+                        sorted(
+                            (*outcome.packages, transitive), key=lambda item: item.name
+                        )
                     ),
                     direct_harness=outcome.direct_harness,
                     kwargs=kwargs,
                 )
 
         root = _write_demo(tmp_path, harness=True)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         factory = EnvironmentFactory(ChangingHarnessGraphUv())
 
@@ -972,6 +1193,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         assert isinstance(original, PreparedEnvironment)
@@ -979,6 +1201,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=LowestDirectResolution(original.harness_baseline),
         )
 
@@ -1029,7 +1252,7 @@ class TestEnvironmentFactory:
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         events = Events()
 
@@ -1037,6 +1260,7 @@ class TestEnvironmentFactory:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1059,13 +1283,14 @@ class TestEnvironmentFactory:
                 return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
 
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(CreateFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1084,16 +1309,15 @@ class TestEnvironmentFactory:
                 return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
 
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(CreateFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            resolution=LowestDirectResolution(
-                empty_harness_baseline(package.cells[0])
-            ),
+            source_mode="SEARCH",
+            resolution=LowestDirectResolution(empty_harness_baseline(package.cells[0])),
         )
 
         assert isinstance(result, PrepareFailure)
@@ -1134,13 +1358,14 @@ class TestEnvironmentFactory:
                 )
 
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(StageFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1168,13 +1393,14 @@ class TestEnvironmentFactory:
                 )
 
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(WrongInterpreter()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1195,13 +1421,14 @@ class TestEnvironmentFactory:
                 )
 
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(MissingManaged()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1226,13 +1453,14 @@ class TestEnvironmentFactory:
                 )
 
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(ExtraPackage()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1257,19 +1485,18 @@ class TestEnvironmentFactory:
                     context=context,
                     proof_code="direct-version-contradiction",
                     diagnostic_digest="diagnostic",
-                    process=_failed_process(
-                        "HARNESS_CONFLICT", "resolve-environment"
-                    ),
+                    process=_failed_process("HARNESS_CONFLICT", "resolve-environment"),
                 )
 
         root = _write_demo(tmp_path, harness=True)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(HarnessFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1289,13 +1516,14 @@ class TestEnvironmentFactory:
                 return _failed_tool("TOOL_FAILURE", "inspect")
 
         root = _write_demo(tmp_path, harness=True)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         result = EnvironmentFactory(HarnessInspectFails()).prepare(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
 
@@ -1309,7 +1537,7 @@ class TestEnvironmentFactory:
         tmp_path: Path,
     ) -> None:
         root = _write_demo(tmp_path)
-        package = ProjectLoader().load(root=root, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
 
         with pytest.raises(ConfigurationError, match="exactly cover"):
@@ -1317,6 +1545,7 @@ class TestEnvironmentFactory:
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
+                source_mode="SEARCH",
                 resolution=ExactSelection(
                     (),
                     harness_baseline=empty_harness_baseline(package.cells[0]),

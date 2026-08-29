@@ -129,9 +129,7 @@ def live_cell_identity_text(
     elif identity is None:
         first = second = None
     else:
-        raise AssertionError(
-            f"unsupported cell identity: {type(identity).__name__}"
-        )
+        raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
     if first is not None and second is not None:
         _append_bracket_token(value, first, style="bold cyan")
         _append_bracket_token(value, second, style="cyan")
@@ -174,9 +172,7 @@ def cell_identity_text(
         value.append("]", style=secondary_style)
         return value
     else:
-        raise AssertionError(
-            f"unsupported cell identity: {type(identity).__name__}"
-        )
+        raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
 
 
 def result_identity_text(
@@ -197,9 +193,7 @@ def result_identity_text(
             ),
         )
     else:
-        raise AssertionError(
-            f"unsupported cell identity: {type(identity).__name__}"
-        )
+        raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
     value = Text(overflow="fold", no_wrap=False)
     for token in tokens:
         value.append("[", style="dim default not bold")
@@ -394,9 +388,7 @@ class CellPresentation:
         search_projection = _search_projection(search_events)
         outcome_primary = failures[0].failure_id if failures else None
         primary_failure_id = (
-            search_projection[0]
-            if search_projection is not None
-            else outcome_primary
+            search_projection[0] if search_projection is not None else outcome_primary
         )
         outcome_detail_failure_id = (
             outcome.detail_failure_id if isinstance(outcome, CellFailed) else None
@@ -408,9 +400,7 @@ class CellPresentation:
             else None
         )
         detail = (
-            search_projection[1]
-            if search_projection is not None
-            else outcome_detail
+            search_projection[1] if search_projection is not None else outcome_detail
         )
         primary_failure = next(
             (
@@ -436,11 +426,11 @@ class CellPresentation:
                 and isinstance(outcome.process, ProcessResult)
                 else None
             ),
-            stage=primary_failure.stage if primary_failure is not None else outcome.phase,
+            stage=primary_failure.stage
+            if primary_failure is not None
+            else outcome.phase,
             role=(
-                outcome.verification_role
-                if isinstance(outcome, CellFailed)
-                else None
+                outcome.verification_role if isinstance(outcome, CellFailed) else None
             ),
             command=command,
             diagnose_available=diagnose_available,

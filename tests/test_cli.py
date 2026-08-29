@@ -34,6 +34,7 @@ from pf.schemas.config import (
     EffectiveConfig,
     MergeRequest,
     ReportRequest,
+    WorkspacePackage,
     SearchRequest,
     SmokeRequest,
 )
@@ -42,7 +43,6 @@ from pf.schemas.evaluation import CheckPass, SmokePass, StatusEvent
 from pf.schemas.project import (
     ApplySelector,
     PackagePlan,
-    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
@@ -76,12 +76,10 @@ def apply_result(
     source_drift_paths: tuple[str, ...] = (),
 ) -> ApplyCommandResult:
     return ApplyCommandResult(
-        edits=(
-            ProjectEditResult(
-                changed=changed,
-                pyproject_path="pyproject.toml",
-                recovery_log_path=".pf/apply-recovery.json",
-            ),
+        edit=ProjectEditResult(
+            changed=changed,
+            pyproject_path="pyproject.toml",
+            recovery_log_path=".pf/apply-recovery.json",
         ),
         presentation_facts=ApplyPresentationFacts(
             observed_cells=2,
@@ -143,7 +141,7 @@ def minimal_report() -> ValidatedReport:
         config=EffectiveConfig(),
         declarations=(),
         cells=(),
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
     snapshot = SourceSnapshotIdentity(
         digest=source_snapshot_digest((), ()),
@@ -324,7 +322,7 @@ class TestCliInterface:
         assert result.returncode == 1
         assert "Error:" in result.stderr
         assert "positive integer" in result.stderr
-        assert "Usage: pf check [OPTIONS] [PACKAGE]" in result.stderr
+        assert "Usage: pf check [OPTIONS]" in result.stderr
         assert "Try 'pf check --help'" in result.stderr
         assert "Traceback" not in result.stderr
         assert "\x1b" not in result.stderr
@@ -342,7 +340,7 @@ class TestCliInterface:
         assert "Try 'pf search --help'" in result.stderr
         assert "Traceback" not in result.stderr
 
-    def test_unknown_package_is_an_invocation_error(self, tmp_path: Path) -> None:
+    def test_unknown_package_is_a_configuration_error(self, tmp_path: Path) -> None:
         (tmp_path / "src" / "demo").mkdir(parents=True)
         (tmp_path / "src" / "demo" / "__init__.py").write_text(
             "VALUE = 1\n", encoding="utf-8"
@@ -367,19 +365,18 @@ class TestCliInterface:
             encoding="utf-8",
         )
         result = subprocess.run(
-            [sys.executable, "-m", "pf", "check", "other"],
+            [sys.executable, "-m", "pf", "check", "--package", "other"],
             cwd=tmp_path,
             check=False,
             capture_output=True,
             text=True,
         )
 
-        assert result.returncode == 1
-        assert "Error:" in result.stderr
+        assert result.returncode == 3
+        assert "configuration:" in result.stderr
         assert "unknown package selection: other" in result.stderr
         assert "Known packages: demo" in result.stderr
-        assert "Usage:" in result.stderr
-        assert "Try 'pf check --help'" in result.stderr
+        assert "Usage:" not in result.stderr
         assert "Traceback" not in result.stderr
         assert "\x1b" not in result.stderr
 
@@ -490,9 +487,9 @@ class TestCommandDispatch:
         result = invoke_app(command, "--help")
 
         assert result.returncode == 0, result.stderr
-        assert f"Usage: pf {command} [OPTIONS] [PACKAGE]" in result.stdout
+        assert f"Usage: pf {command} [OPTIONS]" in result.stdout
         assert "[ARGS]" not in result.stdout
-        assert "--package" not in result.stdout
+        assert "--package" in result.stdout
         assert all(fragment in result.stdout for fragment in expected_fragments)
 
     def test_check_command_normalizes_jobs_before_workflow(
@@ -521,7 +518,7 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["check", "demo", "--jobs", "2"],
+            ["check", "--package", "demo", "--jobs", "2"],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -529,7 +526,7 @@ class TestCommandDispatch:
         assert exit_code == 0
         assert workflow.request == CheckRequest(
             root=tmp_path.as_posix(),
-            package="demo",
+            selector=WorkspacePackage(canonical_name="demo"),
             jobs=2,
         )
 
@@ -559,14 +556,14 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["check", "demo"],
+            ["check", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
 
         assert exit_code == 0
         assert workflow.request is not None
-        assert workflow.request.package == "demo"
+        assert workflow.request.selector == WorkspacePackage(canonical_name="demo")
         assert workflow.request.root == tmp_path.as_posix()
         assert workflow.request.jobs == "auto"
         assert stdout.getvalue() == "✓  Check passed · 0 cells\n"
@@ -599,7 +596,7 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["smoke", "demo", "--jobs", "2"],
+            ["smoke", "--package", "demo", "--jobs", "2"],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -607,7 +604,7 @@ class TestCommandDispatch:
         assert exit_code == 0
         assert workflow.request == SmokeRequest(
             root=tmp_path.as_posix(),
-            package="demo",
+            selector=WorkspacePackage(canonical_name="demo"),
             jobs=2,
         )
         assert stdout.getvalue() == "✓  Smoke passed · 0 cells\n"
@@ -622,9 +619,9 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: SearchRequest | None = None
 
-            def run(self, request: SearchRequest):
+            def run(self, request: SearchRequest) -> ValidatedReport:
                 self.request = request
-                return ()
+                return minimal_report()
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
@@ -640,7 +637,15 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["search", "demo", "--jobs", "2", "--max-duration", "1m"],
+            [
+                "search",
+                "--package",
+                "demo",
+                "--jobs",
+                "2",
+                "--max-duration",
+                "1m",
+            ],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -648,11 +653,11 @@ class TestCommandDispatch:
         assert exit_code == 0
         assert workflow.request == SearchRequest(
             root=tmp_path.as_posix(),
-            package="demo",
+            selector=WorkspacePackage(canonical_name="demo"),
             jobs=2,
             max_duration_seconds=60,
         )
-        assert stdout.getvalue() == "✓  Search complete · 0 reports\n"
+        assert "Search complete · package-floor.json" in stdout.getvalue()
         assert stderr.getvalue() == ""
 
     def test_explain_command_only_requests_existing_reports(
@@ -664,9 +669,9 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: ReportRequest | None = None
 
-            def run(self, request: ReportRequest):
+            def run(self, request: ReportRequest) -> ValidatedReport:
                 self.request = request
-                return ()
+                return minimal_report()
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
@@ -683,16 +688,17 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["explain", "demo"],
+            ["explain", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
 
         assert exit_code == 0
         assert workflow.request == ReportRequest(
-            root=tmp_path.as_posix(), package="demo"
+            root=tmp_path.as_posix(),
+            selector=WorkspacePackage(canonical_name="demo"),
         )
-        assert stdout.getvalue() == "explained 0 reports\n"
+        assert "demo · package-floor.json" in stdout.getvalue()
 
     def test_diagnose_command_only_requests_recorded_failures(
         self,
@@ -722,7 +728,7 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["diagnose", "demo", "--failure", "failure-a"],
+            ["diagnose", "--package", "demo", "--failure", "failure-a"],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -730,7 +736,7 @@ class TestCommandDispatch:
         assert exit_code == 0
         assert workflow.request == DiagnoseRequest(
             root=tmp_path.as_posix(),
-            package="demo",
+            selector=WorkspacePackage(canonical_name="demo"),
             failure_id="failure-a",
         )
         assert stdout.getvalue() == "diagnosed 0 failures\n"
@@ -805,16 +811,17 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["apply", "demo"],
+            ["apply", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
 
         assert exit_code == 0
         assert workflow.request == ApplyRequest(
-            root=tmp_path.as_posix(), package="demo"
+            root=tmp_path.as_posix(),
+            selector=WorkspacePackage(canonical_name="demo"),
         )
-        assert stdout.getvalue() == "✓  Applied floors · 1 project updated\n"
+        assert stdout.getvalue() == "✓  Applied floors · project updated\n"
 
     @pytest.mark.parametrize("force_terminal", (False, True))
     def test_apply_reports_platform_scope_in_one_stdout_summary(
@@ -829,14 +836,10 @@ class TestCommandDispatch:
                 return apply_result(
                     changed=True,
                     selected=(
-                        ApplySelector(
-                            sys_platform="linux", platform_machine="x86_64"
-                        ),
+                        ApplySelector(sys_platform="linux", platform_machine="x86_64"),
                     ),
                     preserved=(
-                        ApplySelector(
-                            sys_platform="win32", platform_machine="AMD64"
-                        ),
+                        ApplySelector(sys_platform="win32", platform_machine="AMD64"),
                     ),
                 )
 
@@ -860,7 +863,7 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["apply", "demo"],
+            ["apply", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -868,7 +871,7 @@ class TestCommandDispatch:
         assert exit_code == 0
         assert stderr.getvalue() == ""
         assert " ".join(stdout.getvalue().split()) == (
-            "✓ Applied floors · 1 project updated · platform-scoped to "
+            "✓ Applied floors · project updated · platform-scoped to "
             "linux/x86_64 · preserved windows/x86_64"
         )
 
@@ -888,12 +891,12 @@ class TestCommandDispatch:
                 return apply_result(
                     changed=True,
                     selected=(
-                        ApplySelector(
-                            sys_platform="linux", platform_machine="x86_64"
-                        ),
+                        ApplySelector(sys_platform="linux", platform_machine="x86_64"),
                     ),
                     source_drift_path_count=10,
-                    source_drift_paths=tuple(f"src/path-{index}.py" for index in range(8)),
+                    source_drift_paths=tuple(
+                        f"src/path-{index}.py" for index in range(8)
+                    ),
                 )
 
         monkeypatch.chdir(tmp_path)
@@ -917,14 +920,16 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["apply", "demo", "--force"],
+            ["apply", "--package", "demo", "--force"],
             exit_on_error=False,
             result_action="return_value",
         )
 
         assert exit_code == 0
         assert workflow.request == ApplyRequest(
-            root=tmp_path.as_posix(), package="demo", force=True
+            root=tmp_path.as_posix(),
+            selector=WorkspacePackage(canonical_name="demo"),
+            force=True,
         )
         assert stdout.getvalue() == ""
         rendered = stderr.getvalue()
@@ -932,7 +937,9 @@ class TestCommandDispatch:
         assert "waived    source drift (10 paths)" in rendered
         assert "src/path-7.py (+2 more)" in rendered
         assert rendered.count("Applied floors") == 1
-        assert "⚠  Applied floors with operator override · 1 project updated" in rendered
+        assert (
+            "⚠  Applied floors with operator override · project updated" in rendered
+        )
 
     def test_cli_context_requires_the_complete_object_graph(self) -> None:
         with pytest.raises(TypeError, match="required positional argument"):
@@ -986,8 +993,8 @@ class TestMinimizeCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class SearchWorkflow:
-            def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]:
-                return (minimal_report(),)
+            def run(self, request: SearchRequest) -> ValidatedReport:
+                return minimal_report()
 
         class ApplyWorkflow:
             def __init__(self) -> None:
@@ -1012,13 +1019,16 @@ class TestMinimizeCommand:
         )
 
         exit_code = create_app(context)(
-            ["minimize", "demo"],
+            ["minimize", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
 
         assert exit_code == 0
-        assert apply.request == ApplyRequest(root=tmp_path.as_posix(), package="demo")
+        assert apply.request == ApplyRequest(
+            root=tmp_path.as_posix(),
+            selector=WorkspacePackage(canonical_name="demo"),
+        )
         assert stdout.getvalue() == "✓  Minimized floors · no metadata changes\n"
         assert stderr.getvalue() == ""
 
@@ -1031,9 +1041,9 @@ class TestMinimizeCommand:
             def __init__(self) -> None:
                 self.request: SearchRequest | None = None
 
-            def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]:
+            def run(self, request: SearchRequest) -> ValidatedReport:
                 self.request = request
-                return ()
+                return minimal_report()
 
         class ApplyWorkflow:
             def __init__(self) -> None:
@@ -1060,15 +1070,16 @@ class TestMinimizeCommand:
         )
 
         exit_code = create_app(context)(
-            ["minimize", "demo"],
+            ["minimize", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
 
         expected_root = tmp_path.as_posix()
         assert exit_code == 0
-        assert search.request == SearchRequest(root=expected_root, package="demo")
-        assert apply.request == ApplyRequest(root=expected_root, package="demo")
+        selector = WorkspacePackage(canonical_name="demo")
+        assert search.request == SearchRequest(root=expected_root, selector=selector)
+        assert apply.request == ApplyRequest(root=expected_root, selector=selector)
         assert stdout.getvalue() == "✓  Minimized floors · no metadata changes\n"
 
 

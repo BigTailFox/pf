@@ -7,7 +7,11 @@ import pytest
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader, host_target, marker_platform
 from pf.project_discovery import PackageLocation, ProjectDiscovery
-from pf.schemas.project import SourceIdentity
+from pf.schemas.config import RootPackage, WorkspacePackage
+from pf.schemas.project import (
+    SourceIdentity,
+    StaticWorkspaceMemberVersion,
+)
 
 
 def write_basic_project(
@@ -43,7 +47,6 @@ class TestProjectDiscovery:
             "[tool]\npf = 1\n",
             "[tool.pf]\npackage = 1\n",
             "[tool.pf.package]\ndemo = 1\n",
-            "[tool.pf.package.demo]\npath = 1\n",
             '[tool.uv.workspace]\nmembers = "packages/*"\n',
             "[tool.uv.workspace]\nmembers = [1]\n",
         ),
@@ -54,7 +57,6 @@ class TestProjectDiscovery:
             "pf",
             "package-map",
             "package-entry",
-            "package-path",
             "member-string",
             "member-item",
         ),
@@ -67,48 +69,7 @@ class TestProjectDiscovery:
         (tmp_path / "pyproject.toml").write_text(document, encoding="utf-8")
 
         with pytest.raises(ConfigurationError):
-            ProjectDiscovery().discover(root=tmp_path, package_selection=None)
-
-    @pytest.mark.parametrize(
-        ("document", "member"),
-        (
-            (
-                '[project]\nname = "demo"\nversion = "1"\n'
-                '[tool.pf.package.missing]\npath = "missing"\n',
-                None,
-            ),
-            ('[tool.uv.workspace]\nmembers = ["member"]\n', "[project]\n"),
-            (
-                '[tool.uv.workspace]\nmembers = ["member"]\n'
-                '[tool.pf]\npackages = ["other"]\n',
-                '[project]\nname = "demo"\nversion = "1"\n',
-            ),
-            (
-                '[tool.uv.workspace]\nmembers = ["member"]\nexclude = ["member"]\n',
-                '[project]\nname = "demo"\nversion = "1"\n',
-            ),
-            (
-                '[project]\nname = "demo"\nversion = "1"\n'
-                '[tool.pf.package.demo]\npath = "../outside"\n',
-                None,
-            ),
-        ),
-        ids=("missing-path", "missing-name", "not-selected", "excluded", "escape"),
-    )
-    def test_project_discovery_rejects_an_empty_package_selection(
-        self,
-        tmp_path: Path,
-        document: str,
-        member: str | None,
-    ) -> None:
-        (tmp_path / "pyproject.toml").write_text(document, encoding="utf-8")
-        if member is not None:
-            member_root = tmp_path / "member"
-            member_root.mkdir()
-            (member_root / "pyproject.toml").write_text(member, encoding="utf-8")
-
-        with pytest.raises(ConfigurationError):
-            ProjectDiscovery().discover(root=tmp_path, package_selection=None)
+            ProjectDiscovery().select(root=tmp_path, selector=RootPackage())
 
     def test_project_discovery_rejects_an_invalid_project_name(
         self,
@@ -120,7 +81,7 @@ class TestProjectDiscovery:
         )
 
         with pytest.raises(ConfigurationError, match="invalid project name"):
-            ProjectDiscovery().discover(root=tmp_path, package_selection=None)
+            ProjectDiscovery().select(root=tmp_path, selector=RootPackage())
 
     def test_single_package_loads_normalized_declarations_and_cells(
         self, tmp_path: Path
@@ -153,9 +114,9 @@ class TestProjectDiscovery:
             encoding="utf-8",
         )
 
-        plan = ProjectLoader().load(root=tmp_path, package_selection=None)
+        plan = ProjectLoader().load(root=tmp_path)
 
-        package = plan.packages[0]
+        package = plan.target
         assert package.name == "demo-app"
         assert [(item.name, item.kind) for item in package.declarations] == [
             ("numpy", "searchable"),
@@ -189,7 +150,7 @@ class TestProjectDiscovery:
             requests_id in cell.active_declaration_ids for cell in package.cells[2:]
         )
 
-    def test_workspace_discovers_installable_members_then_applies_root_selection(
+    def test_workspace_selects_exactly_one_named_member_and_keeps_owned_paths(
         self,
         tmp_path: Path,
     ) -> None:
@@ -198,12 +159,6 @@ class TestProjectDiscovery:
     [tool.uv.workspace]
     members = ["packages/*"]
 
-    [tool.pf]
-    packages = ["alpha", "beta"]
-    exclude-packages = ["beta"]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    test-command = ["pytest"]
     """.strip()
             + "\n",
             encoding="utf-8",
@@ -216,15 +171,64 @@ class TestProjectDiscovery:
                 encoding="utf-8",
             )
 
-        plan = ProjectLoader().load(root=tmp_path, package_selection=None)
+        plan = ProjectLoader().load(
+            root=tmp_path,
+            selector=WorkspacePackage(canonical_name="beta"),
+        )
 
-        assert [package.name for package in plan.packages] == ["alpha"]
-        assert plan.packages[0].pyproject_path == "packages/alpha/pyproject.toml"
+        assert plan.target.name == "beta"
+        assert plan.target.pyproject_path == "packages/beta/pyproject.toml"
         assert plan.owned_pyproject_paths == (
             "packages/alpha/pyproject.toml",
             "packages/beta/pyproject.toml",
             "pyproject.toml",
         )
+
+    def test_non_package_root_requires_an_explicit_member_selector(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        member = tmp_path / "packages" / "demo"
+        member.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\n',
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError) as caught:
+            ProjectDiscovery().select(root=tmp_path, selector=RootPackage())
+
+        assert "workspace root has no installable [project]" in str(caught.value)
+        assert caught.value.candidates == ("demo",)
+
+    @pytest.mark.parametrize(
+        ("configuration", "field"),
+        (
+            ('packages = ["demo"]', "packages"),
+            ('exclude-packages = ["demo"]', "exclude-packages"),
+            ('[tool.pf.package.demo]\npath = "packages/demo"', "path"),
+        ),
+    )
+    def test_legacy_package_selection_configuration_is_rejected(
+        self,
+        tmp_path: Path,
+        configuration: str,
+        field: str,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            f'[project]\nname = "demo"\nversion = "1"\n[tool.pf]\n{configuration}\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError) as caught:
+            ProjectLoader().load(root=tmp_path)
+
+        assert field in str(caught.value)
+        assert "--package" in str(caught.value)
 
     def test_project_plan_owns_recursive_in_tree_path_package_metadata(
         self,
@@ -253,7 +257,7 @@ class TestProjectDiscovery:
             encoding="utf-8",
         )
 
-        plan = ProjectLoader().load(root=tmp_path, package_selection=None)
+        plan = ProjectLoader().load(root=tmp_path)
 
         assert plan.owned_pyproject_paths == (
             "pyproject.toml",
@@ -281,9 +285,9 @@ class TestProjectDiscovery:
         )
 
         with pytest.raises(ConfigurationError) as caught:
-            ProjectDiscovery().discover(
+            ProjectDiscovery().select(
                 root=tmp_path,
-                package_selection="packages/first",
+                selector=WorkspacePackage(canonical_name="demo-package"),
             )
 
         assert "duplicate canonical package name: demo-package" in str(caught.value)
@@ -292,6 +296,91 @@ class TestProjectDiscovery:
 
 
 class TestProjectPlanning:
+    def test_workspace_routes_only_target_direct_dependencies_by_management_policy(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        member_versions = {
+            "managed-lib": "1.2",
+            "optional-lib": "2.0",
+            "unmanaged-lib": "3.0",
+            "fixed-lib": "4.0",
+            "orphan-lib": "5.0",
+        }
+        for name, version in member_versions.items():
+            member = tmp_path / "packages" / name
+            member.mkdir(parents=True)
+            dependency = (
+                '\ndependencies = ["transitive-only>=1"]'
+                if name == "orphan-lib"
+                else ""
+            )
+            (member / "pyproject.toml").write_text(
+                f'[project]\nname = "{name}"\nversion = "{version}"{dependency}\n',
+                encoding="utf-8",
+            )
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+  "managed-lib>=1",
+  "unmanaged-lib>=1",
+  "fixed-lib==4.0",
+]
+
+[project.optional-dependencies]
+feature = ["optional-lib>=2"]
+
+[tool.uv.sources]
+managed-lib = { workspace = true }
+optional-lib = { workspace = true }
+unmanaged-lib = { workspace = true }
+fixed-lib = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+extras = "each"
+unmanaged-deps = ["unmanaged-lib"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        package = ProjectLoader().load(root=tmp_path).target
+
+        declarations = {item.name: item for item in package.declarations}
+        routes = {item.dependency: item for item in package.source_routes}
+        assert set(declarations) == {
+            "fixed-lib",
+            "managed-lib",
+            "optional-lib",
+            "unmanaged-lib",
+        }
+        assert "orphan-lib" not in routes
+        assert "transitive-only" not in routes
+        assert declarations["managed-lib"].managed is True
+        assert declarations["optional-lib"].managed is True
+        assert declarations["unmanaged-lib"].managed is False
+        assert declarations["fixed-lib"].kind == "fixed"
+        assert declarations["fixed-lib"].managed is False
+        registry = SourceIdentity(kind="registry", locator="https://pypi.org/simple")
+        for name in ("managed-lib", "optional-lib"):
+            assert routes[name].development_source.kind == "workspace"
+            assert routes[name].search_source == registry
+        for name in ("unmanaged-lib", "fixed-lib"):
+            assert routes[name].development_source.kind == "workspace"
+            assert routes[name].search_source == routes[name].development_source
+        assert routes["managed-lib"].workspace_member_version == (
+            StaticWorkspaceMemberVersion(value="1.2")
+        )
+
     def test_uv_sources_are_classified_once_and_credentials_are_not_serialized(
         self,
         tmp_path: Path,
@@ -325,21 +414,28 @@ class TestProjectPlanning:
             encoding="utf-8",
         )
 
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
 
         assert [
-            (item.name, item.source.kind, item.kind) for item in package.declarations
+            (item.name, item.kind, item.managed) for item in package.declarations
         ] == [
-            ("local-lib", "workspace", "fixed"),
-            ("git-lib", "git", "fixed"),
+            ("local-lib", "searchable", True),
+            ("git-lib", "fixed", False),
         ]
-        assert package.declarations[1].source.commit == (
+        routes = {item.dependency: item for item in package.source_routes}
+        assert routes["git-lib"].development_source.commit == (
             "0123456789abcdef0123456789abcdef01234567"
         )
-        assert package.declarations[0].source.locator == "packages/local-lib"
-        assert "token" not in package.source_plan.model_dump_json()
+        assert routes["local-lib"].development_source == SourceIdentity(
+            kind="workspace", locator="packages/local-lib"
+        )
+        assert routes["local-lib"].search_source == SourceIdentity(
+            kind="registry", locator="https://pypi.org/simple"
+        )
+        assert routes["local-lib"].workspace_member_version == (
+            StaticWorkspaceMemberVersion(value="1.0")
+        )
+        assert "token" not in package.model_dump_json()
 
     def test_harness_source_is_owned_by_the_package_source_plan(
         self, tmp_path: Path
@@ -366,12 +462,14 @@ test-command = ["pytest"]
             encoding="utf-8",
         )
 
-        package = ProjectLoader().load(
-            root=tmp_path, package_selection=None
-        ).packages[0]
+        package = ProjectLoader().load(root=tmp_path).target
 
-        assert package.source_plan.identities == (
-            SourceIdentity(kind="path", locator="vendor/pytest"),
+        assert package.source_routes[0].dependency == "pytest"
+        assert package.source_routes[0].development_source == SourceIdentity(
+            kind="path", locator="vendor/pytest"
+        )
+        assert package.source_routes[0].search_source == (
+            package.source_routes[0].development_source
         )
 
     def test_overlapping_same_location_declarations_are_rejected(
@@ -400,7 +498,7 @@ test-command = ["pytest"]
             ConfigurationError,
             match="overlapping declarations for idna in base",
         ):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     def test_explicit_extra_surfaces_must_cover_base_and_each_extra(
         self, tmp_path: Path
@@ -429,7 +527,7 @@ test-command = ["pytest"]
             ConfigurationError,
             match="extra-surfaces must include each single extra: arrow",
         ):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     def test_fixed_dependency_cannot_be_explicitly_managed(
         self, tmp_path: Path
@@ -455,7 +553,7 @@ test-command = ["pytest"]
             ConfigurationError,
             match="fixed dependency cannot be managed: requests",
         ):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     def test_managed_dependency_rejects_marker_dimensions_apply_cannot_project(
         self,
@@ -480,14 +578,23 @@ test-command = ["pytest"]
         with pytest.raises(
             ConfigurationError, match="unsupported managed marker dimension"
         ):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
-    def test_named_registry_source_resolves_to_credential_free_index_url(
+    @pytest.mark.parametrize(
+        "url",
+        (
+            "https://token@example.test/simple",
+            "https://example.test/simple?channel=private",
+            "http://example.test/simple",
+        ),
+    )
+    def test_unsafe_named_registry_source_is_rejected_before_serialization(
         self,
         tmp_path: Path,
+        url: str,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
-            """
+            f"""
     [project]
     name = "demo"
     version = "0.1.0"
@@ -495,11 +602,11 @@ test-command = ["pytest"]
 
     [[tool.uv.index]]
     name = "private"
-    url = "https://token@example.test/simple"
+    url = "{url}"
     explicit = true
 
     [tool.uv.sources]
-    idna = { index = "private" }
+    idna = {{ index = "private" }}
 
     [tool.pf]
     python = ["3.10"]
@@ -510,20 +617,11 @@ test-command = ["pytest"]
             encoding="utf-8",
         )
 
-        source = (
-            ProjectLoader()
-            .load(
-                root=tmp_path,
-                package_selection=None,
-            )
-            .packages[0]
-            .declarations[0]
-            .source
-        )
-
-        assert source.index == "private"
-        assert source.locator == "https://example.test/simple"
-        assert "token" not in source.model_dump_json()
+        with pytest.raises(
+            ConfigurationError,
+            match="unsafe registry URL for uv index: private",
+        ):
+            ProjectLoader().load(root=tmp_path)
 
     def test_default_uv_index_becomes_the_source_for_unpinned_registry_dependencies(
         self,
@@ -551,14 +649,7 @@ test-command = ["pytest"]
         )
 
         source = (
-            ProjectLoader()
-            .load(
-                root=tmp_path,
-                package_selection=None,
-            )
-            .packages[0]
-            .declarations[0]
-            .source
+            ProjectLoader().load(root=tmp_path).target.source_routes[0].search_source
         )
 
         assert source == SourceIdentity(
@@ -594,9 +685,8 @@ test-command = ["pytest"]
             ProjectLoader(pythons=Pythons())
             .load(
                 root=tmp_path,
-                package_selection=None,
             )
-            .packages[0]
+            .target
         )
 
         assert [cell.python_minor for cell in package.cells] == ["3.11", "3.12"]
@@ -621,18 +711,11 @@ test-command = ["pytest"]
             encoding="utf-8",
         )
 
-        declaration = (
-            ProjectLoader()
-            .load(
-                root=tmp_path,
-                package_selection=None,
-            )
-            .packages[0]
-            .declarations[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
+        declaration = package.declarations[0]
 
         assert declaration.kind == "fixed"
-        assert declaration.source == SourceIdentity(
+        assert package.source_routes[0].development_source == SourceIdentity(
             kind="url",
             locator="https://example.test/demo.whl",
             content_hash="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -661,9 +744,7 @@ class TestTargetPlatform:
             encoding="utf-8",
         )
 
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
 
         assert package.cells[0].active_declaration_ids == (
             package.declarations[0].declaration_id,
@@ -741,26 +822,23 @@ class TestProjectLoader:
         write_basic_project(tmp_path, "")
 
         class DriftingDiscovery(ProjectDiscovery):
-            def discover(
+            def select(
                 self,
                 *,
                 root: Path,
-                package_selection: str | None,
-            ) -> tuple[PackageLocation, ...]:
-                del package_selection
-                return (
-                    PackageLocation(
-                        name="other",
-                        package_root=root,
-                        pyproject_path=root / "pyproject.toml",
-                        report_path=root / "package-floor.json",
-                    ),
+                selector: object,
+            ) -> PackageLocation:
+                del selector
+                return PackageLocation(
+                    name="other",
+                    package_root=root,
+                    pyproject_path=root / "pyproject.toml",
+                    report_path=root / "package-floor.json",
                 )
 
         with pytest.raises(ConfigurationError, match="identity changed"):
             ProjectLoader(discovery=DriftingDiscovery()).load(
                 root=tmp_path,
-                package_selection=None,
             )
 
     @pytest.mark.parametrize(
@@ -824,7 +902,7 @@ class TestProjectLoader:
         write_basic_project(tmp_path, configuration)
 
         with pytest.raises(ConfigurationError, match=message):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     @pytest.mark.parametrize(
         ("project", "message"),
@@ -843,7 +921,7 @@ class TestProjectLoader:
         write_basic_project(tmp_path, "", project=project)
 
         with pytest.raises(ConfigurationError, match=message):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     @pytest.mark.parametrize(
         "dependency",
@@ -875,7 +953,7 @@ class TestProjectLoader:
         )
 
         with pytest.raises(ConfigurationError):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     def test_project_loader_requires_an_available_python_minor(
         self, tmp_path: Path
@@ -896,7 +974,7 @@ class TestProjectLoader:
         )
 
         with pytest.raises(ConfigurationError, match="no available stable CPython"):
-            ProjectLoader(pythons=Pythons()).load(root=tmp_path, package_selection=None)
+            ProjectLoader(pythons=Pythons()).load(root=tmp_path)
 
     def test_project_loader_rejects_unknown_package_selection(
         self, tmp_path: Path
@@ -906,7 +984,10 @@ class TestProjectLoader:
         with pytest.raises(
             ConfigurationError, match="unknown package selection"
         ) as caught:
-            ProjectLoader().load(root=tmp_path, package_selection="other")
+            ProjectLoader().load(
+                root=tmp_path,
+                selector=WorkspacePackage(canonical_name="other"),
+            )
         assert caught.value.candidates == ("demo",)
 
     @pytest.mark.parametrize(
@@ -945,7 +1026,7 @@ class TestProjectLoader:
         )
 
         with pytest.raises(ConfigurationError, match=message):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)
 
     @pytest.mark.parametrize(
         ("extras", "expected"),
@@ -980,9 +1061,7 @@ class TestProjectLoader:
             encoding="utf-8",
         )
 
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
 
         assert [cell.extra_surface for cell in package.cells] == expected
 
@@ -1021,4 +1100,4 @@ class TestProjectLoader:
         )
 
         with pytest.raises(ConfigurationError, match=message):
-            ProjectLoader().load(root=tmp_path, package_selection=None)
+            ProjectLoader().load(root=tmp_path)

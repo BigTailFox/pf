@@ -136,6 +136,7 @@ def _cell_outcome_card(lines: list[Text], *, kind: OutcomeKind) -> Panel:
         padding=(0, 1),
     )
 
+
 _FAILED_AT = {
     "resolve-project": "resolving project dependencies",
     "resolve-environment": "resolving the test environment",
@@ -196,8 +197,7 @@ def _impact_for(
 ) -> str:
     if not isinstance(failure.scope, AttemptFailureScope):
         return (
-            "PF could not obtain the information needed to start or continue "
-            "this cell."
+            "PF could not obtain the information needed to start or continue this cell."
         )
     resolved_role = role
     if resolved_role is None:
@@ -385,17 +385,18 @@ def _selector_label(selector: ApplySelector) -> str:
 
 def _report_path(report: ValidatedReport) -> str:
     parent = Path(report.package.pyproject_path).parent
-    relative = Path("package-floor.json") if parent == Path(".") else parent / "package-floor.json"
+    relative = (
+        Path("package-floor.json")
+        if parent == Path(".")
+        else parent / "package-floor.json"
+    )
     return relative.as_posix()
 
 
-def _search_reasons(reports: tuple[ValidatedReport, ...]) -> set[str]:
-    return {
-        reason
-        for report in reports
-        if report.result.status == "incomplete"
-        for reason in report.result.reasons
-    }
+def _search_reasons(report: ValidatedReport) -> set[str]:
+    if report.result.status != "incomplete":
+        return set()
+    return set(report.result.reasons)
 
 
 def _search_exit_code(reasons: set[str]) -> int:
@@ -453,9 +454,7 @@ def _cell_completion_detail_line(
             )
         )
     if failed_at is not None:
-        line.append_text(
-            result_stage_text(failed_at, content_style=result_style)
-        )
+        line.append_text(result_stage_text(failed_at, content_style=result_style))
     return line
 
 
@@ -469,11 +468,7 @@ def _hint_sentence(
 ) -> Text:
     line = Text("-> ", style=base_style)
     line.append(prefix, style=base_style)
-    extra = (
-        f"{base_style} {emphasis_style}".strip()
-        if emphasis_style
-        else base_style
-    )
+    extra = f"{base_style} {emphasis_style}".strip() if emphasis_style else base_style
     line.append(emphasis, style=extra)
     line.append(suffix, style=base_style)
     return _fold_text(line)
@@ -485,13 +480,12 @@ def _fold_text(text: Text) -> Text:
     return text
 
 
-
 def command_usage_line(command: str | None) -> str:
     """Return the D006 Usage operands for a top-level command."""
     if command == "merge":
         return "pf merge REPORT [REPORT ...] --output PATH"
     if command:
-        return f"pf {command} [OPTIONS] [PACKAGE]"
+        return f"pf {command} [OPTIONS]"
     return "pf COMMAND"
 
 
@@ -528,9 +522,7 @@ class TerminalPresenter:
         self._live.bind_command(command)
 
     def render_error(self, error: PfError) -> int:
-        if isinstance(error, InvocationError) or (
-            isinstance(error, ConfigurationError) and error.candidates
-        ):
+        if isinstance(error, InvocationError):
             return self._render_invocation(error)
         self._live.close(abandon_pending=True, final_outcome="failure")
         rows: list[tuple[Text | None, Text]] = [
@@ -543,10 +535,16 @@ class TerminalPresenter:
             )
         ]
         if error.detail:
-            rows.append(
-                (None, Text(_single_line_summary(error.detail)))
-            )
+            rows.append((None, Text(_single_line_summary(error.detail))))
         self.stderr.print(marker_group(tuple(rows), expand=False), soft_wrap=True)
+        if isinstance(error, ConfigurationError) and error.candidates:
+            shown = error.candidates[:10]
+            remainder = len(error.candidates) - len(shown)
+            suffix = f", ... and {remainder} more" if remainder else ""
+            self.stderr.print(
+                f"Known packages: {', '.join(shown)}{suffix}",
+                soft_wrap=True,
+            )
         return int(error.exit_code)
 
     def _render_invocation(self, error: ConfigurationError) -> int:
@@ -614,9 +612,7 @@ class TerminalPresenter:
             "success"
             if result.status == "PASS"
             else (
-                "failure"
-                if result.status == "BASELINE_REJECTION"
-                else "indeterminate"
+                "failure" if result.status == "BASELINE_REJECTION" else "indeterminate"
             )
         )
         self.close(final_outcome=smoke_kind)
@@ -681,8 +677,8 @@ class TerminalPresenter:
             if presentation.kind != "success":
                 self._print_cell_report(presentation)
 
-    def render_search(self, reports: tuple[ValidatedReport, ...]) -> int:
-        search_exit_code = _search_exit_code(_search_reasons(reports))
+    def render_search(self, report: ValidatedReport) -> int:
+        search_exit_code = _search_exit_code(_search_reasons(report))
         search_kind: OutcomeKind
         if search_exit_code == 0:
             search_kind = "success"
@@ -699,18 +695,17 @@ class TerminalPresenter:
         ] = {}
         for event in leftover:
             events_by_cell.setdefault(_cell_key(event.cell), []).append(event)
-        for report in reports:
-            for result in report.cell_results:
-                key = _cell_key(result.cell)
-                events = tuple(events_by_cell.pop(key, ()))
-                self._print_cell_report(
-                    CellPresentation.from_result(
-                        result,
-                        cell=result.cell,
-                        search_events=events,
-                        command="search",
-                    )
+        for result in report.cell_results:
+            key = _cell_key(result.cell)
+            events = tuple(events_by_cell.pop(key, ()))
+            self._print_cell_report(
+                CellPresentation.from_result(
+                    result,
+                    cell=result.cell,
+                    search_events=events,
+                    command="search",
                 )
+            )
         for events in events_by_cell.values():
             first = events[0]
             failures = tuple(event.failure for event in events)
@@ -722,8 +717,7 @@ class TerminalPresenter:
                     status=(
                         "SEARCH_FAILED"
                         if any(
-                            failure.disposition == "REJECTED"
-                            for failure in failures
+                            failure.disposition == "REJECTED" for failure in failures
                         )
                         else "INDETERMINATE"
                     ),
@@ -740,7 +734,7 @@ class TerminalPresenter:
                     command="search",
                 )
             )
-        return self._print_search_summary(reports)
+        return self._print_search_summary(report)
 
     def _print_cell_report(
         self,
@@ -823,7 +817,9 @@ class TerminalPresenter:
                 body.append(
                     _hint_sentence(
                         "run ",
-                        f"`pf diagnose {presentation.cell.package} --failure {record.failure_id}`",
+                        "`pf diagnose "
+                        f"--package {presentation.cell.package} "
+                        f"--failure {record.failure_id}`",
                         " for more information.",
                         base_style="diagnose-hint",
                     )
@@ -897,7 +893,6 @@ class TerminalPresenter:
             technical_code=f"{failure.disposition}/{failure.cause}",
         )
 
-
     def _print_outcome(
         self,
         kind: OutcomeKind,
@@ -916,58 +911,52 @@ class TerminalPresenter:
 
     def _print_search_summary(
         self,
-        reports: tuple[ValidatedReport, ...],
+        report: ValidatedReport,
     ) -> int:
-        reasons = _search_reasons(reports)
+        reasons = _search_reasons(report)
         exit_code = _search_exit_code(reasons)
-        count = _counted(len(reports), "report")
-        paths = tuple(_report_path(report) for report in reports)
+        path = _report_path(report)
         if exit_code == 0:
-            artifact = f" · {paths[0]}" if len(paths) == 1 else ""
-            if len(paths) > 1:
-                for path in paths:
-                    self.stdout.print(path)
             self._print_outcome(
                 "success",
-                f"Search complete · {count}{artifact}",
+                f"Search complete · {path}",
                 console=self.stdout,
             )
             return 0
         if exit_code == 1:
             self._print_outcome(
                 "failure",
-                f"Search stopped · highest-version baseline did not pass · {count} written",
+                f"Search stopped · highest-version baseline did not pass · {path} written",
             )
             return 1
         if exit_code == 4:
             self._print_outcome(
                 "indeterminate",
-                f"Search stopped · compatibility is unknown · {count} written",
+                f"Search stopped · compatibility is unknown · {path} written",
             )
             return 4
         self._print_outcome(
             "warning",
-            f"Search incomplete · {count} written · no applicable floor",
+            f"Search incomplete · {path} written · no applicable floor",
         )
         return 2
 
     def render_minimize(
         self,
-        reports: tuple[ValidatedReport, ...],
+        report: ValidatedReport,
         result: ApplyCommandResult,
     ) -> int:
+        del report
         self.close()
         return self.render_apply(result, command="minimize")
-
 
     def _print_step(self, message: str | Text | Panel | Group) -> None:
         self._live.print_step(message)
 
-
-    def render_explain(self, reports: tuple[ValidatedReport, ...]) -> int:
+    def render_explain(self, report: ValidatedReport) -> int:
         from pf.terminal import _explain
 
-        return _explain.render(self, reports)
+        return _explain.render(self, report)
 
     def render_diagnose(
         self,
@@ -993,15 +982,10 @@ class TerminalPresenter:
         command: Literal["apply", "minimize"] = "apply",
     ) -> int:
         self.close()
-        edits = result.edits
+        edit = result.edit
         facts = result.presentation_facts
-        changed = tuple(edit for edit in edits if edit.changed)
         verb = "Minimized floors" if command == "minimize" else "Applied floors"
-        outcome = (
-            f"{_counted(len(changed), 'project')} updated"
-            if changed
-            else "no metadata changes"
-        )
+        outcome = "project updated" if edit.changed else "no metadata changes"
         selected = ", ".join(_selector_label(item) for item in facts.selected_selectors)
         preserved = ", ".join(
             _selector_label(item) for item in facts.preserved_selectors

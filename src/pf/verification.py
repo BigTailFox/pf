@@ -37,7 +37,12 @@ from pf.schemas.evaluation import (
     VerificationJournalEntry,
     VerificationPackagePolicy,
 )
-from pf.schemas.project import Cell, PackagePlan, cell_identity
+from pf.schemas.project import (
+    Cell,
+    PackagePlan,
+    ResolutionSourceMode,
+    cell_identity,
+)
 from pf.schemas.report import CellIndeterminate, CellSearchFailure, CellSuccess
 from pf.scheduling import ScheduledCellTask, Scheduler
 from pf.snapshot import SourceSnapshot
@@ -69,7 +74,8 @@ class VerificationTask(Generic[T]):
 @dataclass(frozen=True)
 class VerificationRun(Generic[T]):
     command: Literal["smoke", "check", "search"]
-    packages: tuple[PackagePlan, ...]
+    package: PackagePlan
+    source_mode: ResolutionSourceMode
     snapshot: SourceSnapshot
     tasks: tuple[VerificationTask[T], ...]
     jobs: int | Literal["auto"]
@@ -106,13 +112,17 @@ class VerificationRunner:
         self._logs = logs
 
     def run(self, request: VerificationRun[T]) -> tuple[T, ...]:
-        package_names = tuple(package.name for package in request.packages)
-        if package_names != tuple(sorted(set(package_names))):
-            raise ValueError("verification packages must be sorted and unique")
+        expected_mode: ResolutionSourceMode = (
+            "DEVELOPMENT" if request.command == "smoke" else "SEARCH"
+        )
+        if request.source_mode != expected_mode:
+            raise ValueError("verification source mode does not match the command")
         task_keys = tuple(cell_identity(task.cell) for task in request.tasks)
         if len(set(task_keys)) != len(task_keys):
             raise ValueError("verification tasks must have unique cells")
-        if any(task.cell.package not in package_names for task in request.tasks):
+        if any(
+            task.cell.package != request.package.name for task in request.tasks
+        ):
             raise ValueError("verification task package is outside the run")
 
         gate = _VerificationEvents(
@@ -263,14 +273,13 @@ class _VerificationEvents(Generic[T]):
             run_id=self._logs.run_id,
             command=self._request.command,
             source_snapshot_digest=self._request.snapshot.identity.digest,
-            package_policies=tuple(
+            package_policies=(
                 VerificationPackagePolicy(
-                    package=package.name,
+                    package=self._request.package.name,
                     evaluation_policy_identity=evaluation_policy_identity(
-                        package.config
+                        self._request.package.config
                     ),
-                )
-                for package in self._request.packages
+                ),
             ),
             entries=entries,
         )

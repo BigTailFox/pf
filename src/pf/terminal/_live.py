@@ -103,9 +103,7 @@ class LiveVerificationView:
         self,
         *,
         stderr: Console,
-        render_cell: Callable[
-            [CellPresentation], tuple[RenderableType, ...] | None
-        ],
+        render_cell: Callable[[CellPresentation], tuple[RenderableType, ...] | None],
         run_id: str | None = None,
     ) -> None:
         self._stderr = stderr
@@ -120,9 +118,7 @@ class LiveVerificationView:
         self._cell_search_progress_tasks: dict[
             tuple[str, str, str, tuple[str, ...]], TaskID
         ] = {}
-        self._cell_stage_tasks: dict[
-            tuple[str, str, str, tuple[str, ...]], TaskID
-        ] = {}
+        self._cell_stage_tasks: dict[tuple[str, str, str, tuple[str, ...]], TaskID] = {}
         self._cell_identities: dict[
             tuple[str, str, str, tuple[str, ...]], CellDetailIdentity | None
         ] = {}
@@ -240,9 +236,7 @@ class LiveVerificationView:
             Text(_ICONS["success"], style="success"),
             heading,
         )
-        detail_rows: tuple[_MarkerRow, ...] = tuple(
-            (None, line) for line in details
-        )
+        detail_rows: tuple[_MarkerRow, ...] = tuple((None, line) for line in details)
         if self._stderr.is_terminal:
             self._complete_pending_setup()
             self._setup_lines.append(heading_row)
@@ -383,9 +377,7 @@ class LiveVerificationView:
             event,
             elapsed=self._cell_elapsed(event.cell),
             identity=self._cell_identities.get(_cell_key(event.cell)),
-            completed_packages=self._cell_completed_packages.get(
-                _cell_key(event.cell)
-            ),
+            completed_packages=self._cell_completed_packages.get(_cell_key(event.cell)),
             search_events=self._take_cell_diagnostics(event.cell),
             command=self._command,
         )
@@ -644,7 +636,9 @@ class LiveVerificationView:
                 self._progress.reset(
                     stage_id,
                     start=bool(stage),
-                    total=(stage_progress.total if stage_progress is not None else None),
+                    total=(
+                        stage_progress.total if stage_progress is not None else None
+                    ),
                     completed=(
                         stage_progress.completed if stage_progress is not None else 0
                     ),
@@ -794,9 +788,7 @@ def _matrix_summary_lines(
     active_packages: int,
     pinned_packages: int,
 ) -> tuple[Text, ...]:
-    pythons = tuple(
-        sorted({cell.python_minor for cell in cells}, key=_python_sort_key)
-    )
+    pythons = tuple(sorted({cell.python_minor for cell in cells}, key=_python_sort_key))
     platforms = ", ".join(sorted({cell.target for cell in cells}))
     surfaces = ", ".join(
         _format_extra_surface(surface)
@@ -808,10 +800,7 @@ def _matrix_summary_lines(
     noun = "cell" if len(cells) == 1 else "cells"
     heading = f"selected {len(cells)} {noun}"
     package_noun = "package" if active_packages == 1 else "packages"
-    heading += (
-        f", {active_packages} active {package_noun} "
-        f"({pinned_packages} pinned)"
-    )
+    heading += f", {active_packages} active {package_noun} ({pinned_packages} pinned)"
     python_line = Text("python: ", style="dim")
     if pythons:
         for index, python in enumerate(pythons):
@@ -1087,9 +1076,7 @@ class _OrderedProgress(Progress):
         )
         table.add_row(
             *(
-                column.format(task=task)
-                if isinstance(column, str)
-                else column(task)
+                column.format(task=task) if isinstance(column, str) else column(task)
                 for column in columns
             )
         )
@@ -1122,9 +1109,7 @@ class _OrderedProgress(Progress):
                 or has_progress
                 and isinstance(
                     column,
-                    _ProgressVisualColumn
-                    | _OverallCountColumn
-                    | _StageRemainingColumn,
+                    _ProgressVisualColumn | _OverallCountColumn | _StageRemainingColumn,
                 )
             )
         if role == "overall":

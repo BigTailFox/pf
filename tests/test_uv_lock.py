@@ -76,9 +76,7 @@ class TestUvPylockParser:
     )
     def test_parser_rejects_malformed_package_evidence(self, package: str) -> None:
         content = (
-            'lock-version = "1.0"\ncreated-by = "uv"\npackages = ['
-            + package
-            + "]\n"
+            'lock-version = "1.0"\ncreated-by = "uv"\npackages = [' + package + "]\n"
         )
 
         with pytest.raises(UvLockError):
@@ -175,6 +173,7 @@ packages = [
                 source_root=source,
                 lock_root=tmp_path,
             )
+
     def test_parser_projects_registry_graph_and_secret_free_artifacts(self) -> None:
         packages = parse_uv_pylock(REGISTRY_LOCK, python_minor="3.11")
 
@@ -251,11 +250,11 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency.as_posix()}" }}
             '[project]\nname = "demo"\nversion = "0.1.0"\n',
             encoding="utf-8",
         )
-        content = '''\
+        content = """\
 lock-version = "1.0"
 created-by = "uv"
 packages = [{ name = "demo", directory = { path = "source", editable = true } }]
-'''
+"""
 
         packages = parse_uv_pylock(
             content,
@@ -310,7 +309,7 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency}" }} }}]
             ('lock-version = "2.0"', "unsupported pylock version"),
             ('created-by = "other"', "not created by uv"),
             ('requires-python = ">=3.12"', "does not cover"),
-            ('environments = ["sys_platform == \'linux\'"]', "environment forks"),
+            ("environments = [\"sys_platform == 'linux'\"]", "environment forks"),
         ),
     )
     def test_parser_rejects_plan_identity_or_cell_drift(

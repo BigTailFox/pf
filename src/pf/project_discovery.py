@@ -9,6 +9,7 @@ from packaging.utils import canonicalize_name
 import tomli
 
 from pf.errors import ConfigurationError
+from pf.schemas.config import RootPackage, TargetSelector, WorkspacePackage
 
 
 @dataclass(frozen=True)
@@ -71,16 +72,16 @@ class ProjectDiscovery:
             sorted(path.relative_to(root).as_posix() for path in observed)
         )
 
-    def discover(
+    def select(
         self,
         *,
         root: Path,
-        package_selection: str | None,
-    ) -> tuple[PackageLocation, ...]:
+        selector: TargetSelector,
+    ) -> PackageLocation:
         root = root.resolve()
         document = self._read(root / "pyproject.toml")
+        self._validate_obsolete_selection(document)
         candidates = self._candidate_paths(root, document)
-        selected_names, excluded_names = self._configured_names(document)
 
         discovered: list[PackageLocation] = []
         for package_root in candidates:
@@ -100,10 +101,6 @@ class ProjectDiscovery:
                     f"invalid project name: {self._relative(package_root, root)}"
                 )
             name = canonicalize_name(raw_name)
-            if selected_names is not None and name not in selected_names:
-                continue
-            if name in excluded_names:
-                continue
             discovered.append(
                 PackageLocation(
                     name=name,
@@ -115,34 +112,34 @@ class ProjectDiscovery:
 
         self._validate_unique_names(discovered, root=root)
         available_names = tuple(sorted(location.name for location in discovered))
-        if package_selection is not None:
-            selected_name = canonicalize_name(package_selection)
-            selected_path = (
-                Path(package_selection).as_posix().removeprefix("./").rstrip("/")
+        if isinstance(selector, RootPackage):
+            selected = next(
+                (location for location in discovered if location.package_root == root),
+                None,
             )
-            discovered = [
-                location
-                for location in discovered
-                if location.name == selected_name
-                or self._relative(location.pyproject_path, root) == selected_path
-                or self._relative(location.package_root, root) == selected_path
-            ]
-            if not discovered:
+            if selected is None:
                 raise ConfigurationError(
-                    f"unknown package selection: {package_selection}",
+                    "workspace root has no installable [project]; "
+                    "select one workspace package with --package PACKAGE",
                     candidates=available_names,
                 )
-        if not discovered:
-            raise ConfigurationError("no installable packages selected")
-        return tuple(
-            sorted(
-                discovered,
-                key=lambda location: (
-                    location.name,
-                    self._relative(location.package_root, root),
-                ),
-            )
+            return selected
+        if not isinstance(selector, WorkspacePackage):
+            raise TypeError("unsupported target selector")
+        selected = next(
+            (
+                location
+                for location in discovered
+                if location.name == selector.canonical_name
+            ),
+            None,
         )
+        if selected is None:
+            raise ConfigurationError(
+                f"unknown package selection: {selector.canonical_name}",
+                candidates=available_names,
+            )
+        return selected
 
     def _candidate_paths(
         self,
@@ -175,48 +172,31 @@ class ProjectDiscovery:
                 if pyproject.is_file() and "project" in self._read(pyproject):
                     candidates.add(resolved)
 
-        pf = tool.get("pf", {})
-        if not isinstance(pf, Mapping):
-            raise ConfigurationError("tool.pf metadata must be a table")
-        package_patches = pf.get("package", {})
-        if not isinstance(package_patches, Mapping):
-            raise ConfigurationError("tool.pf.package metadata must be a table")
-        for patch in package_patches.values():
-            if not isinstance(patch, Mapping):
-                raise ConfigurationError("tool.pf.package entry must be a table")
-            explicit_path = patch.get("path")
-            if explicit_path is None:
-                continue
-            if not isinstance(explicit_path, str):
-                raise ConfigurationError("package path must be a string")
-            candidates.add(self._within_root((root / explicit_path).resolve(), root))
         return candidates
 
-    def _configured_names(
-        self,
-        document: Mapping[str, Any],
-    ) -> tuple[set[str] | None, set[str]]:
+    @staticmethod
+    def _validate_obsolete_selection(document: Mapping[str, Any]) -> None:
         tool = document.get("tool", {})
         pf = tool.get("pf", {}) if isinstance(tool, Mapping) else {}
         if not isinstance(pf, Mapping):
             raise ConfigurationError("tool.pf metadata must be a table")
-        selected = pf.get("packages")
-        selected_names = (
-            {
-                str(canonicalize_name(name))
-                for name in self._string_sequence(selected, "tool.pf packages")
-            }
-            if selected is not None
-            else None
-        )
-        excluded_names = {
-            str(canonicalize_name(name))
-            for name in self._string_sequence(
-                pf.get("exclude-packages", ()),
-                "tool.pf exclude-packages",
-            )
-        }
-        return selected_names, excluded_names
+        for field in ("packages", "exclude-packages"):
+            if field in pf:
+                raise ConfigurationError(
+                    f"[tool.pf].{field} is no longer supported; "
+                    "select one target with --package PACKAGE"
+                )
+        package_patches = pf.get("package", {})
+        if not isinstance(package_patches, Mapping):
+            raise ConfigurationError("tool.pf.package metadata must be a table")
+        for name, patch in package_patches.items():
+            if not isinstance(patch, Mapping):
+                raise ConfigurationError("tool.pf.package entry must be a table")
+            if "path" in patch:
+                raise ConfigurationError(
+                    f"[tool.pf.package.{name}].path is no longer supported; "
+                    "workspace discovery owns package paths and --package selects the target"
+                )
 
     @staticmethod
     def _validate_unique_names(

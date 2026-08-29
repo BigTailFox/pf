@@ -20,8 +20,11 @@ from pf.config import ConfigLoader
 from pf.errors import ConfigurationError
 from pf.project_discovery import ProjectDiscovery
 from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import RootPackage, TargetSelector
 from pf.schemas.project import (
     Cell,
+    DependencySourceRoute,
+    DynamicWorkspaceMemberVersion,
     HarnessGroupProvenance,
     HarnessRequirement,
     HarnessSpecifierClause,
@@ -29,7 +32,8 @@ from pf.schemas.project import (
     ProjectPlan,
     RequirementDeclaration,
     SourceIdentity,
-    SourcePlan,
+    StaticWorkspaceMemberVersion,
+    WorkspaceMemberVersion,
     public_locator,
 )
 
@@ -61,6 +65,12 @@ class _ExpandedGroupRequirement:
     raw: str
     group_path: tuple[str, ...]
     item_path: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _WorkspaceMember:
+    locator: str
+    version: WorkspaceMemberVersion
 
 
 def host_target() -> str:
@@ -134,24 +144,18 @@ class ProjectLoader:
         self,
         *,
         root: Path,
-        package_selection: str | None,
+        selector: TargetSelector = RootPackage(),
     ) -> ProjectPlan:
         root = root.resolve()
-        locations = self._discovery.discover(
+        location = self._discovery.select(
             root=root,
-            package_selection=package_selection,
+            selector=selector,
         )
-        packages = tuple(
-            self._load_package(root=root, package_path=location.package_root)
-            for location in locations
-        )
-        if any(
-            package.name != location.name
-            for package, location in zip(packages, locations, strict=True)
-        ):
+        package = self._load_package(root=root, package_path=location.package_root)
+        if package.name != location.name:
             raise ConfigurationError("package identity changed during project loading")
         return ProjectPlan(
-            packages=packages,
+            target=package,
             owned_pyproject_paths=self._discovery.owned_pyproject_paths(root=root),
         )
 
@@ -170,7 +174,7 @@ class ProjectLoader:
         config = self._config_loader.load(root=root, package=package_path)
         pyproject_path = (package_path / "pyproject.toml").relative_to(root).as_posix()
         root_document = self._read(root / "pyproject.toml")
-        workspace_paths = self._workspace_paths(
+        workspace_members = self._workspace_members(
             root=root,
             root_document=root_document,
         )
@@ -183,37 +187,44 @@ class ProjectLoader:
             package_path=package_path,
             root_document=root_document,
             package_document=document,
-            workspace_paths=workspace_paths,
+            workspace_paths={
+                name: member.locator for name, member in workspace_members.items()
+            },
         )
         declarations: list[RequirementDeclaration] = []
+        source_routes: dict[str, DependencySourceRoute] = {}
         for raw in project.get("dependencies", ()):
             requirement_name = self._requirement_name(raw)
-            declarations.append(
-                self._declaration(
-                    package=package_name,
-                    pyproject_path=pyproject_path,
-                    location="base",
-                    extra=None,
-                    raw=raw,
-                    source=sources.get(requirement_name, registry),
-                    config=config,
-                )
+            declaration, route = self._declaration(
+                package=package_name,
+                pyproject_path=pyproject_path,
+                location="base",
+                extra=None,
+                raw=raw,
+                source=sources.get(requirement_name, registry),
+                registry=registry,
+                workspace_members=workspace_members,
+                config=config,
             )
+            declarations.append(declaration)
+            self._register_route(source_routes, route)
         optional = project.get("optional-dependencies", {})
         for extra in sorted(optional):
             for raw in optional[extra]:
                 requirement_name = self._requirement_name(raw)
-                declarations.append(
-                    self._declaration(
-                        package=package_name,
-                        pyproject_path=pyproject_path,
-                        location="optional",
-                        extra=extra,
-                        raw=raw,
-                        source=sources.get(requirement_name, registry),
-                        config=config,
-                    )
+                declaration, route = self._declaration(
+                    package=package_name,
+                    pyproject_path=pyproject_path,
+                    location="optional",
+                    extra=extra,
+                    raw=raw,
+                    source=sources.get(requirement_name, registry),
+                    registry=registry,
+                    workspace_members=workspace_members,
+                    config=config,
                 )
+                declarations.append(declaration)
+                self._register_route(source_routes, route)
 
         if config.managed_deps is not None:
             fixed_names = {
@@ -312,7 +323,7 @@ class ProjectLoader:
                 )
             ),
         )
-        harness_requirements = tuple(
+        harness_records = tuple(
             self._harness_requirement(
                 package=package_name,
                 root=root,
@@ -325,13 +336,29 @@ class ProjectLoader:
             )
             for owner, group_pyproject, item in expanded_harness
         )
-        source_identities: set[SourceIdentity] = {
-            *(declaration.source for declaration in declarations),
-            *(requirement.source for requirement in harness_requirements),
-        }
-        ordered_sources: tuple[SourceIdentity, ...] = tuple(
-            sorted(source_identities, key=lambda item: item.model_dump_json())
-        )
+        harness_requirements = tuple(item[0] for item in harness_records)
+        for requirement, source in harness_records:
+            existing_route = source_routes.get(requirement.name)
+            if existing_route is not None:
+                if existing_route.development_source != source:
+                    raise ConfigurationError(
+                        f"ambiguous source route for dependency: {requirement.name}"
+                    )
+                continue
+            member = (
+                workspace_members.get(requirement.name)
+                if source.kind == "workspace"
+                else None
+            )
+            self._register_route(
+                source_routes,
+                DependencySourceRoute(
+                    dependency=requirement.name,
+                    development_source=source,
+                    search_source=source,
+                    workspace_member_version=(member.version if member else None),
+                ),
+            )
         return PackagePlan(
             name=package_name,
             pyproject_path=pyproject_path,
@@ -339,7 +366,7 @@ class ProjectLoader:
             config=config,
             declarations=tuple(declarations),
             cells=cells,
-            source_plan=SourcePlan(identities=ordered_sources),
+            source_routes=tuple(source_routes[name] for name in sorted(source_routes)),
             harness_requirements=harness_requirements,
             test_group_present=test_group_present,
         )
@@ -355,7 +382,7 @@ class ProjectLoader:
         sources: dict[str, SourceIdentity],
         registry: SourceIdentity,
         allow_prereleases: bool,
-    ) -> HarnessRequirement:
+    ) -> tuple[HarnessRequirement, SourceIdentity]:
         raw = expanded.raw
         try:
             requirement = Requirement(raw)
@@ -413,7 +440,6 @@ class ProjectLoader:
             requested_extras=extras,
             specifier=specifier,
             marker=marker,
-            source=source,
             original_text=raw,
         )
         try:
@@ -428,12 +454,9 @@ class ProjectLoader:
             requested_extras=extras,
             specifier=specifier,
             marker=marker,
-            source=source,
-            prerelease_allowed=(
-                allow_prereleases or specifier_allows_prereleases
-            ),
+            prerelease_allowed=(allow_prereleases or specifier_allows_prereleases),
             original_text=raw,
-        )
+        ), source
 
     @staticmethod
     def _declaration(
@@ -444,8 +467,10 @@ class ProjectLoader:
         extra: str | None,
         raw: str,
         source: SourceIdentity,
+        registry: SourceIdentity,
+        workspace_members: dict[str, _WorkspaceMember],
         config: EffectiveConfig,
-    ) -> RequirementDeclaration:
+    ) -> tuple[RequirementDeclaration, DependencySourceRoute]:
         try:
             requirement = Requirement(raw)
         except InvalidRequirement as error:
@@ -472,7 +497,7 @@ class ProjectLoader:
                 content_hash=f"sha256:{hashes[0].lower()}",
             )
         fixed = (
-            source.kind != "registry"
+            source.kind not in {"registry", "workspace"}
             or requirement.url is not None
             or any(
                 spec.operator in {"==", "===", "~="} for spec in requirement.specifier
@@ -488,6 +513,23 @@ class ProjectLoader:
             managed = name not in unmanaged_deps
         else:
             managed = True
+        member = workspace_members.get(name) if source.kind == "workspace" else None
+        if source.kind == "workspace" and member is None:
+            raise ConfigurationError(
+                f"workspace source does not name a workspace package: {name}"
+            )
+        search_source = source
+        if source.kind == "workspace" and managed:
+            ProjectLoader._validate_workspace_search_registry(
+                name=name, source=registry
+            )
+            search_source = registry
+        route = DependencySourceRoute(
+            dependency=name,
+            development_source=source,
+            search_source=search_source,
+            workspace_member_version=(member.version if member is not None else None),
+        )
         identity = {
             "pyproject_path": pyproject_path,
             "location": location,
@@ -495,7 +537,7 @@ class ProjectLoader:
             "name": name,
             "requested_extras": sorted(requirement.extras),
             "marker": str(requirement.marker) if requirement.marker else None,
-            "source": source.model_dump(mode="json"),
+            "source_route": route.model_dump(mode="json"),
         }
         digest = hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
@@ -509,12 +551,46 @@ class ProjectLoader:
             requested_extras=tuple(sorted(requirement.extras)),
             specifier=str(requirement.specifier),
             marker=str(requirement.marker) if requirement.marker else None,
-            source=source,
             pyproject_path=pyproject_path,
             raw=raw,
             kind="fixed" if fixed else "searchable",
             managed=managed,
-        )
+        ), route
+
+    @staticmethod
+    def _register_route(
+        routes: dict[str, DependencySourceRoute],
+        route: DependencySourceRoute,
+    ) -> None:
+        previous = routes.get(route.dependency)
+        if previous is not None and previous != route:
+            raise ConfigurationError(
+                f"ambiguous source route for dependency: {route.dependency}"
+            )
+        routes[route.dependency] = route
+
+    @staticmethod
+    def _validate_workspace_search_registry(
+        *,
+        name: str,
+        source: SourceIdentity,
+    ) -> None:
+        if source.kind != "registry":
+            raise ConfigurationError(
+                f"workspace dependency has no registry search route: {name}"
+            )
+        if source.locator is None:
+            return
+        parsed = urlsplit(source.locator)
+        if (
+            parsed.scheme != "https"
+            or parsed.username is not None
+            or parsed.password is not None
+            or bool(parsed.query)
+        ):
+            raise ConfigurationError(
+                f"workspace dependency has an unsafe registry search route: {name}"
+            )
 
     @staticmethod
     def _requirement_name(raw: str) -> str:
@@ -556,7 +632,7 @@ class ProjectLoader:
                     raise ConfigurationError(
                         f"unsupported uv index format: {raw_index.get('format')}"
                     )
-                public_url = ProjectLoader._public_url(url)
+                public_url = ProjectLoader._registry_url(name=name, value=url)
                 previous = index_urls.get(name)
                 if previous is not None and previous != public_url:
                     raise ConfigurationError(f"ambiguous uv index: {name}")
@@ -607,7 +683,7 @@ class ProjectLoader:
                         f"unsupported uv index format: {raw_index.get('format')}"
                     )
                 record = (
-                    ProjectLoader._public_url(url),
+                    ProjectLoader._registry_url(name=name, value=url),
                     bool(raw_index.get("explicit", False)),
                     bool(raw_index.get("default", False)),
                 )
@@ -629,7 +705,10 @@ class ProjectLoader:
         if defaults:
             name, (locator, _, _) = defaults[0]
             return SourceIdentity(kind="registry", index=name, locator=locator)
-        return SourceIdentity(kind="registry")
+        return SourceIdentity(
+            kind="registry",
+            locator="https://pypi.org/simple",
+        )
 
     @staticmethod
     def _source_identity(
@@ -648,6 +727,10 @@ class ProjectLoader:
         if not isinstance(value, dict):
             raise ConfigurationError(f"invalid uv source for dependency: {name}")
         if value.get("workspace") is True:
+            if set(value) != {"workspace"}:
+                raise ConfigurationError(
+                    f"workspace source must be single and unconditional: {name}"
+                )
             locator = workspace_paths.get(name)
             if locator is None:
                 raise ConfigurationError(
@@ -697,15 +780,13 @@ class ProjectLoader:
         raise ConfigurationError(f"unsupported uv source for dependency: {name}")
 
     @staticmethod
-    def _workspace_paths(
+    def _workspace_members(
         *,
         root: Path,
         root_document: dict[str, Any],
-    ) -> dict[str, str]:
+    ) -> dict[str, _WorkspaceMember]:
         candidates = {root}
-        workspace = (
-            root_document.get("tool", {}).get("uv", {}).get("workspace", {})
-        )
+        workspace = root_document.get("tool", {}).get("uv", {}).get("workspace", {})
         if not isinstance(workspace, dict):
             raise ConfigurationError("tool.uv.workspace must be a table")
         members = workspace.get("members", [])
@@ -733,7 +814,7 @@ class ProjectLoader:
                 if resolved in excluded:
                     continue
                 candidates.add(resolved)
-        result: dict[str, str] = {}
+        result: dict[str, _WorkspaceMember] = {}
         for candidate in sorted(candidates):
             pyproject = candidate / "pyproject.toml"
             if not pyproject.is_file():
@@ -745,12 +826,40 @@ class ProjectLoader:
                 continue
             name = canonicalize_name(project["name"])
             locator = candidate.relative_to(root).as_posix()
+            dynamic = project.get("dynamic", [])
+            if not isinstance(dynamic, list) or any(
+                not isinstance(field, str) for field in dynamic
+            ):
+                raise ConfigurationError(
+                    f"invalid project.dynamic for workspace package: {name}"
+                )
+            if "version" in project:
+                raw_version = project["version"]
+                if not isinstance(raw_version, str):
+                    raise ConfigurationError(
+                        f"invalid workspace member version: {name}"
+                    )
+                try:
+                    version: WorkspaceMemberVersion = StaticWorkspaceMemberVersion(
+                        value=str(Version(raw_version))
+                    )
+                except InvalidVersion as error:
+                    raise ConfigurationError(
+                        f"invalid workspace member version: {name}"
+                    ) from error
+            elif "version" in dynamic:
+                version = DynamicWorkspaceMemberVersion()
+            else:
+                raise ConfigurationError(
+                    f"workspace package must declare project.version or dynamic version: {name}"
+                )
+            member = _WorkspaceMember(locator=locator, version=version)
             previous = result.get(name)
-            if previous is not None and previous != locator:
+            if previous is not None and previous != member:
                 raise ConfigurationError(
                     f"duplicate canonical workspace package name: {name}"
                 )
-            result[name] = locator
+            result[name] = member
         return result
 
     @staticmethod
@@ -760,6 +869,22 @@ class ProjectLoader:
         parsed = urlsplit(value)
         if not parsed.scheme or not parsed.hostname:
             raise ConfigurationError("source URL must be absolute")
+        return public_locator(value)
+
+    @staticmethod
+    def _registry_url(*, name: str, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ConfigurationError("source URL must be a string")
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or bool(parsed.query)
+            or bool(parsed.fragment)
+        ):
+            raise ConfigurationError(f"unsafe registry URL for uv index: {name}")
         return public_locator(value)
 
     @staticmethod

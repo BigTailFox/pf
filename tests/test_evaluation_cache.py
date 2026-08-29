@@ -245,9 +245,7 @@ class TestEvaluationCache:
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         second = first.model_copy(
-            update={
-                "verifier": VerifierRejected(terminal=NormalExit(exit_code=4))
-            }
+            update={"verifier": VerifierRejected(terminal=NormalExit(exit_code=4))}
         )
         cache = EvaluationCache()
 

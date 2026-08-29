@@ -73,6 +73,7 @@ def snapshot(name: str) -> CandidateSnapshot:
         dependency=name,
         cell=cell,
         policy_identity="policy",
+        source_plan_identity="sources",
         source=source,
         candidates=candidates,
         series_representatives=representatives,
@@ -80,6 +81,7 @@ def snapshot(name: str) -> CandidateSnapshot:
             dependency=name,
             cell=cell,
             policy_identity="policy",
+            source_plan_identity="sources",
             source=source,
             candidates=candidates,
             series_representatives=representatives,
@@ -105,6 +107,7 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
         dependency=name,
         cell=base.cell,
         policy_identity=base.policy_identity,
+        source_plan_identity=base.source_plan_identity,
         source=base.source,
         candidates=candidates,
         series_representatives=representatives,
@@ -112,6 +115,7 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
             dependency=name,
             cell=base.cell,
             policy_identity=base.policy_identity,
+            source_plan_identity=base.source_plan_identity,
             source=base.source,
             candidates=candidates,
             series_representatives=representatives,
@@ -134,6 +138,7 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
         dependency=name,
         cell=base.cell,
         policy_identity=base.policy_identity,
+        source_plan_identity=base.source_plan_identity,
         source=base.source,
         candidates=(candidate,),
         series_representatives=representatives,
@@ -141,6 +146,7 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
             dependency=name,
             cell=base.cell,
             policy_identity=base.policy_identity,
+            source_plan_identity=base.source_plan_identity,
             source=base.source,
             candidates=(candidate,),
             series_representatives=representatives,
@@ -256,9 +262,7 @@ def probe_pass(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbePass:
     )
 
 
-def probe_rejection(
-    vector: tuple[VersionPin, ...], proposal_id: str
-) -> ProbeRejection:
+def probe_rejection(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbeRejection:
     passed = probe_pass(vector, proposal_id)
     evaluation = VerifierRejectedEvaluation(
         proposal=passed.evaluation.proposal,
@@ -301,14 +305,10 @@ class TestCoordinateSearch:
             def regions(self) -> tuple[StaticRegion, ...]:
                 return ()
 
-            def evaluate(
-                self, vector: tuple[VersionPin, ...]
-            ) -> ProbeEvidence:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
                 raise AssertionError("known baseline must not be evaluated")
 
-            def evaluate_in_slice(
-                self, request: SearchProbeRequest
-            ) -> ProbeEvidence:
+            def evaluate_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence:
                 requests.append(request)
                 return self._outcome(request)
 
@@ -353,14 +353,10 @@ class TestCoordinateSearch:
             def regions(self) -> tuple[StaticRegion, ...]:
                 return ()
 
-            def evaluate(
-                self, vector: tuple[VersionPin, ...]
-            ) -> ProbeEvidence:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
                 raise AssertionError("known baseline must not be evaluated")
 
-            def evaluate_in_slice(
-                self, request: SearchProbeRequest
-            ) -> ProbeEvidence:
+            def evaluate_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence:
                 requests.append(request)
                 if int(request.candidate_version) >= 8:
                     return probe_pass(request.vector, request.candidate_version)
@@ -430,9 +426,7 @@ class TestCoordinateSearch:
                     ),
                 )
 
-            def evaluate(
-                self, vector: tuple[VersionPin, ...]
-            ) -> ProbeEvidence:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
                 raise AssertionError("known highest must not be evaluated")
 
             def evaluate_in_slice(
@@ -482,9 +476,7 @@ class TestCoordinateSearch:
     def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal(
         self,
     ) -> None:
-        progress: list[
-            tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]]
-        ] = []
+        progress: list[tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]]] = []
         result = CoordinateSearch(small_threshold=4).minimize(
             start=(
                 VersionPin(name="a", version="3"),
@@ -492,9 +484,7 @@ class TestCoordinateSearch:
             ),
             candidates=(snapshot("a"), snapshot("b")),
             evaluator=InteractionEvaluator(),
-            progress=lambda packages, completed: progress.append(
-                (packages, completed)
-            ),
+            progress=lambda packages, completed: progress.append((packages, completed)),
         )
 
         assert isinstance(result, CoordinateSuccess)
@@ -664,9 +654,7 @@ class TestCoordinateSearch:
                     )
                 return probe_pass(vector, "known-pass")
 
-        progress: list[
-            tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]]
-        ] = []
+        progress: list[tuple[tuple[VersionPin, ...], tuple[VersionPin, ...]]] = []
         result = CoordinateSearch().minimize(
             start=(
                 VersionPin(name="a", version="3"),
@@ -674,9 +662,7 @@ class TestCoordinateSearch:
             ),
             candidates=(snapshot("a"), snapshot("b")),
             evaluator=UnknownOnSecondPackage(),
-            progress=lambda packages, completed: progress.append(
-                (packages, completed)
-            ),
+            progress=lambda packages, completed: progress.append((packages, completed)),
         )
 
         assert isinstance(result, CoordinateFailure)

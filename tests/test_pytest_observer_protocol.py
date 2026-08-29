@@ -133,12 +133,8 @@ class TestPytestObserverArtifactProtocol:
                     "run_nonce": nonce,
                     "total": 3,
                 }
-                directory = Path(
-                    environment["PF_PYTEST_OBSERVER_DETAILS_DIR"]
-                )
-                (directory / f"details-{'b' * 32}.json").write_bytes(
-                    _canonical(detail)
-                )
+                directory = Path(environment["PF_PYTEST_OBSERVER_DETAILS_DIR"])
+                (directory / f"details-{'b' * 32}.json").write_bytes(_canonical(detail))
                 return ProcessResult(
                     exit_code=1,
                     signal=None,
@@ -252,9 +248,7 @@ class TestPytestObserverArtifactProtocol:
                 "run_nonce": "current-nonce" if index == 0 else "nested-nonce",
                 "total": 1,
             }
-            (tmp_path / f"details-{index:032x}.json").write_bytes(
-                _canonical(detail)
-            )
+            (tmp_path / f"details-{index:032x}.json").write_bytes(_canonical(detail))
 
         class LazyScandir:
             def __init__(self) -> None:
@@ -279,9 +273,7 @@ class TestPytestObserverArtifactProtocol:
         scanner = LazyScandir()
         monkeypatch.setattr(pytest_observer_module.os, "scandir", lambda _: scanner)
 
-        assert (
-            read_pytest_observer_detail(tmp_path, nonce="current-nonce") is None
-        )
+        assert read_pytest_observer_detail(tmp_path, nonce="current-nonce") is None
         assert scanner.consumed == 2
 
     @pytest.mark.parametrize(
@@ -342,12 +334,8 @@ class TestPytestObserverArtifactProtocol:
                     Path(environment["PF_PYTEST_OBSERVER_DIR"]),
                     _document(nonce),
                 )
-                directory = Path(
-                    environment["PF_PYTEST_OBSERVER_DETAILS_DIR"]
-                )
-                (directory / f"details-{'b' * 32}.json").write_bytes(
-                    payload_for(nonce)
-                )
+                directory = Path(environment["PF_PYTEST_OBSERVER_DETAILS_DIR"])
+                (directory / f"details-{'b' * 32}.json").write_bytes(payload_for(nonce))
                 return ProcessResult(
                     exit_code=1,
                     signal=None,

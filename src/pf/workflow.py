@@ -55,7 +55,12 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.apply import ApplyCommandResult, AuthorizedWorkspaceApply
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
-from pf.schemas.project import Cell, PackagePlan, ProjectPlan
+from pf.schemas.project import (
+    Cell,
+    PackagePlan,
+    ProjectPlan,
+    ResolutionSourceMode,
+)
 from pf.schemas.config import (
     ApplyRequest,
     CheckRequest,
@@ -83,26 +88,17 @@ from pf.verification import (
 )
 
 
-def selected_host_cells(
-    packages: tuple[PackagePlan, ...], host_target: str
-) -> tuple[Cell, ...]:
-    return tuple(
-        cell
-        for package in packages
-        for cell in package.cells
-        if cell.target == host_target
-    )
+def selected_host_cells(package: PackagePlan, host_target: str) -> tuple[Cell, ...]:
+    return tuple(cell for cell in package.cells if cell.target == host_target)
 
 
 def _cell_matrix_event(
-    packages: tuple[PackagePlan, ...],
+    package: PackagePlan,
     cells: tuple[Cell, ...],
 ) -> CellMatrixEvent:
-    packages_by_name = {package.name: package for package in packages}
     active_names: set[str] = set()
     pinned_names: set[str] = set()
     for cell in cells:
-        package = packages_by_name[cell.package]
         active_ids = set(cell.active_declaration_ids)
         for declaration in package.declarations:
             if declaration.declaration_id not in active_ids:
@@ -125,6 +121,7 @@ class CheckEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
+        source_mode: ResolutionSourceMode,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -155,6 +152,7 @@ class CheckCellOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: ResolutionSourceMode,
     ) -> CheckCellOutcome: ...
 
 
@@ -182,6 +180,7 @@ class CompatibilityChecker:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: ResolutionSourceMode,
     ) -> CheckCellOutcome:
         require_full_evaluation_contract(package, "check")
         if self._events is not None:
@@ -193,6 +192,7 @@ class CompatibilityChecker:
             cell=cell,
             snapshot=snapshot,
             resolution=HighestResolution(),
+            source_mode=source_mode,
         )
         if isinstance(highest, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -220,6 +220,7 @@ class CompatibilityChecker:
             cell=cell,
             snapshot=snapshot,
             resolution=LowestDirectResolution(highest.harness_baseline),
+            source_mode=source_mode,
         )
         if isinstance(prepared, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -255,6 +256,7 @@ class CompatibilityChecker:
             stage=prepared.failure.stage,
             process=prepared.failure.process,
             summary_code=prepared.failure.summary_code,
+            detail=prepared.failure.detail,
             project_plan_digest=prepared.project_plan_digest,
             environment_plan_digest=prepared.environment_plan_digest,
         )
@@ -312,7 +314,7 @@ class CompatibilityChecker:
 
 
 class CheckCommandWorkflow:
-    """Load, snapshot, and check every package selected by one CLI request."""
+    """Load, snapshot, and check the target selected by one CLI request."""
 
     def __init__(
         self,
@@ -336,7 +338,7 @@ class CheckCommandWorkflow:
         self._emit(StatusEvent(message="loading project"))
         project = self._projects.load(
             root=root,
-            package_selection=request.package,
+            selector=request.selector,
         )
         self._emit(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(
@@ -345,25 +347,25 @@ class CheckCommandWorkflow:
         )
         try:
             self._emit(StatusEvent(message="checking declarations"))
-            cells = selected_host_cells(project.packages, self._host_target)
-            self._emit(_cell_matrix_event(project.packages, cells))
-            for package in project.packages:
-                require_full_evaluation_contract(package, "check")
+            package = project.target
+            cells = selected_host_cells(package, self._host_target)
+            self._emit(_cell_matrix_event(package, cells))
+            require_full_evaluation_contract(package, "check")
             if not cells:
                 raise ConfigurationError(
                     f"no configured cell matches host target: {self._host_target}"
                 )
-            package_by_name = {package.name: package for package in project.packages}
             outcomes = self._verification.run(
                 VerificationRun(
                     command="check",
-                    packages=project.packages,
+                    package=package,
+                    source_mode="SEARCH",
                     snapshot=snapshot,
                     tasks=tuple(
                         VerificationTask(
                             cell=cell,
                             execute=self._cell_task(
-                                package_by_name[cell.package],
+                                package,
                                 cell,
                                 snapshot,
                             ),
@@ -391,6 +393,7 @@ class CheckCommandWorkflow:
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
+                source_mode="SEARCH",
             )
 
         return run
@@ -416,9 +419,7 @@ class CheckCommandWorkflow:
         outcomes: tuple[CheckCellOutcome, ...],
     ) -> CheckResult:
         evaluations = tuple(
-            outcome.evaluation
-            for outcome in outcomes
-            if outcome.evaluation is not None
+            outcome.evaluation for outcome in outcomes if outcome.evaluation is not None
         )
         if any(outcome.status == "REJECTED" for outcome in outcomes):
             return CheckCompatibilityFailure(
@@ -456,6 +457,7 @@ class SmokeCellOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: ResolutionSourceMode,
     ) -> HighestVersionOutcome: ...
 
 
@@ -484,7 +486,7 @@ class SmokeCommandWorkflow:
         self._emit(StatusEvent(message="loading project"))
         project = self._projects.load(
             root=root,
-            package_selection=request.package,
+            selector=request.selector,
         )
         self._emit(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(
@@ -493,25 +495,25 @@ class SmokeCommandWorkflow:
         )
         try:
             self._emit(StatusEvent(message="smoke testing"))
-            cells = selected_host_cells(project.packages, self._host_target)
-            self._emit(_cell_matrix_event(project.packages, cells))
-            for package in project.packages:
-                require_full_evaluation_contract(package, "smoke")
+            package = project.target
+            cells = selected_host_cells(package, self._host_target)
+            self._emit(_cell_matrix_event(package, cells))
+            require_full_evaluation_contract(package, "smoke")
             if not cells:
                 raise ConfigurationError(
                     f"no configured cell matches host target: {self._host_target}"
                 )
-            package_by_name = {package.name: package for package in project.packages}
             outcomes = self._verification.run(
                 VerificationRun(
                     command="smoke",
-                    packages=project.packages,
+                    package=package,
+                    source_mode="DEVELOPMENT",
                     snapshot=snapshot,
                     tasks=tuple(
                         VerificationTask(
                             cell=cell,
                             execute=self._cell_task(
-                                package_by_name[cell.package],
+                                package,
                                 cell,
                                 snapshot,
                             ),
@@ -542,6 +544,7 @@ class SmokeCommandWorkflow:
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
+                source_mode="DEVELOPMENT",
             )
 
         return run
@@ -592,6 +595,7 @@ class CellSearchOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: ResolutionSourceMode,
     ) -> CellResult: ...
 
 
@@ -632,12 +636,12 @@ class SearchCommandWorkflow:
         self._associations = associations
         self._host_target = host_target or current_host_target()
 
-    def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]:
+    def run(self, request: SearchRequest) -> ValidatedReport:
         root = Path(request.root)
         self._events.consume(StatusEvent(message="loading project"))
         project = self._projects.load(
             root=root,
-            package_selection=request.package,
+            selector=request.selector,
         )
         self._events.consume(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(
@@ -646,6 +650,7 @@ class SearchCommandWorkflow:
         )
         try:
             self._events.consume(StatusEvent(message="searching cells"))
+            package = project.target
             tasks = tuple(
                 VerificationTask(
                     cell=cell,
@@ -661,20 +666,20 @@ class SearchCommandWorkflow:
                         ),
                     ),
                 )
-                for package in project.packages
                 for cell in package.cells
                 if cell.target == self._host_target
             )
             self._events.consume(
                 _cell_matrix_event(
-                    project.packages,
+                    package,
                     tuple(task.cell for task in tasks),
                 )
             )
             results = self._verification.run(
                 VerificationRun(
                     command="search",
-                    packages=project.packages,
+                    package=package,
+                    source_mode="SEARCH",
                     snapshot=snapshot,
                     tasks=tasks,
                     jobs=request.jobs,
@@ -682,46 +687,37 @@ class SearchCommandWorkflow:
                 )
             )
             self._assert_source_snapshot_current(root=root, expected=snapshot)
-            reports = []
-            for package in project.packages:
-                package_results = tuple(
-                    result for result in results if result.cell.package == package.name
-                )
-                report = self._report_builder.build(
-                    package=package,
-                    source_snapshot=snapshot.identity,
-                    cell_results=package_results,
-                )
-                report_path = (
-                    root / Path(package.pyproject_path).parent / "package-floor.json"
-                )
-                update = self._reports.update_path(report_path, report)
-                report = update.report
-                if self._associations is not None:
-                    runtime_processes = {
-                        item.failure_id: item.process_observation
-                        for result in package_results
-                        for item in failure_runtime_runs_for_result(result)
-                    }
-                    current_failures = tuple(
-                        (
-                            failure.failure_id,
-                            runtime_processes.get(
-                                failure.failure_id,
-                                failure.process,
-                            ),
-                        )
-                        for result in package_results
-                        for failure in failure_records_for_result(result)
+            report = self._report_builder.build(
+                package=package,
+                source_snapshot=snapshot.identity,
+                cell_results=results,
+            )
+            report_path = (
+                root / Path(package.pyproject_path).parent / "package-floor.json"
+            )
+            update = self._reports.update_path(report_path, report)
+            report = update.report
+            if self._associations is not None:
+                runtime_processes = {
+                    item.failure_id: item.process_observation
+                    for result in results
+                    for item in failure_runtime_runs_for_result(result)
+                }
+                current_failures = tuple(
+                    (
+                        failure.failure_id,
+                        runtime_processes.get(failure.failure_id, failure.process),
                     )
-                    self._associations.replace_associations(
-                        report.report_generation_id,
-                        current_failures,
-                        replace_generation=update.replace_generation,
-                        remove_failure_ids=update.removed_failure_ids,
-                    )
-                reports.append(report)
-            return tuple(reports)
+                    for result in results
+                    for failure in failure_records_for_result(result)
+                )
+                self._associations.replace_associations(
+                    report.report_generation_id,
+                    current_failures,
+                    replace_generation=update.replace_generation,
+                    remove_failure_ids=update.removed_failure_ids,
+                )
+            return report
         finally:
             snapshot.close()
 
@@ -734,8 +730,7 @@ class SearchCommandWorkflow:
         current = self._snapshots.build(
             root,
             owned_pyproject_paths=tuple(
-                identity.path
-                for identity in expected.identity.pyproject_identities
+                identity.path for identity in expected.identity.pyproject_identities
             ),
         )
         try:
@@ -757,6 +752,7 @@ class SearchCommandWorkflow:
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
+                source_mode="SEARCH",
             )
 
         return run
@@ -817,25 +813,22 @@ class ExplainCommandWorkflow:
         self._discovery = discovery
         self._reports = reports
 
-    def run(self, request: ReportRequest) -> tuple[ValidatedReport, ...]:
+    def run(self, request: ReportRequest) -> ValidatedReport:
         root = Path(request.root)
-        locations = self._discovery.discover(
+        location = self._discovery.select(
             root=root,
-            package_selection=request.package,
+            selector=request.selector,
         )
-        reports = []
-        for location in locations:
-            report = self._reports.read(location.report_path)
-            relative_pyproject = (
-                location.pyproject_path.relative_to(root.resolve()).as_posix()
-            )
-            if (
-                report.package.name != location.name
-                or report.package.pyproject_path != relative_pyproject
-            ):
-                raise ConfigurationError("report package identity mismatch")
-            reports.append(report)
-        return tuple(reports)
+        report = self._reports.read(location.report_path)
+        relative_pyproject = location.pyproject_path.relative_to(
+            root.resolve()
+        ).as_posix()
+        if (
+            report.package.name != location.name
+            or report.package.pyproject_path != relative_pyproject
+        ):
+            raise ConfigurationError("report package identity mismatch")
+        return report
 
 
 class DiagnosisLogLocator(Protocol):
@@ -847,9 +840,7 @@ class DiagnosisLogLocator(Protocol):
 
     def lookup_run(self, run_id: str, failure_id: str) -> Path | None: ...
 
-    def read_latest_journal(
-        self, package: str
-    ) -> VerificationJournalRecord | None: ...
+    def read_latest_journal(self, package: str) -> VerificationJournalRecord | None: ...
 
     def read_tail(self, path: Path) -> tuple[str, ...]: ...
 
@@ -884,53 +875,57 @@ class DiagnoseCommandWorkflow:
 
     def run(self, request: DiagnoseRequest) -> tuple[FailureDiagnosis, ...]:
         root = Path(request.root)
-        locations = self._discovery.discover(
+        location = self._discovery.select(
             root=root,
-            package_selection=request.package,
+            selector=request.selector,
         )
         entries: list[FailureDiagnosis] = []
-        for location in locations:
-            report_path = location.report_path
-            seen: set[str] = set()
-            if report_path.is_file():
-                report = self._reports.read(report_path)
-                if report.package.name != location.name:
-                    raise ConfigurationError("report package identity mismatch")
-                for failure in report.failure_records:
-                    if (
-                        request.failure_id is not None
-                        and failure.failure_id != request.failure_id
-                    ):
-                        continue
-                    context = report.failure_context(failure.failure_id)
-                    if context is None:
-                        raise ConfigurationError(
-                            f"report failure has no resolved context: {failure.failure_id}"
-                        )
-                    seen.add(failure.failure_id)
-                    log_path = self._logs.lookup(
-                        report.report_generation_id,
-                        failure.failure_id,
+        report_path = location.report_path
+        seen: set[str] = set()
+        if report_path.is_file():
+            report = self._reports.read(report_path)
+            relative_pyproject = location.pyproject_path.relative_to(
+                root.resolve()
+            ).as_posix()
+            if (
+                report.package.name != location.name
+                or report.package.pyproject_path != relative_pyproject
+            ):
+                raise ConfigurationError("report package identity mismatch")
+            for failure in report.failure_records:
+                if (
+                    request.failure_id is not None
+                    and failure.failure_id != request.failure_id
+                ):
+                    continue
+                context = report.failure_context(failure.failure_id)
+                if context is None:
+                    raise ConfigurationError(
+                        f"report failure has no resolved context: {failure.failure_id}"
                     )
-                    entries.append(
-                        FailureDiagnosis(
-                            report_generation_id=report.report_generation_id,
-                            package=report.package.name,
-                            failure=failure,
-                            proposal_id=context.proposal_id,
-                            boundary_role=context.boundary_role,
-                            log_path=log_path,
-                            output_tail=(
-                                self._logs.read_tail(log_path)
-                                if log_path is not None
-                                else ()
-                            ),
-                            source="package-floor.json",
-                        )
+                seen.add(failure.failure_id)
+                log_path = self._logs.lookup(
+                    report.report_generation_id,
+                    failure.failure_id,
+                )
+                entries.append(
+                    FailureDiagnosis(
+                        report_generation_id=report.report_generation_id,
+                        package=report.package.name,
+                        failure=failure,
+                        proposal_id=context.proposal_id,
+                        boundary_role=context.boundary_role,
+                        log_path=log_path,
+                        output_tail=(
+                            self._logs.read_tail(log_path)
+                            if log_path is not None
+                            else ()
+                        ),
+                        source="package-floor.json",
                     )
-            journal = self._logs.read_latest_journal(location.name)
-            if journal is None:
-                continue
+                )
+        journal = self._logs.read_latest_journal(location.name)
+        if journal is not None:
             for item in journal.entries:
                 if item.package != location.name:
                     raise ConfigurationError("journal package identity mismatch")
@@ -1013,7 +1008,7 @@ class ApplyAuthorizationOperations(Protocol):
     def authorize(
         self,
         *,
-        reports: tuple[ValidatedReport, ...],
+        report: ValidatedReport,
         project: ProjectPlan,
         current_snapshot: SourceSnapshot,
         force: bool,
@@ -1021,12 +1016,12 @@ class ApplyAuthorizationOperations(Protocol):
 
 
 class ProjectEditOperations(Protocol):
-    def apply_many(
+    def apply(
         self,
         *,
         authorization: AuthorizedWorkspaceApply,
         root: Path,
-    ) -> tuple[ProjectEditResult, ...]: ...
+    ) -> ProjectEditResult: ...
 
 
 class ApplyCommandWorkflow:
@@ -1053,20 +1048,17 @@ class ApplyCommandWorkflow:
         root = Path(request.root)
         project = self._projects.load(
             root=root,
-            package_selection=request.package,
+            selector=request.selector,
         )
         if self._events is not None:
             self._events.consume(
                 StatusEvent(
                     message="applying floors",
-                    total=len(project.packages) or None,
+                    total=1,
                 )
             )
-        reports = tuple(
-            self._reports.read(
-                root / Path(package.pyproject_path).parent / "package-floor.json"
-            )
-            for package in project.packages
+        report = self._reports.read(
+            root / Path(project.target.pyproject_path).parent / "package-floor.json"
         )
         snapshot = self._snapshots.build(
             root,
@@ -1074,17 +1066,17 @@ class ApplyCommandWorkflow:
         )
         try:
             authorization = self._authorizer.authorize(
-                reports=reports,
+                report=report,
                 project=project,
                 current_snapshot=snapshot,
                 force=request.force,
             )
-            edits = self._editor.apply_many(
+            edit = self._editor.apply(
                 authorization=authorization,
                 root=root,
             )
             return ApplyCommandResult(
-                edits=edits,
+                edit=edit,
                 presentation_facts=authorization.presentation_facts,
             )
         finally:

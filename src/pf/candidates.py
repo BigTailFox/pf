@@ -18,9 +18,13 @@ from pf.schemas.project import (
     Cell,
     PackagePlan,
     SourceIdentity,
+    ResolutionSourceMode,
     VersionPin,
     candidate_snapshot_digest,
     cell_identity,
+    package_source,
+    package_source_plan,
+    source_plan_identity,
 )
 
 
@@ -51,6 +55,7 @@ class CandidateBuilder:
         package: PackagePlan,
         cell: Cell,
         baseline: tuple[VersionPin, ...],
+        source_mode: ResolutionSourceMode,
     ) -> tuple[CandidateSnapshot, ...]:
         baseline_versions = {pin.name: Version(pin.version) for pin in baseline}
         active_ids = set(cell.active_declaration_ids)
@@ -70,6 +75,7 @@ class CandidateBuilder:
             f"pf:candidate-policy:v1\0{policy_json}".encode()
         ).hexdigest()
         snapshots = []
+        plan_identity = source_plan_identity(package_source_plan(package, source_mode))
         for dependency in managed_names:
             if dependency not in baseline_versions:
                 raise ConfigurationError(
@@ -82,12 +88,11 @@ class CandidateBuilder:
                 and declaration.managed
                 and declaration.declaration_id in active_ids
             )
-            sources = {declaration.source for declaration in declarations}
-            if len(sources) != 1:
+            source = package_source(package, dependency, source_mode)
+            if source.kind != "registry":
                 raise ConfigurationError(
-                    f"ambiguous source for dependency: {dependency}"
+                    f"managed dependency has no registry search source: {dependency}"
                 )
-            source = next(iter(sources))
             query_key = (dependency, source, cell_identity(cell))
             with self._query_lock:
                 available = self._queries.get(query_key)
@@ -170,6 +175,7 @@ class CandidateBuilder:
                 dependency=dependency,
                 cell=cell,
                 policy_identity=policy_identity,
+                source_plan_identity=plan_identity,
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives_record,
@@ -179,6 +185,7 @@ class CandidateBuilder:
                     dependency=dependency,
                     cell=cell,
                     policy_identity=policy_identity,
+                    source_plan_identity=plan_identity,
                     source=source,
                     candidates=candidates,
                     series_representatives=representatives_record,

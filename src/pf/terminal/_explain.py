@@ -45,16 +45,10 @@ class ExplainPresenter(Protocol):
 
 def render(
     presenter: ExplainPresenter,
-    reports: tuple[ValidatedReport, ...],
+    report: ValidatedReport,
 ) -> int:
     presenter.close()
-    if not reports:
-        presenter.stdout.print("explained 0 reports")
-        return 0
-    for index, report in enumerate(reports):
-        if index:
-            presenter.stdout.print()
-        _render_report(presenter, report)
+    _render_report(presenter, report)
     return 0
 
 
@@ -176,7 +170,7 @@ def _render_report(
                 style=f"summary.{summary_kind}",
             )
         )
-        presenter.stdout.print(Text(f"Next: pf apply {report.package.name}"))
+        presenter.stdout.print(Text(f"Next: pf apply --package {report.package.name}"))
     elif scoped_eligible:
         presenter.stdout.print(
             Text(
@@ -185,7 +179,7 @@ def _render_report(
                 style=f"summary.{summary_kind}",
             )
         )
-        presenter.stdout.print(Text(f"Next: pf apply {report.package.name}"))
+        presenter.stdout.print(Text(f"Next: pf apply --package {report.package.name}"))
     else:
         presenter.stdout.print(
             Text(

@@ -10,6 +10,7 @@ import tomli
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader
+from pf.schemas.config import RootPackage, TargetSelector, WorkspacePackage
 from pf.schemas.apply import (
     ApplyPresentationFacts,
     AuthorizedDependencyGroupEdit,
@@ -26,13 +27,10 @@ def _authorization(
     root: Path,
     *,
     replacements: dict[str, tuple[str, ...]] | None = None,
-    package_selection: str | None = None,
+    selector: TargetSelector = RootPackage(),
     noop: bool = False,
 ) -> AuthorizedWorkspaceApply:
-    project = ProjectLoader().load(
-        root=root,
-        package_selection=package_selection,
-    )
+    project = ProjectLoader().load(root=root, selector=selector)
     snapshot = SnapshotBuilder.without_processes().build(
         root,
         owned_pyproject_paths=project.owned_pyproject_paths,
@@ -42,62 +40,58 @@ def _authorization(
             identity.path: identity
             for identity in snapshot.identity.pyproject_identities
         }
-        package_applies = []
-        for package in project.packages:
-            declarations = tuple(
-                declaration
-                for declaration in package.declarations
-                if declaration.name == "idna"
-                and declaration.location == "base"
-            )
-            if not declarations:
-                raise AssertionError("editor fixture requires a base idna group")
-            replacement = (
-                replacements[package.pyproject_path]
-                if replacements is not None
-                else ("idna<4,>=3.0",)
-            )
-            edits = (
-                ()
-                if noop
-                else (
-                    AuthorizedProjectEdit(
-                        pyproject_path=package.pyproject_path,
-                        expected_pyproject_identity=identity_by_path[
-                            package.pyproject_path
-                        ],
-                        group_edits=(
-                            AuthorizedDependencyGroupEdit(
-                                key=dependency_group_key(declarations[0]),
-                                replacement_requirements=replacement,
-                            ),
+        package = project.target
+        declarations = tuple(
+            declaration
+            for declaration in package.declarations
+            if declaration.name == "idna" and declaration.location == "base"
+        )
+        if not declarations:
+            raise AssertionError("editor fixture requires a base idna group")
+        replacement = (
+            replacements[package.pyproject_path]
+            if replacements is not None
+            else ("idna<4,>=3.0",)
+        )
+        edits = (
+            ()
+            if noop
+            else (
+                AuthorizedProjectEdit(
+                    pyproject_path=package.pyproject_path,
+                    expected_pyproject_identity=identity_by_path[
+                        package.pyproject_path
+                    ],
+                    group_edits=(
+                        AuthorizedDependencyGroupEdit(
+                            key=dependency_group_key(declarations[0]),
+                            replacement_requirements=replacement,
                         ),
                     ),
-                )
+                ),
             )
-            package_applies.append(
-                AuthorizedPackageApply(
-                    package=PackageIdentity(
-                        name=package.name,
-                        pyproject_path=package.pyproject_path,
-                        requires_python=package.requires_python,
-                    ),
-                    scope="DECLARED_MATRIX",
-                    declared_platforms=package.config.platform,
-                    selected_selectors=(
-                        ApplySelector(
-                            sys_platform="linux",
-                            platform_machine="x86_64",
-                        ),
-                    ),
-                    preserved_selectors=(),
-                    dependency_state="NOOP" if noop else "WRITABLE",
-                    observed_cells=1,
-                    authorized_edits=edits,
-                )
-            )
+        )
+        package_apply = AuthorizedPackageApply(
+            package=PackageIdentity(
+                name=package.name,
+                pyproject_path=package.pyproject_path,
+                requires_python=package.requires_python,
+            ),
+            scope="DECLARED_MATRIX",
+            declared_platforms=package.config.platform,
+            selected_selectors=(
+                ApplySelector(
+                    sys_platform="linux",
+                    platform_machine="x86_64",
+                ),
+            ),
+            preserved_selectors=(),
+            dependency_state="NOOP" if noop else "WRITABLE",
+            observed_cells=1,
+            authorized_edits=edits,
+        )
         facts = ApplyPresentationFacts(
-            observed_cells=len(package_applies),
+            observed_cells=1,
             selected_selectors=(
                 ApplySelector(
                     sys_platform="linux",
@@ -110,7 +104,7 @@ def _authorization(
             mode="DEFAULT",
             expected_snapshot=snapshot.identity,
             owned_pyproject_paths=project.owned_pyproject_paths,
-            package_applies=tuple(package_applies),
+            package_apply=package_apply,
             presentation_facts=facts,
         )
     finally:
@@ -124,7 +118,19 @@ def _empty_authorization(root: Path) -> AuthorizedWorkspaceApply:
             mode="DEFAULT",
             expected_snapshot=snapshot.identity,
             owned_pyproject_paths=(),
-            package_applies=(),
+            package_apply=AuthorizedPackageApply(
+                package=PackageIdentity(
+                    name="demo",
+                    pyproject_path="pyproject.toml",
+                ),
+                scope="DECLARED_MATRIX",
+                declared_platforms=(),
+                selected_selectors=(),
+                preserved_selectors=(),
+                dependency_state="NOOP",
+                observed_cells=0,
+                authorized_edits=(),
+            ),
             presentation_facts=ApplyPresentationFacts(
                 observed_cells=0,
                 selected_selectors=(),
@@ -137,7 +143,7 @@ def _empty_authorization(root: Path) -> AuthorizedWorkspaceApply:
 
 def _write_single_project(root: Path) -> None:
     (root / "pyproject.toml").write_text(
-        '''[project]
+        """[project]
 name = "demo"
 version = "1" # keep version comment
 dependencies = [
@@ -149,7 +155,7 @@ dependencies = [
 python = ["3.10"]
 platform = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
-''',
+""",
         encoding="utf-8",
     )
 
@@ -168,17 +174,17 @@ class TestProjectEditor:
         )
         editor = ProjectEditor(snapshots=SnapshotBuilder.without_processes())
 
-        first = editor.apply_many(authorization=authorization, root=tmp_path)
+        first = editor.apply(authorization=authorization, root=tmp_path)
         after_first = (tmp_path / "pyproject.toml").read_bytes()
-        repeated = editor.apply_many(
+        repeated = editor.apply(
             authorization=_authorization(tmp_path, noop=True),
             root=tmp_path,
         )
 
         with (tmp_path / "pyproject.toml").open("rb") as stream:
             document = tomli.load(stream)
-        assert first[0].changed is True
-        assert repeated[0].changed is False
+        assert first.changed is True
+        assert repeated.changed is False
         assert document["project"]["dependencies"] == [
             "idna!=2.5,<4,>=3.0",
             "click==8.1.8",
@@ -201,9 +207,9 @@ class TestProjectEditor:
         before = (tmp_path / "pyproject.toml").read_bytes()
 
         with pytest.raises(ConfigurationError, match="after apply authorization"):
-            ProjectEditor(
-                snapshots=SnapshotBuilder.without_processes()
-            ).apply_many(authorization=authorization, root=tmp_path)
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                authorization=authorization, root=tmp_path
+            )
 
         assert (tmp_path / "pyproject.toml").read_bytes() == before
 
@@ -226,9 +232,9 @@ class TestProjectEditor:
         )
 
         with pytest.raises(ConfigurationError, match="pyproject identity"):
-            ProjectEditor(
-                snapshots=SnapshotBuilder.without_processes()
-            ).apply_many(authorization=authorization, root=tmp_path)
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                authorization=authorization, root=tmp_path
+            )
 
     def test_editor_raw_compare_and_swap_preserves_a_concurrent_format_edit(
         self,
@@ -255,7 +261,7 @@ class TestProjectEditor:
         monkeypatch.setattr(editor, "_prepare_edit", prepare_then_format)
 
         with pytest.raises(ConfigurationError, match="after apply prepare"):
-            editor.apply_many(authorization=authorization, root=tmp_path)
+            editor.apply(authorization=authorization, root=tmp_path)
 
         assert "# concurrent comment" in pyproject.read_text(encoding="utf-8")
         assert ">=3.0" not in pyproject.read_text(encoding="utf-8")
@@ -265,7 +271,7 @@ class TestProjectEditor:
         tmp_path: Path,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
-            '''[project]
+            """[project]
 name = "demo"
 version = "1"
 dependencies = [
@@ -277,7 +283,7 @@ dependencies = [
 python = ["3.10"]
 platform = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
-''',
+""",
             encoding="utf-8",
         )
         replacement = (
@@ -289,7 +295,7 @@ test-command = ["pytest"]
             replacements={"pyproject.toml": replacement},
         )
 
-        ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply_many(
+        ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
             authorization=authorization,
             root=tmp_path,
         )
@@ -299,7 +305,7 @@ test-command = ["pytest"]
         assert dependencies == list(replacement)
         assert not any("!=" in raw for raw in dependencies)
 
-    def test_editor_applies_all_workspace_members_against_one_snapshot(
+    def test_editor_applies_only_the_selected_workspace_member(
         self,
         tmp_path: Path,
     ) -> None:
@@ -318,25 +324,28 @@ test-command = ["pytest"]
                 'dependencies = ["idna<4"]\n',
                 encoding="utf-8",
             )
-        authorization = _authorization(tmp_path)
+        authorization = _authorization(
+            tmp_path,
+            selector=WorkspacePackage(canonical_name="alpha"),
+        )
 
-        edits = ProjectEditor(
-            snapshots=SnapshotBuilder.without_processes()
-        ).apply_many(authorization=authorization, root=tmp_path)
+        edit = ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+            authorization=authorization, root=tmp_path
+        )
 
-        assert [edit.changed for edit in edits] == [True, True]
-        for name in ("alpha", "beta"):
-            with (
-                tmp_path / "packages" / name / "pyproject.toml"
-            ).open("rb") as stream:
-                assert tomli.load(stream)["project"]["dependencies"] == [
-                    "idna<4,>=3.0"
-                ]
+        assert edit.changed is True
+        with (tmp_path / "packages" / "alpha" / "pyproject.toml").open(
+            "rb"
+        ) as stream:
+            assert tomli.load(stream)["project"]["dependencies"] == ["idna<4,>=3.0"]
+        with (tmp_path / "packages" / "beta" / "pyproject.toml").open(
+            "rb"
+        ) as stream:
+            assert tomli.load(stream)["project"]["dependencies"] == ["idna<4"]
 
-    def test_editor_rolls_back_all_written_members_when_a_later_write_fails(
+    def test_unselected_workspace_member_drift_blocks_the_selected_edit(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
@@ -345,7 +354,6 @@ test-command = ["pytest"]
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        originals = {}
         for name in ("alpha", "beta"):
             package_root = tmp_path / "packages" / name
             package_root.mkdir(parents=True)
@@ -354,26 +362,19 @@ test-command = ["pytest"]
                 'dependencies = ["idna<4"]\n'
             ).encode()
             (package_root / "pyproject.toml").write_bytes(content)
-            originals[name] = content
-        authorization = _authorization(tmp_path)
-        real_write = ProjectEditor._atomic_write
+        selector = WorkspacePackage(canonical_name="alpha")
+        authorization = _authorization(tmp_path, selector=selector)
+        alpha = tmp_path / "packages" / "alpha" / "pyproject.toml"
+        beta = tmp_path / "packages" / "beta" / "pyproject.toml"
+        alpha_before = alpha.read_bytes()
+        beta.write_bytes(beta.read_bytes().replace(b"idna<4", b"idna<3"))
 
-        def fail_beta(path: Path, content: bytes) -> None:
-            if path.name == "pyproject.toml" and path.parent.name == "beta":
-                raise OSError("disk full")
-            real_write(path, content)
+        with pytest.raises(ConfigurationError, match="after apply authorization"):
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
+                authorization=authorization, root=tmp_path
+            )
 
-        monkeypatch.setattr(ProjectEditor, "_atomic_write", staticmethod(fail_beta))
-
-        with pytest.raises(OSError, match="disk full"):
-            ProjectEditor(
-                snapshots=SnapshotBuilder.without_processes()
-            ).apply_many(authorization=authorization, root=tmp_path)
-
-        for name, original in originals.items():
-            assert (
-                tmp_path / "packages" / name / "pyproject.toml"
-            ).read_bytes() == original
+        assert alpha.read_bytes() == alpha_before
 
     def test_editor_recovers_a_prepared_target_before_rechecking_authorization(
         self,
@@ -422,9 +423,9 @@ test-command = ["pytest"]
                 raise ConfigurationError("stop after recover")
 
         with pytest.raises(ConfigurationError, match="stop after recover"):
-            ProjectEditor(
-                snapshots=StopAfterRecover.without_processes()
-            ).apply_many(authorization=authorization, root=tmp_path)
+            ProjectEditor(snapshots=StopAfterRecover.without_processes()).apply(
+                authorization=authorization, root=tmp_path
+            )
 
         assert pyproject.read_bytes() == original
 
@@ -437,9 +438,7 @@ test-command = ["pytest"]
         journal.write_text("not JSON\n", encoding="utf-8")
 
         with pytest.raises(ConfigurationError, match="invalid apply recovery log"):
-            ProjectEditor(
-                snapshots=SnapshotBuilder.without_processes()
-            ).apply_many(
+            ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
                 authorization=_empty_authorization(tmp_path),
                 root=tmp_path,
             )
@@ -459,7 +458,7 @@ test-command = ["pytest"]
             raise AssertionError("editor must not load project semantics")
 
         monkeypatch.setattr(ProjectLoader, "load", forbidden_load)
-        ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply_many(
+        ProjectEditor(snapshots=SnapshotBuilder.without_processes()).apply(
             authorization=authorization,
             root=tmp_path,
         )

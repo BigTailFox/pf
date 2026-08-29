@@ -118,6 +118,7 @@ class FailurePolicy:
             stage=evaluation.failure.stage,
             process=evaluation.failure.process,
             summary_code=evaluation.failure.summary_code,
+            detail=evaluation.failure.detail,
             project_plan_digest=project_plan_digest,
             environment_plan_digest=environment_plan_digest,
         )

@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Literal
 
 from packaging.requirements import Requirement
+from packaging.version import Version
 import pytest
+import tomli
 
 from pf.authorization import ApplyAuthorizer
 from pf.errors import ApplyAuthorizationError, NoApplicableFloorError
@@ -40,11 +42,15 @@ from pf.schemas.project import (
     PackagePlan,
     ProjectPlan,
     Proposal,
-    SourceIdentity,
+    SelectedCandidate,
     VersionPin,
     candidate_snapshot_digest,
     cell_id,
+    package_source_plan,
+    selected_candidate_evidence_digest,
+    source_plan_identity,
 )
+from pf.schemas.config import WorkspacePackage
 from pf.schemas.report import (
     CellIndeterminate,
     CellSearchFailure,
@@ -75,6 +81,7 @@ def _attempt(
     policy: str,
     resolution: Literal["highest", "exact-vector"],
     vector: tuple[VersionPin, ...],
+    source_plan_identity_value: str,
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
@@ -84,7 +91,7 @@ def _attempt(
             requested_resolution=resolution,
             requested_managed_vector=(vector if resolution == "exact-vector" else None),
             active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
+            source_plan_identity=source_plan_identity_value,
             evaluation_policy_identity=policy,
             resolution_context_digest="context",
             harness_policy_identity=(
@@ -96,7 +103,26 @@ def _attempt(
                 "harness-baseline" if resolution == "exact-vector" else None
             ),
             selected_candidate_evidence_digest=(
-                "selected-candidate" if resolution == "exact-vector" else None
+                selected_candidate_evidence_digest(
+                    tuple(
+                        SelectedCandidate(
+                            dependency=pin.name,
+                            version=pin.version,
+                            artifact=AvailableArtifact(
+                                filename=f"{pin.name}-{pin.version}.whl",
+                                kind="wheel",
+                                content_hash=f"sha256:{'a' * 64}",
+                                locator=(
+                                    f"https://files.example/"
+                                    f"{pin.name}-{pin.version}.whl"
+                                ),
+                            ),
+                        )
+                        for pin in vector
+                    )
+                )
+                if resolution == "exact-vector"
+                else None
             ),
         )
     )
@@ -156,6 +182,7 @@ def _successful_cell(
     historical_rejection: bool = False,
 ) -> CellSuccess:
     policy = evaluation_policy_identity(package.config)
+    plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
     vector = (VersionPin(name="idna", version=floor),)
     final_attempt = _attempt(
         cell=cell,
@@ -163,6 +190,7 @@ def _successful_cell(
         policy=policy,
         resolution="exact-vector",
         vector=vector,
+        source_plan_identity_value=plan_identity,
     )
     final = _evaluation(
         cell=cell,
@@ -172,8 +200,12 @@ def _successful_cell(
         resolution="exact-vector",
         attempt=final_attempt,
     )
-    source = SourceIdentity(kind="registry")
-    candidate_versions = (("1.0", floor) if historical_rejection else (floor,))
+    source = next(
+        route.search_source
+        for route in package.source_routes
+        if route.dependency == "idna"
+    )
+    candidate_versions = ("1.0", floor) if historical_rejection else (floor,)
     candidates = tuple(
         Candidate(
             version=version,
@@ -192,6 +224,7 @@ def _successful_cell(
         dependency="idna",
         cell=cell,
         policy_identity="candidate-policy",
+        source_plan_identity=plan_identity,
         source=source,
         candidates=candidates,
         series_representatives=representatives,
@@ -199,6 +232,7 @@ def _successful_cell(
             dependency="idna",
             cell=cell,
             policy_identity="candidate-policy",
+            source_plan_identity=plan_identity,
             source=source,
             candidates=candidates,
             series_representatives=representatives,
@@ -211,6 +245,7 @@ def _successful_cell(
         policy=policy,
         resolution="highest",
         vector=baseline_vector,
+        source_plan_identity_value=plan_identity,
     )
     baseline = _evaluation(
         cell=cell,
@@ -244,6 +279,7 @@ def _successful_cell(
             policy=policy,
             resolution="exact-vector",
             vector=rejected_vector,
+            source_plan_identity_value=plan_identity,
         )
         rejected_pass = _evaluation(
             cell=cell,
@@ -379,22 +415,22 @@ class TestApplyAuthorizer:
             lambda: "x86_64-unknown-linux-gnu",
         )
         _write_project(tmp_path, platforms=None)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=snapshot,
             force=False,
         )
 
-        package_apply = authorization.package_applies[0]
+        package_apply = authorization.package_apply
         assert package_apply.scope == "DECLARED_MATRIX"
         assert package_apply.declared_platforms == ()
         replacement = package_apply.authorized_edits[0].group_edits[0]
@@ -410,22 +446,22 @@ class TestApplyAuthorizer:
             "x86_64-unknown-linux-gnu",
         )
         _write_project(tmp_path, platforms=platforms)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=snapshot,
             force=False,
         )
 
-        package_apply = authorization.package_applies[0]
+        package_apply = authorization.package_apply
         assert package_apply.scope == "PLATFORM_SCOPED"
         assert [item.sys_platform for item in package_apply.selected_selectors] == [
             "linux"
@@ -446,18 +482,18 @@ class TestApplyAuthorizer:
     ) -> None:
         platform = "x86_64-unknown-linux-gnu"
         _write_project(tmp_path, platforms=(platform,))
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
-        report = _report(project.packages[0], snapshot, {platform: "2.0"})
+        report = _report(project.target, snapshot, {platform: "2.0"})
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=snapshot,
             force=False,
         )
 
-        package_apply = authorization.package_applies[0]
+        package_apply = authorization.package_apply
         assert package_apply.scope == "DECLARED_MATRIX"
         replacement = package_apply.authorized_edits[0].group_edits[0]
         assert Requirement(replacement.replacement_requirements[0]).marker is None
@@ -472,10 +508,10 @@ class TestApplyAuthorizer:
             "x86_64-pc-windows-msvc",
         )
         _write_project(tmp_path, platforms=platforms)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {
                 "x86_64-unknown-linux-gnu": "2.0",
@@ -484,13 +520,13 @@ class TestApplyAuthorizer:
         )
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=snapshot,
             force=False,
         )
 
-        package_apply = authorization.package_applies[0]
+        package_apply = authorization.package_apply
         assert package_apply.scope == "DECLARED_MATRIX"
         assert package_apply.preserved_selectors == ()
         snapshot.close()
@@ -504,22 +540,22 @@ class TestApplyAuthorizer:
             "x86_64-unknown-linux-musl",
         )
         _write_project(tmp_path, platforms=platforms)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=snapshot,
             force=False,
         )
 
-        package_apply = authorization.package_applies[0]
+        package_apply = authorization.package_apply
         assert package_apply.scope == "DECLARED_MATRIX"
         assert package_apply.preserved_selectors == ()
         raw = (
@@ -537,10 +573,10 @@ class TestApplyAuthorizer:
             "x86_64-unknown-linux-musl",
         )
         _write_project(tmp_path, platforms=platforms)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {
                 "x86_64-unknown-linux-gnu": "2.0",
@@ -550,7 +586,7 @@ class TestApplyAuthorizer:
 
         with pytest.raises(ApplyAuthorizationError, match="representable"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=project,
                 current_snapshot=snapshot,
                 force=True,
@@ -566,9 +602,9 @@ class TestApplyAuthorizer:
             platforms=("x86_64-unknown-linux-gnu",),
             python=("3.10", "3.11"),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
-        package = project.packages[0]
+        package = project.target
         report = PackageReportBuilder().build(
             package=package,
             source_snapshot=snapshot.identity,
@@ -584,7 +620,7 @@ class TestApplyAuthorizer:
 
         with pytest.raises(ApplyAuthorizationError, match="partially observed"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=project,
                 current_snapshot=snapshot,
                 force=True,
@@ -599,22 +635,21 @@ class TestApplyAuthorizer:
     ) -> None:
         linux = "x86_64-unknown-linux-gnu"
         _write_project(tmp_path, platforms=(linux,))
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
-        report = _report(project.packages[0], report_snapshot, {linux: "2.0"})
+        report = _report(project.target, report_snapshot, {linux: "2.0"})
         _write_project(
             tmp_path,
             platforms=("x86_64-pc-windows-msvc",),
         )
         current_project = ProjectLoader().load(
             root=tmp_path,
-            package_selection=None,
         )
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="policy"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=force,
@@ -630,17 +665,17 @@ class TestApplyAuthorizer:
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = PackageReportBuilder().build(
-            package=project.packages[0],
+            package=project.target,
             source_snapshot=snapshot.identity,
             cell_results=(),
         )
 
         with pytest.raises(NoApplicableFloorError, match="successful final cell"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=project,
                 current_snapshot=snapshot,
                 force=True,
@@ -653,9 +688,9 @@ class TestApplyAuthorizer:
     ) -> None:
         platform = "x86_64-unknown-linux-gnu"
         _write_project(tmp_path, platforms=(platform,))
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
-        package = project.packages[0]
+        package = project.target
         report = PackageReportBuilder().build(
             package=package,
             source_snapshot=snapshot.identity,
@@ -674,14 +709,14 @@ class TestApplyAuthorizer:
         report = ReportStore().read(path)
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=snapshot,
             force=False,
         )
 
-        assert authorization.package_applies[0].observed_cells == 1
-        assert authorization.package_applies[0].authorized_edits
+        assert authorization.package_apply.observed_cells == 1
+        assert authorization.package_apply.authorized_edits
         snapshot.close()
 
     @pytest.mark.parametrize("root_kind", ("indeterminate", "non-monotonic"))
@@ -695,16 +730,16 @@ class TestApplyAuthorizer:
             "x86_64-pc-windows-msvc",
         )
         _write_project(tmp_path, platforms=platforms)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
         windows = next(
             cell
-            for cell in project.packages[0].cells
+            for cell in project.target.cells
             if cell.target == "x86_64-pc-windows-msvc"
         )
         failed_root = (
@@ -722,7 +757,7 @@ class TestApplyAuthorizer:
 
         with pytest.raises(ApplyAuthorizationError, match="failed or partially"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=project,
                 current_snapshot=snapshot,
                 force=True,
@@ -742,10 +777,10 @@ class TestApplyAuthorizer:
                 "VALUE = 1\n",
                 encoding="utf-8",
             )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -754,18 +789,18 @@ class TestApplyAuthorizer:
                 "VALUE = 2\n",
                 encoding="utf-8",
             )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="source snapshot"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=False,
             )
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=current_project,
             current_snapshot=current_snapshot,
             force=True,
@@ -781,6 +816,170 @@ class TestApplyAuthorizer:
 
 
 class TestApplyAuthorizationDriftAndCliRoundTrip:
+    @pytest.mark.parametrize(
+        ("member_version", "expected_code"),
+        (("2.5", 0), ("1.5", 3)),
+    )
+    def test_static_workspace_member_version_controls_cli_apply_without_metadata_edits(
+        self,
+        tmp_path: Path,
+        member_version: str,
+        expected_code: int,
+    ) -> None:
+        member = tmp_path / "packages" / "idna"
+        member.mkdir(parents=True)
+        root_pyproject = tmp_path / "pyproject.toml"
+        root_pyproject.write_text(
+            """
+[project]
+name = "demo"
+version = "1"
+requires-python = ">=3.10"
+dependencies = ["idna>=1"]
+
+[tool.uv.sources]
+idna = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        member_pyproject = member / "pyproject.toml"
+        member_pyproject.write_text(
+            f'[project]\nname = "idna"\nversion = "{member_version}"\n',
+            encoding="utf-8",
+        )
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        report = _report(
+            project.target,
+            snapshot,
+            {"x86_64-unknown-linux-gnu": "2.0"},
+        )
+        ReportStore().write(tmp_path / "package-floor.json", report)
+        snapshot.close()
+        member_before = member_pyproject.read_bytes()
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pf",
+                "apply",
+                "--package",
+                "demo",
+            ],
+            cwd=tmp_path,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == expected_code
+        assert member_pyproject.read_bytes() == member_before
+        with root_pyproject.open("rb") as stream:
+            document = tomli.load(stream)
+        assert document["tool"]["uv"]["sources"] == {"idna": {"workspace": True}}
+        if expected_code == 0:
+            requirement = Requirement(document["project"]["dependencies"][0])
+            assert requirement.name == "idna"
+            assert Version("2.0") in requirement.specifier
+        else:
+            assert document["project"]["dependencies"] == ["idna>=1"]
+            assert "version 1.5 does not satisfy the intended requirement" in (
+                " ".join(result.stderr.split())
+            )
+
+    @pytest.mark.parametrize("force", (False, True))
+    def test_dynamic_workspace_member_blocks_cli_apply_before_edit(
+        self,
+        tmp_path: Path,
+        force: bool,
+    ) -> None:
+        member = tmp_path / "packages" / "idna"
+        member.mkdir(parents=True)
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            """
+[project]
+name = "demo"
+version = "1"
+requires-python = ">=3.10"
+dependencies = ["idna>=1"]
+
+[tool.uv.sources]
+idna = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pf]
+python = ["3.10"]
+platform = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            """
+[project]
+name = "idna"
+dynamic = ["version"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        report = _report(
+            project.target,
+            snapshot,
+            {"x86_64-unknown-linux-gnu": "2.0"},
+        )
+        ReportStore().write(tmp_path / "package-floor.json", report)
+        snapshot.close()
+        before = pyproject.read_bytes()
+        argv = [
+            sys.executable,
+            "-m",
+            "pf",
+            "apply",
+            "--package",
+            "demo",
+        ]
+        if force:
+            argv.append("--force")
+
+        result = subprocess.run(
+            argv,
+            cwd=tmp_path,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 3
+        assert result.stdout == ""
+        assert "Usage:" not in result.stderr
+        assert "Cannot apply idna>=" in result.stderr
+        assert "workspace member idna declares its version dynamically" in (
+            " ".join(result.stderr.split())
+        )
+        assert "PF cannot verify offline" in result.stderr
+        assert "apply the requirement manually and run pf smoke" in (
+            " ".join(result.stderr.split())
+        )
+        assert "--force" not in result.stderr
+        assert pyproject.read_bytes() == before
+
     def test_sequential_scoped_apply_starts_a_new_generation_and_reprojects_group(
         self,
         tmp_path: Path,
@@ -790,10 +989,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             "x86_64-pc-windows-msvc",
         )
         _write_project(tmp_path, platforms=platforms)
-        first_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        first_project = ProjectLoader().load(root=tmp_path)
         first_snapshot = _snapshot(first_project, tmp_path)
         first_report = _report(
-            first_project.packages[0],
+            first_project.target,
             first_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -823,11 +1022,11 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
 
         assert linux_apply.returncode == 0, linux_apply.stderr
         assert "platform-scoped to linux/x86_64" in " ".join(linux_apply.stdout.split())
-        second_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        second_project = ProjectLoader().load(root=tmp_path)
         second_snapshot = _snapshot(second_project, tmp_path)
         assert second_snapshot.identity.digest != first_report.source_snapshot.digest
         second_report = _report(
-            second_project.packages[0],
+            second_project.target,
             second_snapshot,
             {"x86_64-pc-windows-msvc": "3.0"},
         )
@@ -847,13 +1046,13 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
         rendered = " ".join(windows_apply.stdout.split())
         assert "platform-scoped to windows/x86_64" in rendered
         assert "preserved linux/x86_64" in rendered
-        final_project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        declarations = final_project.packages[0].declarations
+        final_project = ProjectLoader().load(root=tmp_path)
+        declarations = final_project.target.declarations
         expected_floors = {
             "x86_64-unknown-linux-gnu": "2.0",
             "x86_64-pc-windows-msvc": "3.0",
         }
-        for cell in final_project.packages[0].cells:
+        for cell in final_project.target.cells:
             active = tuple(
                 item
                 for item in declarations
@@ -877,10 +1076,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             platforms=("x86_64-unknown-linux-gnu",),
         )
         (tmp_path / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -914,10 +1113,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -926,12 +1125,12 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             platforms=("x86_64-unknown-linux-gnu",),
             dependency="idna<3",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="dependency declarations"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=force,
@@ -955,20 +1154,20 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
     ) -> None:
         platform = "x86_64-unknown-linux-gnu"
         _write_project(tmp_path, platforms=(platform,))
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
-        report = _report(project.packages[0], report_snapshot, {platform: "2.0"})
+        report = _report(project.target, report_snapshot, {platform: "2.0"})
         _write_project(
             tmp_path,
             platforms=(platform,),
             dependency=replacement,
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="dependency declarations"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,
@@ -987,21 +1186,21 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             dependency=("idna<4", "urllib3<3"),
             extra='managed-deps = ["idna"]\n',
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
-        report = _report(project.packages[0], report_snapshot, {platform: "2.0"})
+        report = _report(project.target, report_snapshot, {platform: "2.0"})
         _write_project(
             tmp_path,
             platforms=(platform,),
             dependency=("idna<4", "urllib3<2"),
             extra='managed-deps = ["idna"]\n',
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="dependency declarations"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,
@@ -1019,10 +1218,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             dependency=("idna<4", "urllib3<3"),
             extra='managed-deps = ["idna"]\n',
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -1034,17 +1233,17 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             ),
             encoding="utf-8",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         authorization = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=current_project,
             current_snapshot=current_snapshot,
             force=False,
         )
 
-        assert authorization.package_applies[0].dependency_state == "WRITABLE"
+        assert authorization.package_apply.dependency_state == "WRITABLE"
         report_snapshot.close()
         current_snapshot.close()
 
@@ -1056,10 +1255,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -1068,12 +1267,12 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             raw.replace('requires-python = ">=3.10"', 'requires-python = ">=3.9"'),
             encoding="utf-8",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="Python semantics"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,
@@ -1089,22 +1288,21 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
         first = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=project,
             current_snapshot=report_snapshot,
             force=False,
         )
         replacement = (
-            first.package_applies[0]
-            .authorized_edits[0]
+            first.package_apply.authorized_edits[0]
             .group_edits[0]
             .replacement_requirements[0]
         )
@@ -1113,43 +1311,36 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             raw.replace("idna<4", replacement),
             encoding="utf-8",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         repeated = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=current_project,
             current_snapshot=current_snapshot,
             force=False,
         )
 
-        package_apply = repeated.package_applies[0]
+        package_apply = repeated.package_apply
         assert package_apply.dependency_state == "NOOP"
         assert package_apply.authorized_edits == ()
         assert repeated.waivers_used == ()
         report_snapshot.close()
         current_snapshot.close()
 
-    @pytest.mark.parametrize(
-        "remainder",
-        (
-            '[project.scripts]\ndemo = "demo:main"\n',
-            '[dependency-groups]\ntest = ["pytest"]\n',
-        ),
-    )
     def test_pyproject_remainder_drift_is_only_forceable_source_drift(
         self,
         tmp_path: Path,
-        remainder: str,
     ) -> None:
+        remainder = '[project.scripts]\ndemo = "demo:main"\n'
         _write_project(
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -1161,18 +1352,18 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             ),
             encoding="utf-8",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="source snapshot"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=False,
             )
         authorized = ApplyAuthorizer().authorize(
-            reports=(report,),
+            report=report,
             project=current_project,
             current_snapshot=current_snapshot,
             force=True,
@@ -1180,6 +1371,39 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
 
         assert authorized.waivers_used == ("SOURCE_SNAPSHOT_DRIFT",)
         assert authorized.presentation_facts.source_drift_paths == ("pyproject.toml",)
+        report_snapshot.close()
+        current_snapshot.close()
+
+    def test_harness_source_plan_drift_is_not_forceable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_project(tmp_path, platforms=("x86_64-unknown-linux-gnu",))
+        project = ProjectLoader().load(root=tmp_path)
+        report_snapshot = _snapshot(project, tmp_path)
+        report = _report(
+            project.target,
+            report_snapshot,
+            {"x86_64-unknown-linux-gnu": "2.0"},
+        )
+        raw = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+        (tmp_path / "pyproject.toml").write_text(
+            raw.replace(
+                "[tool.pf]",
+                '[dependency-groups]\ntest = ["pytest"]\n[tool.pf]',
+            ),
+            encoding="utf-8",
+        )
+        current_project = ProjectLoader().load(root=tmp_path)
+        current_snapshot = _snapshot(current_project, tmp_path)
+
+        with pytest.raises(ApplyAuthorizationError, match="source plan"):
+            ApplyAuthorizer().authorize(
+                report=report,
+                project=current_project,
+                current_snapshot=current_snapshot,
+                force=True,
+            )
         report_snapshot.close()
         current_snapshot.close()
 
@@ -1191,10 +1415,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -1206,12 +1430,12 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             ),
             encoding="utf-8",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="policy"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,
@@ -1227,10 +1451,10 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        project = ProjectLoader().load(root=tmp_path)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -1240,12 +1464,12 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
             raw + '[tool.uv.sources]\nidna = { path = "vendor/idna" }\n',
             encoding="utf-8",
         )
-        current_project = ProjectLoader().load(root=tmp_path, package_selection=None)
+        current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="source plan"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,
@@ -1272,10 +1496,11 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
                 'dependencies = ["idna<4"]\n',
                 encoding="utf-8",
             )
-        project = ProjectLoader().load(root=tmp_path, package_selection="alpha")
+        selector = WorkspacePackage(canonical_name="alpha")
+        project = ProjectLoader().load(root=tmp_path, selector=selector)
         report_snapshot = _snapshot(project, tmp_path)
         report = _report(
-            project.packages[0],
+            project.target,
             report_snapshot,
             {"x86_64-unknown-linux-gnu": "2.0"},
         )
@@ -1286,13 +1511,13 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
         )
         current_project = ProjectLoader().load(
             root=tmp_path,
-            package_selection="alpha",
+            selector=selector,
         )
         current_snapshot = _snapshot(current_project, tmp_path)
 
         with pytest.raises(ApplyAuthorizationError, match="unselected package"):
             ApplyAuthorizer().authorize(
-                reports=(report,),
+                report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,

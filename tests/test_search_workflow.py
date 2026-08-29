@@ -33,7 +33,14 @@ from pf.schemas.evaluation import (
     VerifierDiagnostics,
     VerifierIndeterminate,
 )
-from pf.schemas.project import Cell, PackagePlan, Proposal
+from pf.schemas.project import (
+    Cell,
+    PackagePlan,
+    Proposal,
+    package_source_plan,
+    selected_candidate_evidence_digest,
+    source_plan_identity,
+)
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.verification import VerificationRunner
@@ -51,6 +58,7 @@ class FailedSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: object,
     ) -> CellIndeterminate:
         self.cells.append(cell)
         failure = FailurePolicy().classify(
@@ -88,12 +96,15 @@ class SourceDriftingSearch(FailedSearch):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: object,
     ) -> CellIndeterminate:
         (self._root / "new-source.py").write_text(
             "VALUE = 1\n",
             encoding="utf-8",
         )
-        return super().search(package=package, cell=cell, snapshot=snapshot)
+        return super().search(
+            package=package, cell=cell, snapshot=snapshot, source_mode=source_mode
+        )
 
 
 class TimedOutVerifierSearch:
@@ -106,6 +117,7 @@ class TimedOutVerifierSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: object,
     ) -> CellIndeterminate:
         policy = evaluation_policy_identity(package.config)
         attempt = Attempt.from_identity(
@@ -115,13 +127,17 @@ class TimedOutVerifierSearch:
                 requested_resolution="exact-vector",
                 requested_managed_vector=(),
                 active_declaration_ids=(),
-                source_plan_identity="sources",
+                source_plan_identity=source_plan_identity(
+                    package_source_plan(package, "SEARCH")
+                ),
                 evaluation_policy_identity=policy,
                 identity_version="attempt-v2",
                 resolution_context_digest="context",
                 harness_policy_identity="harness-relaxation-v1",
                 harness_baseline_digest="baseline",
-                selected_candidate_evidence_digest="candidate",
+                selected_candidate_evidence_digest=(
+                    selected_candidate_evidence_digest(())
+                ),
             )
         )
         proposal = Proposal(
@@ -184,6 +200,7 @@ class UnavailableBaselineSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: object,
     ) -> BaselineIndeterminate:
         attempt = Attempt.from_identity(
             AttemptIdentity(
@@ -192,7 +209,9 @@ class UnavailableBaselineSearch:
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity="sources",
+                source_plan_identity=source_plan_identity(
+                    package_source_plan(package, "SEARCH")
+                ),
                 evaluation_policy_identity=evaluation_policy_identity(package.config),
                 identity_version="attempt-v2",
                 resolution_context_digest="context",
@@ -289,9 +308,7 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(),
-            verification=VerificationRunner(
-                events=events, logs=None
-            ),
+            verification=VerificationRunner(events=events, logs=None),
             reports=store,
             report_builder=PackageReportBuilder(),
             events=events,
@@ -300,21 +317,18 @@ class TestSearchWorkflow:
         output = workflow.run(
             SearchRequest(
                 root=tmp_path.as_posix(),
-                package=None,
                 jobs=2,
                 max_duration_seconds=None,
             )
         )
 
-        assert output[0].result.status == "incomplete"
-        assert output[0].result.reasons == (
+        assert output.result.status == "incomplete"
+        assert output.result.reasons == (
             "INDETERMINATE",
             "UNREPRESENTABLE_PROJECTION",
         )
         completions = [
-            event
-            for event in events.items
-            if isinstance(event, CellCompletedEvent)
+            event for event in events.items if isinstance(event, CellCompletedEvent)
         ]
         assert len(completions) == 2
         matrix = next(
@@ -324,30 +338,28 @@ class TestSearchWorkflow:
             ("3.10", "x86_64-unknown-linux-gnu"),
             ("3.11", "x86_64-unknown-linux-gnu"),
         ]
-        assert store.read(tmp_path / "package-floor.json") == output[0]
+        assert store.read(tmp_path / "package-floor.json") == output
 
         repeated = workflow.run(
             SearchRequest(
                 root=tmp_path.as_posix(),
-                package=None,
                 jobs=2,
                 max_duration_seconds=None,
             )
         )
-        assert repeated[0].source_snapshot == output[0].source_snapshot
-        assert repeated[0].cell_results != output[0].cell_results
+        assert repeated.source_snapshot == output.source_snapshot
+        assert repeated.cell_results != output.cell_results
 
         (tmp_path / "new-source.py").write_text("VALUE = 1\n", encoding="utf-8")
         refreshed = workflow.run(
             SearchRequest(
                 root=tmp_path.as_posix(),
-                package=None,
                 jobs=2,
                 max_duration_seconds=None,
             )
         )
-        assert refreshed[0].source_snapshot != output[0].source_snapshot
-        assert store.read(tmp_path / "package-floor.json") == refreshed[0]
+        assert refreshed.source_snapshot != output.source_snapshot
+        assert store.read(tmp_path / "package-floor.json") == refreshed
 
     def test_search_workflow_indexes_failure_logs_after_writing_the_report(
         self,
@@ -393,23 +405,21 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(process),
-            verification=VerificationRunner(
-                events=Events(), logs=logs
-            ),
+            verification=VerificationRunner(events=Events(), logs=logs),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
             associations=logs,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
         failure = report.failure_records[0]
 
         assert logs.lookup(report.report_generation_id, failure.failure_id) == Path(
             ".pf/logs/search-run/process-0001.log"
         )
 
-        replacement = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        replacement = workflow.run(SearchRequest(root=tmp_path.as_posix()))
         replacement_failure = replacement.failure_records[0]
 
         assert replacement_failure.failure_id != failure.failure_id
@@ -474,7 +484,7 @@ class TestSearchWorkflow:
             associations=logs,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
         failure = report.failure_records[0]
         expected = Path(".pf/logs/runtime-search/process-0001.log")
 
@@ -536,11 +546,9 @@ class TestSearchWorkflow:
             associations=logs,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))[0]
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
         failure = report.failure_records[0]
-        expected = Path(
-            ".pf/logs/unavailable-baseline/process-0001.log"
-        )
+        expected = Path(".pf/logs/unavailable-baseline/process-0001.log")
 
         assert failure.process is None
         assert failure.detail is not None
@@ -575,22 +583,20 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(),
-            verification=VerificationRunner(
-                events=Events(), logs=None
-            ),
+            verification=VerificationRunner(events=Events(), logs=None),
             reports=store,
             report_builder=PackageReportBuilder(),
             events=Events(),
         )
         request = SearchRequest(root=tmp_path.as_posix())
-        current = workflow.run(request)[0]
+        current = workflow.run(request)
         report_path = tmp_path / "package-floor.json"
         (tmp_path / "README.md").write_text(
             "new source generation\n",
             encoding="utf-8",
         )
 
-        refreshed = workflow.run(request)[0]
+        refreshed = workflow.run(request)
 
         assert refreshed.policy_identity == current.policy_identity
         assert refreshed.report_generation_id != current.report_generation_id
@@ -623,9 +629,7 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=coordinator,
-            verification=VerificationRunner(
-                events=events, logs=None
-            ),
+            verification=VerificationRunner(events=events, logs=None),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=events,
@@ -641,5 +645,5 @@ class TestSearchWorkflow:
             event for event in events.items if isinstance(event, CellMatrixEvent)
         )
         assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
-        assert reports[0].result.status == "incomplete"
-        assert "MISSING_CELL" in reports[0].result.reasons
+        assert reports.result.status == "incomplete"
+        assert "MISSING_CELL" in reports.result.reasons

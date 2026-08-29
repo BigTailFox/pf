@@ -23,6 +23,7 @@ from pf.schemas.evaluation import (
 if TYPE_CHECKING:
     from pf.workflow import FailureDiagnosis
 
+
 class FailureView(Protocol):
     @property
     def title(self) -> str: ...
@@ -123,9 +124,7 @@ def render(
         presenter.stdout.print(
             f"  proposal: {diagnosis.proposal_id or 'not available'}"
         )
-        presenter.stdout.print(
-            f"  boundary role: {diagnosis.boundary_role or 'none'}"
-        )
+        presenter.stdout.print(f"  boundary role: {diagnosis.boundary_role or 'none'}")
         if failure.detail is not None:
             presenter.stdout.print(f"  detail code: {failure.detail.code}")
             presenter.stdout.print(

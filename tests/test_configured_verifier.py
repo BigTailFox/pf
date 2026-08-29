@@ -118,8 +118,7 @@ def test_configured_verifier_terminal_authority_is_command_shape_independent(
                     "run_nonce": nonce,
                 }
                 payload = (
-                    json.dumps(document, sort_keys=True, separators=(",", ":"))
-                    + "\n"
+                    json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n"
                 )
                 Path(observer_directory, f"summary-{'a' * 32}.json").write_text(
                     payload,

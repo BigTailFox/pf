@@ -78,7 +78,9 @@ class TestPytestFailureWitnessEvents:
         phase: str,
     ) -> None:
         observer.pytest_runtest_logreport(
-            SimpleNamespace(failed=True, when=phase, nodeid="tests/test_bad.py::test_bad")
+            SimpleNamespace(
+                failed=True, when=phase, nodeid="tests/test_bad.py::test_bad"
+            )
         )
 
         assert observer._facts == {("TEST_FAILED", phase)}
@@ -288,7 +290,10 @@ class TestPytestFailureWitnessProgress:
     ) -> None:
         _enable_progress(monkeypatch, tmp_path)
         observer._execution_mode = "serial"
-        items = [SimpleNamespace(nodeid="test_one.py"), SimpleNamespace(nodeid="test_two.py")]
+        items = [
+            SimpleNamespace(nodeid="test_one.py"),
+            SimpleNamespace(nodeid="test_two.py"),
+        ]
 
         observer.pytest_collection_finish(_session(items=items))
 

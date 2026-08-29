@@ -64,7 +64,6 @@ from pf.schemas.project import (
     Proposal,
     SelectedCandidate,
     SourceIdentity,
-    SourcePlan,
     VersionPin,
     candidate_snapshot_digest,
 )
@@ -146,7 +145,9 @@ class ProposalFactory:
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
+        source_mode: object,
     ) -> PreparedEnvironment:
+        assert source_mode == "SEARCH"
         selected_vector = (
             tuple(
                 VersionPin(name=item.dependency, version=item.version)
@@ -397,7 +398,9 @@ class FullTimesOutBelowTwo(FullThreshold):
             diagnostics=VerifierDiagnostics(
                 process=process,
                 detail=PytestFailureDetail(
-                    first=PytestFailureCase(nodeid="test_demo.py::test_old", phase="call"),
+                    first=PytestFailureCase(
+                        nodeid="test_demo.py::test_old", phase="call"
+                    ),
                     total=1,
                 ),
             ),
@@ -451,6 +454,7 @@ class FrozenCandidates:
                 dependency="a",
                 cell=cell,
                 policy_identity="policy",
+                source_plan_identity="sources",
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
@@ -458,6 +462,7 @@ class FrozenCandidates:
                     dependency="a",
                     cell=cell,
                     policy_identity="policy",
+                    source_plan_identity="sources",
                     source=source,
                     candidates=candidates,
                     series_representatives=representatives,
@@ -481,7 +486,7 @@ def search_case(tmp_path: Path) -> tuple[SourceSnapshot, Cell, PackagePlan]:
         config=EffectiveConfig(test_command=("python", "-m", "unittest")),
         declarations=(),
         cells=(cell,),
-        source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+        source_routes=(),
         test_group_present=True,
     )
     return snapshot, cell, package
@@ -565,6 +570,7 @@ class TestSearchCoordinator:
                         dependency=original.dependency,
                         cell=original.cell,
                         policy_identity=original.policy_identity,
+                        source_plan_identity=original.source_plan_identity,
                         source=original.source,
                         candidates=candidates,
                         series_representatives=representatives,
@@ -572,6 +578,7 @@ class TestSearchCoordinator:
                             dependency=original.dependency,
                             cell=original.cell,
                             policy_identity=original.policy_identity,
+                            source_plan_identity=original.source_plan_identity,
                             source=original.source,
                             candidates=candidates,
                             series_representatives=representatives,
@@ -585,7 +592,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullPasses(static),
             coordinate_search=KnownBaselineCoordinateSearch(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         assert result.final_vector == (VersionPin(name="a", version="3"),)
@@ -607,7 +614,9 @@ class TestSearchCoordinator:
                     failure=ToolFailure(
                         cause="RESOLUTION_CONFLICT",
                         stage="resolve-project",
-                        process=successful_process().model_copy(update={"exit_code": 1}),
+                        process=successful_process().model_copy(
+                            update={"exit_code": 1}
+                        ),
                     ),
                 )
 
@@ -620,7 +629,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullPasses(static),
             coordinate_search=FullProbeCoordinateFailure(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSearchFailure)
         assert result.coordinate_failure is not None
@@ -647,7 +656,9 @@ class TestSearchCoordinator:
                 static=static,
                 full=FullPasses(static),
                 coordinate_search=FullProbeCoordinateFailure(),
-            ).search(package=package, cell=cell, snapshot=snapshot)
+            ).search(
+                package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH"
+            )
 
     def test_search_rejects_a_probe_prepare_without_attempt_identity(
         self,
@@ -659,7 +670,9 @@ class TestSearchCoordinator:
                     return ToolFailure(
                         cause="TOOL_FAILURE",
                         stage="resolve-project",
-                        process=successful_process().model_copy(update={"exit_code": 2}),
+                        process=successful_process().model_copy(
+                            update={"exit_code": 2}
+                        ),
                     )
                 return ProposalFactory().prepare(**kwargs)
 
@@ -673,7 +686,9 @@ class TestSearchCoordinator:
                 static=static,
                 full=FullPasses(static),
                 coordinate_search=FullProbeCoordinateFailure(),
-            ).search(package=package, cell=cell, snapshot=snapshot)
+            ).search(
+                package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH"
+            )
 
     def test_search_records_probe_vector_drift_as_indeterminate(
         self,
@@ -684,9 +699,7 @@ class TestSearchCoordinator:
                 prepared = super().prepare(**kwargs)
                 if isinstance(kwargs["resolution"], ExactSelection):
                     prepared.proposal = prepared.proposal.model_copy(
-                        update={
-                            "managed_vector": (VersionPin(name="a", version="1"),)
-                        }
+                        update={"managed_vector": (VersionPin(name="a", version="1"),)}
                     )
                 return prepared
 
@@ -699,7 +712,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullPasses(static),
             coordinate_search=FullProbeCoordinateFailure(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSearchFailure)
         assert result.failure_records[0].cause == "INTERNAL_INVARIANT"
@@ -717,7 +730,7 @@ class TestSearchCoordinator:
             candidates=EmptyCandidates(),
             static=static,
             full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSearchFailure)
         assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
@@ -740,7 +753,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullPasses(static),
             coordinate_search=FailedCoordinateSearch(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSearchFailure)
         assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
@@ -768,7 +781,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullThreshold(static),
             coordinate_search=UnverifiedCoordinateSearch(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSearchFailure)
         assert result.reason == "NONDETERMINISTIC"
@@ -819,7 +832,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -833,7 +846,9 @@ class TestSearchCoordinator:
             events=activity,
         )
 
-        result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
+        result = coordinator.search(
+            package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH"
+        )
 
         assert isinstance(result, CellSuccess)
         assert result.status == "SUCCESS"
@@ -902,7 +917,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         environments = CountingProposalFactory()
@@ -913,7 +928,7 @@ class TestSearchCoordinator:
             candidates=FrozenCandidates(),
             static=static,
             full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         final_prepares = [
@@ -946,7 +961,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
 
@@ -968,7 +983,7 @@ class TestSearchCoordinator:
             candidates=FrozenCandidates(),
             static=static,
             full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         assert environments.selections
@@ -997,7 +1012,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         resolutions: list[str] = []
@@ -1014,7 +1029,7 @@ class TestSearchCoordinator:
             candidates=FrozenCandidates(),
             static=static,
             full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         assert "lowest-direct" not in resolutions
@@ -1043,7 +1058,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1051,15 +1066,20 @@ class TestSearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         capture = static.capture(prepared, package=package)
-        baseline_evaluation = FullPasses(static).evaluate(
-            prepared,
-            package=package,
-            baseline=capture.baseline,
-            static_result=capture.static,
-        ).evaluation
+        baseline_evaluation = (
+            FullPasses(static)
+            .evaluate(
+                prepared,
+                package=package,
+                baseline=capture.baseline,
+                static_result=capture.static,
+            )
+            .evaluation
+        )
         assert isinstance(baseline_evaluation, PassEvaluation)
         baseline_attempt = prepared.attempt
         assert baseline_attempt is not None
@@ -1084,7 +1104,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullPasses(static),
             highest=Highest(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
 
@@ -1106,7 +1126,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
 
@@ -1162,7 +1182,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullPasses(static),
             diagnostics=diagnostics,
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         passed = next(
@@ -1195,7 +1215,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1209,7 +1229,9 @@ class TestSearchCoordinator:
             diagnostics=diagnostics,
         )
 
-        result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
+        result = coordinator.search(
+            package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH"
+        )
 
         assert isinstance(result, CellSuccess)
         assert result.status == "SUCCESS"
@@ -1266,7 +1288,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1276,7 +1298,7 @@ class TestSearchCoordinator:
             candidates=FrozenCandidates(),
             static=static,
             full=FullThresholdWithoutDiagnostics(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         assert result.final_vector == (VersionPin(name="a", version="2"),)
@@ -1301,7 +1323,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1310,7 +1332,7 @@ class TestSearchCoordinator:
             candidates=FrozenCandidates(),
             static=static,
             full=FullTimesOutBelowTwo(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellIndeterminate)
         assert len(result.failure_runtime_runs) == 1
@@ -1350,7 +1372,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1363,7 +1385,9 @@ class TestSearchCoordinator:
             events=activity,
         )
 
-        result = coordinator.search(package=package, cell=cell, snapshot=snapshot)
+        result = coordinator.search(
+            package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH"
+        )
 
         assert isinstance(result, CellIndeterminate)
         assert result.status == "CELL_INDETERMINATE"
@@ -1401,7 +1425,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1411,7 +1435,7 @@ class TestSearchCoordinator:
             candidates=UnavailableCandidates(),
             static=static,
             full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellIndeterminate)
         detail = result.failure_records[0].detail
@@ -1438,7 +1462,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         failure = ToolFailure(
@@ -1480,7 +1504,7 @@ class TestSearchCoordinator:
             candidates=FrozenCandidates(),
             static=NeverEvaluate(),
             full=NeverEvaluate(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, BaselineRejection)
         assert result.status == "BASELINE_REJECTION"
@@ -1505,7 +1529,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1513,15 +1537,20 @@ class TestSearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         capture = static.capture(prepared, package=package)
-        baseline = FullPasses(static).evaluate(
-            prepared,
-            package=package,
-            baseline=capture.baseline,
-            static_result=capture.static,
-        ).evaluation
+        baseline = (
+            FullPasses(static)
+            .evaluate(
+                prepared,
+                package=package,
+                baseline=capture.baseline,
+                static_result=capture.static,
+            )
+            .evaluation
+        )
         assert isinstance(baseline, PassEvaluation)
         baseline_attempt = prepared.attempt
         assert baseline_attempt is not None
@@ -1574,7 +1603,7 @@ class TestSearchCoordinator:
             full=FullPasses(static),
             highest=Highest(),
             diagnostics=recorder,
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert isinstance(result, CellSuccess)
         assert result.final_vector == (VersionPin(name="a", version="2"),)
@@ -1604,7 +1633,7 @@ class TestSearchCoordinator:
             config=EffectiveConfig(test_command=("python", "-m", "unittest")),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=(SourceIdentity(kind="registry"),)),
+            source_routes=(),
             test_group_present=True,
         )
         static = StaticPasses()
@@ -1612,15 +1641,20 @@ class TestSearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
+            source_mode="SEARCH",
             resolution=HighestResolution(),
         )
         capture = static.capture(highest_prepared, package=package)
-        baseline = FullPasses(static).evaluate(
-            highest_prepared,
-            package=package,
-            baseline=capture.baseline,
-            static_result=capture.static,
-        ).evaluation
+        baseline = (
+            FullPasses(static)
+            .evaluate(
+                highest_prepared,
+                package=package,
+                baseline=capture.baseline,
+                static_result=capture.static,
+            )
+            .evaluation
+        )
         assert isinstance(baseline, PassEvaluation)
         baseline_attempt = highest_prepared.attempt
         assert baseline_attempt is not None
@@ -1680,7 +1714,7 @@ class TestSearchCoordinator:
             static=static,
             full=FullThreshold(static),
             highest=Highest(),
-        ).search(package=package, cell=cell, snapshot=snapshot)
+        ).search(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert environments.version_one_calls == 1
         assert isinstance(result, CellSuccess)

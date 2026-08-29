@@ -20,7 +20,6 @@ from pf.schemas.project import (
     Cell,
     PackagePlan,
     SnapshotEntry,
-    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
@@ -34,7 +33,7 @@ def package_for(cells: tuple[Cell, ...]) -> PackagePlan:
         config=EffectiveConfig(test_timeout=1),
         declarations=(),
         cells=cells,
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
 
 

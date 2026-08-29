@@ -36,8 +36,8 @@ _PACKAGE_FIELDS = frozenset(
         "test-timeout",
     }
 )
-_ROOT_FIELDS = _PACKAGE_FIELDS | {"packages", "exclude-packages", "package"}
-_OVERRIDE_FIELDS = _PACKAGE_FIELDS | {"path"}
+_ROOT_FIELDS = _PACKAGE_FIELDS | {"package"}
+_OVERRIDE_FIELDS = _PACKAGE_FIELDS
 
 
 def parse_jobs(value: str) -> Literal["auto"] | int:
@@ -69,10 +69,21 @@ class ConfigLoader:
         package_name = canonicalize_name(package_document["project"]["name"])
 
         root_config = root_document.get("tool", {}).get("pf", {})
+        for field in ("packages", "exclude-packages"):
+            if field in root_config:
+                raise ConfigurationError(
+                    f"[tool.pf].{field} is no longer supported; "
+                    "select one target with --package PACKAGE"
+                )
         self._validate_layer(root_config, location="[tool.pf]", allowed=_ROOT_FIELDS)
         package_overrides = root_config.get("package", {})
         matching_override: dict[str, Any] = {}
         for name, patch in package_overrides.items():
+            if isinstance(patch, dict) and "path" in patch:
+                raise ConfigurationError(
+                    f"[tool.pf.package.{name}].path is no longer supported; "
+                    "workspace discovery owns package paths and --package selects the target"
+                )
             self._validate_layer(
                 patch,
                 location=f"[tool.pf.package.{name}]",

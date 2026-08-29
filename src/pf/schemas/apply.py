@@ -64,10 +64,10 @@ class AuthorizedWorkspaceApply(FrozenSchema):
     waivers_used: tuple[Literal["SOURCE_SNAPSHOT_DRIFT"], ...] = ()
     expected_snapshot: SourceSnapshotIdentity
     owned_pyproject_paths: tuple[str, ...]
-    package_applies: tuple[AuthorizedPackageApply, ...]
+    package_apply: AuthorizedPackageApply
     presentation_facts: ApplyPresentationFacts
 
 
 class ApplyCommandResult(FrozenSchema):
-    edits: tuple[ProjectEditResult, ...]
+    edit: ProjectEditResult
     presentation_facts: ApplyPresentationFacts

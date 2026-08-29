@@ -532,7 +532,9 @@ class TestPytestObserverXdistIntegration:
         assert isinstance(result.authoritative, VerifierPass)
         assert observed == []
 
-    def test_pytest_observer_does_not_override_xdist_test_failure(self, tmp_path: Path) -> None:
+    def test_pytest_observer_does_not_override_xdist_test_failure(
+        self, tmp_path: Path
+    ) -> None:
         _write_test(tmp_path, "def test_bad():\n    assert False\n")
 
         result = _run_pytest(tmp_path, "-n1", autoload=True)
@@ -540,7 +542,9 @@ class TestPytestObserverXdistIntegration:
         assert isinstance(result.authoritative, VerifierRejected)
         assert result.authoritative.terminal.exit_code == 1
 
-    def test_pytest_observer_does_not_override_xdist_internal_error(self, tmp_path: Path) -> None:
+    def test_pytest_observer_does_not_override_xdist_internal_error(
+        self, tmp_path: Path
+    ) -> None:
         (tmp_path / "conftest.py").write_text(
             "def pytest_runtest_logreport(report):\n"
             "    if report.failed and report.when == 'call':\n"
@@ -554,7 +558,9 @@ class TestPytestObserverXdistIntegration:
         assert isinstance(result.authoritative, VerifierRejected)
         assert result.authoritative.terminal.exit_code == 3
 
-    def test_pytest_observer_does_not_override_xdist_worker_crash(self, tmp_path: Path) -> None:
+    def test_pytest_observer_does_not_override_xdist_worker_crash(
+        self, tmp_path: Path
+    ) -> None:
         _write_test(tmp_path, "import os\ndef test_crash():\n    os._exit(7)\n")
 
         result = _run_pytest(

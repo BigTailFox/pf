@@ -40,7 +40,9 @@ class TestSecureLogDirectory:
 
 
 class TestPosixDirectoryAdapter:
-    def test_secure_directory_initialization_is_idempotent(self, tmp_path: Path) -> None:
+    def test_secure_directory_initialization_is_idempotent(
+        self, tmp_path: Path
+    ) -> None:
         adapter = PosixDirectoryAdapter(root=tmp_path, run_id="run")
 
         adapter.ensure_run("first\n")
@@ -48,7 +50,9 @@ class TestPosixDirectoryAdapter:
 
         assert adapter.read_run_text("run", "run.log", None) == "first\n"
 
-    def test_read_run_text_reports_a_missing_log_directory(self, tmp_path: Path) -> None:
+    def test_read_run_text_reports_a_missing_log_directory(
+        self, tmp_path: Path
+    ) -> None:
         adapter = PosixDirectoryAdapter(root=tmp_path, run_id="run")
 
         with pytest.raises(FileNotFoundError):
@@ -63,7 +67,9 @@ class TestPosixDirectoryAdapter:
         with pytest.raises(FileNotFoundError):
             adapter.read_run_stream("run", "missing", lambda stream: stream.read())
 
-    def test_read_logs_text_reports_a_missing_log_directory(self, tmp_path: Path) -> None:
+    def test_read_logs_text_reports_a_missing_log_directory(
+        self, tmp_path: Path
+    ) -> None:
         adapter = PosixDirectoryAdapter(root=tmp_path, run_id="run")
 
         with pytest.raises(FileNotFoundError):
@@ -147,11 +153,14 @@ class TestPosixDirectoryAdapter:
         assert stat.S_IMODE(run_root.stat().st_mode) == 0o700
         assert stat.S_IMODE((run_root / "journal.json").stat().st_mode) == 0o600
         assert adapter.read_run_text("run", "journal.json", 100) == "journal\n"
-        assert adapter.read_run_stream(
-            "run",
-            "process-0001.log",
-            lambda stream: stream.read(),
-        ) == "log"
+        assert (
+            adapter.read_run_stream(
+                "run",
+                "process-0001.log",
+                lambda stream: stream.read(),
+            )
+            == "log"
+        )
         assert adapter.read_logs_text("diagnosis-index.json", 100) == "index\n"
         assert adapter.resolve_regular_log(Path("run/process-0001.log")) == Path(
             ".pf/logs/run/process-0001.log"
@@ -258,11 +267,14 @@ class TestWindowsDirectoryAdapter:
         adapter.write_logs_text("diagnosis-index.json", "index\n")
 
         assert adapter.read_run_text("run", "process-0001.log", None) == "log"
-        assert adapter.read_run_stream(
-            "run",
-            "process-0001.log",
-            lambda stream: stream.read(),
-        ) == "log"
+        assert (
+            adapter.read_run_stream(
+                "run",
+                "process-0001.log",
+                lambda stream: stream.read(),
+            )
+            == "log"
+        )
         assert adapter.read_logs_text("diagnosis-index.json", 100) == "index\n"
         assert adapter.resolve_regular_log(Path("run/process-0001.log")) == Path(
             ".pf/logs/run/process-0001.log"

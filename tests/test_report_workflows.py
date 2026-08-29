@@ -17,7 +17,11 @@ from pf.schemas.config import (
     MergeRequest,
     ReportRequest,
 )
-from pf.schemas.apply import ApplyPresentationFacts, AuthorizedWorkspaceApply
+from pf.schemas.apply import (
+    ApplyPresentationFacts,
+    AuthorizedPackageApply,
+    AuthorizedWorkspaceApply,
+)
 from pf.schemas.evaluation import (
     CellFailureScope,
     ProcessResult,
@@ -29,11 +33,11 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     PackagePlan,
     ProjectPlan,
-    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
 from pf.schemas.report import (
+    PackageIdentity,
     ProjectEditResult,
 )
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
@@ -55,7 +59,7 @@ def report(
         config=config or EffectiveConfig(test_timeout=1),
         declarations=(),
         cells=(),
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
     snapshot = SourceSnapshotIdentity(
         digest=source_snapshot_digest((), ()),
@@ -86,13 +90,13 @@ class TestReportWorkflows:
         explained = ExplainCommandWorkflow(
             discovery=ProjectDiscovery(),
             reports=store,
-        ).run(ReportRequest(root=tmp_path.as_posix(), package=None))
+        ).run(ReportRequest(root=tmp_path.as_posix()))
         output = tmp_path / "merged.json"
         merged = MergeCommandWorkflow(reports=store).run(
             MergeRequest(reports=(source.as_posix(),), output=output.as_posix())
         )
 
-        assert explained == (report(),)
+        assert explained == report()
         assert source.read_bytes() == before
         assert store.read(output) == merged
 
@@ -109,11 +113,11 @@ class TestReportWorkflows:
         explained = ExplainCommandWorkflow(
             discovery=ProjectDiscovery(),
             reports=store,
-        ).run(ReportRequest(root=tmp_path.as_posix(), package=None))
+        ).run(ReportRequest(root=tmp_path.as_posix()))
 
-        assert explained == (report(),)
+        assert explained == report()
 
-    def test_apply_workflow_validates_reports_then_edits_all_packages(
+    def test_apply_workflow_validates_report_then_edits_the_target(
         self,
         tmp_path: Path,
     ) -> None:
@@ -126,47 +130,56 @@ class TestReportWorkflows:
             ProjectLoader()
             .load(
                 root=tmp_path,
-                package_selection=None,
             )
-            .packages[0]
+            .target
         )
         current_report = report(config=package.config)
         store.write(tmp_path / "package-floor.json", current_report)
 
         class Editor:
-            def apply_many(
+            def apply(
                 self,
                 *,
                 authorization: AuthorizedWorkspaceApply,
                 root: Path,
-            ) -> tuple[ProjectEditResult, ...]:
+            ) -> ProjectEditResult:
                 assert authorization.mode == "DEFAULT"
                 assert root == tmp_path
-                return (
-                    ProjectEditResult(
-                        changed=False,
-                        pyproject_path="pyproject.toml",
-                        recovery_log_path=".pf/apply-recovery.json",
-                    ),
+                return ProjectEditResult(
+                    changed=False,
+                    pyproject_path="pyproject.toml",
+                    recovery_log_path=".pf/apply-recovery.json",
                 )
 
         class Authorizer:
             def authorize(
                 self,
                 *,
-                reports: tuple[ValidatedReport, ...],
+                report: ValidatedReport,
                 project: ProjectPlan,
                 current_snapshot: SourceSnapshot,
                 force: bool,
             ) -> AuthorizedWorkspaceApply:
-                assert reports == (current_report,)
-                assert project.packages == (package,)
+                assert report == current_report
+                assert project.target == package
                 assert force is False
                 return AuthorizedWorkspaceApply(
                     mode="DEFAULT",
                     expected_snapshot=current_snapshot.identity,
                     owned_pyproject_paths=("pyproject.toml",),
-                    package_applies=(),
+                    package_apply=AuthorizedPackageApply(
+                        package=PackageIdentity(
+                            name=package.name,
+                            pyproject_path=package.pyproject_path,
+                        ),
+                        scope="DECLARED_MATRIX",
+                        declared_platforms=(),
+                        selected_selectors=(),
+                        preserved_selectors=(),
+                        dependency_state="NOOP",
+                        observed_cells=0,
+                        authorized_edits=(),
+                    ),
                     presentation_facts=ApplyPresentationFacts(
                         observed_cells=0,
                         selected_selectors=(),
@@ -191,7 +204,7 @@ class TestReportWorkflows:
             events=events,
         ).run(ApplyRequest(root=tmp_path.as_posix()))
 
-        assert result.edits[0].changed is False
+        assert result.edit.changed is False
         status = [event for event in events.items if isinstance(event, StatusEvent)]
         assert [event.message for event in status] == ["applying floors"]
         assert status[0].total == 1
@@ -208,12 +221,12 @@ class TestReportWorkflows:
         store.write(tmp_path / "package-floor.json", report())
 
         class NeverEditor:
-            def apply_many(
+            def apply(
                 self,
                 *,
                 authorization: AuthorizedWorkspaceApply,
                 root: Path,
-            ) -> tuple[ProjectEditResult, ...]:
+            ) -> ProjectEditResult:
                 raise AssertionError("policy drift must fail before editing")
 
         with pytest.raises(
@@ -239,12 +252,12 @@ class TestReportWorkflows:
         store.write(tmp_path / "package-floor.json", mismatched)
 
         class NeverEditor:
-            def apply_many(
+            def apply(
                 self,
                 *,
                 authorization: AuthorizedWorkspaceApply,
                 root: Path,
-            ) -> tuple[ProjectEditResult, ...]:
+            ) -> ProjectEditResult:
                 raise AssertionError("identity mismatch must fail before editing")
 
         with pytest.raises(
@@ -279,8 +292,8 @@ class TestReportWorkflows:
             + "\n",
             encoding="utf-8",
         )
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        cell = project.packages[0].cells[0]
+        project = ProjectLoader().load(root=tmp_path)
+        cell = project.target.cells[0]
         failure = FailurePolicy().classify(
             scope=CellFailureScope(
                 package="demo",

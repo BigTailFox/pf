@@ -74,8 +74,7 @@ class TestResolutionIdentity:
     def test_resolution_plan_rejects_an_empty_request_identity(self) -> None:
         plan = _plan()
         values: dict[str, Any] = {
-            field: getattr(plan, field)
-            for field in ResolutionPlan.model_fields
+            field: getattr(plan, field) for field in ResolutionPlan.model_fields
         }
         values["request_digest"] = ""
 
@@ -85,8 +84,7 @@ class TestResolutionIdentity:
     def test_resolution_plan_rejects_duplicate_packages(self) -> None:
         plan = _plan()
         values: dict[str, Any] = {
-            field: getattr(plan, field)
-            for field in ResolutionPlan.model_fields
+            field: getattr(plan, field) for field in ResolutionPlan.model_fields
         }
         values["packages"] = (*values["packages"], *values["packages"])
 

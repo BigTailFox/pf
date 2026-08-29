@@ -15,7 +15,7 @@ from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
 from pf.resolution import environment_identity_digest
 from pf.runlog import RunLogStore
-from pf.schemas.config import DiagnoseRequest
+from pf.schemas.config import DiagnoseRequest, WorkspacePackage
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
@@ -45,9 +45,13 @@ from pf.schemas.project import (
     Cell,
     InterpreterIdentity,
     Proposal,
+    SelectedCandidate,
     SourceIdentity,
     VersionPin,
     candidate_snapshot_digest,
+    package_source_plan,
+    selected_candidate_evidence_digest,
+    source_plan_identity,
 )
 from pf.schemas.report import (
     CellIndeterminate,
@@ -86,9 +90,10 @@ def candidate_snapshot(
     cell: Cell,
     vector: tuple[VersionPin, ...],
     policy_identity: str,
+    plan_identity: str,
+    source: SourceIdentity,
 ) -> tuple[CandidateSnapshot, ...]:
     pin = vector[0]
-    source = SourceIdentity(kind="registry")
     candidates = tuple(
         Candidate(
             version=item.version,
@@ -108,6 +113,7 @@ def candidate_snapshot(
             dependency=pin.name,
             cell=cell,
             policy_identity=policy_identity,
+            source_plan_identity=plan_identity,
             source=source,
             candidates=candidates,
             series_representatives=representatives,
@@ -115,6 +121,7 @@ def candidate_snapshot(
                 dependency=pin.name,
                 cell=cell,
                 policy_identity=policy_identity,
+                source_plan_identity=plan_identity,
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
@@ -142,8 +149,8 @@ test-command = ["python", "-c", "pass"]
         + "\n",
         encoding="utf-8",
     )
-    project = ProjectLoader().load(root=root, package_selection=None)
-    package = project.packages[0]
+    project = ProjectLoader().load(root=root)
+    package = project.target
     snapshot = SnapshotBuilder.without_processes().build(root)
     try:
         cell = package.cells[0]
@@ -210,6 +217,7 @@ def _attempt(
     policy_identity: str,
     requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
     | None = None,
+    source_plan_identity_value: str = "sources",
 ) -> Attempt:
     resolution = requested_resolution or (
         "highest" if vector is None else "exact-vector"
@@ -222,7 +230,7 @@ def _attempt(
             requested_resolution=resolution,
             requested_managed_vector=vector,
             active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
+            source_plan_identity=source_plan_identity_value,
             evaluation_policy_identity=policy_identity,
             resolution_context_digest="context",
             harness_policy_identity=(
@@ -234,7 +242,24 @@ def _attempt(
                 None if resolution == "highest" else "harness-baseline"
             ),
             selected_candidate_evidence_digest=(
-                "selected-candidate"
+                selected_candidate_evidence_digest(
+                    tuple(
+                        SelectedCandidate(
+                            dependency=pin.name,
+                            version=pin.version,
+                            artifact=AvailableArtifact(
+                                filename=f"{pin.name}-{pin.version}.whl",
+                                kind="wheel",
+                                content_hash=f"sha256:{'a' * 64}",
+                                locator=(
+                                    f"https://files.example/"
+                                    f"{pin.name}-{pin.version}.whl"
+                                ),
+                            ),
+                        )
+                        for pin in (vector or ())
+                    )
+                )
                 if resolution == "exact-vector"
                 else None
             ),
@@ -313,18 +338,25 @@ def _write_success_with_predecessor_report(
     root: Path,
 ) -> tuple[str, str, str]:
     _write_managed_project(root)
-    project = ProjectLoader().load(root=root, package_selection=None)
-    package = project.packages[0]
+    project = ProjectLoader().load(root=root)
+    package = project.target
     snapshot = SnapshotBuilder.without_processes().build(root)
     try:
         cell = package.cells[0]
         policy_identity = evaluation_policy_identity(package.config)
+        plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
+        source = next(
+            route.search_source
+            for route in package.source_routes
+            if route.dependency == "idna"
+        )
         baseline_vector = (VersionPin(name="idna", version="3.11"),)
         baseline_attempt = _attempt(
             cell=cell,
             snapshot_digest=snapshot.identity.digest,
             vector=None,
             policy_identity=policy_identity,
+            source_plan_identity_value=plan_identity,
         )
         check = TyCheck(process=_process(), diagnostics=())
         digest = ty_diagnostic_digest(check.diagnostics)
@@ -348,6 +380,7 @@ def _write_success_with_predecessor_report(
             snapshot_digest=snapshot.identity.digest,
             vector=rejected_vector,
             policy_identity=policy_identity,
+            source_plan_identity_value=plan_identity,
         )
         rejected_pass = _pass_evaluation(
             attempt=rejected_attempt,
@@ -370,6 +403,7 @@ def _write_success_with_predecessor_report(
             snapshot_digest=snapshot.identity.digest,
             vector=final_vector,
             policy_identity=policy_identity,
+            source_plan_identity_value=plan_identity,
         )
         final_evaluation = _pass_evaluation(
             attempt=final_attempt,
@@ -428,6 +462,8 @@ def _write_success_with_predecessor_report(
                         cell,
                         (rejected_vector[0], final_vector[0]),
                         policy_identity,
+                        plan_identity,
+                        source,
                     ),
                     search=search,
                     final_vector=final_vector,
@@ -468,8 +504,8 @@ class TestDiagnoseWorkflow:
         tmp_path: Path,
     ) -> None:
         _write_managed_project(tmp_path)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        cell = project.packages[0].cells[0]
+        project = ProjectLoader().load(root=tmp_path)
+        cell = project.target.cells[0]
         attempt = _attempt(
             cell=cell,
             snapshot_digest="snapshot",
@@ -490,9 +526,7 @@ class TestDiagnoseWorkflow:
             process,
             stdout="stdout should not be selected\n",
             stderr=(
-                "first\n\nsecond\n"
-                "\x1b[31mthird\x1b[0m\n"
-                "fourth [bold]literal[/bold]\n"
+                "first\n\nsecond\n\x1b[31mthird\x1b[0m\nfourth [bold]literal[/bold]\n"
             ),
         )
         logs.write_journal(
@@ -522,7 +556,12 @@ class TestDiagnoseWorkflow:
             discovery=ProjectDiscovery(),
             reports=ReportStore(),
             logs=logs,
-        ).run(DiagnoseRequest(root=tmp_path.as_posix(), package="demo"))
+        ).run(
+            DiagnoseRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+            )
+        )
         stdout = StringIO()
 
         TerminalPresenter(
@@ -533,10 +572,7 @@ class TestDiagnoseWorkflow:
 
         rendered = stdout.getvalue()
         assert (
-            "  output:\n"
-            "    second\n"
-            "    third\n"
-            "    fourth [bold]literal[/bold]\n"
+            "  output:\n    second\n    third\n    fourth [bold]literal[/bold]\n"
         ) in rendered
         assert "\x1b" not in rendered
         assert "first" not in rendered
@@ -638,8 +674,8 @@ class TestDiagnoseWorkflow:
         self,
         tmp_path: Path,
     ) -> None:
-        generation, failure_id, proposal_id = (
-            _write_success_with_predecessor_report(tmp_path)
+        generation, failure_id, proposal_id = _write_success_with_predecessor_report(
+            tmp_path
         )
         logs = RecordingLogLocator(Path(".pf/logs/run/process-0001.log"))
         diagnoses = DiagnoseCommandWorkflow(
@@ -774,13 +810,13 @@ class TestDiagnoseWorkflow:
         ).run(DiagnoseRequest(root=tmp_path.as_posix()))[0]
         second_failure = _verifier_failure(
             _attempt(
-                    cell=first.failure.scope.cell
-                    if isinstance(first.failure.scope, CellFailureScope)
-                    else first.failure.scope.attempt.identity.cell,
-                    snapshot_digest="snapshot",
-                    vector=None,
-                    policy_identity="policy",
-                )
+                cell=first.failure.scope.cell
+                if isinstance(first.failure.scope, CellFailureScope)
+                else first.failure.scope.attempt.identity.cell,
+                snapshot_digest="snapshot",
+                vector=None,
+                policy_identity="policy",
+            )
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -805,8 +841,8 @@ class TestDiagnoseWorkflow:
         self, tmp_path: Path
     ) -> None:
         _write_managed_project(tmp_path)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        cell = project.packages[0].cells[0]
+        project = ProjectLoader().load(root=tmp_path)
+        cell = project.target.cells[0]
         attempt = _attempt(
             cell=cell,
             snapshot_digest="snapshot",
@@ -846,7 +882,7 @@ class TestDiagnoseWorkflow:
         ).run(
             DiagnoseRequest(
                 root=tmp_path.as_posix(),
-                package="demo",
+                selector=WorkspacePackage(canonical_name="demo"),
                 failure_id=failure.failure_id,
             )
         )
@@ -871,8 +907,8 @@ class TestDiagnoseWorkflow:
         tmp_path: Path,
     ) -> None:
         _write_managed_project(tmp_path)
-        project = ProjectLoader().load(root=tmp_path, package_selection=None)
-        cell = project.packages[0].cells[0]
+        project = ProjectLoader().load(root=tmp_path)
+        cell = project.target.cells[0]
         attempt = _attempt(
             cell=cell,
             snapshot_digest="snapshot",
@@ -914,7 +950,12 @@ class TestDiagnoseWorkflow:
             discovery=ProjectDiscovery(),
             reports=ReportStore(),
             logs=logs,
-        ).run(DiagnoseRequest(root=tmp_path.as_posix(), package="demo"))
+        ).run(
+            DiagnoseRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+            )
+        )
 
         assert diagnoses[0].verification_role == "declaration-capture"
         stdout = StringIO()

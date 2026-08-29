@@ -75,8 +75,6 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     RequirementDeclaration,
-    SourceIdentity,
-    SourcePlan,
     SourceSnapshotIdentity,
     VersionPin,
     source_snapshot_digest,
@@ -259,7 +257,7 @@ def incomplete_report(
         config=EffectiveConfig(),
         declarations=(),
         cells=(),
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
     snapshot = SourceSnapshotIdentity(
         digest=source_snapshot_digest((), ()),
@@ -298,7 +296,6 @@ def requirement_declaration(
         package="demo",
         location="base",
         name=name,
-        source=SourceIdentity(kind="registry"),
         pyproject_path="pyproject.toml",
         raw=raw,
         kind="searchable",
@@ -366,7 +363,6 @@ def cell_indeterminate(
     )
 
 
-
 def tty_presenter() -> TerminalPresenter:
     return TerminalPresenter(
         stdout=Console(file=StringIO(), force_terminal=True),
@@ -402,13 +398,11 @@ class TestErrorRendering:
             )
         )
 
-        assert exit_code == 1
+        assert exit_code == 3
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
-            "Error: unknown package selection: other\n"
+            "✗  configuration: unknown package selection: other\n"
             "Known packages: alpha, beta, demo\n"
-            "Usage: pf COMMAND\n"
-            "Try 'pf --help' for more information.\n"
         )
 
     def test_render_error_truncates_known_package_candidates_after_ten(self) -> None:
@@ -420,11 +414,9 @@ class TestErrorRendering:
         )
 
         assert stderr.getvalue() == (
-            "Error: unknown package selection: other\n"
+            "✗  configuration: unknown package selection: other\n"
             "Known packages: pkg00, pkg01, pkg02, pkg03, pkg04, pkg05, pkg06, "
             "pkg07, pkg08, pkg09, ... and 2 more\n"
-            "Usage: pf COMMAND\n"
-            "Try 'pf --help' for more information.\n"
         )
 
     def test_infrastructure_error_prints_the_captured_detail(self) -> None:
@@ -510,9 +502,7 @@ class TestErrorRendering:
 
         raw = terminal.getvalue()
         plain = visible(raw)
-        assert plain.index("loaded project") < plain.index(
-            "run-id: run-before-matrix"
-        )
+        assert plain.index("loaded project") < plain.index("run-id: run-before-matrix")
         loaded_at = raw.rindex("loaded project")
         border_at = raw.rfind("╭", 0, loaded_at)
         border_style_at = raw.rfind("\x1b[", 0, border_at)
@@ -553,9 +543,7 @@ class TestProgressRendering:
         terminal.close()
 
         rendered_border = next(
-            line
-            for line in visible(stderr.getvalue()).splitlines()
-            if "╭" in line
+            line for line in visible(stderr.getvalue()).splitlines() if "╭" in line
         )
         border = rendered_border[rendered_border.index("╭") :]
         assert len(border) == expected_width
@@ -630,9 +618,7 @@ class TestProgressRendering:
         assert "1" not in cell_elapsed_codes
         footer_elapsed_at = raw.rindex("0:00:00")
         footer_elapsed_style_at = raw.rfind("\x1b[", 0, footer_elapsed_at)
-        footer_elapsed_codes = sgr_codes(
-            raw[footer_elapsed_style_at:footer_elapsed_at]
-        )
+        footer_elapsed_codes = sgr_codes(raw[footer_elapsed_style_at:footer_elapsed_at])
         assert {"2", "36"} <= footer_elapsed_codes
         assert "35" not in footer_elapsed_codes
         assert "1" not in footer_elapsed_codes
@@ -671,18 +657,10 @@ class TestProgressRendering:
 
         terminal.consume(StatusEvent(message="smoke testing"))
         terminal.consume(CellMatrixEvent(cells=(first, second, third)))
-        terminal.consume(
-            CellContextEvent(cell=first, detail=BaselineDetailIdentity())
-        )
-        terminal.consume(
-            CellContextEvent(cell=second, detail=BaselineDetailIdentity())
-        )
-        terminal.consume(
-            completed_event(first, status="SUCCESS", completed=1, total=3)
-        )
-        terminal.consume(
-            CellContextEvent(cell=third, detail=BaselineDetailIdentity())
-        )
+        terminal.consume(CellContextEvent(cell=first, detail=BaselineDetailIdentity()))
+        terminal.consume(CellContextEvent(cell=second, detail=BaselineDetailIdentity()))
+        terminal.consume(completed_event(first, status="SUCCESS", completed=1, total=3))
+        terminal.consume(CellContextEvent(cell=third, detail=BaselineDetailIdentity()))
         footer = next(
             line
             for line in reversed(visible(stderr.getvalue()).splitlines())
@@ -722,9 +700,7 @@ class TestProgressRendering:
         )
         rendered = visible(stderr.getvalue())
         footer = next(
-            line
-            for line in reversed(rendered.splitlines())
-            if "smoke testing" in line
+            line for line in reversed(rendered.splitlines()) if "smoke testing" in line
         )
         terminal.close()
 
@@ -775,9 +751,7 @@ class TestProgressRendering:
         border = next(line for line in plain.splitlines() if line.startswith("╭"))
         assert len(border) == width
         compact = "".join(
-            char
-            for char in plain
-            if not char.isspace() and char not in "│╭╮╰╯─"
+            char for char in plain if not char.isspace() and char not in "│╭╮╰╯─"
         )
         assert "tests/test_search_workflow.py::test_candidate_failure" in compact
         assert "... and 1 more" in collapsed
@@ -815,9 +789,7 @@ class TestProgressRendering:
         )
 
         lines = visible(stderr.getvalue()).splitlines()
-        title_at = next(
-            index for index, line in enumerate(lines) if "[py3.10]" in line
-        )
+        title_at = next(index for index, line in enumerate(lines) if "[py3.10]" in line)
         completion_at = next(
             index for index, line in enumerate(lines) if "search stopped at" in line
         )
@@ -829,11 +801,7 @@ class TestProgressRendering:
 
         assert len(evidence_lines) > 1
         assert all(
-            next(
-                index
-                for index, character in enumerate(line)
-                if character not in " │"
-            )
+            next(index for index, character in enumerate(line) if character not in " │")
             == title_indent
             for line in evidence_lines
         )
@@ -926,9 +894,7 @@ class TestProgressRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        terminal.consume(
-            CellStageEvent(cell=cell, stage="static check")
-        )
+        terminal.consume(CellStageEvent(cell=cell, stage="static check"))
         terminal.consume(
             completed_event(
                 cell,
@@ -975,7 +941,7 @@ class TestProgressRendering:
         assert "failed at [testing]" in output
         assert "The configured verifier rejected this version combination." in output
         assert "The declared lower bounds did not pass" not in output
-        assert f"pf diagnose demo --failure {failure.failure_id}" in output
+        assert f"pf diagnose --package demo --failure {failure.failure_id}" in output
         assert "STATIC_REGRESSION" not in output
         assert "REJECTED" not in output
 
@@ -1021,9 +987,11 @@ class TestProgressRendering:
         assert stdout.getvalue() == ""
         assert "failed at [witness]" in output
         assert "A required runtime interface is missing" in output
-        assert "demo.py:9:2 [unresolved-import] Module `legacy` is unavailable" in output
+        assert (
+            "demo.py:9:2 [unresolved-import] Module `legacy` is unavailable" in output
+        )
         assert "... and 3 more" in output
-        assert f"pf diagnose demo --failure {failure.failure_id}" in output
+        assert f"pf diagnose --package demo --failure {failure.failure_id}" in output
 
     def test_completed_cell_falls_back_to_log_when_journal_is_unavailable(
         self,
@@ -1104,9 +1072,7 @@ class TestProgressRendering:
         hint_at = styled_output.index("->")
         hint_start = styled_output.rfind("\x1b[", 0, hint_at)
         hint_end = styled_output.index("for details.", hint_at) + len("for details.")
-        hint_codes = re.findall(
-            r"\x1b\[([0-9;]+)m", styled_output[hint_start:hint_end]
-        )
+        hint_codes = re.findall(r"\x1b\[([0-9;]+)m", styled_output[hint_start:hint_end])
         assert any("36" in code.split(";") for code in hint_codes)
         assert any("3" in code.split(";") for code in hint_codes)
         assert all(
@@ -1127,9 +1093,7 @@ class TestProgressRendering:
         terminal, stdout, stderr = presenter()
 
         terminal.consume(SearchFailureEvent(cell=cell, failure=failure))
-        terminal.consume(
-            completed_event(cell, status="SUCCESS")
-        )
+        terminal.consume(completed_event(cell, status="SUCCESS"))
 
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
@@ -1376,9 +1340,7 @@ class TestProgressRendering:
         terminal.consume(CellMatrixEvent(cells=(cell,)))
         terminal.consume(completed_event(cell, status="SUCCESS"))
 
-        exit_code = terminal.render_search(
-            (incomplete_report("NO_PASS_IN_SEARCH_SPACE"),)
-        )
+        exit_code = terminal.render_search(incomplete_report("NO_PASS_IN_SEARCH_SPACE"))
 
         raw = stderr.getvalue()
         loaded_at = raw.rindex("loaded project")
@@ -1587,7 +1549,9 @@ class TestProgressRendering:
         raw = stderr.getvalue()
         output = visible(raw)
         title = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
-        title_line = next(line for line in reversed(output.splitlines()) if title in line)
+        title_line = next(
+            line for line in reversed(output.splitlines()) if title in line
+        )
         detail_line = next(
             line
             for line in reversed(output.splitlines())
@@ -1635,9 +1599,7 @@ class TestProgressRendering:
         terminal.consume(CellContextEvent(cell=cell, detail=BaselineDetailIdentity()))
         baseline_output = visible(stderr.getvalue())
         baseline_title_line = next(
-            line
-            for line in reversed(baseline_output.splitlines())
-            if title in line
+            line for line in reversed(baseline_output.splitlines()) if title in line
         )
         baseline_detail_line = next(
             line
@@ -1650,9 +1612,7 @@ class TestProgressRendering:
         )
         declaration_output = visible(stderr.getvalue())
         declaration_title_line = next(
-            line
-            for line in reversed(declaration_output.splitlines())
-            if title in line
+            line for line in reversed(declaration_output.splitlines()) if title in line
         )
         declaration_detail_line = next(
             line
@@ -1666,9 +1626,7 @@ class TestProgressRendering:
         assert baseline_title_line[baseline_title_at - 2 : baseline_title_at] == "  "
         assert not baseline_title_line[baseline_title_at - 3].isspace()
         assert (
-            declaration_title_line[
-                declaration_title_at - 2 : declaration_title_at
-            ]
+            declaration_title_line[declaration_title_at - 2 : declaration_title_at]
             == "  "
         )
         assert not declaration_title_line[declaration_title_at - 3].isspace()
@@ -1740,7 +1698,9 @@ class TestProgressRendering:
             static_raw[static_check_style_at:static_check_at]
         )
         assert not ({"1", "2"} | _FOREGROUND_SGR_CODES) & static_check_codes
-        assert dynamic_detail_line.index("[baseline]") == dynamic_title_line.index(title)
+        assert dynamic_detail_line.index("[baseline]") == dynamic_title_line.index(
+            title
+        )
         assert re.search(r"\[testing\] {2}[━╺╸]", dynamic_detail_line) is not None
         assert "dynamic tests" not in dynamic_output
         testing_at = dynamic_raw.rindex("testing")
@@ -2071,8 +2031,7 @@ class TestProgressRendering:
         reset_raw = reset_raw[reset_raw.rfind("╭") :]
         reset_plain = visible(reset_raw)
         assert (
-            "[cyclopts=2.4.0][packaging=24.0][pydantic=1.7.4][rich=14.0]"
-            in reset_plain
+            "[cyclopts=2.4.0][packaging=24.0][pydantic=1.7.4][rich=14.0]" in reset_plain
         )
         pydantic_at = reset_raw.rindex("pydantic")
         pydantic_style_at = reset_raw.rfind("\x1b[", 0, pydantic_at)
@@ -2367,8 +2326,6 @@ class TestProgressRendering:
         assert re.search(r"ETA \d{2}:\d{2}:\d{2}", latest_stage) is not None
         assert "━" in latest_stage
 
-
-
     def test_tty_frozen_failure_card_leads_with_diagnose_details_and_process_summary(
         self,
         tmp_path: Path,
@@ -2473,7 +2430,7 @@ class TestProgressRendering:
         plain = visible(output)
         stripped = "".join(" " if ch in "│╭╮╰╯─" else ch for ch in plain)
         collapsed = " ".join(stripped.split())
-        diagnose = f"`pf diagnose demo --failure {failure.failure_id}`"
+        diagnose = f"`pf diagnose --package demo --failure {failure.failure_id}`"
         assert exit_code == 1
         assert "╭" in plain
         assert "smoke failed at [baseline][highest][testing]" in collapsed
@@ -2572,7 +2529,9 @@ class TestProgressRendering:
         assert "FAILED tests/test_project.py::test_load" not in collapsed
         assert "... and 1 more" in collapsed
         assert "=== 2 failed, 1 passed in 0.51s ===" not in collapsed
-        assert collapsed.index("smoke failed at [baseline][highest][testing]") < collapsed.index(
+        assert collapsed.index(
+            "smoke failed at [baseline][highest][testing]"
+        ) < collapsed.index(
             "The configured verifier rejected this version combination."
         )
         assert collapsed.index("The configured verifier rejected") < collapsed.index(
@@ -2581,13 +2540,6 @@ class TestProgressRendering:
         assert collapsed.index("... and 1 more") < collapsed.index(
             "for more information"
         )
-
-
-
-
-
-
-
 
     def test_non_tty_hides_process_activity_behind_run_logs(self) -> None:
         terminal, stdout, stderr = presenter()
@@ -2619,9 +2571,6 @@ class TestProgressRendering:
 
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == "loading project\n"
-
-
-
 
     def test_tty_completed_status_checkmark_is_green(self) -> None:
         terminal = TTYBuffer()
@@ -2718,9 +2667,7 @@ class TestProgressRendering:
         )
 
         presenter.consume(StatusEvent(message="checking declarations"))
-        presenter.consume(
-            CellStageEvent(cell=cell, stage="static check")
-        )
+        presenter.consume(CellStageEvent(cell=cell, stage="static check"))
         presenter.consume(
             completed_event(
                 cell,
@@ -2817,9 +2764,7 @@ class TestProgressRendering:
         )
 
         presenter.consume(StatusEvent(message="searching cells"))
-        presenter.consume(
-            completed_event(cell, status="NO_PASS_IN_SEARCH_SPACE")
-        )
+        presenter.consume(completed_event(cell, status="NO_PASS_IN_SEARCH_SPACE"))
 
         output = terminal.getvalue()
         plain = visible(output)
@@ -3146,15 +3091,17 @@ class TestVerificationRendering:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join((
-            "✗  [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   smoke failed at [baseline][highest][testing]\n"
-            "   The configured verifier rejected this version combination.\n"
-            "   FAILED tests/test_cli.py::test_example\n"
-            "   ... and 1 more\n"
-            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "✗  Smoke failed · highest-version resolution did not pass · 1 cell\n"
-        ).split())
+        assert " ".join(stderr.getvalue().split()) == " ".join(
+            (
+                "✗  [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
+                "   smoke failed at [baseline][highest][testing]\n"
+                "   The configured verifier rejected this version combination.\n"
+                "   FAILED tests/test_cli.py::test_example\n"
+                "   ... and 1 more\n"
+                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                "✗  Smoke failed · highest-version resolution did not pass · 1 cell\n"
+            ).split()
+        )
 
     @pytest.mark.parametrize(
         ("adapter_stage", "failed_at"),
@@ -3193,10 +3140,7 @@ class TestVerificationRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert (
-            f"smoke failed at [baseline][highest][{failed_at}]"
-            in stderr.getvalue()
-        )
+        assert f"smoke failed at [baseline][highest][{failed_at}]" in stderr.getvalue()
         assert (
             "PF could not complete a verification tool operation reliably."
             in stderr.getvalue()
@@ -3267,9 +3211,7 @@ class TestVerificationRendering:
                 outcomes=(
                     HighestVersionPass(
                         attempt=attempt,
-                        harness_baseline=empty_harness_baseline(
-                            attempt.identity.cell
-                        ),
+                        harness_baseline=empty_harness_baseline(attempt.identity.cell),
                         baseline=StaticBaseline(
                             proposal=proposal,
                             ty=check,
@@ -3486,9 +3428,7 @@ class TestVerificationRendering:
         terminal, _, stderr = presenter()
         terminal.bind_command("smoke")
 
-        terminal.consume(
-            CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
-        )
+        terminal.consume(CellContextEvent(cell=cell, detail=BaselineDetailIdentity()))
         terminal.consume(
             completed_event(
                 cell,
@@ -3703,9 +3643,7 @@ class TestVerificationRendering:
         terminal.consume(
             CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
         )
-        terminal.consume(
-            completed_event(cell, status="SUCCESS", role="declaration")
-        )
+        terminal.consume(completed_event(cell, status="SUCCESS", role="declaration"))
         terminal.close()
 
         raw = stderr.getvalue()
@@ -3718,9 +3656,7 @@ class TestVerificationRendering:
         bracket_style_at = raw.rfind("\x1b[", action_at, bracket_at)
         bracket_codes = sgr_codes(raw[bracket_style_at:bracket_at])
         declaration_style_at = raw.rfind("\x1b[", bracket_at, declaration_at)
-        declaration_codes = sgr_codes(
-            raw[declaration_style_at:declaration_at]
-        )
+        declaration_codes = sgr_codes(raw[declaration_style_at:declaration_at])
 
         assert {"1", "32"} <= action_codes
         assert {"2", "39"} <= bracket_codes
@@ -3816,15 +3752,18 @@ class TestSearchRendering:
             ),
         )
 
-        exit_code = terminal.render_search((incomplete_report("INDETERMINATE"),))
+        exit_code = terminal.render_search(incomplete_report("INDETERMINATE"))
 
         output = stderr.getvalue()
         assert exit_code == 4
-        assert re.search(
-            r"\x1b\[[0-9;]*1[0-9;]*33m!\x1b\[0m {2}"
-            r"\x1b\[[0-9;]*1[0-9;]*33mSearch stopped",
-            output,
-        ) is not None
+        assert (
+            re.search(
+                r"\x1b\[[0-9;]*1[0-9;]*33m!\x1b\[0m {2}"
+                r"\x1b\[[0-9;]*1[0-9;]*33mSearch stopped",
+                output,
+            )
+            is not None
+        )
 
     def test_search_cell_reason_distinguishes_early_unknown_from_exhaustion(
         self,
@@ -3879,8 +3818,7 @@ class TestSearchRendering:
         exhausted_output = " ".join(exhausted_stderr.getvalue().split())
         assert (
             "The configured search space was fully evaluated, but no compatible "
-            "version combination was found."
-            in exhausted_output
+            "version combination was found." in exhausted_output
         )
         assert "full test command failed" not in exhausted_stderr.getvalue()
         indeterminate_output = " ".join(indeterminate_stderr.getvalue().split())
@@ -3889,7 +3827,9 @@ class TestSearchRendering:
             "The operation timed out, so compatibility is unknown."
             in indeterminate_output
         )
-        assert "fully evaluated, but no compatible" not in indeterminate_stderr.getvalue()
+        assert (
+            "fully evaluated, but no compatible" not in indeterminate_stderr.getvalue()
+        )
 
     def test_search_cell_uses_latest_terminal_failure_not_historical_detail(
         self,
@@ -3978,20 +3918,20 @@ class TestSearchRendering:
         )
         terminal.consume(SearchFailureEvent(cell=cell, failure=install_failure))
 
-        exit_code = terminal.render_search(
-            (incomplete_report("NO_PASS_IN_SEARCH_SPACE"),)
-        )
+        exit_code = terminal.render_search(incomplete_report("NO_PASS_IN_SEARCH_SPACE"))
 
         output = stderr.getvalue()
         assert exit_code == 2
         assert "demo.py:4:2 [bad-argument-type]" not in output
-        assert "The configured verifier rejected this version combination." not in output
+        assert (
+            "The configured verifier rejected this version combination." not in output
+        )
         assert "FAILED tests/test_search.py::test_candidate" not in output
         assert "... and 1 more" not in output
         assert "test dependencies cannot be installed" in output
         assert "RESOLUTION_CONFLICT" not in output
         assert ".pf/logs/search-run/" not in output
-        assert output.count("pf diagnose demo --failure") == 1
+        assert output.count("pf diagnose --package demo --failure") == 1
         assert f"--failure {install_failure.failure_id}" in output
         assert f"--failure {dynamic_failure.failure_id}" not in output
         assert f"--failure {earlier_failure.failure_id}" not in output
@@ -4013,33 +3953,32 @@ class TestSearchRendering:
     ) -> None:
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search((incomplete_report(*reasons),))
+        exit_code = terminal.render_search(incomplete_report(*reasons))
 
         assert exit_code == expected_exit
         expected_stderr: dict[tuple[str, ...], str] = {
             (): "",
             ("BASELINE_REJECTION",): (
-                "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
+                "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
             ),
             ("INDETERMINATE",): (
-                "!  Search stopped · compatibility is unknown · 1 report written\n"
+                "!  Search stopped · compatibility is unknown · package-floor.json written\n"
             ),
             ("BASELINE_REJECTION", "INDETERMINATE"): (
-                "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
+                "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
             ),
             ("NO_PASS_IN_SEARCH_SPACE",): (
-                "⚠  Search incomplete · 1 report written · no applicable floor\n"
+                "⚠  Search incomplete · package-floor.json written · no applicable floor\n"
             ),
         }
         if not reasons:
             assert stderr.getvalue() == ""
-            assert (
-                stdout.getvalue()
-                == "✓  Search complete · 1 report · package-floor.json\n"
-            )
+            assert stdout.getvalue() == "✓  Search complete · package-floor.json\n"
         else:
             assert stdout.getvalue() == ""
-            assert stderr.getvalue() == expected_stderr[reasons]
+            assert " ".join(stderr.getvalue().split()) == " ".join(
+                expected_stderr[reasons].split()
+            )
 
     def test_search_baseline_rejection_prints_user_guidance(self) -> None:
         cell = Cell(
@@ -4063,17 +4002,19 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search((report,))
+        exit_code = terminal.render_search(report)
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join((
-            "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   search stopped at [baseline][highest][resolving the test environment]\n"
-            "   The test dependencies cannot be installed without changing the versions being checked.\n"
-            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
-        ).split())
+        assert " ".join(stderr.getvalue().split()) == " ".join(
+            (
+                "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+                "   search stopped at [baseline][highest][resolving the test environment]\n"
+                "   The test dependencies cannot be installed without changing the versions being checked.\n"
+                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
+            ).split()
+        )
 
     def test_search_infra_failure_prints_message_detail_without_a_process(self) -> None:
         cell = Cell(
@@ -4093,17 +4034,19 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search((report,))
+        exit_code = terminal.render_search(report)
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join((
-            "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   search stopped at [candidate discovery]\n"
-            "   Search stopped before the configured search space was fully evaluated. PF could not reach or read a configured package source.\n"
-            f"   -> run `pf diagnose demo --failure {terminal_result.failure_id}` for more information.\n"
-            "!  Search stopped · compatibility is unknown · 1 report written\n"
-        ).split())
+        assert " ".join(stderr.getvalue().split()) == " ".join(
+            (
+                "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+                "   search stopped at [candidate discovery]\n"
+                "   Search stopped before the configured search space was fully evaluated. PF could not reach or read a configured package source.\n"
+                f"   -> run `pf diagnose --package demo --failure {terminal_result.failure_id}` for more information.\n"
+                "!  Search stopped · compatibility is unknown · package-floor.json written\n"
+            ).split()
+        )
 
     def test_search_probe_indeterminate_prints_candidate_unknown_impact(self) -> None:
         cell = Cell(
@@ -4136,17 +4079,19 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search((report,))
+        exit_code = terminal.render_search(report)
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join((
-            "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   search stopped at [testing]\n"
-            "   Search stopped before the configured search space was fully evaluated. The operation timed out, so compatibility is unknown.\n"
-            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "!  Search stopped · compatibility is unknown · 1 report written\n"
-        ).split())
+        assert " ".join(stderr.getvalue().split()) == " ".join(
+            (
+                "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+                "   search stopped at [testing]\n"
+                "   Search stopped before the configured search space was fully evaluated. The operation timed out, so compatibility is unknown.\n"
+                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                "!  Search stopped · compatibility is unknown · package-floor.json written\n"
+            ).split()
+        )
 
     def test_search_hides_highest_baseline_ty_warnings(self) -> None:
         cell = Cell(
@@ -4208,21 +4153,23 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search((report,))
+        exit_code = terminal.render_search(report)
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join((
-            "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   search stopped at [baseline][highest][testing]\n"
-            "   The configured verifier rejected this version combination.\n"
-            f"   -> run `pf diagnose demo --failure {failure.failure_id}` for more information.\n"
-            "✗  Search stopped · highest-version baseline did not pass · 1 report written\n"
-        ).split())
+        assert " ".join(stderr.getvalue().split()) == " ".join(
+            (
+                "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
+                "   search stopped at [baseline][highest][testing]\n"
+                "   The configured verifier rejected this version combination.\n"
+                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
+            ).split()
+        )
 
 
 class TestExplainRendering:
-    def test_explain_separates_reports_and_marks_an_empty_projection(
+    def test_explain_marks_an_empty_projection(
         self,
     ) -> None:
         declaration = requirement_declaration(
@@ -4244,11 +4191,11 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        terminal.render_explain((report, report))
+        terminal.render_explain(report)
 
         rendered = stdout.getvalue()
-        assert rendered.count("demo · package-floor.json") == 2
-        assert rendered.count("no applicable floor") == 2
+        assert rendered.count("demo · package-floor.json") == 1
+        assert rendered.count("no applicable floor") == 1
 
     def test_explain_renders_the_complete_report_next_action(self) -> None:
         declaration = requirement_declaration(
@@ -4272,12 +4219,12 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        terminal.render_explain((report,))
+        terminal.render_explain(report)
 
         rendered = stdout.getvalue()
         assert "Apply: eligible; current project will be rechecked" in rendered
         assert "1 dependency declaration have verified floors" in rendered
-        assert "Next: pf apply demo" in rendered
+        assert "Next: pf apply --package demo" in rendered
 
     def test_explain_renders_report_strings_as_literal_text(self) -> None:
         malicious = "[link=https://evil.example]foo>=1[/link]"
@@ -4297,7 +4244,7 @@ class TestExplainRendering:
             stderr=Console(file=StringIO(), force_terminal=True),
         )
 
-        assert terminal.render_explain((report,)) == 0
+        assert terminal.render_explain(report) == 0
 
         rendered = stdout.getvalue()
         assert malicious in rendered
@@ -4337,7 +4284,7 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        exit_code = terminal.render_explain((report,))
+        exit_code = terminal.render_explain(report)
 
         assert exit_code == 0
         rendered = stdout.getvalue()
@@ -4371,7 +4318,7 @@ class TestExplainRendering:
             ConfigurationError,
             match="report projection is missing its requirement declaration",
         ):
-            terminal.render_explain((report,))
+            terminal.render_explain(report)
 
         assert digest not in stdout.getvalue()
 
@@ -4465,9 +4412,7 @@ class TestExplainRendering:
             baseline=PassEvaluation(
                 proposal=baseline_proposal,
                 static=baseline_static,
-                verifier=verifier_pass(
-                    process.model_copy(update={"exit_code": 0})
-                ),
+                verifier=verifier_pass(process.model_copy(update={"exit_code": 0})),
             ),
             failure_records=(rejection,),
             coordinate_failure=CoordinateFailure(
@@ -4494,7 +4439,7 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        exit_code = terminal.render_explain((report,))
+        exit_code = terminal.render_explain(report)
 
         assert exit_code == 0
         rendered = stdout.getvalue()
@@ -4621,9 +4566,7 @@ class TestExplainRendering:
             baseline=PassEvaluation(
                 proposal=baseline_proposal,
                 static=baseline_static,
-                verifier=verifier_pass(
-                    process.model_copy(update={"exit_code": 0})
-                ),
+                verifier=verifier_pass(process.model_copy(update={"exit_code": 0})),
             ),
             failure_records=(rejection,),
             coordinate_failure=CoordinateFailure(
@@ -4647,7 +4590,7 @@ class TestExplainRendering:
         terminal, stdout, _ = presenter()
 
         terminal.render_explain(
-            (incomplete_report("NO_PASS_IN_SEARCH_SPACE", cell_results=(failure,)),)
+            incomplete_report("NO_PASS_IN_SEARCH_SPACE", cell_results=(failure,))
         )
 
         rendered = stdout.getvalue()
@@ -4657,7 +4600,7 @@ class TestExplainRendering:
         assert "extra diagnostic 3" not in rendered
         assert "more unique diagnostics" not in rendered
         assert "extra diagnostic 9" not in rendered
-        assert "pf diagnose demo" not in rendered
+        assert "pf diagnose --package demo" not in rendered
 
     @pytest.mark.parametrize("width", (56, 80, 120))
     def test_explain_keeps_required_fields_readable_at_common_widths(
@@ -4680,7 +4623,7 @@ class TestExplainRendering:
             ),
         )
 
-        terminal.render_explain((report,))
+        terminal.render_explain(report)
 
         rendered = stdout.getvalue()
         assert "demo · package-floor.json" in rendered

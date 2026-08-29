@@ -31,9 +31,13 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     Cell,
+    DependencySourceRoute,
     HarnessBaseline,
     HarnessSelection,
     SourceIdentity,
+    SourcePlan,
+    StaticWorkspaceMemberVersion,
+    package_source_plan,
 )
 
 
@@ -185,6 +189,20 @@ tool = { path = "vendor/tool" }
             work_directory=work_directory,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=SourcePlan(
+                source_mode="DEVELOPMENT",
+                routes=(
+                    DependencySourceRoute(
+                        dependency="tool",
+                        development_source=SourceIdentity(
+                            kind="path", locator="vendor/tool"
+                        ),
+                        search_source=SourceIdentity(
+                            kind="path", locator="vendor/tool"
+                        ),
+                    ),
+                ),
+            ),
         )
 
         assert isinstance(outcome, ResolutionPlan)
@@ -207,16 +225,19 @@ directory = {{ path = "demo", editable = true }}
 name = "idna"
 version = "3.10"
 index = "https://pypi.org/simple"
-wheels = [{{ name = "idna-3.10-py3-none-any.whl", url = "https://files.example/idna.whl", hashes = {{ sha256 = "{'a' * 64}" }} }}]
+wheels = [{{ name = "idna-3.10-py3-none-any.whl", url = "https://files.example/idna.whl", hashes = {{ sha256 = "{"a" * 64}" }} }}]
 """
-        environment_lock = project_lock + f"""
+        environment_lock = (
+            project_lock
+            + f"""
 
 [[packages]]
 name = "pytest"
 version = "8.4.2"
 index = "https://pypi.org/simple"
-wheels = [{{ name = "pytest-8.4.2-py3-none-any.whl", url = "https://files.example/pytest.whl", hashes = {{ sha256 = "{'b' * 64}" }} }}]
+wheels = [{{ name = "pytest-8.4.2-py3-none-any.whl", url = "https://files.example/pytest.whl", hashes = {{ sha256 = "{"b" * 64}" }} }}]
 """
+        )
 
         class ResolutionRunner:
             def __init__(self) -> None:
@@ -256,16 +277,14 @@ test-command = ["pytest"]
             + "\n",
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=package_root, package_selection=None
-        ).packages[0]
+        package = ProjectLoader().load(root=package_root).target
         runner = ResolutionRunner()
         adapter = UvAdapter(runner)
         run = adapter.resolution_run_context(root=package_root, timeout_seconds=30)
         assert isinstance(run, ResolutionRunContext)
-        assert adapter.resolution_run_context(
-            root=package_root, timeout_seconds=30
-        ) is run
+        assert (
+            adapter.resolution_run_context(root=package_root, timeout_seconds=30) is run
+        )
         context = ResolutionContext.from_inputs(
             run=run,
             cell=package.cells[0],
@@ -287,6 +306,43 @@ test-command = ["pytest"]
             ),
         )
         resolution = LowestDirectResolution(baseline)
+        registry = SourceIdentity(kind="registry", locator="https://pypi.org/simple")
+        search_source_plan = SourcePlan(
+            source_mode="SEARCH",
+            routes=(
+                DependencySourceRoute(
+                    dependency="idna",
+                    development_source=SourceIdentity(
+                        kind="workspace", locator="packages/idna"
+                    ),
+                    search_source=registry,
+                    workspace_member_version=StaticWorkspaceMemberVersion(value="3.10"),
+                ),
+                DependencySourceRoute(
+                    dependency="local-tool",
+                    development_source=SourceIdentity(
+                        kind="workspace", locator="packages/local-tool"
+                    ),
+                    search_source=SourceIdentity(
+                        kind="workspace", locator="packages/local-tool"
+                    ),
+                    workspace_member_version=StaticWorkspaceMemberVersion(value="1.0"),
+                ),
+                next(
+                    route
+                    for route in package.source_routes
+                    if route.dependency == "pytest"
+                ),
+                DependencySourceRoute(
+                    dependency="urllib3",
+                    development_source=SourceIdentity(
+                        kind="workspace", locator="packages/urllib3"
+                    ),
+                    search_source=registry,
+                    workspace_member_version=StaticWorkspaceMemberVersion(value="2.0"),
+                ),
+            ),
+        )
         project = adapter.resolve_project(
             package=package_root,
             package_name=package.name,
@@ -297,6 +353,7 @@ test-command = ["pytest"]
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=search_source_plan,
         )
         assert isinstance(project, ResolutionPlan)
         environment = adapter.resolve_environment(
@@ -308,11 +365,14 @@ test-command = ["pytest"]
             request_digest="environment-request",
             project_plan=project,
             harness=relax_harness(
-                package.harness_requirements, baseline
+                package,
+                baseline,
+                source_mode="SEARCH",
             ).requirements,
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=search_source_plan,
         )
         assert isinstance(environment, ResolutionPlan)
         installed = adapter.install_resolution(
@@ -328,8 +388,10 @@ test-command = ["pytest"]
         assert [item.name for item in project.packages] == ["idna"]
         assert [item.name for item in environment.direct_harness] == ["pytest"]
         assert (tmp_path / "project-constraints.in").read_text() == "idna==3.10\n"
-        assert (tmp_path / "environment-requirements.in").read_text().endswith(
-            "pytest<=8.4.2\n"
+        assert (
+            (tmp_path / "environment-requirements.in")
+            .read_text()
+            .endswith("pytest<=8.4.2\n")
         )
         project_compile_argv = runner.specs[1].argv
         environment_compile_argv = runner.specs[2].argv
@@ -337,23 +399,49 @@ test-command = ["pytest"]
         assert project_compile_argv[1:3] == ("pip", "compile")
         assert project_compile_argv[
             project_compile_argv.index("--python-platform") + 1
-        ] == (
-            "x86_64-unknown-linux-gnu"
+        ] == ("x86_64-unknown-linux-gnu")
+        assert (
+            project_compile_argv[project_compile_argv.index("--resolution") + 1]
+            == "lowest-direct"
         )
-        assert project_compile_argv[
-            project_compile_argv.index("--resolution") + 1
-        ] == "lowest-direct"
-        assert environment_compile_argv[
-            environment_compile_argv.index("--resolution") + 1
-        ] == "highest"
+        assert (
+            environment_compile_argv[environment_compile_argv.index("--resolution") + 1]
+            == "highest"
+        )
         assert runner.specs[-1].argv[1:3] == ("pip", "sync")
         assert "--prerelease" in runner.specs[2].argv
         assert runner.specs[2].argv[runner.specs[2].argv.index("--prerelease") + 1] == (
             "allow"
         )
-        assert not any(
-            spec.argv[1:3] == ("pip", "install") for spec in runner.specs
+        assert not any(spec.argv[1:3] == ("pip", "install") for spec in runner.specs)
+        for spec in runner.specs[1:3]:
+            assert "--no-sources" not in spec.argv
+            assert tuple(
+                spec.argv[index + 1]
+                for index, value in enumerate(spec.argv)
+                if value == "--no-sources-package"
+            ) == ("idna", "urllib3")
+            assert "UV_NO_SOURCES" in spec.environment_removals
+            assert "UV_NO_SOURCES_PACKAGE" in spec.environment_removals
+
+        development = adapter.resolve_project(
+            package=package_root,
+            package_name=package.name,
+            cell=package.cells[0],
+            resolution=resolution,
+            context=context,
+            request_digest="development-project-request",
+            work_directory=tmp_path,
+            allow_prereleases=False,
+            timeout_seconds=30,
+            source_plan=SourcePlan(
+                source_mode="DEVELOPMENT",
+                routes=search_source_plan.routes,
+            ),
         )
+
+        assert isinstance(development, ResolutionPlan)
+        assert "--no-sources-package" not in runner.specs[4].argv
 
     def test_resolution_failure_uses_the_qualified_diagnostic_profile(
         self, tmp_path: Path
@@ -392,6 +480,7 @@ test-command = ["pytest"]
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=SourcePlan(source_mode="SEARCH", routes=()),
         )
 
         assert isinstance(outcome, ResolutionUnsat)
@@ -429,11 +518,11 @@ test-command = ["python", "-c", "pass"]
             + "\n",
             encoding="utf-8",
         )
-        project_lock = '''\
+        project_lock = """\
 lock-version = "1.0"
 created-by = "uv"
 packages = [{ name = "demo", directory = { path = "source", editable = true } }]
-'''
+"""
         environment_lock = f'''\
 lock-version = "1.0"
 created-by = "uv"
@@ -457,7 +546,7 @@ packages = [
                     self.compiles += 1
                 return process_result()
 
-        package = ProjectLoader().load(root=source, package_selection=None).packages[0]
+        package = ProjectLoader().load(root=source).target
         context = ResolutionContext.from_inputs(
             run=ResolutionRunContext(
                 uv_version="0.12.5",
@@ -478,6 +567,7 @@ packages = [
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=package_source_plan(package, "SEARCH"),
         )
         assert isinstance(project, ResolutionPlan)
         environment = adapter.resolve_environment(
@@ -489,12 +579,14 @@ packages = [
             request_digest="environment-request",
             project_plan=project,
             harness=original_harness(
-                package.harness_requirements,
+                package,
                 package.cells[0],
+                source_mode="SEARCH",
             ),
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=package_source_plan(package, "SEARCH"),
         )
 
         assert isinstance(environment, ResolutionPlan)
@@ -541,6 +633,7 @@ packages = [
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
+            source_plan=SourcePlan(source_mode="SEARCH", routes=()),
         )
 
         assert isinstance(outcome, ResolutionIndeterminate)
@@ -595,11 +688,15 @@ packages = [
                 "SOURCE_FAILURE",
             ),
             (
-                process_result(exit_code=1, stderr="Failed to read archive: Hash mismatch"),
+                process_result(
+                    exit_code=1, stderr="Failed to read archive: Hash mismatch"
+                ),
                 "SOURCE_FAILURE",
             ),
             (
-                process_result(exit_code=1, stderr="Failed to read archive: file is empty"),
+                process_result(
+                    exit_code=1, stderr="Failed to read archive: file is empty"
+                ),
                 "SOURCE_FAILURE",
             ),
             (

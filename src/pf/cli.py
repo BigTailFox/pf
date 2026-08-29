@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Protocol
 
 from cyclopts import App, Group, Parameter
 from cyclopts.exceptions import CycloptsError
+from packaging.utils import InvalidName, canonicalize_name
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.runtime_witness import RuntimeWitnessAdapter
@@ -34,6 +35,9 @@ from pf.schemas.config import (
     ReportRequest,
     SearchRequest,
     SmokeRequest,
+    RootPackage,
+    TargetSelector,
+    WorkspacePackage,
 )
 from pf.schemas.evaluation import CheckResult, SmokeResult
 from pf.report import ValidatedReport
@@ -60,7 +64,7 @@ class CheckWorkflow(Protocol):
 
 
 class SearchWorkflow(Protocol):
-    def run(self, request: SearchRequest) -> tuple[ValidatedReport, ...]: ...
+    def run(self, request: SearchRequest) -> ValidatedReport: ...
 
 
 class SmokeWorkflow(Protocol):
@@ -68,7 +72,7 @@ class SmokeWorkflow(Protocol):
 
 
 class ExplainWorkflow(Protocol):
-    def run(self, request: ReportRequest) -> tuple[ValidatedReport, ...]: ...
+    def run(self, request: ReportRequest) -> ValidatedReport: ...
 
 
 class DiagnoseWorkflow(Protocol):
@@ -111,8 +115,8 @@ class CliContext:
 
 
 _PACKAGE_HELP = (
-    "Package name, directory, or pyproject.toml path. Omit to select all "
-    "installable packages allowed by the root configuration."
+    "Canonical distribution name of one installable workspace package. "
+    "Omit to select the installable workspace root package."
 )
 _JOBS_HELP = "Maximum concurrent cells. Use auto or a positive integer."
 _DURATION_HELP = (
@@ -143,6 +147,18 @@ def _cli_duration(value: str | None) -> int | None:
         ) from None
 
 
+def _cli_selector(value: str | None) -> TargetSelector:
+    if value is None:
+        return RootPackage()
+    try:
+        canonical_name = canonicalize_name(value, validate=True)
+    except InvalidName:
+        raise InvocationError(
+            "invalid package name: use a distribution name such as 'demo-package'"
+        ) from None
+    return WorkspacePackage(canonical_name=canonical_name)
+
+
 def _invocation_error(error: CycloptsError) -> str:
     message = str(error.msg) if error.msg is not None else str(error)
     chain = tuple(error.command_chain or ())
@@ -171,32 +187,30 @@ def create_app(context: CliContext) -> App:
 
     @app.command(group=_VERIFY, sort_key=1)
     def smoke(
-        package: _PACKAGE = None,
-        /,
         *,
+        package: _PACKAGE = None,
         jobs: _JOBS = "auto",
     ) -> int:
         """Verify a fresh install with the newest versions allowed by current declarations."""
         context.presenter.bind_command("smoke")
         request = SmokeRequest(
             root=Path.cwd().as_posix(),
-            package=package,
+            selector=_cli_selector(package),
             jobs=_cli_jobs(jobs),
         )
         return context.presenter.render_smoke(context.smoke_workflow.run(request))
 
     @app.command(group=_VERIFY, sort_key=2)
     def check(
-        package: _PACKAGE = None,
-        /,
         *,
+        package: _PACKAGE = None,
         jobs: _JOBS = "auto",
     ) -> int:
         """Verify the lower bounds declared by the project."""
         context.presenter.bind_command("check")
         request = CheckRequest(
             root=Path.cwd().as_posix(),
-            package=package,
+            selector=_cli_selector(package),
             jobs=_cli_jobs(jobs),
         )
         result = context.check_workflow.run(request)
@@ -204,9 +218,8 @@ def create_app(context: CliContext) -> App:
 
     @app.command(group=_FIND, sort_key=1)
     def search(
-        package: _PACKAGE = None,
-        /,
         *,
+        package: _PACKAGE = None,
         jobs: _JOBS = "auto",
         max_duration: _DURATION = None,
     ) -> int:
@@ -214,24 +227,25 @@ def create_app(context: CliContext) -> App:
         context.presenter.bind_command("search")
         request = SearchRequest(
             root=Path.cwd().as_posix(),
-            package=package,
+            selector=_cli_selector(package),
             jobs=_cli_jobs(jobs),
             max_duration_seconds=_cli_duration(max_duration),
         )
         return context.presenter.render_search(context.search_workflow.run(request))
 
     @app.command(group=_FIND, sort_key=2)
-    def explain(package: _PACKAGE = None, /) -> int:
+    def explain(*, package: _PACKAGE = None) -> int:
         """Show verified floors, coverage, and apply blockers in an existing report."""
         context.presenter.bind_command("explain")
-        request = ReportRequest(root=Path.cwd().as_posix(), package=package)
+        request = ReportRequest(
+            root=Path.cwd().as_posix(), selector=_cli_selector(package)
+        )
         return context.presenter.render_explain(context.explain_workflow.run(request))
 
     @app.command(group=_FIND, sort_key=3)
     def apply(
-        package: _PACKAGE = None,
-        /,
         *,
+        package: _PACKAGE = None,
         force: Annotated[
             bool,
             Parameter(
@@ -243,16 +257,15 @@ def create_app(context: CliContext) -> App:
         context.presenter.bind_command("apply")
         request = ApplyRequest(
             root=Path.cwd().as_posix(),
-            package=package,
+            selector=_cli_selector(package),
             force=force,
         )
         return context.presenter.render_apply(context.apply_workflow.run(request))
 
     @app.command(group=_FIND, sort_key=4)
     def minimize(
-        package: _PACKAGE = None,
-        /,
         *,
+        package: _PACKAGE = None,
         jobs: _JOBS = "auto",
         max_duration: _DURATION = None,
     ) -> int:
@@ -262,19 +275,20 @@ def create_app(context: CliContext) -> App:
         reports = context.search_workflow.run(
             SearchRequest(
                 root=root,
-                package=package,
+                selector=_cli_selector(package),
                 jobs=_cli_jobs(jobs),
                 max_duration_seconds=_cli_duration(max_duration),
             )
         )
-        result = context.apply_workflow.run(ApplyRequest(root=root, package=package))
+        result = context.apply_workflow.run(
+            ApplyRequest(root=root, selector=_cli_selector(package))
+        )
         return context.presenter.render_minimize(reports, result)
 
     @app.command(group=_INSPECT, sort_key=1)
     def diagnose(
-        package: _PACKAGE = None,
-        /,
         *,
+        package: _PACKAGE = None,
         failure: Annotated[
             str | None,
             Parameter(
@@ -289,7 +303,7 @@ def create_app(context: CliContext) -> App:
         context.presenter.bind_command("diagnose")
         request = DiagnoseRequest(
             root=Path.cwd().as_posix(),
-            package=package,
+            selector=_cli_selector(package),
             failure_id=failure,
         )
         return context.presenter.render_diagnose(context.diagnose_workflow.run(request))

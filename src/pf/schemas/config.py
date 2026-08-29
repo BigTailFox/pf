@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from packaging.utils import InvalidName, canonicalize_name
 from pydantic import StrictBool, StrictInt, field_validator, model_validator
 
 from pf.schemas.base import FrozenSchema
@@ -53,9 +54,32 @@ class EffectiveConfig(FrozenSchema):
         return self
 
 
+class RootPackage(FrozenSchema):
+    kind: Literal["root-package"] = "root-package"
+
+
+class WorkspacePackage(FrozenSchema):
+    kind: Literal["workspace-package"] = "workspace-package"
+    canonical_name: str
+
+    @field_validator("canonical_name")
+    @classmethod
+    def validate_canonical_name(cls, value: str) -> str:
+        try:
+            normalized = canonicalize_name(value, validate=True)
+        except InvalidName as error:
+            raise ValueError("workspace package name must be valid") from error
+        if normalized != value:
+            raise ValueError("workspace package name must be canonical")
+        return value
+
+
+TargetSelector = RootPackage | WorkspacePackage
+
+
 class CheckRequest(FrozenSchema):
     root: str
-    package: str | None = None
+    selector: TargetSelector = RootPackage()
     jobs: Literal["auto"] | StrictInt = "auto"
 
     @model_validator(mode="after")
@@ -69,7 +93,7 @@ class CheckRequest(FrozenSchema):
 
 class SmokeRequest(FrozenSchema):
     root: str
-    package: str | None = None
+    selector: TargetSelector = RootPackage()
     jobs: Literal["auto"] | StrictInt = "auto"
 
     @model_validator(mode="after")
@@ -83,7 +107,7 @@ class SmokeRequest(FrozenSchema):
 
 class SearchRequest(FrozenSchema):
     root: str
-    package: str | None = None
+    selector: TargetSelector = RootPackage()
     jobs: Literal["auto"] | StrictInt = "auto"
     max_duration_seconds: float | None = None
 
@@ -100,18 +124,18 @@ class SearchRequest(FrozenSchema):
 
 class ReportRequest(FrozenSchema):
     root: str
-    package: str | None = None
+    selector: TargetSelector = RootPackage()
 
 
 class DiagnoseRequest(FrozenSchema):
     root: str
-    package: str | None = None
+    selector: TargetSelector = RootPackage()
     failure_id: str | None = None
 
 
 class ApplyRequest(FrozenSchema):
     root: str
-    package: str | None = None
+    selector: TargetSelector = RootPackage()
     force: StrictBool = False
 
 

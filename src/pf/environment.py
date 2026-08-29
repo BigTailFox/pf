@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 import threading
 from typing import Literal, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from packaging.requirements import Requirement
 import tomlkit
@@ -38,6 +39,7 @@ from pf.schemas.evaluation import (
     CellStageEvent,
     PrepareFailure,
     StageProgress,
+    FailureDetail,
     ToolFailure,
     ToolOutcome,
 )
@@ -47,8 +49,14 @@ from pf.schemas.project import (
     HarnessResolutionRequirement,
     PackagePlan,
     Proposal,
+    ResolutionSourceMode,
     SelectedCandidate,
+    SourceIdentity,
+    SourcePlan,
     VersionPin,
+    package_source_plan,
+    source_plan_identity,
+    selected_candidate_evidence_digest,
 )
 from pf.snapshot import SourceSnapshot
 
@@ -116,6 +124,7 @@ class UvOperations(Protocol):
         work_directory: Path,
         allow_prereleases: bool,
         timeout_seconds: int | None,
+        source_plan: SourcePlan,
     ) -> ResolutionOutcome: ...
 
     def resolve_environment(
@@ -132,6 +141,7 @@ class UvOperations(Protocol):
         work_directory: Path,
         allow_prereleases: bool,
         timeout_seconds: int | None,
+        source_plan: SourcePlan,
     ) -> ResolutionOutcome: ...
 
     def create_environment(
@@ -168,6 +178,7 @@ class UvOperations(Protocol):
         cwd: Path,
         timeout_seconds: int | None,
     ) -> GraphOutcome: ...
+
 
 class PreparedEnvironment:
     """Runtime resources for one exact Proposal."""
@@ -225,7 +236,9 @@ class EnvironmentFactory:
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
+        source_mode: ResolutionSourceMode,
     ) -> PreparedEnvironment | PrepareFailure:
+        source_plan = package_source_plan(package, source_mode)
         run = self._uv.resolution_run_context(
             root=Path.cwd(),
             timeout_seconds=package.config.resolve_timeout,
@@ -235,7 +248,7 @@ class EnvironmentFactory:
         context = ResolutionContext.from_inputs(
             run=run,
             cell=cell,
-            source_policy_identity=self._source_policy_identity(package),
+            source_policy_identity=self._source_policy_identity(source_plan),
             allow_prereleases=package.config.allow_prereleases,
         )
         managed_vector = (
@@ -250,6 +263,7 @@ class EnvironmentFactory:
             resolution=resolution,
             managed_vector=managed_vector,
             context=context,
+            source_plan=source_plan,
         )
 
         project_plan_digest: str | None = None
@@ -285,6 +299,7 @@ class EnvironmentFactory:
                 context=context,
                 project_plan=None,
                 harness=(),
+                source_plan=source_plan,
             )
             emit_cell_stage(self._events, cell, "resolving project")
             project_outcome = self._resolve_once(
@@ -299,17 +314,29 @@ class EnvironmentFactory:
                     work_directory=runtime_root,
                     allow_prereleases=package.config.allow_prereleases,
                     timeout_seconds=package.config.resolve_timeout,
+                    source_plan=source_plan,
                 ),
             )
             if not isinstance(project_outcome, ResolutionPlan):
                 temporary_directory.cleanup()
                 return failed(self._resolution_failure(project_outcome))
             project_plan_digest = project_outcome.semantic_digest
+            source_failure = self._managed_source_failure(
+                package=package,
+                cell=cell,
+                source_mode=source_mode,
+                resolution=resolution,
+                plan=project_outcome,
+            )
+            if source_failure is not None:
+                temporary_directory.cleanup()
+                return failed(source_failure)
 
             harness = self._harness_for_resolution(
                 package=package,
                 cell=cell,
                 resolution=resolution,
+                source_mode=source_mode,
             )
             environment_request = self._request_digest(
                 kind="environment",
@@ -320,6 +347,7 @@ class EnvironmentFactory:
                 context=context,
                 project_plan=project_outcome,
                 harness=harness,
+                source_plan=source_plan,
             )
             emit_cell_stage(self._events, cell, "resolving environment")
             environment_outcome = self._resolve_once(
@@ -336,21 +364,28 @@ class EnvironmentFactory:
                     work_directory=runtime_root,
                     allow_prereleases=package.config.allow_prereleases,
                     timeout_seconds=package.config.resolve_timeout,
+                    source_plan=source_plan,
                 ),
             )
             if not isinstance(environment_outcome, ResolutionPlan):
                 temporary_directory.cleanup()
                 return failed(self._resolution_failure(environment_outcome))
             environment_plan_digest = environment_outcome.semantic_digest
-            if not self._project_graph_is_exact(
-                project_outcome, environment_outcome
-            ):
+            if not self._project_graph_is_exact(project_outcome, environment_outcome):
                 temporary_directory.cleanup()
                 return failed(
                     ToolFailure(
                         cause="INTERNAL_INVARIANT",
                         stage="resolve-environment",
-                        process=environment_outcome.process,
+                        process=None,
+                        summary_code="managed-source-mismatch",
+                        detail=FailureDetail(
+                            code="managed-source-mismatch",
+                            message=(
+                                "the environment resolution did not preserve the "
+                                "project source selection"
+                            ),
+                        ),
                     )
                 )
 
@@ -538,9 +573,9 @@ class EnvironmentFactory:
             return outcome
 
     @staticmethod
-    def _source_policy_identity(package: PackagePlan) -> str:
+    def _source_policy_identity(source_plan: SourcePlan) -> str:
         payload = json.dumps(
-            package.source_plan.model_dump(mode="json"),
+            source_plan.model_dump(mode="json"),
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
@@ -557,6 +592,7 @@ class EnvironmentFactory:
         context: ResolutionContext,
         project_plan: ResolutionPlan | None,
         harness: tuple[HarnessResolutionRequirement, ...],
+        source_plan: SourcePlan,
     ) -> str:
         payload = {
             "kind": kind,
@@ -579,6 +615,7 @@ class EnvironmentFactory:
                 project_plan.semantic_digest if project_plan is not None else None
             ),
             "harness": [item.model_dump(mode="json") for item in harness],
+            "source_plan": source_plan.model_dump(mode="json"),
         }
         return hashlib.sha256(
             b"pf:resolution-request:v1\0"
@@ -591,14 +628,16 @@ class EnvironmentFactory:
         package: PackagePlan,
         cell: Cell,
         resolution: ResolutionRequest,
+        source_mode: ResolutionSourceMode,
     ) -> tuple[HarnessResolutionRequirement, ...]:
         if isinstance(resolution, HighestResolution):
-            return original_harness(package.harness_requirements, cell)
+            return original_harness(package, cell, source_mode=source_mode)
         if resolution.harness_baseline.cell != cell:
             raise ConfigurationError("harness baseline must match the requested cell")
         return relax_harness(
-            package.harness_requirements,
+            package,
             resolution.harness_baseline,
+            source_mode=source_mode,
         ).requirements
 
     @staticmethod
@@ -638,6 +677,123 @@ class EnvironmentFactory:
         )
 
     @staticmethod
+    def _managed_source_failure(
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        source_mode: ResolutionSourceMode,
+        resolution: ResolutionRequest,
+        plan: ResolutionPlan,
+    ) -> ToolFailure | None:
+        if source_mode != "SEARCH":
+            return None
+        active_ids = set(cell.active_declaration_ids)
+        managed_names = {
+            declaration.name
+            for declaration in package.declarations
+            if declaration.managed and declaration.declaration_id in active_ids
+        }
+        dual_routes = {
+            route.dependency: route
+            for route in package.source_routes
+            if route.dependency in managed_names
+            and route.development_source.kind == "workspace"
+            and route.search_source.kind == "registry"
+        }
+        if not dual_routes:
+            return None
+        resolved = {item.name: item for item in plan.packages}
+        selected = (
+            {item.dependency: item for item in resolution.selection}
+            if isinstance(resolution, ExactSelection)
+            else {}
+        )
+        for name, route in dual_routes.items():
+            item = resolved.get(name)
+            if item is None or item.source.kind in {"path", "workspace"}:
+                return ToolFailure(
+                    cause="INTERNAL_INVARIANT",
+                    stage="resolve-project",
+                    process=None,
+                    summary_code="managed-source-leakage",
+                    detail=FailureDetail(
+                        code="managed-source-leakage",
+                        message=(
+                            "a managed workspace dependency resolved from a local "
+                            "source in SEARCH mode"
+                        ),
+                    ),
+                )
+            requested = selected.get(name)
+            if requested is None and (
+                not EnvironmentFactory._registry_source_matches(
+                    actual=item.source,
+                    expected=route.search_source,
+                )
+                or not item.available_artifacts
+            ):
+                return ToolFailure(
+                    cause="INTERNAL_INVARIANT",
+                    stage="resolve-project",
+                    process=None,
+                    summary_code="managed-source-mismatch",
+                    detail=FailureDetail(
+                        code="managed-source-mismatch",
+                        message=(
+                            "a managed workspace dependency did not resolve to the "
+                            "expected registry artifact"
+                        ),
+                    ),
+                )
+            if requested is not None and (
+                item.source.kind != "url"
+                or item.version != requested.version
+                or item.selected_artifact is None
+                or item.selected_artifact.filename != requested.artifact.filename
+                or item.selected_artifact.locator != requested.artifact.locator
+                or item.selected_artifact.content_hash
+                != requested.artifact.content_hash
+            ):
+                return ToolFailure(
+                    cause="INTERNAL_INVARIANT",
+                    stage="resolve-project",
+                    process=None,
+                    summary_code="managed-source-mismatch",
+                    detail=FailureDetail(
+                        code="managed-source-mismatch",
+                        message=(
+                            "a managed workspace dependency did not match the "
+                            "requested registry artifact"
+                        ),
+                    ),
+                )
+        return None
+
+    @staticmethod
+    def _registry_source_matches(
+        *,
+        actual: SourceIdentity,
+        expected: SourceIdentity,
+    ) -> bool:
+        if actual.kind != "registry" or expected.kind != "registry":
+            return False
+
+        def canonical_locator(value: str | None) -> str:
+            locator = value or "https://pypi.org/simple"
+            parsed = urlsplit(locator)
+            return urlunsplit(
+                (
+                    parsed.scheme.lower(),
+                    parsed.netloc.lower(),
+                    parsed.path.rstrip("/"),
+                    "",
+                    "",
+                )
+            )
+
+        return canonical_locator(actual.locator) == canonical_locator(expected.locator)
+
+    @staticmethod
     def _selection_vector(
         selection: tuple[SelectedCandidate, ...],
     ) -> tuple[VersionPin, ...]:
@@ -647,8 +803,7 @@ class EnvironmentFactory:
                 "artifact selection dependencies must be sorted and unique"
             )
         return tuple(
-            VersionPin(name=item.dependency, version=item.version)
-            for item in selection
+            VersionPin(name=item.dependency, version=item.version) for item in selection
         )
 
     @staticmethod
@@ -660,6 +815,7 @@ class EnvironmentFactory:
         resolution: ResolutionRequest,
         managed_vector: tuple[VersionPin, ...] | None,
         context: ResolutionContext,
+        source_plan: SourcePlan,
     ) -> Attempt:
         requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
         if isinstance(resolution, ExactSelection):
@@ -668,14 +824,7 @@ class EnvironmentFactory:
             requested_resolution = "highest"
         else:
             requested_resolution = "lowest-direct"
-        source_plan = json.dumps(
-            package.source_plan.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        source_plan_identity = hashlib.sha256(
-            b"pf:source-plan:v1\0" + source_plan
-        ).hexdigest()
+        plan_identity = source_plan_identity(source_plan)
         harness_declaration_ids = tuple(
             sorted(
                 item.declaration_id
@@ -690,17 +839,7 @@ class EnvironmentFactory:
             else None
         )
         selected_digest = (
-            hashlib.sha256(
-                b"pf:selected-candidates:v1\0"
-                + json.dumps(
-                    [
-                        item.model_dump(mode="json")
-                        for item in resolution.selection
-                    ],
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode()
-            ).hexdigest()
+            selected_candidate_evidence_digest(resolution.selection)
             if isinstance(resolution, ExactSelection)
             else None
         )
@@ -712,7 +851,7 @@ class EnvironmentFactory:
                 requested_resolution=requested_resolution,
                 requested_managed_vector=managed_vector,
                 active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity=source_plan_identity,
+                source_plan_identity=plan_identity,
                 evaluation_policy_identity=evaluation_policy_identity(package.config),
                 resolution_context_digest=context.digest,
                 harness_policy_identity=(

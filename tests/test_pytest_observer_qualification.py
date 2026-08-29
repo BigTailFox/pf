@@ -40,6 +40,7 @@ class TestPytestObserverQualificationManifest:
                 "9.1.1",
             )
         }
+
     def test_transparency_manifest_covers_every_python_minor(self) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         current = [item for item in manifest["profiles"] if item["current_plugins"]]

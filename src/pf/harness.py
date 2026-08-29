@@ -11,7 +11,11 @@ from pf.schemas.project import (
     HarnessRequirement,
     HarnessResolutionRequirement,
     HarnessSpecifierClause,
+    PackagePlan,
     RelaxedHarness,
+    ResolutionSourceMode,
+    SourceIdentity,
+    package_source,
 )
 
 
@@ -24,20 +28,22 @@ class HarnessRequirementPolicy:
 
 def harness_requirement_policy(
     requirement: HarnessRequirement,
+    *,
+    source: SourceIdentity,
 ) -> HarnessRequirementPolicy:
     exact = any(
         clause.operator == "==" and "*" not in clause.version
         or clause.operator == "==="
         for clause in requirement.specifier
     )
-    fixed = requirement.source.kind != "registry" or exact
+    fixed = source.kind != "registry" or exact
     relaxable = not fixed and any(
         clause.operator in {">", ">="} for clause in requirement.specifier
     )
     return HarnessRequirementPolicy(
         fixed=fixed,
         relaxable=relaxable,
-        ceiling_bound=requirement.source.kind == "registry" and not fixed,
+        ceiling_bound=source.kind == "registry" and not fixed,
     )
 
 
@@ -53,9 +59,12 @@ def active_harness_requirements(
 
 
 def relax_harness(
-    requirements: tuple[HarnessRequirement, ...],
+    package: PackagePlan,
     baseline: HarnessBaseline,
+    *,
+    source_mode: ResolutionSourceMode,
 ) -> RelaxedHarness:
+    requirements = package.harness_requirements
     active = active_harness_requirements(requirements, baseline.cell)
     declaration_ids = tuple(sorted(item.declaration_id for item in active))
     if declaration_ids != baseline.declaration_ids:
@@ -63,7 +72,10 @@ def relax_harness(
     selections = {item.name: item for item in baseline.selections}
     transformed: list[HarnessResolutionRequirement] = []
     for requirement in active:
-        policy = harness_requirement_policy(requirement)
+        policy = harness_requirement_policy(
+            requirement,
+            source=package_source(package, requirement.name, source_mode),
+        )
         clauses = tuple(
             clause
             for clause in requirement.specifier
@@ -99,8 +111,10 @@ def relax_harness(
 
 
 def original_harness(
-    requirements: tuple[HarnessRequirement, ...],
+    package: PackagePlan,
     cell: Cell,
+    *,
+    source_mode: ResolutionSourceMode,
 ) -> tuple[HarnessResolutionRequirement, ...]:
     """Project active declarations without applying the relaxation policy."""
     return tuple(
@@ -109,15 +123,19 @@ def original_harness(
             specifier=requirement.specifier,
             relaxed_minimum=False,
         )
-        for requirement in active_harness_requirements(requirements, cell)
+        for requirement in active_harness_requirements(
+            package.harness_requirements, cell
+        )
     )
 
 
 def render_harness_requirement(
     requirement: HarnessResolutionRequirement,
+    *,
+    source: SourceIdentity,
 ) -> str:
     declaration = requirement.declaration
-    if declaration.source.kind != "registry":
+    if source.kind != "registry":
         return declaration.original_text
     extras = (
         f"[{','.join(declaration.requested_extras)}]"

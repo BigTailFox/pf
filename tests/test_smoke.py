@@ -143,6 +143,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> HighestVersionOutcome:
                 seen.append(cell)
                 live_frames.append(visible(stderr.getvalue()))
@@ -184,9 +185,7 @@ class TestSmokeWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
-            verification=VerificationRunner(
-                events=terminal, logs=None
-            ),
+            verification=VerificationRunner(events=terminal, logs=None),
             events=terminal,
             host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
@@ -234,6 +233,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> HighestVersionOutcome:
                 process = ProcessResult(
                     exit_code=1,
@@ -284,9 +284,7 @@ class TestSmokeWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
-            verification=VerificationRunner(
-                events=Events(), logs=None
-            ),
+            verification=VerificationRunner(events=Events(), logs=None),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
@@ -329,6 +327,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> HighestVersionOutcome:
                 attempt, _ = attempt_and_proposal(
                     package=package,
@@ -347,9 +346,7 @@ class TestSmokeWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
-            verification=VerificationRunner(
-                events=Events(), logs=None
-            ),
+            verification=VerificationRunner(events=Events(), logs=None),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
@@ -394,6 +391,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> HighestVersionOutcome:
                 nonlocal failure_id
                 process = ProcessResult(
@@ -447,9 +445,7 @@ class TestSmokeWorkflow:
                 projects=ProjectLoader(),
                 snapshots=SnapshotBuilder.without_processes(),
                 verifier=Verifier(),
-                verification=VerificationRunner(
-                    events=terminal, logs=journal
-                ),
+                verification=VerificationRunner(events=terminal, logs=journal),
                 events=terminal,
                 host_target="x86_64-unknown-linux-gnu",
             ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))

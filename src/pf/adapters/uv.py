@@ -79,6 +79,8 @@ from pf.schemas.project import (
     InterpreterIdentity,
     ResolvedNode,
     SelectedCandidate,
+    SourcePlan,
+    effective_source,
     public_locator,
     SourceIdentity,
 )
@@ -93,6 +95,8 @@ _UV_SOURCE_ENVIRONMENT_REMOVALS = (
     "UV_EXTRA_INDEX_URL",
     "UV_FIND_LINKS",
     "UV_INDEX_STRATEGY",
+    "UV_NO_SOURCES",
+    "UV_NO_SOURCES_PACKAGE",
 )
 
 
@@ -278,6 +282,7 @@ class UvAdapter:
         work_directory: Path,
         allow_prereleases: bool,
         timeout_seconds: int | None,
+        source_plan: SourcePlan,
     ) -> ResolutionOutcome:
         return self._resolve(
             kind="project",
@@ -292,6 +297,7 @@ class UvAdapter:
             work_directory=work_directory,
             allow_prereleases=allow_prereleases,
             timeout_seconds=timeout_seconds,
+            source_plan=source_plan,
         )
 
     def resolve_environment(
@@ -308,6 +314,7 @@ class UvAdapter:
         work_directory: Path,
         allow_prereleases: bool,
         timeout_seconds: int | None,
+        source_plan: SourcePlan,
     ) -> ResolutionOutcome:
         return self._resolve(
             kind="environment",
@@ -322,6 +329,7 @@ class UvAdapter:
             work_directory=work_directory,
             allow_prereleases=allow_prereleases,
             timeout_seconds=timeout_seconds,
+            source_plan=source_plan,
         )
 
     def _resolve(
@@ -339,6 +347,7 @@ class UvAdapter:
         work_directory: Path,
         allow_prereleases: bool,
         timeout_seconds: int | None,
+        source_plan: SourcePlan,
     ) -> ResolutionOutcome:
         stage: Literal["resolve-project", "resolve-environment"] = (
             "resolve-project" if kind == "project" else "resolve-environment"
@@ -356,6 +365,7 @@ class UvAdapter:
                 resolution=resolution,
                 harness=harness,
                 source_root=source_root,
+                source_plan=source_plan,
             ),
             encoding="utf-8",
         )
@@ -393,6 +403,8 @@ class UvAdapter:
             item.declaration.prerelease_allowed for item in harness
         ):
             argv.extend(("--prerelease", "allow"))
+        for dependency in self._suppressed_workspace_sources(source_plan):
+            argv.extend(("--no-sources-package", dependency))
         if project_plan is not None:
             constraints = work_directory / "project-constraints.in"
             constraints.write_text(
@@ -481,7 +493,11 @@ class UvAdapter:
             if any(item.version is None for item in packages):
                 raise ValueError("resolution plan omitted a package version")
             direct_harness = (
-                self._direct_harness(packages=packages, requirements=harness)
+                self._direct_harness(
+                    packages=packages,
+                    requirements=harness,
+                    source_plan=source_plan,
+                )
                 if kind == "environment"
                 else ()
             )
@@ -542,6 +558,7 @@ class UvAdapter:
         )
         outcome = self._classify(process, stage="install-environment")
         if isinstance(outcome, ToolFailure):
+            assert outcome.process is not None
             return InstallFailure(
                 plan_digest=plan.digest,
                 cause=outcome.cause,
@@ -558,6 +575,7 @@ class UvAdapter:
         resolution: ResolutionRequest,
         harness: tuple[HarnessResolutionRequirement, ...],
         source_root: Path,
+        source_plan: SourcePlan,
     ) -> str:
         del package
         extras = f"[{','.join(cell.extra_surface)}]" if cell.extra_surface else ""
@@ -572,6 +590,7 @@ class UvAdapter:
                 UvAdapter._render_harness_requirements(
                     item,
                     source_root=source_root,
+                    source=UvAdapter._source_for(source_plan, item.declaration.name),
                 )
             )
         return "".join(f"{item}\n" for item in requirements)
@@ -581,10 +600,10 @@ class UvAdapter:
         requirement: HarnessResolutionRequirement,
         *,
         source_root: Path,
+        source: SourceIdentity,
     ) -> tuple[str, ...]:
-        rendered = render_harness_requirement(requirement)
+        rendered = render_harness_requirement(requirement, source=source)
         declaration = requirement.declaration
-        source = declaration.source
         if source.kind == "registry":
             return (rendered,)
         extras = (
@@ -641,6 +660,7 @@ class UvAdapter:
         *,
         packages: tuple[ResolutionPackage, ...],
         requirements: tuple[HarnessResolutionRequirement, ...],
+        source_plan: SourcePlan,
     ) -> tuple[HarnessSelection, ...]:
         by_name = {item.name: item for item in packages}
         selections: list[HarnessSelection] = []
@@ -669,12 +689,38 @@ class UvAdapter:
                         else None
                     ),
                     ceiling_bound=any(
-                        harness_requirement_policy(item).ceiling_bound
+                        harness_requirement_policy(
+                            item,
+                            source=UvAdapter._source_for(
+                                source_plan, item.name
+                            ),
+                        ).ceiling_bound
                         for item in declarations
                     ),
                 )
             )
         return tuple(selections)
+
+    @staticmethod
+    def _source_for(source_plan: SourcePlan, dependency: str) -> SourceIdentity:
+        route = next(
+            (item for item in source_plan.routes if item.dependency == dependency),
+            None,
+        )
+        if route is None:
+            raise ValueError(f"source plan route is missing: {dependency}")
+        return effective_source(route, source_plan.source_mode)
+
+    @staticmethod
+    def _suppressed_workspace_sources(source_plan: SourcePlan) -> tuple[str, ...]:
+        if source_plan.source_mode != "SEARCH":
+            return ()
+        return tuple(
+            route.dependency
+            for route in source_plan.routes
+            if route.development_source.kind == "workspace"
+            and route.search_source.kind == "registry"
+        )
 
     def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]:
         process = self._runner.run(

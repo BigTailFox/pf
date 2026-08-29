@@ -19,7 +19,7 @@
       "pyproject_path": "pyproject.toml"
     },
     "policy_identity": "485288849d5b189554d574a0a2253f60af00ee2a9cce92b57ebd13f7cb012181",
-    "report_generation_id": "847398099ade7e1a42a7e15aea0c3f5a6e752d8e1daa4a4c1a9b03c8d666feab",
+    "report_generation_id": "eb36ac709191d3b9bdc9153ca7db671537cf804ce1f9adcec6a12d43b2a45bc7",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],
@@ -31,7 +31,8 @@
     "candidate_snapshots": [],
     "requirement_declarations": [],
     "source_plan": {
-      "identities": []
+      "routes": [],
+      "source_mode": "SEARCH"
     },
     "target_cells": [
       {

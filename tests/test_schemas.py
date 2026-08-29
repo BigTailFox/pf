@@ -16,6 +16,7 @@ from pf.schemas.config import (
     MergeRequest,
     SearchRequest,
     SmokeRequest,
+    WorkspacePackage,
 )
 from pf.schemas.evaluation import (
     ActivityEvent,
@@ -67,6 +68,8 @@ from pf.schemas.project import (
     Candidate,
     CandidateSnapshot,
     Cell,
+    DependencySourceRoute,
+    StaticWorkspaceMemberVersion,
     HarnessGroupProvenance,
     Proposal,
     RequirementDeclaration,
@@ -281,6 +284,7 @@ def _cell_success() -> CellSuccess:
         dependency="demo",
         cell=baseline.proposal.cell,
         policy_identity="candidate-policy",
+        source_plan_identity="sources",
         source=source,
         candidates=candidates,
         series_representatives=representatives,
@@ -288,6 +292,7 @@ def _cell_success() -> CellSuccess:
             dependency="demo",
             cell=baseline.proposal.cell,
             policy_identity="candidate-policy",
+            source_plan_identity="sources",
             source=source,
             candidates=candidates,
             series_representatives=representatives,
@@ -457,6 +462,29 @@ class TestPlanningSchemas:
         with pytest.raises(ValidationError):
             MergeRequest(reports=(), output="merged.json")
 
+    @pytest.mark.parametrize("name", ("", "/tmp/demo", "Demo_Package"))
+    def test_workspace_package_selector_requires_a_canonical_distribution_name(
+        self,
+        name: str,
+    ) -> None:
+        with pytest.raises(ValidationError):
+            WorkspacePackage(canonical_name=name)
+
+    def test_workspace_route_cannot_switch_between_local_members(self) -> None:
+        with pytest.raises(ValidationError, match="one source identity"):
+            DependencySourceRoute(
+                dependency="demo-core",
+                development_source=SourceIdentity(
+                    kind="workspace",
+                    locator="packages/core",
+                ),
+                search_source=SourceIdentity(
+                    kind="workspace",
+                    locator="packages/other",
+                ),
+                workspace_member_version=StaticWorkspaceMemberVersion(value="1.0"),
+            )
+
     @pytest.mark.parametrize(
         "cell",
         (
@@ -504,6 +532,7 @@ class TestPlanningSchemas:
             "dependency": "demo",
             "cell": cell,
             "policy_identity": "policy",
+            "source_plan_identity": "sources",
             "source": SourceIdentity(kind="registry"),
             "series_representatives": (),
             "digest": "digest",
@@ -539,6 +568,7 @@ class TestPlanningSchemas:
             dependency="demo",
             cell=cell,
             policy_identity="policy",
+            source_plan_identity="sources",
             source=source,
             candidates=candidates,
             series_representatives=representatives,
@@ -546,6 +576,7 @@ class TestPlanningSchemas:
                 dependency="demo",
                 cell=cell,
                 policy_identity="policy",
+                source_plan_identity="sources",
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
@@ -596,9 +627,7 @@ class TestSearchSchemas:
         for version in ("1", "2", "3"):
             vector = (VersionPin(name="demo", version=version),)
             attempt = _attempt(resolution="exact-vector", vector=vector)
-            proposal = _proposal(
-                f"demo={version}", attempt=attempt, vector=vector
-            )
+            proposal = _proposal(f"demo={version}", attempt=attempt, vector=vector)
             if version == "2":
                 diagnostic = _diagnostic()
                 static = StaticRegressionEvaluation(
@@ -609,9 +638,7 @@ class TestSearchSchemas:
                     ),
                     baseline_digest=baseline_digest,
                     incremental=(diagnostic,),
-                    static_fingerprint=static_fingerprint(
-                        (diagnostic.identity,)
-                    ),
+                    static_fingerprint=static_fingerprint((diagnostic.identity,)),
                     classifications=_general_classifications(diagnostic),
                 )
             else:
@@ -745,9 +772,7 @@ class TestSearchSchemas:
                     HighestVersionPass(
                         attempt=attempt,
                         baseline=baseline,
-                        harness_baseline=empty_harness_baseline(
-                            attempt.identity.cell
-                        ),
+                        harness_baseline=empty_harness_baseline(attempt.identity.cell),
                         evaluation=passed,
                     ),
                 )
@@ -1199,9 +1224,7 @@ class TestSearchSchemas:
                     HighestVersionPass(
                         attempt=attempt,
                         baseline=baseline,
-                        harness_baseline=empty_harness_baseline(
-                            attempt.identity.cell
-                        ),
+                        harness_baseline=empty_harness_baseline(attempt.identity.cell),
                         evaluation=passed,
                     ),
                 )
@@ -1487,7 +1510,9 @@ class TestEvaluationSchemas:
                 ),
                 baseline_digest=ty_diagnostic_digest(()),
                 incremental=(second, first),
-                static_fingerprint=static_fingerprint((second.identity, first.identity)),
+                static_fingerprint=static_fingerprint(
+                    (second.identity, first.identity)
+                ),
                 classifications=_general_classifications(second, first),
             )
 
@@ -1724,7 +1749,14 @@ class TestEvaluationSchemas:
                 ),
             },
         ),
-        ids=("identity", "reason", "policy", "missing-plan", "wrong-plan", "general-plan"),
+        ids=(
+            "identity",
+            "reason",
+            "policy",
+            "missing-plan",
+            "wrong-plan",
+            "general-plan",
+        ),
     )
     def test_diagnostic_classification_rejects_incoherent_witness_evidence(
         self,
@@ -2296,7 +2328,12 @@ class TestReportSchemas:
                 "observations": (),
             },
         ),
-        ids=("counterexample", "order", "unexpected-counterexample", "unexpected-failure"),
+        ids=(
+            "counterexample",
+            "order",
+            "unexpected-counterexample",
+            "unexpected-failure",
+        ),
     )
     def test_coordinate_failure_rejects_incoherent_terminal_evidence(
         self,

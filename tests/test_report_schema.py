@@ -55,18 +55,22 @@ from pf.schemas.project import (
     AvailableArtifact,
     Candidate,
     CandidateSnapshot,
+    DependencySourceRoute,
     PackagePlan,
     InterpreterIdentity,
     Proposal,
     ResolvedNode,
     RequirementDeclaration,
+    SelectedCandidate,
     SnapshotEntry,
-    SourcePlan,
     SourceSnapshotIdentity,
     SourceIdentity,
     VersionPin,
     candidate_snapshot_digest,
     cell_id,
+    package_source_plan,
+    selected_candidate_evidence_digest,
+    source_plan_identity,
     source_snapshot_digest,
 )
 from pf.schemas.report import (
@@ -120,7 +124,6 @@ class TestReportDomain:
                 package="demo",
                 location="base",
                 name="foo",
-                source=SourceIdentity(kind="registry"),
                 pyproject_path=path,
                 raw="foo",
                 kind="searchable",
@@ -209,9 +212,7 @@ class TestReportIdentity:
             b"pf:source-snapshot:v1\0"
             + json.dumps(
                 {
-                    "entries": [
-                        entry.model_dump(mode="json") for entry in canonical
-                    ],
+                    "entries": [entry.model_dump(mode="json") for entry in canonical],
                     "pyproject_identities": [],
                 },
                 sort_keys=True,
@@ -270,7 +271,7 @@ class TestPackageReportBuilder:
             config=EffectiveConfig(),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=(),
         )
         entries: tuple[SnapshotEntry, ...] = ()
         snapshot = SourceSnapshotIdentity(
@@ -307,7 +308,9 @@ class TestPackageReportBuilder:
             "source_snapshot": report.source_snapshot.model_dump(mode="json"),
             "policy_identity": report.policy_identity,
             "verifier_outcome_policy": report.verifier_outcome_policy,
-            "source_plan": package.source_plan.model_dump(mode="json"),
+            "source_plan": package_source_plan(package, "SEARCH").model_dump(
+                mode="json"
+            ),
             "requirement_declarations": [],
             "target_cells": [cell.model_dump(mode="json")],
         }
@@ -351,7 +354,7 @@ class TestPackageReportBuilder:
             config=EffectiveConfig(),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=(),
         )
         snapshot = SourceSnapshotIdentity(
             digest=source_snapshot_digest((), ()),
@@ -436,7 +439,7 @@ class TestPackageReportBuilder:
             config=EffectiveConfig(),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=(),
         )
         snapshot = SourceSnapshotIdentity(
             digest=source_snapshot_digest((), ()),
@@ -451,7 +454,9 @@ class TestPackageReportBuilder:
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=(),
-                source_plan_identity="sources",
+                source_plan_identity=source_plan_identity(
+                    package_source_plan(package, "SEARCH")
+                ),
                 evaluation_policy_identity=evaluation_policy_identity(package.config),
             )
         )
@@ -491,7 +496,7 @@ class TestPackageReportBuilder:
             config=EffectiveConfig(),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=(),
         )
         snapshot = SourceSnapshotIdentity(
             digest=source_snapshot_digest((), ()),
@@ -507,7 +512,9 @@ class TestPackageReportBuilder:
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=(),
-                source_plan_identity="sources",
+                source_plan_identity=source_plan_identity(
+                    package_source_plan(package, "SEARCH")
+                ),
                 evaluation_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
@@ -537,7 +544,9 @@ class TestPackageReportBuilder:
                 "attempt_id": attempt.attempt_id,
                 "cell_ref": cell_id(cell),
                 "requested_resolution": "highest",
-                "source_plan_identity": "sources",
+                "source_plan_identity": source_plan_identity(
+                    package_source_plan(package, "SEARCH")
+                ),
                 "resolution_context_digest": "context",
                 "harness_policy_identity": "original-harness-v1",
                 "harness_declaration_ids": [],
@@ -575,7 +584,7 @@ class TestPackageReportBuilder:
             config=EffectiveConfig(),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=(),
         )
         snapshot = SourceSnapshotIdentity(
             digest=source_snapshot_digest((), ()),
@@ -591,7 +600,9 @@ class TestPackageReportBuilder:
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=(),
-                source_plan_identity="sources",
+                source_plan_identity=source_plan_identity(
+                    package_source_plan(package, "SEARCH")
+                ),
                 evaluation_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
@@ -753,7 +764,6 @@ class _CompleteReportCase:
             package="demo",
             location="base",
             name=dependency,
-            source=SourceIdentity(kind="registry", index="https://pypi.org/simple"),
             pyproject_path="pyproject.toml",
             raw=dependency,
             kind="searchable",
@@ -765,7 +775,6 @@ class _CompleteReportCase:
             location="base",
             name="fixed-dep",
             specifier="==1.0",
-            source=SourceIdentity(kind="registry", index="https://pypi.org/simple"),
             pyproject_path="pyproject.toml",
             raw="fixed-dep==1.0",
             kind="fixed",
@@ -778,13 +787,21 @@ class _CompleteReportCase:
             extra_surface=(),
             active_declaration_ids=(declaration.declaration_id,),
         )
+        source = SourceIdentity(kind="registry", index="https://pypi.org/simple")
         package = PackagePlan(
             name="demo",
             pyproject_path="pyproject.toml",
             config=EffectiveConfig(),
             declarations=(declaration, inactive_fixed_declaration),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=tuple(
+                DependencySourceRoute(
+                    dependency=name,
+                    development_source=source,
+                    search_source=source,
+                )
+                for name in (dependency, "fixed-dep")
+            ),
         )
         snapshot = SourceSnapshotIdentity(
             digest=source_snapshot_digest((), ()),
@@ -806,11 +823,12 @@ class _CompleteReportCase:
                 artifact=artifact,
             ),
         )
-        source = SourceIdentity(kind="registry", index="https://pypi.org/simple")
+        plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
         candidate_snapshot = CandidateSnapshot(
             dependency=dependency,
             cell=cell,
             policy_identity=candidate_policy,
+            source_plan_identity=plan_identity,
             source=source,
             candidates=candidates,
             series_representatives=(("1.0", "1.0"),),
@@ -818,6 +836,7 @@ class _CompleteReportCase:
                 dependency=dependency,
                 cell=cell,
                 policy_identity=candidate_policy,
+                source_plan_identity=plan_identity,
                 source=source,
                 candidates=candidates,
                 series_representatives=(("1.0", "1.0"),),
@@ -849,7 +868,7 @@ class _CompleteReportCase:
                         vector if resolution == "exact-vector" else None
                     ),
                     active_declaration_ids=cell.active_declaration_ids,
-                    source_plan_identity="sources",
+                    source_plan_identity=plan_identity,
                     evaluation_policy_identity=policy,
                     resolution_context_digest="context",
                     harness_policy_identity=(
@@ -866,7 +885,33 @@ class _CompleteReportCase:
                         "harness-baseline" if resolution == "exact-vector" else None
                     ),
                     selected_candidate_evidence_digest=(
-                        "selected-candidate" if resolution == "exact-vector" else None
+                        selected_candidate_evidence_digest(
+                            (
+                                SelectedCandidate(
+                                    dependency=dependency,
+                                    version=version,
+                                    artifact=(
+                                        artifact
+                                        if version == "1.0"
+                                        else artifact.model_copy(
+                                            update={
+                                                "filename": (
+                                                    f"demo_dep-{version}"
+                                                    "-py3-none-any.whl"
+                                                ),
+                                                "locator": (
+                                                    "https://files.example/"
+                                                    f"demo_dep-{version}"
+                                                    "-py3-none-any.whl"
+                                                ),
+                                            }
+                                        )
+                                    ),
+                                ),
+                            )
+                        )
+                        if resolution == "exact-vector"
+                        else None
                     ),
                 )
             )
@@ -979,6 +1024,7 @@ class _CompleteReportCase:
             dependency=dependency,
             cell=cell,
             policy_identity=candidate_policy,
+            source_plan_identity=plan_identity,
             source=source,
             candidates=expanded_candidates,
             series_representatives=expanded_representatives,
@@ -986,6 +1032,7 @@ class _CompleteReportCase:
                 dependency=dependency,
                 cell=cell,
                 policy_identity=candidate_policy,
+                source_plan_identity=plan_identity,
                 source=source,
                 candidates=expanded_candidates,
                 series_representatives=expanded_representatives,
@@ -1312,6 +1359,7 @@ class _CompleteReportCase:
             dependency=dependency,
             cell=cell,
             policy_identity=policy,
+            source_plan_identity=plan_identity,
             source=source,
             candidates=region_candidates,
             series_representatives=(
@@ -1323,6 +1371,7 @@ class _CompleteReportCase:
                 dependency=dependency,
                 cell=cell,
                 policy_identity=policy,
+                source_plan_identity=plan_identity,
                 source=source,
                 candidates=region_candidates,
                 series_representatives=(
@@ -1618,6 +1667,7 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                 "dependency": case.dependency,
                 "cell_ref": cell_id(case.cell),
                 "policy_identity": case.candidate_policy,
+                "source_plan_identity": case.candidate_snapshot.source_plan_identity,
                 "source": case.source.model_dump(mode="json", exclude_none=True),
                 "candidates": [
                     case.candidates[0].model_dump(mode="json", exclude_none=True)
@@ -1717,9 +1767,9 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                 ),
             ),
         )
-        journal_authority = journal.model_dump(mode="json")["entries"][0][
-            "failure"
-        ]["authority"]
+        journal_authority = journal.model_dump(mode="json")["entries"][0]["failure"][
+            "authority"
+        ]
         report_failure = next(
             item
             for item in case.test_failed_document["evidence"]["failures"]
@@ -1931,9 +1981,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         document = copy.deepcopy(self.case.regional_document)
-        document["inputs"]["candidate_snapshots"][0]["cell_ref"] = (
-            "cell-" + "f" * 64
-        )
+        document["inputs"]["candidate_snapshots"][0]["cell_ref"] = "cell-" + "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
@@ -1967,7 +2015,9 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_a_proposal_for_an_unknown_attempt(self, tmp_path: Path) -> None:
+    def test_read_rejects_a_proposal_for_an_unknown_attempt(
+        self, tmp_path: Path
+    ) -> None:
         document = copy.deepcopy(self.case.regional_document)
         document["evidence"]["proposals"][0]["attempt_ref"] = "f" * 64
 
@@ -2021,9 +2071,7 @@ class TestCompleteReportStore(_CompleteReportCase):
 
     def test_read_rejects_static_evaluation_drift(self, tmp_path: Path) -> None:
         document = copy.deepcopy(self.case.regional_document)
-        document["evidence"]["static_evaluations"][0]["static_fingerprint"] = (
-            "tampered"
-        )
+        document["evidence"]["static_evaluations"][0]["static_fingerprint"] = "tampered"
 
         self._assert_read_rejects(tmp_path, document)
 
@@ -2047,7 +2095,9 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_a_failure_for_an_unknown_attempt(self, tmp_path: Path) -> None:
+    def test_read_rejects_a_failure_for_an_unknown_attempt(
+        self, tmp_path: Path
+    ) -> None:
         document = copy.deepcopy(self.case.regional_document)
         document["evidence"]["failures"][0]["scope"]["attempt_ref"] = "f" * 64
 
@@ -2055,9 +2105,7 @@ class TestCompleteReportStore(_CompleteReportCase):
 
     def test_read_rejects_failure_identity_drift(self, tmp_path: Path) -> None:
         document = copy.deepcopy(self.case.regional_document)
-        document["evidence"]["failures"][0]["failure_id"] = (
-            "failure-ffffffffffffffff"
-        )
+        document["evidence"]["failures"][0]["failure_id"] = "failure-ffffffffffffffff"
 
         self._assert_read_rejects(tmp_path, document)
 
@@ -2182,9 +2230,9 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         document = copy.deepcopy(self.case.indeterminate_document)
-        observation = document["cell_results"][0]["coordinate_failure"][
-            "observations"
-        ][0]
+        observation = document["cell_results"][0]["coordinate_failure"]["observations"][
+            0
+        ]
         observation["evidence"]["failure_ref"] = "failure-ffffffffffffffff"
 
         self._assert_read_rejects(tmp_path, document)
@@ -2195,9 +2243,9 @@ class TestCompleteReportStore(_CompleteReportCase):
     ) -> None:
         case = self.case
         document = copy.deepcopy(case.indeterminate_document)
-        observation = document["cell_results"][0]["coordinate_failure"][
-            "observations"
-        ][0]
+        observation = document["cell_results"][0]["coordinate_failure"]["observations"][
+            0
+        ]
         observation["evidence"]["attempt_ref"] = case.final_attempt.attempt_id
 
         self._assert_read_rejects(tmp_path, document)
@@ -2237,9 +2285,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         document = copy.deepcopy(self.case.regional_document)
-        document["cell_results"][0]["failure_refs"][0] = (
-            "failure-ffffffffffffffff"
-        )
+        document["cell_results"][0]["failure_refs"][0] = "failure-ffffffffffffffff"
 
         self._assert_read_rejects(tmp_path, document)
 
@@ -2575,6 +2621,42 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
+    def test_read_rejects_candidate_artifact_drift_from_exact_attempt(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        case = self.case
+        document = copy.deepcopy(case.regional_document)
+        snapshot = document["inputs"]["candidate_snapshots"][0]
+        old_snapshot_id = snapshot["candidate_snapshot_id"]
+        snapshot["candidates"][-1]["artifact"]["content_hash"] = (
+            f"sha256:{'b' * 64}"
+        )
+        new_snapshot_id = candidate_snapshot_digest(
+            dependency=snapshot["dependency"],
+            cell=case.cell,
+            policy_identity=snapshot["policy_identity"],
+            source_plan_identity=snapshot["source_plan_identity"],
+            source=SourceIdentity.model_validate(snapshot["source"]),
+            candidates=tuple(
+                Candidate.model_validate(item) for item in snapshot["candidates"]
+            ),
+            series_representatives=tuple(
+                tuple(item) for item in snapshot["series_representatives"]
+            ),
+        )
+        document = json.loads(
+            json.dumps(document).replace(old_snapshot_id, new_snapshot_id)
+        )
+        path = tmp_path / "candidate-artifact-drift.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+        with pytest.raises(
+            ConfigurationError,
+            match="Attempt selected candidate mismatch",
+        ):
+            ReportStore().read(path)
+
     def test_read_rejects_noncanonical_candidate_snapshot_order(
         self,
         tmp_path: Path,
@@ -2588,6 +2670,7 @@ class TestCompleteReportStore(_CompleteReportCase):
             dependency=snapshot["dependency"],
             cell=case.cell,
             policy_identity=snapshot["policy_identity"],
+            source_plan_identity=snapshot["source_plan_identity"],
             source=SourceIdentity.model_validate(snapshot["source"]),
             candidates=tuple(
                 Candidate.model_validate(item) for item in snapshot["candidates"]
@@ -2727,14 +2810,29 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_non_public_requirement_locator(self, tmp_path: Path) -> None:
+    def test_read_rejects_non_public_source_route_locator(self, tmp_path: Path) -> None:
         case = self.case
         document = copy.deepcopy(case.regional_document)
-        document["inputs"]["requirement_declarations"][0]["source"]["locator"] = (
+        document["inputs"]["source_plan"]["routes"][0]["search_source"]["locator"] = (
             "https://alice:secret@example.com/pkg.whl?token=abc"
         )
 
         self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_a_non_search_report_source_plan(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["inputs"]["source_plan"]["source_mode"] = "DEVELOPMENT"
+        path = tmp_path / "development-report.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+        with pytest.raises(
+            ConfigurationError,
+            match="SourcePlan must use SEARCH mode",
+        ):
+            ReportStore().read(path)
 
     @pytest.mark.parametrize(
         "surface",

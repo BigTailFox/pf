@@ -24,7 +24,7 @@ from pf.schemas.evaluation import (
     VerificationJournalEntry,
     ToolFailure,
 )
-from pf.schemas.project import Cell, PackagePlan, SourcePlan
+from pf.schemas.project import Cell, PackagePlan
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.verification import (
@@ -69,7 +69,7 @@ def verification_case(
         config=EffectiveConfig(),
         declarations=(),
         cells=(cell,),
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
     failure = FailurePolicy().classify(
         scope=CellFailureScope(
@@ -105,25 +105,22 @@ class TestVerificationRunner:
             journal_entries=lambda outcome: (),
         )
 
-    def test_run_rejects_unsorted_packages(
+    def test_run_rejects_a_source_mode_that_does_not_match_the_command(
         self,
         tmp_path: Path,
     ) -> None:
         snapshot, cell, package, _ = verification_case(tmp_path)
-        other_cell = cell.model_copy(update={"package": "other"})
-        other_package = package.model_copy(
-            update={"name": "other", "cells": (other_cell,)}
-        )
         request = VerificationRun(
             command="search",
-            packages=(other_package, package),
+            package=package,
+            source_mode="DEVELOPMENT",
             snapshot=snapshot,
             tasks=(self._task(cell),),
             jobs=1,
             max_duration_seconds=None,
         )
 
-        with pytest.raises(ValueError, match="packages must be sorted and unique"):
+        with pytest.raises(ValueError, match="source mode does not match"):
             VerificationRunner(events=_NoEvents(), logs=None).run(request)
         snapshot.close()
 
@@ -132,7 +129,8 @@ class TestVerificationRunner:
         task = self._task(cell)
         request = VerificationRun(
             command="search",
-            packages=(package,),
+            package=package,
+            source_mode="SEARCH",
             snapshot=snapshot,
             tasks=(task, task),
             jobs=1,
@@ -151,7 +149,8 @@ class TestVerificationRunner:
         other_cell = cell.model_copy(update={"package": "other"})
         request = VerificationRun(
             command="search",
-            packages=(package,),
+            package=package,
+            source_mode="SEARCH",
             snapshot=snapshot,
             tasks=(self._task(other_cell),),
             jobs=1,
@@ -256,7 +255,8 @@ class TestVerificationRunner:
         VerificationRunner(events=_NoEvents(), logs=Logs()).run(
             VerificationRun(
                 command="check",
-                packages=(package,),
+                package=package,
+                source_mode="SEARCH",
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
@@ -300,7 +300,7 @@ class TestVerificationRunner:
             config=EffectiveConfig(),
             declarations=(),
             cells=(cell,),
-            source_plan=SourcePlan(identities=()),
+            source_routes=(),
         )
         policy = evaluation_policy_identity(package.config)
         failure = FailurePolicy().classify(
@@ -358,7 +358,8 @@ class TestVerificationRunner:
         outcomes = runner.run(
             VerificationRun(
                 command="search",
-                packages=(package,),
+                package=package,
+                source_mode="SEARCH",
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
@@ -405,7 +406,8 @@ class TestVerificationRunner:
         runner.run(
             VerificationRun(
                 command="search",
-                packages=(package,),
+                package=package,
+                source_mode="SEARCH",
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
@@ -462,7 +464,8 @@ class TestVerificationRunner:
             runner.run(
                 VerificationRun(
                     command="search",
-                    packages=(package,),
+                    package=package,
+                    source_mode="SEARCH",
                     snapshot=snapshot,
                     tasks=(
                         VerificationTask(
@@ -500,7 +503,8 @@ class TestVerificationRunner:
         outcomes = runner.run(
             VerificationRun(
                 command="search",
-                packages=(package,),
+                package=package,
+                source_mode="SEARCH",
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(

@@ -35,9 +35,7 @@ test-command = ["pytest"]
         + "\n",
         encoding="utf-8",
     )
-    package = (
-        ProjectLoader().load(root=project_root, package_selection=None).packages[0]
-    )
+    package = ProjectLoader().load(root=project_root).target
     temporary = tempfile.TemporaryDirectory(prefix="pf-transition-", dir=tmp_path)
     proposal_root = Path(temporary.name) / "source"
     proposal_root.mkdir()

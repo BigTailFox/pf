@@ -31,11 +31,15 @@ from pf.schemas.project import (
     Cell,
     InterpreterIdentity,
     Proposal,
+    PackagePlan,
     RequirementDeclaration,
-    SourceIdentity,
+    SelectedCandidate,
     VersionPin,
     candidate_snapshot_digest,
     cell_id,
+    package_source_plan,
+    selected_candidate_evidence_digest,
+    source_plan_identity,
 )
 from pf.schemas.report import (
     CellSuccess,
@@ -60,11 +64,16 @@ def successful_process() -> ProcessResult:
 
 
 def candidate_snapshot(
+    package: PackagePlan,
     cell: Cell,
     vector: tuple[VersionPin, ...],
 ) -> tuple[CandidateSnapshot, ...]:
     pin = vector[0]
-    source = SourceIdentity(kind="registry")
+    source = next(
+        route.search_source
+        for route in package.source_routes
+        if route.dependency == pin.name
+    )
     candidates = (
         Candidate(
             version=pin.version,
@@ -78,11 +87,13 @@ def candidate_snapshot(
         ),
     )
     representatives = ((pin.version, pin.version),)
+    plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
     return (
         CandidateSnapshot(
             dependency=pin.name,
             cell=cell,
             policy_identity="policy",
+            source_plan_identity=plan_identity,
             source=source,
             candidates=candidates,
             series_representatives=representatives,
@@ -90,6 +101,7 @@ def candidate_snapshot(
                 dependency=pin.name,
                 cell=cell,
                 policy_identity="policy",
+                source_plan_identity=plan_identity,
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives,
@@ -104,6 +116,7 @@ def report_attempt(
     snapshot_digest: str,
     resolution: Literal["highest", "exact-vector"],
     vector: tuple[VersionPin, ...],
+    source_plan_identity_value: str,
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
@@ -113,7 +126,7 @@ def report_attempt(
             requested_resolution=resolution,
             requested_managed_vector=(vector if resolution == "exact-vector" else None),
             active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
+            source_plan_identity=source_plan_identity_value,
             evaluation_policy_identity="policy",
             resolution_context_digest="context",
             harness_policy_identity=(
@@ -125,7 +138,26 @@ def report_attempt(
                 "harness-baseline" if resolution == "exact-vector" else None
             ),
             selected_candidate_evidence_digest=(
-                "selected-candidate" if resolution == "exact-vector" else None
+                selected_candidate_evidence_digest(
+                    tuple(
+                        SelectedCandidate(
+                            dependency=pin.name,
+                            version=pin.version,
+                            artifact=AvailableArtifact(
+                                filename=f"{pin.name}-{pin.version}.whl",
+                                kind="wheel",
+                                content_hash=f"sha256:{'a' * 64}",
+                                locator=(
+                                    f"https://files.example/"
+                                    f"{pin.name}-{pin.version}.whl"
+                                ),
+                            ),
+                        )
+                        for pin in vector
+                    )
+                )
+                if resolution == "exact-vector"
+                else None
             ),
         )
     )
@@ -138,6 +170,7 @@ def passing_evaluation(
     snapshot_digest: str,
     resolution: Literal["highest", "exact-vector"] = "exact-vector",
     attempt: Attempt | None = None,
+    source_plan_identity_value: str = "sources",
 ) -> PassEvaluation:
     vector = (VersionPin(name="idna", version=version),)
     owned_attempt = attempt or report_attempt(
@@ -145,6 +178,7 @@ def passing_evaluation(
         snapshot_digest=snapshot_digest,
         resolution=resolution,
         vector=vector,
+        source_plan_identity_value=source_plan_identity_value,
     )
     project_digest = f"project-{cell_id(cell)}-{version}"
     environment_digest = f"environment-{cell_id(cell)}-{version}"
@@ -182,17 +216,20 @@ def passing_evaluation(
 
 
 def successful_cell(
+    package: PackagePlan,
     cell: Cell,
     floor: str,
     *,
     snapshot_digest: str,
 ) -> CellSuccess:
     vector = (VersionPin(name="idna", version=floor),)
+    plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
     final_attempt = report_attempt(
         cell=cell,
         snapshot_digest=snapshot_digest,
         resolution="exact-vector",
         vector=vector,
+        source_plan_identity_value=plan_identity,
     )
     final_evaluation = passing_evaluation(
         cell,
@@ -222,6 +259,7 @@ def successful_cell(
         snapshot_digest=snapshot_digest,
         resolution="highest",
         vector=vector,
+        source_plan_identity_value=plan_identity,
     )
     baseline = passing_evaluation(
         cell,
@@ -239,7 +277,7 @@ def successful_cell(
             digest=ty_diagnostic_digest(baseline.static.ty.diagnostics),
         ),
         baseline=baseline,
-        candidate_snapshots=candidate_snapshot(cell, vector),
+        candidate_snapshots=candidate_snapshot(package, cell, vector),
         search=search,
         final_vector=vector,
         final_evaluation=final_evaluation,
@@ -259,10 +297,13 @@ class TestReportProjection:
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
+        )
         cell = package.cells[0]
 
         projection = PackageReportBuilder().project(
@@ -294,10 +335,13 @@ class TestReportProjection:
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
+        )
         linux = next(cell for cell in package.cells if "linux" in cell.target)
 
         projection = PackageReportBuilder().project(
@@ -339,10 +383,13 @@ class TestReportProjection:
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
+        )
         linux = next(cell for cell in package.cells if "linux" in cell.target)
         windows = next(cell for cell in package.cells if "windows" in cell.target)
 
@@ -383,10 +430,13 @@ class TestReportProjection:
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
+        )
         gnu = next(cell for cell in package.cells if cell.target.endswith("gnu"))
 
         projection = PackageReportBuilder().project(
@@ -417,10 +467,13 @@ class TestReportProjection:
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
+        )
 
         projection = PackageReportBuilder().project(
             declarations=package.declarations,
@@ -448,20 +501,21 @@ class TestReportProjection:
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
-            'dependencies = ["idna[socks]!=2.5,<4; python_version >= \'3.10\'"]\n'
+            "dependencies = [\"idna[socks]!=2.5,<4; python_version >= '3.10'\"]\n"
             '[tool.pf]\npython = ["3.10", "3.11"]\n'
             'platform = ["x86_64-pc-windows-msvc", '
             '"x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
-        linux_cells = tuple(
-            cell for cell in package.cells if "linux" in cell.target
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
         )
+        linux_cells = tuple(cell for cell in package.cells if "linux" in cell.target)
 
         projection = PackageReportBuilder().project(
             declarations=package.declarations,
@@ -512,10 +566,13 @@ class TestReportProjection:
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
-        package = ProjectLoader().load(
-            root=tmp_path,
-            package_selection=None,
-        ).packages[0]
+        package = (
+            ProjectLoader()
+            .load(
+                root=tmp_path,
+            )
+            .target
+        )
         declaration = package.declarations[0]
         active = next(
             cell
@@ -560,15 +617,14 @@ class TestReportProjection:
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         report = PackageReportBuilder().build(
             package=package,
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
+                    package,
                     package.cells[0],
                     "3.0",
                     snapshot_digest=snapshot.identity.digest,
@@ -609,7 +665,7 @@ class TestReportProjection:
             source_snapshot=report.source_snapshot,
             policy_identity=report.policy_identity,
             requirement_declarations=report.requirement_declarations,
-            source_plan=package.source_plan,
+            source_plan=package_source_plan(package, "SEARCH"),
             target_cells=target_cells,
         )
         path.write_text(json.dumps(incomplete_coverage), encoding="utf-8")
@@ -638,9 +694,7 @@ class TestReportProjection:
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         floors = {"3.10": "2.0", "3.11": "3.0"}
 
@@ -649,6 +703,7 @@ class TestReportProjection:
             source_snapshot=snapshot.identity,
             cell_results=tuple(
                 successful_cell(
+                    package,
                     cell,
                     floors[cell.python_minor],
                     snapshot_digest=snapshot.identity.digest,
@@ -693,9 +748,7 @@ class TestReportProjection:
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         builder = PackageReportBuilder()
         first = builder.build(
@@ -703,6 +756,7 @@ class TestReportProjection:
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
+                    package,
                     package.cells[0],
                     "2.0",
                     snapshot_digest=snapshot.identity.digest,
@@ -714,6 +768,7 @@ class TestReportProjection:
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
+                    package,
                     package.cells[1],
                     "3.0",
                     snapshot_digest=snapshot.identity.digest,
@@ -745,6 +800,7 @@ class TestReportProjection:
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
+                    package,
                     package.cells[0],
                     "2.5",
                     snapshot_digest=snapshot.identity.digest,
@@ -766,7 +822,6 @@ class TestReportProjection:
             extra=None,
             name="idna",
             raw="idna",
-            source=SourceIdentity(kind="registry"),
             kind="searchable",
             managed=True,
         )

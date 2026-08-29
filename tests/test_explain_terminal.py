@@ -39,8 +39,6 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     RequirementDeclaration,
-    SourceIdentity,
-    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
@@ -95,7 +93,7 @@ def _report(
         config=EffectiveConfig(),
         declarations=(),
         cells=(),
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
     snapshot = SourceSnapshotIdentity(
         digest=source_snapshot_digest((), ()),
@@ -136,7 +134,6 @@ def _declaration(
         location="base",
         name=name,
         specifier=specifier,
-        source=SourceIdentity(kind="registry"),
         pyproject_path="pyproject.toml",
         raw=f"{name}{specifier}",
         kind="searchable",
@@ -189,9 +186,12 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        assert presenter.render_explain(
-            (_report(target_cells=(cell,), cell_results=(result,)),)
-        ) == 0
+        assert (
+            presenter.render_explain(
+                _report(target_cells=(cell,), cell_results=(result,))
+            )
+            == 0
+        )
 
         rendered = stdout.getvalue()
         normalized = " ".join(rendered.replace("│", "").split())
@@ -203,7 +203,7 @@ class TestExplainCellCards:
         assert "PF could not complete a verification tool" in normalized
         assert "operation reliably." in normalized
         assert terminal.failure_id in normalized
-        assert "pf diagnose demo --failure" in normalized
+        assert "pf diagnose --package demo --failure" in normalized
         assert historical.failure_id not in rendered
         assert "The full test command failed" not in rendered
         assert "What happened:" not in rendered
@@ -215,7 +215,6 @@ class TestExplainCellCards:
             package="demo",
             location="base",
             name="rich",
-            source=SourceIdentity(kind="registry"),
             pyproject_path="pyproject.toml",
             raw="rich>=14",
             kind="searchable",
@@ -239,13 +238,11 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(),
-                    cell_results=(),
-                    declarations=(declaration,),
-                    projections=(projection,),
-                ),
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(declaration,),
+                projections=(projection,),
             )
         )
 
@@ -279,13 +276,11 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(),
-                    cell_results=(),
-                    declarations=(rich, packaging),
-                    projections=projections,
-                ),
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(rich, packaging),
+                projections=projections,
             )
         )
 
@@ -295,7 +290,9 @@ class TestExplainCellCards:
             if "projection blocked" in line
         ]
         assert len(requirement_lines) == 2
-        assert len({line.index("projection blocked") for line in requirement_lines}) == 1
+        assert (
+            len({line.index("projection blocked") for line in requirement_lines}) == 1
+        )
 
     def test_explain_requirements_style_original_specifier_and_version(
         self,
@@ -321,20 +318,15 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(),
-                    cell_results=(),
-                    declarations=(declaration,),
-                    projections=(projection,),
-                ),
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(declaration,),
+                projections=(projection,),
             )
         )
 
-        assert (
-            "rich\x1b[36m>=\x1b[0m\x1b[1;36m14.0\x1b[0m"
-            in stdout.getvalue()
-        )
+        assert "rich\x1b[36m>=\x1b[0m\x1b[1;36m14.0\x1b[0m" in stdout.getvalue()
 
     def test_explain_requirements_style_projected_version_without_coloring_marker(
         self,
@@ -343,9 +335,7 @@ class TestExplainCellCards:
         projection = ProjectionEvidence(
             declaration_id=declaration.declaration_id,
             floors=(),
-            projected_requirements=(
-                'rich>=15.0; python_version >= "3.11"',
-            ),
+            projected_requirements=('rich>=15.0; python_version >= "3.11"',),
             representable=True,
         )
         stdout = StringIO()
@@ -362,20 +352,17 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(),
-                    cell_results=(),
-                    declarations=(declaration,),
-                    projections=(projection,),
-                ),
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(declaration,),
+                projections=(projection,),
             )
         )
 
         assert (
             "-> rich\x1b[32m>=\x1b[0m\x1b[1;32m15.0\x1b[0m; "
-            'python_version >= "3.11"'
-            in stdout.getvalue()
+            'python_version >= "3.11"' in stdout.getvalue()
         )
 
     def test_explain_requirements_style_entire_multi_clause_specifier(
@@ -402,26 +389,22 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(),
-                    cell_results=(),
-                    declarations=(declaration,),
-                    projections=(projection,),
-                ),
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(declaration,),
+                projections=(projection,),
             )
         )
 
         rendered = stdout.getvalue()
         assert (
             "demo \x1b[36m(>=\x1b[0m\x1b[1;36m1\x1b[0m"
-            "\x1b[36m, <\x1b[0m\x1b[1;36m2\x1b[0m\x1b[36m)\x1b[0m"
-            in rendered
+            "\x1b[36m, <\x1b[0m\x1b[1;36m2\x1b[0m\x1b[36m)\x1b[0m" in rendered
         )
         assert (
             "-> demo \x1b[32m(>=\x1b[0m\x1b[1;32m1.5\x1b[0m"
-            "\x1b[32m, <\x1b[0m\x1b[1;32m2\x1b[0m\x1b[32m)\x1b[0m"
-            in rendered
+            "\x1b[32m, <\x1b[0m\x1b[1;32m2\x1b[0m\x1b[32m)\x1b[0m" in rendered
         )
 
     def test_explain_multiple_marker_requirements_are_indented_under_declaration(
@@ -432,7 +415,6 @@ class TestExplainCellCards:
             package="demo",
             location="base",
             name="foo",
-            source=SourceIdentity(kind="registry"),
             pyproject_path="pyproject.toml",
             raw="foo>=1",
             kind="searchable",
@@ -454,13 +436,11 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(),
-                    cell_results=(),
-                    declarations=(declaration,),
-                    projections=(projection,),
-                ),
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(declaration,),
+                projections=(projection,),
             )
         )
 
@@ -539,9 +519,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
-            (_report(target_cells=(cell,), cell_results=(result,)),)
-        )
+        presenter.render_explain(_report(target_cells=(cell,), cell_results=(result,)))
 
         rendered = stdout.getvalue()
         assert "ty baseline" not in rendered
@@ -560,7 +538,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain((report,))
+        presenter.render_explain(report)
 
         rendered = stdout.getvalue()
         assert "⚠  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
@@ -584,7 +562,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain((report,))
+        presenter.render_explain(report)
 
         rendered = stdout.getvalue()
         assert rendered.count("╭") == 2
@@ -593,7 +571,7 @@ class TestExplainCellCards:
         assert "ty baseline" not in rendered
         assert "What happened:" not in rendered
         assert "pf diagnose" not in rendered
-        assert "Next: pf apply demo" in rendered
+        assert "Next: pf apply --package demo" in rendered
 
     def test_explain_baseline_rejection_hides_pytest_detail(self) -> None:
         cell = Cell(
@@ -663,9 +641,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
-            (_report(target_cells=(cell,), cell_results=(result,)),)
-        )
+        presenter.render_explain(_report(target_cells=(cell,), cell_results=(result,)))
 
         rendered = stdout.getvalue()
         assert "The configured verifier rejected this version combination." in rendered
@@ -698,9 +674,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
-            (_report(target_cells=(cell,), cell_results=(result,)),)
-        )
+        presenter.render_explain(_report(target_cells=(cell,), cell_results=(result,)))
 
         rendered = stdout.getvalue()
         normalized = " ".join(rendered.split())
@@ -733,7 +707,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain((report,))
+        presenter.render_explain(report)
 
         rendered = stdout.getvalue()
         assert "\x1b[2;33m╭" in rendered
@@ -798,18 +772,15 @@ class TestExplainCellCards:
         )
 
         presenter.render_explain(
-            (
-                _report(
-                    target_cells=(rejected_cell, indeterminate_cell),
-                    cell_results=(rejected, indeterminate),
-                ),
+            _report(
+                target_cells=(rejected_cell, indeterminate_cell),
+                cell_results=(rejected, indeterminate),
             )
         )
 
         assert (
             "\x1b[1;31mSummary: report is incomplete and cannot be applied."
-            "\x1b[0m\n"
-            in stdout.getvalue()
+            "\x1b[0m\n" in stdout.getvalue()
         )
 
     def test_explain_summary_uses_yellow_when_report_has_only_yellow_cells(
@@ -832,12 +803,11 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain((report,))
+        presenter.render_explain(report)
 
         assert (
             "\x1b[1;33mSummary: report is incomplete and cannot be applied."
-            "\x1b[0m\n"
-            in stdout.getvalue()
+            "\x1b[0m\n" in stdout.getvalue()
         )
 
     def test_explain_summary_uses_green_when_report_authorizes_apply(
@@ -860,10 +830,9 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain((report,))
+        presenter.render_explain(report)
 
         assert (
             "\x1b[1;32mSummary: 0 dependency declarations have verified floors."
-            "\x1b[0m\n"
-            in stdout.getvalue()
+            "\x1b[0m\n" in stdout.getvalue()
         )

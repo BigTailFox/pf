@@ -25,8 +25,9 @@ from pf.schemas.project import (
     InterpreterIdentity,
     PackagePlan,
     Proposal,
-    SourcePlan,
     SourceSnapshotIdentity,
+    package_source_plan,
+    source_plan_identity,
     source_snapshot_digest,
 )
 from pf.schemas.report import (
@@ -51,7 +52,7 @@ def _package(cell: Cell) -> PackagePlan:
         config=EffectiveConfig(),
         declarations=(),
         cells=(cell,),
-        source_plan=SourcePlan(identities=()),
+        source_routes=(),
     )
 
 
@@ -81,7 +82,9 @@ def _complete_report() -> PackageFloorReportV1Wire:
             requested_resolution="highest",
             requested_managed_vector=None,
             active_declaration_ids=(),
-            source_plan_identity="sources",
+            source_plan_identity=source_plan_identity(
+                package_source_plan(package, "SEARCH")
+            ),
             evaluation_policy_identity=policy,
             resolution_context_digest="context",
             harness_policy_identity="original-harness-v1",

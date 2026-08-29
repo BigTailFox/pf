@@ -355,6 +355,31 @@ class TestFailurePolicy:
             is None
         )
 
+    def test_indeterminate_evaluation_projects_structured_failure_detail(self) -> None:
+        _, _, passed = _highest_evidence()
+        detail = FailureDetail(
+            code="managed-source-mismatch",
+            message="the selected source did not match the SourcePlan",
+        )
+        evaluation = IndeterminateEvaluation(
+            proposal=passed.proposal,
+            cause="INTERNAL_INVARIANT",
+            failure=ToolFailure(
+                cause="INTERNAL_INVARIANT",
+                stage="resolve-project",
+                process=None,
+                detail=detail,
+            ),
+        )
+
+        record = FailurePolicy().record_evaluation(
+            AttemptFailureScope(attempt=_highest_attempt()),
+            evaluation,
+        )
+
+        assert record is not None
+        assert record.detail == detail
+
 
 class TestFailureRecords:
     def test_configured_verifier_failure_identity_contains_only_terminal_facts(

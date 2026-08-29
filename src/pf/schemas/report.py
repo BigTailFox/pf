@@ -1271,6 +1271,7 @@ class CandidateSnapshotV1(FrozenSchema):
     dependency: str
     cell_ref: str
     policy_identity: str
+    source_plan_identity: str
     source: SourceIdentity
     candidates: tuple[Candidate, ...]
     series_representatives: tuple[tuple[str, str], ...]

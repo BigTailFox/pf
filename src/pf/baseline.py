@@ -25,7 +25,7 @@ from pf.schemas.evaluation import (
     VerifierRejectedEvaluation,
     ToolFailure,
 )
-from pf.schemas.project import Cell, PackagePlan
+from pf.schemas.project import Cell, PackagePlan, ResolutionSourceMode
 from pf.snapshot import SourceSnapshot
 
 
@@ -37,6 +37,7 @@ class HighestEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
+        source_mode: ResolutionSourceMode,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -82,6 +83,7 @@ class HighestVersionVerifier:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
+        source_mode: ResolutionSourceMode,
     ) -> HighestVersionOutcome:
         require_full_evaluation_contract(package, "highest-version verification")
         prepared = self._environments.prepare(
@@ -89,6 +91,7 @@ class HighestVersionVerifier:
             cell=cell,
             snapshot=snapshot,
             resolution=HighestResolution(),
+            source_mode=source_mode,
         )
         if isinstance(prepared, ToolFailure):
             raise ValueError("highest-version prepare must establish an Attempt")
@@ -99,6 +102,7 @@ class HighestVersionVerifier:
                 stage=prepared.failure.stage,
                 process=prepared.failure.process,
                 summary_code=prepared.failure.summary_code,
+                detail=prepared.failure.detail,
                 project_plan_digest=prepared.project_plan_digest,
                 environment_plan_digest=prepared.environment_plan_digest,
             )

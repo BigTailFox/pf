@@ -54,7 +54,9 @@ class TestSnapshotBuilder:
         )
         dependency_edit.close()
 
-        assert dependency_identity.remainder_digest == original_identity.remainder_digest
+        assert (
+            dependency_identity.remainder_digest == original_identity.remainder_digest
+        )
         assert (
             dependency_identity.dependency_arrays_digest
             != original_identity.dependency_arrays_digest
@@ -77,12 +79,14 @@ class TestSnapshotBuilder:
             remainder_identity.dependency_arrays_digest
             == dependency_identity.dependency_arrays_digest
         )
-        assert remainder_identity.remainder_digest != dependency_identity.remainder_digest
+        assert (
+            remainder_identity.remainder_digest != dependency_identity.remainder_digest
+        )
 
     def test_pyproject_identity_is_stable_for_equal_parsed_toml_types(
         self,
     ) -> None:
-        first = b'''# layout does not matter
+        first = b"""# layout does not matter
 [identity]
 text = "1"
 truth = true
@@ -96,8 +100,8 @@ local_datetime = 1979-05-27T07:32:00
 local_date = 1979-05-27
 local_time = 07:32:00
 values = [1, "1", true]
-'''
-        second = b'''[identity]
+"""
+        second = b"""[identity]
 values=[1,"1",true]
 local_time=07:32:00
 local_date=1979-05-27
@@ -110,7 +114,7 @@ float=1.0
 integer=1
 truth=true
 text="1"
-'''
+"""
 
         left = SnapshotBuilder.pyproject_identity(
             path="pyproject.toml",
@@ -145,8 +149,7 @@ text="1"
 
         assert missing.remainder_digest == present_empty.remainder_digest
         assert (
-            missing.dependency_arrays_digest
-            != present_empty.dependency_arrays_digest
+            missing.dependency_arrays_digest != present_empty.dependency_arrays_digest
         )
 
     def test_git_snapshot_handles_unavailable_process_terminal(

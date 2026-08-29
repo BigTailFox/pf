@@ -66,7 +66,7 @@ test-command = ["python", "-c", "pass"]
         + "\n",
         encoding="utf-8",
     )
-    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+    package = ProjectLoader().load(root=tmp_path).target
     return package, SnapshotBuilder.without_processes().build(tmp_path)
 
 
@@ -170,9 +170,7 @@ class TestHighestVersionVerifier:
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         resolutions: list[ResolutionRequest] = []
         prepared_items: list[PreparedEnvironment] = []
@@ -186,7 +184,9 @@ class TestHighestVersionVerifier:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
+                source_mode: object,
             ) -> PreparedEnvironment:
+                assert source_mode == "SEARCH"
                 resolutions.append(resolution)
                 temporary = tempfile.TemporaryDirectory(prefix="pf-highest-test-")
                 root = Path(temporary.name)
@@ -263,9 +263,7 @@ class TestHighestVersionVerifier:
                     evaluation=PassEvaluation(
                         proposal=prepared.proposal,
                         static=static_result,
-                        verifier=VerifierPass(
-                            terminal=NormalExit(exit_code=0)
-                        ),
+                        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
                     )
                 )
 
@@ -277,6 +275,7 @@ class TestHighestVersionVerifier:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
+            source_mode="SEARCH",
         )
 
         assert isinstance(result, HighestVersionPass)
@@ -309,9 +308,7 @@ class TestHighestVersionVerifier:
             + "\n",
             encoding="utf-8",
         )
-        package = (
-            ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
-        )
+        package = ProjectLoader().load(root=tmp_path).target
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         identity = AttemptIdentity(
             source_snapshot_digest=snapshot.identity.digest,
@@ -353,7 +350,12 @@ class TestHighestVersionVerifier:
             environments=Environments(),
             static=NeverStatic(),
             full=NeverFull(),
-        ).verify(package=package, cell=package.cells[0], snapshot=snapshot)
+        ).verify(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+        )
 
         assert isinstance(result, BaselineIndeterminate)
         assert result.failure.disposition == "INDETERMINATE"
@@ -384,7 +386,12 @@ class TestHighestVersionVerifier:
             environments=Environments(),
             static=_NeverStatic(),
             full=_NeverFull(),
-        ).verify(package=package, cell=package.cells[0], snapshot=snapshot)
+        ).verify(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+        )
 
         assert isinstance(result, BaselineIndeterminate)
         assert result.failure.cause == "SOURCE_FAILURE"
@@ -410,7 +417,12 @@ class TestHighestVersionVerifier:
                 environments=cast(HighestEnvironmentOperations, Environments()),
                 static=_NeverStatic(),
                 full=_NeverFull(),
-            ).verify(package=package, cell=package.cells[0], snapshot=snapshot)
+            ).verify(
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                source_mode="SEARCH",
+            )
 
     def test_highest_version_verifier_retains_indeterminate_static_capture(
         self,
@@ -442,7 +454,12 @@ class TestHighestVersionVerifier:
             environments=Environments(),
             static=Static(),
             full=_NeverFull(),
-        ).verify(package=package, cell=package.cells[0], snapshot=snapshot)
+        ).verify(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+        )
 
         assert isinstance(result, BaselineIndeterminate)
         assert result.evaluation is not None
@@ -509,7 +526,12 @@ class TestHighestVersionVerifier:
             environments=Environments(),
             static=Static(),
             full=Full(),
-        ).verify(package=package, cell=package.cells[0], snapshot=snapshot)
+        ).verify(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_mode="SEARCH",
+        )
 
         assert result.status == expected_status
         assert isinstance(result, (BaselineRejection, BaselineIndeterminate))

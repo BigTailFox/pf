@@ -351,6 +351,10 @@
         },
         "source": {
           "$ref": "#/$defs/SourceIdentity"
+        },
+        "source_plan_identity": {
+          "title": "Source Plan Identity",
+          "type": "string"
         }
       },
       "required": [
@@ -360,7 +364,8 @@
         "dependency",
         "policy_identity",
         "series_representatives",
-        "source"
+        "source",
+        "source_plan_identity"
       ],
       "title": "CandidateSnapshotV1",
       "type": "object"
@@ -769,6 +774,39 @@
       "title": "CoordinateSuccessV1",
       "type": "object"
     },
+    "DependencySourceRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency": {
+          "title": "Dependency",
+          "type": "string"
+        },
+        "development_source": {
+          "$ref": "#/$defs/SourceIdentity"
+        },
+        "search_source": {
+          "$ref": "#/$defs/SourceIdentity"
+        },
+        "workspace_member_version": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StaticWorkspaceMemberVersion"
+            },
+            {
+              "$ref": "#/$defs/DynamicWorkspaceMemberVersion"
+            }
+          ],
+          "title": "Workspace Member Version"
+        }
+      },
+      "required": [
+        "dependency",
+        "development_source",
+        "search_source"
+      ],
+      "title": "DependencySourceRoute",
+      "type": "object"
+    },
     "DiagnosticClassification": {
       "additionalProperties": false,
       "properties": {
@@ -895,6 +933,21 @@
         "status"
       ],
       "title": "DirectRejectionV1",
+      "type": "object"
+    },
+    "DynamicWorkspaceMemberVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "dynamic",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "DynamicWorkspaceMemberVersion",
       "type": "object"
     },
     "FailureDetail": {
@@ -1756,9 +1809,6 @@
           "title": "Requested Extras",
           "type": "array"
         },
-        "source": {
-          "$ref": "#/$defs/SourceIdentity"
-        },
         "specifier": {
           "title": "Specifier",
           "type": "string"
@@ -1774,7 +1824,6 @@
         "pyproject_path",
         "raw",
         "requested_extras",
-        "source",
         "specifier"
       ],
       "title": "RequirementDeclaration",
@@ -2126,16 +2175,25 @@
     "SourcePlan": {
       "additionalProperties": false,
       "properties": {
-        "identities": {
+        "routes": {
           "items": {
-            "$ref": "#/$defs/SourceIdentity"
+            "$ref": "#/$defs/DependencySourceRoute"
           },
-          "title": "Identities",
+          "title": "Routes",
           "type": "array"
+        },
+        "source_mode": {
+          "enum": [
+            "DEVELOPMENT",
+            "SEARCH"
+          ],
+          "title": "Source Mode",
+          "type": "string"
         }
       },
       "required": [
-        "identities"
+        "routes",
+        "source_mode"
       ],
       "title": "SourcePlan",
       "type": "object"
@@ -2380,6 +2438,26 @@
         "ty"
       ],
       "title": "StaticUnchangedEvaluationV1",
+      "type": "object"
+    },
+    "StaticWorkspaceMemberVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "static",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "StaticWorkspaceMemberVersion",
       "type": "object"
     },
     "StructuredFailureAuthority": {

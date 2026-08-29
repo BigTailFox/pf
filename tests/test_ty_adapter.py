@@ -59,7 +59,9 @@ class ResultRunner:
 
 
 class TestTyAdapter:
-    def test_ty_adapter_handles_unavailable_process_terminal(self, tmp_path: Path) -> None:
+    def test_ty_adapter_handles_unavailable_process_terminal(
+        self, tmp_path: Path
+    ) -> None:
         result = TyAdapter(ResultRunner(ProcessTerminalUnavailable())).check(
             interpreter=tmp_path / ".venv/bin/python",
             package=tmp_path,

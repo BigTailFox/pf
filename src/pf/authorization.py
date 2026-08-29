@@ -5,6 +5,7 @@ from typing import Iterable, Literal
 
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 from pf.errors import ApplyAuthorizationError, NoApplicableFloorError
 from pf.policy import evaluation_policy_identity
@@ -24,10 +25,12 @@ from pf.schemas.project import (
     ProjectPlan,
     PyprojectIdentity,
     RequirementDeclaration,
-    SourceIdentity,
+    DynamicWorkspaceMemberVersion,
+    StaticWorkspaceMemberVersion,
     SourceSnapshotIdentity,
     cell_identity,
     dependency_group_key,
+    package_source_plan,
 )
 from pf.schemas.report import CellResult, CellSuccess, FloorProjection
 from pf.snapshot import SourceSnapshot
@@ -48,46 +51,26 @@ class ApplyAuthorizer:
     def authorize(
         self,
         *,
-        reports: tuple[ValidatedReport, ...],
+        report: ValidatedReport,
         project: ProjectPlan,
         current_snapshot: SourceSnapshot,
         force: bool,
     ) -> AuthorizedWorkspaceApply:
-        if not reports or len(reports) != len(project.packages):
-            raise ApplyAuthorizationError("workspace report selection is incomplete")
-        if any(
-            report.source_snapshot != reports[0].source_snapshot
-            for report in reports[1:]
+        package = project.target
+        if (report.package.name, report.package.pyproject_path) != (
+            package.name,
+            package.pyproject_path,
         ):
-            raise ApplyAuthorizationError(
-                "workspace reports use different source generations"
-            )
-        report_by_package = {
-            (report.package.name, report.package.pyproject_path): report
-            for report in reports
-        }
-        if len(report_by_package) != len(reports):
-            raise ApplyAuthorizationError(
-                "workspace reports contain duplicate packages"
-            )
-
-        package_applies: list[AuthorizedPackageApply] = []
-        for package in project.packages:
-            report = report_by_package.get((package.name, package.pyproject_path))
-            if report is None:
-                raise ApplyAuthorizationError("report package identity mismatch")
-            package_apply = self._authorize_package(
-                report=report,
-                package=package,
-                current_snapshot=current_snapshot,
-            )
-            package_applies.append(package_apply)
-
-        selected_paths = frozenset(
-            package.pyproject_path for package in project.packages
+            raise ApplyAuthorizationError("report package identity mismatch")
+        package_apply = self._authorize_package(
+            report=report,
+            package=package,
+            current_snapshot=current_snapshot,
         )
+
+        selected_paths = frozenset((package.pyproject_path,))
         changed_paths = self._source_layer_changes(
-            expected=reports[0].source_snapshot,
+            expected=report.source_snapshot,
             current=current_snapshot.identity,
             selected_pyprojects=selected_paths,
             owned_pyproject_paths=project.owned_pyproject_paths,
@@ -97,17 +80,13 @@ class ApplyAuthorizer:
                 "project source snapshot has drifted since search"
             )
         selectors = self._ordered_selectors(
-            selector
-            for package_apply in package_applies
-            for selector in package_apply.selected_selectors
+            package_apply.selected_selectors
         )
         preserved = self._ordered_selectors(
-            selector
-            for package_apply in package_applies
-            for selector in package_apply.preserved_selectors
+            package_apply.preserved_selectors
         )
         presentation = ApplyPresentationFacts(
-            observed_cells=sum(item.observed_cells for item in package_applies),
+            observed_cells=package_apply.observed_cells,
             selected_selectors=selectors,
             preserved_selectors=preserved,
             source_drift_path_count=len(changed_paths),
@@ -118,7 +97,7 @@ class ApplyAuthorizer:
             waivers_used=("SOURCE_SNAPSHOT_DRIFT",) if changed_paths else (),
             expected_snapshot=current_snapshot.identity,
             owned_pyproject_paths=project.owned_pyproject_paths,
-            package_applies=tuple(package_applies),
+            package_apply=package_apply,
             presentation_facts=presentation,
         )
 
@@ -131,7 +110,7 @@ class ApplyAuthorizer:
     ) -> AuthorizedPackageApply:
         if report.policy_identity != evaluation_policy_identity(package.config):
             raise ApplyAuthorizationError("report evaluation policy mismatch")
-        if report.source_plan != package.source_plan:
+        if report.source_plan != package_source_plan(package, "SEARCH"):
             raise ApplyAuthorizationError("report dependency source plan mismatch")
         if self._requires_python(
             report.package.requires_python
@@ -184,6 +163,10 @@ class ApplyAuthorizer:
             report_groups,
             target_cells=report.target_cells,
         )
+        self._validate_workspace_member_versions(
+            package=package,
+            intended_requirements=intended_requirements,
+        )
         current_semantics = self._declaration_group_semantics(
             current_groups,
             target_cells=report.target_cells,
@@ -228,6 +211,50 @@ class ApplyAuthorizer:
             observed_cells=observed_cells,
             authorized_edits=authorized_edits,
         )
+
+    @staticmethod
+    def _validate_workspace_member_versions(
+        *,
+        package: PackagePlan,
+        intended_requirements: dict[GroupKey, tuple[str, ...]],
+    ) -> None:
+        for route in package.source_routes:
+            if not (
+                route.development_source.kind == "workspace"
+                and route.search_source.kind == "registry"
+            ):
+                continue
+            requirements = tuple(
+                raw
+                for key, values in intended_requirements.items()
+                if key[3] == route.dependency
+                for raw in values
+            )
+            if not requirements:
+                continue
+            intended = requirements[0]
+            member_version = route.workspace_member_version
+            if isinstance(member_version, DynamicWorkspaceMemberVersion):
+                raise ApplyAuthorizationError(
+                    f"Cannot apply {intended}: workspace member "
+                    f"{route.dependency} declares its version dynamically.\n"
+                    "PF cannot verify offline that the local member satisfies the "
+                    "intended requirement.\n"
+                    "Next: apply the requirement manually and run pf smoke, or "
+                    "declare a static [project].version."
+                )
+            if not isinstance(member_version, StaticWorkspaceMemberVersion):
+                raise ApplyAuthorizationError(
+                    f"workspace member version metadata is missing: {route.dependency}"
+                )
+            version = Version(member_version.value)
+            if any(version not in Requirement(raw).specifier for raw in requirements):
+                raise ApplyAuthorizationError(
+                    f"Cannot apply {intended}: workspace member {route.dependency} "
+                    f"version {version} does not satisfy the intended requirement.\n"
+                    "Next: update the local member version or apply the requirement "
+                    "manually and run pf smoke."
+                )
 
     def _platform_authority(
         self,
@@ -365,7 +392,6 @@ class ApplyAuthorizer:
                     [
                         self._requirement_semantic(
                             raw=declaration.raw,
-                            source=declaration.source,
                             kind=declaration.kind,
                             managed=declaration.managed,
                             target_cells=target_cells,
@@ -388,19 +414,12 @@ class ApplyAuthorizer:
         result = {}
         for key, requirements in groups.items():
             declarations = report_groups[key]
-            sources = {item.source for item in declarations}
-            if len(sources) != 1:
-                raise ApplyAuthorizationError(
-                    "dependency group has ambiguous source identity"
-                )
-            source = next(iter(sources))
             preserved = {item.raw: item for item in declarations if not item.managed}
             result[key] = tuple(
                 sorted(
                     [
                         self._requirement_semantic(
                             raw=raw,
-                            source=source,
                             kind=(
                                 preserved[raw].kind
                                 if raw in preserved
@@ -422,7 +441,6 @@ class ApplyAuthorizer:
     def _requirement_semantic(
         *,
         raw: str,
-        source: SourceIdentity,
         kind: str,
         managed: bool,
         target_cells: tuple[Cell, ...],
@@ -443,7 +461,6 @@ class ApplyAuthorizer:
             marker,
             activation,
             requirement.url,
-            source.model_dump_json(),
             kind,
             managed,
         )

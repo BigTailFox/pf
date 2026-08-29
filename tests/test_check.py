@@ -127,7 +127,9 @@ def attempt_for(
     )
 
 
-def resolution_kind(resolution: ResolutionRequest) -> Literal["highest", "lowest-direct"]:
+def resolution_kind(
+    resolution: ResolutionRequest,
+) -> Literal["highest", "lowest-direct"]:
     assert isinstance(resolution, (HighestResolution, LowestDirectResolution))
     return resolution.kind
 
@@ -181,7 +183,7 @@ platform = ["x86_64-unknown-linux-gnu"]
         + "\n",
         encoding="utf-8",
     )
-    package = ProjectLoader().load(root=tmp_path, package_selection=None).packages[0]
+    package = ProjectLoader().load(root=tmp_path).target
     return package, SnapshotBuilder.without_processes().build(tmp_path)
 
 
@@ -203,12 +205,11 @@ class TestCompatibilityChecker:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
+                source_mode: object,
             ) -> PreparedEnvironment:
                 kind = resolution_kind(resolution)
                 resolutions.append(kind)
-                temporary = tempfile.TemporaryDirectory(
-                    prefix=f"pf-check-{kind}-"
-                )
+                temporary = tempfile.TemporaryDirectory(prefix=f"pf-check-{kind}-")
                 root = Path(temporary.name)
                 source = root / "source"
                 environment = root / "environment"
@@ -300,9 +301,7 @@ class TestCompatibilityChecker:
                     evaluation=PassEvaluation(
                         proposal=prepared.proposal,
                         static=static,
-                        verifier=VerifierPass(
-                            terminal=NormalExit(exit_code=0)
-                        ),
+                        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
                     )
                 )
 
@@ -311,7 +310,7 @@ class TestCompatibilityChecker:
             static=Static(),
             full=Full(),
             events=events,
-        ).check(package=package, cell=package.cells[0], snapshot=snapshot)
+        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_mode="SEARCH")
 
         assert result.status == "PASS"
         assert resolutions == ["highest", "lowest-direct"]
@@ -358,6 +357,7 @@ class TestCompatibilityChecker:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
+                source_mode: object,
             ) -> PrepareFailure:
                 kind = resolution_kind(resolution)
                 resolutions.append(kind)
@@ -385,9 +385,7 @@ class TestCompatibilityChecker:
                 )
 
         class NeverFull:
-            def evaluate(
-                self, *args: object, **kwargs: object
-            ) -> RuntimeEvaluationRun:
+            def evaluate(self, *args: object, **kwargs: object) -> RuntimeEvaluationRun:
                 raise AssertionError(
                     "lowest-direct must not start after capture failure"
                 )
@@ -397,7 +395,7 @@ class TestCompatibilityChecker:
             static=NeverStatic(),
             full=NeverFull(),
             events=events,
-        ).check(package=package, cell=cell, snapshot=snapshot)
+        ).check(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
 
         assert resolutions == ["highest"]
         assert result.status == "INDETERMINATE"
@@ -441,6 +439,7 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> CheckCellOutcome:
                 seen.append(cell.target)
                 return indeterminate_outcome(cell)
@@ -449,9 +448,7 @@ class TestCompatibilityChecker:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(
-                events=Events(), logs=None
-            ),
+            verification=VerificationRunner(events=Events(), logs=None),
             events=Events(),
             host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
@@ -470,6 +467,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -478,9 +476,7 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(
-                events=events, logs=None
-            ),
+            verification=VerificationRunner(events=events, logs=None),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
@@ -528,6 +524,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> Evaluation:
                 raise AssertionError(
                     "invalid configuration must fail before evaluation"
@@ -538,9 +535,7 @@ class TestCheckWorkflow:
                 projects=ProjectLoader(),
                 snapshots=SnapshotBuilder.without_processes(),
                 checker=cast(CompatibilityChecker, NeverChecker()),
-                verification=VerificationRunner(
-                    events=Events(), logs=None
-                ),
+                verification=VerificationRunner(events=Events(), logs=None),
                 events=Events(),
                 host_target=host,
             ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
@@ -564,6 +559,7 @@ class TestCheckWorkflow:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
+                source_mode: object,
             ) -> PreparedEnvironment:
                 kind = resolution_kind(resolution)
                 directory = tempfile.TemporaryDirectory(prefix="pf-check-test-")
@@ -659,9 +655,7 @@ class TestCheckWorkflow:
                         evaluation=VerifierRejectedEvaluation(
                             proposal=prepared.proposal,
                             static=static,
-                            verifier=VerifierRejected(
-                                terminal=NormalExit(exit_code=1)
-                            ),
+                            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
                         )
                     )
                 failure = ToolFailure(cause="TOOL_FAILURE", stage="ty", process=process)
@@ -677,7 +671,7 @@ class TestCheckWorkflow:
             environments=Environments(),
             static=Static(),
             full=Full(),
-        ).check(package=package, cell=package.cells[0], snapshot=snapshot)
+        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_mode="SEARCH")
 
         assert (
             result.status
@@ -719,6 +713,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> CheckCellOutcome:
                 if indeterminate:
                     return indeterminate_outcome(cell)
@@ -729,9 +724,7 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(
-                events=events, logs=None
-            ),
+            verification=VerificationRunner(events=events, logs=None),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
@@ -777,6 +770,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -785,9 +779,7 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(
-                events=events, logs=None
-            ),
+            verification=VerificationRunner(events=events, logs=None),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
@@ -837,6 +829,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
+                source_mode: object,
             ) -> CheckCellOutcome:
                 nonlocal active, maximum_active
                 with lock:
@@ -860,9 +853,7 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(
-                events=events, logs=None
-            ),
+            verification=VerificationRunner(events=events, logs=None),
             events=events,
             host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=2))
