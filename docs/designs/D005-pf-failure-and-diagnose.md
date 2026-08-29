@@ -47,8 +47,8 @@ NONDETERMINISTIC
 ## 2. Attempt 与 scope
 
 Attempt 在 environment resolution 前建立，identity 绑定 source snapshot、完整 Cell、
-resolution request、exact managed vector、active declarations、source/evaluation/resolution/
-harness policy 以及可用 selected-candidate evidence。Schema 1 只接受 `attempt-v2`。
+resolution request、exact managed vector、active declarations、逐dependency route与source mode的
+SourcePlan identity、evaluation/resolution/harness policy以及可用selected-candidate evidence。Schema 1只接受`attempt-v2`。
 
 Failure scope 是判别 union：
 
@@ -107,6 +107,12 @@ FailureRecord
 - configured verifier 只保存 `VerifierTerminal`，不重复保存完整 `ProcessResult`；
 - scheduler/source 等无进程路径保存稳定、脱敏、可移植 `FailureDetail`。
 
+SEARCH resolution 若managed workspace coordinate仍选择local/editable source，使用
+`INTERNAL_INVARIANT @ resolve-project`与structured `managed-source-leakage`；registry
+version/source/artifact不闭合，或environment plan未精确保留project selection，使用structured
+`managed-source-mismatch`。两者均为Indeterminate，只保存稳定code/message及失败前已取得的plan
+digests，不保存locator或动态stderr。
+
 `failure_id` 对完整 v2 preimage 做 canonical hash：
 
 ```text
@@ -147,7 +153,7 @@ Rejection classifier。Role 不改变分类或 identity。
 ## 6. Diagnose
 
 报告、latest Journal 和 Diagnosis Index 的读取范围、优先级与去重只由 D008 定义。
-`pf diagnose [package] [--failure FAILURE_ID]`：
+`pf diagnose [--package PACKAGE] [--failure FAILURE_ID]`：
 
 - 指定 ID 不存在时配置失败；
 - 省略 ID 时按 package、Cell、Attempt/vector 与 failure ID 稳定排序；

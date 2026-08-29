@@ -1,7 +1,7 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-08-29
 - **适用范围：** search probe 与 `check` Declaration Attempt 的环境准备
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -41,6 +41,13 @@ E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
 - Python、target、marker 与 wheel-tag 环境；
 - release cutoff 与共享 cache policy。
 
+一次 `VerificationRun` 还固定单个 target package 与 `ResolutionSourceMode`。Loader 为 target
+每条 direct declaration 给出规范化 `DependencySourceRoute(development_source, search_source,
+workspace_member_version)`；mode 选择每条 route 的有效 source，并与 ordered routes 一同形成
+`SourcePlan` identity。`smoke` 使用 `DEVELOPMENT`，`check`/`search` 使用 `SEARCH`。Candidate、
+harness、project/environment resolution、Attempt 和 report 必须消费同一 identity，resolver 不得
+重新读取 source table 推导另一条领域 route。
+
 `UvAdapter` 运行 resolver 与 installer 时必须隔离用户级 uv 配置文件及外部 source-selection
 环境变量，只消费 source snapshot 内的 `pyproject.toml [tool.uv]` 与显式 RegistryAccess
 凭据。进程级额外 index、find-links 或 config-file 不得绕过 `SourcePlan` 进入解析。
@@ -58,6 +65,29 @@ E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
 | search probe | `exact-vector` | relaxed | 由 D003 决定 |
 
 Baseline 和 declaration-capture 不用 relaxed harness 修复用户当前声明的验证锚点。空 testing group 等价于空 harness。
+
+### 2.2 Workspace source 投影
+
+`UvAdapter` 独占 `SourcePlan -> uv argv` 投影。SEARCH mode 中，只有 development source 为
+workspace 且 search source 为 registry 的受管 direct dependency 进入 suppression 集；名称按
+canonical distribution name 排序、去重，并在 project/environment 两次 compile 中生成完全相同的
+重复参数：
+
+```text
+--no-sources-package <dependency>
+```
+
+DEVELOPMENT 或空集合不增加参数。全局 `--no-sources` 禁止使用；adapter 同时从子进程环境移除
+`UV_NO_SOURCES`、`UV_NO_SOURCES_PACKAGE` 及其它 uv index/source 注入。installation 只消费已经
+校验的最终 native plan，不重新选择 source，也不改写 Proposal 或 checkout 的
+`[tool.uv.sources]`。
+
+SEARCH project plan 对每个上述受管 coordinate 必须满足：highest/lowest resolution 的 source 与
+规范 registry locator 等价且 native plan 含带 locator/hash 的 artifact alternatives；exact-vector
+以 CandidateSnapshot 选定的 artifact URL/hash materialize 时，version、filename、locator 与 hash
+必须全部匹配。path/workspace leakage、缺 artifact 或 source/artifact mismatch 在 Proposal 建立前
+fail closed。project graph 随后必须按名称、版本、source 与可靠 selected artifact 原样嵌入
+environment plan；安装图再复证最终名称/版本图。
 
 ## 3. Structured harness
 
@@ -159,6 +189,18 @@ Raw artifact alternatives 可以作为 native provenance 保留，但不是 PF c
 - sdist build failure；
 - timeout、signal、启动失败、输出不完整或未知 diagnostic shape。
 
+截至 2026-08-29，同一固定 uv 的 workspace source manifest 位于
+[`tests/uv_workspace_qualification/matrix-manifest.json`](../../tests/uv_workspace_qualification/matrix-manifest.json)。
+root source、member source 与两处等价声明均资格化两个受管 suppression、registry candidate、
+highest 与 exact-artifact Attempt、每个 Attempt 的 two resolutions/one install、native plan、安装图、
+一个未受管 in-tree path source 保留，以及 source table byte preservation。
+
+固定 uv `0.12.5` 在同一次 compile 中一旦逐包 suppression 任一 workspace source，就不能继续解析
+另一条未被 suppression 的 `{ workspace = true }` source。PF 不增加全局或额外逐包 suppression，
+不把该 source 改写为 path，也不回退 development graph；这种 mixed source class 当前未资格化，
+在 `resolve-project` 以 ToolFailure/Indeterminate fail closed。需要该组合的项目必须把本地固定依赖
+声明为显式 in-tree path source，或等待新的 uv profile 完成资格化。
+
 更换 uv 版本必须更新精确 allowlist、profile、qualification manifest 和 classifier tests。退出码只校验完整 outcome，不能独立决定领域结果。
 
 ## 6. Interface 与 identity
@@ -171,6 +213,8 @@ EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
 
 `EnvironmentFactory.prepare` 是上层唯一环境准备入口；harness relaxation、两次 resolution、一次 installation 和 graph 复证都隐藏在其内。
+调用者只传 package、Cell、resolution request、snapshot 与 source mode；suppression names 不是 public
+interface。
 
 Request 类型限制非法组合：
 
@@ -204,6 +248,8 @@ Identity 按取得证据的时点分开：
 - Harness transitive resolution 归 uv 所有。
 - 只有已认证且 evidence 完整的 resolver conflict 可以拒绝 Attempt。
 - source、artifact、build、tool 和未知失败保持 Indeterminate。
+- source mode/routes 在一次 Attempt 内固定；两次 compile 的逐 package suppression 必须相同。
+- 未资格化的 mixed managed-suppressed/unmanaged-workspace source 不得通过 local fallback 继续。
 
 ## 9. 非目标
 

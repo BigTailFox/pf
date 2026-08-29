@@ -17,13 +17,13 @@ PF v1 以一个可独立安装的包和一个兼容性 cell 为搜索单位：
 ## 命令契约
 
 ```text
-pf smoke [package] [--jobs auto|N]
-pf check [package] [--jobs auto|N]
-pf search [package] [--jobs auto|N] [--max-duration DURATION]
-pf apply [package]
-pf minimize [package] [--jobs auto|N] [--max-duration DURATION]
-pf explain [package]
-pf diagnose [package] [--failure FAILURE_ID]
+pf smoke [--package PACKAGE] [--jobs auto|N]
+pf check [--package PACKAGE] [--jobs auto|N]
+pf search [--package PACKAGE] [--jobs auto|N] [--max-duration DURATION]
+pf apply [--package PACKAGE]
+pf minimize [--package PACKAGE] [--jobs auto|N] [--max-duration DURATION]
+pf explain [--package PACKAGE]
+pf diagnose [--package PACKAGE] [--failure FAILURE_ID]
 pf merge REPORT [REPORT ...] --output PATH
 ```
 
@@ -39,6 +39,8 @@ uv run pf apply
 ```
 
 项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
+省略`--package`选择可安装的workspace root；显式值只按规范distribution name选择一个workspace
+member，不接受目录或`pyproject.toml`路径。
 
 PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当前 resolver protocol 只支持 uv `0.12.5`；其他 uv 版本会 fail closed，不沿用未经 qualification 的诊断 parser。升级任一工具都必须先复跑对应验证，再更新精确版本。
 

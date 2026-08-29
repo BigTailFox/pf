@@ -43,11 +43,12 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
 
 命令说明来自可解析 docstring；参数说明来自唯一 `Parameter(help=...)`，不维护第二套手写 help 页面。
 
-`package` 对所有相关命令都是 optional positional-only 参数：
+所有package-scoped命令只提供同一个optional长选项，不提供短别名或package positional：
 
 ```text
-PACKAGE  Package name, directory, or pyproject.toml path. Omit to select all
-         installable packages allowed by the root configuration.
+--package PACKAGE
+    Select one installable package by distribution name. Omit to select the
+    installable workspace root.
 ```
 
 公共选项：
@@ -68,7 +69,7 @@ PACKAGE  Package name, directory, or pyproject.toml path. Omit to select all
 
 ## 3. 调用错误
 
-未知 command/option、缺失或多余参数、非法 jobs/duration、未知 package 与 request 构造错误都形成 D001 的调用错误结果。结构错误尽早由 Cyclopts 拒绝；Request Schema 只作 defense-in-depth。不得宽泛捕获深模块 ValidationError 并伪装成调用错误。
+未知 command/option、缺失或多余参数、非法 jobs/duration、非distribution-name形状的`--package`值与request构造错误都形成D001的调用错误结果。结构错误尽早由Cyclopts拒绝；Request Schema只作defense-in-depth。合法形状但未知/重复package、non-package root省略selector、配置字段与project planning失败都是配置错误。不得宽泛捕获深模块ValidationError并伪装成调用错误。
 
 所有按本节格式渲染的调用错误退出`1`；配置、Schema或apply授权错误不带Usage块并按D001退出`3`。
 
@@ -90,7 +91,7 @@ Try 'pf <command> --help' for more information.
 | warning、failure、incomplete/stopped summary | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
-`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的配置错误结果。无waiver的apply成功final summary走stdout；实际使用source waiver时，evidence/preserved/waived facts与warning final全部走stderr且退出0。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(reports, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。
+`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的配置错误结果。无waiver的apply成功final summary走stdout；实际使用source waiver时，evidence/preserved/waived facts与warning final全部走stderr且退出0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。
 
 TTY 运行中顺序固定：
 
@@ -194,7 +195,7 @@ search 若已有 coordinate progress，则先显示绿色已完成包行，再�
    The full test command failed for this version combination.
    FAILED tests/test_cli.py::test_example
    ... and 2 more
-   -> run `pf diagnose demo --failure failure-38ac8f69eb9a182a` for more information.
+   -> run `pf diagnose --package demo --failure failure-38ac8f69eb9a182a` for more information.
 ```
 
 固定层级：
@@ -230,7 +231,7 @@ path[:line[:column]] [check_name] single-line message
 <icon>  <command outcome> · <count/scope> · <artifact or next state>
 ```
 
-所有 renderer 复用统一 `0/1/N` 单复数 formatter。只有实际写入/修改的 artifact 能使用 `written | updated | merged`。多 package 先逐行列 artifact，再输出一条命令级 summary。
+所有 renderer 复用统一 `0/1/N` 单复数 formatter。只有实际写入/修改的 artifact 能使用 `written | updated | merged`。Package-scoped命令只有一个target artifact与一条命令级summary；`merge`仍可消费多份report。
 Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 
 典型结果：
@@ -239,10 +240,10 @@ Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 ✓ Smoke passed · 1 cell
 ✓ Check passed · 3 cells
 ✗ Check failed · declared lower bounds are incompatible · 1 cell
-✓ Search complete · 1 report · package-floor.json
-⚠ Search incomplete · 1 report written · 3 cells have no applicable floor
-! Search stopped · compatibility is unknown for 1 cell · report written: package-floor.json
-✗ Search stopped · highest-version baseline did not pass · 1 report written
+✓ Search complete · package-floor.json
+⚠ Search incomplete · package-floor.json written · 3 cells have no applicable floor
+! Search stopped · compatibility is unknown · package-floor.json written
+✗ Search stopped · highest-version baseline did not pass · package-floor.json written
 ✓ Applied floors · 1 project updated
 ✓ Applied floors · 1 project updated · platform-scoped to linux/x86_64 · preserved windows/x86_64
 ✓ Applied floors · no metadata changes
@@ -296,11 +297,11 @@ Search/incomplete reason 的主导映射：
 │ <outcome icon> <Cell identity>                            │
 │ <final status>                                            │
 │ <terminal reason>                                         │
-│ <optional exact pf diagnose --failure entry>              │
+│ <optional exact pf diagnose --package PACKAGE --failure>  │
 ╰──────────────────────────────────────────────────────────╯
 
 Summary: ...
-Next: pf apply PACKAGE
+Next: pf apply --package PACKAGE
 ```
 
 Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。多 marker requirements 在声明下缩进。Cell 卡片复用 smoke/check/search 的 outcome、identity、边框、Reason 和 diagnose-hint 视觉语言；TTY 使用 Rich Panel，非 TTY 保留相同信息顺序的纯文本降级。

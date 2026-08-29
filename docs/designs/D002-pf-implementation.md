@@ -133,16 +133,16 @@ main() -> None
 ## 6. Planning 与 source snapshot
 
 ```text
-ProjectDiscovery.discover(root=..., package_selection=...)
-    -> tuple[PackageLocation, ...]
+ProjectDiscovery.select(root=..., selector=RootPackage | WorkspacePackage)
+    -> PackageLocation
 
-ProjectLoader.load(root=..., package_selection=...)
+ProjectLoader.load(root=..., selector=...)
     -> ProjectPlan
 
 SnapshotBuilder.build(root, owned_pyproject_paths=...) -> SourceSnapshot
 ```
 
-`ProjectDiscovery` 只读取 identity/path 与 workspace/package selection，供在线与离线命令复用；canonical package name 必须唯一。`ProjectLoader` 在其上唯一完成三层配置、PEP 508 declaration、marker/extra Cell、source/index 与 recursive test-group planning，调用方只消费 `ProjectPlan`。
+`ProjectDiscovery` 只读取 identity/path 与 workspace/package selection，供在线与离线命令复用；省略 selector 时只返回可安装 root，`WorkspacePackage` 只按 canonical distribution name 唯一匹配并返回一个 location。`ProjectLoader` 在其上唯一完成三层配置、PEP 508 declaration、marker/extra Cell、逐 dependency source route、workspace member version 与 recursive test-group planning；`ProjectPlan.target` 是唯一执行 target。
 
 `ProjectPlan.owned_pyproject_paths`由discovery收集root、全部workspace candidates（包括未选中/排除member）和递归in-tree path packages。`SnapshotBuilder`负责Git/non-Git discovery、路径与symlink安全、普通blob、owned `PyprojectIdentity`的type-tagged canonical TOML编码、完整摘要、immutable staging、独立materialize和cleanup；所有在线workflow、authorizer与editor复用同一builder和owned paths。Git模式使用注入的ProcessRunner；`without_processes()`只允许non-Git traversal。Snapshot产品范围由D001、wire编码由D014定义。
 
@@ -151,9 +151,10 @@ SnapshotBuilder.build(root, owned_pyproject_paths=...) -> SourceSnapshot
 核心 interface：
 
 ```text
-CandidateBuilder.build(package, cell, baseline) -> tuple[CandidateSnapshot, ...]
+CandidateBuilder.build(package, cell, baseline, source_mode)
+    -> tuple[CandidateSnapshot, ...]
 
-EnvironmentFactory.prepare(package, cell, snapshot, resolution)
+EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_mode)
     -> PreparedEnvironment | PrepareFailure
 
 StaticEvaluator.capture/evaluate(...)
@@ -166,7 +167,7 @@ SearchCoordinator.search(...) -> CellResult
 VerificationRunner.run(VerificationRun) -> ordered outcomes
 ```
 
-`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。Request、structured harness、two-resolution plan、environment identity 和 install 边界由 D012 定义。
+`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。`VerificationRun.package` 与 `source_mode` 在跨 Cell 调度前固定；`smoke=DEVELOPMENT`，`check/search=SEARCH`。`PackagePlan.source_routes + source_mode` 规范化为同一 `SourcePlan`，由 candidate、harness、两次 resolution 与 Attempt/report identity 共同消费。Request、structured harness、two-resolution plan、environment identity 和 install 边界由 D012 定义。
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；测试后标记为可能污染。不同 Proposal 不通过原地 upgrade/downgrade 复用环境。
 
@@ -208,7 +209,7 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 | `ApplyAuthorizer` | report/current plan/snapshot的前置条件、platform scope、dependency state、source waiver与frozen authorized edits | TOML I/O、终端措辞、wire join |
 | `ProjectEditor` | expected snapshot/pyproject复核、authorized group replacement、raw CAS、写后验证、recovery/rollback | report internals、scope/projection/waiver推导 |
 
-`ApplyAuthorizer.authorize(reports, project, current_snapshot, force) -> AuthorizedWorkspaceApply`在任一package失败时不返回授权。`ProjectEditor.apply_many(authorization, root)`只执行冻结授权；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`只把edit结果和结构化presentation facts交给TerminalPresenter。
+`ApplyAuthorizer.authorize(report, project, current_snapshot, force) -> AuthorizedWorkspaceApply`只产生单数`package_apply`，但grant仍绑定全部owned pyproject identities以保护未选中member。`ProjectEditor.apply(authorization, root)`只执行冻结的target edits；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`只把edit结果和结构化presentation facts交给TerminalPresenter。
 
 ReportStore的interface与交易语义只见D014；Process Log只见D007，Journal/Index只见D008；apply产品授权只见D001，展示只见D006。
 

@@ -51,6 +51,7 @@ docs/
 ## 开放事项与归档
 
 - [R004](reviews/R004-pf-search-performance-review.md) 保留在现行目录，因为其中的性能优化候选尚未实施。
+- D017/P023的单target与workspace direct dependency迁移已完成；设计理由和实施证据见归档索引。
 - [归档索引](archived/README.md) 记录已归并设计、已完成计划、已解决评审和已吸收探索。
 
 新增文档先放入对应现行目录；Plan 完成、Design 被替代、Review 解决或 Investigation 被吸收后，在同一变更中移入 `archived/<type>/` 并修复引用。

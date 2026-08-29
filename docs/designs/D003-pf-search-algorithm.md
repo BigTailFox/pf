@@ -21,7 +21,7 @@ C[d] = [c0, ..., ck]
 V = {d1: version, ..., dn: version}
 ```
 
-- `B = V_hi`：当前声明的最高解析；开始搜索前已直接完整通过。
+- `B = V_hi`：SEARCH SourcePlan 下受管 direct coordinates 的最高合格 registry release 解析；开始搜索前已直接完整通过。Workspace member 当前版本不充当 baseline sentinel。
 - `current`：每个坐标提交后的向量；始终有该精确向量的直接 `test-command` pass。
 - `static frontier`：只有本 Proposal 的 TyCheck、increment 和 fingerprint，可用于调度但不是 PASS、boundary 或 current。
 - `V_final`：最终不动点；等于成功结果的 `final_vector`。
@@ -36,6 +36,7 @@ prepare 成功后才有 Proposal。prepare Rejection/Indeterminate 只有 Attemp
 Slice = (
   cell,
   source snapshot,
+  source plan identity (routes + SEARCH mode),
   policy identity,
   static baseline digest,
   active dependency,
@@ -50,7 +51,7 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 ## 3. 核心不变量
 
 1. `B` 有直接完整 PASS，并冻结本 cell 唯一的 D004 静态基线。
-2. 候选快照在本次 search 内不变。
+2. 候选快照在本次 search 内不变；每个 snapshot 绑定与 exact probe 相同的 registry search route 和 SourcePlan identity，不包含 workspace HEAD/member version。
 3. `current` 只能由该精确向量的直接 `test-command` pass 更新。
 4. static-only observation 没有 disposition；不能成为 ProbePass、ProbeRejection、boundary 或 final。
 5. 只有 D005 的 Probe Rejection 能移动拒绝边界；Indeterminate 立即停止 cell。
@@ -59,8 +60,8 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 8. static、witness 和 test 共享同一 cell/snapshot/policy/baseline context。
 9. 非单调判断只读取相同 Slice 中的直接 runtime observation，不读取 region guidance。
 10. 同一精确 Proposal 的完整 Evaluation 在一次 search 内最多执行一次。
-11. `CandidateSnapshot` 只冻结受管 project direct dependency 的搜索候选；harness 与任意 transitive distribution 完全属于 uv resolution，不建立 PF catalog、coordinate 或 floor。
-12. 一次 Verification Run 固定精确 uv profile、source policy、release cutoff 与共享 cache；相同 project/environment resolution input 最多解析一次，但 source 访问失败仍为 Indeterminate，不把 cache miss 解释为候选不存在。
+11. `CandidateSnapshot` 只冻结target受管project direct dependency的registry搜索候选；workspace member自身依赖、harness与任意transitive distribution完全属于uv resolution，不建立PF catalog、coordinate或floor。
+12. 一次 Verification Run 固定精确 uv profile、逐dependency SourcePlan、SEARCH mode、release cutoff 与共享 cache；相同 project/environment resolution input 最多解析一次，但 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。
 
 ## 4. SearchCoordinator 状态机
 

@@ -15,7 +15,8 @@
 ```text
 VerificationRun
   command: smoke | check | search
-  packages
+  package: one PackagePlan target
+  source_mode: DEVELOPMENT | SEARCH
   one immutable SourceSnapshot
   unique Cell tasks
   jobs
@@ -23,6 +24,8 @@ VerificationRun
 ```
 
 每个 Cell task 在外部 operation 前必须建立 Attempt；Attempt 前的 candidate discovery 或 scheduler deadline 只能形成 `CellFailureScope`。Prepare failure 保留完整 `PrepareFailure(attempt, failure, acquired plan digests)`，调用方不得 unwrap 成裸 ToolFailure。
+
+`source_mode`必须与命令闭合：`smoke=DEVELOPMENT`，`check/search=SEARCH`。它与package逐dependency routes形成Run级SourcePlan；Runner拒绝不匹配的mode或不属于该package的Cell task。
 
 一个 Cell 的链路是：
 
@@ -67,7 +70,7 @@ Role 进入 Journal 并决定 offline impact；它不进入 Attempt ID、Proposa
 每个宿主 Cell 一次 baseline：
 
 ```text
-prepare(highest, original harness)
+prepare(highest, original harness, DEVELOPMENT)
 -> capture S_hi
 -> 在同一未污染 environment 上 full evaluate
 -> close
@@ -81,11 +84,11 @@ prepare(highest, original harness)
 
 ```text
 1. declaration-capture
-   prepare(highest, original harness) -> capture S_hi/HarnessBaseline -> close
+   prepare(highest, original harness, SEARCH) -> capture S_hi/HarnessBaseline -> close
 
 2. declaration
    仅当步骤 1 得到合法 S_hi
-   prepare(lowest-direct, relaxed harness, captured HarnessBaseline)
+   prepare(lowest-direct, relaxed harness, captured HarnessBaseline, SEARCH)
    -> full evaluate relative to S_hi -> close
 ```
 
@@ -93,7 +96,7 @@ prepare(highest, original harness)
 
 ### 3.3 Search
 
-每个宿主 Cell 先运行一次 full highest baseline；只有 `HighestVersionPass` 才冻结 candidates 并进入 D003。每个真实 probe 是 exact-vector Attempt。Candidate discovery/scheduler deadline 可形成 Cell-scoped Indeterminate。
+每个宿主Cell先以SEARCH source运行一次full highest registry baseline；只有`HighestVersionPass`才从相同registry routes冻结candidates并进入D003。每个真实probe是exact-vector Attempt且继续使用同一SourcePlan。Candidate discovery/scheduler deadline可形成Cell-scoped Indeterminate；registry失败或managed coordinate local leakage不得回退到DEVELOPMENT。
 
 Search 同时把 FailureRecord 放入 Journal 与 Schema 1 report。Report 是 apply/explain/merge 的唯一公共接口；Journal 只用于本机 diagnose。
 
@@ -112,7 +115,7 @@ Runner 独占：
 - per-Cell Journal merge、持久化与 diagnose availability；
 - final Journal 错误上抛。
 
-Scheduler 只理解 `ScheduledCellTask`, worker, deadline callback, `jobs`, monotonic clock 与 `cell_schedule_key`。它不导入 Evaluation、Failure、Journal、CellResult 或 terminal facts。结果按 package/target/Python/extra 规范排序；单 Cell 内 probe 串行。
+Scheduler 只理解 `ScheduledCellTask`, worker, deadline callback, `jobs`, monotonic clock 与 `cell_schedule_key`。它不导入 Evaluation、Failure、Journal、CellResult 或 terminal facts。结果按 target/Python/extra 规范排序；单 Cell 内 probe 串行。
 
 当 Cell 完成时，Runner 先合并 buffered search failures 与 final task failures，再写当前完整 Journal；只有写入成功，`CellCompletedEvent.diagnose_available` 才为 true。写入失败仍发布 `diagnose_available=false` 的 completion，随后以 InfrastructureError 结束 run，不能静默宣称可诊断。
 
@@ -188,7 +191,7 @@ entries[]
   FailureRecord v2 authority
 ```
 
-Packages 与 policies 必须 sorted/unique。每个 entry 的 package、Cell、scope、Attempt、source digest 与该 package policy 必须闭合；同 failure ID 的不同 payload 冲突。Entries 按 package/Cell/failure ID 规范排序。
+每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、scope、Attempt、source digest与该policy必须闭合；同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。
 
 Journal 不保存 stdout/stderr、完整 Evaluation、`RuntimeEvaluationRun` diagnostics、absolute path
 或 report refs。对于同一 Failure ID，其展开后的 `FailureAuthority` 必须与 D014 report 完全
@@ -208,7 +211,7 @@ latest_journal[package] = run_id
 
 不得扫描 run directories 或按 output text 猜 locator。新 Verification Run 替换对应 package 的 `latest_journal`。
 
-Search 必须先成功 `ReportStore.update_path`，再用 `ReportUpdate` 更新 report-side associations：
+Search 必须先成功更新单target report path，再用该`ReportUpdate`更新report-side associations：
 
 - generation replacement 时整体替换；
 - 同 generation update 移除旧 Failure IDs、添加本次可关联 records；
@@ -218,7 +221,7 @@ Association/locator 不进入 report，缺失不改变 Failure evidence。
 
 ## 9. Diagnose 读取面
 
-`pf diagnose` 只读取：
+`pf diagnose [--package PACKAGE]` 只读取：
 
 ```text
 选中 package 的 package-floor.json（若存在）

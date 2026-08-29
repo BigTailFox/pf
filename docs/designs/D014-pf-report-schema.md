@@ -38,7 +38,7 @@ result          complete | incomplete
 - generator name/version/algorithm；
 - canonical package name、项目相对`pyproject.toml`路径与`requires_python`；
 - 完整 SourceSnapshot identity；
-- evaluation policy identity。
+- evaluation policy identity；
 - required `verifier_outcome_policy = configured-verifier-terminal-v1`。
 
 Generation ID 的唯一算法是：
@@ -78,9 +78,14 @@ sha256("pf:source-snapshot:v1\0" + canonical_identity_json({entries, pyproject_i
 - `requirement_declarations` 以 `declaration_id` 唯一、排序；
 - `target_cells` 以内容寻址 `cell_id` 唯一、排序，并只引用本表声明；
 - `candidate_snapshots` 以 `candidate_snapshot_id` 唯一、排序，每个 `(cell_ref, dependency)` 最多一条。
-- `source_plan`是required generation input，绑定dependency source/index/path/workspace身份。
+- `source_plan`是required generation input，保存`source_mode = SEARCH`与按dependency排序、唯一的
+  `DependencySourceRoute`；每条route绑定development/search source及可选workspace member version
+  metadata。
 
 CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带 `policy_identity`。Reader 以 record 自身 policy、完整 Cell、source、候选和 series representatives 重算现行 CandidateSnapshot digest。
+每条 CandidateSnapshot 还保存`source_plan_identity`；它必须等于完整generation SourcePlan的摘要，
+且其dependency/source必须精确对应同名route的registry `search_source`。Workspace member当前版本
+不进入candidate records。
 
 ### 1.3 Evidence
 
@@ -89,7 +94,7 @@ CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事�
 | 表 | 稳定 owner/key | 主要依赖 |
 | --- | --- | --- |
 | `resolution_graphs` | `resolution_graph_id` | canonical nodes |
-| `attempts` | `attempt_id` | Cell、source/policy、resolution context、harness facts、request |
+| `attempts` | `attempt_id` | Cell、SourcePlan identity、policy、resolution context、harness facts、request |
 | `proposals` | `proposal_id` | Attempt、managed vector、fixed declarations、graph、两个 plan digest、interpreter |
 | `static_evaluations` | `proposal_ref` | Proposal、TyCheck、baseline digest、increment/fingerprint/classification |
 | `evaluations` | `proposal_ref` | Proposal、static evaluation、witnesses、verifier terminal/failure ref |
@@ -104,6 +109,11 @@ Verifier evaluation 保存 `VerifierTerminal`；不保存完整 `ProcessResult` 
 Failure wire 必须恰有一个判别 `authority`：`process | configured-verifier | structured`。Reader
 拒绝缺失、混合、额外或与 cause/stage/disposition 不匹配的 authority，并以完整
 `pf:failure:v2` preimage 重算 failure ID。
+
+Schema 1只接受`attempt-v2` identity。每个Attempt的`source_plan_identity`必须等于generation
+SourcePlan；exact-vector的`selected_candidate_evidence_digest`继续绑定由registry search route
+取得的CandidateSnapshots。Proposal保存运行期已闭合的两个plan digest与graph ref，不把native
+pylock或本地workspace provenance复制进公共wire。
 
 ### 1.4 Roots 与 projection
 
@@ -142,7 +152,8 @@ Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Eval
 3. 以严格 wire model 验证字段、类型、判别 union、无额外字段和无显式 null；
 4. 要求输入与 `model_dump(exclude_none=True)` 完全一致，禁止 coercion/default 补事实；
 5. 建立线性的 typed indexes，拒绝重复、未知或错误种类的 ref；
-6. 复算 source、generation、Cell、CandidateSnapshot、ResolutionGraph、Attempt、Proposal、region 与 Failure v2 identity；
+6. 要求SourcePlan为SEARCH，复算其mode/routes摘要及generation、Cell、CandidateSnapshot、
+   ResolutionGraph、Attempt、Proposal、region与Failure v2 identity；
 7. 验证 cross-cell scope、Evaluation/Failure/Proposal 闭环、搜索边界、projection 与 result；
 8. 从 roots 检查全图可达性和规范顺序；
 9. 返回 immutable、resolved `ValidatedReport`，不向调用方泄漏 wire refs 或 join 规则。
@@ -196,5 +207,7 @@ ReportStore.update_path(path, replacement) -> ReportUpdate
 - 示例必须同时通过 Draft 2020-12 JSON Schema 与 `ReportStore.read`。
 - Schema 1 的 canonical encoding、identity、typed refs、可达性与 merge/update 契约由独立的 public-behavior 测试验证。
 - 开发期旧内联布局不是可读布局，也不作为 Schema 1 的兼容性、体积或性能验收基线。
+- D017实施前仅保存去重`SourcePlan.identities`的开发期Schema 1布局不再可读；不提供alias、迁移或
+  dual reader/writer。
 
 `schema_version = 1` 是唯一可读写布局。
