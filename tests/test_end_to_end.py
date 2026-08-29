@@ -37,6 +37,8 @@ class TestInstalledCli:
             + "\n",
             encoding="utf-8",
         )
+        lockfile = tmp_path / "uv.lock"
+        lockfile.write_text("search snapshot\n", encoding="utf-8")
 
         results = {}
         for command in ("search", "explain", "diagnose", "apply"):
@@ -55,6 +57,16 @@ class TestInstalledCli:
             )
             results[command] = result
 
+        lockfile.write_text("bootstrap snapshot\n", encoding="utf-8")
+        repeated_apply = subprocess.run(
+            [sys.executable, "-m", "pf", "apply"],
+            cwd=tmp_path,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
         assert "diagnosed 0 failures" in results["diagnose"].stdout
         assert (tmp_path / "package-floor.json").is_file()
         process_logs = tuple((tmp_path / ".pf/logs").glob("*/process-*.log"))
@@ -65,3 +77,8 @@ class TestInstalledCli:
         explained = results["explain"].stdout
         assert "Status: complete" in explained
         assert "Apply: eligible; current project will be rechecked" in explained
+        assert repeated_apply.returncode == 0, (
+            repeated_apply.stdout,
+            repeated_apply.stderr,
+        )
+        assert "Applied floors · no metadata changes" in repeated_apply.stdout

@@ -41,6 +41,7 @@ _EXCLUDED_NAMES = frozenset(
         ".nox",
         ".pf",
         "package-floor.json",
+        "uv.lock",
     }
 )
 
