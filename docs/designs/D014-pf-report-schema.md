@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-08-29
+- **最后核对：** 2026-08-31
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -194,6 +194,8 @@ ReportStore.merge(reports) -> ValidatedReport
 ReportStore.update(existing, replacement) -> ValidatedReport
 ReportStore.update_path(path, replacement) -> ReportUpdate
 ```
+
+`MergeCommandWorkflow`可把validated report、ordered input paths和output path包装为结构化command result/error供Presenter使用；这些presentation facts不进入report，不改变下述merge compatibility、canonical graph、generation或atomic write authority。
 
 `PackageReportBuilder`把领域`CellResult` intern为规范图并计算report projection/result；同一owner的`project`按dependency group重生成Cell→PEP 508 projection并重求值。`ReportStore`独占wire codec、typed index、ref展开、完整验证、merge/update和原子事务。Workflow、authorizer、explain与diagnose只消费`ValidatedReport`；editor只消费authorized edits。上述模块不得import wire records、读取`_wire`或自行join refs。
 

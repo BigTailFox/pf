@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v2`
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-08-31
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -221,15 +221,14 @@ Association/locator 不进入 report，缺失不改变 Failure evidence。
 
 ## 9. Diagnose 读取面
 
-`pf diagnose [--package PACKAGE]` 只读取：
+`pf diagnose FAILURE_ID [--package PACKAGE]`只查一个canonical Failure ID，并按顺序读取：
 
 ```text
-选中 package 的 package-floor.json（若存在）
-union
-该 package 的 latest Verification Journal（若存在）
+1. 选中 package 的 `package-floor.json`（若存在）；
+2. 仅当报告没有该 ID 时，该 package 的 latest Verification Journal（若存在）。
 ```
 
-指定 failure ID 时先查 report，再查 latest Journal；不存在则形成 D001 的配置错误结果，不遍历历史 runs。省略时合并 report records 与 latest Journal 中尚未出现的 failure ID，并标注来源；最终稳定排序和诊断语义由 D005 定义。两边都无记录时返回成功的空诊断。
+报告命中后不读取Journal。两处都没有该ID时形成D001的typed配置错误，不遍历历史runs，也不枚举、合并或排序多个Failure。Journal/Index缺失只使本地log link不可用，不削弱报告中的portable authority。
 
 `explain`、`apply` 与 `merge` 只使用 report；Journal 缺失不削弱 report authority，report 缺失不阻止诊断最近一次 run。读取必须离线，不规划 environment、不启动 process、不修改项目。
 
@@ -237,12 +236,12 @@ union
 
 | Role | Rejected | Indeterminate |
 | --- | --- | --- |
-| probe | candidate 未通过；search 可继续 | candidate compatibility unknown；停止 Cell |
-| baseline/search | highest baseline 未通过，未开始 floor search | highest baseline unknown；停止 Cell |
-| baseline/smoke | highest resolution 未通过 | highest resolution unknown |
-| declaration-capture | 未能捕获 current declarations 的 static baseline，未验证下界 | baseline capture unknown，未验证下界 |
-| declaration | declared lower bounds 未通过 | declared lower bounds unknown |
-| Cell scope | 不允许 | 未取得启动/继续 Cell 所需信息 |
+| probe | `This candidate was excluded from the search.` | `Compatibility for this candidate is unknown, so this cell stopped.` |
+| baseline/search | `The highest-version baseline did not pass, so the floor search did not start for this cell.` | `Compatibility of the highest-version baseline is unknown, so this cell stopped.` |
+| baseline/smoke | `The highest-version resolution did not pass the required checks.` | `Compatibility of the highest-version resolution is unknown.` |
+| declaration-capture | `A static baseline could not be captured from the current declarations, so declared lower bounds were not verified for this cell.` | `Whether a static baseline can be captured is unknown, so declared lower bounds were not verified for this cell.` |
+| declaration | `The declared lower bounds did not pass the required checks.` | `Compatibility of the declared lower bounds is unknown.` |
+| Cell scope | 不允许 | `PF could not obtain the information needed to start or continue this cell.` |
 
 D005 拥有 title/next step 与 disposition；D008 唯一选择上述 impact；D006 只渲染。
 

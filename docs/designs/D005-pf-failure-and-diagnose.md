@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `failure-runtime-v2`
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-08-31
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
 - **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
@@ -152,30 +152,28 @@ Rejection classifier。Role 不改变分类或 identity。
 
 ## 6. Diagnose
 
-报告、latest Journal 和 Diagnosis Index 的读取范围、优先级与去重只由 D008 定义。
-`pf diagnose [--package PACKAGE] [--failure FAILURE_ID]`：
+报告、latest Journal 和 Diagnosis Index 的读取范围与优先级只由 D008 定义。
+`pf diagnose FAILURE_ID [--package PACKAGE]`每次必须指定并只返回一个FailureRecord；短
+`<16 hex>`在CLI边界规范化为`failure-<16 hex>`，workflow只接受完整canonical ID。合法但未知
+的ID配置失败；不提供批量、空成功、历史遍历、自动归因、重试、环境重建或项目/报告修改。
 
-- 指定 ID 不存在时配置失败；
-- 省略 ID 时按 package、Cell、Attempt/vector 与 failure ID 稳定排序；
-- 成功展示零条或多条记录都返回 `0`；
-- 不做自动归因、重试、环境重建、项目或报告修改。
-
-每条诊断按 `Failure / Outcome → What happened → Impact → Next step → Context →
-Technical details → optional log tail` 表达。Cause 的稳定用户语义：
+单条诊断按 `Failure / Outcome → What happened → Impact → Next step → Context →
+Technical details → optional log tail` 表达。Failure title与Next step保持本节稳定语义；
+Role-aware Impact由D008拥有。Cause 的稳定用户语义：
 
 | Cause | What happened | Next step |
 | --- | --- | --- |
-| `RESOLUTION_CONFLICT` | requirements 明确冲突 | 检查冲突约束后重跑 |
-| `BUILD_FAILURE` | 组合未能构建 | 检查 build requirements、Python support 与 artifacts |
-| `HARNESS_CONFLICT` | test dependencies 与 project graph 冲突 | 调整 test dependencies |
-| `RUNTIME_INTERFACE_MISSING` | witness 确认 runtime interface 缺失 | 检查 module/member 后决定约束 |
-| `VERIFIER_EXITED_NONZERO` | 配置 verifier 正常非零退出 | 查看 verifier 诊断与日志 |
-| `SOURCE_FAILURE` | source 不可达或不可读 | 检查 URL、network、credentials 与 availability |
-| `ENVIRONMENT_FAILURE` | 当前 Python/system 无法执行 | 检查 interpreter、platform 与 system tools |
-| `TOOL_FAILURE` | verification tool 未可靠完成 | 查看 technical facts/log 并验证工具 |
-| `TIMEOUT` | operation 超时 | 先查日志，仅在预期可完成时调大 timeout |
-| `INTERNAL_INVARIANT` | PF 观察到内部不一致 | 保留 failure ID，不信任 Cell result |
-| `NONDETERMINISTIC` | 同一 Proposal 得到冲突 authority | 稳定测试或外部输入后全量重跑 |
+| `RESOLUTION_CONFLICT` | `This version combination has conflicting dependency requirements and cannot be installed.` | `Review the conflicting requirements, adjust project constraints if needed, then rerun PF.` |
+| `BUILD_FAILURE` | `This version combination could not be built.` | `Inspect the build details and log; check build requirements, Python support, and available artifacts.` |
+| `HARNESS_CONFLICT` | `The test dependencies cannot be installed without changing the versions being checked.` | `Adjust the configured test dependencies so they preserve the dependency graph under test.` |
+| `RUNTIME_INTERFACE_MISSING` | `A required runtime interface is missing from this version combination.` | `Review the confirmed missing module or member before changing dependency constraints.` |
+| `VERIFIER_EXITED_NONZERO` | `The configured verifier rejected this version combination.` | `Review the verifier diagnostics and log before changing code or dependency constraints.` |
+| `SOURCE_FAILURE` | `PF could not reach or read a configured package source.` | `Check the index URL, network, credentials, and source availability, then rerun PF.` |
+| `ENVIRONMENT_FAILURE` | `The current Python or system environment cannot run this check.` | `Verify the interpreter, platform support, permissions, and required system tools.` |
+| `TOOL_FAILURE` | `PF could not complete a verification tool operation reliably.` | `Inspect the technical details and log; verify that the named tool can run in this environment.` |
+| `TIMEOUT` | `The operation timed out, so compatibility is unknown.` | `Inspect the log and increase the relevant timeout only if the operation is expected to finish.` |
+| `INTERNAL_INVARIANT` | `PF detected an inconsistent verification result.` | `Keep the failure ID and technical details when reporting the problem; do not trust this cell result.` |
+| `NONDETERMINISTIC` | `The same version combination produced conflicting results.` | `Stabilize flaky tests or external inputs, then rerun the full search.` |
 
 ## 7. 不变量
 

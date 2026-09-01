@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-08-29
+- **最后核对：** 2026-08-31
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -65,7 +65,7 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
     Accept source-layer drift after structural authorization.
 ```
 
-`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose --failure`说明省略时列出全部记录。
+`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose`的Usage固定为`pf diagnose FAILURE_ID [OPTIONS]`；Failure ID是必填位置参数，可传`failure-<16 hex>`或省略前缀的`<16 hex>`。
 
 ## 3. 调用错误
 
@@ -91,7 +91,7 @@ Try 'pf <command> --help' for more information.
 | warning、failure、incomplete/stopped summary | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
-`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的配置错误结果。无waiver的apply成功final summary走stdout；实际使用source waiver时，evidence/preserved/waived facts与warning final全部走stderr且退出0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。
+`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的typed配置错误结果。无source override的apply成功card与final走stdout；实际使用source override时，全部facts与warning final走stderr且退出0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。
 
 TTY 运行中顺序固定：
 
@@ -195,7 +195,7 @@ search 若已有 coordinate progress，则先显示绿色已完成包行，再�
    The full test command failed for this version combination.
    FAILED tests/test_cli.py::test_example
    ... and 2 more
-   -> run `pf diagnose --package demo --failure failure-38ac8f69eb9a182a` for more information.
+   -> run `pf diagnose failure-38ac8f69eb9a182a --package demo` for more information.
 ```
 
 固定层级：
@@ -223,7 +223,11 @@ path[:line[:column]] [check_name] single-line message
 首部下方的 pinned 完成区；命令 outcome 确定后与首部一起固结，不得改变两者顺序。
 非 TTY 在 Cell completion 时立即输出等价稳定文本。
 
-## 7. Final summary
+## 7. Result card 与 final summary
+
+`explain`、`apply`、`minimize`、`diagnose`、`merge`及其typed command errors复用同一结果卡primitive。TTY卡片使用rounded border、固定marker/content两列和2空格gutter；标题marker、border与结果色一致。Field label固定宽度，长value从value列继续换行，不能回到终端左边缘。路径按literal user data渲染；TTY可使用underline cyan与OSC 8 file link，non-TTY不得包含ANSI/OSC。不得为获得路径链接调用`resolve()`而改变用户给出的相对路径。
+
+56、80、120列是必测宽度。窄宽度可以增加物理换行，但不能丢失package、Cell、artifact、ordered inputs、reason、next action或technical facts；TTY/non-TTY拥有相同信息层级和语义。final summary位于卡片之后，是最后一条结果信息，icon与整句同色且bold。成功结果中的red/yellow事实仍随成功card走stdout，不拆到stderr。
 
 格式按需组合：
 
@@ -244,24 +248,28 @@ Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 ⚠ Search incomplete · package-floor.json written · 3 cells have no applicable floor
 ! Search stopped · compatibility is unknown · package-floor.json written
 ✗ Search stopped · highest-version baseline did not pass · package-floor.json written
-✓ Applied floors · 1 project updated
-✓ Applied floors · 1 project updated · platform-scoped to linux/x86_64 · preserved windows/x86_64
+✓ Applied floors · project updated
 ✓ Applied floors · no metadata changes
-✓ Merged 3 reports · merged.json
-✓ Minimized floors · 1 project updated
+✓ Merge complete · merged.json
+✓ Minimized floors · project updated
 ```
 
-实际source waiver的结构固定为有界事实行加一个warning final；changed paths最多展示8条规范相对路径，不能显示内容、diff或digest：
+Apply卡片必须从`ApplyCommandResult`显示package、Evidence、Scope、可选Preserved、可选Override/Paths与Metadata。default/scoped/noop共享此结构；Preserved只表示保留original constraints，不得描述为passed/covered。实际source override最多展示8条规范相对路径，不显示内容、diff或digest；整张卡和warning final走stderr且退出0：
 
 ```text
-evidence  6/6 observed cells passed · linux/x86_64
-preserved windows/x86_64, macos/arm64
-waived    source drift (31 paths)
-paths     src/a.py, ... (+23 more)
-⚠ Applied floors with operator override · 1 project updated
+⚠  demo · applied with source-drift override
+   Evidence  6 observed cells passed
+   Scope     linux/x86_64 verified
+   Preserved windows/x86_64, macos/arm64 · original constraints retained
+   Override  source drift accepted · 31 paths
+   Paths     src/a.py, ... (+23 more)
+   Metadata  pyproject.toml updated
+⚠  Applied floors with source-drift override · project updated
 ```
 
-selector标签把`win32/AMD64`显示为`windows/x86_64`、`darwin/arm64`显示为`macos/arm64`；preserved只表示本generation未验证而保持original约束，不得用passed/covered措辞。TTY与非TTY的事实、通道和final数量相同，只有颜色、边框和换行可降级。
+selector标签把`win32/AMD64`显示为`windows/x86_64`、`darwin/arm64`显示为`macos/arm64`。`minimize`复用同一apply card，只把final outcome改为Minimized。
+
+Merge成功卡必须显示全部有序input paths、合并后report的complete/incomplete状态、Cell分布和output path，随后只有一个final。input读取失败显示第一个失败路径；compatibility失败显示有序inputs与output；output失败显示目标路径。三类都是typed stderr error card且不带Usage，Presenter不得硬编码输入数量。
 
 Search/incomplete reason 的主导映射：
 
@@ -277,36 +285,29 @@ Search/incomplete reason 的主导映射：
 
 `explain`只回答：读取的package/report、report complete状态、report intrinsic apply eligibility/blocker、final success Cell计数、每条declaration的floor/projection、每个目标Cell的最终状态与终止原因，以及可用的精确diagnose入口。它不读取当前项目树，不能断言当前apply已授权、force可用或apply-time dependency/source identity匹配；不转储observation、Proposal、process output或技术Enum。
 
-默认结构：
+默认结构是一张overview card、零到多个异常Cell card和一个final；成功Cell只在overview中紧凑出现，不再重复展开：
 
 ```text
-╭─ report card ─────────────────────────────────────────────╮
-│ PACKAGE · package-floor.json                              │
-│ Status: complete | incomplete                             │
-│ Apply: eligible; current project will be rechecked        │
-│      | eligible for platform-scoped apply if the current  │
-│        declaration still matches                          │
-│      | blocked by report evidence                         │
-│ Cells: passed/total                                       │
-│                                                          │
-│ Requirements                                              │
-│   <raw declaration> <projection | no floor | blocked>     │
-╰──────────────────────────────────────────────────────────╯
+<icon>  PACKAGE · package-floor.json
+        complete | incomplete · <intrinsic report conclusion>
+        current project was not inspected
 
-╭─ one card per target Cell ───────────────────────────────╮
-│ <outcome icon> <Cell identity>                            │
-│ <final status>                                            │
-│ <terminal reason>                                         │
-│ <optional exact pf diagnose --package PACKAGE --failure>  │
-╰──────────────────────────────────────────────────────────╯
+        Cells
+        passed N · rejected N · indeterminate N · no floor N · search failed N · missing N
+        <compact rows for successful Cells>
 
-Summary: ...
-Next: pf apply --package PACKAGE
+        Requirements
+        <raw declaration>  <projected floors | fixed, not managed | blocked/no floor>
+
+        <at most one authoritative next command>
+
+<one card for each anomalous target Cell, exactly once>
+<bold final 0/1/N managed dependency summary or incomplete reason summary>
 ```
 
-Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。多 marker requirements 在声明下缩进。Cell 卡片复用 smoke/check/search 的 outcome、identity、边框、Reason 和 diagnose-hint 视觉语言；TTY 使用 Rich Panel，非 TTY 保留相同信息顺序的纯文本降级。
+Presenter 用 declaration ID 关联 raw declaration 与 projection，不能显示 digest 代替名称。Requirements必须区分有floor的projection、`fixed, not managed`、blocked和no applicable floor；多marker requirements在声明下缩进。Cell分布依据实际`CellResult`判别类统计，`SEARCH_FAILED`不得折叠成no floor。每个target Cell恰好出现一次：success只进入overview，rejection、indeterminate、no-floor、search-failed和missing进入异常card。
 
-完整report只说eligible并明确当前项目仍会复核。Incomplete report若已有至少一个完整EvidencePlatform、缺失项只来自完整MissingSelector及其full-matrix projection不可表示，可条件式说明默认apply将platform-scoped；没有final success、selector内局部/非成功root、non-monotonic或其它reason仍说blocked。`UNREPRESENTABLE_PROJECTION`在上述MissingSelector情形只描述complete report projection，不冒充apply-time scoped blocker。
+完整report只说eligible并明确当前项目未检查、apply仍会复核。Incomplete report若已有至少一个完整EvidencePlatform、缺失项只来自完整MissingSelector及其full-matrix projection不可表示，可条件式说明platform-scoped apply evidence available；没有final success、selector内局部/非成功root、non-monotonic或其它reason仍说blocked。`UNREPRESENTABLE_PROJECTION`在上述MissingSelector情形只描述complete report projection，不冒充apply-time scoped blocker。
 
 Requirements 的 declaration 与单条 projection/detail 使用按当前内容计算的对齐列，
 不得固定终端宽度。原始 declaration 的 dependency specifier 使用 cyan，其中 version
@@ -314,13 +315,13 @@ operand 使用 bold cyan；搜索得到的 projected requirement 使用 green，
 operand 使用 bold green。package name、extras 与 marker 保持默认前景色；blocked / no
 applicable floor 保持 warning 色。多 marker projection 继续在 declaration 下逐行缩进。
 
-Cell 只投影报告中的最终状态。`CellIndeterminate` 选择其 `failure_id` 指向的终止 Failure；baseline rejection/indeterminate 选择 baseline Failure；完整评估无解、non-monotonic 与 nondeterministic 显示命令级结论；没有 CellResult 的 target Cell 显示 missing warning。仅权威终止 Failure 可以生成精确 `--failure` 入口，不能把历史候选 Failure 当作当前 blocker 或诊断目标。
+Cell 只投影报告中的最终状态。`CellIndeterminate` 选择其 `failure_id` 指向的终止 Failure；baseline rejection/indeterminate选择baseline Failure；完整评估无解、non-monotonic与nondeterministic显示命令级结论；没有CellResult的target Cell显示missing warning。仅一个权威终止Failure可以生成短hint `-> pf diagnose FAILURE_ID --package PACKAGE`；若不存在诊断目标，complete/scoped overview最多显示一个apply hint。next action不能在final之后重复。
 
-默认 explain 不显示历史 Failure 轨迹、ty baseline、static increment、pytest detail、Proposal/source/policy IDs 或 process output。上述机械证据属于 `pf diagnose`。
+默认explain不显示历史Failure轨迹、ty baseline、static increment、pytest detail、Proposal/source/policy IDs或process output。上述机械证据属于`pf diagnose`。成功读取complete或incomplete report都走stdout并退出0；报告missing/invalid/mismatched时使用typed stderr card、退出3且无Usage。missing report的安全recovery按selector显示`pf search`或`pf search --package PACKAGE`；invalid/mismatched report只显示稳定原因，不建议自动覆盖证据。
 
 ## 9. Diagnose
 
-`diagnose` 的数据语义与排序由 D005/D008 定义。D006 只固定 stdout 层级：
+`diagnose`的数据语义与单记录lookup由D005/D008定义。成功时stdout只显示一张failure result card和一个success final：
 
 ```text
 Failure / Outcome
@@ -331,7 +332,11 @@ optional last 3 non-empty output lines
 optional Process Log link
 ```
 
-输出 tail 来自 D007 的安全 Process Log，stderr 非空时优先，否则 stdout；不能从 tail 重新分类。用户数据使用 literal Rich Text，不解释 markup。
+header使用disposition对应的red/yellow事实色；What happened与Next step逐cause复用D005稳定文案，Impact逐Role逐字使用D008映射。Context至少显示package、完整Cell、stage、source `report | journal`及source path。Technical details必须显示disposition、cause，以及适用的attempt/resolution/vector/proposal/boundary/process/detail；不得用`None`占位。
+
+输出tail来自D007安全Process Log，stderr非空时优先，否则stdout，只保留最后3条非空行；不能从tail重新分类。Process Log和report/source path在TTY中使用literal OSC 8 file link，non-TTY为无控制序列的路径文本。缺少本地locator时显示`Detailed local log is unavailable.`，不降低portable authority。用户数据使用literal Rich Text，不解释markup。
+
+合法但未知ID使用typed stderr not-found card，显示Failure ID、package、已查source与恢复动作，退出3且无Usage。缺失、非法或多余位置ID属于调用错误，退出1，并使用完整`Usage: pf diagnose FAILURE_ID [OPTIONS]`和Try hint。
 
 ## 10. 所有权与不变量
 

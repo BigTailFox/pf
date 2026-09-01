@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-29
+- **最后核对：** 2026-08-31
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -126,8 +126,8 @@ main() -> None
 | `SmokeCommandWorkflow` | planning → snapshot → VerificationRunner → HighestVersionVerifier |
 | `SearchCommandWorkflow` | planning → snapshot → VerificationRunner → report update → diagnosis associations |
 | `ExplainCommandWorkflow` | offline discovery → report read |
-| `DiagnoseCommandWorkflow` | offline discovery → report/Journal → optional local log |
-| `MergeCommandWorkflow` | report read → merge → write |
+| `DiagnoseCommandWorkflow` | offline discovery → selected report then latest Journal → one `FailureDiagnosis` |
+| `MergeCommandWorkflow` | ordered report read → merge → write → `MergeCommandResult` |
 | `ApplyCommandWorkflow` | planning → current owned snapshot → reports → ApplyAuthorizer → ProjectEditor transaction |
 
 ## 6. Planning 与 source snapshot
@@ -209,13 +209,15 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 | `ApplyAuthorizer` | report/current plan/snapshot的前置条件、platform scope、dependency state、source waiver与frozen authorized edits | TOML I/O、终端措辞、wire join |
 | `ProjectEditor` | expected snapshot/pyproject复核、authorized group replacement、raw CAS、写后验证、recovery/rollback | report internals、scope/projection/waiver推导 |
 
-`ApplyAuthorizer.authorize(report, project, current_snapshot, force) -> AuthorizedWorkspaceApply`只产生单数`package_apply`，但grant仍绑定全部owned pyproject identities以保护未选中member。`ProjectEditor.apply(authorization, root)`只执行冻结的target edits；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`只把edit结果和结构化presentation facts交给TerminalPresenter。
+`ApplyAuthorizer.authorize(report, project, current_snapshot, force) -> AuthorizedWorkspaceApply`只产生单数`package_apply`，但grant仍绑定全部owned pyproject identities以保护未选中member。`ProjectEditor.apply(authorization, root)`只执行冻结的target edits；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`携带必填package、edit结果和结构化presentation facts；`MergeCommandResult`携带validated report、有序input paths与output path。Presenter不得从artifact反推这些命令事实。
 
 ReportStore的interface与交易语义只见D014；Process Log只见D007，Journal/Index只见D008；apply产品授权只见D001，展示只见D006。
 
 ## 10. Terminal boundary
 
-`pf.terminal` 是业务 Rich 的唯一使用点。`TerminalPresenter.consume(ActivityEvent)` 是 thread-safe consumer；private `LiveVerificationView` 与 `CellPresentation` 管理 live/final view。Worker、adapter、workflow 和 report module 不打印、不拼文案。Help、通道、cell detail、summary、explain 与 diagnose 布局只见 D006。
+`pf.terminal` 是业务 Rich 的唯一使用点。`TerminalPresenter.consume(ActivityEvent)` 是 thread-safe consumer；private `LiveVerificationView` 与 `CellPresentation` 管理 live/final view。共享result-card primitive只消费结构化facts，并为explain/apply/minimize/diagnose/merge和typed command errors统一marker、gutter、路径与final样式。Worker、adapter、workflow 和 report module 不打印、不拼文案。Help、通道、cell detail、summary、explain 与 diagnose 布局只见 D006。
+
+Expected command failures使用typed `PfError`：explain report read/validation、diagnose not-found和merge input/compatibility/output分别携带Presenter所需的稳定facts；workflow不构造card文本或Usage。
 
 ## 11. 验证边界
 
