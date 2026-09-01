@@ -14,7 +14,16 @@ from verifier_fixtures import verifier_pass, verifier_rejected
 from conftest import empty_harness_baseline
 from rich.console import Console
 
-from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
+from pf.errors import (
+    ConfigurationError,
+    DiagnoseNotFoundError,
+    ExplainReportError,
+    InfrastructureError,
+    MergeCompatibilityError,
+    MergeInputError,
+    MergeOutputError,
+    NoApplicableFloorError,
+)
 from pf.failure import FailurePolicy
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
@@ -95,6 +104,7 @@ from pf.schemas.report import (
 )
 from pf.terminal import PF_THEME, TerminalPresenter
 from pf.static_transition import static_fingerprint
+from pf.workflow import MergeCommandResult
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -941,7 +951,7 @@ class TestProgressRendering:
         assert "failed at [testing]" in output
         assert "The configured verifier rejected this version combination." in output
         assert "The declared lower bounds did not pass" not in output
-        assert f"pf diagnose --package demo --failure {failure.failure_id}" in output
+        assert f"pf diagnose {failure.failure_id} --package demo" in output
         assert "STATIC_REGRESSION" not in output
         assert "REJECTED" not in output
 
@@ -991,7 +1001,7 @@ class TestProgressRendering:
             "demo.py:9:2 [unresolved-import] Module `legacy` is unavailable" in output
         )
         assert "... and 3 more" in output
-        assert f"pf diagnose --package demo --failure {failure.failure_id}" in output
+        assert f"pf diagnose {failure.failure_id} --package demo" in output
 
     def test_completed_cell_falls_back_to_log_when_journal_is_unavailable(
         self,
@@ -2430,7 +2440,7 @@ class TestProgressRendering:
         plain = visible(output)
         stripped = "".join(" " if ch in "│╭╮╰╯─" else ch for ch in plain)
         collapsed = " ".join(stripped.split())
-        diagnose = f"`pf diagnose --package demo --failure {failure.failure_id}`"
+        diagnose = f"`pf diagnose {failure.failure_id} --package demo`"
         assert exit_code == 1
         assert "╭" in plain
         assert "smoke failed at [baseline][highest][testing]" in collapsed
@@ -3098,7 +3108,7 @@ class TestVerificationRendering:
                 "   The configured verifier rejected this version combination.\n"
                 "   FAILED tests/test_cli.py::test_example\n"
                 "   ... and 1 more\n"
-                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                f"   -> run `pf diagnose {failure.failure_id} --package demo` for more information.\n"
                 "✗  Smoke failed · highest-version resolution did not pass · 1 cell\n"
             ).split()
         )
@@ -3931,10 +3941,10 @@ class TestSearchRendering:
         assert "test dependencies cannot be installed" in output
         assert "RESOLUTION_CONFLICT" not in output
         assert ".pf/logs/search-run/" not in output
-        assert output.count("pf diagnose --package demo --failure") == 1
-        assert f"--failure {install_failure.failure_id}" in output
-        assert f"--failure {dynamic_failure.failure_id}" not in output
-        assert f"--failure {earlier_failure.failure_id}" not in output
+        assert output.count("pf diagnose failure-") == 1
+        assert f"pf diagnose {install_failure.failure_id} --package demo" in output
+        assert dynamic_failure.failure_id not in output
+        assert earlier_failure.failure_id not in output
 
     @pytest.mark.parametrize(
         ("reasons", "expected_exit"),
@@ -4011,7 +4021,7 @@ class TestSearchRendering:
                 "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [baseline][highest][resolving the test environment]\n"
                 "   The test dependencies cannot be installed without changing the versions being checked.\n"
-                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                f"   -> run `pf diagnose {failure.failure_id} --package demo` for more information.\n"
                 "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
             ).split()
         )
@@ -4043,7 +4053,7 @@ class TestSearchRendering:
                 "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [candidate discovery]\n"
                 "   Search stopped before the configured search space was fully evaluated. PF could not reach or read a configured package source.\n"
-                f"   -> run `pf diagnose --package demo --failure {terminal_result.failure_id}` for more information.\n"
+                f"   -> run `pf diagnose {terminal_result.failure_id} --package demo` for more information.\n"
                 "!  Search stopped · compatibility is unknown · package-floor.json written\n"
             ).split()
         )
@@ -4088,7 +4098,7 @@ class TestSearchRendering:
                 "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [testing]\n"
                 "   Search stopped before the configured search space was fully evaluated. The operation timed out, so compatibility is unknown.\n"
-                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                f"   -> run `pf diagnose {failure.failure_id} --package demo` for more information.\n"
                 "!  Search stopped · compatibility is unknown · package-floor.json written\n"
             ).split()
         )
@@ -4162,7 +4172,7 @@ class TestSearchRendering:
                 "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [baseline][highest][testing]\n"
                 "   The configured verifier rejected this version combination.\n"
-                f"   -> run `pf diagnose --package demo --failure {failure.failure_id}` for more information.\n"
+                f"   -> run `pf diagnose {failure.failure_id} --package demo` for more information.\n"
                 "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
             ).split()
         )
@@ -4222,9 +4232,9 @@ class TestExplainRendering:
         terminal.render_explain(report)
 
         rendered = stdout.getvalue()
-        assert "Apply: eligible; current project will be rechecked" in rendered
-        assert "1 dependency declaration have verified floors" in rendered
-        assert "Next: pf apply --package demo" in rendered
+        assert "complete · report evidence is eligible for apply" in rendered
+        assert "1 managed dependency has a verified floor." in rendered
+        assert "-> pf apply --package demo" in rendered
 
     def test_explain_renders_report_strings_as_literal_text(self) -> None:
         malicious = "[link=https://evil.example]foo>=1[/link]"
@@ -4240,7 +4250,7 @@ class TestExplainRendering:
         )
         stdout = StringIO()
         terminal = TerminalPresenter(
-            stdout=Console(file=stdout, force_terminal=True),
+            stdout=Console(file=stdout, force_terminal=True, width=120),
             stderr=Console(file=StringIO(), force_terminal=True),
         )
 
@@ -4248,7 +4258,8 @@ class TestExplainRendering:
 
         rendered = stdout.getvalue()
         assert malicious in rendered
-        assert "\x1b]8;" not in rendered
+        assert "\x1b]8;" in rendered
+        assert re.search(r"\x1b]8;[^\x1b]*evil\.example", rendered) is None
 
     def test_explain_renders_incomplete_reasons_and_projection_requirements(
         self,
@@ -4289,11 +4300,10 @@ class TestExplainRendering:
         assert exit_code == 0
         rendered = stdout.getvalue()
         assert "demo · package-floor.json" in rendered
-        assert "Status: incomplete" in rendered
-        assert "Apply: blocked; no applicable final floor" in rendered
+        assert "incomplete · blocked; no applicable final floor" in rendered
         assert "foo>=1" in rendered
         assert "projection blocked" in rendered
-        assert "Summary: report is incomplete and cannot be applied." in rendered
+        assert "Report incomplete · apply blocked" in rendered
         assert "Apply: ready" not in rendered
         assert "reasons: MISSING_CELL" not in rendered
         assert "demo:dependencies:foo" not in rendered
@@ -4443,7 +4453,8 @@ class TestExplainRendering:
 
         assert exit_code == 0
         rendered = stdout.getvalue()
-        assert "Apply: blocked by report evidence" in rendered
+        assert "incomplete · blocked by report evidence" in rendered
+        assert "1 no floor · 1 total" in rendered
         assert "configured search space was fully evaluated" in rendered
         assert "no compatible version" in rendered
         assert rejection.failure_id not in rendered
@@ -4600,7 +4611,7 @@ class TestExplainRendering:
         assert "extra diagnostic 3" not in rendered
         assert "more unique diagnostics" not in rendered
         assert "extra diagnostic 9" not in rendered
-        assert "pf diagnose --package demo" not in rendered
+        assert "pf diagnose" not in rendered
 
     @pytest.mark.parametrize("width", (56, 80, 120))
     def test_explain_keeps_required_fields_readable_at_common_widths(
@@ -4627,8 +4638,113 @@ class TestExplainRendering:
 
         rendered = stdout.getvalue()
         assert "demo · package-floor.json" in rendered
-        assert "Status: incomplete" in rendered
-        assert "Apply: blocked; no applicable final floor" in rendered
-        assert "Summary:" in rendered
+        assert "incomplete · blocked; no applicable final floor" in rendered
+        assert "Report incomplete" in rendered
         for line in rendered.splitlines():
             assert len(line) <= width
+
+
+class TestDiagnosticResultCards:
+    def test_typed_explain_and_diagnose_errors_use_stderr_cards_without_usage(
+        self,
+    ) -> None:
+        terminal, stdout, stderr = presenter()
+
+        assert terminal.render_error(
+            ExplainReportError(
+                report_path="packages/demo/package-floor.json",
+                reason="report is unavailable",
+                recovery_command="pf search --package demo",
+            )
+        ) == 3
+        explain = " ".join(stderr.getvalue().split())
+        assert stdout.getvalue() == ""
+        assert "Explain failed" in explain
+        assert "packages/demo/package-floor.json" in explain
+        assert "pf search --package demo" in explain
+        assert "Usage:" not in explain
+
+        stderr.seek(0)
+        stderr.truncate()
+        assert terminal.render_error(
+            DiagnoseNotFoundError(
+                failure_id="failure-aaaaaaaaaaaaaaaa",
+                package="demo",
+            )
+        ) == 3
+        diagnose = " ".join(stderr.getvalue().split())
+        assert "Diagnosis failed" in diagnose
+        assert "failure-aaaaaaaaaaaaaaaa" in diagnose
+        assert "latest local Journal" in diagnose
+        assert "Usage:" not in diagnose
+
+    def test_merge_success_preserves_every_input_path_and_one_final(self) -> None:
+        report = incomplete_report("MISSING_CELL")
+        result = MergeCommandResult(
+            report=report,
+            input_paths=(
+                "reports/linux/package-floor.json",
+                "reports/windows/package-floor.json",
+                "reports/linux/package-floor.json",
+            ),
+            output_path="merged/package-floor.json",
+        )
+        terminal, stdout, stderr = presenter()
+
+        assert terminal.render_merge(result) == 0
+
+        rendered = stdout.getvalue()
+        normalized = " ".join(rendered.split())
+        assert stderr.getvalue() == ""
+        assert rendered.count("reports/linux/package-floor.json") == 2
+        assert "reports/windows/package-floor.json" in rendered
+        assert "demo · incomplete" in normalized
+        assert "blocked by report evidence" in normalized
+        assert rendered.count("Merge complete · merged/package-floor.json") == 1
+        assert "1 report" not in rendered
+
+    @pytest.mark.parametrize(
+        ("error", "summary"),
+        (
+            (
+                MergeInputError(
+                    input_paths=("one.json", "two.json"),
+                    output_path="merged.json",
+                    failed_input_path="two.json",
+                ),
+                "input report unavailable",
+            ),
+            (
+                MergeCompatibilityError(
+                    input_paths=("one.json", "two.json"),
+                    output_path="merged.json",
+                    detail="report generation identity mismatch",
+                ),
+                "reports are incompatible",
+            ),
+            (
+                MergeOutputError(
+                    input_paths=("one.json", "two.json"),
+                    output_path="merged.json",
+                ),
+                "output was not written",
+            ),
+        ),
+    )
+    def test_typed_merge_errors_keep_all_paths_on_stderr(
+        self,
+        error: MergeInputError | MergeCompatibilityError | MergeOutputError,
+        summary: str,
+    ) -> None:
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_error(error)
+
+        rendered = " ".join(stderr.getvalue().split())
+        assert stdout.getvalue() == ""
+        assert exit_code == int(error.exit_code)
+        assert rendered.count("one.json") == 1
+        assert rendered.count("two.json") >= 1
+        assert "merged.json · not written" in rendered
+        assert summary in rendered
+        assert "Usage:" not in rendered

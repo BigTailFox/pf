@@ -11,7 +11,14 @@ from pf.environment import (
     PreparedEnvironment,
     ResolutionRequest,
 )
-from pf.errors import ConfigurationError
+from pf.errors import (
+    ConfigurationError,
+    DiagnoseNotFoundError,
+    ExplainReportError,
+    MergeCompatibilityError,
+    MergeInputError,
+    MergeOutputError,
+)
 from pf.evaluation import require_full_evaluation_contract
 from pf.policy import evaluation_policy_identity
 from pf.failure import FailurePolicy
@@ -69,6 +76,7 @@ from pf.schemas.config import (
     ReportRequest,
     SearchRequest,
     SmokeRequest,
+    WorkspacePackage,
 )
 from pf.schemas.report import (
     CellResult,
@@ -819,7 +827,26 @@ class ExplainCommandWorkflow:
             root=root,
             selector=request.selector,
         )
-        report = self._reports.read(location.report_path)
+        report_path = location.report_path
+        display_path = report_path.relative_to(root.resolve()).as_posix()
+        recovery_command = (
+            f"pf search --package {request.selector.canonical_name}"
+            if isinstance(request.selector, WorkspacePackage)
+            else "pf search"
+        )
+        if not report_path.is_file():
+            raise ExplainReportError(
+                report_path=display_path,
+                reason="report is unavailable",
+                recovery_command=recovery_command,
+            )
+        try:
+            report = self._reports.read(report_path)
+        except ConfigurationError as error:
+            raise ExplainReportError(
+                report_path=display_path,
+                reason="report is unreadable or invalid",
+            ) from error
         relative_pyproject = location.pyproject_path.relative_to(
             root.resolve()
         ).as_posix()
@@ -827,7 +854,10 @@ class ExplainCommandWorkflow:
             report.package.name != location.name
             or report.package.pyproject_path != relative_pyproject
         ):
-            raise ConfigurationError("report package identity mismatch")
+            raise ExplainReportError(
+                report_path=display_path,
+                reason="report package identity does not match the selected package",
+            )
         return report
 
 
@@ -854,7 +884,8 @@ class FailureDiagnosis:
     boundary_role: Literal["predecessor"] | None
     log_path: Path | None
     output_tail: tuple[str, ...] = ()
-    source: Literal["package-floor.json", "journal"] = "package-floor.json"
+    source: Literal["report", "journal"] = "report"
+    source_path: str | None = None
     verification_role: VerificationRole | None = None
     command: Literal["smoke", "check", "search"] | None = None
 
@@ -873,15 +904,13 @@ class DiagnoseCommandWorkflow:
         self._reports = reports
         self._logs = logs
 
-    def run(self, request: DiagnoseRequest) -> tuple[FailureDiagnosis, ...]:
+    def run(self, request: DiagnoseRequest) -> FailureDiagnosis:
         root = Path(request.root)
         location = self._discovery.select(
             root=root,
             selector=request.selector,
         )
-        entries: list[FailureDiagnosis] = []
         report_path = location.report_path
-        seen: set[str] = set()
         if report_path.is_file():
             report = self._reports.read(report_path)
             relative_pyproject = location.pyproject_path.relative_to(
@@ -892,116 +921,105 @@ class DiagnoseCommandWorkflow:
                 or report.package.pyproject_path != relative_pyproject
             ):
                 raise ConfigurationError("report package identity mismatch")
-            for failure in report.failure_records:
-                if (
-                    request.failure_id is not None
-                    and failure.failure_id != request.failure_id
-                ):
-                    continue
-                context = report.failure_context(failure.failure_id)
+            failure = report.failure(request.failure_id)
+            if failure is not None:
+                context = report.failure_context(request.failure_id)
                 if context is None:
                     raise ConfigurationError(
                         f"report failure has no resolved context: {failure.failure_id}"
                     )
-                seen.add(failure.failure_id)
                 log_path = self._logs.lookup(
                     report.report_generation_id,
                     failure.failure_id,
                 )
-                entries.append(
-                    FailureDiagnosis(
-                        report_generation_id=report.report_generation_id,
-                        package=report.package.name,
-                        failure=failure,
-                        proposal_id=context.proposal_id,
-                        boundary_role=context.boundary_role,
-                        log_path=log_path,
-                        output_tail=(
-                            self._logs.read_tail(log_path)
-                            if log_path is not None
-                            else ()
-                        ),
-                        source="package-floor.json",
-                    )
+                return FailureDiagnosis(
+                    report_generation_id=report.report_generation_id,
+                    package=report.package.name,
+                    failure=failure,
+                    proposal_id=context.proposal_id,
+                    boundary_role=context.boundary_role,
+                    log_path=log_path,
+                    output_tail=(
+                        self._logs.read_tail(log_path) if log_path is not None else ()
+                    ),
+                    source="report",
+                    source_path=report_path.relative_to(root.resolve()).as_posix(),
                 )
         journal = self._logs.read_latest_journal(location.name)
         if journal is not None:
             for item in journal.entries:
                 if item.package != location.name:
                     raise ConfigurationError("journal package identity mismatch")
-                if item.failure.failure_id in seen:
+                if item.failure.failure_id != request.failure_id:
                     continue
-                if (
-                    request.failure_id is not None
-                    and item.failure.failure_id != request.failure_id
-                ):
-                    continue
-                seen.add(item.failure.failure_id)
                 log_path = self._logs.lookup_run(
                     journal.run_id,
                     item.failure.failure_id,
                 )
-                entries.append(
-                    FailureDiagnosis(
-                        report_generation_id=journal.run_id,
-                        package=item.package,
-                        failure=item.failure,
-                        proposal_id=None,
-                        boundary_role=None,
-                        log_path=log_path,
-                        output_tail=(
-                            self._logs.read_tail(log_path)
-                            if log_path is not None
-                            else ()
-                        ),
-                        source="journal",
-                        verification_role=item.role,
-                        command=journal.command,
-                    )
+                return FailureDiagnosis(
+                    report_generation_id=journal.run_id,
+                    package=item.package,
+                    failure=item.failure,
+                    proposal_id=None,
+                    boundary_role=None,
+                    log_path=log_path,
+                    output_tail=(
+                        self._logs.read_tail(log_path) if log_path is not None else ()
+                    ),
+                    source="journal",
+                    verification_role=item.role,
+                    command=journal.command,
                 )
-        if request.failure_id is not None and not entries:
-            raise ConfigurationError(f"failure ID not found: {request.failure_id}")
-        return tuple(sorted(entries, key=self._sort_key))
+        raise DiagnoseNotFoundError(
+            failure_id=request.failure_id,
+            package=location.name,
+        )
 
-    @staticmethod
-    def _sort_key(entry: FailureDiagnosis) -> tuple[object, ...]:
-        scope = entry.failure.scope
-        cell = (
-            scope.attempt.identity.cell
-            if isinstance(scope, AttemptFailureScope)
-            else scope.cell
-        )
-        if isinstance(scope, AttemptFailureScope):
-            identity = scope.attempt.identity
-            resolution_rank = 0 if identity.requested_resolution == "highest" else 1
-            vector = tuple(
-                (pin.name, pin.version)
-                for pin in (identity.requested_managed_vector or ())
-            )
-        else:
-            resolution_rank = -1
-            vector = ()
-        return (
-            entry.package,
-            cell.target,
-            cell.python_minor,
-            cell.extra_surface,
-            resolution_rank,
-            vector,
-            entry.failure.failure_id,
-        )
+
+@dataclass(frozen=True)
+class MergeCommandResult:
+    report: ValidatedReport
+    input_paths: tuple[str, ...]
+    output_path: str
 
 
 class MergeCommandWorkflow:
     def __init__(self, *, reports: ReportStore) -> None:
         self._reports = reports
 
-    def run(self, request: MergeRequest) -> ValidatedReport:
-        merged = self._reports.merge(
-            tuple(self._reports.read(Path(path)) for path in request.reports)
+    def run(self, request: MergeRequest) -> MergeCommandResult:
+        input_paths = tuple(Path(path).as_posix() for path in request.reports)
+        output_path = Path(request.output).as_posix()
+        reports: list[ValidatedReport] = []
+        for path in input_paths:
+            try:
+                reports.append(self._reports.read(Path(path)))
+            except ConfigurationError as error:
+                raise MergeInputError(
+                    input_paths=input_paths,
+                    output_path=output_path,
+                    failed_input_path=path,
+                ) from error
+        try:
+            merged = self._reports.merge(tuple(reports))
+        except ConfigurationError as error:
+            raise MergeCompatibilityError(
+                input_paths=input_paths,
+                output_path=output_path,
+                detail=str(error),
+            ) from error
+        try:
+            self._reports.write(Path(output_path), merged)
+        except OSError as error:
+            raise MergeOutputError(
+                input_paths=input_paths,
+                output_path=output_path,
+            ) from error
+        return MergeCommandResult(
+            report=merged,
+            input_paths=input_paths,
+            output_path=output_path,
         )
-        self._reports.write(Path(request.output), merged)
-        return merged
 
 
 class ApplyAuthorizationOperations(Protocol):
@@ -1076,6 +1094,7 @@ class ApplyCommandWorkflow:
                 root=root,
             )
             return ApplyCommandResult(
+                package=authorization.package_apply.package.name,
                 edit=edit,
                 presentation_facts=authorization.presentation_facts,
             )

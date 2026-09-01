@@ -69,5 +69,6 @@ class AuthorizedWorkspaceApply(FrozenSchema):
 
 
 class ApplyCommandResult(FrozenSchema):
+    package: str
     edit: ProjectEditResult
     presentation_facts: ApplyPresentationFacts

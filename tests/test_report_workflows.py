@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from pf.authorization import ApplyAuthorizer
-from pf.errors import ConfigurationError
+from pf.errors import (
+    ConfigurationError,
+    ExplainReportError,
+    MergeCompatibilityError,
+    MergeInputError,
+    MergeOutputError,
+)
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
@@ -16,6 +23,7 @@ from pf.schemas.config import (
     EffectiveConfig,
     MergeRequest,
     ReportRequest,
+    WorkspacePackage,
 )
 from pf.schemas.apply import (
     ApplyPresentationFacts,
@@ -98,7 +106,9 @@ class TestReportWorkflows:
 
         assert explained == report()
         assert source.read_bytes() == before
-        assert store.read(output) == merged
+        assert store.read(output) == merged.report
+        assert merged.input_paths == (source.as_posix(),)
+        assert merged.output_path == output.as_posix()
 
     def test_explain_discovers_reports_without_environment_planning(
         self, tmp_path: Path
@@ -205,6 +215,7 @@ class TestReportWorkflows:
         ).run(ApplyRequest(root=tmp_path.as_posix()))
 
         assert result.edit.changed is False
+        assert result.package == "demo"
         status = [event for event in events.items if isinstance(event, StatusEvent)]
         assert [event.message for event in status] == ["applying floors"]
         assert status[0].total == 1
@@ -335,15 +346,110 @@ class TestReportWorkflows:
             )
         )
 
-        with pytest.raises(ConfigurationError, match="cannot read report"):
+        with pytest.raises(ExplainReportError) as missing:
             ExplainCommandWorkflow(
                 discovery=ProjectDiscovery(),
                 reports=ReportStore(),
             ).run(ReportRequest(root=tmp_path.as_posix()))
+        assert missing.value.report_path == "package-floor.json"
+        assert missing.value.reason == "report is unavailable"
+        assert missing.value.recovery_command == "pf search"
 
         (tmp_path / "package-floor.json").write_bytes(journal_path.read_bytes())
-        with pytest.raises(ConfigurationError, match="unsupported report schema"):
+        with pytest.raises(ExplainReportError) as invalid:
             ExplainCommandWorkflow(
                 discovery=ProjectDiscovery(),
                 reports=ReportStore(),
             ).run(ReportRequest(root=tmp_path.as_posix()))
+        assert invalid.value.report_path == "package-floor.json"
+        assert invalid.value.reason == "report is unreadable or invalid"
+        assert invalid.value.recovery_command is None
+
+    def test_explain_missing_workspace_report_echoes_the_explicit_selector(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "packages/demo").mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/demo"]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "packages/demo/pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ExplainReportError) as caught:
+            ExplainCommandWorkflow(
+                discovery=ProjectDiscovery(),
+                reports=ReportStore(),
+            ).run(
+                ReportRequest(
+                    root=tmp_path.as_posix(),
+                    selector=WorkspacePackage(canonical_name="demo"),
+                )
+            )
+
+        assert caught.value.report_path == "packages/demo/package-floor.json"
+        assert caught.value.recovery_command == "pf search --package demo"
+
+    def test_merge_stops_at_the_first_invalid_input_and_keeps_all_request_paths(
+        self,
+    ) -> None:
+        class FailingStore:
+            def __init__(self) -> None:
+                self.read_paths: list[Path] = []
+
+            def read(self, path: Path) -> ValidatedReport:
+                self.read_paths.append(path)
+                raise ConfigurationError("cannot read report")
+
+        store = FailingStore()
+        request = MergeRequest(
+            reports=("missing.json", "unread.json"),
+            output="merged.json",
+        )
+
+        with pytest.raises(MergeInputError) as caught:
+            MergeCommandWorkflow(reports=cast(ReportStore, store)).run(request)
+
+        assert store.read_paths == [Path("missing.json")]
+        assert caught.value.input_paths == request.reports
+        assert caught.value.failed_input_path == "missing.json"
+        assert caught.value.output_path == "merged.json"
+
+    def test_merge_maps_compatibility_and_output_failures_to_typed_stages(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = ReportStore()
+        first = tmp_path / "first.json"
+        second = tmp_path / "second.json"
+        store.write(first, report(package_name="first"))
+        store.write(second, report(package_name="second"))
+        request = MergeRequest(
+            reports=(first.as_posix(), second.as_posix()),
+            output=(tmp_path / "merged.json").as_posix(),
+        )
+
+        with pytest.raises(MergeCompatibilityError) as incompatible:
+            MergeCommandWorkflow(reports=store).run(request)
+        assert incompatible.value.input_paths == request.reports
+        assert incompatible.value.detail == "report generation identity mismatch"
+
+        class OutputFailingStore(ReportStore):
+            def write(self, path: Path, report: ValidatedReport) -> None:
+                raise OSError("read-only output")
+
+        output_store = OutputFailingStore()
+        valid = tmp_path / "valid.json"
+        ReportStore().write(valid, report())
+        output_request = MergeRequest(
+            reports=(valid.as_posix(),),
+            output=(tmp_path / "blocked/merged.json").as_posix(),
+        )
+
+        with pytest.raises(MergeOutputError) as output:
+            MergeCommandWorkflow(reports=output_store).run(output_request)
+        assert output.value.input_paths == output_request.reports
+        assert output.value.output_path == output_request.output

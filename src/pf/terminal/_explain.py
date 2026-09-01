@@ -6,7 +6,8 @@ import re
 from typing import Protocol
 
 from packaging.requirements import InvalidRequirement, Requirement
-from rich.console import Console
+from rich.console import Console, RenderableType
+from rich.table import Column, Table
 from rich.text import Text
 
 from pf.errors import ConfigurationError
@@ -20,7 +21,19 @@ from pf.schemas.report import (
     CellSearchFailure,
     CellSuccess,
 )
-from pf.terminal._presentation import CellPresentation, OutcomeKind
+from pf.terminal import (
+    _path_text,
+    _plain_result_card,
+    _report_cell_counts,
+    _report_distribution_text,
+    _result_card,
+)
+from pf.terminal._presentation import (
+    CellPresentation,
+    OutcomeKind,
+    cell_title_text,
+    marker_group,
+)
 
 
 _SPECIFIER_TOKEN = re.compile(
@@ -33,28 +46,38 @@ class ExplainPresenter(Protocol):
 
     def close(self, *, abandon_pending: bool = False) -> None: ...
 
-    def _render_explain_cell(self, presentation: CellPresentation) -> None: ...
-
-    def _render_explain_overview(
+    def _render_explain_cell(
         self,
-        lines: tuple[Text, ...],
+        presentation: CellPresentation,
         *,
+        show_diagnose: bool,
+    ) -> None: ...
+
+    def _print_outcome(
+        self,
         kind: OutcomeKind,
+        message: str,
+        *,
+        console: Console | None = None,
     ) -> None: ...
 
 
 def render(
     presenter: ExplainPresenter,
     report: ValidatedReport,
+    *,
+    root: Path,
 ) -> int:
     presenter.close()
-    _render_report(presenter, report)
+    _render_report(presenter, report, root=root)
     return 0
 
 
 def _render_report(
     presenter: ExplainPresenter,
     report: ValidatedReport,
+    *,
+    root: Path,
 ) -> None:
     declarations = {
         item.declaration_id: item for item in report.requirement_declarations
@@ -67,126 +90,181 @@ def _render_report(
             "report projection is missing its requirement declaration"
         )
     complete = report.result.status == "complete"
-    apply_message, apply_kind, scoped_eligible = _apply_status(report)
-    kind = _report_kind(report)
-    covered = sum(
-        1 for result in report.cell_results if isinstance(result, CellSuccess)
-    )
-    targets = len(report.target_cells) or len(report.cell_results)
-    overview: list[Text] = [
-        Text.assemble(
-            (report.package.name, "cell"),
-            " · ",
-            (_report_path(report), "path"),
-        ),
-        Text.assemble(
-            "Status: ",
-            (report.result.status, f"reason.{kind}"),
-        ),
-        Text.assemble(
-            "Apply: ",
-            (apply_message, f"reason.{apply_kind}"),
-        ),
-        Text(f"Cells: {covered}/{targets} passed"),
-    ]
-    if report.requirement_declarations or report.projection_evidence:
-        overview.extend((Text(), Text("Requirements", style="bold")))
-        requirement_width = max(
-            (
-                Text(declaration.raw or declaration.name).cell_len
-                for declaration in report.requirement_declarations
-            ),
-            default=0,
-        )
-        projected_ids = {
-            projection.declaration_id for projection in report.projection_evidence
-        }
-        for projection in report.projection_evidence:
-            declaration = declarations[projection.declaration_id]
-            label = declaration.raw or declaration.name
-            label_text = _requirement_text(label, color="cyan")
-            if not projection.representable:
-                detail = Text("projection blocked", style="reason.warning")
-            elif not projection.projected_requirements:
-                detail = Text("no applicable floor", style="reason.warning")
-            else:
-                if len(projection.projected_requirements) > 1:
-                    line = Text("  ")
-                    line.append_text(label_text)
-                    overview.append(line)
-                    for requirement in projection.projected_requirements:
-                        line = Text("    -> ")
-                        line.append_text(_requirement_text(requirement, color="green"))
-                        overview.append(line)
-                    continue
-                detail = Text("-> ")
-                detail.append_text(
-                    _requirement_text(
-                        projection.projected_requirements[0],
-                        color="green",
-                    )
-                )
-            line = Text("  ")
-            line.append_text(label_text)
-            line.append(" " * (requirement_width - label_text.cell_len + 3))
-            line.append_text(detail)
-            overview.append(line)
-        for declaration in report.requirement_declarations:
-            if declaration.declaration_id not in projected_ids:
-                line = Text("  ")
-                line.append_text(
-                    _requirement_text(
-                        declaration.raw or declaration.name,
-                        color="cyan",
-                    )
-                )
-                overview.append(line)
-    presenter._render_explain_overview(
-        tuple(overview),
-        kind=kind,
-    )
-
+    apply_message, _, scoped_eligible = _apply_status(report)
     cells = report.target_cells or tuple(result.cell for result in report.cell_results)
     results = {_cell_key(result.cell): result for result in report.cell_results}
     presentations = tuple(
         _cell_presentation(results.get(_cell_key(cell)), cell=cell) for cell in cells
     )
-    if presentations:
-        presenter.stdout.print()
-        for presentation in presentations:
-            presenter._render_explain_cell(presentation)
-
-    presenter.stdout.print()
     summary_kind = _summary_kind(complete=complete, cells=presentations)
+    diagnose_index = next(
+        (
+            index
+            for index, presentation in enumerate(presentations)
+            if presentation.failures
+            and presentation.primary_failure_id is not None
+            and presentation.diagnose_available
+        ),
+        None,
+    )
+
+    report_path = _report_path(report)
+    title = Text.assemble(
+        (report.package.name, "bold cyan"),
+        " · ",
+    )
+    title.append_text(
+        _path_text(
+            report_path,
+            base=root,
+            terminal=presenter.stdout.is_terminal,
+        )
+    )
     if complete:
-        managed = tuple(
-            item for item in report.requirement_declarations if item.managed
+        evidence = Text.assemble(
+            ("complete", "reason.success bold"),
+            " · report evidence is eligible for apply",
         )
-        presenter.stdout.print(
-            Text(
-                "Summary: "
-                f"{_counted(len(managed) or len(report.projection_evidence), 'dependency declaration')} "
-                "have verified floors.",
-                style=f"summary.{summary_kind}",
-            )
-        )
-        presenter.stdout.print(Text(f"Next: pf apply --package {report.package.name}"))
     elif scoped_eligible:
-        presenter.stdout.print(
-            Text(
-                "Summary: report has complete evidence for some platform selectors; "
-                "current project authorization is still required.",
-                style=f"summary.{summary_kind}",
-            )
+        evidence = Text.assemble(
+            ("incomplete", f"reason.{summary_kind} bold"),
+            " · platform-scoped apply evidence is available",
         )
-        presenter.stdout.print(Text(f"Next: pf apply --package {report.package.name}"))
     else:
-        presenter.stdout.print(
+        evidence = Text.assemble(
+            ("incomplete", f"reason.{summary_kind} bold"),
+            " · ",
+            (apply_message, f"reason.{summary_kind}"),
+        )
+    rows: list[tuple[RenderableType | None, RenderableType]] = [
+        (
             Text(
-                "Summary: report is incomplete and cannot be applied.",
-                style=f"summary.{summary_kind}",
+                {"success": "✓", "failure": "✗", "warning": "⚠", "indeterminate": "!"}[
+                    summary_kind
+                ],
+                style=summary_kind,
+            ),
+            title,
+        ),
+        (None, evidence),
+        (None, Text("current project was not inspected", style="dim")),
+        (None, Text()),
+        (None, Text("Cells", style="bold")),
+        (None, _report_distribution_text(report)),
+    ]
+    for presentation in presentations:
+        if presentation.kind != "success":
+            continue
+        rows.append(
+            (
+                None,
+                marker_group(
+                    ((Text("✓", style="success"), cell_title_text(presentation.cell)),),
+                    expand=True,
+                ),
             )
         )
+    if report.requirement_declarations:
+        rows.extend(
+            (
+                (None, Text()),
+                (None, Text("Requirements", style="bold")),
+                (
+                    None,
+                    _requirements_grid(
+                        report,
+                    ),
+                ),
+            )
+        )
+    if diagnose_index is None and (complete or scoped_eligible):
+        action = Text("-> ", style="hint")
+        action.append(
+            f"pf apply --package {report.package.name}",
+            style="hint not dim",
+        )
+        rows.extend(((None, Text()), (None, action)))
+    presenter.stdout.print(
+        _result_card(tuple(rows), kind=summary_kind)
+        if presenter.stdout.is_terminal
+        else _plain_result_card(tuple(rows))
+    )
+
+    for index, presentation in enumerate(presentations):
+        if presentation.kind == "success":
+            continue
+        presenter.stdout.print()
+        presenter._render_explain_cell(
+            presentation,
+            show_diagnose=index == diagnose_index,
+        )
+
+    if complete:
+        managed = sum(
+            1
+            for projection in report.projection_evidence
+            if projection.projected_requirements
+        )
+        if managed == 0:
+            summary = "No managed dependencies require floor changes."
+        elif managed == 1:
+            summary = "1 managed dependency has a verified floor."
+        else:
+            summary = f"{managed} managed dependencies have verified floors."
+    elif scoped_eligible:
+        summary = "Report incomplete · platform-scoped apply may be authorized"
+    else:
+        incomplete = [
+            f"{count} {label} cell{'s' if count != 1 else ''}"
+            for label, count in _report_cell_counts(report)
+            if label != "passed"
+        ]
+        summary = "Report incomplete"
+        if incomplete:
+            summary += " · " + " · ".join(incomplete)
+        summary += " · apply blocked"
+    presenter._print_outcome(summary_kind, summary, console=presenter.stdout)
+
+
+def _requirements_grid(
+    report: ValidatedReport,
+) -> Table:
+    grid = Table.grid(
+        Column(ratio=1, overflow="fold", no_wrap=False),
+        Column(ratio=1, overflow="fold", no_wrap=False),
+        padding=(0, 2),
+        expand=True,
+    )
+    projections = {
+        projection.declaration_id: projection for projection in report.projection_evidence
+    }
+    for declaration in report.requirement_declarations:
+        label = _requirement_text(
+            declaration.raw or declaration.name,
+            color="cyan",
+        )
+        projection = projections.get(declaration.declaration_id)
+        details: list[Text] = []
+        if not declaration.managed:
+            details.append(Text("fixed · not managed", style="dim"))
+        elif projection is None or (
+            projection.representable and not projection.projected_requirements
+        ):
+            details.append(Text("no applicable floor", style="reason.warning"))
+        elif not projection.representable:
+            details.append(Text("projection blocked", style="reason.warning"))
+            for floor in projection.floors:
+                floor_text = cell_title_text(floor.cell)
+                floor_text.append(f" · {floor.version}", style="reason.success")
+                details.append(floor_text)
+        else:
+            for requirement in projection.projected_requirements:
+                detail = Text("-> ")
+                detail.append_text(_requirement_text(requirement, color="green"))
+                details.append(detail)
+        for index, detail in enumerate(details):
+            grid.add_row(label if index == 0 else Text(), detail)
+    return grid
 
 
 def _apply_status(report: ValidatedReport) -> tuple[str, OutcomeKind, bool]:

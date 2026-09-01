@@ -1008,7 +1008,7 @@ dynamic = ["version"]
         )
 
         assert explained.returncode == 0, explained.stderr
-        assert "eligible for platform-scoped apply if the current declaration" in (
+        assert "platform-scoped apply evidence is available" in (
             " ".join(explained.stdout.split())
         )
 
@@ -1021,7 +1021,7 @@ dynamic = ["version"]
         )
 
         assert linux_apply.returncode == 0, linux_apply.stderr
-        assert "platform-scoped to linux/x86_64" in " ".join(linux_apply.stdout.split())
+        assert "Scope linux/x86_64 verified" in " ".join(linux_apply.stdout.split())
         second_project = ProjectLoader().load(root=tmp_path)
         second_snapshot = _snapshot(second_project, tmp_path)
         assert second_snapshot.identity.digest != first_report.source_snapshot.digest
@@ -1044,8 +1044,8 @@ dynamic = ["version"]
 
         assert windows_apply.returncode == 0, windows_apply.stderr
         rendered = " ".join(windows_apply.stdout.split())
-        assert "platform-scoped to windows/x86_64" in rendered
-        assert "preserved linux/x86_64" in rendered
+        assert "Scope windows/x86_64 verified" in rendered
+        assert "Preserved linux/x86_64" in rendered
         final_project = ProjectLoader().load(root=tmp_path)
         declarations = final_project.target.declarations
         expected_floors = {
@@ -1097,11 +1097,11 @@ dynamic = ["version"]
 
         assert result.returncode == 0, result.stderr
         assert result.stdout == ""
-        assert "waived" in result.stderr
-        assert "source drift (1 path)" in result.stderr
+        assert "source-drift override" in result.stderr
+        assert "source drift accepted · 1 path" in result.stderr
         assert "app.py" in result.stderr
         assert result.stderr.count("Applied floors") == 1
-        assert "Applied floors with operator override" in result.stderr
+        assert "Applied floors with source-drift override" in result.stderr
 
     @pytest.mark.parametrize("force", (False, True))
     def test_dependency_drift_is_never_waived(

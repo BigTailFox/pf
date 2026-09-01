@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import re
 from typing import Annotated, Literal, Protocol
 
 from cyclopts import App, Group, Parameter
@@ -53,6 +54,7 @@ from pf.workflow import (
     FailureDiagnosis,
     ApplyCommandWorkflow,
     ExplainCommandWorkflow,
+    MergeCommandResult,
     MergeCommandWorkflow,
     SearchCommandWorkflow,
     SmokeCommandWorkflow,
@@ -76,11 +78,11 @@ class ExplainWorkflow(Protocol):
 
 
 class DiagnoseWorkflow(Protocol):
-    def run(self, request: DiagnoseRequest) -> tuple[FailureDiagnosis, ...]: ...
+    def run(self, request: DiagnoseRequest) -> FailureDiagnosis: ...
 
 
 class MergeWorkflow(Protocol):
-    def run(self, request: MergeRequest) -> ValidatedReport: ...
+    def run(self, request: MergeRequest) -> MergeCommandResult: ...
 
 
 class ApplyWorkflow(Protocol):
@@ -126,6 +128,10 @@ _DURATION_HELP = (
 _PACKAGE = Annotated[str | None, Parameter(help=_PACKAGE_HELP)]
 _JOBS = Annotated[str, Parameter(help=_JOBS_HELP)]
 _DURATION = Annotated[str | None, Parameter(help=_DURATION_HELP)]
+_FAILURE_ID = Annotated[
+    str,
+    Parameter(help="A failure-<id> value; the failure- prefix may be omitted."),
+]
 _VERIFY = Group("Verify", sort_key=1)
 _FIND = Group("Find and apply floors", sort_key=2)
 _INSPECT = Group("Inspect and combine reports", sort_key=3)
@@ -159,8 +165,19 @@ def _cli_selector(value: str | None) -> TargetSelector:
     return WorkspacePackage(canonical_name=canonical_name)
 
 
+def _cli_failure_id(value: str) -> str:
+    candidate = value if value.startswith("failure-") else f"failure-{value}"
+    if re.fullmatch(r"failure-[0-9a-f]{16}", candidate) is None:
+        raise InvocationError(
+            "invalid failure ID: expected failure-<16 hex> or <16 hex>"
+        )
+    return candidate
+
+
 def _invocation_error(error: CycloptsError) -> str:
     message = str(error.msg) if error.msg is not None else str(error)
+    if "parameter FAILURE_ID requires an argument" in message:
+        message = "Missing argument 'FAILURE_ID'."
     chain = tuple(error.command_chain or ())
     command = "pf" + ((" " + " ".join(chain)) if chain else "")
     usage = command_usage(chain[-1] if chain else None)
@@ -287,24 +304,17 @@ def create_app(context: CliContext) -> App:
 
     @app.command(group=_INSPECT, sort_key=1)
     def diagnose(
+        failure_id: _FAILURE_ID,
+        /,
         *,
         package: _PACKAGE = None,
-        failure: Annotated[
-            str | None,
-            Parameter(
-                help=(
-                    "Inspect one recorded failure. Omit to list every recorded "
-                    "rejection or indeterminate result."
-                )
-            ),
-        ] = None,
     ) -> int:
         """Explain a recorded rejection or indeterminate result."""
         context.presenter.bind_command("diagnose")
         request = DiagnoseRequest(
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
-            failure_id=failure,
+            failure_id=_cli_failure_id(failure_id),
         )
         return context.presenter.render_diagnose(context.diagnose_workflow.run(request))
 
@@ -330,8 +340,7 @@ def create_app(context: CliContext) -> App:
             reports=tuple(path.as_posix() for path in (report, *reports)),
             output=output.as_posix(),
         )
-        merged = context.merge_workflow.run(request)
-        return context.presenter.render_merge(merged, request.output)
+        return context.presenter.render_merge(context.merge_workflow.run(request))
 
     for name in (
         "smoke",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import runpy
 import subprocess
 import sys
@@ -50,6 +51,7 @@ from pf.schemas.report import (
     ProjectEditResult,
 )
 from pf.terminal import TerminalPresenter
+from pf.workflow import MergeCommandResult
 
 
 class NeverCheck:
@@ -76,6 +78,7 @@ def apply_result(
     source_drift_paths: tuple[str, ...] = (),
 ) -> ApplyCommandResult:
     return ApplyCommandResult(
+        package="demo",
         edit=ProjectEditResult(
             changed=changed,
             pyproject_path="pyproject.toml",
@@ -475,7 +478,11 @@ class TestCommandDispatch:
             ("minimize", ()),
             (
                 "diagnose",
-                ("recorded rejection or indeterminate result", "--failure"),
+                (
+                    "recorded rejection or indeterminate result",
+                    "FAILURE_ID",
+                    "failure- prefix may be omitted",
+                ),
             ),
         ),
     )
@@ -487,10 +494,39 @@ class TestCommandDispatch:
         result = invoke_app(command, "--help")
 
         assert result.returncode == 0, result.stderr
-        assert f"Usage: pf {command} [OPTIONS]" in result.stdout
+        usage = (
+            "Usage: pf diagnose FAILURE_ID [OPTIONS]"
+            if command == "diagnose"
+            else f"Usage: pf {command} [OPTIONS]"
+        )
+        assert usage in result.stdout
         assert "[ARGS]" not in result.stdout
         assert "--package" in result.stdout
         assert all(fragment in result.stdout for fragment in expected_fragments)
+
+    @pytest.mark.parametrize(
+        ("arguments", "error_fragment"),
+        (
+            ((), "Missing argument 'FAILURE_ID'"),
+            (("not-a-failure",), "expected failure-<16 hex> or <16 hex>"),
+            (
+                ("02cc9a72fbcd6cf0", "unexpected"),
+                "Unused Tokens: ['unexpected']",
+            ),
+        ),
+    )
+    def test_diagnose_invocation_errors_use_the_single_id_usage(
+        self,
+        arguments: tuple[str, ...],
+        error_fragment: str,
+    ) -> None:
+        result = invoke_app("diagnose", *arguments)
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert error_fragment in result.stderr
+        assert "Usage: pf diagnose FAILURE_ID [OPTIONS]" in result.stderr
+        assert "Try 'pf diagnose --help' for more information." in result.stderr
 
     def test_check_command_normalizes_jobs_before_workflow(
         self,
@@ -700,7 +736,7 @@ class TestCommandDispatch:
         )
         assert "demo · package-floor.json" in stdout.getvalue()
 
-    def test_diagnose_command_only_requests_recorded_failures(
+    def test_diagnose_command_normalizes_one_failure_id_before_the_workflow(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -711,7 +747,12 @@ class TestCommandDispatch:
 
             def run(self, request: DiagnoseRequest):
                 self.request = request
-                return ()
+                return object()
+
+        class Presenter(TerminalPresenter):
+            def render_diagnose(self, diagnosis: object) -> int:  # ty: ignore[invalid-method-override]
+                assert diagnosis is not None
+                return 0
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
@@ -719,7 +760,7 @@ class TestCommandDispatch:
         context = make_context(
             check_workflow=NeverCheck(),
             diagnose_workflow=workflow,
-            presenter=TerminalPresenter(
+            presenter=Presenter(
                 stdout=Console(file=stdout, force_terminal=False, color_system=None),
                 stderr=Console(
                     file=StringIO(), force_terminal=False, color_system=None
@@ -728,7 +769,7 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["diagnose", "--package", "demo", "--failure", "failure-a"],
+            ["diagnose", "02cc9a72fbcd6cf0", "--package", "demo"],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -737,9 +778,9 @@ class TestCommandDispatch:
         assert workflow.request == DiagnoseRequest(
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
-            failure_id="failure-a",
+            failure_id="failure-02cc9a72fbcd6cf0",
         )
-        assert stdout.getvalue() == "diagnosed 0 failures\n"
+        assert stdout.getvalue() == ""
 
     def test_merge_command_passes_explicit_inputs_and_output_to_workflow(
         self,
@@ -749,9 +790,13 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: MergeRequest | None = None
 
-            def run(self, request: MergeRequest) -> ValidatedReport:
+            def run(self, request: MergeRequest) -> MergeCommandResult:
                 self.request = request
-                return minimal_report()
+                return MergeCommandResult(
+                    report=minimal_report(),
+                    input_paths=request.reports,
+                    output_path=request.output,
+                )
 
         stdout = StringIO()
         workflow = MergeWorkflow()
@@ -780,8 +825,11 @@ class TestCommandDispatch:
             output=output.as_posix(),
         )
         rendered = stdout.getvalue()
-        assert rendered.startswith("✓  Merged 1 report ·")
-        assert output.as_posix() in "".join(rendered.split())
+        normalized = " ".join(rendered.split())
+        assert "Merge completed" in normalized
+        assert source.as_posix() in normalized
+        assert f"Merge complete · {output.as_posix()}" in normalized
+        assert "1 report" not in rendered
 
     def test_apply_command_uses_report_only_workflow(
         self,
@@ -821,7 +869,10 @@ class TestCommandDispatch:
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
         )
-        assert stdout.getvalue() == "✓  Applied floors · project updated\n"
+        rendered = " ".join(stdout.getvalue().split())
+        assert "demo · applied verified floors" in rendered
+        assert "Metadata pyproject.toml updated" in rendered
+        assert rendered.endswith("✓ Applied floors · project updated")
 
     @pytest.mark.parametrize("force_terminal", (False, True))
     def test_apply_reports_platform_scope_in_one_stdout_summary(
@@ -870,10 +921,12 @@ class TestCommandDispatch:
 
         assert exit_code == 0
         assert stderr.getvalue() == ""
-        assert " ".join(stdout.getvalue().split()) == (
-            "✓ Applied floors · project updated · platform-scoped to "
-            "linux/x86_64 · preserved windows/x86_64"
+        rendered = " ".join(stdout.getvalue().split())
+        assert "Scope linux/x86_64 verified" in rendered
+        assert (
+            "Preserved windows/x86_64 · original constraints retained" in rendered
         )
+        assert rendered.endswith("✓ Applied floors · project updated")
 
     @pytest.mark.parametrize("force_terminal", (False, True))
     def test_apply_force_reports_the_used_source_waiver_only_on_stderr(
@@ -933,12 +986,17 @@ class TestCommandDispatch:
         )
         assert stdout.getvalue() == ""
         rendered = stderr.getvalue()
-        assert "evidence  2/2 observed cells passed · linux/x86_64" in rendered
-        assert "waived    source drift (10 paths)" in rendered
-        assert "src/path-7.py (+2 more)" in rendered
+        assert "Evidence" in rendered
+        assert "2 observed cells passed" in rendered
+        assert "Override" in rendered
+        assert "source drift accepted · 10 paths" in rendered
+        normalized = " ".join(rendered.split())
+        assert "src/path-7.py" in normalized
+        assert "(+2" in normalized
+        assert "more)" in normalized
         assert rendered.count("Applied floors") == 1
         assert (
-            "⚠  Applied floors with operator override · project updated" in rendered
+            "⚠  Applied floors with source-drift override · project updated" in rendered
         )
 
     def test_cli_context_requires_the_complete_object_graph(self) -> None:
@@ -1029,9 +1087,83 @@ class TestMinimizeCommand:
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
         )
-        assert stdout.getvalue() == "✓  Minimized floors · no metadata changes\n"
-        assert stderr.getvalue() == ""
+        rendered = " ".join(stdout.getvalue().split())
+        assert "demo · minimized verified floors" in rendered
+        assert rendered.endswith("✓ Minimized floors · no metadata changes")
 
+
+class TestResultCardWidths:
+    @pytest.mark.parametrize("width", (56, 80, 120))
+    def test_apply_card_preserves_public_facts_at_common_widths(
+        self,
+        tmp_path: Path,
+        width: int,
+    ) -> None:
+        stdout = StringIO()
+        stderr = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                color_system=None,
+                width=width,
+            ),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                color_system=None,
+                width=width,
+            ),
+            root=tmp_path,
+        )
+
+        assert presenter.render_apply(apply_result(changed=False)) == 0
+
+        rendered = stdout.getvalue()
+        assert stderr.getvalue() == ""
+        assert "demo · applied verified floors" in rendered
+        assert "pyproject.toml" in rendered
+        assert "Applied floors · no metadata changes" in rendered
+        plain = re.sub(r"\x1b]8;[^\x1b]*\x1b\\", "", rendered)
+        for line in plain.splitlines():
+            assert len(line) <= width
+
+    @pytest.mark.parametrize("width", (56, 80, 120))
+    def test_merge_card_preserves_paths_at_common_widths(
+        self,
+        width: int,
+    ) -> None:
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                color_system=None,
+                width=width,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+        result = MergeCommandResult(
+            report=minimal_report(),
+            input_paths=(
+                "reports/linux/package-floor.json",
+                "reports/windows/package-floor.json",
+            ),
+            output_path="reports/merged/package-floor.json",
+        )
+
+        assert presenter.render_merge(result) == 0
+
+        rendered = stdout.getvalue()
+        assert "reports/linux/package-floor.json" in rendered
+        assert "reports/windows/package-floor.json" in rendered
+        assert "reports/merged/package-floor.json" in rendered
+        plain = re.sub(r"\x1b]8;[^\x1b]*\x1b\\", "", rendered)
+        for line in plain.splitlines():
+            assert len(line) <= width
+
+
+class TestMinimizeCommandCompleteReport:
     def test_minimize_applies_after_a_complete_search(
         self,
         tmp_path: Path,
@@ -1080,7 +1212,9 @@ class TestMinimizeCommand:
         selector = WorkspacePackage(canonical_name="demo")
         assert search.request == SearchRequest(root=expected_root, selector=selector)
         assert apply.request == ApplyRequest(root=expected_root, selector=selector)
-        assert stdout.getvalue() == "✓  Minimized floors · no metadata changes\n"
+        rendered = " ".join(stdout.getvalue().split())
+        assert "demo · minimized verified floors" in rendered
+        assert rendered.endswith("✓ Minimized floors · no metadata changes")
 
 
 class TestDefaultContext:

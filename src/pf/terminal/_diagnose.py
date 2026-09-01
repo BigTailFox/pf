@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.text import Text
 
 from pf.schemas.evaluation import (
@@ -19,6 +19,8 @@ from pf.schemas.evaluation import (
     VerifierTerminal,
     VerificationRole,
 )
+from pf.terminal import _fact_grid, _path_text, _plain_result_card, _result_card
+from pf.terminal._presentation import OutcomeKind, cell_title_text
 
 if TYPE_CHECKING:
     from pf.workflow import FailureDiagnosis
@@ -48,116 +50,158 @@ class DiagnosePresenter(Protocol):
         command: str | None = None,
     ) -> FailureView: ...
 
+    def _print_outcome(
+        self,
+        kind: OutcomeKind,
+        message: str,
+        *,
+        console: Console | None = None,
+    ) -> None: ...
+
 
 def render(
     presenter: DiagnosePresenter,
-    diagnoses: tuple[FailureDiagnosis, ...],
+    diagnosis: FailureDiagnosis,
     *,
     root: Path,
 ) -> int:
     presenter.close()
-    if not diagnoses:
-        presenter.stdout.print("diagnosed 0 failures")
-        return 0
-    for index, diagnosis in enumerate(diagnoses):
-        if index:
-            presenter.stdout.print()
-        failure = diagnosis.failure
-        presentation = presenter.failure_presentation(
-            failure,
-            role=diagnosis.verification_role,
-            command=diagnosis.command,
+    failure = diagnosis.failure
+    presentation = presenter.failure_presentation(
+        failure,
+        role=diagnosis.verification_role,
+        command=diagnosis.command,
+    )
+    scope = failure.scope
+    cell = (
+        scope.attempt.identity.cell
+        if isinstance(scope, AttemptFailureScope)
+        else scope.cell
+    )
+    kind: OutcomeKind = (
+        "failure" if failure.disposition == "REJECTED" else "indeterminate"
+    )
+    outcome = (
+        "rejected candidate"
+        if failure.disposition == "REJECTED"
+        else "compatibility unknown"
+    )
+    impact = presentation.impact
+    if diagnosis.boundary_role == "predecessor" and failure.disposition == "REJECTED":
+        impact += " It helped establish the verified floor."
+
+    source: Text
+    if diagnosis.source == "report":
+        source = _path_text(
+            diagnosis.source_path or "package-floor.json",
+            base=root,
+            terminal=presenter.stdout.is_terminal,
         )
-        scope = failure.scope
-        cell = (
-            scope.attempt.identity.cell
-            if isinstance(scope, AttemptFailureScope)
-            else scope.cell
+    else:
+        source = Text(f"latest pf {diagnosis.command or 'search'}")
+
+    if isinstance(scope, AttemptFailureScope):
+        identity = scope.attempt.identity
+        attempt = scope.attempt.attempt_id
+        resolution = identity.requested_resolution
+        vector = identity.requested_managed_vector
+        vector_text = (
+            ", ".join(f"{pin.name}=={pin.version}" for pin in vector)
+            if vector is not None
+            else "not applicable"
         )
-        outcome = (
-            "The verification attempt was rejected"
-            if failure.disposition == "REJECTED"
-            else "Compatibility is unknown"
+    else:
+        attempt = "not available"
+        resolution = "not applicable"
+        vector_text = "not applicable"
+
+    technical: list[tuple[Text | str, RenderableType]] = [
+        ("disposition", Text(failure.disposition)),
+        ("cause", Text(failure.cause)),
+        ("attempt", Text(attempt)),
+        ("resolution", Text(resolution)),
+        ("vector", Text(vector_text)),
+        ("proposal", Text(diagnosis.proposal_id or "not available")),
+        ("boundary", Text(diagnosis.boundary_role or "none")),
+    ]
+    if failure.process is not None:
+        technical.append(("process", Text(_process_terminal(failure.process))))
+    elif isinstance(failure.authority, ConfiguredVerifierFailureAuthority):
+        technical.append(
+            ("process", Text(_verifier_terminal(failure.authority.terminal)))
         )
-        presenter.stdout.print(f"Failure: {failure.failure_id}")
-        presenter.stdout.print(f"Outcome: {outcome}")
-        presenter.stdout.print(f"What happened: {presentation.title}")
-        presenter.stdout.print(f"Impact: {presentation.impact}")
-        presenter.stdout.print(f"Next step: {presentation.next_step}")
-        presenter.stdout.print()
-        presenter.stdout.print("Context:")
-        presenter.stdout.print(f"  package: {diagnosis.package}")
-        presenter.stdout.print(
-            "  cell: "
-            f"py{cell.python_minor} / {cell.target} / "
-            f"{_format_extra_surface(cell.extra_surface)}"
-        )
-        presenter.stdout.print(f"  stage: {failure.stage}")
-        source = (
-            "package-floor.json"
-            if diagnosis.source == "package-floor.json"
-            else f"latest pf {diagnosis.command or 'search'}"
-        )
-        presenter.stdout.print(f"  source: {source}")
-        presenter.stdout.print()
-        presenter.stdout.print("Technical details:")
-        presenter.stdout.print(f"  disposition: {failure.disposition}")
-        presenter.stdout.print(f"  cause: {failure.cause}")
-        if isinstance(scope, AttemptFailureScope):
-            identity = scope.attempt.identity
-            presenter.stdout.print(f"  attempt: {scope.attempt.attempt_id}")
-            presenter.stdout.print(
-                f"  requested resolution: {identity.requested_resolution}"
+    if failure.detail is not None:
+        technical.extend(
+            (
+                ("detail code", Text(failure.detail.code)),
+                ("detail", Text(_single_line_summary(failure.detail.message))),
             )
-            vector = identity.requested_managed_vector
-            presenter.stdout.print(
-                "  requested vector: "
-                + (
-                    ", ".join(f"{pin.name}=={pin.version}" for pin in vector)
-                    if vector is not None
-                    else "not applicable"
+        )
+    if diagnosis.output_tail:
+        tail = diagnosis.output_tail[-3:]
+        technical.append(("output", Text("\n".join(tail), style="dim")))
+    if diagnosis.log_path is not None:
+        technical.append(
+            (
+                "log",
+                _path_text(
+                    diagnosis.log_path.as_posix(),
+                    base=root,
+                    terminal=presenter.stdout.is_terminal,
+                ),
+            )
+        )
+    else:
+        technical.append(("log", Text("Detailed local log is unavailable.")))
+
+    header = Text.assemble(
+        (failure.failure_id, "bold"),
+        " · ",
+        (outcome, f"reason.{kind} bold"),
+    )
+    next_action = Text("-> ", style="hint")
+    next_action.append(presentation.next_step, style="hint")
+    rows: tuple[tuple[RenderableType | None, RenderableType], ...] = (
+        (Text("✗" if kind == "failure" else "!", style=kind), header),
+        (None, Text()),
+        (
+            None,
+            _fact_grid(
+                (
+                    ("What happened", Text(presentation.title)),
+                    ("Impact", Text(impact)),
                 )
-            )
-        else:
-            presenter.stdout.print("  attempt: not available")
-            presenter.stdout.print("  requested vector: not applicable")
-        presenter.stdout.print(
-            f"  proposal: {diagnosis.proposal_id or 'not available'}"
-        )
-        presenter.stdout.print(f"  boundary role: {diagnosis.boundary_role or 'none'}")
-        if failure.detail is not None:
-            presenter.stdout.print(f"  detail code: {failure.detail.code}")
-            presenter.stdout.print(
-                f"  detail: {_single_line_summary(failure.detail.message)}"
-            )
-        if failure.process is not None:
-            presenter.stdout.print(f"  process: {_process_terminal(failure.process)}")
-        elif isinstance(failure.authority, ConfiguredVerifierFailureAuthority):
-            presenter.stdout.print(
-                f"  process: {_verifier_terminal(failure.authority.terminal)}"
-            )
-        if diagnosis.output_tail:
-            presenter.stdout.print("  output:")
-            for line in diagnosis.output_tail:
-                presenter.stdout.print(Text(f"    {line}"))
-        if diagnosis.log_path is not None:
-            resolved = (root / diagnosis.log_path).resolve()
-            presenter.stdout.print(
-                Text.assemble(
-                    "  log: ",
-                    (
-                        diagnosis.log_path.as_posix(),
-                        f"link {resolved.as_uri()}",
-                    ),
+            ),
+        ),
+        (None, next_action),
+        (None, Text()),
+        (None, Text("Context", style="bold")),
+        (
+            None,
+            _fact_grid(
+                (
+                    ("package", Text(diagnosis.package, style="bold cyan")),
+                    ("cell", cell_title_text(cell)),
+                    ("stage", Text(failure.stage)),
+                    ("source", source),
                 )
-            )
-        else:
-            presenter.stdout.print("  Detailed local log is unavailable.")
+            ),
+        ),
+        (None, Text()),
+        (None, Text("Technical details", style="bold")),
+        (None, _fact_grid(tuple(technical))),
+    )
+    presenter.stdout.print(
+        _result_card(rows, kind=kind)
+        if presenter.stdout.is_terminal
+        else _plain_result_card(rows)
+    )
+    presenter._print_outcome(
+        "success",
+        f"Diagnosis complete · {failure.failure_id}",
+        console=presenter.stdout,
+    )
     return 0
-
-
-def _format_extra_surface(surface: tuple[str, ...]) -> str:
-    return "default" if not surface else ",".join(surface)
 
 
 def _single_line_summary(value: str) -> str:

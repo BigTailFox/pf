@@ -7,15 +7,27 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from rich import box
-from rich.console import Console, ConsoleDimensions, Group
+from rich.console import Console, ConsoleDimensions, Group, RenderableType
 from rich.panel import Panel
+from rich.table import Column, Table
 from rich.text import Text
 from rich.theme import Theme
 
-from pf.errors import ConfigurationError, InvocationError, PfError
+from pf.errors import (
+    ConfigurationError,
+    DiagnoseNotFoundError,
+    ExplainReportError,
+    InvocationError,
+    MergeCompatibilityError,
+    MergeInputError,
+    MergeOutputError,
+    PfError,
+)
 from pf.schemas.evaluation import (
     ActivityEvent,
     AttemptFailureScope,
+    BaselineIndeterminate,
+    BaselineRejection,
     CellCompletedEvent,
     CellFailed,
     CheckCellOutcome,
@@ -37,6 +49,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import ApplySelector, Cell
 from pf.report import ValidatedReport
 from pf.schemas.apply import ApplyCommandResult
+from pf.schemas.report import CellIndeterminate, CellSearchFailure, CellSuccess
 from pf.terminal._live import LiveVerificationView
 from pf.terminal._presentation import (
     CellPresentation,
@@ -51,7 +64,7 @@ from pf.terminal._presentation import (
 )
 
 if TYPE_CHECKING:
-    from pf.workflow import FailureDiagnosis
+    from pf.workflow import FailureDiagnosis, MergeCommandResult
 
 
 PF_THEME = Theme(
@@ -108,7 +121,7 @@ _RESULT_STYLES: dict[OutcomeKind, str] = {
 
 
 def _outcome_card(
-    lines: tuple[Text, ...] | list[Text],
+    lines: tuple[RenderableType, ...] | list[RenderableType],
     *,
     kind: OutcomeKind,
 ) -> Panel:
@@ -118,6 +131,52 @@ def _outcome_card(
         border_style=outcome_border_style(kind),
         padding=(0, 1),
     )
+
+
+def _result_card(
+    rows: tuple[tuple[RenderableType | None, RenderableType], ...],
+    *,
+    kind: OutcomeKind,
+) -> Panel:
+    """Render a command result with the shared icon/content card gutter."""
+    return Panel(
+        marker_group(rows, expand=True),
+        box=box.ROUNDED,
+        border_style=outcome_border_style(kind),
+        padding=(0, 1),
+    )
+
+
+def _plain_result_card(
+    rows: tuple[tuple[RenderableType | None, RenderableType], ...],
+) -> Group:
+    return marker_group(rows, expand=True)
+
+
+def _fact_grid(
+    rows: tuple[tuple[Text | str, RenderableType], ...],
+) -> Table:
+    """Lay out literal labels and values without hand-computed padding."""
+    grid = Table.grid(
+        Column(style="dim", no_wrap=True),
+        Column(ratio=1, overflow="fold", no_wrap=False),
+        padding=(0, 2),
+        expand=True,
+    )
+    for label, value in rows:
+        grid.add_row(Text(label) if isinstance(label, str) else label, value)
+    return grid
+
+
+def _path_text(display_path: str, *, base: Path, terminal: bool) -> Text:
+    """Build a literal display path and an optional non-resolving OSC 8 target."""
+    text = Text(display_path, style="path", overflow="fold", no_wrap=False)
+    if not terminal:
+        return text
+    path = Path(display_path)
+    target = path if path.is_absolute() else base / path
+    text.stylize(f"underline cyan link {target.as_uri()}")
+    return text
 
 
 def _cell_outcome_card(lines: list[Text], *, kind: OutcomeKind) -> Panel:
@@ -211,44 +270,39 @@ def _impact_for(
     rejected = failure.disposition == "REJECTED"
     if resolved_role == "probe":
         return (
-            "This candidate did not pass the required checks. "
-            "PF will continue searching."
+            "This candidate was excluded from the search."
             if rejected
-            else (
-                "PF could not determine whether this candidate works, so it stopped "
-                "this cell."
-            )
+            else "Compatibility for this candidate is unknown, so this cell stopped."
         )
     if resolved_role == "declaration-capture":
         return (
-            "PF could not capture a static baseline from the highest resolution of "
-            "the current declarations, so it did not verify the declared lower "
-            "bounds for this cell."
+            "A static baseline could not be captured from the current declarations, "
+            "so declared lower bounds were not verified for this cell."
             if rejected
             else (
-                "PF could not determine whether a static baseline can be captured, "
-                "so it did not verify the declared lower bounds for this cell."
+                "Whether a static baseline can be captured is unknown, so declared "
+                "lower bounds were not verified for this cell."
             )
         )
     if resolved_role == "declaration":
         return (
             "The declared lower bounds did not pass the required checks."
             if rejected
-            else "PF could not determine whether the declared lower bounds work."
+            else "Compatibility of the declared lower bounds is unknown."
         )
     if command == "smoke":
         return (
             "The highest-version resolution did not pass the required checks."
             if rejected
-            else "PF could not determine whether the highest-version resolution works."
+            else "Compatibility of the highest-version resolution is unknown."
         )
     return (
-        "The highest-version baseline did not pass, so PF did not start "
-        "the floor search for this cell."
+        "The highest-version baseline did not pass, so the floor search did not "
+        "start for this cell."
         if rejected
         else (
-            "PF could not determine whether the highest-version baseline "
-            "works, so it stopped this cell."
+            "Compatibility of the highest-version baseline is unknown, so this cell "
+            "stopped."
         )
     )
 
@@ -393,6 +447,41 @@ def _report_path(report: ValidatedReport) -> str:
     return relative.as_posix()
 
 
+def _report_cell_counts(report: ValidatedReport) -> tuple[tuple[str, int], ...]:
+    counts = {
+        "passed": 0,
+        "rejected": 0,
+        "unknown": 0,
+        "no floor": 0,
+        "search failed": 0,
+        "missing": 0,
+    }
+    for result in report.cell_results:
+        if isinstance(result, CellSuccess):
+            counts["passed"] += 1
+        elif isinstance(result, BaselineRejection):
+            counts["rejected"] += 1
+        elif isinstance(result, (BaselineIndeterminate, CellIndeterminate)):
+            counts["unknown"] += 1
+        elif isinstance(result, CellSearchFailure):
+            bucket = (
+                "no floor"
+                if result.reason == "NO_PASS_IN_SEARCH_SPACE"
+                else "search failed"
+            )
+            counts[bucket] += 1
+    target_count = len(report.target_cells) or len(report.cell_results)
+    counts["missing"] = max(0, target_count - len(report.cell_results))
+    return tuple((label, count) for label, count in counts.items() if count)
+
+
+def _report_distribution_text(report: ValidatedReport) -> Text:
+    target_count = len(report.target_cells) or len(report.cell_results)
+    parts = [f"{count} {label}" for label, count in _report_cell_counts(report)]
+    parts.append(f"{target_count} total")
+    return Text(" · ".join(parts))
+
+
 def _search_reasons(report: ValidatedReport) -> set[str]:
     if report.result.status != "incomplete":
         return set()
@@ -484,6 +573,8 @@ def command_usage_line(command: str | None) -> str:
     """Return the D006 Usage operands for a top-level command."""
     if command == "merge":
         return "pf merge REPORT [REPORT ...] --output PATH"
+    if command == "diagnose":
+        return "pf diagnose FAILURE_ID [OPTIONS]"
     if command:
         return f"pf {command} [OPTIONS]"
     return "pf COMMAND"
@@ -508,7 +599,9 @@ class TerminalPresenter:
         self.stdout = stdout or _CliConsole(file=sys.stdout, theme=PF_THEME)
         self.stderr = stderr or _CliConsole(file=sys.stderr, theme=PF_THEME)
         self._logs = logs
-        self._root = (root or Path.cwd()).resolve()
+        self._root = root or Path.cwd()
+        if not self._root.is_absolute():
+            self._root = Path.cwd() / self._root
         self._emitted_cell_keys: set[tuple[str, str, str, tuple[str, ...]]] = set()
         self._command: str | None = None
         self._live = LiveVerificationView(
@@ -525,6 +618,15 @@ class TerminalPresenter:
         if isinstance(error, InvocationError):
             return self._render_invocation(error)
         self._live.close(abandon_pending=True, final_outcome="failure")
+        if isinstance(error, ExplainReportError):
+            return self._render_explain_error(error)
+        if isinstance(error, DiagnoseNotFoundError):
+            return self._render_diagnose_error(error)
+        if isinstance(
+            error,
+            (MergeInputError, MergeCompatibilityError, MergeOutputError),
+        ):
+            return self._render_merge_error(error)
         rows: list[tuple[Text | None, Text]] = [
             (
                 Text(_ICONS["failure"], style="failure"),
@@ -545,6 +647,131 @@ class TerminalPresenter:
                 f"Known packages: {', '.join(shown)}{suffix}",
                 soft_wrap=True,
             )
+        return int(error.exit_code)
+
+    def _print_command_error_card(
+        self,
+        rows: tuple[tuple[RenderableType | None, RenderableType], ...],
+    ) -> None:
+        self.stderr.print(
+            _result_card(rows, kind="failure")
+            if self.stderr.is_terminal
+            else _plain_result_card(rows)
+        )
+
+    def _render_explain_error(self, error: ExplainReportError) -> int:
+        facts: list[tuple[Text | str, RenderableType]] = [
+            (
+                "report",
+                _path_text(
+                    error.report_path,
+                    base=self._root,
+                    terminal=self.stderr.is_terminal,
+                ),
+            ),
+            ("reason", Text(error.reason)),
+        ]
+        rows: list[tuple[RenderableType | None, RenderableType]] = [
+            (
+                Text(_ICONS["failure"], style="failure"),
+                Text("Explain failed", style="bold"),
+            ),
+            (None, _fact_grid(tuple(facts))),
+        ]
+        if error.recovery_command is not None:
+            action = Text("-> run `", style="hint")
+            action.append(error.recovery_command, style="hint not dim")
+            action.append("` to create the report", style="hint")
+            rows.append((None, action))
+        self._print_command_error_card(tuple(rows))
+        suffix = "unavailable" if error.reason == "report is unavailable" else "invalid"
+        self._print_outcome(
+            "failure",
+            f"Explain failed · {error.report_path} {suffix}",
+        )
+        return int(error.exit_code)
+
+    def _render_diagnose_error(self, error: DiagnoseNotFoundError) -> int:
+        rows: tuple[tuple[RenderableType | None, RenderableType], ...] = (
+            (
+                Text(_ICONS["failure"], style="failure"),
+                Text("Diagnosis failed", style="bold"),
+            ),
+            (
+                None,
+                _fact_grid(
+                    (
+                        ("failure", Text(error.failure_id)),
+                        ("package", Text(error.package, style="bold cyan")),
+                        ("reason", Text(error.reason)),
+                    )
+                ),
+            ),
+        )
+        self._print_command_error_card(rows)
+        self._print_outcome("failure", "Diagnosis failed · failure ID not found")
+        return int(error.exit_code)
+
+    def _render_merge_error(
+        self,
+        error: MergeInputError | MergeCompatibilityError | MergeOutputError,
+    ) -> int:
+        rows: list[tuple[RenderableType | None, RenderableType]] = [
+            (
+                Text(_ICONS["failure"], style="failure"),
+                Text("Merge failed", style="bold"),
+            ),
+            (None, Text()),
+            (None, Text("Inputs", style="bold")),
+        ]
+        rows.extend(
+            (
+                None,
+                _path_text(
+                    path,
+                    base=Path.cwd(),
+                    terminal=self.stderr.is_terminal,
+                ),
+            )
+            for path in error.input_paths
+        )
+        facts: list[tuple[Text | str, RenderableType]] = []
+        if isinstance(error, MergeInputError):
+            facts.append(
+                (
+                    "Failed",
+                    _path_text(
+                        error.failed_input_path,
+                        base=Path.cwd(),
+                        terminal=self.stderr.is_terminal,
+                    ),
+                )
+            )
+            facts.append(("Reason", Text("input report is unavailable or invalid")))
+            summary = "Merge failed · input report unavailable"
+        elif isinstance(error, MergeCompatibilityError):
+            facts.extend(
+                (
+                    ("Reason", Text("reports are incompatible and cannot be merged")),
+                    ("Detail", Text(error.detail or "compatibility check failed")),
+                )
+            )
+            summary = "Merge failed · reports are incompatible"
+        else:
+            facts.append(
+                ("Reason", Text("merged report could not be written reliably"))
+            )
+            summary = "Merge failed · output was not written"
+        output = _path_text(
+            error.output_path,
+            base=Path.cwd(),
+            terminal=self.stderr.is_terminal,
+        )
+        output.append(" · not written", style="reason.failure")
+        facts.append(("Output", output))
+        rows.extend(((None, Text()), (None, _fact_grid(tuple(facts)))))
+        self._print_command_error_card(tuple(rows))
+        self._print_outcome("failure", summary)
         return int(error.exit_code)
 
     def _render_invocation(self, error: ConfigurationError) -> int:
@@ -758,9 +985,18 @@ class TerminalPresenter:
             return (_cell_outcome_card(lines, kind=presentation.kind),)
         return (_plain_cell_result(lines, kind=presentation.kind),)
 
-    def _render_explain_cell(self, presentation: CellPresentation) -> None:
+    def _render_explain_cell(
+        self,
+        presentation: CellPresentation,
+        *,
+        show_diagnose: bool,
+    ) -> None:
         """Render one report Cell with the shared final-card presentation."""
-        lines = self._cell_result_lines(presentation)
+        lines = self._cell_result_lines(
+            presentation,
+            explain=True,
+            show_diagnose=show_diagnose,
+        )
         if self.stdout.is_terminal:
             self.stdout.print(_cell_outcome_card(lines, kind=presentation.kind))
             return
@@ -782,6 +1018,9 @@ class TerminalPresenter:
     def _cell_result_lines(
         self,
         presentation: CellPresentation,
+        *,
+        explain: bool = False,
+        show_diagnose: bool | None = None,
     ) -> list[Text]:
         body: list[Text] = [
             _cell_title_line(
@@ -813,18 +1052,25 @@ class TerminalPresenter:
                 )
             )
             body.extend(_cell_detail_lines(presentation.detail))
-            if presentation.diagnose_available:
+            diagnose_available = (
+                presentation.diagnose_available
+                if show_diagnose is None
+                else show_diagnose
+            )
+            if diagnose_available:
+                command = (
+                    f"pf diagnose {record.failure_id} "
+                    f"--package {presentation.cell.package}"
+                )
                 body.append(
                     _hint_sentence(
-                        "run ",
-                        "`pf diagnose "
-                        f"--package {presentation.cell.package} "
-                        f"--failure {record.failure_id}`",
-                        " for more information.",
-                        base_style="diagnose-hint",
+                        "" if explain else "run ",
+                        command if explain else f"`{command}`",
+                        "" if explain else " for more information.",
+                        base_style="hint" if explain else "diagnose-hint",
                     )
                 )
-            else:
+            elif not explain:
                 see = (
                     self._see_details_quote(record.process)
                     if record.process is not None
@@ -956,21 +1202,82 @@ class TerminalPresenter:
     def render_explain(self, report: ValidatedReport) -> int:
         from pf.terminal import _explain
 
-        return _explain.render(self, report)
+        return _explain.render(self, report, root=self._root)
 
     def render_diagnose(
         self,
-        diagnoses: tuple[FailureDiagnosis, ...],
+        diagnosis: FailureDiagnosis,
     ) -> int:
         from pf.terminal import _diagnose
 
-        return _diagnose.render(self, diagnoses, root=self._root)
+        return _diagnose.render(self, diagnosis, root=self._root)
 
-    def render_merge(self, report: ValidatedReport, output: str) -> int:
+    def render_merge(self, result: "MergeCommandResult") -> int:
         self.close()
+        report = result.report
+        complete = report.result.status == "complete"
+        rows: list[tuple[RenderableType | None, RenderableType]] = [
+            (
+                Text(_ICONS["success"], style="success"),
+                Text("Merge completed", style="bold"),
+            ),
+            (None, Text()),
+            (None, Text("Inputs", style="bold")),
+        ]
+        rows.extend(
+            (
+                None,
+                _path_text(
+                    path,
+                    base=Path.cwd(),
+                    terminal=self.stdout.is_terminal,
+                ),
+            )
+            for path in result.input_paths
+        )
+        result_text = Text.assemble(
+            (report.package.name, "bold cyan"),
+            " · ",
+            (
+                report.result.status,
+                "reason.success" if complete else "reason.warning",
+            ),
+        )
+        if complete:
+            target_count = len(report.target_cells) or len(report.cell_results)
+            result_text.append(
+                f" · {target_count}/{target_count} cells passed",
+                style="reason.success",
+            )
+        result_facts: list[tuple[Text | str, RenderableType]] = [
+            ("Result", result_text),
+        ]
+        if not complete:
+            result_facts.extend(
+                (
+                    ("", _report_distribution_text(report)),
+                    ("Apply", Text("blocked by report evidence", style="reason.warning")),
+                )
+            )
+        result_facts.append(
+            (
+                "Output",
+                _path_text(
+                    result.output_path,
+                    base=Path.cwd(),
+                    terminal=self.stdout.is_terminal,
+                ),
+            )
+        )
+        rows.extend(((None, Text()), (None, _fact_grid(tuple(result_facts)))))
+        self.stdout.print(
+            _result_card(tuple(rows), kind="success")
+            if self.stdout.is_terminal
+            else _plain_result_card(tuple(rows))
+        )
         self._print_outcome(
             "success",
-            f"Merged {_counted(1, 'report')} · {output}",
+            f"Merge complete · {result.output_path}",
             console=self.stdout,
         )
         return 0
@@ -986,39 +1293,83 @@ class TerminalPresenter:
         facts = result.presentation_facts
         verb = "Minimized floors" if command == "minimize" else "Applied floors"
         outcome = "project updated" if edit.changed else "no metadata changes"
-        selected = ", ".join(_selector_label(item) for item in facts.selected_selectors)
-        preserved = ", ".join(
+        action = "minimized" if command == "minimize" else "applied"
+        selected = " · ".join(_selector_label(item) for item in facts.selected_selectors)
+        preserved = " · ".join(
             _selector_label(item) for item in facts.preserved_selectors
         )
-        scope = (
-            f" · platform-scoped to {selected} · preserved {preserved}"
-            if preserved
-            else ""
+        waiver = facts.source_drift_path_count > 0
+        kind: OutcomeKind = "warning" if waiver else "success"
+        console = self.stderr if waiver else self.stdout
+        header_outcome = (
+            f"{action} with source-drift override"
+            if waiver
+            else f"{action} verified floors"
         )
-        if facts.source_drift_path_count:
-            self.stderr.print(
-                f"evidence  {facts.observed_cells}/{facts.observed_cells} "
-                f"observed cells passed{f' · {selected}' if selected else ''}"
+        header = Text.assemble(
+            (result.package, "bold cyan"),
+            " · ",
+            (header_outcome, f"reason.{kind} bold"),
+        )
+        rows: list[tuple[Text | str, RenderableType]] = [
+            ("Evidence", Text(f"{facts.observed_cells} observed cells passed")),
+        ]
+        if preserved:
+            rows.extend(
+                (
+                    ("Scope", Text(f"{selected} verified")),
+                    (
+                        "Preserved",
+                        Text(f"{preserved} · original constraints retained"),
+                    ),
+                )
             )
-            if preserved:
-                self.stderr.print(f"preserved {preserved}")
-            self.stderr.print(
-                f"waived    source drift ({_counted(facts.source_drift_path_count, 'path')})"
+        else:
+            rows.append(("Scope", Text("all declared platforms")))
+        if waiver:
+            rows.append(
+                (
+                    "Override",
+                    Text(
+                        "source drift accepted · "
+                        f"{_counted(facts.source_drift_path_count, 'path')}"
+                    ),
+                )
             )
             if facts.source_drift_paths:
                 hidden = facts.source_drift_path_count - len(facts.source_drift_paths)
                 suffix = f" (+{hidden} more)" if hidden else ""
-                self.stderr.print(
-                    f"paths     {', '.join(facts.source_drift_paths)}{suffix}"
+                rows.append(
+                    (
+                        "Paths",
+                        Text(f"{', '.join(facts.source_drift_paths)}{suffix}"),
+                    )
                 )
+        metadata = _path_text(
+            edit.pyproject_path,
+            base=self._root,
+            terminal=console.is_terminal,
+        )
+        metadata.append(" updated" if edit.changed else " unchanged")
+        rows.append(("Metadata", metadata))
+        card_rows: tuple[tuple[RenderableType | None, RenderableType], ...] = (
+            (Text(_ICONS[kind], style=kind), header),
+            (None, _fact_grid(tuple(rows))),
+        )
+        console.print(
+            _result_card(card_rows, kind=kind)
+            if console.is_terminal
+            else _plain_result_card(card_rows)
+        )
+        if waiver:
             self._print_outcome(
                 "warning",
-                f"{verb} with operator override · {outcome}",
+                f"{verb} with source-drift override · {outcome}",
             )
             return 0
         self._print_outcome(
             "success",
-            f"{verb} · {outcome}{scope}",
+            f"{verb} · {outcome}",
             console=self.stdout,
         )
         return 0

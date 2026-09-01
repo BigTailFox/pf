@@ -5,6 +5,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Literal
 
+import pytest
 from rich.console import Console
 
 from pf.failure import FailurePolicy
@@ -45,6 +46,8 @@ from pf.schemas.project import (
 from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
+    CellSearchFailure,
+    FloorProjection,
     IncompleteReportResult,
     ProjectionEvidence,
     failure_records_for_result,
@@ -141,7 +144,151 @@ def _declaration(
     )
 
 
+def _search_failure(
+    cell: Cell,
+    *,
+    reason: Literal[
+        "NO_PASS_IN_SEARCH_SPACE", "NON_MONOTONIC", "NONDETERMINISTIC"
+    ],
+) -> CellSearchFailure:
+    attempt = _attempt(cell, resolution="highest")
+    proposal = Proposal(
+        proposal_id="highest",
+        attempt_id=attempt.attempt_id,
+        snapshot_digest="snapshot",
+        cell=cell,
+        managed_vector=(),
+        fixed_declaration_ids=(),
+        resolved_graph=(),
+        policy_identity="policy",
+    )
+    process = _process_result(exit_code=0)
+    ty = TyCheck(process=process, diagnostics=())
+    baseline = StaticBaseline(
+        proposal=proposal,
+        ty=ty,
+        digest=ty_diagnostic_digest(()),
+    )
+    evaluation = PassEvaluation(
+        proposal=proposal,
+        static=StaticUnchangedEvaluation(
+            proposal=proposal,
+            ty=ty,
+            baseline_digest=baseline.digest,
+        ),
+        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
+    )
+    return CellSearchFailure(
+        reason=reason,
+        cell=cell,
+        phase="runtime-search",
+        baseline_attempt=attempt,
+        static_baseline=baseline,
+        baseline=evaluation,
+    )
+
+
 class TestExplainCellCards:
+    @pytest.mark.parametrize(
+        ("reason", "bucket", "conclusion"),
+        (
+            (
+                "NO_PASS_IN_SEARCH_SPACE",
+                "1 no floor · 1 total",
+                "no compatible version combination was found",
+            ),
+            (
+                "NON_MONOTONIC",
+                "1 search failed · 1 total",
+                "Search evidence was non-monotonic",
+            ),
+            (
+                "NONDETERMINISTIC",
+                "1 search failed · 1 total",
+                "Repeated checks disagreed",
+            ),
+        ),
+    )
+    def test_explain_distinguishes_no_floor_from_search_failure(
+        self,
+        reason: Literal[
+            "NO_PASS_IN_SEARCH_SPACE", "NON_MONOTONIC", "NONDETERMINISTIC"
+        ],
+        bucket: str,
+        conclusion: str,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        result = _search_failure(cell, reason=reason)
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        assert presenter.render_explain(
+            _report(target_cells=(cell,), cell_results=(result,))
+        ) == 0
+
+        rendered = " ".join(stdout.getvalue().split())
+        assert bucket in rendered
+        assert conclusion in rendered
+        assert "pf diagnose" not in rendered
+
+    def test_explain_shows_fixed_declarations_and_blocked_projection_floors(
+        self,
+    ) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        managed = _declaration("rich", specifier=">=14")
+        fixed = RequirementDeclaration(
+            declaration_id="demo:dependencies:local",
+            package="demo",
+            location="base",
+            name="local",
+            pyproject_path="pyproject.toml",
+            raw="local @ file:///workspace/local",
+            kind="fixed",
+            managed=False,
+        )
+        projection = ProjectionEvidence(
+            declaration_id=managed.declaration_id,
+            floors=(FloorProjection(cell=cell, version="14.2.0"),),
+            projected_requirements=(),
+            representable=False,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            _report(
+                target_cells=(),
+                cell_results=(),
+                declarations=(managed, fixed),
+                projections=(projection,),
+            )
+        )
+
+        rendered = " ".join(stdout.getvalue().split())
+        assert "rich>=14" in rendered
+        assert "projection blocked" in rendered
+        assert (
+            "[py3.11][x86_64-unknown-linux-gnu][no-extra]·14.2.0"
+            in rendered.replace(" ", "")
+        )
+        assert "local @ file:///workspace/local" in rendered
+        assert "fixed · not managed" in rendered
     def test_explain_terminal_cell_renders_only_terminal_status_and_reason(
         self,
     ) -> None:
@@ -203,7 +350,7 @@ class TestExplainCellCards:
         assert "PF could not complete a verification tool" in normalized
         assert "operation reliably." in normalized
         assert terminal.failure_id in normalized
-        assert "pf diagnose --package demo --failure" in normalized
+        assert f"pf diagnose {terminal.failure_id} --package demo" in normalized
         assert historical.failure_id not in rendered
         assert "The full test command failed" not in rendered
         assert "What happened:" not in rendered
@@ -250,9 +397,9 @@ class TestExplainCellCards:
         assert rendered.count("╭") == 1
         card = rendered[rendered.index("╭") : rendered.index("╰")]
         assert "demo · package-floor.json" in card
-        assert "Status: incomplete" in card
-        assert "Apply: blocked by report evidence" in card
-        assert "Cells: 0/0 passed" in card
+        assert "incomplete · blocked by report evidence" in card
+        assert "current project was not inspected" in card
+        assert "0 total" in card
         assert "Requirements" in card
         assert "rich>=14" in card
         assert "projection blocked" in card
@@ -285,7 +432,7 @@ class TestExplainCellCards:
         )
 
         requirement_lines = [
-            line
+            line.rstrip()
             for line in stdout.getvalue().splitlines()
             if "projection blocked" in line
         ]
@@ -360,10 +507,10 @@ class TestExplainCellCards:
             )
         )
 
-        assert (
-            "-> rich\x1b[32m>=\x1b[0m\x1b[1;32m15.0\x1b[0m; "
-            'python_version >= "3.11"' in stdout.getvalue()
-        )
+        rendered = stdout.getvalue()
+        assert "-> rich\x1b[32m>=\x1b[0m\x1b[1;32m15.0\x1b[0m" in rendered
+        assert "python_version" in rendered
+        assert '"3.11"' in rendered
 
     def test_explain_requirements_style_entire_multi_clause_specifier(
         self,
@@ -444,10 +591,10 @@ class TestExplainCellCards:
             )
         )
 
-        lines = stdout.getvalue().splitlines()
-        assert "  foo>=1" in lines
-        assert '    -> foo>=2; python_version < "3.12"' in lines
-        assert '    -> foo>=3; python_version >= "3.12"' in lines
+        rendered = " ".join(stdout.getvalue().split())
+        assert "foo>=1" in rendered
+        assert '-> foo>=2; python_version < "3.12"' in rendered
+        assert '-> foo>=3; python_version >= "3.12"' in rendered
 
     def test_explain_terminal_cell_hides_static_baseline_evidence(self) -> None:
         cell = Cell(
@@ -565,13 +712,68 @@ class TestExplainCellCards:
         presenter.render_explain(report)
 
         rendered = stdout.getvalue()
-        assert rendered.count("╭") == 2
+        assert rendered.count("╭") == 1
         assert "✓  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
-        assert "search completed" in rendered
+        assert rendered.count("[py3.12][x86_64-unknown-linux-gnu][no-extra]") == 1
         assert "ty baseline" not in rendered
         assert "What happened:" not in rendered
         assert "pf diagnose" not in rendered
-        assert "Next: pf apply --package demo" in rendered
+        assert "-> pf apply --package demo" in rendered
+
+    def test_explain_mixed_report_renders_each_target_once_and_one_next_action(
+        self,
+    ) -> None:
+        complete = ReportStore().read(
+            Path(__file__).parents[1]
+            / "docs/examples/package-floor-v1-minimal-complete.json"
+        )
+        passed = complete.cell_results[0]
+        rejected_cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        rejected_attempt = _attempt(rejected_cell, resolution="highest")
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=rejected_attempt),
+            cause="HARNESS_CONFLICT",
+            stage="resolve-environment",
+            process=_process_result(),
+        )
+        rejected = BaselineRejection(
+            attempt=rejected_attempt,
+            failure=failure,
+        )
+        stdout = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(
+                file=stdout,
+                force_terminal=True,
+                color_system=None,
+                width=80,
+            ),
+            stderr=Console(file=StringIO(), force_terminal=False),
+        )
+
+        presenter.render_explain(
+            _report(
+                target_cells=(passed.cell, rejected_cell),
+                cell_results=(passed, rejected),
+            )
+        )
+
+        rendered = stdout.getvalue()
+        passed_identity = "[py3.12][x86_64-unknown-linux-gnu][no-extra]"
+        rejected_identity = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
+        assert rendered.count("╭") == 2
+        assert rendered.count(passed_identity) == 1
+        assert rendered.count(rejected_identity) == 1
+        assert rendered.count("pf diagnose") == 1
+        assert f"pf diagnose {failure.failure_id} --package demo" in " ".join(
+            rendered.split()
+        )
+        assert "pf apply --package demo" not in rendered
 
     def test_explain_baseline_rejection_hides_pytest_detail(self) -> None:
         cell = Cell(
@@ -712,9 +914,11 @@ class TestExplainCellCards:
         rendered = stdout.getvalue()
         assert "\x1b[2;33m╭" in rendered
         assert "\x1b[1;36mdemo" in rendered
-        assert "\x1b[36mpackage-floor.json" in rendered
-        assert "Status: \x1b[33mincomplete" in rendered
-        assert "Apply: \x1b[33mblocked; no applicable final floor" in rendered
+        assert "package-floor.json" in rendered
+        assert "\x1b[4;36m" in rendered
+        assert "\x1b]8;" in rendered
+        assert "incomplete" in rendered
+        assert "blocked; no applicable final floor" in rendered
         assert "\x1b[33m⚠" in rendered
 
     def test_explain_summary_uses_red_when_any_cell_is_red(self) -> None:
@@ -778,10 +982,9 @@ class TestExplainCellCards:
             )
         )
 
-        assert (
-            "\x1b[1;31mSummary: report is incomplete and cannot be applied."
-            "\x1b[0m\n" in stdout.getvalue()
-        )
+        assert "\x1b[1;31mReport incomplete" in stdout.getvalue()
+        assert "1 rejected cell" in stdout.getvalue()
+        assert "1 unknown cell" in stdout.getvalue()
 
     def test_explain_summary_uses_yellow_when_report_has_only_yellow_cells(
         self,
@@ -805,10 +1008,8 @@ class TestExplainCellCards:
 
         presenter.render_explain(report)
 
-        assert (
-            "\x1b[1;33mSummary: report is incomplete and cannot be applied."
-            "\x1b[0m\n" in stdout.getvalue()
-        )
+        assert "\x1b[1;33mReport incomplete" in stdout.getvalue()
+        assert "1 missing cell" in stdout.getvalue()
 
     def test_explain_summary_uses_green_when_report_authorizes_apply(
         self,
@@ -833,6 +1034,6 @@ class TestExplainCellCards:
         presenter.render_explain(report)
 
         assert (
-            "\x1b[1;32mSummary: 0 dependency declarations have verified floors."
-            "\x1b[0m\n" in stdout.getvalue()
+            "\x1b[1;32mNo managed dependencies require floor changes."
+            "\x1b[0m" in stdout.getvalue()
         )

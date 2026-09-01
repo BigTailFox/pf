@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from packaging.utils import InvalidName, canonicalize_name
@@ -130,7 +131,14 @@ class ReportRequest(FrozenSchema):
 class DiagnoseRequest(FrozenSchema):
     root: str
     selector: TargetSelector = RootPackage()
-    failure_id: str | None = None
+    failure_id: str
+
+    @field_validator("failure_id")
+    @classmethod
+    def validate_failure_id(cls, value: str) -> str:
+        if re.fullmatch(r"failure-[0-9a-f]{16}", value) is None:
+            raise ValueError("failure ID must be canonical failure-<16 hex>")
+        return value
 
 
 class ApplyRequest(FrozenSchema):

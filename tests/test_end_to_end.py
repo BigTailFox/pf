@@ -41,7 +41,7 @@ class TestInstalledCli:
         lockfile.write_text("search snapshot\n", encoding="utf-8")
 
         results = {}
-        for command in ("search", "explain", "diagnose", "apply"):
+        for command in ("search", "explain", "apply"):
             result = subprocess.run(
                 [sys.executable, "-m", "pf", command],
                 cwd=tmp_path,
@@ -67,7 +67,6 @@ class TestInstalledCli:
             timeout=60,
         )
 
-        assert "diagnosed 0 failures" in results["diagnose"].stdout
         assert (tmp_path / "package-floor.json").is_file()
         process_logs = tuple((tmp_path / ".pf/logs").glob("*/process-*.log"))
         assert process_logs
@@ -75,8 +74,8 @@ class TestInstalledCli:
             'ty", "check' in path.read_text(encoding="utf-8") for path in process_logs
         )
         explained = results["explain"].stdout
-        assert "Status: complete" in explained
-        assert "Apply: eligible; current project will be rechecked" in explained
+        assert "complete · report evidence is eligible for apply" in explained
+        assert "pf apply --package demo" in explained
         assert repeated_apply.returncode == 0, (
             repeated_apply.stdout,
             repeated_apply.stderr,
