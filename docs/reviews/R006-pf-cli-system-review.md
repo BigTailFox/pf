@@ -1,9 +1,10 @@
 # R006 — PF CLI 系统评审
 
-- **状态：** 开放（CLI 问题的单一汇总 Review；现行契约修复与待设计候选均未实施）
+- **状态：** 开放（help/README 与 reason-aware incomplete 文案已修复；其余候选待接受或 Design）
 - **日期：** 2026-09-03
 - **性质：** 非规范性产品与架构评审；不定义命令、退出码、展示或 module interface，不授权实施
-- **对照：** 基于 `010e048` 的当前工作树；初次 CLI 动态证据取自该提交，源码位置已在 D022/P028 完成后重校
+- **对照：** 初评基于 `010e048`；源码位置已在 D022/P028 完成后重校，本轮直接修复以 `9e4d1bb` 为起点
+- **已解决项：** 诊断 help 的 Failure ID 语义、apply 的唯一 `--force` 语法、README 命令/apply 摘要与 search incomplete reason-aware final
 - **输入材料：** 两份独立 CLI 评审意见，再对照当前源码、现行契约、公共 help 与 focused tests 校准
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)
 - **收归来源与边界：** [R004](R004-pf-search-performance-review.md) §5 的非 TTY 搜索遥测、[R005](../archived/reviews/R005-pf-module-depth-review.md) 轨 D 的 terminal-private result-card 已移交本文；[D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 的评价 seam 与 SearchCoordinator 测试不属于 CLI 问题
@@ -24,15 +25,15 @@ Cell、explain/diagnose/merge 结果卡的主体契约。但“没有新的正�
 | 优先级 | 分类 | 事项 | 结论 |
 | --- | --- | --- | --- |
 | P1 | 契约歧义与失效配置 | `[tool.pf].jobs` 没有调度消费者 | 先在 D001 写死“省略时读 effective config、显式 CLI 覆盖”，接受后再建立 focused Plan |
-| P1 | 小型契约修复 | `diagnose` help 吞掉 `<id>`；`apply` 暴露 `--no-force`；README 过期 | 不需新 Design；以公共 CLI/文档测试锁定目标行为 |
-| P1 | D006 展示契约修复 | incomplete reasons 被统一说成“no applicable floor” | 先按 reason 与本机 Cell 结果恢复准确文案；保持现行退出码 |
+| P1 | 小型契约修复 | `diagnose` help 吞掉 `<id>`；`apply` 暴露 `--no-force`；README 过期 | 已按 D001/D006 修复；公共 CLI 测试覆盖 help 与 parser 拒绝 |
+| P1 | D006 展示契约修复 | incomplete reasons 被统一说成“no applicable floor” | 已恢复 reason-aware 文案；现行退出码不变 |
 | P1 | 需要 Design | 多宿主 `search` 的纯 host-partial artifact 仍退出 `2` | 先钉住自动化协议，再由 D001/D006 决定是否改为成功-with-warning |
 | P2 | 需要 Design | 所有命令在解析前装配完整验证图，且 composition-time `PfError` 越过统一错误映射 | 在唯一 composition root 内按 capability 惰性装配；不得引入第二个 root 或 DI framework |
 | P2 | R006；原 R005 轨 D | apply/no-floor/普通配置错误仍是 `category: message` | 下一次真实跨命令错误展示变更时启动 terminal-private result-card，不另建错误 module |
 | P2 | 需要 Design | `KeyboardInterrupt` 没有 CLI 终态，可能显示 traceback | 若采用退出 `130`，先修改 D001/D006；不得错误映射成基础设施退出 `4` |
 | P2 | R006；原 R004 §5(3) | 非 TTY 搜索在阶段开始后没有持续活动反馈 | 作为独立 presentation/activity Design 候选；activity 不进入 report identity |
 
-建议先完成 help/README 与 D006 incomplete 文案这类现行契约已能唯一决定的小修复，再分别接受
+上述 help/README 与 D006 incomplete 文案小修复已完成。后续再分别接受
 D001 的 jobs 省略语义、设计 multi-host outcome 与 command-scoped composition。这些项不应被捆成
 一个 CLI 大重构。
 
@@ -45,7 +46,7 @@ D001 的 jobs 省略语义、设计 multi-host outcome 与 command-scoped compos
 但 CLI handler 把省略的 `--jobs` 立即固定为字符串 `"auto"`，构造 `CheckRequest`、`SmokeRequest`、
 `SearchRequest`；`CheckCommandWorkflow.run`、`SmokeCommandWorkflow.run` 与 `SearchCommandWorkflow.run`
 随后只把 `request.jobs` 传给 `VerificationRunner`，scheduler 最终也只消费这个 request 字段
-（`src/pf/cli.py:209-255,287-307`、`src/pf/workflow.py:91-115,175-199,263-287`、
+（`src/pf/cli.py:214-261,292-314`、`src/pf/workflow.py:91-115,175-199,263-287`、
 `src/pf/verification.py:185-200`）。`src/pf` 中没有 `package.config.jobs` 或 `config.jobs` 的消费点。
 
 D001 §5 把 `--jobs` 的默认值写成 `auto`，§7 又定义 `[tool.pf].jobs` 并规定“CLI 选项覆盖对应调度
@@ -79,6 +80,8 @@ Rich 把 `<id>` 解释为 markup。`tests/test_cli.py` 只断言后半句和 `FA
 中间字面量被删除。这里应转义 markup 或改写为不会进入 markup 语法的等价句，并从公共 help seam
 断言完整可见语义；不使用整页 snapshot。
 
+**处理状态：已修复。** Help 现以不含 markup 的人类语言说明 16 位小写十六进制字符与可选 `failure-` 前缀，公共 help 测试断言这两层语义。
+
 ### 2.3 `pf apply --help` 暴露并接受未定义的 `--no-force`
 
 D001/D006 只定义 apply 的 `--force`。Cyclopts 目前从默认 `False` 的 bool 参数自动生成：
@@ -91,6 +94,8 @@ D001/D006 只定义 apply 的 `--force`。Cyclopts 目前从默认 `False` 的 b
 证明 help 只出现 `--force`、`--no-force` 被 parser 拒绝。PF 处于 prerelease，不需要为该意外语法保留
 兼容 alias。
 
+**处理状态：已修复。** Apply 的 bool parameter 已关闭 negative alias，help 只展示 `--force`，`--no-force` 在 parser 层形成退出 `1` 的调用错误。
+
 ### 2.4 README 的命令与 apply 描述落后于 D001
 
 根 README 仍写 `pf diagnose [--package PACKAGE] [--failure FAILURE_ID]`，apply 行遗漏 `--force`；同时
@@ -100,6 +105,8 @@ D001/D006 只定义 apply 的 `--force`。Cyclopts 目前从默认 `False` 的 b
 
 README 只做入口导航与摘要，不复制一套 Cyclopts help；命令和授权细节仍链接到 D001。
 
+**处理状态：已修复。** 根 README 已对齐 apply/diagnose 调用形状，并用“至少一个完整 EvidencePlatform，缺失项只来自完整 MissingSelector”摘要 platform-scoped 授权。
+
 ## 3. P1：incomplete 文案与 multi-host search outcome
 
 ### 3.1 当前问题
@@ -108,7 +115,7 @@ D008 明确定义每个进程只运行 `cell.target == host_target` 的 Cell；S
 继续写出带 `MISSING_CELL` 的 incomplete report（`src/pf/verification.py:243-265`、D008 §1）。公共 workflow
 测试也证明多平台项目只执行本机 target，并保留其他 target 为 missing。
 
-Presenter 目前把除 baseline rejection/indeterminate 之外的所有 incomplete reasons 统一映射为退出 `2`，
+修复前 Presenter 把除 baseline rejection/indeterminate 之外的所有 incomplete reasons 统一映射为退出 `2`，
 并固定输出：
 
 ```text
@@ -126,6 +133,8 @@ evidence。当前实现却把这些原因与 `MISSING_CELL` 收成同一句 no-f
 要求 `|| true`。
 
 ### 3.2 先恢复 reason-aware 文案
+
+**处理状态：已修复。** Search final 现从 report reasons 与 target/observed Cell 分布投影准确结论；纯 host-partial 仍返回 `2`，不预判 §3.3 待 Design 的自动化协议。
 
 在不改变现行退出码的前提下，search summary 应依据 `report.result.reasons` 与本机 `CellResult` 集合选择
 准确结论；`MISSING_CELL`、`NON_MONOTONIC`、`NONDETERMINISTIC`、`UNREPRESENTABLE_PROJECTION`
@@ -173,7 +182,7 @@ Design 必须先钉住自动化协议；只有接受改变 host-partial 的数�
 `main()` 在 Cyclopts 解析命令前进入 `build_context()`。`_assemble_context()` 因而为 `--help`、
 `--version`、`explain`、`diagnose` 和 `merge` 也构造 RegistryAccess、SubprocessRunner、UvAdapter、
 EnvironmentFactory、static/runtime evaluators、三个评价编排器、SearchCoordinator、VerificationRunner 与
-七个 workflow（`src/pf/cli.py:363-483`）。这里的核心问题不是未经稳定基准证明的 wall time，而是离线
+七个 workflow（`src/pf/cli.py:369-489`）。这里的核心问题不是未经稳定基准证明的 wall time，而是离线
 命令必须认识整条在线验证图才能启动。
 
 此外，`try/except PfError` 位于 `with build_context()` 内部。composition 阶段若出现预期的配置错误，
@@ -307,11 +316,11 @@ workflow Protocol 则有生产 context 与 `NeverCalledWorkflow` 等测试 adapt
 
 ## 8. 建议实施顺序与治理
 
-1. 在一个小型契约修复中处理 diagnose `<id>`、隐藏并拒绝 `--no-force`、对齐 README；只修改现行
-   contract projection 与公共测试，不建立兼容层。
+1. 已在一个小型契约修复中处理 diagnose Failure ID help、隐藏并拒绝 `--no-force`、对齐 README；只修改现行
+   contract projection 与公共测试，未建立兼容层。
 2. 先修订并接受 D001，明确省略 `--jobs` 是否继承 effective config、显式 `auto|N` 如何覆盖；只有目标
    行为成为规范后，才建立 focused Plan，映射 request ownership、三个 workflow、minimize、测试与文档证据。
-3. 先按 D006 修正 incomplete 的 reason-aware 文案并明确现行自动化协议；再单独建立 multi-host search
+3. 已按 D006 修正 incomplete 的 reason-aware 文案并保持现行自动化协议；后续再单独建立 multi-host search
    outcome 临时 Design，决定纯 host-partial 与 empty-host 的退出语义。不得把文案合规修复和退出码变更
    捆成一次实现。
 4. 单独建立 command-scoped composition 临时 Design，比较 bootstrap 与 lazy provider，使用 UvAdapter/
@@ -345,8 +354,38 @@ UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/pytest --no-testmon \
 70 passed in 1.62s
 ```
 
-本次未运行全量 pytest、coverage、真实 smoke/search、多宿主 CI 或非宿主平台验证；focused pass 只证明
+初评未运行全量 pytest、coverage、真实 smoke/search、多宿主 CI 或非宿主平台验证；focused pass 只证明
 被抽查的现行测试通过，不证明上述缺口已修复。
 
 把 R004/R005 CLI 项收归本文时只运行了 `git diff --check` 与相对 Markdown 链接检查，结果均通过；当时
 D022/P028 尚在实施，其后完成的测试不计入上述 R006 `010e048` 初始评审基线证据。
+
+2026-09-03 的直接修复没有改动数值退出码、report/schema、workflow ownership 或生成物。
+验证证据：
+
+```text
+UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/pytest --no-testmon \
+  tests/test_cli.py tests/test_terminal.py -q
+173 passed in 2.32s
+
+UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/pytest --no-testmon --cov -q
+1466 passed in 29.01s
+Total coverage: 90.60% (required: 90.0%; branch coverage enabled)
+
+.venv/bin/ruff check src tests
+All checks passed!
+
+.venv/bin/ty check src
+All checks passed!
+
+UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/uv build
+Successfully built dist/pf-0.1.0.tar.gz
+Successfully built dist/pf-0.1.0-py3-none-any.whl
+
+git diff --check
+passed
+```
+
+全量套件在 sandbox 内初次运行时，真实安装用例因 PyPI 连接被禁止而得到 `1465 passed, 1 failed`；
+Process Log 将失败定位到 `uv-build` 获取的 `Operation not permitted`。同一 focused e2e 在允许网络后
+`1 passed in 1.88s`，随后允许网络的全量 coverage 命令按上述结果通过；该初次失败是环境证据，不是代码回归。

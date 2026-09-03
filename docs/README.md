@@ -52,8 +52,8 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
-- [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：除公开表面偏差、jobs
-  契约歧义、multi-host outcome、command-scoped composition 与中断语义外，也完整接管 R004 的非 TTY
+- [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差与
+  reason-aware incomplete 文案已解决；它继续跟踪 jobs 契约歧义、multi-host outcome、command-scoped composition 与中断语义，也完整接管 R004 的非 TTY
   搜索遥测和 R005 的 terminal-private result-card；它是非规范性评审，不授权实施。
 - [R004](reviews/R004-pf-search-performance-review.md) 继续跟踪尚未实施的搜索性能候选；prepared promotion
   复用已由 D022/P028 解决，原 CLI 非 TTY 搜索遥测已移交 R006。
