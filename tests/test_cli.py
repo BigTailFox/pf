@@ -483,7 +483,9 @@ class TestCommandDispatch:
                 (
                     "recorded rejection or indeterminate result",
                     "FAILURE_ID",
-                    "failure- prefix may be omitted",
+                    "failure ID containing 16",
+                    "lowercase hexadecimal characters",
+                    "optionally prefixed with failure-",
                 ),
             ),
         ),
@@ -504,7 +506,19 @@ class TestCommandDispatch:
         assert usage in result.stdout
         assert "[ARGS]" not in result.stdout
         assert "--package" in result.stdout
-        assert all(fragment in result.stdout for fragment in expected_fragments)
+        normalized_help = " ".join(result.stdout.split())
+        assert all(fragment in normalized_help for fragment in expected_fragments)
+
+    def test_apply_exposes_only_the_defined_force_option(self) -> None:
+        help_result = invoke_app("apply", "--help")
+        invocation_result = invoke_app("apply", "--no-force")
+
+        assert help_result.returncode == 0
+        assert "--force" in help_result.stdout
+        assert "--no-force" not in help_result.stdout
+        assert invocation_result.returncode == 1
+        assert invocation_result.stdout == ""
+        assert "Unknown option: --no-force" in invocation_result.stderr
 
     @pytest.mark.parametrize(
         ("arguments", "error_fragment"),

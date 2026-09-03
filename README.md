@@ -20,10 +20,10 @@ PF v1 以一个可独立安装的包和一个兼容性 cell 为搜索单位：
 pf smoke [--package PACKAGE] [--jobs auto|N]
 pf check [--package PACKAGE] [--jobs auto|N]
 pf search [--package PACKAGE] [--jobs auto|N] [--max-duration DURATION]
-pf apply [--package PACKAGE]
+pf apply [--package PACKAGE] [--force]
 pf minimize [--package PACKAGE] [--jobs auto|N] [--max-duration DURATION]
 pf explain [--package PACKAGE]
-pf diagnose [--package PACKAGE] [--failure FAILURE_ID]
+pf diagnose FAILURE_ID [--package PACKAGE]
 pf merge REPORT [REPORT ...] --output PATH
 ```
 
@@ -44,7 +44,7 @@ member，不接受目录或`pyproject.toml`路径。
 
 PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当前 resolver protocol 只支持 uv `0.12.5`；其他 uv 版本会 fail closed，不沿用未经 qualification 的诊断 parser。升级任一工具都必须先复跑对应验证，再更新精确版本。
 
-`search` 只写 `package-floor.json`。`apply` 只消费完整、未漂移且可表示的报告，不重新解析依赖、不运行 `ty` 或测试。
+`search` 只写 `package-floor.json`。`apply` 只消费与当前项目、source 与 policy 一致并通过授权检查的报告；完整报告可授权 declared-matrix apply，已有至少一个完整 EvidencePlatform 且缺失项只来自完整 MissingSelector 的 incomplete report 也可能授权 platform-scoped apply。`apply` 不重新解析依赖、不运行 `ty` 或测试。
 
 `smoke` 在当前声明约束内建立尽可能新的 fresh install，捕获一次 `ty` 静态基线并运行完整测试。静态诊断本身不是兼容性失败；普通 Cell 摘要只展示最终结果，详细进程记录写入 `.pf/logs/`，失败时通过 `pf diagnose` 查看。
 

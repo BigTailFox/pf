@@ -130,7 +130,12 @@ _JOBS = Annotated[str, Parameter(help=_JOBS_HELP)]
 _DURATION = Annotated[str | None, Parameter(help=_DURATION_HELP)]
 _FAILURE_ID = Annotated[
     str,
-    Parameter(help="A failure-<id> value; the failure- prefix may be omitted."),
+    Parameter(
+        help=(
+            "A failure ID containing 16 lowercase hexadecimal characters, "
+            "optionally prefixed with failure-."
+        )
+    ),
 ]
 _VERIFY = Group("Verify", sort_key=1)
 _FIND = Group("Find and apply floors", sort_key=2)
@@ -270,7 +275,8 @@ def create_app(context: CliContext) -> App:
         force: Annotated[
             bool,
             Parameter(
-                help="Accept source-layer drift after structural authorization."
+                help="Accept source-layer drift after structural authorization.",
+                negative=(),
             ),
         ] = False,
     ) -> int:
