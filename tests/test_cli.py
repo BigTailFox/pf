@@ -752,7 +752,7 @@ class TestCommandDispatch:
                 return object()
 
         class Presenter(TerminalPresenter):
-            def render_diagnose(self, diagnosis: object) -> int:  # ty: ignore[invalid-method-override]
+            def render_diagnose(self, diagnosis: object) -> int:
                 assert diagnosis is not None
                 return 0
 

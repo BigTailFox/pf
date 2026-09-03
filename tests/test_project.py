@@ -12,6 +12,7 @@ from pf.schemas.config import RootPackage, WorkspacePackage
 from pf.schemas.project import (
     DependencySourceRoute,
     DynamicWorkspaceMemberVersion,
+    ResolutionSourceMode,
     SourcePlan,
     SourceIdentity,
     StaticWorkspaceMemberVersion,
@@ -304,7 +305,7 @@ class TestProjectPlanning:
     def test_source_plan_selects_the_effective_source_for_its_mode(
         self,
         tmp_path: Path,
-        mode: str,
+        mode: ResolutionSourceMode,
     ) -> None:
         write_basic_project(tmp_path, "")
         package = ProjectLoader().load(root=tmp_path).target
@@ -323,7 +324,7 @@ class TestProjectPlanning:
     )
     def test_source_plan_selects_each_side_of_a_dual_route(
         self,
-        mode: str,
+        mode: ResolutionSourceMode,
         expected: str,
     ) -> None:
         plan = SourcePlan(

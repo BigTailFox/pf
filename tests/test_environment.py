@@ -1352,7 +1352,7 @@ test-command = ["python", "-c", "pass"]
                 return InstallFailure(
                     plan_digest=plan.digest,
                     cause=cause,
-                    process=_failed_tool(cause, stage).process,
+                    process=_failed_process(cause, stage),
                 )
 
         root = _write_demo(tmp_path)

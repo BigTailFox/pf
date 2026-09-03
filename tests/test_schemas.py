@@ -361,7 +361,6 @@ class TestPlanningSchemas:
                 package="Demo",
                 location="base",
                 name="idna",
-                source=SourceIdentity(kind="registry"),
                 pyproject_path="pyproject.toml",
                 raw="idna",
                 kind="searchable",
