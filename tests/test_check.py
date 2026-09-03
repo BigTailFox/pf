@@ -2,20 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Lock
-import tempfile
 import time
 from typing import Literal, cast
 
 import pytest
 
-from conftest import prepared_resolution_evidence
+from evaluation_fixtures import evaluation_assembly, successful_process
 
-from pf.environment import (
-    HighestResolution,
-    LowestDirectResolution,
-    PreparedEnvironment,
-    ResolutionRequest,
-)
+from pf.check import CompatibilityChecker
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import CheckRequest
@@ -31,30 +25,24 @@ from pf.schemas.evaluation import (
     Evaluation,
     NormalExit,
     PassEvaluation,
-    PrepareFailure,
     ProcessResult,
-    RuntimeEvaluationRun,
-    StaticBaseline,
-    StaticBaselineCapture,
     StatusEvent,
     ToolFailure,
     TyCheck,
     ty_diagnostic_digest,
 )
 from pf.schemas.evaluation import (
-    IndeterminateEvaluation,
     StaticUnchangedEvaluation,
-    StaticEvaluation,
     VerifierPass,
     VerifierRejected,
-    VerifierRejectedEvaluation,
+    VerifierRun,
 )
 from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.errors import ConfigurationError
-from pf.verification import VerificationRunner
-from pf.workflow import CheckCommandWorkflow, CompatibilityChecker
+from pf.verification import CheckCellOperations, VerificationRunner
+from pf.workflow import CheckCommandWorkflow
 
 
 class Events:
@@ -135,13 +123,6 @@ def attempt_for(
     )
 
 
-def resolution_kind(
-    resolution: ResolutionRequest,
-) -> Literal["highest", "lowest-direct"]:
-    assert isinstance(resolution, (HighestResolution, LowestDirectResolution))
-    return resolution.kind
-
-
 def passing_outcome(cell: Cell) -> CheckCellOutcome:
     evaluation = passing_check(cell)
     return CheckCellOutcome(
@@ -201,228 +182,76 @@ class TestCompatibilityChecker:
         tmp_path: Path,
     ) -> None:
         package, snapshot = write_check_project(tmp_path)
-        resolutions: list[str] = []
-        prepared: dict[str, PreparedEnvironment] = {}
         events = Events()
-
-        class Environments:
-            def prepare(
-                self,
-                *,
-                package: PackagePlan,
-                cell: Cell,
-                snapshot: SourceSnapshot,
-                resolution: ResolutionRequest,
-                source_plan: SourcePlan,
-            ) -> PreparedEnvironment:
-                kind = resolution_kind(resolution)
-                resolutions.append(kind)
-                temporary = tempfile.TemporaryDirectory(prefix=f"pf-check-{kind}-")
-                root = Path(temporary.name)
-                source = root / "source"
-                environment = root / "environment"
-                source.mkdir()
-                attempt = Attempt.from_identity(
-                    AttemptIdentity(
-                        source_snapshot_digest=snapshot.identity.digest,
-                        cell=cell,
-                        requested_resolution=kind,
-                        requested_managed_vector=None,
-                        active_declaration_ids=cell.active_declaration_ids,
-                        source_plan_identity="sources",
-                        evaluation_policy_identity="policy",
-                        resolution_context_digest="context",
-                        harness_policy_identity=(
-                            "original-harness-v1"
-                            if kind == "highest"
-                            else "harness-relaxation-v1"
-                        ),
-                        harness_baseline_digest=(
-                            None if kind == "highest" else "baseline"
-                        ),
-                    )
-                )
-                value = PreparedEnvironment(
-                    attempt=attempt,
-                    proposal=Proposal(
-                        proposal_id=kind,
-                        attempt_id=attempt.attempt_id,
-                        snapshot_digest=snapshot.identity.digest,
-                        cell=cell,
-                        managed_vector=(),
-                        fixed_declaration_ids=(),
-                        resolved_graph=(),
-                        policy_identity="policy",
-                    ),
-                    proposal_root=source,
-                    package_root=source,
-                    environment_root=environment,
-                    interpreter=environment / "bin" / "python",
-                    **prepared_resolution_evidence(cell=cell),
-                    temporary_directory=temporary,
-                )
-                prepared[kind] = value
-                return value
-
-        process = ProcessResult(
-            exit_code=1,
-            signal=None,
-            duration_seconds=0.1,
-            stdout="[]",
-            stderr="",
-        )
-
-        class Static:
-            def capture(
-                self,
-                prepared: PreparedEnvironment,
-                *,
-                package: PackagePlan,
-            ) -> StaticBaselineCapture:
-                check = TyCheck(process=process, diagnostics=())
-                baseline = StaticBaseline(
-                    proposal=prepared.proposal,
-                    ty=check,
-                    digest=ty_diagnostic_digest(check.diagnostics),
-                )
-                return StaticBaselineCapture(
-                    baseline=baseline,
-                    static=StaticUnchangedEvaluation(
-                        proposal=prepared.proposal,
-                        ty=check,
-                        baseline_digest=baseline.digest,
-                        incremental=(),
-                    ),
-                )
-
-        class Full:
-            def evaluate(
-                self,
-                prepared: PreparedEnvironment,
-                *,
-                package: PackagePlan,
-                baseline: StaticBaseline,
-                static_result: StaticEvaluation | None = None,
-            ) -> RuntimeEvaluationRun:
-                assert prepared.proposal.proposal_id == "lowest-direct"
-                assert baseline.proposal.proposal_id == "highest"
-                assert static_result is None
-                prepared.mark_tested()
-                static = StaticUnchangedEvaluation(
-                    proposal=prepared.proposal,
-                    ty=TyCheck(process=process, diagnostics=()),
-                    baseline_digest=baseline.digest,
-                    incremental=(),
-                )
-                return RuntimeEvaluationRun(
-                    evaluation=PassEvaluation(
-                        proposal=prepared.proposal,
-                        static=static,
-                        verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
-                    )
-                )
+        assembly = evaluation_assembly(highest=(), lowest=(), events=events)
 
         result = CompatibilityChecker(
-            environments=Environments(),
-            static=Static(),
-            full=Full(),
+            environments=assembly.environments,
+            static=assembly.static,
+            full=assembly.runtime,
             events=events,
-        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
+        ).check(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         assert result.status == "PASS"
-        assert resolutions == ["highest", "lowest-direct"]
+        assert assembly.uv.resolutions == ["highest", "lowest-direct"]
+        assert assembly.uv.resolution_root_states == [
+            ("highest", ()),
+            ("lowest-direct", (False,)),
+        ]
         assert [
             event.detail
             for event in events.items
             if isinstance(event, CellContextEvent)
         ] == [DeclarationDetailIdentity()]
-        assert prepared["highest"].tested is False
-        assert prepared["lowest-direct"].tested is True
+        assert assembly.ty.vectors == [(), ()]
+        assert assembly.verifier.vectors == [()]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     def test_check_highest_prepare_failure_does_not_start_lowest_direct(
         self,
         tmp_path: Path,
     ) -> None:
         package, snapshot = write_check_project(tmp_path)
-        resolutions: list[str] = []
         cell = package.cells[0]
-        attempt = Attempt.from_identity(
-            AttemptIdentity(
-                source_snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                requested_resolution="highest",
-                requested_managed_vector=None,
-                active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity="sources",
-                evaluation_policy_identity="policy",
-                resolution_context_digest="context",
-                harness_policy_identity="original-harness-v1",
-            )
-        )
-        process = ProcessResult(
-            exit_code=1,
-            signal=None,
-            duration_seconds=0.1,
-            stdout="",
-            stderr="Failed to build `numpy==1.24.0`",
-        )
         events = Events()
-
-        class Environments:
-            def prepare(
-                self,
-                *,
-                package: PackagePlan,
-                cell: Cell,
-                snapshot: SourceSnapshot,
-                resolution: ResolutionRequest,
-                source_plan: SourcePlan,
-            ) -> PrepareFailure:
-                kind = resolution_kind(resolution)
-                resolutions.append(kind)
-                return PrepareFailure(
-                    attempt=attempt
-                    if kind == "highest"
-                    else Attempt.from_identity(
-                        attempt.identity.model_copy(
-                            update={"requested_resolution": kind}
-                        )
-                    ),
-                    failure=ToolFailure(
-                        cause="BUILD_FAILURE",
-                        stage="install-project",
-                        process=process,
-                    ),
-                )
-
-        class NeverStatic:
-            def capture(
-                self, *args: object, **kwargs: object
-            ) -> StaticBaselineCapture | IndeterminateEvaluation:
-                raise AssertionError(
-                    "capture must not run after highest prepare failure"
-                )
-
-        class NeverFull:
-            def evaluate(self, *args: object, **kwargs: object) -> RuntimeEvaluationRun:
-                raise AssertionError(
-                    "lowest-direct must not start after capture failure"
-                )
+        assembly = evaluation_assembly(
+            highest=(),
+            lowest=(),
+            install_failure=ToolFailure(
+                cause="BUILD_FAILURE",
+                stage="install-environment",
+                process=successful_process(exit_code=2),
+            ),
+            events=events,
+        )
 
         result = CompatibilityChecker(
-            environments=Environments(),
-            static=NeverStatic(),
-            full=NeverFull(),
+            environments=assembly.environments,
+            static=assembly.static,
+            full=assembly.runtime,
             events=events,
-        ).check(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
+        ).check(
+            package=package,
+            cell=cell,
+            snapshot=snapshot,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
-        assert resolutions == ["highest"]
+        assert assembly.uv.resolutions == ["highest"]
         assert result.status == "INDETERMINATE"
         assert result.role == "declaration-capture"
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure is not None
         assert result.failure.cause == "BUILD_FAILURE"
-        assert result.failure.stage == "install-project"
+        assert result.failure.stage == "install-environment"
+        assert assembly.ty.vectors == []
+        assert assembly.verifier.vectors == []
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
         assert [
             event.detail
             for event in events.items
@@ -466,7 +295,7 @@ class TestCompatibilityChecker:
         CheckCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
-            checker=cast(CompatibilityChecker, Checker()),
+            checker=cast(CheckCellOperations, Checker()),
             verification=VerificationRunner(
                 events=Events(),
                 logs=None,
@@ -509,7 +338,7 @@ class TestCheckWorkflow:
         CheckCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
-            checker=cast(CompatibilityChecker, Checker()),
+            checker=cast(CheckCellOperations, Checker()),
             verification=VerificationRunner(
                 events=events,
                 logs=None,
@@ -572,7 +401,7 @@ class TestCheckWorkflow:
             CheckCommandWorkflow(
                 projects=ProjectLoader(),
                 snapshots=SnapshotBuilder.without_processes(),
-                checker=cast(CompatibilityChecker, NeverChecker()),
+                checker=cast(CheckCellOperations, NeverChecker()),
                 verification=VerificationRunner(
                     events=Events(),
                     logs=None,
@@ -591,137 +420,33 @@ class TestCheckWorkflow:
         evaluation_status: str,
     ) -> None:
         package, snapshot = write_check_project(tmp_path)
-
-        class Environments:
-            def prepare(
-                self,
-                *,
-                package: PackagePlan,
-                cell: Cell,
-                snapshot: SourceSnapshot,
-                resolution: ResolutionRequest,
-                source_plan: SourcePlan,
-            ) -> PreparedEnvironment:
-                kind = resolution_kind(resolution)
-                directory = tempfile.TemporaryDirectory(prefix="pf-check-test-")
-                root = Path(directory.name)
-                attempt = Attempt.from_identity(
-                    AttemptIdentity(
-                        source_snapshot_digest=snapshot.identity.digest,
-                        cell=cell,
-                        requested_resolution=kind,
-                        requested_managed_vector=None,
-                        active_declaration_ids=cell.active_declaration_ids,
-                        source_plan_identity="sources",
-                        evaluation_policy_identity="policy",
-                        resolution_context_digest="context",
-                        harness_policy_identity=(
-                            "original-harness-v1"
-                            if kind == "highest"
-                            else "harness-relaxation-v1"
-                        ),
-                        harness_baseline_digest=(
-                            None if kind == "highest" else "baseline"
-                        ),
-                    )
+        assembly = evaluation_assembly(
+            highest=(),
+            lowest=(),
+            ty_handler=lambda vector, call: (
+                ToolFailure(
+                    cause="TOOL_FAILURE",
+                    stage="ty",
+                    process=successful_process(exit_code=2),
                 )
-                return PreparedEnvironment(
-                    attempt=attempt,
-                    proposal=Proposal(
-                        proposal_id="proposal",
-                        attempt_id=attempt.attempt_id,
-                        snapshot_digest=snapshot.identity.digest,
-                        cell=cell,
-                        managed_vector=(),
-                        fixed_declaration_ids=(),
-                        resolved_graph=(),
-                        policy_identity="policy",
-                    ),
-                    proposal_root=root,
-                    package_root=root,
-                    environment_root=root,
-                    interpreter=root / "python",
-                    **prepared_resolution_evidence(cell=cell),
-                    temporary_directory=directory,
-                )
-
-        class Static:
-            def capture(
-                self,
-                prepared: PreparedEnvironment,
-                *,
-                package: PackagePlan,
-            ) -> StaticBaselineCapture:
-                process = ProcessResult(
-                    exit_code=1,
-                    signal=None,
-                    duration_seconds=0,
-                    stdout="[]",
-                    stderr="",
-                )
-                check = TyCheck(process=process, diagnostics=())
-                baseline = StaticBaseline(
-                    proposal=prepared.proposal,
-                    ty=check,
-                    digest=ty_diagnostic_digest(check.diagnostics),
-                )
-                return StaticBaselineCapture(
-                    baseline=baseline,
-                    static=StaticUnchangedEvaluation(
-                        proposal=prepared.proposal,
-                        ty=check,
-                        baseline_digest=baseline.digest,
-                        incremental=(),
-                    ),
-                )
-
-        class Full:
-            def evaluate(
-                self,
-                prepared: PreparedEnvironment,
-                *,
-                package: PackagePlan,
-                baseline: StaticBaseline,
-                static_result: object | None = None,
-            ) -> RuntimeEvaluationRun:
-                process = ProcessResult(
-                    exit_code=1,
-                    signal=None,
-                    duration_seconds=0,
-                    stdout="",
-                    stderr="",
-                )
-                if evaluation_status == "VERIFIER_REJECTED":
-                    static = StaticUnchangedEvaluation(
-                        proposal=prepared.proposal,
-                        ty=TyCheck(
-                            process=process.model_copy(update={"exit_code": 0}),
-                            diagnostics=(),
-                        ),
-                        baseline_digest=baseline.digest,
-                        incremental=(),
-                    )
-                    return RuntimeEvaluationRun(
-                        evaluation=VerifierRejectedEvaluation(
-                            proposal=prepared.proposal,
-                            static=static,
-                            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
-                        )
-                    )
-                failure = ToolFailure(cause="TOOL_FAILURE", stage="ty", process=process)
-                return RuntimeEvaluationRun(
-                    evaluation=IndeterminateEvaluation(
-                        proposal=prepared.proposal,
-                        cause="TOOL_FAILURE",
-                        failure=failure,
-                    )
-                )
+                if evaluation_status == "INDETERMINATE" and call == 2
+                else TyCheck(process=successful_process(), diagnostics=())
+            ),
+            verifier_handler=lambda vector, call: VerifierRun(
+                authoritative=VerifierRejected(terminal=NormalExit(exit_code=1))
+            ),
+        )
 
         result = CompatibilityChecker(
-            environments=Environments(),
-            static=Static(),
-            full=Full(),
-        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
+            environments=assembly.environments,
+            static=assembly.static,
+            full=assembly.runtime,
+        ).check(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         assert (
             result.status
@@ -747,6 +472,8 @@ class TestCheckWorkflow:
                 "INDETERMINATE": "ty",
             }[evaluation_status]
         )
+        assert assembly.uv.resolutions == ["highest", "lowest-direct"]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     @pytest.mark.parametrize("indeterminate", (False, True))
     def test_check_workflow_returns_the_aggregate_or_first_failure(
@@ -773,7 +500,7 @@ class TestCheckWorkflow:
         result = CheckCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
-            checker=cast(CompatibilityChecker, Checker()),
+            checker=cast(CheckCellOperations, Checker()),
             verification=VerificationRunner(
                 events=events,
                 logs=None,
@@ -831,7 +558,7 @@ class TestCheckWorkflow:
         CheckCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
-            checker=cast(CompatibilityChecker, Checker()),
+            checker=cast(CheckCellOperations, Checker()),
             verification=VerificationRunner(
                 events=events,
                 logs=None,
@@ -908,7 +635,7 @@ class TestCheckWorkflow:
         result = CheckCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
-            checker=cast(CompatibilityChecker, Checker()),
+            checker=cast(CheckCellOperations, Checker()),
             verification=VerificationRunner(
                 events=events,
                 logs=None,

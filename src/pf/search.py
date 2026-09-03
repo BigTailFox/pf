@@ -4,10 +4,12 @@ from dataclasses import dataclass
 import re
 from typing import Literal, Protocol
 
+from pf.baseline import HighestVersionVerifier
+from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateProgressConsumer, CoordinateSearch
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
-from pf.environment import ExactSelection, PreparedEnvironment, ResolutionRequest
-from pf.evaluation import EvaluationCache
+from pf.environment import EnvironmentFactory, ExactSelection, PreparedEnvironment
+from pf.evaluation import EvaluationCache, RuntimeEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     Attempt,
@@ -26,7 +28,6 @@ from pf.schemas.evaluation import (
     FailureProcessRuntimeRun,
     FailureRuntimeRun,
     CellFailureScope,
-    HighestVersionOutcome,
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessResult,
@@ -39,8 +40,6 @@ from pf.schemas.evaluation import (
     SearchProbeRequest,
     SearchProbeDetailIdentity,
     StaticBaseline,
-    StaticBaselineCapture,
-    StaticEvaluation,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     VerifierRejectedEvaluation,
@@ -121,68 +120,6 @@ def select_probe(
     return tuple(selected)
 
 
-class SearchEnvironmentOperations(Protocol):
-    def prepare(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        resolution: ResolutionRequest,
-        source_plan: SourcePlan,
-    ) -> PreparedEnvironment | PrepareFailure: ...
-
-
-class CandidateOperations(Protocol):
-    def build(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        baseline: tuple[VersionPin, ...],
-        source_plan: SourcePlan,
-    ) -> tuple[CandidateSnapshot, ...]: ...
-
-
-class StaticOperations(Protocol):
-    def capture(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-    ) -> StaticBaselineCapture | IndeterminateEvaluation: ...
-
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-    ) -> StaticEvaluation: ...
-
-
-class FullOperations(Protocol):
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-        static_result: StaticEvaluation | None = None,
-    ) -> RuntimeEvaluationRun: ...
-
-
-class HighestOperations(Protocol):
-    def verify(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
-    ) -> HighestVersionOutcome: ...
-
-
 class SearchDiagnosticConsumer(Protocol):
     def consume(self, event: SearchFailureEvent) -> None: ...
 
@@ -237,9 +174,9 @@ class _ProposalRunner:
     def __init__(
         self,
         *,
-        environments: SearchEnvironmentOperations,
-        static: StaticOperations,
-        full: FullOperations,
+        environments: EnvironmentFactory,
+        static: StaticEvaluator,
+        full: RuntimeEvaluator,
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
@@ -302,7 +239,6 @@ class _ProposalRunner:
             )
             self._full_runs[key] = run
             return run
-        assert prepared.attempt is not None
         try:
             static = self._cache.get_static(
                 prepared.proposal.proposal_id,
@@ -360,7 +296,7 @@ class _ProposalRunner:
         prepared = self._prepare(vector)
         if isinstance(prepared, PrepareFailure):
             return self._prepare_evidence(prepared)
-        assert prepared.attempt is not None
+        retain_prepared = False
         try:
             static = self._cache.get_static(
                 prepared.proposal.proposal_id,
@@ -408,6 +344,7 @@ class _ProposalRunner:
                         evidence=None,
                     ),
                 )
+                retain_prepared = True
                 return StaticOnlyEvidence(
                     attempt=prepared.attempt,
                     proposal_id=prepared.proposal.proposal_id,
@@ -465,8 +402,9 @@ class _ProposalRunner:
             )
             return run.evidence
         finally:
-            prepared.close()
-            self._prepared.pop(key, None)
+            if not retain_prepared:
+                prepared.close()
+                self._prepared.pop(key, None)
 
     def promote(
         self,
@@ -729,11 +667,6 @@ class _ProposalRunner:
         if isinstance(prepared, PrepareFailure):
             self._prepare_failures[key] = prepared
             return prepared
-        if isinstance(prepared, ToolFailure):
-            raise ValueError("probe prepare must establish an Attempt")
-        if prepared.attempt is None:
-            prepared.close()
-            raise ValueError("probe prepare must retain its attempt")
         if self._key(prepared.proposal.managed_vector) != key:
             prepared.close()
             return PrepareFailure(
@@ -768,7 +701,6 @@ class _ProposalRunner:
         prepared: PreparedEnvironment,
         result: IndeterminateEvaluation,
     ) -> ProbeEvidence:
-        assert prepared.attempt is not None
         failure = self._failures.record_evaluation(
             AttemptFailureScope(attempt=prepared.attempt),
             result,
@@ -795,7 +727,6 @@ class _ProposalRunner:
         *,
         runtime: RuntimeEvaluationRun,
     ) -> ProbeEvidence:
-        assert prepared.attempt is not None
         if isinstance(result, PassEvaluation):
             return self._pass_evidence(prepared.attempt, result)
         failure = self._failures.record_evaluation(
@@ -932,11 +863,11 @@ class SearchCoordinator:
     def __init__(
         self,
         *,
-        environments: SearchEnvironmentOperations,
-        candidates: CandidateOperations,
-        static: StaticOperations,
-        full: FullOperations,
-        highest: HighestOperations,
+        environments: EnvironmentFactory,
+        candidates: CandidateBuilder,
+        static: StaticEvaluator,
+        full: RuntimeEvaluator,
+        highest: HighestVersionVerifier,
         coordinate_search: CoordinateSearch,
         diagnostics: SearchDiagnosticConsumer | None = None,
         events: SearchActivityConsumer | None = None,

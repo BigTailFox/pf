@@ -1,123 +1,43 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
-from typing import Any, NoReturn, cast
 
 import pytest
 
-from conftest import empty_harness_baseline, prepared_resolution_evidence
-
-from pf.baseline import HighestVersionVerifier
-from pf.coordinate_search import CoordinateSearch
-from pf.environment import (
-    ExactSelection,
-    HighestResolution,
-    PreparedEnvironment,
-    ResolutionRequest,
+from evaluation_fixtures import (
+    evaluation_assembly,
+    evaluation_project,
+    successful_process,
 )
-from pf.errors import InfrastructureError, NoApplicableFloorError
-from pf.schemas.config import EffectiveConfig
+
+from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
-    Attempt,
-    AttemptIdentity,
+    BaselineIndeterminate,
+    BaselineRejection,
     CellContextEvent,
     CellSearchProgressEvent,
     CellStageEvent,
-    DiagnosticClassification,
-    BaselineRejection,
-    HighestVersionPass,
-    IndeterminateEvaluation,
     NormalExit,
-    PassEvaluation,
     ProcessResult,
-    PytestFailureCase,
-    PytestFailureDetail,
-    PrepareFailure,
-    RuntimeEvaluationRun,
     SearchFailureEvent,
-    SearchProbeDetailIdentity,
-    SearchProbeRequest,
-    StaticBaseline,
-    StaticBaselineCapture,
-    StaticRegressionEvaluation,
-    StaticUnchangedEvaluation,
     TimedOut,
     ToolFailure,
-    TyCheck,
-    TyDiagnostic,
-    VerifierPass,
     VerifierDiagnostics,
     VerifierIndeterminate,
+    VerifierPass,
     VerifierRejected,
-    VerifierRejectedEvaluation,
-    ty_diagnostic_digest,
+    VerifierRun,
 )
-from pf.schemas.project import (
-    AvailableArtifact,
-    Candidate,
-    CandidateSnapshot,
-    Cell,
-    PackagePlan,
-    Proposal,
-    SelectedCandidate,
-    SourceIdentity,
-    SourcePlan,
-    VersionPin,
-    candidate_snapshot_digest,
-    selected_candidate_evidence_digest,
-)
+from pf.schemas.project import VersionPin
 from pf.schemas.report import (
     CellIndeterminate,
     CellSearchFailure,
     CellSuccess,
-    CoordinateBoundary,
-    CoordinateFailure,
-    CoordinateSuccess,
-    FailureEvaluationRuntimeRun,
-    ProbeObservation,
+    ProbeIndeterminate,
     ProbePass,
+    ProbeRejection,
     StaticOnlyEvidence,
 )
-from pf.search import SearchCoordinator
-from pf.snapshot import SnapshotBuilder, SourceSnapshot
-from pf.static_transition import static_fingerprint
-
-
-def successful_process() -> ProcessResult:
-    return ProcessResult(
-        exit_code=0,
-        signal=None,
-        duration_seconds=0.1,
-        stdout="",
-        stderr="",
-    )
-
-
-def search_coordinator(
-    *,
-    environments: Any,
-    candidates: Any,
-    static: Any,
-    full: Any,
-    highest: Any | None = None,
-    coordinate_search: Any | None = None,
-    **kwargs: Any,
-) -> SearchCoordinator:
-    return SearchCoordinator(
-        environments=environments,
-        candidates=candidates,
-        static=static,
-        full=full,
-        highest=highest
-        or HighestVersionVerifier(
-            environments=environments,
-            static=static,
-            full=full,
-        ),
-        coordinate_search=coordinate_search or CoordinateSearch(),
-        **kwargs,
-    )
 
 
 class RecordingDiagnostics:
@@ -136,1615 +56,323 @@ class RecordingActivity:
         self.events.append(event)
 
 
-class ProposalFactory:
-    def prepare(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        resolution: ResolutionRequest,
-        source_plan: SourcePlan,
-    ) -> PreparedEnvironment:
-        assert source_plan.source_mode == "SEARCH"
-        selected_vector = (
-            tuple(
-                VersionPin(name=item.dependency, version=item.version)
-                for item in resolution.selection
-            )
-            if isinstance(resolution, ExactSelection)
+def threshold_verifier(
+    vector: tuple[VersionPin, ...],
+    call: int,
+    *,
+    diagnostics: bool = True,
+) -> VerifierRun:
+    del call
+    version = int(vector[0].version)
+    if version >= 2:
+        return VerifierRun(
+            authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+        )
+    return VerifierRun(
+        authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
+        diagnostics=(
+            VerifierDiagnostics(process=successful_process(exit_code=1))
+            if diagnostics
             else None
-        )
-        vector = selected_vector or (VersionPin(name="a", version="3"),)
-        exact = isinstance(resolution, ExactSelection)
-        attempt = Attempt.from_identity(
-            AttemptIdentity(
-                source_snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                requested_resolution=("exact-vector" if exact else "highest"),
-                requested_managed_vector=(vector if exact else None),
-                active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity=source_plan.identity,
-                evaluation_policy_identity="policy",
-                resolution_context_digest="context",
-                harness_policy_identity=(
-                    "harness-relaxation-v1" if exact else "original-harness-v1"
-                ),
-                harness_baseline_digest=(
-                    resolution.harness_baseline.digest if exact else None
-                ),
-                selected_candidate_evidence_digest=(
-                    selected_candidate_evidence_digest(resolution.selection)
-                    if exact
-                    else None
-                ),
-            )
-        )
-        proposal = Proposal(
-            proposal_id=";".join(f"{pin.name}={pin.version}" for pin in vector),
-            attempt_id=attempt.attempt_id,
-            snapshot_digest=snapshot.identity.digest,
-            cell=cell,
-            managed_vector=vector,
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        temporary = tempfile.TemporaryDirectory(prefix="pf-test-proposal-")
-        root = Path(temporary.name)
-        return PreparedEnvironment(
-            attempt=attempt,
-            proposal=proposal,
-            proposal_root=root,
-            package_root=root,
-            environment_root=root / "environment",
-            interpreter=root / "environment" / "bin" / "python",
-            **prepared_resolution_evidence(cell=cell),
-            temporary_directory=temporary,
-        )
-
-
-class CountingProposalFactory(ProposalFactory):
-    def __init__(self) -> None:
-        self.active = 0
-        self.maximum_active = 0
-        self.prepare_vectors: list[tuple[VersionPin, ...]] = []
-
-    def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-        prepared = super().prepare(**kwargs)
-        self.prepare_vectors.append(prepared.proposal.managed_vector)
-        self.active += 1
-        self.maximum_active = max(self.maximum_active, self.active)
-        original_close = prepared.close
-        closed = False
-
-        def close() -> None:
-            nonlocal closed
-            if not closed:
-                closed = True
-                self.active -= 1
-            original_close()
-
-        cast(Any, prepared).close = close
-        return prepared
-
-
-class StaticPasses:
-    def __init__(self) -> None:
-        self.captures = 0
-        self.baseline_digests: list[str] = []
-
-    @staticmethod
-    def diagnostic() -> TyDiagnostic:
-        return TyDiagnostic(
-            identity="snapshot|source.py|1|1|existing-error",
-            origin="snapshot",
-            path="source.py",
-            line=1,
-            column=1,
-            code="existing-error",
-            severity="major",
-            message="existing project error",
-        )
-
-    def capture(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-    ) -> StaticBaselineCapture:
-        self.captures += 1
-        check = TyCheck(
-            process=successful_process().model_copy(update={"exit_code": 1}),
-            diagnostics=(self.diagnostic(),),
-        )
-        baseline = StaticBaseline(
-            proposal=prepared.proposal,
-            ty=check,
-            digest=ty_diagnostic_digest(check.diagnostics),
-        )
-        return StaticBaselineCapture(
-            baseline=baseline,
-            static=StaticUnchangedEvaluation(
-                proposal=prepared.proposal,
-                ty=check,
-                baseline_digest=baseline.digest,
-                incremental=(),
-            ),
-        )
-
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-    ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation:
-        self.baseline_digests.append(baseline.digest)
-        return StaticUnchangedEvaluation(
-            proposal=prepared.proposal,
-            ty=TyCheck(
-                process=successful_process().model_copy(update={"exit_code": 1}),
-                diagnostics=(self.diagnostic(),),
-            ),
-            baseline_digest=baseline.digest,
-            incremental=(),
-        )
-
-
-class FullPasses:
-    def __init__(self, static: StaticPasses) -> None:
-        self.static = static
-        self.evaluated_vectors: list[tuple[VersionPin, ...]] = []
-
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-        static_result: object | None = None,
-    ) -> RuntimeEvaluationRun:
-        self.evaluated_vectors.append(prepared.proposal.managed_vector)
-        static = (
-            static_result
-            if isinstance(
-                static_result,
-                (StaticUnchangedEvaluation, StaticRegressionEvaluation),
-            )
-            else self.static.evaluate(prepared, package=package, baseline=baseline)
-        )
-        prepared.mark_tested()
-        return RuntimeEvaluationRun(
-            evaluation=PassEvaluation(
-                proposal=prepared.proposal,
-                static=static,
-                verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
-            )
-        )
-
-
-class FullThreshold:
-    def __init__(self, static: StaticPasses) -> None:
-        self.static = static
-        self.evaluated_vectors: list[tuple[VersionPin, ...]] = []
-
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-        static_result: object | None = None,
-    ) -> RuntimeEvaluationRun:
-        self.evaluated_vectors.append(prepared.proposal.managed_vector)
-        static = (
-            static_result
-            if isinstance(
-                static_result,
-                (StaticUnchangedEvaluation, StaticRegressionEvaluation),
-            )
-            else self.static.evaluate(prepared, package=package, baseline=baseline)
-        )
-        prepared.mark_tested()
-        if int(prepared.proposal.managed_vector[0].version) >= 2:
-            return RuntimeEvaluationRun(
-                evaluation=PassEvaluation(
-                    proposal=prepared.proposal,
-                    static=static,
-                    verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
-                )
-            )
-        process = successful_process().model_copy(update={"exit_code": 1})
-        return RuntimeEvaluationRun(
-            evaluation=VerifierRejectedEvaluation(
-                proposal=prepared.proposal,
-                static=static,
-                verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
-            ),
-            diagnostics=VerifierDiagnostics(process=process),
-        )
-
-
-class FullTimesOutBelowTwo(FullThreshold):
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-        static_result: object | None = None,
-    ) -> RuntimeEvaluationRun:
-        if int(prepared.proposal.managed_vector[0].version) >= 2:
-            return super().evaluate(
-                prepared,
-                package=package,
-                baseline=baseline,
-                static_result=static_result,
-            )
-        static = (
-            static_result
-            if isinstance(
-                static_result,
-                (StaticUnchangedEvaluation, StaticRegressionEvaluation),
-            )
-            else self.static.evaluate(prepared, package=package, baseline=baseline)
-        )
-        prepared.mark_tested()
-        process = ProcessResult(
-            signal=9,
-            duration_seconds=30,
-            timed_out=True,
-        )
-        return RuntimeEvaluationRun(
-            evaluation=IndeterminateEvaluation(
-                proposal=prepared.proposal,
-                cause="TIMEOUT",
-                verifier=VerifierIndeterminate(
-                    terminal=TimedOut(),
-                    reason="process-timed-out",
-                ),
-                static=static,
-            ),
-            diagnostics=VerifierDiagnostics(
-                process=process,
-                detail=PytestFailureDetail(
-                    first=PytestFailureCase(
-                        nodeid="test_demo.py::test_old", phase="call"
-                    ),
-                    total=1,
-                ),
-            ),
-        )
-
-
-class FullThresholdWithoutDiagnostics(FullThreshold):
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-        static_result: object | None = None,
-    ) -> RuntimeEvaluationRun:
-        run = super().evaluate(
-            prepared,
-            package=package,
-            baseline=baseline,
-            static_result=static_result,
-        )
-        if isinstance(run.evaluation, VerifierRejectedEvaluation):
-            return RuntimeEvaluationRun(evaluation=run.evaluation)
-        return run
-
-
-class FrozenCandidates:
-    def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
-        cell = cast(Cell, kwargs["cell"])
-        candidates = tuple(
-            Candidate(
-                version=version,
-                series_key=version,
-                artifact=AvailableArtifact(
-                    filename=f"a-{version}-py3-none-any.whl",
-                    kind="wheel",
-                    content_hash=f"sha256:{version * 64}",
-                    locator=f"https://files.example/a-{version}-py3-none-any.whl",
-                    python_minors=("3.10",),
-                    targets=("x86_64-unknown-linux-gnu",),
-                ),
-            )
-            for version in ("1", "2", "3")
-        )
-        source = SourceIdentity(kind="registry")
-        representatives = tuple(
-            (candidate.series_key, candidate.version) for candidate in candidates
-        )
-        return (
-            CandidateSnapshot(
-                dependency="a",
-                cell=cell,
-                policy_identity="policy",
-                source_plan_identity="sources",
-                source=source,
-                candidates=candidates,
-                series_representatives=representatives,
-                digest=candidate_snapshot_digest(
-                    dependency="a",
-                    cell=cell,
-                    policy_identity="policy",
-                    source_plan_identity="sources",
-                    source=source,
-                    candidates=candidates,
-                    series_representatives=representatives,
-                ),
-            ),
-        )
-
-
-def search_case(tmp_path: Path) -> tuple[SourceSnapshot, Cell, PackagePlan]:
-    (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-    snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-    cell = Cell(
-        package="demo",
-        target="x86_64-unknown-linux-gnu",
-        python_minor="3.10",
-        extra_surface=(),
+        ),
     )
-    package = PackagePlan(
-        name="demo",
-        pyproject_path="pyproject.toml",
-        config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-        declarations=(),
-        cells=(cell,),
-        source_routes=(),
-        test_group_present=True,
-    )
-    return snapshot, cell, package
-
-
-class FullProbeCoordinateFailure:
-    def minimize(
-        self,
-        *,
-        start: tuple[VersionPin, ...],
-        evaluator: Any,
-        **kwargs: Any,
-    ) -> CoordinateFailure:
-        evidence = evaluator.evaluate(start)
-        pin = start[0]
-        return CoordinateFailure(
-            status="NO_PASS_IN_SEARCH_SPACE",
-            observations=(
-                ProbeObservation(
-                    dependency=pin.name,
-                    candidate_version=pin.version,
-                    vector=start,
-                    evidence=evidence,
-                ),
-            ),
-        )
 
 
 class TestSearchCoordinator:
-    def test_search_reuses_a_full_probe_for_slice_evaluation(
+    @pytest.mark.parametrize("indeterminate", (False, True))
+    def test_search_stops_on_the_real_highest_verification_outcome(
         self,
         tmp_path: Path,
+        indeterminate: bool,
     ) -> None:
-        class KnownBaselineCoordinateSearch:
-            def minimize(
-                self,
-                *,
-                start: tuple[VersionPin, ...],
-                evaluator: Any,
-                **kwargs: Any,
-            ) -> CoordinateSuccess:
-                evidence = evaluator.evaluate(start)
-                pin = start[0]
-                reused = evaluator.evaluate_in_slice(
-                    SearchProbeRequest(
-                        vector=start,
-                        active_dependency=pin.name,
-                        candidate_version=pin.version,
-                        lower_version=pin.version,
-                        upper_version=pin.version,
-                        candidate_count=1,
-                    )
-                )
-                assert reused == evidence
-                return CoordinateSuccess(
-                    vector=start,
-                    observations=(
-                        ProbeObservation(
-                            dependency=pin.name,
-                            candidate_version=pin.version,
-                            vector=start,
-                            evidence=evidence,
-                        ),
-                    ),
-                    boundaries=(
-                        CoordinateBoundary(dependency=pin.name, floor=pin.version),
-                    ),
-                    sweeps=1,
-                )
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        class BaselineCandidates(FrozenCandidates):
-            def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
-                original = super().build(**kwargs)[0]
-                candidates = (original.candidates[-1],)
-                representatives = (("3", "3"),)
-                return (
-                    CandidateSnapshot(
-                        dependency=original.dependency,
-                        cell=original.cell,
-                        policy_identity=original.policy_identity,
-                        source_plan_identity=original.source_plan_identity,
-                        source=original.source,
-                        candidates=candidates,
-                        series_representatives=representatives,
-                        digest=candidate_snapshot_digest(
-                            dependency=original.dependency,
-                            cell=original.cell,
-                            policy_identity=original.policy_identity,
-                            source_plan_identity=original.source_plan_identity,
-                            source=original.source,
-                            candidates=candidates,
-                            series_representatives=representatives,
-                        ),
-                    ),
-                )
-
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=BaselineCandidates(),
-            static=static,
-            full=FullPasses(static),
-            coordinate_search=KnownBaselineCoordinateSearch(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSuccess)
-        assert result.final_vector == (VersionPin(name="a", version="3"),)
-        assert result.final_evaluation == result.baseline
-
-    def test_search_preserves_a_full_probe_prepare_failure(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        class CandidatePrepareFails:
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
-                prepared = ProposalFactory().prepare(**kwargs)
-                if isinstance(kwargs["resolution"], HighestResolution):
-                    return prepared
-                attempt = prepared.attempt
-                prepared.close()
-                return PrepareFailure(
-                    attempt=attempt,
-                    failure=ToolFailure(
-                        cause="RESOLUTION_CONFLICT",
-                        stage="resolve-project",
-                        process=successful_process().model_copy(
-                            update={"exit_code": 1}
-                        ),
-                    ),
-                )
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=CandidatePrepareFails(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-            coordinate_search=FullProbeCoordinateFailure(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSearchFailure)
-        assert result.coordinate_failure is not None
-        assert result.failure_records[0].cause == "RESOLUTION_CONFLICT"
-
-    def test_search_rejects_a_probe_prepare_without_an_attempt(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        class CandidateWithoutAttempt(ProposalFactory):
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                prepared = super().prepare(**kwargs)
-                if isinstance(kwargs["resolution"], ExactSelection):
-                    cast(Any, prepared).attempt = None
-                return prepared
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        with pytest.raises(ValueError, match="retain its attempt"):
-            search_coordinator(
-                environments=CandidateWithoutAttempt(),
-                candidates=FrozenCandidates(),
-                static=static,
-                full=FullPasses(static),
-                coordinate_search=FullProbeCoordinateFailure(),
-            ).search(
-                package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH")
+        project = evaluation_project(tmp_path / "project")
+        outcome = (
+            VerifierIndeterminate(
+                terminal=TimedOut(),
+                reason="process-timed-out",
             )
-
-    def test_search_rejects_a_probe_prepare_without_attempt_identity(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        class CandidateToolFailure:
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment | ToolFailure:
-                if isinstance(kwargs["resolution"], ExactSelection):
-                    return ToolFailure(
-                        cause="TOOL_FAILURE",
-                        stage="resolve-project",
-                        process=successful_process().model_copy(
-                            update={"exit_code": 2}
-                        ),
-                    )
-                return ProposalFactory().prepare(**kwargs)
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        with pytest.raises(ValueError, match="establish an Attempt"):
-            search_coordinator(
-                environments=CandidateToolFailure(),
-                candidates=FrozenCandidates(),
-                static=static,
-                full=FullPasses(static),
-                coordinate_search=FullProbeCoordinateFailure(),
-            ).search(
-                package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH")
-            )
-
-    def test_search_records_probe_vector_drift_as_indeterminate(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        class CandidateVectorDrift(ProposalFactory):
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                prepared = super().prepare(**kwargs)
-                if isinstance(kwargs["resolution"], ExactSelection):
-                    prepared.proposal = prepared.proposal.model_copy(
-                        update={"managed_vector": (VersionPin(name="a", version="1"),)}
-                    )
-                return prepared
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=CandidateVectorDrift(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-            coordinate_search=FullProbeCoordinateFailure(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSearchFailure)
-        assert result.failure_records[0].cause == "INTERNAL_INVARIANT"
-
-    def test_search_reports_an_empty_candidate_space(self, tmp_path: Path) -> None:
-        class EmptyCandidates:
-            def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
-                raise NoApplicableFloorError("no candidates")
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=EmptyCandidates(),
-            static=static,
-            full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSearchFailure)
-        assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
-        assert result.phase == "candidate-discovery"
-
-    def test_search_returns_a_coordinate_failure(self, tmp_path: Path) -> None:
-        class FailedCoordinateSearch:
-            def minimize(self, **kwargs: Any) -> CoordinateFailure:
-                return CoordinateFailure(
-                    status="NO_PASS_IN_SEARCH_SPACE",
-                    observations=(),
-                )
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-            coordinate_search=FailedCoordinateSearch(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSearchFailure)
-        assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
-        assert result.phase == "runtime-search"
-
-    def test_search_rejects_a_final_probe_that_changes_outcome(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        class UnverifiedCoordinateSearch:
-            def minimize(self, **kwargs: Any) -> CoordinateSuccess:
-                return CoordinateSuccess(
-                    vector=(VersionPin(name="a", version="1"),),
-                    observations=(),
-                    boundaries=(CoordinateBoundary(dependency="a", floor="1"),),
-                    sweeps=1,
-                )
-
-        snapshot, cell, package = search_case(tmp_path)
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullThreshold(static),
-            coordinate_search=UnverifiedCoordinateSearch(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSearchFailure)
-        assert result.reason == "NONDETERMINISTIC"
-        assert result.phase == "runtime-final"
-
-    def test_search_coordinator_requires_highest_and_coordinate_search(self) -> None:
-        environments = ProposalFactory()
-        candidates = FrozenCandidates()
-        static = StaticPasses()
-        full = FullPasses(static)
-        highest = HighestVersionVerifier(
-            environments=environments,
-            static=static,
-            full=full,
+            if indeterminate
+            else VerifierRejected(terminal=NormalExit(exit_code=1))
         )
-        with pytest.raises(TypeError):
-            SearchCoordinator(  # ty: ignore[missing-argument]
-                environments=environments,
-                candidates=candidates,
-                static=static,
-                full=full,
-                coordinate_search=CoordinateSearch(),
-            )
-        with pytest.raises(TypeError):
-            SearchCoordinator(  # ty: ignore[missing-argument]
-                environments=environments,
-                candidates=candidates,
-                static=static,
-                full=full,
-                highest=highest,
-            )
-
-    def test_search_coordinator_returns_runtime_backed_floor_with_full_evidence(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
-        full = FullPasses(static)
-        activity = RecordingActivity()
-        coordinator = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=full,
-            events=activity,
+        assembly = evaluation_assembly(
+            verifier_handler=lambda vector, call: VerifierRun(authoritative=outcome),
         )
 
-        result = coordinator.search(
-            package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH")
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
         )
 
-        assert isinstance(result, CellSuccess)
-        assert result.status == "SUCCESS"
-        assert result.final_vector == (VersionPin(name="a", version="1"),)
-        assert result.search.status == "SUCCESS"
-        assert result.final_evaluation.status == "PASS"
-        assert result.static_baseline.proposal == result.baseline.proposal
-        assert len(result.static_baseline.diagnostics) == 1
-        assert result.static_baseline.digest == ty_diagnostic_digest(
-            result.static_baseline.diagnostics
-        )
-        assert static.captures == 1
-        assert full.evaluated_vectors.count(result.final_vector) == 1
-        assert [
-            event.detail
-            for event in activity.events
-            if isinstance(event, CellContextEvent)
-        ] == [
-            None,
-            SearchProbeDetailIdentity(
-                dependency="a",
-                version="1",
-                lower_version="1",
-                upper_version="3",
-                candidate_count=3,
-            ),
-        ]
-        assert [
-            (event.packages, event.completed_packages)
-            for event in activity.events
-            if isinstance(event, CellSearchProgressEvent)
-        ] == [
-            ((VersionPin(name="a", version="3"),), ()),
-            (
-                (VersionPin(name="a", version="1"),),
-                (VersionPin(name="a", version="1"),),
-            ),
-            ((VersionPin(name="a", version="1"),), ()),
-            (
-                (VersionPin(name="a", version="1"),),
-                (VersionPin(name="a", version="1"),),
-            ),
-        ]
-        assert any(
-            isinstance(event, CellStageEvent)
-            and event.stage == "discovering candidates"
-            for event in activity.events
-        )
-
-    def test_search_closes_static_transition_before_exact_runtime_promotion(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        environments = CountingProposalFactory()
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=environments,
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSuccess)
-        final_prepares = [
-            vector
-            for vector in environments.prepare_vectors
-            if vector == result.final_vector
-        ]
-        assert len(final_prepares) == 1
-        assert environments.maximum_active == 1
-        assert environments.active == 0
-        assert set(static.baseline_digests) == {
-            ty_diagnostic_digest(result.static_baseline.diagnostics)
-        }
-
-    def test_search_coordinator_maps_every_probe_to_its_frozen_artifact(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-
-        class SelectionFactory(ProposalFactory):
-            def __init__(self) -> None:
-                self.selections: list[tuple[SelectedCandidate, ...]] = []
-
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                resolution = kwargs["resolution"]
-                if isinstance(resolution, ExactSelection):
-                    self.selections.append(resolution.selection)
-                return super().prepare(**kwargs)
-
-        environments = SelectionFactory()
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=environments,
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSuccess)
-        assert environments.selections
-        for selection in environments.selections:
-            assert len(selection) == 1
-            selected = selection[0]
-            assert selected.artifact.locator == (
-                f"https://files.example/a-{selected.version}-py3-none-any.whl"
-            )
-            assert selected.artifact.content_hash == f"sha256:{selected.version * 64}"
-
-    def test_search_coordinator_never_requests_lowest_direct(
-        self, tmp_path: Path
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        resolutions: list[str] = []
-
-        class SpyFactory(ProposalFactory):
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                resolution = cast(ResolutionRequest, kwargs["resolution"])
-                resolutions.append(resolution.kind)
-                return super().prepare(**kwargs)
-
-        static = StaticPasses()
-        result = search_coordinator(
-            environments=SpyFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSuccess)
-        assert "lowest-direct" not in resolutions
-        assert result.baseline_attempt.identity.requested_resolution != "lowest-direct"
-        for observation in result.search.observations:
-            assert (
-                observation.evidence.attempt.identity.requested_resolution
-                != "lowest-direct"
-            )
-
-    def test_search_coordinator_consumes_shared_highest_version_verification(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
-        prepared = ProposalFactory().prepare(
-            package=package,
-            cell=cell,
-            snapshot=snapshot,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-            resolution=HighestResolution(),
-        )
-        capture = static.capture(prepared, package=package)
-        baseline_evaluation = (
-            FullPasses(static)
-            .evaluate(
-                prepared,
-                package=package,
-                baseline=capture.baseline,
-                static_result=capture.static,
-            )
-            .evaluation
-        )
-        assert isinstance(baseline_evaluation, PassEvaluation)
-        baseline_attempt = prepared.attempt
-        assert baseline_attempt is not None
-
-        class Highest:
-            def verify(self, **kwargs: object) -> HighestVersionPass:
-                return HighestVersionPass(
-                    attempt=baseline_attempt,
-                    baseline=capture.baseline,
-                    harness_baseline=empty_harness_baseline(cell),
-                    evaluation=baseline_evaluation,
-                )
-
-        class CandidateOnlyEnvironments(ProposalFactory):
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment:
-                assert isinstance(kwargs["resolution"], ExactSelection)
-                return super().prepare(**kwargs)
-
-        result = search_coordinator(
-            environments=CandidateOnlyEnvironments(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-            highest=Highest(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSuccess)
-
-    def test_search_report_keeps_static_regression_on_runtime_pass(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-
-        class StaticThreshold(StaticPasses):
-            def evaluate(
-                self,
-                prepared: PreparedEnvironment,
-                *,
-                package: PackagePlan,
-                baseline: StaticBaseline,
-            ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation:
-                if prepared.proposal.managed_vector[0].version != "1":
-                    return super().evaluate(
-                        prepared,
-                        package=package,
-                        baseline=baseline,
-                    )
-                increment = TyDiagnostic(
-                    identity="snapshot|source.py|2|1|dependency-regression",
-                    origin="snapshot",
-                    path="source.py",
-                    line=2,
-                    column=1,
-                    code="dependency-regression",
-                    severity="major",
-                    message="dependency API is unavailable",
-                )
-                return StaticRegressionEvaluation(
-                    proposal=prepared.proposal,
-                    ty=TyCheck(
-                        process=successful_process().model_copy(
-                            update={"exit_code": 1}
-                        ),
-                        diagnostics=(*baseline.diagnostics, increment),
-                    ),
-                    baseline_digest=baseline.digest,
-                    incremental=(increment,),
-                    static_fingerprint=static_fingerprint((increment.identity,)),
-                    classifications=(
-                        DiagnosticClassification(
-                            diagnostic_identity=increment.identity,
-                            classification="general",
-                            reason_code="test-fixture",
-                        ),
-                    ),
-                )
-
-        static = StaticThreshold()
-        diagnostics = RecordingDiagnostics()
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-            diagnostics=diagnostics,
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellSuccess)
-        passed = next(
-            observation.evidence
-            for observation in result.search.observations
-            if isinstance(observation.evidence, ProbePass)
-            and isinstance(
-                observation.evidence.evaluation.static,
-                StaticRegressionEvaluation,
-            )
-        )
-        assert passed.evaluation.static.incremental[0].code == "dependency-regression"
-        assert diagnostics.events == []
-
-    def test_search_coordinator_rebounds_after_frontier_promotion_changes_status(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
-        diagnostics = RecordingDiagnostics()
-        full = FullThreshold(static)
-        coordinator = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=full,
-            diagnostics=diagnostics,
-        )
-
-        result = coordinator.search(
-            package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH")
-        )
-
-        assert isinstance(result, CellSuccess)
-        assert result.status == "SUCCESS"
-        assert result.final_vector == (VersionPin(name="a", version="2"),)
-        assert result.search.boundaries[0].predecessor == "1"
-        assert any(
-            event.failure.cause == "VERIFIER_EXITED_NONZERO"
-            for event in diagnostics.events
-        )
-        assert len(result.failure_runtime_runs) == 1
-        failure_runtime = result.failure_runtime_runs[0]
-        assert isinstance(failure_runtime, FailureEvaluationRuntimeRun)
-        assert failure_runtime.failure_id == result.failure_records[0].failure_id
-        assert failure_runtime.runtime.diagnostics is not None
         assert isinstance(
-            failure_runtime.runtime.diagnostics.process,
-            ProcessResult,
+            result,
+            BaselineIndeterminate if indeterminate else BaselineRejection,
         )
-        assert failure_runtime.runtime.diagnostics.process.exit_code == 1
-        dumped = result.model_dump(mode="json")
-        assert "failure_runtime_runs" not in dumped
-        assert full.evaluated_vectors.count((VersionPin(name="a", version="1"),)) == 1
-        assert full.evaluated_vectors.count(result.final_vector) == 1
-        cheap = next(
-            observation
-            for observation in result.search.observations
-            if isinstance(observation.evidence, StaticOnlyEvidence)
-        )
-        assert isinstance(cheap.evidence, StaticOnlyEvidence)
-        assert cheap.candidate_version == "2"
-        assert cheap.evidence.guidance == "REJECTED"
-        assert not hasattr(cheap.evidence, "status")
-        assert result.search.regions[0].observed_versions == ("1", "2")
-        assert {
-            reference.status
-            for reference in result.search.regions[0].runtime_references
-        } == {"PASS", "REJECTED"}
+        assert assembly.candidates.queries == []
+        assert assembly.uv.resolutions == ["highest"]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
 
-    def test_search_rejection_does_not_require_optional_runtime_diagnostics(
+    def test_search_reports_an_empty_candidate_space_after_a_closed_baseline(
         self,
         tmp_path: Path,
     ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
+        project = evaluation_project(tmp_path / "project")
+        assembly = evaluation_assembly(candidate_versions=())
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
         )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
 
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullThresholdWithoutDiagnostics(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
+        assert isinstance(result, CellSearchFailure)
+        assert result.reason == "NO_PASS_IN_SEARCH_SPACE"
+        assert result.phase == "candidate-discovery"
+        assert len(assembly.candidates.queries) == 1
+        assert assembly.uv.resolutions == ["highest"]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
 
-        assert isinstance(result, CellSuccess)
-        assert result.final_vector == (VersionPin(name="a", version="2"),)
-        assert result.failure_records[0].cause == "VERIFIER_EXITED_NONZERO"
-        assert result.failure_runtime_runs == ()
-
-    def test_search_coordinator_retains_terminal_runtime_diagnostics(
+    def test_search_retains_candidate_source_failure_as_cell_evidence(
         self,
         tmp_path: Path,
     ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
+        project = evaluation_project(tmp_path / "project")
+        assembly = evaluation_assembly(
+            candidate_error=InfrastructureError("registry unavailable")
         )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
         )
-        static = StaticPasses()
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullTimesOutBelowTwo(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
 
         assert isinstance(result, CellIndeterminate)
-        assert len(result.failure_runtime_runs) == 1
-        runtime = result.failure_runtime_runs[0]
-        assert runtime.failure_id == result.failure_id
-        assert isinstance(runtime, FailureEvaluationRuntimeRun)
-        assert runtime.runtime.diagnostics is not None
-        assert isinstance(runtime.runtime.diagnostics.detail, PytestFailureDetail)
-        assert runtime.runtime.diagnostics.detail.first.nodeid == (
-            "test_demo.py::test_old"
-        )
-        assert isinstance(runtime.process_observation, ProcessResult)
-        assert runtime.process_observation.timed_out is True
-        dumped = result.model_dump(mode="json")
-        assert "failure_runtime_runs" not in dumped
-        assert "test_demo.py::test_old" not in repr(dumped)
+        assert result.phase == "candidate-discovery"
+        assert result.failure_records[0].failure_id == result.failure_id
+        assert result.failure_records[0].cause == "SOURCE_FAILURE"
+        assert result.failure_records[0].authority.kind == "structured"
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
 
-    def test_search_coordinator_records_candidate_source_failure_as_non_evidence(
+    @pytest.mark.parametrize("runtime_diagnostics", (False, True))
+    def test_search_returns_a_runtime_backed_floor_with_closed_public_evidence(
         self,
         tmp_path: Path,
+        runtime_diagnostics: bool,
     ) -> None:
-        class UnavailableCandidates:
-            def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
-                raise InfrastructureError("index unavailable")
-
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
+        project = evaluation_project(tmp_path / "project")
+        diagnostics = RecordingDiagnostics()
         activity = RecordingActivity()
-        coordinator = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=UnavailableCandidates(),
-            static=static,
-            full=FullPasses(static),
+        assembly = evaluation_assembly(
+            verifier_handler=lambda vector, call: threshold_verifier(
+                vector,
+                call,
+                diagnostics=runtime_diagnostics,
+            ),
+            diagnostics=diagnostics,
             events=activity,
         )
 
-        result = coordinator.search(
-            package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH")
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
         )
-
-        assert isinstance(result, CellIndeterminate)
-        assert result.status == "CELL_INDETERMINATE"
-        assert result.phase == "candidate-discovery"
-        assert result.failure_records[0].cause == "SOURCE_FAILURE"
-        assert result.failure_records[0].scope.kind == "cell"
-        assert [
-            event.completed_packages
-            for event in activity.events
-            if isinstance(event, CellSearchProgressEvent)
-        ] == []
-
-    def test_search_coordinator_retains_candidate_source_failure_detail(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        class UnavailableCandidates:
-            def build(self, **kwargs: Any) -> tuple[CandidateSnapshot, ...]:
-                raise InfrastructureError(
-                    "index unavailable",
-                    detail="DNS lookup for packages.example failed",
-                )
-
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
-
-        result = search_coordinator(
-            environments=ProposalFactory(),
-            candidates=UnavailableCandidates(),
-            static=static,
-            full=FullPasses(static),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, CellIndeterminate)
-        detail = result.failure_records[0].detail
-        assert detail is not None
-        assert detail.code == "candidate-discovery-failed"
-        assert detail.message == "candidate discovery failed"
-        assert "packages.example" not in detail.message
-
-    def test_search_coordinator_keeps_prepare_failure_for_cli_diagnostics(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        failure = ToolFailure(
-            cause="HARNESS_CONFLICT",
-            stage="resolve-environment",
-            process=ProcessResult(
-                exit_code=1,
-                signal=None,
-                duration_seconds=0.1,
-                stdout="",
-                stderr="No solution found",
-            ),
-        )
-        attempt = Attempt.from_identity(
-            AttemptIdentity(
-                source_snapshot_digest=snapshot.identity.digest,
-                cell=cell,
-                requested_resolution="highest",
-                requested_managed_vector=None,
-                active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity="sources",
-                evaluation_policy_identity="policy",
-                resolution_context_digest="context",
-                harness_policy_identity="original-harness-v1",
-            )
-        )
-
-        class UnresolvableEnvironments:
-            def prepare(self, **kwargs: Any) -> PrepareFailure:
-                return PrepareFailure(attempt=attempt, failure=failure)
-
-        class NeverEvaluate:
-            def capture(self, *args: object, **kwargs: object) -> NoReturn:
-                raise AssertionError("prepare failure must not evaluate")
-
-            def evaluate(self, *args: object, **kwargs: object) -> NoReturn:
-                raise AssertionError("prepare failure must not evaluate")
-
-        result = search_coordinator(
-            environments=UnresolvableEnvironments(),
-            candidates=FrozenCandidates(),
-            static=NeverEvaluate(),
-            full=NeverEvaluate(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert isinstance(result, BaselineRejection)
-        assert result.status == "BASELINE_REJECTION"
-        assert result.failure.cause == "HARNESS_CONFLICT"
-        assert result.failure.process == failure.process
-
-    def test_search_coordinator_emits_candidate_prepare_failure_diagnostic(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
-        prepared = ProposalFactory().prepare(
-            package=package,
-            cell=cell,
-            snapshot=snapshot,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-            resolution=HighestResolution(),
-        )
-        capture = static.capture(prepared, package=package)
-        baseline = (
-            FullPasses(static)
-            .evaluate(
-                prepared,
-                package=package,
-                baseline=capture.baseline,
-                static_result=capture.static,
-            )
-            .evaluation
-        )
-        assert isinstance(baseline, PassEvaluation)
-        baseline_attempt = prepared.attempt
-        assert baseline_attempt is not None
-        failure = ToolFailure(
-            cause="RESOLUTION_CONFLICT",
-            stage="resolve-project",
-            process=successful_process().model_copy(
-                update={"exit_code": 1, "stderr": "No solution found"}
-            ),
-        )
-
-        class Highest:
-            def verify(self, **kwargs: object) -> HighestVersionPass:
-                return HighestVersionPass(
-                    attempt=baseline_attempt,
-                    baseline=capture.baseline,
-                    harness_baseline=empty_harness_baseline(cell),
-                    evaluation=baseline,
-                )
-
-        class CandidateFailure:
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
-                resolution = kwargs["resolution"]
-                assert isinstance(resolution, ExactSelection)
-                selection = resolution.selection
-                vector = tuple(
-                    VersionPin(name=item.dependency, version=item.version)
-                    for item in selection
-                )
-                if vector[0].version != "1":
-                    return ProposalFactory().prepare(**kwargs)
-                attempt = Attempt.from_identity(
-                    AttemptIdentity(
-                        source_snapshot_digest=snapshot.identity.digest,
-                        cell=cell,
-                        requested_resolution="exact-vector",
-                        requested_managed_vector=vector,
-                        active_declaration_ids=cell.active_declaration_ids,
-                        source_plan_identity=cast(
-                            SourcePlan, kwargs["source_plan"]
-                        ).identity,
-                        evaluation_policy_identity="policy",
-                        resolution_context_digest="context",
-                        harness_policy_identity="harness-relaxation-v1",
-                        harness_baseline_digest="baseline",
-                        selected_candidate_evidence_digest="selection",
-                    )
-                )
-                return PrepareFailure(attempt=attempt, failure=failure)
-
-        recorder = RecordingDiagnostics()
-        result = search_coordinator(
-            environments=CandidateFailure(),
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullPasses(static),
-            highest=Highest(),
-            diagnostics=recorder,
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
 
         assert isinstance(result, CellSuccess)
-        assert result.final_vector == (VersionPin(name="a", version="2"),)
-        rejection = result.failure_records[0]
-        assert rejection.cause == "RESOLUTION_CONFLICT"
-        assert rejection.disposition == "REJECTED"
-        assert result.search.boundaries[0].predecessor_failure_id == (
-            rejection.failure_id
-        )
-        assert recorder.events == [SearchFailureEvent(cell=cell, failure=rejection)]
-
-    def test_search_coordinator_reuses_a_prepare_failure_for_the_same_attempt(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
-        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(test_command=("python", "-m", "unittest")),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-            test_group_present=True,
-        )
-        static = StaticPasses()
-        highest_prepared = ProposalFactory().prepare(
-            package=package,
-            cell=cell,
-            snapshot=snapshot,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-            resolution=HighestResolution(),
-        )
-        capture = static.capture(highest_prepared, package=package)
-        baseline = (
-            FullPasses(static)
-            .evaluate(
-                highest_prepared,
-                package=package,
-                baseline=capture.baseline,
-                static_result=capture.static,
+        assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
+        assert result.search.vector == result.final_vector
+        assert result.final_evaluation.proposal.managed_vector == result.final_vector
+        observations = result.search.observations
+        direct = tuple(
+            observation.evidence
+            for observation in observations
+            if isinstance(
+                observation.evidence,
+                (ProbePass, ProbeRejection, ProbeIndeterminate),
             )
-            .evaluation
         )
-        assert isinstance(baseline, PassEvaluation)
-        baseline_attempt = highest_prepared.attempt
-        assert baseline_attempt is not None
-
-        class Highest:
-            def verify(self, **kwargs: object) -> HighestVersionPass:
-                return HighestVersionPass(
-                    attempt=baseline_attempt,
-                    baseline=capture.baseline,
-                    harness_baseline=empty_harness_baseline(cell),
-                    evaluation=baseline,
-                )
-
-        class FailsFirstPrepare:
-            def __init__(self) -> None:
-                self.version_one_calls = 0
-
-            def prepare(self, **kwargs: Any) -> PreparedEnvironment | PrepareFailure:
-                resolution = kwargs["resolution"]
-                assert isinstance(resolution, ExactSelection)
-                selection = resolution.selection
-                vector = tuple(
-                    VersionPin(name=item.dependency, version=item.version)
-                    for item in selection
-                )
-                if vector[0].version != "1":
-                    return ProposalFactory().prepare(**kwargs)
-                self.version_one_calls += 1
-                if self.version_one_calls > 1:
-                    return ProposalFactory().prepare(**kwargs)
-                attempt = Attempt.from_identity(
-                    AttemptIdentity(
-                        source_snapshot_digest=snapshot.identity.digest,
-                        cell=cell,
-                        requested_resolution="exact-vector",
-                        requested_managed_vector=vector,
-                        active_declaration_ids=cell.active_declaration_ids,
-                        source_plan_identity=cast(
-                            SourcePlan, kwargs["source_plan"]
-                        ).identity,
-                        evaluation_policy_identity="policy",
-                        resolution_context_digest="context",
-                        harness_policy_identity="harness-relaxation-v1",
-                        harness_baseline_digest="baseline",
-                        selected_candidate_evidence_digest="selection",
-                    )
-                )
-                return PrepareFailure(
-                    attempt=attempt,
-                    failure=ToolFailure(
-                        cause="RESOLUTION_CONFLICT",
-                        stage="resolve-project",
-                        process=successful_process().model_copy(
-                            update={"exit_code": 1}
-                        ),
-                    ),
-                )
-
-        environments = FailsFirstPrepare()
-        result = search_coordinator(
-            environments=environments,
-            candidates=FrozenCandidates(),
-            static=static,
-            full=FullThreshold(static),
-            highest=Highest(),
-        ).search(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
-
-        assert environments.version_one_calls == 1
-        assert isinstance(result, CellSuccess)
+        assert any(
+            isinstance(evidence, ProbePass)
+            and evidence.evaluation == result.final_evaluation
+            for evidence in direct
+        )
+        rejection = next(
+            evidence for evidence in direct if isinstance(evidence, ProbeRejection)
+        )
+        failure = next(
+            item
+            for item in result.failure_records
+            if item.failure_id == rejection.failure_id
+        )
+        assert failure.cause == "VERIFIER_EXITED_NONZERO"
+        assert result.search.boundaries[0].predecessor_failure_id == failure.failure_id
         assert all(
-            observation.evidence.status != "PASS"
-            for observation in result.search.observations
-            if observation.vector == (VersionPin(name="a", version="1"),)
-            if hasattr(observation.evidence, "status")
+            region.slice.cell == result.cell for region in result.search.regions
         )
+        assert any(
+            isinstance(observation.evidence, StaticOnlyEvidence)
+            for observation in observations
+        )
+        assert len(diagnostics.events) == 1
+        assert diagnostics.events[0].failure == failure
+        assert bool(result.failure_runtime_runs) is runtime_diagnostics
+        runtime = diagnostics.events[0].runtime
+        assert runtime is not None
+        assert bool(runtime.diagnostics) is runtime_diagnostics
+        assert any(isinstance(event, CellContextEvent) for event in activity.events)
+        assert any(isinstance(event, CellStageEvent) for event in activity.events)
+        assert any(
+            isinstance(event, CellSearchProgressEvent) for event in activity.events
+        )
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_search_reuses_a_full_probe_for_final_evaluation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project")
+        assembly = evaluation_assembly(verifier_handler=threshold_verifier)
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellSuccess)
+        assert assembly.uv.install_vectors == [
+            (VersionPin(name="demo-dep", version="3"),),
+            (VersionPin(name="demo-dep", version="1"),),
+            (VersionPin(name="demo-dep", version="2"),),
+        ]
+        assert assembly.verifier.vectors == [
+            (VersionPin(name="demo-dep", version="3"),),
+            (VersionPin(name="demo-dep", version="1"),),
+            (VersionPin(name="demo-dep", version="2"),),
+        ]
+        assert len(assembly.candidates.queries) == 1
+        assert "lowest-direct" not in assembly.uv.resolutions
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_search_maps_every_exact_probe_to_the_frozen_candidate_artifact(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project")
+        assembly = evaluation_assembly(verifier_handler=threshold_verifier)
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellSuccess)
+        frozen = {
+            (snapshot.dependency, candidate.version): candidate.artifact
+            for snapshot in result.candidate_snapshots
+            for candidate in snapshot.candidates
+        }
+        assert assembly.uv.exact_selections
+        assert all(
+            frozen[(candidate.dependency, candidate.version)] == candidate.artifact
+            for selection in assembly.uv.exact_selections
+            for candidate in selection
+        )
+
+    def test_search_preserves_exact_prepare_failure_and_emits_one_diagnostic(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project")
+        diagnostics = RecordingDiagnostics()
+        assembly = evaluation_assembly(
+            verifier_handler=threshold_verifier,
+            diagnostics=diagnostics,
+        )
+        failed_vector = (VersionPin(name="demo-dep", version="1"),)
+        assembly.uv.install_failures_by_vector[failed_vector] = ToolFailure(
+            cause="BUILD_FAILURE",
+            stage="install-environment",
+            process=successful_process(exit_code=2),
+        )
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellIndeterminate)
+        assert result.coordinate_failure is not None
+        evidence = next(
+            observation.evidence
+            for observation in result.coordinate_failure.observations
+            if isinstance(observation.evidence, ProbeIndeterminate)
+        )
+        assert evidence.attempt.identity.requested_managed_vector == failed_vector
+        assert evidence.proposal_id is None
+        assert evidence.cause == "BUILD_FAILURE"
+        assert result.failure_id == evidence.failure_id
+        assert len(diagnostics.events) == 1
+        assert diagnostics.events[0].failure.failure_id == evidence.failure_id
+        assert assembly.uv.install_vectors.count(failed_vector) == 1
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_search_retains_terminal_runtime_indeterminate_diagnostics(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project")
+        diagnostics = RecordingDiagnostics()
+
+        def indeterminate_below_two(
+            vector: tuple[VersionPin, ...],
+            call: int,
+        ) -> VerifierRun:
+            del call
+            if int(vector[0].version) >= 2:
+                return VerifierRun(
+                    authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+                )
+            return VerifierRun(
+                authoritative=VerifierIndeterminate(
+                    terminal=TimedOut(),
+                    reason="process-timed-out",
+                ),
+                diagnostics=VerifierDiagnostics(
+                    process=ProcessResult(
+                        signal=9,
+                        duration_seconds=30,
+                        timed_out=True,
+                    )
+                ),
+            )
+
+        assembly = evaluation_assembly(
+            verifier_handler=indeterminate_below_two,
+            diagnostics=diagnostics,
+        )
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellIndeterminate)
+        assert result.failure_records[0].cause == "TIMEOUT"
+        assert result.failure_runtime_runs
+        assert len(diagnostics.events) == 1
+        assert diagnostics.events[0].runtime is not None
+        assert diagnostics.events[0].runtime.diagnostics is not None
+        assert all(not root.exists() for root in assembly.uv.environment_roots)

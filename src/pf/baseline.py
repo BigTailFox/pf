@@ -1,63 +1,22 @@
 from __future__ import annotations
 
-from typing import Protocol
-
-from pf.environment import HighestResolution, PreparedEnvironment, ResolutionRequest
+from pf.environment import EnvironmentFactory, HighestResolution
+from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
-    FailureDetail,
     HighestVersionOutcome,
     HighestVersionPass,
     IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
     ProcessTerminalUnavailable,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeEvaluationRun,
-    RuntimeWitnessResult,
-    StaticBaseline,
-    StaticBaselineCapture,
-    StaticEvaluation,
     VerifierRejectedEvaluation,
-    ToolFailure,
 )
 from pf.schemas.project import Cell, PackagePlan, SourcePlan
 from pf.snapshot import SourceSnapshot
-
-
-class HighestEnvironmentOperations(Protocol):
-    def prepare(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        resolution: ResolutionRequest,
-        source_plan: SourcePlan,
-    ) -> PreparedEnvironment | PrepareFailure: ...
-
-
-class HighestStaticOperations(Protocol):
-    def capture(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-    ) -> StaticBaselineCapture | IndeterminateEvaluation: ...
-
-
-class HighestFullOperations(Protocol):
-    def evaluate(
-        self,
-        prepared: PreparedEnvironment,
-        *,
-        package: PackagePlan,
-        baseline: StaticBaseline,
-        static_result: StaticEvaluation | None = None,
-    ) -> RuntimeEvaluationRun: ...
 
 
 class HighestVersionVerifier:
@@ -66,9 +25,9 @@ class HighestVersionVerifier:
     def __init__(
         self,
         *,
-        environments: HighestEnvironmentOperations,
-        static: HighestStaticOperations,
-        full: HighestFullOperations,
+        environments: EnvironmentFactory,
+        static: StaticEvaluator,
+        full: RuntimeEvaluator,
         failures: FailurePolicy | None = None,
     ) -> None:
         self._environments = environments
@@ -91,8 +50,6 @@ class HighestVersionVerifier:
             resolution=HighestResolution(),
             source_plan=source_plan,
         )
-        if isinstance(prepared, ToolFailure):
-            raise ValueError("highest-version prepare must establish an Attempt")
         if isinstance(prepared, PrepareFailure):
             failure = self._failures.classify(
                 scope=AttemptFailureScope(attempt=prepared.attempt),
@@ -151,33 +108,6 @@ class HighestVersionVerifier:
                     baseline=capture.baseline,
                     harness_baseline=prepared.harness_baseline,
                     evaluation=evaluation,
-                )
-            if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-                confirmed = next(
-                    attempt.outcome
-                    for attempt in evaluation.witnesses
-                    if isinstance(attempt.outcome, RuntimeWitnessResult)
-                    and attempt.outcome.status == "CONFIRMED_MISSING"
-                )
-                failure = self._failures.classify(
-                    scope=AttemptFailureScope(attempt=prepared.attempt),
-                    cause="INTERNAL_INVARIANT",
-                    stage="baseline-witness",
-                    process=confirmed.process,
-                    detail=FailureDetail(
-                        code="unexpected-baseline-runtime-witness",
-                        message=(
-                            "highest full evaluation cannot witness a static baseline "
-                            "increment"
-                        ),
-                    ),
-                    project_plan_digest=prepared.project_plan.semantic_digest,
-                    environment_plan_digest=prepared.environment_plan.semantic_digest,
-                )
-                return BaselineIndeterminate(
-                    attempt=prepared.attempt,
-                    failure=failure,
-                    static_baseline=capture.baseline,
                 )
             failure = self._failures.record_evaluation(
                 AttemptFailureScope(attempt=prepared.attempt),

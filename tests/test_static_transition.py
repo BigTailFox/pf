@@ -1,82 +1,24 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
 
 import pytest
 
-from conftest import prepared_resolution_evidence
+from evaluation_fixtures import (
+    evaluation_assembly,
+    evaluation_project,
+    selected_candidate,
+    successful_process,
+)
 
-from pf.environment import PreparedEnvironment
-from pf.project import ProjectLoader
-from pf.schemas.evaluation import Attempt, AttemptIdentity, TyDiagnostic
-from pf.schemas.project import PackagePlan, Proposal, VersionPin
-from pf.static_transition import StaticTransitionClassifier
-
-
-def _context(tmp_path: Path, source: str) -> tuple[PreparedEnvironment, PackagePlan]:
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    (project_root / "pyproject.toml").write_text(
-        """
-[project]
-name = "demo"
-version = "0.1.0"
-dependencies = ["requests>=1"]
-
-[dependency-groups]
-test = []
-
-[tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
-test-command = ["pytest"]
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    package = ProjectLoader().load(root=project_root).target
-    temporary = tempfile.TemporaryDirectory(prefix="pf-transition-", dir=tmp_path)
-    proposal_root = Path(temporary.name) / "source"
-    proposal_root.mkdir()
-    (proposal_root / "demo.py").write_text(source, encoding="utf-8")
-    cell = package.cells[0]
-    vector = (VersionPin(name="requests", version="2"),)
-    attempt = Attempt.from_identity(
-        AttemptIdentity(
-            source_snapshot_digest="snapshot",
-            cell=cell,
-            requested_resolution="exact-vector",
-            requested_managed_vector=vector,
-            active_declaration_ids=cell.active_declaration_ids,
-            source_plan_identity="sources",
-            evaluation_policy_identity="policy",
-            resolution_context_digest="context",
-            harness_policy_identity="harness-relaxation-v1",
-            harness_baseline_digest="baseline",
-            selected_candidate_evidence_digest="selection",
-        )
-    )
-    prepared = PreparedEnvironment(
-        attempt=attempt,
-        proposal=Proposal(
-            proposal_id="proposal",
-            attempt_id=attempt.attempt_id,
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=vector,
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        ),
-        proposal_root=proposal_root,
-        package_root=proposal_root,
-        environment_root=Path(temporary.name) / "environment",
-        interpreter=Path(temporary.name) / "environment" / "bin" / "python",
-        **prepared_resolution_evidence(cell=cell),
-        temporary_directory=temporary,
-    )
-    return prepared, package
+from pf.environment import ExactSelection, HighestResolution, PreparedEnvironment
+from pf.schemas.evaluation import (
+    StaticBaselineCapture,
+    StaticRegressionEvaluation,
+    TyCheck,
+    TyDiagnostic,
+)
+from pf.schemas.project import VersionPin
 
 
 def _diagnostic(
@@ -99,7 +41,7 @@ def _diagnostic(
     )
 
 
-class TestStaticTransitionClassifier:
+class TestStaticEvaluatorClassification:
     @pytest.mark.parametrize(
         ("source", "diagnostic", "operation", "module", "owner", "name"),
         (
@@ -130,7 +72,7 @@ class TestStaticTransitionClassifier:
         ),
         ids=("module", "symbol", "member"),
     )
-    def test_static_transition_classifier_builds_structurally_recoverable_witnesses(
+    def test_static_evaluator_builds_structurally_recoverable_witnesses(
         self,
         tmp_path: Path,
         source: str,
@@ -140,14 +82,48 @@ class TestStaticTransitionClassifier:
         owner: str | None,
         name: str | None,
     ) -> None:
-        prepared, package = _context(tmp_path, source)
+        project = evaluation_project(
+            tmp_path / "project",
+            dependency="requests",
+            source=source,
+        )
+        assembly = evaluation_assembly(
+            highest=(VersionPin(name="requests", version="3"),),
+            ty_handler=lambda vector, call: TyCheck(
+                process=successful_process(exit_code=0 if call == 1 else 1),
+                diagnostics=() if call == 1 else (diagnostic,),
+            ),
+        )
+        highest = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(highest, PreparedEnvironment)
+        capture = assembly.static.capture(highest, package=project.package)
+        assert isinstance(capture, StaticBaselineCapture)
+        candidate = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=ExactSelection(
+                selection=(selected_candidate("requests", "2"),),
+                harness_baseline=highest.harness_baseline,
+            ),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(candidate, PreparedEnvironment)
 
-        result = StaticTransitionClassifier().classify(
-            prepared,
-            package=package,
-            incremental=(diagnostic,),
-        )[0]
+        evaluation = assembly.static.evaluate(
+            candidate,
+            package=project.package,
+            baseline=capture.baseline,
+        )
 
+        assert isinstance(evaluation, StaticRegressionEvaluation)
+        result = evaluation.classifications[0]
         assert result.classification == "strong"
         assert result.reason_code == "witness-planned"
         assert result.witness_plan is not None
@@ -156,7 +132,8 @@ class TestStaticTransitionClassifier:
         assert result.witness_plan.module == module
         assert result.witness_plan.owner == owner
         assert result.witness_plan.symbol_or_member == name
-        prepared.close()
+        highest.close()
+        candidate.close()
 
     @pytest.mark.parametrize(
         ("source", "diagnostic", "reason"),
@@ -178,20 +155,30 @@ class TestStaticTransitionClassifier:
             ),
             (
                 "import requests\n",
-                _diagnostic(
-                    line=1,
-                    column=8,
+                TyDiagnostic(
+                    identity="external|site-packages/requests.py|unresolved-import",
+                    origin="external",
+                    path="site-packages/requests.py",
+                    line=None,
+                    column=None,
                     code="unresolved-import",
-                ).model_copy(update={"origin": "environment"}),
+                    severity="major",
+                    message="wording is not evidence",
+                ),
                 "diagnostic-not-in-snapshot",
             ),
             (
                 "import requests\n",
-                _diagnostic(
+                TyDiagnostic(
+                    identity="snapshot|../demo.py|1|8|unresolved-import",
+                    origin="snapshot",
+                    path="../demo.py",
                     line=1,
                     column=8,
                     code="unresolved-import",
-                ).model_copy(update={"path": "../demo.py"}),
+                    severity="major",
+                    message="wording is not evidence",
+                ),
                 "source-path-invalid",
             ),
             (
@@ -233,33 +220,76 @@ class TestStaticTransitionClassifier:
             "outside-node",
         ),
     )
-    def test_static_transition_classifier_downgrades_without_message_guessing(
+    def test_static_evaluator_downgrades_without_message_guessing(
         self,
         tmp_path: Path,
         source: str,
         diagnostic: TyDiagnostic,
         reason: str,
     ) -> None:
-        prepared, package = _context(tmp_path, source)
-        classifier = StaticTransitionClassifier()
-
-        first = classifier.classify(
-            prepared,
-            package=package,
-            incremental=(diagnostic,),
-        )[0]
-        second = classifier.classify(
-            prepared,
-            package=package,
-            incremental=(
-                diagnostic.model_copy(update={"message": "different wording"}),
-            ),
-        )[0]
-
-        assert first == second.model_copy(
-            update={"diagnostic_identity": first.diagnostic_identity}
+        project = evaluation_project(
+            tmp_path / "project",
+            dependency="requests",
+            source=source,
         )
-        assert first.classification == "general"
-        assert first.reason_code == reason
-        assert first.witness_plan is None
-        prepared.close()
+        assembly = evaluation_assembly(
+            highest=(VersionPin(name="requests", version="3"),),
+            ty_handler=lambda vector, call: TyCheck(
+                process=successful_process(exit_code=0 if call == 1 else 1),
+                diagnostics=(
+                    ()
+                    if call == 1
+                    else (
+                        diagnostic.model_copy(
+                            update={
+                                "message": (
+                                    "first wording" if call == 2 else "second wording"
+                                )
+                            }
+                        ),
+                    )
+                ),
+            ),
+        )
+        highest = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(highest, PreparedEnvironment)
+        capture = assembly.static.capture(highest, package=project.package)
+        assert isinstance(capture, StaticBaselineCapture)
+        candidate = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=ExactSelection(
+                selection=(selected_candidate("requests", "2"),),
+                harness_baseline=highest.harness_baseline,
+            ),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(candidate, PreparedEnvironment)
+
+        first = assembly.static.evaluate(
+            candidate,
+            package=project.package,
+            baseline=capture.baseline,
+        )
+        second = assembly.static.evaluate(
+            candidate,
+            package=project.package,
+            baseline=capture.baseline,
+        )
+
+        assert isinstance(first, StaticRegressionEvaluation)
+        assert isinstance(second, StaticRegressionEvaluation)
+        assert first.classifications == second.classifications
+        result = first.classifications[0]
+        assert result.classification == "general"
+        assert result.reason_code == reason
+        assert result.witness_plan is None
+        highest.close()
+        candidate.close()

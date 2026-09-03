@@ -18,6 +18,7 @@ from pf.adapters.uv import RegistryAccess, UvAdapter
 from pf.baseline import HighestVersionVerifier
 from pf.authorization import ApplyAuthorizer
 from pf.candidates import CandidateBuilder
+from pf.check import CompatibilityChecker
 from pf.config import parse_jobs, parse_max_duration
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
@@ -49,7 +50,6 @@ from pf.terminal import TerminalPresenter, command_usage, command_usage_line
 from pf.verification import VerificationRunner
 from pf.workflow import (
     CheckCommandWorkflow,
-    CompatibilityChecker,
     DiagnoseCommandWorkflow,
     FailureDiagnosis,
     ApplyCommandWorkflow,
