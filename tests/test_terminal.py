@@ -96,6 +96,7 @@ from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
     CellSearchFailure,
+    CellSuccess,
     CompleteReportResult,
     CoordinateFailure,
     IncompleteReportResult,
@@ -262,6 +263,7 @@ def incomplete_report(
     projections: tuple[ProjectionEvidence, ...] = (),
     cell_results: tuple[CellResult, ...] = (),
     declarations: tuple[RequirementDeclaration, ...] = (),
+    target_cells: tuple[Cell, ...] | None = None,
 ) -> ValidatedReport:
     package = PackagePlan(
         name="demo",
@@ -276,7 +278,11 @@ def incomplete_report(
         entries=(),
         pyproject_identities=(),
     )
-    target_cells = tuple(result.cell for result in cell_results)
+    resolved_target_cells = (
+        tuple(result.cell for result in cell_results)
+        if target_cells is None
+        else target_cells
+    )
     base = PackageReportBuilder().build(
         package=package,
         source_plan=SourcePlan.for_package(package, "SEARCH"),
@@ -286,7 +292,7 @@ def incomplete_report(
     return replace(
         base,
         requirement_declarations=declarations,
-        target_cells=target_cells,
+        target_cells=resolved_target_cells,
         cell_results=cell_results,
         projection_evidence=projections,
         result=IncompleteReportResult(status="incomplete", reasons=reasons),
@@ -4147,6 +4153,122 @@ class TestSearchRendering:
             assert " ".join(stderr.getvalue().split()) == " ".join(
                 expected_stderr[reasons].split()
             )
+
+    @pytest.mark.parametrize(
+        ("reason", "expected_conclusion"),
+        (
+            ("NO_PASS_IN_SEARCH_SPACE", "no applicable floor"),
+            ("NON_MONOTONIC", "search evidence is non-monotonic"),
+            ("NONDETERMINISTIC", "repeated checks disagreed"),
+            (
+                "UNREPRESENTABLE_PROJECTION",
+                "the full-matrix floor projection is not representable",
+            ),
+        ),
+    )
+    def test_search_incomplete_summary_names_its_reason(
+        self,
+        reason: str,
+        expected_conclusion: str,
+    ) -> None:
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_search(incomplete_report(reason))
+
+        rendered = " ".join(stderr.getvalue().split())
+        assert exit_code == 2
+        assert stdout.getvalue() == ""
+        assert expected_conclusion in rendered
+        if reason != "NO_PASS_IN_SEARCH_SPACE":
+            assert "no applicable floor" not in rendered
+
+    def test_search_missing_summary_reports_empty_host(self) -> None:
+        target = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_search(
+            incomplete_report("MISSING_CELL", target_cells=(target,))
+        )
+
+        rendered = " ".join(stderr.getvalue().split())
+        assert exit_code == 2
+        assert stdout.getvalue() == ""
+        assert "no configured cells match this host" in rendered
+        assert "no applicable floor" not in rendered
+
+    def test_search_missing_summary_reports_passed_and_remote_cells(self) -> None:
+        local = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        remote = Cell(
+            package="demo",
+            target="aarch64-apple-darwin",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        success = CellSuccess.model_construct(cell=local)
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_search(
+            incomplete_report(
+                "MISSING_CELL",
+                cell_results=(success,),
+                target_cells=(local, remote),
+            )
+        )
+
+        rendered = " ".join(stderr.getvalue().split())
+        assert exit_code == 2
+        assert stdout.getvalue() == ""
+        assert "1 cell passed" in rendered
+        assert "1 cell awaits another host" in rendered
+        assert "collect reports and run pf merge" in rendered
+        assert "no applicable floor" not in rendered
+
+    def test_search_mixed_failure_summary_does_not_claim_host_success(self) -> None:
+        local = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        remote = Cell(
+            package="demo",
+            target="aarch64-apple-darwin",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        failure = CellSearchFailure.model_construct(
+            cell=local,
+            reason="NO_PASS_IN_SEARCH_SPACE",
+            phase="search",
+            failure_records=(),
+        )
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_search(
+            incomplete_report(
+                "MISSING_CELL",
+                "NO_PASS_IN_SEARCH_SPACE",
+                cell_results=(failure,),
+                target_cells=(local, remote),
+            )
+        )
+
+        rendered = " ".join(stderr.getvalue().split())
+        assert exit_code == 2
+        assert stdout.getvalue() == ""
+        assert "1 cell has no applicable floor" in rendered
+        assert "1 cell awaits another host" in rendered
+        assert "collect reports and run pf merge" not in rendered
 
     def test_search_baseline_rejection_prints_user_guidance(self) -> None:
         cell = Cell(

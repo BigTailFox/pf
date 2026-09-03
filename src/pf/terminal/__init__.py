@@ -498,6 +498,54 @@ def _search_exit_code(reasons: set[str]) -> int:
     return 0
 
 
+def _search_incomplete_conclusion(report: ValidatedReport) -> str:
+    reasons = _search_reasons(report)
+    conclusions: list[str] = []
+    no_floor_count = sum(
+        isinstance(result, CellSearchFailure)
+        and result.reason == "NO_PASS_IN_SEARCH_SPACE"
+        for result in report.cell_results
+    )
+    if "NO_PASS_IN_SEARCH_SPACE" in reasons:
+        conclusions.append(
+            (
+                f"{_counted(no_floor_count, 'cell')} "
+                f"{'has' if no_floor_count == 1 else 'have'} no applicable floor"
+            )
+            if no_floor_count
+            else "no applicable floor"
+        )
+    if "NON_MONOTONIC" in reasons:
+        conclusions.append("search evidence is non-monotonic")
+    if "NONDETERMINISTIC" in reasons:
+        conclusions.append("repeated checks disagreed")
+    if "UNREPRESENTABLE_PROJECTION" in reasons:
+        conclusions.append("the full-matrix floor projection is not representable")
+    if "MISSING_CELL" in reasons:
+        target_count = len(report.target_cells) or len(report.cell_results)
+        missing_count = max(0, target_count - len(report.cell_results))
+        if not report.cell_results:
+            conclusions.append("no configured cells match this host")
+        else:
+            if reasons == {"MISSING_CELL"}:
+                passed_count = sum(
+                    isinstance(result, CellSuccess) for result in report.cell_results
+                )
+                if passed_count:
+                    conclusions.append(f"{_counted(passed_count, 'cell')} passed")
+            conclusions.append(
+                (
+                    f"{_counted(missing_count, 'cell')} "
+                    f"{'awaits another host' if missing_count == 1 else 'await other hosts'}"
+                )
+                if missing_count
+                else "target cell results are missing"
+            )
+            if reasons == {"MISSING_CELL"}:
+                conclusions.append("next: collect reports and run pf merge")
+    return " · ".join(conclusions) or "report evidence is incomplete"
+
+
 def _format_elapsed(seconds: float | None) -> str:
     if seconds is None:
         return "0:00:00"
@@ -1183,7 +1231,10 @@ class TerminalPresenter:
             return 4
         self._print_outcome(
             "warning",
-            f"Search incomplete · {path} written · no applicable floor",
+            (
+                f"Search incomplete · {path} written · "
+                f"{_search_incomplete_conclusion(report)}"
+            ),
         )
         return 2
 
