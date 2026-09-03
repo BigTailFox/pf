@@ -7,7 +7,7 @@ import re
 from typing import Annotated, Literal, Protocol
 
 from cyclopts import App, Group, Parameter
-from cyclopts.exceptions import CycloptsError
+from cyclopts.exceptions import CycloptsError, MissingArgumentError
 from packaging.utils import InvalidName, canonicalize_name
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
@@ -176,7 +176,11 @@ def _cli_failure_id(value: str) -> str:
 
 def _invocation_error(error: CycloptsError) -> str:
     message = str(error.msg) if error.msg is not None else str(error)
-    if "parameter FAILURE_ID requires an argument" in message:
+    if (
+        isinstance(error, MissingArgumentError)
+        and error.argument is not None
+        and error.argument.name == "FAILURE_ID"
+    ):
         message = "Missing argument 'FAILURE_ID'."
     chain = tuple(error.command_chain or ())
     command = "pf" + ((" " + " ".join(chain)) if chain else "")

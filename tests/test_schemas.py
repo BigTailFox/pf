@@ -2526,10 +2526,14 @@ class TestReportSchemas:
         assert isinstance(completed, ActivityEvent)
         assert "completed" not in stage.model_dump()
         assert "phase" not in completed.model_dump()
-        with pytest.raises(ValidationError, match="Extra inputs"):
+        with pytest.raises(ValidationError) as caught:
             CellStageEvent.model_validate(
                 {"cell": cell, "stage": "install", "completed": 0}
             )
+        assert any(
+            error["type"] == "extra_forbidden" and error["loc"] == ("completed",)
+            for error in caught.value.errors(include_url=False)
+        )
         with pytest.raises(ValidationError, match="completion counters"):
             CellCompletedEvent(
                 cell=cell,

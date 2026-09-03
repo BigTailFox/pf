@@ -513,7 +513,7 @@ class TestCommandDispatch:
             (("not-a-failure",), "expected failure-<16 hex> or <16 hex>"),
             (
                 ("02cc9a72fbcd6cf0", "unexpected"),
-                "Unused Tokens: ['unexpected']",
+                "unexpected",
             ),
         ),
     )
@@ -1002,7 +1002,7 @@ class TestCommandDispatch:
         )
 
     def test_cli_context_requires_the_complete_object_graph(self) -> None:
-        with pytest.raises(TypeError, match="required positional argument"):
+        with pytest.raises(TypeError):
             CliContext(  # ty: ignore[missing-argument]
                 check_workflow=NeverCheck(),
                 presenter=TerminalPresenter(

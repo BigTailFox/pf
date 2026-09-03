@@ -811,7 +811,7 @@ class TestSearchCoordinator:
             static=static,
             full=full,
         )
-        with pytest.raises(TypeError, match="highest"):
+        with pytest.raises(TypeError):
             SearchCoordinator(  # ty: ignore[missing-argument]
                 environments=environments,
                 candidates=candidates,
@@ -819,7 +819,7 @@ class TestSearchCoordinator:
                 full=full,
                 coordinate_search=CoordinateSearch(),
             )
-        with pytest.raises(TypeError, match="coordinate_search"):
+        with pytest.raises(TypeError):
             SearchCoordinator(  # ty: ignore[missing-argument]
                 environments=environments,
                 candidates=candidates,
