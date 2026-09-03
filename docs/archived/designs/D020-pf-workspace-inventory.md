@@ -5,7 +5,7 @@
 - **完成日期：** 2026-09-03
 - **性质：** 临时性架构优化设计；完成后归并到现行 owner 并与实施 Plan 一同归档
 - **设计核对基线：** `c1aff33`（`chore: hidden some cache directories`）
-- **评审来源：** [R005](../../reviews/R005-pf-module-depth-review.md) §4、§11.2
+- **评审来源：** [R005](../reviews/R005-pf-module-depth-review.md) §4、§11.2
 - **现行产品契约：** [D001](../../designs/D001-pf.md)
 - **现行实现结构：** [D002](../../designs/D002-pf-implementation.md)
 - **现行运行语义：** [D008](../../designs/D008-pf-verification-run.md)
@@ -17,7 +17,7 @@
 > 但在实施、验收和 owner 文档归并完成前不冒充现行行为。完成后必须将本文与对应 Plan
 > 在同一完成变更中归档。
 
-[R005](../../reviews/R005-pf-module-depth-review.md) 的 Verification Run、评价 seam、terminal-private result card 与 `SearchCoordinator` 测试表面
+[R005](../reviews/R005-pf-module-depth-review.md) 的 Verification Run、评价 seam、terminal-private result card 与 `SearchCoordinator` 测试表面
 属于其它独立轨道，不进入本设计。`SourcePlan` 已由 D019/P025 完成；本设计只收敛其上游的 workspace
 filesystem observation，不重新设计 source facts。
 

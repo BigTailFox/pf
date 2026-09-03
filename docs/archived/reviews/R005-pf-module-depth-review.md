@@ -1,16 +1,18 @@
-# R005 — PF 模块深化架构评审
+# R005 — PF 模块深化架构评审（归档）
 
-- **状态：** 开放（SourcePlan、WorkspaceInventory 与轨 B 已解决；评价 seam、terminal result-card 与 SearchCoordinator 测试表面尚未设计或实施）
+- **状态：** 已解决，已归档（轨 A/B/C 已完成；CLI 轨 D 已移交 R006）
 - **日期：** 2026-09-02
 - **性质：** 非规范性架构评审；不定义命令、算法、Schema 或 module interface
 - **对照：** `main` / `b8efadc`（`docs: archive diagnostic result card design`）
 - **改进方案核对：** `main` / `c1aff33`（2026-09-03；SourcePlan 深化后的剩余项）
 - **轨 B Design 核对：** `main` / `e570cea`（2026-09-03；WorkspaceInventory 深化后的当前实现）
+- **轨 C：** [D022](../designs/D022-pf-evaluation-seam.md) / [P028](../plans/P028-pf-evaluation-seam.md)（已完成并归档）
+- **CLI 轨迁移：** 原轨 D terminal-private result-card 由 [R006](../../reviews/R006-pf-cli-system-review.md) §5.1 完整接管，本文不再跟踪其 Design、Plan 或完成状态
 - **输入材料：** `architecture-review-20260902-123228.html`；同日一次未读取本文的独立实现评审，再对照源码与现行契约校准
-- **契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D014](../designs/D014-pf-report-schema.md)
-- **历史决策：** [D010](../archived/designs/D010-pf-v1-architecture.md)、[D017](../archived/designs/D017-pf-single-target-workspace-dependencies.md)、[D018](../archived/designs/D018-pf-diagnostic-result-cards.md)
-- **前序评审：** [R002](../archived/reviews/R002-pf-v1-architecture-review.md)
-- **已解决项：** [D019](../archived/designs/D019-pf-source-plan-depth.md) / [P025](../archived/plans/P025-pf-source-plan-depth.md) 已完成 §3 SourcePlan；[D020](../archived/designs/D020-pf-workspace-inventory.md) / [P026](../archived/plans/P026-pf-workspace-inventory.md) 已完成 §4 WorkspaceInventory；[D021](../archived/designs/D021-pf-verification-run-request.md) / [P027](../archived/plans/P027-pf-verification-run-request.md) 已完成 §5 / §11.3 Verification Run request；本文因其余候选继续开放而不归档
+- **契约所有者：** [D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)、[D003](../../designs/D003-pf-search-algorithm.md)、[D005](../../designs/D005-pf-failure-and-diagnose.md)、[D006](../../designs/D006-pf-cli-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)、[D012](../../designs/D012-pf-harness-relaxation.md)、[D014](../../designs/D014-pf-report-schema.md)
+- **历史决策：** [D010](../designs/D010-pf-v1-architecture.md)、[D017](../designs/D017-pf-single-target-workspace-dependencies.md)、[D018](../designs/D018-pf-diagnostic-result-cards.md)
+- **前序评审：** [R002](R002-pf-v1-architecture-review.md)
+- **已解决项：** [D019](../designs/D019-pf-source-plan-depth.md) / [P025](../plans/P025-pf-source-plan-depth.md) 已完成 §3 SourcePlan；[D020](../designs/D020-pf-workspace-inventory.md) / [P026](../plans/P026-pf-workspace-inventory.md) 已完成 §4 WorkspaceInventory；[D021](../designs/D021-pf-verification-run-request.md) / [P027](../plans/P027-pf-verification-run-request.md) 已完成 §5 / §11.3 Verification Run request；D022/P028 已完成轨 C，本文同步归档
 
 本文把输入材料中的四项架构建议，以及独立实现评审中经源码核对成立的中层 depth 问题，整理为可追踪的 Review，并对照当前源码与现行契约校准 ownership、优先级和完成标准。本文只记录时间点判断；任何被接受的 substantial 架构变更都必须先进入规范性 Design，再以 durable Plan 实施和验证。
 
@@ -25,11 +27,11 @@
 | P1 | Strong；已解决 | 深化 SourcePlan module | 已由 D019/P025 把逐 dependency route、mode、lookup、identity 与 dual-route 结构事实收回一个 locality |
 | P1 | Strong；已解决 | 把 workspace discovery 深化为一次 canonical inventory | 已由 D020/P026 让 selection、planning facts、member facts 与 owned paths 来自同一次文件系统观察 |
 | P2 | Strong；已解决 | 继续深化 Verification Run module | D021/P027 已从三个 workflow 收回 task assembly、Journal projection、association 与 deadline plumbing |
-| P2 | Worth exploring | 合并评价层假想 Protocol | 三套同形 env/static/full Protocol 对应同一组生产 adapter；测试不再手造 `PreparedEnvironment` |
-| P2 | Worth exploring | 深化 terminal-private result-card module | 统一 TTY/plain、literal path、宽度布局与 final emission mechanics |
-| P3 | Later | 降低 `SearchCoordinator` 测试表面 | 协作槽位留在内部；替换走已有 `UvOperations` / `ProcessRunner` |
+| P2 | Strong；已解决 | 合并评价层假想 Protocol | D022/P028 已直接复用现有评价 module interface，并把测试替换下沉到真实 adapter seam |
+| P2 | 已移交 R006 | 深化 terminal-private result-card module | 由 R006 §5.1 统一跟踪 CLI 结果卡 mechanics 与 typed errors |
+| P3 | 已随轨 C 解决 | 降低 `SearchCoordinator` 测试表面 | D022/P028 已使用真实 module graph；替换走已有 lower adapter seam |
 
-SourcePlan 与 WorkspaceInventory 已分别按 D019/P025、D020/P026 完成并归并到现行 owner。轨 B 也已由 [D021](../archived/designs/D021-pf-verification-run-request.md) / [P027](../archived/plans/P027-pf-verification-run-request.md) 完成 command-discriminated Verification Run request，稳定规则已由 D002/D006/D008 接管并同步归档。评价 seam、result-card 与 SearchCoordinator 测试表面继续按独立轨道处理。独立实现评审主张先收成一个 Cell 评价 module；该方向看到了真实重复，但会越过 D002 对 `CompatibilityChecker`、`HighestVersionVerifier` 与 `SearchCoordinator` 的产品所有权，因此仍校准为「只合并假想 Protocol，不合并三个产品编排器」。
+SourcePlan 与 WorkspaceInventory 已分别按 D019/P025、D020/P026 完成并归并到现行 owner。轨 B 也已由 [D021](../designs/D021-pf-verification-run-request.md) / [P027](../plans/P027-pf-verification-run-request.md) 完成 command-discriminated Verification Run request，稳定规则已由 D002/D006/D008 接管并同步归档。评价 seam 与 SearchCoordinator 测试表面已由 [D022](../designs/D022-pf-evaluation-seam.md) / [P028](../plans/P028-pf-evaluation-seam.md) 完成并由 D002/D003/D004 接管。原 result-card 轨已移交 [R006](../../reviews/R006-pf-cli-system-review.md) 作为 CLI 汇总的一部分。至此本 Review 已无未解决轨道并归档。独立实现评审主张先收成一个 Cell 评价 module；该方向看到了真实重复，但会越过 D002 对 `CompatibilityChecker`、`HighestVersionVerifier` 与 `SearchCoordinator` 的产品 ownership，因此仍校准为「只删除假想 seam，不合并三个产品 module」。
 
 ## 2. 当前证据与校准
 
@@ -64,15 +66,14 @@ SourcePlan 与 WorkspaceInventory 已分别按 D019/P025、D020/P026 完成并�
 
 继续深化有潜在 leverage，但不能把 generic Scheduler 收成 Runner 私有实现或恢复 D010 已删除的 domain leakage，也不能用一个参数与 callback 数量接近现有 implementation 的 wrapper 假装抽象已经完成。Scheduler 是与 `CoordinateSearch` 同类的 in-process 算法 module；问题在 `VerificationTask`，不在 Scheduler 独立存在。
 
-### 2.4 Result-card primitive 已共享，但仍只封装 Rich mechanics 的薄片
+### 2.4 CLI result-card 证据已移交 R006
 
-`src/pf/terminal/__init__.py:123-179` 已有 `_result_card`、`_plain_result_card`、`_fact_grid` 与 `_path_text`。它们统一了 Panel、gutter、grid 和 path text 的局部构造，但 explain、diagnose、apply、merge 与 typed command errors 仍各自组装 rows、选择 TTY/plain renderable、打印 card 和 final（例如 `terminal/_explain.py:111-203`、`terminal/_diagnose.py:93-203`、`terminal/__init__.py:652-690,1215-1375`）。
-
-因此，D002/D006 所要求的共享 primitive 已存在，材料建议针对的是 implementation depth，而不是补一份新的产品契约或建立 public rendering interface。把全部 `render_*` 收成一个 public `render(command-result union)` 会把 D006 的命令信息层级卷进同一 interface，不是 deepening。
+本节原有的 helper、renderer、TTY/plain、literal path 与 final emission 证据，连同候选判断和停止条件，
+已完整移交 [R006 §5.1](../../reviews/R006-pf-cli-system-review.md)。R005 不再重复陈述或跟踪该 CLI 问题。
 
 ### 2.5 评价层 Protocol 是假想 seam，三个产品编排器不是
 
-`CheckEnvironmentOperations`（`src/pf/workflow.py:124-133`）、`HighestEnvironmentOperations`（`src/pf/baseline.py:32-41`）与 `SearchEnvironmentOperations`（`src/pf/search.py:125-134`）方法面同形；static capture / full evaluate 同样各抄一份。生产装配在 `src/pf/cli.py:387-405` 把同一个 `EnvironmentFactory`、`StaticEvaluator`、`RuntimeEvaluator` 注入三处——只有一个生产 adapter，三套 Protocol 是假想 seam。
+`CheckEnvironmentOperations`（`src/pf/workflow.py:124-133`）、`HighestEnvironmentOperations`（`src/pf/baseline.py:32-41`）与 `SearchEnvironmentOperations`（`src/pf/search.py:125-134`）方法面平行，full evaluate 也各抄一份；static 并非签名完全相同，Search 同时暴露 `capture/evaluate`，Check/Highest 只暴露 `capture`。这些差异只反映 caller 使用同一 `StaticEvaluator` 的不同方法。生产装配在 `src/pf/cli.py:387-405` 把同一个 `EnvironmentFactory`、`StaticEvaluator`、`RuntimeEvaluator` 注入三处——只有一个生产 adapter，三组 consumer-specific Protocol 仍是假想 seam。
 
 `src/` 里唯一构造 `PreparedEnvironment(...)` 的是 `EnvironmentFactory`（`src/pf/environment.py:544`）。`tests/test_baseline.py`、`tests/test_check.py`、`tests/test_search_coordinator.py`、`tests/test_evaluation.py` 与 `tests/test_static_transition.py` 手造该构造器，测试表面低于 `prepare()`。
 
@@ -129,8 +130,8 @@ Ownership 必须保持：
 
 不要增加第二套 source identity、缓存原始 TOML，或把 uv argv、apply decision、report validation 搬进 SourcePlan。Schema 是否继续直接承载该 module，或由 domain module 包住 wire record，应由后续 Design 一次决定，不能叠加兼容层。
 
-该候选已由归档 [D019](../archived/designs/D019-pf-source-plan-depth.md) 与
-[P025](../archived/plans/P025-pf-source-plan-depth.md) 实施、验收并归并到现行 owner。本节以下完成
+该候选已由归档 [D019](../designs/D019-pf-source-plan-depth.md) 与
+[P025](../plans/P025-pf-source-plan-depth.md) 实施、验收并归并到现行 owner。本节以下完成
 标准保留为评审来源；当前行为只由现行 owner 定义。
 
 ### 3.3 完成标准
@@ -160,7 +161,7 @@ Ownership 必须保持：
 
 Inventory 属于 local-substitutable filesystem module：使用真实临时目录测试即可，不需要为唯一生产文件系统引入 public port 或通用 repository。它可以保留一次读取的内部 TOML observation，但不能把原始 TOML 暴露为外部 interface。
 
-[D020](../archived/designs/D020-pf-workspace-inventory.md) / [P026](../archived/plans/P026-pf-workspace-inventory.md) 已完成本节方向；稳定 interface 与 ownership 已归并到 D002。
+[D020](../designs/D020-pf-workspace-inventory.md) / [P026](../plans/P026-pf-workspace-inventory.md) 已完成本节方向；稳定 interface 与 ownership 已归并到 D002。
 
 ### 4.3 完成标准
 
@@ -172,8 +173,8 @@ Inventory 属于 local-substitutable filesystem module：使用真实临时目�
 
 ## 5. P2：继续深化 Verification Run module
 
-[D021](../archived/designs/D021-pf-verification-run-request.md) 已将本节与 §11.3 收敛为临时性迁移目标，
-[P027](../archived/plans/P027-pf-verification-run-request.md) 已完成实现、验证、owner 归并与同步归档。
+[D021](../designs/D021-pf-verification-run-request.md) 已将本节与 §11.3 收敛为临时性迁移目标，
+[P027](../plans/P027-pf-verification-run-request.md) 已完成实现、验证、owner 归并与同步归档。
 下列内容继续保留为 Review 来源；当前行为只由现行 owner 定义。
 
 ### 5.1 问题
@@ -216,28 +217,9 @@ Check / Highest / Search 各维护一套 env/static/full Protocol，生产路径
 
 ## 7. P2：深化 terminal-private result-card module
 
-### 7.1 问题
-
-现有 helper 统一了单个 Rich 构件，却没有隐藏完整 card lifecycle。每个 command renderer 仍知道 rows 形状、marker gutter、TTY/plain 选择、literal path、console print 与 final 顺序；宽度或 plain parity 缺陷可能需要跨多个 renderer 修复。
-
-### 7.2 方向
-
-建立更深的 terminal-private result-card implementation，让它消费 terminal-private structured presentation facts，统一：
-
-- outcome marker、gutter、section/fact layout；
-- TTY Panel 与 non-TTY plain 的同层级输出；
-- literal path、折行与 OSC 8 link mechanics；
-- card 与唯一 final summary 的 emission 顺序。
-
-`TerminalPresenter` 继续拥有 domain outcome → presentation facts、stdout/stderr channel、最终 exit decision 和 public test surface。该 module 不成为 domain Schema，不进入 report/Journal/identity，也不向 workflow 暴露 Rich 类型。命令卡片仍按命令走 public `render_*`；D006 继续拥有各命令的信息层级。
-
-### 7.3 进入实施前的判定条件
-
-- Explain、diagnose、apply/minimize、merge 与 typed command errors 共用同一 private card lifecycle，而不仅是相同 `Panel(...)` helper。
-- TerminalPresenter 的 public interface、channel 与 exit semantics 不变；不同 command 的信息层级和领域措辞仍由 D006 拥有。
-- 56/80/120 列、TTY/non-TTY、literal path/ID、stdout/stderr 和 exactly-one-final 都通过 public presenter/CLI seam 验证。
-- 测试断言稳定语义与可观察顺序，不断言 private row objects、helper 名称、ANSI 边框或整段 volatile snapshot。
-- 若抽取结果只是把 command-specific row assembly 搬到同样数量的函数，未减少 caller knowledge，则不实施。
+本项的完整问题、目标 interface、触发条件、public 验收与停止条件已移交
+[R006 §5.1](../../reviews/R006-pf-cli-system-review.md)。R005 只保留该来源位置，不再维护第二份 result-card 候选，
+也不再以本项是否完成决定 R005 的状态。
 
 ## 8. P3：降低 `SearchCoordinator` 测试表面
 
@@ -259,12 +241,12 @@ Check / Highest / Search 各维护一套 env/static/full Protocol，生产路径
 
 建议按独立 Design 逐项推进，避免一次改动多个 seam：
 
-1. SourcePlan 已按归档 [D019](../archived/designs/D019-pf-source-plan-depth.md) 与
-   [P025](../archived/plans/P025-pf-source-plan-depth.md) 完成；多处 route/mode 知识已经删除。
-2. WorkspaceInventory 已按 [D020](../archived/designs/D020-pf-workspace-inventory.md) / [P026](../archived/plans/P026-pf-workspace-inventory.md) 完成；它收敛 SourcePlan 上游的 filesystem observation，但不与 SourcePlan 合成一个 module。
+1. SourcePlan 已按归档 [D019](../designs/D019-pf-source-plan-depth.md) 与
+   [P025](../plans/P025-pf-source-plan-depth.md) 完成；多处 route/mode 知识已经删除。
+2. WorkspaceInventory 已按 [D020](../designs/D020-pf-workspace-inventory.md) / [P026](../plans/P026-pf-workspace-inventory.md) 完成；它收敛 SourcePlan 上游的 filesystem observation，但不与 SourcePlan 合成一个 module。
 3. Verification Run 已按D021/P027完成interface alternatives、删除测试、实现、owner归并与同步归档。
 4. 合并评价层假想 Protocol；三个产品编排器保持独立 owner。
-5. Result-card 在下一次真实跨命令展示改动前设计，避免为纯整理制造 churn。
+5. Result-card 已移交 R006；由 R006 在下一次真实跨命令展示改动时决定是否进入 Design。
 6. SearchCoordinator 测试表面跟在第 4 项之后，作为测试改写而不是新的产品 module。
 
 本 Review 建议保持的结构：
@@ -274,7 +256,7 @@ Check / Highest / Search 各维护一套 env/static/full Protocol，生产路径
 - Scheduler 继续作为领域无关的算法 module；Verification Run 深化的是 `VerificationTask` 调用面。
 - Check / Highest / Search 继续作为三个产品编排器；共享的是 env/static/full seam。
 - ApplyAuthorizer 继续重求值 intended requirement；`PackageReportBuilder` 继续拥有 projection。
-- TerminalPresenter 继续按命令暴露 `render_*`；card lifecycle 留在 terminal-private implementation。
+- TerminalPresenter 继续按命令暴露 `render_*`；CLI card lifecycle 的后续候选由 R006 跟踪。
 - 现行契约一次替换，不为旧 interface 添加 alias、adapter 或双读/双写兼容层。
 - 不引入 DI framework、通用 repository、event bus、service layer 或常驻 daemon。
 
@@ -302,19 +284,20 @@ Design 并获得接受，再建立映射全部验收项的 durable Plan；不能
 
 | 顺序 | 独立 Design 范围 | 目标 | 进入条件 |
 | --- | --- | --- | --- |
-| A | [`WorkspaceInventory`](../archived/designs/D020-pf-workspace-inventory.md) | 一次 planning invocation 只读取并解释一份 workspace observation | 已由 D020/P026 完成 |
-| B | [Verification Run request](../archived/designs/D021-pf-verification-run-request.md) | 删除 workflow 暴露的 task callback、Journal、association 与 deadline mechanics | D021/P027 已实现、通过验收并同步归档 |
-| C | 评价 seam 与 SearchCoordinator tests | 删除三套同形 Protocol，并把测试替换移到已有真实 adapter seam | B 后进入；SearchCoordinator 测试整改并入本轨 |
-| D | terminal-private result card | 一个私有 emitter 独占 TTY/plain、path、layout 与 final emission | 下一次真实跨命令展示变更触发，不为纯搬运提前实施 |
+| A | [`WorkspaceInventory`](../designs/D020-pf-workspace-inventory.md) | 一次 planning invocation 只读取并解释一份 workspace observation | 已由 D020/P026 完成 |
+| B | [Verification Run request](../designs/D021-pf-verification-run-request.md) | 删除 workflow 暴露的 task callback、Journal、association 与 deadline mechanics | D021/P027 已实现、通过验收并同步归档 |
+| C | [评价 seam 与 SearchCoordinator tests](../designs/D022-pf-evaluation-seam.md) | 删除三组 consumer-specific Protocol，并把测试替换移到已有真实 adapter seam | D022/P028 已实现、通过验收并同步归档 |
+| D | [terminal-private result card](../../reviews/R006-pf-cli-system-review.md) | 一个私有 emitter 独占 TTY/plain、path、layout 与 final emission | 已移交 R006 §5.1；不再由 R005 跟踪 |
 
-四轨只共享以下约束，不共享新的 facade：
+原四轨只共享以下约束，不共享新的 facade：
 
 - `ProjectLoader`、三个产品评价编排器、`Scheduler`、`TerminalPresenter` 的现有产品 ownership 不合并；
 - CLI grammar、退出码、Schema 1、Failure/Attempt/SourcePlan identity 与 report/apply authority 默认不变；
 - PF 尚未发布，接受后的 interface 原地替换，旧 Protocol、callback、helper 和测试路径在同一轨删除，
   不保留 alias、兼容 adapter 或双轨测试；
 - 任一轨若不能通过删除测试，或新 interface 不小于被替换的调用知识，则停止该轨并保留现状；
-- 每轨完成时只把稳定规则归并到对应现行 owner；四轨全部完成后才归档 R005。
+- 每轨完成时只把稳定规则归并到对应现行 owner；A/B 已完成，R005 在 C 完成并归并后即可收口，
+  已移交 R006 的 D 不再阻塞 R005 归档。
 
 ### 11.2 轨 A：canonical WorkspaceInventory
 
@@ -373,8 +356,8 @@ inventory，不验证未选中成员的 version、dependency、PF config 或 Cel
 
 ### 11.3 轨 B：command-discriminated Verification Run
 
-[D021](../archived/designs/D021-pf-verification-run-request.md) 已按本节形成并获得接受，进一步比较单一判别 request、
-三个 verb-first entry point 与 registered Run session，并选择前者；[P027](../archived/plans/P027-pf-verification-run-request.md)
+[D021](../designs/D021-pf-verification-run-request.md) 已按本节形成并获得接受，进一步比较单一判别 request、
+三个 verb-first entry point 与 registered Run session，并选择前者；[P027](../plans/P027-pf-verification-run-request.md)
 已完成该目标的实现、测试、证据、owner 归并与同步归档。下列原始方向继续作为追踪来源。
 
 #### Interface 比较与选择
@@ -422,12 +405,17 @@ request 是 D008 内部的判别联合，不进入 report wire。Runner 继续�
 
 ### 11.4 轨 C：删除评价层假想 Protocol，并重写 SearchCoordinator 测试
 
+[D022](../designs/D022-pf-evaluation-seam.md) 已把本节收束为临时性 Design，并由
+[P028](../plans/P028-pf-evaluation-seam.md) 完成实现、验证、owner 归并与同步归档；以下内容保留为历史
+评审来源，现行规则以 D002/D003/D004 为准。
+
 #### 目标形状
 
 `EnvironmentFactory.prepare`、`StaticEvaluator.capture/evaluate` 与 `RuntimeEvaluator.evaluate` 已是深
 module interface。三个产品编排器直接依赖这些现有 module；删除
-`Check*Operations`、`Highest*Operations` 和 Search 的同形 env/static/full Protocol，不再为每个 consumer
-复制一套结构类型。若后续 Design 证明 production adapter 与一个有独立行为的长期 test adapter 都需
+`Check*Operations`、`Highest*Operations` 和 Search 的 consumer-specific env/static/full Protocol；
+Search static 比 Check/Highest 多暴露 `evaluate`，这不构成独立 seam。不再为每个 consumer 复制结构
+类型。若后续 Design 证明 production adapter 与一个有独立行为的长期 test adapter 都需
 稳定满足该 seam，可以收敛为一套共享 Protocol；一次性 duck-typed fake 不足以保留三套平行 interface。
 
 测试替换下沉到已经真实变化的 adapter：`UvOperations`、`TyOperations` / `ProcessRunner`、
@@ -441,8 +429,11 @@ two-phase declaration check 和单 Cell search。`CandidateOperations`、highest
 #### SearchCoordinator 测试整改
 
 - 建立一个测试侧 assembly helper，把 lower-adapter fixtures 组装成真实评价 modules 与 coordinator；
-- coordinator 测试只调用 `search(...)` 并断言 `CellResult`、probe evidence、static region、prepare reuse 与
-  lifecycle；不直接测试 `_ProposalRunner` 私有状态或为每一步注入独立 fake；
+- coordinator 测试只调用 `search(...)`，以最小候选集驱动真实 `CoordinateSearch`，并断言
+  baseline/candidate 终止、prepare reuse、CellResult refs、diagnostics/events 与 lifecycle；不得替换、
+  subclass 或 patch `CoordinateSearch.minimize`；
+- D003 的 slice/window/hint/strategy/promotion/predecessor/multi-sweep/termination/reentrancy/concurrency
+  矩阵只由 `tests/test_search.py` 拥有，不在 coordinator 测试重复；
 - `search(...)` 与 D003 状态机保持不变；构造器是否还能缩小由删除测试决定，不为测试方便增加 factory、
   facade 或 DI framework。
 
@@ -457,22 +448,9 @@ two-phase declaration check 和单 Cell search。`CandidateOperations`、highest
 
 ### 11.5 轨 D：terminal-private ResultCardEmitter
 
-该轨只在一次需求同时改变至少两个命令的 card lifecycle，或出现可复现的 TTY/plain/path/final parity
-缺陷时启动。目标是 terminal package 内部的一个私有 emitter，而不是 public renderer union：
-
-```text
-ResultCardEmitter.emit(console, ResultCardSpec, FinalSummary) -> None
-```
-
-`ResultCardSpec` 只含 terminal-private heading、section、fact 与 literal path value；emitter 独占 outcome
-marker/gutter、TTY Panel 与 plain Group、path/OSC 8、折行和 card-before-final 顺序。命令 `render_*` 继续
-把 domain result 投影为这些 presentation facts，并继续决定 stdout/stderr、exit code、命令措辞与信息层级。
-
-实施时用一次迁移替换 `_result_card`、`_plain_result_card`、调用方 `_path_text` 和直接 card
-`console.print`；不要保留一层新 emitter 再调用原四个 helper。验收必须从 public presenter/CLI seam
-覆盖 explain、diagnose、apply/minimize、merge 与 typed errors 的 56/80/120 列、TTY/non-TTY、literal
-path/ID、stdout/stderr 和 exactly-one-final。若 `ResultCardSpec` 的字段与现有 rows/Rich tree 等宽，或只把
-command-specific row assembly 换文件，则不实施。
+本轨的完整问题、目标 interface、触发条件、public 验收与停止条件已移交
+[R006 §5.1](../../reviews/R006-pf-cli-system-review.md)。R005 只保留该来源位置，不再维护第二份 result-card 候选，
+也不再以本轨是否完成决定 R005 的状态。
 
 ### 11.6 每轨 Plan 与证据要求
 
@@ -506,6 +484,6 @@ coverage 与结论，不能用“全量绿色”替代 interface 删除、owners
 - 仓库内 57 份 Markdown（含 D020 草案）的相对链接存在性审计为 0 个缺失；
   `git diff --check` exit 0。
 
-改进方案与当时的 [D020 草案](../archived/designs/D020-pf-workspace-inventory.md) 没有修改生产代码、现行 owner Design、
+改进方案与当时的 [D020 草案](../designs/D020-pf-workspace-inventory.md) 没有修改生产代码、现行 owner Design、
 测试或生成物，也没有运行 pytest、ty、coverage、build 或真实 PF command；以上只证明方案与
 `c1aff33` 的静态实现形状闭合，不是行为验证。

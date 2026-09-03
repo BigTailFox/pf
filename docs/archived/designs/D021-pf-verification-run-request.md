@@ -7,7 +7,7 @@
 - **性质：** 临时性架构优化设计；完成后归并到现行 owner 并与实施 Plan 一同归档
 - **设计核对基线：** `e570cea`（`refactor: deepen workspace inventory module`）
 - **实现提交：** `7bc21fe`（`refactor: deepen verification run request`）
-- **评审来源：** [R005](../../reviews/R005-pf-module-depth-review.md) §5、§11.3
+- **评审来源：** [R005](../reviews/R005-pf-module-depth-review.md) §5、§11.3
 - **现行产品契约：** [D001](../../designs/D001-pf.md)
 - **现行实现结构：** [D002](../../designs/D002-pf-implementation.md)
 - **现行 Failure 契约：** [D005](../../designs/D005-pf-failure-and-diagnose.md)
@@ -22,7 +22,7 @@
 > **归档声明：** 本文只保留 Verification Run request 与跨 Cell lifecycle interface 迁移的设计理由和
 > 验收历史；稳定规则已经由 D002/D006/D008 接管，本文不再承担规范性 ownership。
 
-[R005](../../reviews/R005-pf-module-depth-review.md) 的评价 seam / `SearchCoordinator` 测试整改与
+[R005](../reviews/R005-pf-module-depth-review.md) 的评价 seam / `SearchCoordinator` 测试整改与
 terminal-private result card 属于独立轨道，不进入本设计。SourcePlan 与 WorkspaceInventory 已由
 D019/P025、D020/P026 完成；本设计消费它们的现行 interface，不重新打开其 ownership。
 

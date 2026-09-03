@@ -7,7 +7,7 @@
 - **性质：** 临时性架构优化设计；完成后归并到现行 owner 并与实施 Plan 一同归档
 - **实施基线：** `b8efadc`（`docs: archive diagnostic result card design`）
 - **实现提交：** `166c272`（`refactor: deepen source plan module`）
-- **评审来源：** [R005](../../reviews/R005-pf-module-depth-review.md) §3
+- **评审来源：** [R005](../reviews/R005-pf-module-depth-review.md) §3
 - **现行产品契约：** [D001](../../designs/D001-pf.md)
 - **现行实现结构：** [D002](../../designs/D002-pf-implementation.md)
 - **搜索与运行：** [D003](../../designs/D003-pf-search-algorithm.md)、[D008](../../designs/D008-pf-verification-run.md)

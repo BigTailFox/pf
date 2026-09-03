@@ -5,7 +5,7 @@
 - **完成日期：** 2026-09-03
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D020](../designs/D020-pf-workspace-inventory.md)
-- **评审来源：** [R005](../../reviews/R005-pf-module-depth-review.md) §4、§11.2
+- **评审来源：** [R005](../reviews/R005-pf-module-depth-review.md) §4、§11.2
 - **实施基线：** `c1aff33`（`chore: hidden some cache directories`）
 
 本文在生产代码修改前建立 D020 的实施顺序、interface/ownership 迁移、测试矩阵与证据槽。

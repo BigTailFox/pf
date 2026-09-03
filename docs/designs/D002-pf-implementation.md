@@ -63,6 +63,7 @@ src/pf/
 ├── static_transition.py         fingerprint、classifier、witness planning
 ├── evaluation.py                Static/Runtime Evaluator 与 run-local cache
 ├── baseline.py                  highest full-verification lifecycle
+├── check.py                     declaration two-phase CompatibilityChecker
 ├── failure.py                   FailurePolicy
 ├── coordinate_search.py         pure vector search
 ├── search.py                    single-Cell SearchCoordinator
@@ -194,6 +195,7 @@ EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_plan)
 StaticEvaluator.capture/evaluate(...)
 RuntimeEvaluator.evaluate(...)
 HighestVersionVerifier.verify(...) -> HighestVersionOutcome
+CompatibilityChecker.check(...) -> CheckCellOutcome
 ConfiguredVerifier.run(VerifierRequest) -> VerifierRun
 
 CoordinateSearch.minimize(...) -> CoordinateOutcome
@@ -204,6 +206,14 @@ VerificationRunner.run(SearchVerificationRun) -> tuple[CellResult, ...]
 ```
 
 上述 Candidate/Environment/Highest/Check/Search interface 的最后一个参数均为同一 `source_plan`，不是裸 `source_mode`。`SourcePlan.for_package(package, mode)` 是在线 workflow 与 apply 的领域构造入口；其 `source_for`、`registry_routed_workspace_dependencies`、`workspace_member_version_for` 与派生 `identity` 独占 effective source、dual-route/member facts 和 source identity。只有 `source_mode + routes` 进入 wire；查询不保存实例缓存。ProjectLoader 仍独占 route 分类，UvAdapter 独占 argv，ApplyAuthorizer 独占授权，ReportStore 独占 codec/cross-ref。
+
+`CompatibilityChecker`、`HighestVersionVerifier` 与 `SearchCoordinator` 分别拥有 declaration two-phase、
+highest full verify 和单 Cell search；三者的构造器直接依赖 composition root 共享的同一
+`EnvironmentFactory`、`StaticEvaluator`、`RuntimeEvaluator` 实例，不为 caller 复制 env/static/full
+Protocol。Search 还直接依赖 `CandidateBuilder`、共享的 `HighestVersionVerifier` 与 `CoordinateSearch`。
+这些 in-process module 不是 adapter seam；真实替换点只保留 uv、candidate provider、ty、configured
+verifier、runtime witness/process 及 activity/diagnostic consumer。不得用 evaluator facade、parameter
+bundle、factory、locator 或 service registry隐藏该依赖图。
 
 `ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。跨 Cell request 是
 `CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun` 的 closed union；三个 frozen variant
@@ -218,7 +228,7 @@ candidate、harness、两次resolution、Attempt与search report共同消费该p
 snapshot close，Search仍在Run后消费snapshot identity做drift/report工作。structured harness、
 two-resolution plan、environment identity和install边界由D012定义。
 
-`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；测试后标记为可能污染。不同 Proposal 不通过原地 upgrade/downgrade 复用环境。
+`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
 
 Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
 terminal disposition 由 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的
@@ -275,6 +285,6 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 ## 11. 验证边界
 
-测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
+测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。评价与产品 tests 通过 lower uv/candidate/ty/verifier/witness adapters装配真实 Environment/Static/Runtime、Highest、Check 与 Search graph；不直接构造 PreparedEnvironment，不替换 concrete prepare/capture/evaluate/verify/minimize，也不读取 evaluator/search private state。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

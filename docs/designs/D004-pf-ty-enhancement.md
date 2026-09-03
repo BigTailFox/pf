@@ -189,6 +189,12 @@ Witness 是内部负向优化，不产生正向 compatibility。未选择 witnes
 
 完整 PASS 当且仅当当前 Proposal 自身 test-command pass。Static unchanged、witness PRESENT 和 region representative pass 都不能授权另一个 Proposal。
 
+三个产品 module直接消费 `EnvironmentFactory`、`StaticEvaluator` 与 `RuntimeEvaluator` 的 concrete
+interface；测试变化只注入 uv、ty/process、configured verifier、runtime witness、candidate provider或
+consumer sink。`PreparedEnvironment` 成功值即使在 tests中也只由 `EnvironmentFactory.prepare(...)` 取得；
+static classification从 `StaticEvaluator.capture/evaluate` outcome观察，不直接以 classifier或预制
+Evaluation冒充产品路径。
+
 ## 10. Schema、cache 与报告
 
 公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。Schema 1 只改变这些事实的持久化所有权：StaticEvaluation、terminal Evaluation、Proposal 和 FailureRecord 按 D014 的 typed refs 关联，不改变本节的静态证据语义。

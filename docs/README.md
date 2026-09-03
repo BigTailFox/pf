@@ -52,8 +52,15 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
-- [R004](reviews/R004-pf-search-performance-review.md) 保留在现行目录，因为其中的性能优化候选尚未实施。
-- [R005](reviews/R005-pf-module-depth-review.md) 仍保留评价层假想 Protocol、terminal-private result-card 与 SearchCoordinator 测试表面的未实施 module-depth 候选；SourcePlan、WorkspaceInventory 与 Verification Run 轨 B 已分别由 D019/P025、D020/P026、D021/P027 解决并归并到现行 owner。
+- [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：除公开表面偏差、jobs
+  契约歧义、multi-host outcome、command-scoped composition 与中断语义外，也完整接管 R004 的非 TTY
+  搜索遥测和 R005 的 terminal-private result-card；它是非规范性评审，不授权实施。
+- [R004](reviews/R004-pf-search-performance-review.md) 继续跟踪尚未实施的搜索性能候选；prepared promotion
+  复用已由 D022/P028 解决，原 CLI 非 TTY 搜索遥测已移交 R006。
+- [D022](archived/designs/D022-pf-evaluation-seam.md) / [P028](archived/plans/P028-pf-evaluation-seam.md) 已完成
+  评价 seam 收敛与 SearchCoordinator 测试替换；稳定规则由 D002/D003/D004 接管。
+- [R005](archived/reviews/R005-pf-module-depth-review.md) 的 SourcePlan、WorkspaceInventory、Verification Run
+  与评价 seam 轨均已解决；terminal-private result-card 轨移交 R006 后，Review 已同步归档。
 - [D021](archived/designs/D021-pf-verification-run-request.md) / [P027](archived/plans/P027-pf-verification-run-request.md) 已完成 R005 轨 B 的实现与验证；稳定 request/Run/展示规则由 D002/D006/D008 接管。
 - [D020](archived/designs/D020-pf-workspace-inventory.md) / [P026](archived/plans/P026-pf-workspace-inventory.md) 的 WorkspaceInventory 深化迁移已完成；稳定 interface 与 ownership 由 D002 接管。
 - [D019](archived/designs/D019-pf-source-plan-depth.md) / [P025](archived/plans/P025-pf-source-plan-depth.md) 的 SourcePlan 深化迁移已完成；设计理由与完整验证证据见归档记录。

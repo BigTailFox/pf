@@ -5,7 +5,7 @@
 - **完成日期：** 2026-09-03
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D021](../designs/D021-pf-verification-run-request.md)
-- **评审来源：** [R005](../../reviews/R005-pf-module-depth-review.md) §5、§11.3
+- **评审来源：** [R005](../reviews/R005-pf-module-depth-review.md) §5、§11.3
 - **实施基线：** `e570cea`（`refactor: deepen workspace inventory module`）
 - **实现提交：** `7bc21fe`（`refactor: deepen verification run request`）
 

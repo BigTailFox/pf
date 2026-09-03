@@ -84,6 +84,11 @@ ONE RUNTIME-BACKED COORDINATE SEARCH FROM B
 
 不再存在 static fixpoint、`V_static`、联合测试 fast path 或第二轮 dynamic search。Baseline capture 的同一次 TyCheck 是 `B` 的空增量静态事实，不重跑；`B` 的完整 PASS 由 HighestVersionVerifier 提供。
 
+`SearchCoordinator` 直接依赖 `EnvironmentFactory`、`CandidateBuilder`、`StaticEvaluator`、
+`RuntimeEvaluator`、`HighestVersionVerifier` 与 `CoordinateSearch`，不为这些 in-process module建立
+caller-specific Protocol或 evaluator facade。diagnostic/activity consumer继续是 side-effect seam；uv、candidate
+provider、ty、verifier与 witness仍是 lower adapter seam。
+
 ## 5. CoordinateSearch interface
 
 ```text
@@ -116,6 +121,12 @@ lower_version / upper_version / candidate_count
 `start_is_known_pass=True` 时不重复评价 `B`。一次调用的 cache、observation、Slice 状态与 regions 全部 invocation-local；同一 CoordinateSearch 实例可以嵌套或并发调用。
 
 Observation cache 以 `(active dependency, full vector)` 为 scope。相同向量在不同 active dependency 下不能借用另一 Slice 的 static-only guidance。
+
+`SearchCoordinator` tests用 lower adapters装配上述真实 module graph，以最小候选集从 `search(...)` 观察
+baseline/candidate终止、prepare/full reuse、public evidence closure、diagnostics/events与cleanup；不得替换、
+subclass或 patch `CoordinateSearch.minimize`。slice/window/hint/strategy/promotion/predecessor/sweep/
+termination/reentrancy/concurrency矩阵只由 `CoordinateSearch.minimize(...)` 的 public tests拥有，其合法
+`VectorEvaluator` seam不属于产品 evaluator seam。
 
 ## 6. 一个 candidate probe
 

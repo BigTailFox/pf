@@ -1,11 +1,13 @@
 # R004 — PF 自搜索空间裁剪与运行成本评审
 
-- **状态：** 开放（性能优化候选尚未实施）
+- **状态：** 开放（prepared promotion 复用已由 D022/P028 解决；其余性能候选未实施；CLI 非 TTY 搜索遥测已移交 R006）
 - **日期：** 2026-08-28
 - **性质：** 非规范性性能评审；不定义命令、算法、Schema 或 module interface
 - **对照：** configured-verifier authority 落地工作树；运行 ID `20260828T063807.140981Z-999683-d803a27c`
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D012](../designs/D012-pf-harness-relaxation.md)
 - **历史决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、[D015](../archived/designs/D015-pf-authoritative-verification-outcome.md)
+- **CLI 项迁移：** 原 §5(3) 非交互搜索遥测由 [R006](R006-pf-cli-system-review.md) §5.2 完整接管，本文不再跟踪其 Design、Plan 或完成状态
+- **已解决项：** [D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 已完成原 §5(1) static-to-runtime promotion 的同 Proposal prepared lifecycle 复用
 
 本文回答一次 PF 自搜索为何持续约 37 分钟、是否进入死循环，以及现行裁剪是否有效。本文只记录性能与可观测性证据，不修改搜索算法、runtime authority 或环境生命周期。
 
@@ -61,17 +63,21 @@ Static region 以 active dependency、所有其他坐标、candidate order、sna
 
 当 static guidance 提议 floor 或 predecessor 时，最终边界仍必须由 runtime authority 直接认证。现实现会关闭 static probe 的 `PreparedEnvironment`，promotion 再为同一向量执行两次 compile、venv、sync 与 graph inspection；19 个重复 prepare 全部属于这一模式。它不重复 ty，也不重复已缓存的 evidence，但重复了环境物化。
 
+以上是 2026-08-28 运行基线。D022/P028 后续让同一 Proposal 的 static-only probe 保留未污染的
+`PreparedEnvironment`，promotion/full 复用该 lifecycle，并在 full 或 runner 终态关闭；不同 Proposal
+仍不复用环境。真实 graph regression 已证明 static/full probe 只 prepare 一次。
+
 ### 4.4 必要隔离：跨 Cell 不共享 runtime result
 
 Python 3.11 与 3.12 访问了相同数量和形状的向量，但 interpreter、marker、wheel、resolution graph 和 configured verifier terminal 都属于 Cell evidence，不能直接跨 Cell 复用。未来只能审查不可变 registry response、artifact 或确定性 plan 层面的共享，不能复用 compatibility disposition。
 
 ## 5. 后续优化候选
 
-以下候选尚未实施，落地前需要独立设计与资格证明：
+除第 1 项外，以下候选尚未实施，落地前需要独立设计与资格证明：
 
-1. **P1：保留 promotion 所需的 prepared environment。** 让同向量 static probe 到 runtime promotion 的短生命周期内复用环境，消除本次 19 次重复 prepare；必须继续保证不同 Proposal 不原地升级/降级，且运行 verifier 后环境立即视为污染。
+1. **已解决：保留 promotion 所需的 prepared environment。** D022/P028 已让同 Proposal 的 static probe 到 runtime promotion 在短生命周期内复用环境；不同 Proposal 不原地升级/降级，运行 verifier 后立即关闭并视为污染。
 2. **P1：提高昂贵 verifier 的有效裁剪率。** 评估能否调整探针顺序或 static region 建立方式，使相同 fingerprint 的直接 runtime reference 更早服务后续点；任何 shortcut 都只能提供 guidance，最终 floor 和 predecessor 仍须满足 D003/D005 的 runtime certification。
-3. **P2：增加非交互搜索遥测。** 重定向输出在阶段开始后直到终态都没有刷新，用户只能看到 Process Log 增长。可记录 invocation-local 的唯一向量、prepare、runtime promotion、active dependency 和候选窗口计数，明确区分“有限但昂贵”与“无进展”。这些 presentation/activity 数据不得进入 report identity。
+3. **已移交 R006：非交互搜索遥测。** 问题、候选事实、identity 约束、验收与停止条件现由 [R006 §5.2](R006-pf-cli-system-review.md) 单独跟踪；本项只保留来源位置，不再作为 R004 的开放候选。
 4. **P2：在昂贵工作前检查旧 report compatibility。** 本次完成 Cell 搜索后才发现旧开发期内联报告不可读取。D014 要求 reader 拒绝该布局；未来可以把同一校验前移，避免完成搜索后才失败。
 5. **P3：审查 resolver 层的安全共享。** Candidate HTTP response 已跨 cell 缓存；可以继续量化相同 source/cutoff 下 metadata、artifact 与 plan 的可复用边界，但 Cell-specific resolution context 和终态不得被弱化。
 

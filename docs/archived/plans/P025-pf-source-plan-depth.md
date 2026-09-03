@@ -5,7 +5,7 @@
 - **完成日期：** 2026-09-03
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D019](../designs/D019-pf-source-plan-depth.md)
-- **评审来源：** [R005](../../reviews/R005-pf-module-depth-review.md) §3
+- **评审来源：** [R005](../reviews/R005-pf-module-depth-review.md) §3
 - **实施基线：** `b8efadc`（`docs: archive diagnostic result card design`）
 - **实现提交：** `166c272`（`refactor: deepen source plan module`）
 
