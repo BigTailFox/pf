@@ -63,6 +63,7 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     ResolvedNode,
+    SourcePlan,
 )
 from pf.snapshot import SnapshotBuilder
 from pf.static_transition import static_fingerprint
@@ -113,6 +114,8 @@ def prepared_for_static(tmp_path: Path, proposal_id: str) -> PreparedEnvironment
             requested_managed_vector=None,
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
+            resolution_context_digest="context",
+            harness_policy_identity="original-harness-v1",
             evaluation_policy_identity="policy",
         )
     )
@@ -420,7 +423,7 @@ class TestRuntimeEvaluator:
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -486,7 +489,7 @@ class TestRuntimeEvaluator:
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -540,7 +543,7 @@ class TestRuntimeEvaluator:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -611,7 +614,7 @@ class TestRuntimeEvaluator:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -870,7 +873,7 @@ class TestRuntimeEvaluatorOutcomes:
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -960,7 +963,7 @@ class TestStaticEvaluatorFailures:
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
@@ -1049,7 +1052,7 @@ class TestEvaluationProgress:
             package=package,
             cell=package.cells[0],
             snapshot=SnapshotBuilder.without_processes().build(root),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)

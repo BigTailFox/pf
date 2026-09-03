@@ -17,7 +17,7 @@ from pf.schemas.project import (
     HarnessBaseline,
     HarnessResolutionRequirement,
     HarnessSelection,
-    package_source,
+    SourcePlan,
 )
 
 
@@ -57,6 +57,7 @@ allow-prereleases = {str(allow_prereleases).lower()}
 
 
 def _baseline(package, *, version: str = "8.4") -> HarnessBaseline:
+    source_plan = SourcePlan.for_package(package, "SEARCH")
     active = active_harness_requirements(
         package.harness_requirements,
         package.cells[0],
@@ -66,11 +67,11 @@ def _baseline(package, *, version: str = "8.4") -> HarnessBaseline:
         HarnessSelection(
             name=name,
             version=version,
-            source=package_source(package, name, "SEARCH"),
+            source=source_plan.source_for(name),
             ceiling_bound=any(
                 harness_requirement_policy(
                     item,
-                    source=package_source(package, item.name, "SEARCH"),
+                    source=source_plan.source_for(item.name),
                 ).ceiling_bound
                 for item in active
                 if item.name == name
@@ -89,9 +90,10 @@ def _render(
     package,
     requirement: HarnessResolutionRequirement,
 ) -> str:
+    source_plan = SourcePlan.for_package(package, "SEARCH")
     return render_harness_requirement(
         requirement,
-        source=package_source(package, requirement.declaration.name, "SEARCH"),
+        source=source_plan.source_for(requirement.declaration.name),
     )
 
 
@@ -182,7 +184,10 @@ test = ["pytest>=8", "pluggy<2"]
             (">=", "8"),
         ]
         assert requirement.marker == 'python_version >= "3.10"'
-        assert package_source(package, requirement.name, "SEARCH").kind == "registry"
+        assert (
+            SourcePlan.for_package(package, "SEARCH").source_for(requirement.name).kind
+            == "registry"
+        )
         assert requirement.original_text.startswith("PyTest[testing]")
 
     def test_project_loader_preserves_explicit_prerelease_admission(
@@ -218,7 +223,11 @@ class TestHarnessRelaxation:
             ),
         )
 
-        original = original_harness(package, package.cells[0], source_mode="SEARCH")
+        original = original_harness(
+            package,
+            package.cells[0],
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         assert [_render(package, item) for item in original] == [
             'pytest>=8; python_version >= "3.10"'
@@ -232,7 +241,11 @@ class TestHarnessRelaxation:
     ) -> None:
         package = _load_harness(tmp_path, ("pytest>=8,<9,!=8.2",))
 
-        relaxed = relax_harness(package, _baseline(package), source_mode="SEARCH")
+        relaxed = relax_harness(
+            package,
+            _baseline(package),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         requirement = relaxed.requirements[0]
         assert [(item.operator, item.version) for item in requirement.specifier] == [
@@ -264,7 +277,11 @@ class TestHarnessRelaxation:
     ) -> None:
         package = _load_harness(tmp_path, (raw,))
 
-        relaxed = relax_harness(package, _baseline(package), source_mode="SEARCH")
+        relaxed = relax_harness(
+            package,
+            _baseline(package),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         assert _render(package, relaxed.requirements[0]) == expected
         assert relaxed.requirements[0].ceiling == ceiling
@@ -315,7 +332,11 @@ class TestHarnessRelaxation:
             unmanaged=(("pytest",) if "workspace" in source else ()),
         )
 
-        relaxed = relax_harness(package, _baseline(package), source_mode="SEARCH")
+        relaxed = relax_harness(
+            package,
+            _baseline(package),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         requirement = relaxed.requirements[0]
         assert requirement.specifier == requirement.declaration.specifier
@@ -329,7 +350,11 @@ class TestHarnessRelaxation:
     ) -> None:
         package = _load_harness(tmp_path, ("tool>=2.0a1",))
 
-        relaxed = relax_harness(package, _baseline(package), source_mode="SEARCH")
+        relaxed = relax_harness(
+            package,
+            _baseline(package),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         assert relaxed.requirements[0].declaration.prerelease_allowed is True
         assert _render(package, relaxed.requirements[0]) == "tool<=8.4"
@@ -346,7 +371,11 @@ class TestHarnessRelaxation:
             ),
         )
 
-        relaxed = relax_harness(package, _baseline(package), source_mode="SEARCH")
+        relaxed = relax_harness(
+            package,
+            _baseline(package),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
 
         assert [item.declaration.name for item in relaxed.requirements] == ["pytest"]
 
@@ -358,4 +387,8 @@ class TestHarnessRelaxation:
         baseline = _baseline(package).model_copy(update={"declaration_ids": ()})
 
         with pytest.raises(ValueError, match="does not match active declarations"):
-            relax_harness(package, baseline, source_mode="SEARCH")
+            relax_harness(
+                package,
+                baseline,
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+            )

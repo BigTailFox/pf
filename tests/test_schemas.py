@@ -145,6 +145,18 @@ def _attempt(
             active_declaration_ids=attempt_cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "original-harness-v1"
+                if resolution == "highest"
+                else "harness-relaxation-v1"
+            ),
+            harness_baseline_digest=(
+                None if resolution == "highest" else "baseline"
+            ),
+            selected_candidate_evidence_digest=(
+                "selection" if resolution == "exact-vector" else None
+            ),
         )
     )
 
@@ -1391,7 +1403,7 @@ class TestEvaluationSchemas:
 
         with pytest.raises(ValidationError, match="selected candidate evidence"):
             AttemptIdentity(
-                identity_version="attempt-v2",
+                identity_version="attempt-v1",
                 source_snapshot_digest="snapshot",
                 cell=cell,
                 requested_resolution="exact-vector",
@@ -1629,6 +1641,8 @@ class TestEvaluationSchemas:
             "active_declaration_ids": cell.active_declaration_ids,
             "source_plan_identity": "sources",
             "evaluation_policy_identity": "policy",
+            "resolution_context_digest": "context",
+            "harness_policy_identity": "original-harness-v1",
         }
         values.update(changes)
 
@@ -1646,7 +1660,7 @@ class TestEvaluationSchemas:
         ),
         ids=("context", "harness-order", "policy", "baseline", "selection"),
     )
-    def test_attempt_identity_v2_rejects_incoherent_harness_evidence(
+    def test_attempt_identity_rejects_incoherent_harness_evidence(
         self,
         changes: dict[str, object],
     ) -> None:
@@ -1657,7 +1671,7 @@ class TestEvaluationSchemas:
             extra_surface=(),
         )
         values: dict[str, object] = {
-            "identity_version": "attempt-v2",
+            "identity_version": "attempt-v1",
             "source_snapshot_digest": "snapshot",
             "cell": cell,
             "requested_resolution": "highest",

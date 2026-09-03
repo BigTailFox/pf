@@ -37,9 +37,8 @@ from pf.schemas.project import (
     Cell,
     PackagePlan,
     Proposal,
-    package_source_plan,
+    SourcePlan,
     selected_candidate_evidence_digest,
-    source_plan_identity,
 )
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
@@ -58,7 +57,7 @@ class FailedSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: object,
+        source_plan: SourcePlan,
     ) -> CellIndeterminate:
         self.cells.append(cell)
         failure = FailurePolicy().classify(
@@ -96,14 +95,14 @@ class SourceDriftingSearch(FailedSearch):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: object,
+        source_plan: SourcePlan,
     ) -> CellIndeterminate:
         (self._root / "new-source.py").write_text(
             "VALUE = 1\n",
             encoding="utf-8",
         )
         return super().search(
-            package=package, cell=cell, snapshot=snapshot, source_mode=source_mode
+            package=package, cell=cell, snapshot=snapshot, source_plan=source_plan
         )
 
 
@@ -117,7 +116,7 @@ class TimedOutVerifierSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: object,
+        source_plan: SourcePlan,
     ) -> CellIndeterminate:
         policy = evaluation_policy_identity(package.config)
         attempt = Attempt.from_identity(
@@ -127,11 +126,8 @@ class TimedOutVerifierSearch:
                 requested_resolution="exact-vector",
                 requested_managed_vector=(),
                 active_declaration_ids=(),
-                source_plan_identity=source_plan_identity(
-                    package_source_plan(package, "SEARCH")
-                ),
+                source_plan_identity=source_plan.identity,
                 evaluation_policy_identity=policy,
-                identity_version="attempt-v2",
                 resolution_context_digest="context",
                 harness_policy_identity="harness-relaxation-v1",
                 harness_baseline_digest="baseline",
@@ -200,7 +196,7 @@ class UnavailableBaselineSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: object,
+        source_plan: SourcePlan,
     ) -> BaselineIndeterminate:
         attempt = Attempt.from_identity(
             AttemptIdentity(
@@ -209,11 +205,8 @@ class UnavailableBaselineSearch:
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=cell.active_declaration_ids,
-                source_plan_identity=source_plan_identity(
-                    package_source_plan(package, "SEARCH")
-                ),
+                source_plan_identity=source_plan.identity,
                 evaluation_policy_identity=evaluation_policy_identity(package.config),
-                identity_version="attempt-v2",
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
             )

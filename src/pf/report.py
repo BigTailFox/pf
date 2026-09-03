@@ -58,8 +58,6 @@ from pf.schemas.project import (
     RequirementDeclaration,
     SelectedCandidate,
     SourcePlan,
-    package_source_plan,
-    source_plan_identity,
     selected_candidate_evidence_digest,
     SourceIdentity,
     SourceSnapshotIdentity,
@@ -340,11 +338,16 @@ class PackageReportBuilder:
         self,
         *,
         package: PackagePlan,
+        source_plan: SourcePlan,
         source_snapshot: SourceSnapshotIdentity,
         cell_results: tuple[CellResult, ...],
         _generator: GeneratorIdentity | None = None,
         _policy_identity: str | None = None,
     ) -> ValidatedReport:
+        if source_plan.source_mode != "SEARCH":
+            raise ConfigurationError("report source plan must use SEARCH mode")
+        if source_plan.routes != package.source_routes:
+            raise ConfigurationError("report source plan does not match the package")
         result_by_cell = {
             self._cell_key(result.cell): result for result in cell_results
         }
@@ -423,7 +426,7 @@ class PackageReportBuilder:
             source_snapshot=source_snapshot,
             policy_identity=policy_identity,
             verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
-            source_plan=package_source_plan(package, "SEARCH"),
+            source_plan=source_plan,
             requirement_declarations=declarations,
             target_cells=target_cells,
         )
@@ -853,7 +856,7 @@ class PackageReportBuilder:
                 verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
             ),
             inputs=ReportInputsV1(
-                source_plan=package_source_plan(package, "SEARCH"),
+                source_plan=source_plan,
                 requirement_declarations=declarations,
                 target_cells=tuple(
                     TargetCellV1(
@@ -1278,10 +1281,6 @@ class PackageReportBuilder:
         policy_identity: str,
     ) -> AttemptV1:
         identity = attempt.identity
-        if identity.identity_version != "attempt-v2":
-            raise ConfigurationError(
-                f"Schema 1 requires attempt-v2: {attempt.attempt_id}"
-            )
         if (
             identity.source_snapshot_digest != source_snapshot.digest
             or identity.evaluation_policy_identity != policy_identity
@@ -1951,15 +1950,20 @@ class ReportStore:
             )
         declarations = wire.inputs.requirement_declarations
         route_by_dependency = {route.dependency: route for route in source_plan.routes}
-        if any(
-            declaration.name not in route_by_dependency
-            or (
-                declaration.managed
-                and route_by_dependency[declaration.name].search_source.kind
-                != "registry"
+        try:
+            source_mismatch = any(
+                declaration.name not in route_by_dependency
+                or (
+                    declaration.managed
+                    and source_plan.source_for(declaration.name).kind != "registry"
+                )
+                for declaration in declarations
             )
-            for declaration in declarations
-        ):
+        except ValueError as error:
+            raise ConfigurationError(
+                "invalid v1 report: requirement source route mismatch"
+            ) from error
+        if source_mismatch:
             raise ConfigurationError(
                 "invalid v1 report: requirement source route mismatch"
             )
@@ -2035,7 +2039,7 @@ class ReportStore:
             )
         candidate_by_id: dict[str, CandidateSnapshot] = {}
         candidate_key_ids: set[str] = set()
-        report_source_plan_identity = source_plan_identity(wire.inputs.source_plan)
+        report_source_plan_identity = source_plan.identity
         for record in wire.inputs.candidate_snapshots:
             cell = cell_by_id.get(record.cell_ref)
             if cell is None:
@@ -2071,12 +2075,14 @@ class ReportStore:
                     "invalid v1 report: CandidateSnapshot source plan mismatch: "
                     f"{_safe_report_id(record.candidate_snapshot_id)}"
                 )
-            route = route_by_dependency.get(snapshot.dependency)
-            if (
-                route is None
-                or route.search_source.kind != "registry"
-                or snapshot.source != route.search_source
-            ):
+            try:
+                expected_source = source_plan.source_for(snapshot.dependency)
+            except ValueError as error:
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot search source mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                ) from error
+            if expected_source.kind != "registry" or snapshot.source != expected_source:
                 raise ConfigurationError(
                     "invalid v1 report: CandidateSnapshot search source mismatch: "
                     f"{_safe_report_id(record.candidate_snapshot_id)}"
@@ -2131,7 +2137,6 @@ class ReportStore:
                 attempt = Attempt(
                     attempt_id=record.attempt_id,
                     identity=AttemptIdentity(
-                        identity_version="attempt-v2",
                         source_snapshot_digest=source_snapshot.digest,
                         cell=cell,
                         requested_resolution=record.requested_resolution,
@@ -3566,6 +3571,7 @@ class ReportStore:
         )
         rebuilt = PackageReportBuilder().build(
             package=package,
+            source_plan=generation.source_plan,
             source_snapshot=generation.source_snapshot,
             cell_results=cell_results,
             _generator=generation.generator,

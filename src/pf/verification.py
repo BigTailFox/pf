@@ -40,7 +40,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     Cell,
     PackagePlan,
-    ResolutionSourceMode,
+    SourcePlan,
     cell_identity,
 )
 from pf.schemas.report import CellIndeterminate, CellSearchFailure, CellSuccess
@@ -63,7 +63,7 @@ T = TypeVar("T", bound=VerificationOutcome)
 @dataclass(frozen=True)
 class VerificationTask(Generic[T]):
     cell: Cell
-    execute: Callable[[], T]
+    execute: Callable[[SourcePlan], T]
     journal_entries: Callable[[T], tuple[VerificationJournalEntry, ...]]
     runtime_associations: (
         Callable[[T], tuple[tuple[str, ProcessObservation], ...]] | None
@@ -75,7 +75,7 @@ class VerificationTask(Generic[T]):
 class VerificationRun(Generic[T]):
     command: Literal["smoke", "check", "search"]
     package: PackagePlan
-    source_mode: ResolutionSourceMode
+    source_plan: SourcePlan
     snapshot: SourceSnapshot
     tasks: tuple[VerificationTask[T], ...]
     jobs: int | Literal["auto"]
@@ -112,18 +112,18 @@ class VerificationRunner:
         self._logs = logs
 
     def run(self, request: VerificationRun[T]) -> tuple[T, ...]:
-        expected_mode: ResolutionSourceMode = (
+        expected_mode = (
             "DEVELOPMENT" if request.command == "smoke" else "SEARCH"
         )
-        if request.source_mode != expected_mode:
+        if request.source_plan.source_mode != expected_mode:
             raise ValueError("verification source mode does not match the command")
+        if request.source_plan.routes != request.package.source_routes:
+            raise ValueError("verification source plan does not match the package")
         task_keys = tuple(cell_identity(task.cell) for task in request.tasks)
         if len(set(task_keys)) != len(task_keys):
             raise ValueError("verification tasks must have unique cells")
-        if any(
-            task.cell.package != request.package.name for task in request.tasks
-        ):
-            raise ValueError("verification task package is outside the run")
+        if any(task.cell not in request.package.cells for task in request.tasks):
+            raise ValueError("verification task cell is outside the run")
 
         gate = _VerificationEvents(
             inner=self._events,
@@ -134,7 +134,7 @@ class VerificationRunner:
             tuple(
                 ScheduledCellTask(
                     cell=task.cell,
-                    run=task.execute,
+                    run=lambda task=task: task.execute(request.source_plan),
                     deadline_result=self._deadline_result(task),
                 )
                 for task in request.tasks

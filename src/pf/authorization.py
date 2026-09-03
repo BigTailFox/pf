@@ -27,10 +27,10 @@ from pf.schemas.project import (
     RequirementDeclaration,
     DynamicWorkspaceMemberVersion,
     StaticWorkspaceMemberVersion,
+    SourcePlan,
     SourceSnapshotIdentity,
     cell_identity,
     dependency_group_key,
-    package_source_plan,
 )
 from pf.schemas.report import CellResult, CellSuccess, FloorProjection
 from pf.snapshot import SourceSnapshot
@@ -57,6 +57,7 @@ class ApplyAuthorizer:
         force: bool,
     ) -> AuthorizedWorkspaceApply:
         package = project.target
+        source_plan = SourcePlan.for_package(package, "SEARCH")
         if (report.package.name, report.package.pyproject_path) != (
             package.name,
             package.pyproject_path,
@@ -65,6 +66,7 @@ class ApplyAuthorizer:
         package_apply = self._authorize_package(
             report=report,
             package=package,
+            source_plan=source_plan,
             current_snapshot=current_snapshot,
         )
 
@@ -106,11 +108,12 @@ class ApplyAuthorizer:
         *,
         report: ValidatedReport,
         package: PackagePlan,
+        source_plan: SourcePlan,
         current_snapshot: SourceSnapshot,
     ) -> AuthorizedPackageApply:
         if report.policy_identity != evaluation_policy_identity(package.config):
             raise ApplyAuthorizationError("report evaluation policy mismatch")
-        if report.source_plan != package_source_plan(package, "SEARCH"):
+        if report.source_plan != source_plan:
             raise ApplyAuthorizationError("report dependency source plan mismatch")
         if self._requires_python(
             report.package.requires_python
@@ -164,7 +167,7 @@ class ApplyAuthorizer:
             target_cells=report.target_cells,
         )
         self._validate_workspace_member_versions(
-            package=package,
+            source_plan=source_plan,
             intended_requirements=intended_requirements,
         )
         current_semantics = self._declaration_group_semantics(
@@ -215,29 +218,24 @@ class ApplyAuthorizer:
     @staticmethod
     def _validate_workspace_member_versions(
         *,
-        package: PackagePlan,
+        source_plan: SourcePlan,
         intended_requirements: dict[GroupKey, tuple[str, ...]],
     ) -> None:
-        for route in package.source_routes:
-            if not (
-                route.development_source.kind == "workspace"
-                and route.search_source.kind == "registry"
-            ):
-                continue
+        for dependency in source_plan.registry_routed_workspace_dependencies():
             requirements = tuple(
                 raw
                 for key, values in intended_requirements.items()
-                if key[3] == route.dependency
+                if key[3] == dependency
                 for raw in values
             )
             if not requirements:
                 continue
             intended = requirements[0]
-            member_version = route.workspace_member_version
+            member_version = source_plan.workspace_member_version_for(dependency)
             if isinstance(member_version, DynamicWorkspaceMemberVersion):
                 raise ApplyAuthorizationError(
                     f"Cannot apply {intended}: workspace member "
-                    f"{route.dependency} declares its version dynamically.\n"
+                    f"{dependency} declares its version dynamically.\n"
                     "PF cannot verify offline that the local member satisfies the "
                     "intended requirement.\n"
                     "Next: apply the requirement manually and run pf smoke, or "
@@ -245,12 +243,12 @@ class ApplyAuthorizer:
                 )
             if not isinstance(member_version, StaticWorkspaceMemberVersion):
                 raise ApplyAuthorizationError(
-                    f"workspace member version metadata is missing: {route.dependency}"
+                    f"workspace member version metadata is missing: {dependency}"
                 )
             version = Version(member_version.value)
             if any(version not in Requirement(raw).specifier for raw in requirements):
                 raise ApplyAuthorizationError(
-                    f"Cannot apply {intended}: workspace member {route.dependency} "
+                    f"Cannot apply {intended}: workspace member {dependency} "
                     f"version {version} does not satisfy the intended requirement.\n"
                     "Next: update the local member version or apply the requirement "
                     "manually and run pf smoke."

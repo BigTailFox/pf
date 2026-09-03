@@ -2,7 +2,7 @@
   "cell_results": [
     {
       "baseline": {
-        "attempt_ref": "0a45adab1b49e8a3deb560a3da178f412364f4553c35de8f73c949c80cb9e2a0",
+        "attempt_ref": "02e8cf8208521c5f6204710968a42897da6b320e5f09efb3e625a864df8610cf",
         "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
         "static_baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f"
       },
@@ -23,7 +23,7 @@
   "evidence": {
     "attempts": [
       {
-        "attempt_id": "0a45adab1b49e8a3deb560a3da178f412364f4553c35de8f73c949c80cb9e2a0",
+        "attempt_id": "02e8cf8208521c5f6204710968a42897da6b320e5f09efb3e625a864df8610cf",
         "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
         "harness_declaration_ids": [],
         "harness_policy_identity": "original-harness-v1",
@@ -47,7 +47,7 @@
     "failures": [],
     "proposals": [
       {
-        "attempt_ref": "0a45adab1b49e8a3deb560a3da178f412364f4553c35de8f73c949c80cb9e2a0",
+        "attempt_ref": "02e8cf8208521c5f6204710968a42897da6b320e5f09efb3e625a864df8610cf",
         "environment_plan_digest": "environment-plan",
         "fixed_declaration_refs": [],
         "interpreter": {

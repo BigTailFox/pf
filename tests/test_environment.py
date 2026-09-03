@@ -61,7 +61,6 @@ from pf.schemas.project import (
     SourceIdentity,
     SourcePlan,
     VersionPin,
-    effective_source,
 )
 from pf.snapshot import SnapshotBuilder
 
@@ -148,8 +147,7 @@ class SuccessfulUv:
         selections: list[HarnessSelection] = []
         for requirement in harness:
             name = requirement.declaration.name
-            route = next(item for item in source_plan.routes if item.dependency == name)
-            source = effective_source(route, source_plan.source_mode)
+            source = source_plan.source_for(name)
             if name in {item.name for item in packages}:
                 package = next(item for item in packages if item.name == name)
             else:
@@ -388,7 +386,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -489,7 +487,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(highest, PreparedEnvironment)
@@ -499,7 +497,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=ExactSelection(
                 selection=(
                     SelectedCandidate(
@@ -543,7 +541,7 @@ test-command = ["python", "-c", "pass"]
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 resolution=HighestResolution(),
             )
 
@@ -576,7 +574,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -588,7 +586,7 @@ test-command = ["python", "-c", "pass"]
             version="3.10.18",
             abi="cpython-310-x86_64-linux-gnu",
         )
-        assert prepared.attempt.identity.identity_version == "attempt-v2"
+        assert prepared.attempt.identity.identity_version == "attempt-v1"
         assert prepared.attempt.identity.resolution_context_digest
         assert prepared.attempt.identity.harness_policy_identity == (
             "original-harness-v1"
@@ -669,7 +667,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(first, PreparedEnvironment)
@@ -678,7 +676,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -739,7 +737,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=exact_selection(
                 package.cells[0], VersionPin(name="idna", version="3.1")
             ),
@@ -813,7 +811,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=ExactSelection(
                 selection,
                 harness_baseline=empty_harness_baseline(package.cells[0]),
@@ -856,7 +854,7 @@ test-command = ["python", "-c", "pass"]
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 resolution=exact_selection(package.cells[0], *pins),
             )
         snapshot.close()
@@ -899,7 +897,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=ExactSelection(
                 (
                     SelectedCandidate(
@@ -969,7 +967,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=exact_selection(package.cells[0], *requested),
         )
 
@@ -1071,7 +1069,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=cell,
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=exact_selection(
                 cell,
                 VersionPin(name="certifi", version="2024.2"),
@@ -1143,7 +1141,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1193,7 +1191,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
         assert isinstance(original, PreparedEnvironment)
@@ -1201,7 +1199,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=LowestDirectResolution(original.harness_baseline),
         )
 
@@ -1260,7 +1258,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1290,7 +1288,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1316,7 +1314,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=LowestDirectResolution(empty_harness_baseline(package.cells[0])),
         )
 
@@ -1365,7 +1363,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1400,7 +1398,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1428,7 +1426,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1460,7 +1458,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1496,7 +1494,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1523,7 +1521,7 @@ test-command = ["python", "-c", "pass"]
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             resolution=HighestResolution(),
         )
 
@@ -1545,7 +1543,7 @@ test-command = ["python", "-c", "pass"]
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 resolution=ExactSelection(
                     (),
                     harness_baseline=empty_harness_baseline(package.cells[0]),

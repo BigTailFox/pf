@@ -24,7 +24,13 @@ from pf.schemas.evaluation import (
     VerificationJournalEntry,
     ToolFailure,
 )
-from pf.schemas.project import Cell, PackagePlan
+from pf.schemas.project import (
+    Cell,
+    DependencySourceRoute,
+    PackagePlan,
+    SourceIdentity,
+    SourcePlan,
+)
 from pf.schemas.report import CellIndeterminate
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.verification import (
@@ -101,7 +107,7 @@ class TestVerificationRunner:
     def _task(cell: Cell) -> VerificationTask[ToolFailure]:
         return VerificationTask(
             cell=cell,
-            execute=_tool_failure,
+            execute=lambda source_plan: _tool_failure(),
             journal_entries=lambda outcome: (),
         )
 
@@ -113,7 +119,7 @@ class TestVerificationRunner:
         request = VerificationRun(
             command="search",
             package=package,
-            source_mode="DEVELOPMENT",
+            source_plan=SourcePlan.for_package(package, "DEVELOPMENT"),
             snapshot=snapshot,
             tasks=(self._task(cell),),
             jobs=1,
@@ -130,7 +136,7 @@ class TestVerificationRunner:
         request = VerificationRun(
             command="search",
             package=package,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             snapshot=snapshot,
             tasks=(task, task),
             jobs=1,
@@ -139,6 +145,70 @@ class TestVerificationRunner:
 
         with pytest.raises(ValueError, match="tasks must have unique cells"):
             VerificationRunner(events=_NoEvents(), logs=None).run(request)
+        snapshot.close()
+
+    def test_run_rejects_a_source_plan_outside_the_package(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, cell, package, _ = verification_case(tmp_path)
+        registry = SourceIdentity(kind="registry")
+        request = VerificationRun(
+            command="search",
+            package=package,
+            source_plan=SourcePlan(
+                source_mode="SEARCH",
+                routes=(
+                    DependencySourceRoute(
+                        dependency="other",
+                        development_source=registry,
+                        search_source=registry,
+                    ),
+                ),
+            ),
+            snapshot=snapshot,
+            tasks=(self._task(cell),),
+            jobs=1,
+            max_duration_seconds=None,
+        )
+
+        with pytest.raises(ValueError, match="source plan does not match"):
+            VerificationRunner(events=_NoEvents(), logs=None).run(request)
+        snapshot.close()
+
+    def test_runner_injects_the_same_source_plan_into_every_task(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, cell, package, entry = verification_case(tmp_path)
+        source_plan = SourcePlan.for_package(package, "SEARCH")
+        received: list[SourcePlan] = []
+        outcome = CellIndeterminate(
+            cell=cell,
+            phase=entry.failure.stage,
+            failure_id=entry.failure.failure_id,
+            failure_records=(entry.failure,),
+        )
+        task = VerificationTask(
+            cell=cell,
+            execute=lambda plan: received.append(plan) or outcome,
+            journal_entries=lambda outcome: (),
+        )
+
+        VerificationRunner(events=_NoEvents(), logs=None).run(
+            VerificationRun(
+                command="search",
+                package=package,
+                source_plan=source_plan,
+                snapshot=snapshot,
+                tasks=(task,),
+                jobs=1,
+                max_duration_seconds=None,
+            )
+        )
+
+        assert received == [source_plan]
+        assert received[0] is source_plan
         snapshot.close()
 
     def test_run_rejects_a_task_outside_the_package_set(
@@ -150,14 +220,14 @@ class TestVerificationRunner:
         request = VerificationRun(
             command="search",
             package=package,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             snapshot=snapshot,
             tasks=(self._task(other_cell),),
             jobs=1,
             max_duration_seconds=None,
         )
 
-        with pytest.raises(ValueError, match="package is outside the run"):
+        with pytest.raises(ValueError, match="cell is outside the run"):
             VerificationRunner(events=_NoEvents(), logs=None).run(request)
         snapshot.close()
 
@@ -199,6 +269,9 @@ class TestVerificationRunner:
                 active_declaration_ids=cell.active_declaration_ids,
                 source_plan_identity="sources",
                 evaluation_policy_identity=evaluation_policy_identity(package.config),
+                resolution_context_digest="context",
+                harness_policy_identity="harness-relaxation-v1",
+                harness_baseline_digest="baseline",
             )
         )
         unavailable = ProcessTerminalUnavailable(
@@ -256,12 +329,12 @@ class TestVerificationRunner:
             VerificationRun(
                 command="check",
                 package=package,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
                         cell=cell,
-                        execute=lambda: outcome,
+                        execute=lambda source_plan: outcome,
                         journal_entries=lambda result: (entry,),
                         runtime_associations=lambda result: (
                             (failure.failure_id, unavailable),
@@ -359,12 +432,12 @@ class TestVerificationRunner:
             VerificationRun(
                 command="search",
                 package=package,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
                         cell=cell,
-                        execute=lambda: outcome,
+                        execute=lambda source_plan: outcome,
                         journal_entries=lambda outcome: (entry,),
                     ),
                 ),
@@ -407,12 +480,12 @@ class TestVerificationRunner:
             VerificationRun(
                 command="search",
                 package=package,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
                         cell=cell,
-                        execute=lambda: outcome,
+                        execute=lambda source_plan: outcome,
                         journal_entries=lambda outcome: (entry,),
                     ),
                 ),
@@ -465,12 +538,12 @@ class TestVerificationRunner:
                 VerificationRun(
                     command="search",
                     package=package,
-                    source_mode="SEARCH",
+                    source_plan=SourcePlan.for_package(package, "SEARCH"),
                     snapshot=snapshot,
                     tasks=(
                         VerificationTask(
                             cell=cell,
-                            execute=lambda: outcome,
+                            execute=lambda source_plan: outcome,
                             journal_entries=lambda outcome: (entry,),
                         ),
                     ),
@@ -504,12 +577,14 @@ class TestVerificationRunner:
             VerificationRun(
                 command="search",
                 package=package,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 tasks=(
                     VerificationTask(
                         cell=cell,
-                        execute=lambda: pytest.fail("deadline task must not run"),
+                        execute=lambda source_plan: pytest.fail(
+                            "deadline task must not run"
+                        ),
                         journal_entries=lambda result: (
                             VerificationJournalEntry(
                                 package=result.cell.package,

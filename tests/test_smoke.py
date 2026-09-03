@@ -36,7 +36,7 @@ from pf.schemas.evaluation import (
     VerificationJournal,
     ty_diagnostic_digest,
 )
-from pf.schemas.project import Cell, PackagePlan, Proposal
+from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.terminal import TerminalPresenter
 from pf.verification import VerificationRunner
@@ -76,6 +76,8 @@ def attempt_and_proposal(
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity=policy_identity,
+            resolution_context_digest="context",
+            harness_policy_identity="original-harness-v1",
         )
     )
     return attempt, Proposal(
@@ -143,7 +145,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> HighestVersionOutcome:
                 seen.append(cell)
                 live_frames.append(visible(stderr.getvalue()))
@@ -233,7 +235,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> HighestVersionOutcome:
                 process = ProcessResult(
                     exit_code=1,
@@ -327,7 +329,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> HighestVersionOutcome:
                 attempt, _ = attempt_and_proposal(
                     package=package,
@@ -391,7 +393,7 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> HighestVersionOutcome:
                 nonlocal failure_id
                 process = ProcessResult(

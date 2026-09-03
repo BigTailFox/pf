@@ -40,6 +40,7 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     RequirementDeclaration,
+    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
@@ -79,6 +80,18 @@ def _attempt(
             active_declaration_ids=(),
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "harness-relaxation-v1"
+                if resolution == "exact-vector"
+                else "original-harness-v1"
+            ),
+            harness_baseline_digest=(
+                "baseline" if resolution == "exact-vector" else None
+            ),
+            selected_candidate_evidence_digest=(
+                "selection" if resolution == "exact-vector" else None
+            ),
         )
     )
 
@@ -105,6 +118,7 @@ def _report(
     )
     base = PackageReportBuilder().build(
         package=package,
+        source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=snapshot,
         cell_results=(),
     )

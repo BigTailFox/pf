@@ -44,6 +44,7 @@ from pf.schemas.evaluation import CheckPass, SmokePass, StatusEvent
 from pf.schemas.project import (
     ApplySelector,
     PackagePlan,
+    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
@@ -153,6 +154,7 @@ def minimal_report() -> ValidatedReport:
     )
     return PackageReportBuilder().build(
         package=package,
+        source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=snapshot,
         cell_results=(),
     )

@@ -46,7 +46,7 @@ def prepared_resolution_evidence(
             release_cutoff="2026-08-23T00:00:00+00:00",
         ),
         cell=cell,
-        source_policy_identity="test-source-policy",
+        source_plan_identity="test-source-plan",
         allow_prereleases=False,
     )
     native = NativeResolutionPlan.from_content(

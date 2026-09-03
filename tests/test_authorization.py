@@ -43,12 +43,11 @@ from pf.schemas.project import (
     ProjectPlan,
     Proposal,
     SelectedCandidate,
+    SourcePlan,
     VersionPin,
     candidate_snapshot_digest,
     cell_id,
-    package_source_plan,
     selected_candidate_evidence_digest,
-    source_plan_identity,
 )
 from pf.schemas.config import WorkspacePackage
 from pf.schemas.report import (
@@ -85,7 +84,6 @@ def _attempt(
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
-            identity_version="attempt-v2",
             source_snapshot_digest=snapshot_digest,
             cell=cell,
             requested_resolution=resolution,
@@ -182,7 +180,7 @@ def _successful_cell(
     historical_rejection: bool = False,
 ) -> CellSuccess:
     policy = evaluation_policy_identity(package.config)
-    plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
+    plan_identity = SourcePlan.for_package(package, "SEARCH").identity
     vector = (VersionPin(name="idna", version=floor),)
     final_attempt = _attempt(
         cell=cell,
@@ -390,6 +388,7 @@ def _report(
 ) -> ValidatedReport:
     return PackageReportBuilder().build(
         package=package,
+        source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=snapshot.identity,
         cell_results=tuple(
             _successful_cell(
@@ -607,6 +606,7 @@ class TestApplyAuthorizer:
         package = project.target
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 _successful_cell(
@@ -669,6 +669,7 @@ class TestApplyAuthorizer:
         snapshot = _snapshot(project, tmp_path)
         report = PackageReportBuilder().build(
             package=project.target,
+            source_plan=SourcePlan.for_package(project.target, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(),
         )
@@ -693,6 +694,7 @@ class TestApplyAuthorizer:
         package = project.target
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 _successful_cell(

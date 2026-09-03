@@ -53,8 +53,8 @@ from pf.schemas.project import (
     Cell,
     HarnessBaseline,
     PackagePlan,
-    ResolutionSourceMode,
     SelectedCandidate,
+    SourcePlan,
     VersionPin,
 )
 from pf.schemas.report import (
@@ -130,7 +130,7 @@ class SearchEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -141,7 +141,7 @@ class CandidateOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         baseline: tuple[VersionPin, ...],
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> tuple[CandidateSnapshot, ...]: ...
 
 
@@ -180,7 +180,7 @@ class HighestOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> HighestVersionOutcome: ...
 
 
@@ -247,7 +247,7 @@ class _ProposalRunner:
         static_baseline: StaticBaseline,
         harness_baseline: HarnessBaseline,
         candidate_snapshots: tuple[CandidateSnapshot, ...],
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
         diagnostics: SearchDiagnosticConsumer | None = None,
         events: SearchActivityConsumer | None = None,
         failures: FailurePolicy | None = None,
@@ -261,7 +261,7 @@ class _ProposalRunner:
         self._static_baseline = static_baseline
         self._harness_baseline = harness_baseline
         self._candidate_snapshots = candidate_snapshots
-        self._source_mode = source_mode
+        self._source_plan = source_plan
         self._diagnostics = diagnostics
         self._events = events
         self._failures = failures or FailurePolicy()
@@ -725,7 +725,7 @@ class _ProposalRunner:
                 select_probe(vector, self._candidate_snapshots),
                 harness_baseline=self._harness_baseline,
             ),
-            source_mode=self._source_mode,
+            source_plan=self._source_plan,
         )
         if isinstance(prepared, PrepareFailure):
             self._prepare_failures[key] = prepared
@@ -987,7 +987,7 @@ class SearchCoordinator:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> CellResult:
         require_full_evaluation_contract(package, "search")
         if self._events is not None:
@@ -998,7 +998,7 @@ class SearchCoordinator:
             package=package,
             cell=cell,
             snapshot=snapshot,
-            source_mode=source_mode,
+            source_plan=source_plan,
         )
         if isinstance(capture, (BaselineRejection, BaselineIndeterminate)):
             return capture
@@ -1014,7 +1014,7 @@ class SearchCoordinator:
                 package=package,
                 cell=cell,
                 baseline=baseline_evaluation.proposal.managed_vector,
-                source_mode=source_mode,
+                source_plan=source_plan,
             )
         except InfrastructureError:
             failure = self._failures.classify(
@@ -1060,7 +1060,7 @@ class SearchCoordinator:
             static_baseline=capture.baseline,
             harness_baseline=capture.harness_baseline,
             candidate_snapshots=candidate_snapshots,
-            source_mode=source_mode,
+            source_plan=source_plan,
             diagnostics=self._diagnostics,
             events=self._events,
             failures=self._failures,

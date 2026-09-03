@@ -25,9 +25,8 @@ from pf.schemas.project import (
     InterpreterIdentity,
     PackagePlan,
     Proposal,
+    SourcePlan,
     SourceSnapshotIdentity,
-    package_source_plan,
-    source_plan_identity,
     source_snapshot_digest,
 )
 from pf.schemas.report import (
@@ -72,19 +71,17 @@ def _complete_report() -> PackageFloorReportV1Wire:
         extra_surface=(),
     )
     package = _package(cell)
+    source_plan = SourcePlan.for_package(package, "SEARCH")
     snapshot = _snapshot()
     policy = evaluation_policy_identity(package.config)
     attempt = Attempt.from_identity(
         AttemptIdentity(
-            identity_version="attempt-v2",
             source_snapshot_digest=snapshot.digest,
             cell=cell,
             requested_resolution="highest",
             requested_managed_vector=None,
             active_declaration_ids=(),
-            source_plan_identity=source_plan_identity(
-                package_source_plan(package, "SEARCH")
-            ),
+            source_plan_identity=source_plan.identity,
             evaluation_policy_identity=policy,
             resolution_context_digest="context",
             harness_policy_identity="original-harness-v1",
@@ -133,6 +130,7 @@ def _complete_report() -> PackageFloorReportV1Wire:
     )
     report = PackageReportBuilder().build(
         package=package,
+        source_plan=source_plan,
         source_snapshot=snapshot,
         cell_results=(
             CellSuccess(
@@ -167,8 +165,10 @@ def _incomplete_report() -> PackageFloorReportV1Wire:
         python_minor="3.12",
         extra_surface=(),
     )
+    package = _package(cell)
     report = PackageReportBuilder().build(
-        package=_package(cell),
+        package=package,
+        source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=_snapshot(),
         cell_results=(),
     )

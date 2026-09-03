@@ -84,6 +84,7 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     RequirementDeclaration,
+    SourcePlan,
     SourceSnapshotIdentity,
     VersionPin,
     source_snapshot_digest,
@@ -277,6 +278,7 @@ def incomplete_report(
     target_cells = tuple(result.cell for result in cell_results)
     base = PackageReportBuilder().build(
         package=package,
+        source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=snapshot,
         cell_results=(),
     )
@@ -328,6 +330,18 @@ def attempt_for(
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "original-harness-v1"
+                if resolution == "highest"
+                else "harness-relaxation-v1"
+            ),
+            harness_baseline_digest=(
+                None if resolution == "highest" else "baseline"
+            ),
+            selected_candidate_evidence_digest=(
+                "selection" if resolution == "exact-vector" else None
+            ),
         )
     )
 

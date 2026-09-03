@@ -47,7 +47,7 @@ def _context() -> ResolutionContext:
             python_minor="3.11",
             extra_surface=(),
         ),
-        source_policy_identity="source-policy",
+        source_plan_identity="source-plan",
         allow_prereleases=False,
     )
 
@@ -101,13 +101,13 @@ class TestResolutionIdentity:
             ResolutionRunContext(uv_version="0.12.5", release_cutoff=cutoff)
 
     @pytest.mark.parametrize(
-        ("source_policy_identity", "digest"),
-        (("", "digest"), ("source-policy", "tampered")),
-        ids=("empty-source-policy", "digest-drift"),
+        ("source_plan_identity", "digest"),
+        (("", "digest"), ("source-plan", "tampered")),
+        ids=("empty-source-plan", "digest-drift"),
     )
     def test_resolution_context_rejects_incomplete_identity(
         self,
-        source_policy_identity: str,
+        source_plan_identity: str,
         digest: str,
     ) -> None:
         context = _context()
@@ -116,7 +116,7 @@ class TestResolutionIdentity:
             ResolutionContext(
                 run=context.run,
                 cell=context.cell,
-                source_policy_identity=source_policy_identity,
+                source_plan_identity=source_plan_identity,
                 prerelease_policy=context.prerelease_policy,
                 digest=digest,
             )
@@ -307,13 +307,13 @@ class TestResolutionIdentity:
                 update={"release_cutoff": "2026-08-23T01:02:04+00:00"}
             ),
             cell=context.cell,
-            source_policy_identity=context.source_policy_identity,
+            source_plan_identity=context.source_plan_identity,
             allow_prereleases=False,
         )
         prereleases = ResolutionContext.from_inputs(
             run=context.run,
             cell=context.cell,
-            source_policy_identity=context.source_policy_identity,
+            source_plan_identity=context.source_plan_identity,
             allow_prereleases=True,
         )
 

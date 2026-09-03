@@ -41,6 +41,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     PackagePlan,
     ProjectPlan,
+    SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
@@ -76,6 +77,7 @@ def report(
     )
     return PackageReportBuilder().build(
         package=package,
+        source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=snapshot,
         cell_results=(),
     )

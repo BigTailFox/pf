@@ -49,13 +49,10 @@ from pf.schemas.project import (
     HarnessResolutionRequirement,
     PackagePlan,
     Proposal,
-    ResolutionSourceMode,
     SelectedCandidate,
     SourceIdentity,
     SourcePlan,
     VersionPin,
-    package_source_plan,
-    source_plan_identity,
     selected_candidate_evidence_digest,
 )
 from pf.snapshot import SourceSnapshot
@@ -236,9 +233,8 @@ class EnvironmentFactory:
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> PreparedEnvironment | PrepareFailure:
-        source_plan = package_source_plan(package, source_mode)
         run = self._uv.resolution_run_context(
             root=Path.cwd(),
             timeout_seconds=package.config.resolve_timeout,
@@ -248,7 +244,7 @@ class EnvironmentFactory:
         context = ResolutionContext.from_inputs(
             run=run,
             cell=cell,
-            source_policy_identity=self._source_policy_identity(source_plan),
+            source_plan_identity=source_plan.identity,
             allow_prereleases=package.config.allow_prereleases,
         )
         managed_vector = (
@@ -324,7 +320,7 @@ class EnvironmentFactory:
             source_failure = self._managed_source_failure(
                 package=package,
                 cell=cell,
-                source_mode=source_mode,
+                source_plan=source_plan,
                 resolution=resolution,
                 plan=project_outcome,
             )
@@ -336,7 +332,7 @@ class EnvironmentFactory:
                 package=package,
                 cell=cell,
                 resolution=resolution,
-                source_mode=source_mode,
+                source_plan=source_plan,
             )
             environment_request = self._request_digest(
                 kind="environment",
@@ -573,15 +569,6 @@ class EnvironmentFactory:
             return outcome
 
     @staticmethod
-    def _source_policy_identity(source_plan: SourcePlan) -> str:
-        payload = json.dumps(
-            source_plan.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        return hashlib.sha256(b"pf:source-policy:v1\0" + payload).hexdigest()
-
-    @staticmethod
     def _request_digest(
         *,
         kind: Literal["project", "environment"],
@@ -615,7 +602,7 @@ class EnvironmentFactory:
                 project_plan.semantic_digest if project_plan is not None else None
             ),
             "harness": [item.model_dump(mode="json") for item in harness],
-            "source_plan": source_plan.model_dump(mode="json"),
+            "source_plan_identity": source_plan.identity,
         }
         return hashlib.sha256(
             b"pf:resolution-request:v1\0"
@@ -628,16 +615,16 @@ class EnvironmentFactory:
         package: PackagePlan,
         cell: Cell,
         resolution: ResolutionRequest,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> tuple[HarnessResolutionRequirement, ...]:
         if isinstance(resolution, HighestResolution):
-            return original_harness(package, cell, source_mode=source_mode)
+            return original_harness(package, cell, source_plan=source_plan)
         if resolution.harness_baseline.cell != cell:
             raise ConfigurationError("harness baseline must match the requested cell")
         return relax_harness(
             package,
             resolution.harness_baseline,
-            source_mode=source_mode,
+            source_plan=source_plan,
         ).requirements
 
     @staticmethod
@@ -681,26 +668,22 @@ class EnvironmentFactory:
         *,
         package: PackagePlan,
         cell: Cell,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
         resolution: ResolutionRequest,
         plan: ResolutionPlan,
     ) -> ToolFailure | None:
-        if source_mode != "SEARCH":
-            return None
         active_ids = set(cell.active_declaration_ids)
         managed_names = {
             declaration.name
             for declaration in package.declarations
             if declaration.managed and declaration.declaration_id in active_ids
         }
-        dual_routes = {
-            route.dependency: route
-            for route in package.source_routes
-            if route.dependency in managed_names
-            and route.development_source.kind == "workspace"
-            and route.search_source.kind == "registry"
-        }
-        if not dual_routes:
+        dual_dependencies = tuple(
+            dependency
+            for dependency in source_plan.registry_routed_workspace_dependencies()
+            if dependency in managed_names
+        )
+        if not dual_dependencies:
             return None
         resolved = {item.name: item for item in plan.packages}
         selected = (
@@ -708,7 +691,7 @@ class EnvironmentFactory:
             if isinstance(resolution, ExactSelection)
             else {}
         )
-        for name, route in dual_routes.items():
+        for name in dual_dependencies:
             item = resolved.get(name)
             if item is None or item.source.kind in {"path", "workspace"}:
                 return ToolFailure(
@@ -728,7 +711,7 @@ class EnvironmentFactory:
             if requested is None and (
                 not EnvironmentFactory._registry_source_matches(
                     actual=item.source,
-                    expected=route.search_source,
+                    expected=source_plan.source_for(name),
                 )
                 or not item.available_artifacts
             ):
@@ -824,7 +807,7 @@ class EnvironmentFactory:
             requested_resolution = "highest"
         else:
             requested_resolution = "lowest-direct"
-        plan_identity = source_plan_identity(source_plan)
+        plan_identity = source_plan.identity
         harness_declaration_ids = tuple(
             sorted(
                 item.declaration_id
@@ -845,7 +828,6 @@ class EnvironmentFactory:
         )
         return Attempt.from_identity(
             AttemptIdentity(
-                identity_version="attempt-v2",
                 source_snapshot_digest=snapshot.identity.digest,
                 cell=cell,
                 requested_resolution=requested_resolution,

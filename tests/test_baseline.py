@@ -34,7 +34,7 @@ from pf.schemas.evaluation import (
     VerifierRejected,
     VerifierRejectedEvaluation,
 )
-from pf.schemas.project import Cell, PackagePlan, Proposal
+from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 
 
@@ -86,6 +86,8 @@ def _prepared(
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity="original-harness-v1",
         )
     )
     return PreparedEnvironment(
@@ -184,9 +186,9 @@ class TestHighestVersionVerifier:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> PreparedEnvironment:
-                assert source_mode == "SEARCH"
+                assert source_plan is search_plan
                 resolutions.append(resolution)
                 temporary = tempfile.TemporaryDirectory(prefix="pf-highest-test-")
                 root = Path(temporary.name)
@@ -199,6 +201,8 @@ class TestHighestVersionVerifier:
                         active_declaration_ids=cell.active_declaration_ids,
                         source_plan_identity="sources",
                         evaluation_policy_identity="policy",
+                        resolution_context_digest="context",
+                        harness_policy_identity="original-harness-v1",
                     )
                 )
                 prepared = PreparedEnvironment(
@@ -267,6 +271,7 @@ class TestHighestVersionVerifier:
                     )
                 )
 
+        search_plan = SourcePlan.for_package(package, "SEARCH")
         result = HighestVersionVerifier(
             environments=Environments(),
             static=Static(),
@@ -275,7 +280,7 @@ class TestHighestVersionVerifier:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=search_plan,
         )
 
         assert isinstance(result, HighestVersionPass)
@@ -318,6 +323,8 @@ class TestHighestVersionVerifier:
             active_declaration_ids=package.cells[0].active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity="original-harness-v1",
         )
         prepare_failure = PrepareFailure(
             attempt=Attempt.from_identity(identity),
@@ -354,7 +361,7 @@ class TestHighestVersionVerifier:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert isinstance(result, BaselineIndeterminate)
@@ -390,7 +397,7 @@ class TestHighestVersionVerifier:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert isinstance(result, BaselineIndeterminate)
@@ -421,7 +428,7 @@ class TestHighestVersionVerifier:
                 package=package,
                 cell=package.cells[0],
                 snapshot=snapshot,
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
             )
 
     def test_highest_version_verifier_retains_indeterminate_static_capture(
@@ -458,7 +465,7 @@ class TestHighestVersionVerifier:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert isinstance(result, BaselineIndeterminate)
@@ -530,7 +537,7 @@ class TestHighestVersionVerifier:
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert result.status == expected_status

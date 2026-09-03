@@ -80,7 +80,6 @@ from pf.schemas.project import (
     ResolvedNode,
     SelectedCandidate,
     SourcePlan,
-    effective_source,
     public_locator,
     SourceIdentity,
 )
@@ -403,7 +402,7 @@ class UvAdapter:
             item.declaration.prerelease_allowed for item in harness
         ):
             argv.extend(("--prerelease", "allow"))
-        for dependency in self._suppressed_workspace_sources(source_plan):
+        for dependency in source_plan.registry_routed_workspace_dependencies():
             argv.extend(("--no-sources-package", dependency))
         if project_plan is not None:
             constraints = work_directory / "project-constraints.in"
@@ -590,7 +589,7 @@ class UvAdapter:
                 UvAdapter._render_harness_requirements(
                     item,
                     source_root=source_root,
-                    source=UvAdapter._source_for(source_plan, item.declaration.name),
+                    source=source_plan.source_for(item.declaration.name),
                 )
             )
         return "".join(f"{item}\n" for item in requirements)
@@ -691,36 +690,13 @@ class UvAdapter:
                     ceiling_bound=any(
                         harness_requirement_policy(
                             item,
-                            source=UvAdapter._source_for(
-                                source_plan, item.name
-                            ),
+                            source=source_plan.source_for(item.name),
                         ).ceiling_bound
                         for item in declarations
                     ),
                 )
             )
         return tuple(selections)
-
-    @staticmethod
-    def _source_for(source_plan: SourcePlan, dependency: str) -> SourceIdentity:
-        route = next(
-            (item for item in source_plan.routes if item.dependency == dependency),
-            None,
-        )
-        if route is None:
-            raise ValueError(f"source plan route is missing: {dependency}")
-        return effective_source(route, source_plan.source_mode)
-
-    @staticmethod
-    def _suppressed_workspace_sources(source_plan: SourcePlan) -> tuple[str, ...]:
-        if source_plan.source_mode != "SEARCH":
-            return ()
-        return tuple(
-            route.dependency
-            for route in source_plan.routes
-            if route.development_source.kind == "workspace"
-            and route.search_source.kind == "registry"
-        )
 
     def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]:
         process = self._runner.run(

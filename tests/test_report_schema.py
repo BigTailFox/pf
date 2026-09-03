@@ -65,12 +65,11 @@ from pf.schemas.project import (
     SnapshotEntry,
     SourceSnapshotIdentity,
     SourceIdentity,
+    SourcePlan,
     VersionPin,
     candidate_snapshot_digest,
     cell_id,
-    package_source_plan,
     selected_candidate_evidence_digest,
-    source_plan_identity,
     source_snapshot_digest,
 )
 from pf.schemas.report import (
@@ -281,6 +280,7 @@ class TestPackageReportBuilder:
         )
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(),
         )
@@ -308,7 +308,7 @@ class TestPackageReportBuilder:
             "source_snapshot": report.source_snapshot.model_dump(mode="json"),
             "policy_identity": report.policy_identity,
             "verifier_outcome_policy": report.verifier_outcome_policy,
-            "source_plan": package_source_plan(package, "SEARCH").model_dump(
+            "source_plan": SourcePlan.for_package(package, "SEARCH").model_dump(
                 mode="json"
             ),
             "requirement_declarations": [],
@@ -382,6 +382,7 @@ class TestPackageReportBuilder:
         )
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(result,),
         )
@@ -426,60 +427,6 @@ class TestPackageReportBuilder:
         assert context.proposal_id is None
         assert context.boundary_role is None
 
-    def test_build_rejects_legacy_attempt_identity(self) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.12",
-            extra_surface=(),
-        )
-        package = PackagePlan(
-            name="demo",
-            pyproject_path="pyproject.toml",
-            config=EffectiveConfig(),
-            declarations=(),
-            cells=(cell,),
-            source_routes=(),
-        )
-        snapshot = SourceSnapshotIdentity(
-            digest=source_snapshot_digest((), ()),
-            entries=(),
-            pyproject_identities=(),
-        )
-        attempt = Attempt.from_identity(
-            AttemptIdentity(
-                identity_version="attempt-v1",
-                source_snapshot_digest=snapshot.digest,
-                cell=cell,
-                requested_resolution="highest",
-                requested_managed_vector=None,
-                active_declaration_ids=(),
-                source_plan_identity=source_plan_identity(
-                    package_source_plan(package, "SEARCH")
-                ),
-                evaluation_policy_identity=evaluation_policy_identity(package.config),
-            )
-        )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TIMEOUT",
-            stage="resolve-project",
-            process=None,
-            detail=FailureDetail(code="timeout", message="resolver timed out"),
-        )
-
-        with pytest.raises(ConfigurationError):
-            PackageReportBuilder().build(
-                package=package,
-                source_snapshot=snapshot,
-                cell_results=(
-                    BaselineIndeterminate(
-                        attempt=attempt,
-                        failure=failure,
-                    ),
-                ),
-            )
-
     def test_build_interns_prepare_attempt_without_proposal(
         self,
         tmp_path: Path,
@@ -506,15 +453,14 @@ class TestPackageReportBuilder:
         policy = evaluation_policy_identity(package.config)
         attempt = Attempt.from_identity(
             AttemptIdentity(
-                identity_version="attempt-v2",
                 source_snapshot_digest=snapshot.digest,
                 cell=cell,
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=(),
-                source_plan_identity=source_plan_identity(
-                    package_source_plan(package, "SEARCH")
-                ),
+                source_plan_identity=SourcePlan.for_package(
+                    package, "SEARCH"
+                ).identity,
                 evaluation_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
@@ -530,6 +476,7 @@ class TestPackageReportBuilder:
         result = BaselineIndeterminate(attempt=attempt, failure=failure)
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(result,),
         )
@@ -544,9 +491,9 @@ class TestPackageReportBuilder:
                 "attempt_id": attempt.attempt_id,
                 "cell_ref": cell_id(cell),
                 "requested_resolution": "highest",
-                "source_plan_identity": source_plan_identity(
-                    package_source_plan(package, "SEARCH")
-                ),
+                "source_plan_identity": SourcePlan.for_package(
+                    package, "SEARCH"
+                ).identity,
                 "resolution_context_digest": "context",
                 "harness_policy_identity": "original-harness-v1",
                 "harness_declaration_ids": [],
@@ -594,15 +541,14 @@ class TestPackageReportBuilder:
         policy = evaluation_policy_identity(package.config)
         attempt = Attempt.from_identity(
             AttemptIdentity(
-                identity_version="attempt-v2",
                 source_snapshot_digest=snapshot.digest,
                 cell=cell,
                 requested_resolution="highest",
                 requested_managed_vector=None,
                 active_declaration_ids=(),
-                source_plan_identity=source_plan_identity(
-                    package_source_plan(package, "SEARCH")
-                ),
+                source_plan_identity=SourcePlan.for_package(
+                    package, "SEARCH"
+                ).identity,
                 evaluation_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
@@ -672,6 +618,7 @@ class TestPackageReportBuilder:
         )
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(result,),
         )
@@ -823,7 +770,7 @@ class _CompleteReportCase:
                 artifact=artifact,
             ),
         )
-        plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
+        plan_identity = SourcePlan.for_package(package, "SEARCH").identity
         candidate_snapshot = CandidateSnapshot(
             dependency=dependency,
             cell=cell,
@@ -860,7 +807,6 @@ class _CompleteReportCase:
             vector = (VersionPin(name=dependency, version=version),)
             attempt = Attempt.from_identity(
                 AttemptIdentity(
-                    identity_version="attempt-v2",
                     source_snapshot_digest=snapshot.digest,
                     cell=cell,
                     requested_resolution=resolution,
@@ -998,6 +944,7 @@ class _CompleteReportCase:
         )
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(result,),
         )
@@ -1093,6 +1040,7 @@ class _CompleteReportCase:
         )
         rejected_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(rejected_result,),
         )
@@ -1181,6 +1129,7 @@ class _CompleteReportCase:
         )
         test_failed_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(test_failed_result,),
         )
@@ -1266,6 +1215,7 @@ class _CompleteReportCase:
         )
         missing_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(missing_result,),
         )
@@ -1332,6 +1282,7 @@ class _CompleteReportCase:
         )
         indeterminate_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(indeterminate_result,),
         )
@@ -1421,6 +1372,7 @@ class _CompleteReportCase:
         )
         baseline_rejection_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(
                 BaselineRejection(
@@ -1530,6 +1482,7 @@ class _CompleteReportCase:
         )
         regional_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(regional_result,),
         )
@@ -1580,6 +1533,7 @@ class _CompleteReportCase:
         )
         search_failure_report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
             cell_results=(search_failure_result,),
         )
@@ -1922,6 +1876,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         case = self.case
         report = PackageReportBuilder().build(
             package=case.package,
+            source_plan=SourcePlan.for_package(case.package, "SEARCH"),
             source_snapshot=case.report.source_snapshot,
             cell_results=(),
         )
@@ -1932,6 +1887,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         case = self.case
         replacement = PackageReportBuilder().build(
             package=case.package,
+            source_plan=SourcePlan.for_package(case.package, "SEARCH"),
             source_snapshot=case.report.source_snapshot,
             cell_results=(),
         )
@@ -2418,6 +2374,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         )
         replacement = PackageReportBuilder().build(
             package=case.package,
+            source_plan=SourcePlan.for_package(case.package, "SEARCH"),
             source_snapshot=SourceSnapshotIdentity(
                 digest=source_snapshot_digest(entries, ()),
                 entries=entries,

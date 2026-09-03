@@ -26,7 +26,7 @@ from pf.schemas.evaluation import (
     ProcessSpec,
     ProcessTerminalUnavailable,
 )
-from pf.schemas.project import SelectedCandidate
+from pf.schemas.project import SelectedCandidate, SourcePlan
 from pf.snapshot import SnapshotBuilder
 
 
@@ -210,6 +210,7 @@ def qualify_scenario(root: Path, scenario: Scenario) -> QualificationRecord:
     )
     project = ProjectLoader().load(root=root, selector=selector)
     package = project.target
+    source_plan = SourcePlan.for_package(package, "SEARCH")
     snapshot = SnapshotBuilder.without_processes().build(
         root,
         owned_pyproject_paths=project.owned_pyproject_paths,
@@ -224,7 +225,7 @@ def qualify_scenario(root: Path, scenario: Scenario) -> QualificationRecord:
             cell=package.cells[0],
             snapshot=snapshot,
             resolution=HighestResolution(),
-            source_mode="SEARCH",
+            source_plan=source_plan,
         )
         if not isinstance(prepared_result, PreparedEnvironment):
             failure = prepared_result.failure
@@ -243,7 +244,7 @@ def qualify_scenario(root: Path, scenario: Scenario) -> QualificationRecord:
             package=package,
             cell=package.cells[0],
             baseline=prepared.proposal.managed_vector,
-            source_mode="SEARCH",
+            source_plan=source_plan,
         )
         project_sources = {
             item.name: item.source for item in prepared.project_plan.packages
@@ -283,7 +284,7 @@ def qualify_scenario(root: Path, scenario: Scenario) -> QualificationRecord:
                 selection=selected,
                 harness_baseline=harness_baseline,
             ),
-            source_mode="SEARCH",
+            source_plan=source_plan,
         )
         if not isinstance(exact_result, PreparedEnvironment):
             failure = exact_result.failure
@@ -376,6 +377,7 @@ def qualify_unmanaged_workspace_fail_closed(
     }
     project = ProjectLoader().load(root=root, selector=RootPackage())
     package = project.target
+    source_plan = SourcePlan.for_package(package, "SEARCH")
     snapshot = SnapshotBuilder.without_processes().build(
         root,
         owned_pyproject_paths=project.owned_pyproject_paths,
@@ -386,7 +388,7 @@ def qualify_unmanaged_workspace_fail_closed(
         cell=package.cells[0],
         snapshot=snapshot,
         resolution=HighestResolution(),
-        source_mode="SEARCH",
+        source_plan=source_plan,
     )
     try:
         if not isinstance(result, PrepareFailure):

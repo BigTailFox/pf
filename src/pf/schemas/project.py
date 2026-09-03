@@ -133,32 +133,64 @@ class SourcePlan(FrozenSchema):
     source_mode: ResolutionSourceMode
     routes: tuple[DependencySourceRoute, ...]
 
+    @property
+    def identity(self) -> str:
+        return hashlib.sha256(
+            b"pf:source-plan:v1\0"
+            + json.dumps(
+                self.model_dump(mode="json"),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+
+    @classmethod
+    def for_package(
+        cls,
+        package: PackagePlan,
+        mode: ResolutionSourceMode,
+    ) -> SourcePlan:
+        return cls(source_mode=mode, routes=package.source_routes)
+
+    def source_for(self, dependency: str) -> SourceIdentity:
+        route = next(
+            (item for item in self.routes if item.dependency == dependency),
+            None,
+        )
+        if route is None:
+            raise ValueError(f"source plan route is missing: {dependency}")
+        if self.source_mode == "DEVELOPMENT":
+            return route.development_source
+        return route.search_source
+
+    def registry_routed_workspace_dependencies(self) -> tuple[str, ...]:
+        if self.source_mode == "DEVELOPMENT":
+            return ()
+        return tuple(
+            route.dependency
+            for route in self.routes
+            if route.development_source.kind == "workspace"
+            and route.search_source.kind == "registry"
+        )
+
+    def workspace_member_version_for(
+        self,
+        dependency: str,
+    ) -> WorkspaceMemberVersion | None:
+        route = next(
+            (item for item in self.routes if item.dependency == dependency),
+            None,
+        )
+        if route is None:
+            raise ValueError(f"source plan route is missing: {dependency}")
+        return route.workspace_member_version
+
     @model_validator(mode="after")
     def validate_routes(self) -> "SourcePlan":
         names = tuple(route.dependency for route in self.routes)
         if names != tuple(sorted(set(names))):
             raise ValueError("source plan routes must be sorted and unique")
         return self
-
-
-def source_plan_identity(source_plan: SourcePlan) -> str:
-    return hashlib.sha256(
-        b"pf:source-plan:v1\0"
-        + json.dumps(
-            source_plan.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-
-
-def effective_source(
-    route: DependencySourceRoute,
-    source_mode: ResolutionSourceMode,
-) -> SourceIdentity:
-    if source_mode == "DEVELOPMENT":
-        return route.development_source
-    return route.search_source
 
 
 class SnapshotEntry(FrozenSchema):
@@ -741,27 +773,6 @@ class PackagePlan(FrozenSchema):
         if not dependency_names <= set(names):
             raise ValueError("package source routes must cover every direct dependency")
         return self
-
-
-def package_source_plan(
-    package: PackagePlan,
-    source_mode: ResolutionSourceMode,
-) -> SourcePlan:
-    return SourcePlan(source_mode=source_mode, routes=package.source_routes)
-
-
-def package_source(
-    package: PackagePlan,
-    dependency: str,
-    source_mode: ResolutionSourceMode,
-) -> SourceIdentity:
-    route = next(
-        (item for item in package.source_routes if item.dependency == dependency),
-        None,
-    )
-    if route is None:
-        raise ValueError(f"package source route is missing: {dependency}")
-    return effective_source(route, source_mode)
 
 
 class ProjectPlan(FrozenSchema):

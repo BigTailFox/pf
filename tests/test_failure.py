@@ -59,6 +59,10 @@ def _probe_attempt() -> Attempt:
         active_declaration_ids=("demo:a",),
         source_plan_identity="sources",
         evaluation_policy_identity="policy",
+        resolution_context_digest="context",
+        harness_policy_identity="harness-relaxation-v1",
+        harness_baseline_digest="baseline",
+        selected_candidate_evidence_digest="selection",
     )
     return Attempt.from_identity(identity)
 
@@ -73,6 +77,8 @@ def _highest_attempt() -> Attempt:
             active_declaration_ids=("demo:a",),
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity="original-harness-v1",
         )
     )
 
@@ -87,6 +93,8 @@ def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
             active_declaration_ids=("demo:a",),
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity="original-harness-v1",
         )
     )
     proposal = Proposal(

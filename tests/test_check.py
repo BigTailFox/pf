@@ -50,7 +50,7 @@ from pf.schemas.evaluation import (
     VerifierRejected,
     VerifierRejectedEvaluation,
 )
-from pf.schemas.project import Cell, PackagePlan, Proposal
+from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.errors import ConfigurationError
@@ -123,6 +123,15 @@ def attempt_for(
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "original-harness-v1"
+                if resolution == "highest"
+                else "harness-relaxation-v1"
+            ),
+            harness_baseline_digest=(
+                None if resolution == "highest" else "baseline"
+            ),
         )
     )
 
@@ -205,7 +214,7 @@ class TestCompatibilityChecker:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> PreparedEnvironment:
                 kind = resolution_kind(resolution)
                 resolutions.append(kind)
@@ -223,6 +232,15 @@ class TestCompatibilityChecker:
                         active_declaration_ids=cell.active_declaration_ids,
                         source_plan_identity="sources",
                         evaluation_policy_identity="policy",
+                        resolution_context_digest="context",
+                        harness_policy_identity=(
+                            "original-harness-v1"
+                            if kind == "highest"
+                            else "harness-relaxation-v1"
+                        ),
+                        harness_baseline_digest=(
+                            None if kind == "highest" else "baseline"
+                        ),
                     )
                 )
                 value = PreparedEnvironment(
@@ -310,7 +328,7 @@ class TestCompatibilityChecker:
             static=Static(),
             full=Full(),
             events=events,
-        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_mode="SEARCH")
+        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
 
         assert result.status == "PASS"
         assert resolutions == ["highest", "lowest-direct"]
@@ -338,6 +356,8 @@ class TestCompatibilityChecker:
                 active_declaration_ids=cell.active_declaration_ids,
                 source_plan_identity="sources",
                 evaluation_policy_identity="policy",
+                resolution_context_digest="context",
+                harness_policy_identity="original-harness-v1",
             )
         )
         process = ProcessResult(
@@ -357,7 +377,7 @@ class TestCompatibilityChecker:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> PrepareFailure:
                 kind = resolution_kind(resolution)
                 resolutions.append(kind)
@@ -395,7 +415,7 @@ class TestCompatibilityChecker:
             static=NeverStatic(),
             full=NeverFull(),
             events=events,
-        ).check(package=package, cell=cell, snapshot=snapshot, source_mode="SEARCH")
+        ).check(package=package, cell=cell, snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
 
         assert resolutions == ["highest"]
         assert result.status == "INDETERMINATE"
@@ -439,7 +459,7 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> CheckCellOutcome:
                 seen.append(cell.target)
                 return indeterminate_outcome(cell)
@@ -467,7 +487,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -524,7 +544,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> Evaluation:
                 raise AssertionError(
                     "invalid configuration must fail before evaluation"
@@ -559,7 +579,7 @@ class TestCheckWorkflow:
                 cell: Cell,
                 snapshot: SourceSnapshot,
                 resolution: ResolutionRequest,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> PreparedEnvironment:
                 kind = resolution_kind(resolution)
                 directory = tempfile.TemporaryDirectory(prefix="pf-check-test-")
@@ -573,6 +593,15 @@ class TestCheckWorkflow:
                         active_declaration_ids=cell.active_declaration_ids,
                         source_plan_identity="sources",
                         evaluation_policy_identity="policy",
+                        resolution_context_digest="context",
+                        harness_policy_identity=(
+                            "original-harness-v1"
+                            if kind == "highest"
+                            else "harness-relaxation-v1"
+                        ),
+                        harness_baseline_digest=(
+                            None if kind == "highest" else "baseline"
+                        ),
                     )
                 )
                 return PreparedEnvironment(
@@ -671,7 +700,7 @@ class TestCheckWorkflow:
             environments=Environments(),
             static=Static(),
             full=Full(),
-        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_mode="SEARCH")
+        ).check(package=package, cell=package.cells[0], snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"))
 
         assert (
             result.status
@@ -713,7 +742,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> CheckCellOutcome:
                 if indeterminate:
                     return indeterminate_outcome(cell)
@@ -770,7 +799,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -829,7 +858,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_mode: object,
+                source_plan: SourcePlan,
             ) -> CheckCellOutcome:
                 nonlocal active, maximum_active
                 with lock:

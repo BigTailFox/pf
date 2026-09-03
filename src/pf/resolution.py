@@ -69,7 +69,7 @@ def resolution_context_digest(
     *,
     run: ResolutionRunContext,
     cell: Cell,
-    source_policy_identity: str,
+    source_plan_identity: str,
     prerelease_policy: str,
 ) -> str:
     return _digest(
@@ -77,7 +77,7 @@ def resolution_context_digest(
         {
             "run": run.model_dump(mode="json"),
             "cell": cell.model_dump(mode="json"),
-            "source_policy_identity": source_policy_identity,
+            "source_plan_identity": source_plan_identity,
             "resolution_policy_identity": "uv-highest-normalized-input-v1",
             "prerelease_policy": prerelease_policy,
             "yanked_policy_identity": "uv-default-v1",
@@ -88,7 +88,7 @@ def resolution_context_digest(
 class ResolutionContext(FrozenSchema):
     run: ResolutionRunContext
     cell: Cell
-    source_policy_identity: str
+    source_plan_identity: str
     resolution_policy_identity: Literal["uv-highest-normalized-input-v1"] = (
         "uv-highest-normalized-input-v1"
     )
@@ -102,31 +102,31 @@ class ResolutionContext(FrozenSchema):
         *,
         run: ResolutionRunContext,
         cell: Cell,
-        source_policy_identity: str,
+        source_plan_identity: str,
         allow_prereleases: bool,
     ) -> "ResolutionContext":
         prerelease_policy = "allow" if allow_prereleases else "explicit"
         return cls(
             run=run,
             cell=cell,
-            source_policy_identity=source_policy_identity,
+            source_plan_identity=source_plan_identity,
             prerelease_policy=prerelease_policy,
             digest=resolution_context_digest(
                 run=run,
                 cell=cell,
-                source_policy_identity=source_policy_identity,
+                source_plan_identity=source_plan_identity,
                 prerelease_policy=prerelease_policy,
             ),
         )
 
     @model_validator(mode="after")
     def validate_context(self) -> "ResolutionContext":
-        if not self.source_policy_identity:
-            raise ValueError("resolution source policy identity cannot be empty")
+        if not self.source_plan_identity:
+            raise ValueError("resolution source plan identity cannot be empty")
         expected = resolution_context_digest(
             run=self.run,
             cell=self.cell,
-            source_policy_identity=self.source_policy_identity,
+            source_plan_identity=self.source_plan_identity,
             prerelease_policy=self.prerelease_policy,
         )
         if self.digest != expected:

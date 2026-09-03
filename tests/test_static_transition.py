@@ -51,6 +51,10 @@ test-command = ["pytest"]
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
+            resolution_context_digest="context",
+            harness_policy_identity="harness-relaxation-v1",
+            harness_baseline_digest="baseline",
+            selected_candidate_evidence_digest="selection",
         )
     )
     prepared = PreparedEnvironment(

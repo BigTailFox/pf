@@ -13,6 +13,7 @@ from pf.schemas.project import (
     DependencySourceRoute,
     PackagePlan,
     SourceIdentity,
+    SourcePlan,
     StaticWorkspaceMemberVersion,
     VersionPin,
 )
@@ -123,7 +124,7 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="idna", version="3.10"),),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert index.queries == ["idna"]
@@ -133,7 +134,7 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="idna", version="3.10"),),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
         assert index.queries == ["idna"]
 
@@ -163,7 +164,7 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="demo-dep", version="1.1.1"),),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert len(snapshots) == 1
@@ -209,7 +210,7 @@ test-command = ["pytest"]
                 package=package,
                 cell=package.cells[0],
                 baseline=(VersionPin(name="demo-dep", version="1.0"),),
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
             )
 
     @pytest.mark.parametrize(
@@ -247,7 +248,7 @@ test-command = ["pytest"]
             package=package,
             cell=package.cells[0],
             baseline=(VersionPin(name="demo-dep", version=baseline),),
-            source_mode="SEARCH",
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert [candidate.version for candidate in snapshots[0].candidates] == expected
@@ -263,7 +264,7 @@ test-command = ["pytest"]
                 package=package,
                 cell=package.cells[0],
                 baseline=(),
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
             )
 
         local = SourceIdentity(kind="workspace", locator="packages/demo-dep")
@@ -286,7 +287,7 @@ test-command = ["pytest"]
                 package=local_only,
                 cell=local_only.cells[0],
                 baseline=(VersionPin(name="demo-dep", version="1.1.1"),),
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(local_only, "SEARCH"),
             )
 
     def test_candidate_builder_rejects_candidates_without_the_requested_artifact(
@@ -317,5 +318,5 @@ test-command = ["pytest"]
                 package=package,
                 cell=package.cells[0],
                 baseline=(VersionPin(name="demo-dep", version="1.0"),),
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
             )

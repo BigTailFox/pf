@@ -278,7 +278,7 @@ def rejection_is_supported(
 
 
 class AttemptIdentity(FrozenSchema):
-    identity_version: Literal["attempt-v1", "attempt-v2"] = "attempt-v1"
+    identity_version: Literal["attempt-v1"] = "attempt-v1"
     source_snapshot_digest: str
     cell: Cell
     requested_resolution: Literal["highest", "lowest-direct", "exact-vector"]
@@ -286,10 +286,10 @@ class AttemptIdentity(FrozenSchema):
     active_declaration_ids: tuple[str, ...]
     source_plan_identity: str
     evaluation_policy_identity: str
-    resolution_context_digest: str | None = None
-    harness_policy_identity: (
-        Literal["original-harness-v1", "harness-relaxation-v1"] | None
-    ) = None
+    resolution_context_digest: str
+    harness_policy_identity: Literal[
+        "original-harness-v1", "harness-relaxation-v1"
+    ]
     harness_declaration_ids: tuple[str, ...] = ()
     harness_baseline_digest: str | None = None
     selected_candidate_evidence_digest: str | None = None
@@ -313,38 +313,31 @@ class AttemptIdentity(FrozenSchema):
             names = tuple(pin.name for pin in self.requested_managed_vector)
             if names != tuple(sorted(set(names))):
                 raise ValueError("attempt managed vector must be sorted and unique")
-        if self.identity_version == "attempt-v2":
-            if not self.resolution_context_digest or not self.harness_policy_identity:
-                raise ValueError(
-                    "v2 attempt requires resolution context and harness policy"
-                )
-            if self.harness_declaration_ids != tuple(
-                sorted(set(self.harness_declaration_ids))
+        if not self.resolution_context_digest:
+            raise ValueError("attempt requires a resolution context")
+        if self.harness_declaration_ids != tuple(
+            sorted(set(self.harness_declaration_ids))
+        ):
+            raise ValueError("attempt harness declarations must be sorted and unique")
+        if self.requested_resolution == "highest":
+            if (
+                self.harness_policy_identity != "original-harness-v1"
+                or self.harness_baseline_digest is not None
+                or self.selected_candidate_evidence_digest is not None
             ):
                 raise ValueError(
-                    "attempt harness declarations must be sorted and unique"
+                    "highest attempt requires original harness without baseline"
                 )
-            if self.requested_resolution == "highest":
-                if (
-                    self.harness_policy_identity != "original-harness-v1"
-                    or self.harness_baseline_digest is not None
-                    or self.selected_candidate_evidence_digest is not None
-                ):
-                    raise ValueError(
-                        "highest attempt requires original harness without baseline"
-                    )
-            else:
-                if (
-                    self.harness_policy_identity != "harness-relaxation-v1"
-                    or not self.harness_baseline_digest
-                ):
-                    raise ValueError("relaxed attempt requires a harness baseline")
-                if (self.requested_resolution == "exact-vector") != (
-                    self.selected_candidate_evidence_digest is not None
-                ):
-                    raise ValueError(
-                        "only exact attempts carry selected candidate evidence"
-                    )
+        else:
+            if (
+                self.harness_policy_identity != "harness-relaxation-v1"
+                or not self.harness_baseline_digest
+            ):
+                raise ValueError("relaxed attempt requires a harness baseline")
+            if (self.requested_resolution == "exact-vector") != (
+                self.selected_candidate_evidence_digest is not None
+            ):
+                raise ValueError("only exact attempts carry selected candidate evidence")
         return self
 
 
@@ -358,29 +351,12 @@ class Attempt(FrozenSchema):
 
     @staticmethod
     def _identity_digest(identity: AttemptIdentity) -> str:
-        exclude = (
-            {
-                "identity_version",
-                "resolution_context_digest",
-                "harness_policy_identity",
-                "harness_declaration_ids",
-                "harness_baseline_digest",
-                "selected_candidate_evidence_digest",
-            }
-            if identity.identity_version == "attempt-v1"
-            else None
-        )
         canonical = json.dumps(
-            identity.model_dump(mode="json", exclude=exclude),
+            identity.model_dump(mode="json"),
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
-        prefix = (
-            b"pf:attempt:v1\0"
-            if identity.identity_version == "attempt-v1"
-            else b"pf:attempt:v2\0"
-        )
-        return hashlib.sha256(prefix + canonical).hexdigest()
+        return hashlib.sha256(b"pf:attempt:v1\0" + canonical).hexdigest()
 
     @model_validator(mode="after")
     def validate_attempt_id(self) -> "Attempt":

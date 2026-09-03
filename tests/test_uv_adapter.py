@@ -37,7 +37,6 @@ from pf.schemas.project import (
     SourceIdentity,
     SourcePlan,
     StaticWorkspaceMemberVersion,
-    package_source_plan,
 )
 
 
@@ -175,7 +174,7 @@ tool = { path = "vendor/tool" }
                 release_cutoff="2026-08-28T00:00:00+00:00",
             ),
             cell=cell,
-            source_policy_identity="source-policy",
+            source_plan_identity="source-plan",
             allow_prereleases=False,
         )
 
@@ -288,7 +287,7 @@ test-command = ["pytest"]
         context = ResolutionContext.from_inputs(
             run=run,
             cell=package.cells[0],
-            source_policy_identity="source-policy",
+            source_plan_identity="source-plan",
             allow_prereleases=False,
         )
         baseline = HarnessBaseline.from_evidence(
@@ -367,7 +366,7 @@ test-command = ["pytest"]
             harness=relax_harness(
                 package,
                 baseline,
-                source_mode="SEARCH",
+                source_plan=search_source_plan,
             ).requirements,
             work_directory=tmp_path,
             allow_prereleases=False,
@@ -467,7 +466,7 @@ test-command = ["pytest"]
                 python_minor="3.11",
                 extra_surface=(),
             ),
-            source_policy_identity="source-policy",
+            source_plan_identity="source-plan",
             allow_prereleases=False,
         )
         outcome = UvAdapter(Runner()).resolve_project(
@@ -553,7 +552,7 @@ packages = [
                 release_cutoff="2026-08-23T00:00:00+00:00",
             ),
             cell=package.cells[0],
-            source_policy_identity="source-policy",
+            source_plan_identity="source-plan",
             allow_prereleases=False,
         )
         adapter = UvAdapter(Runner())
@@ -567,7 +566,7 @@ packages = [
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
-            source_plan=package_source_plan(package, "SEARCH"),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
         assert isinstance(project, ResolutionPlan)
         environment = adapter.resolve_environment(
@@ -581,12 +580,12 @@ packages = [
             harness=original_harness(
                 package,
                 package.cells[0],
-                source_mode="SEARCH",
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
             ),
             work_directory=tmp_path,
             allow_prereleases=False,
             timeout_seconds=30,
-            source_plan=package_source_plan(package, "SEARCH"),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert isinstance(environment, ResolutionPlan)
@@ -620,7 +619,7 @@ packages = [
                 python_minor="3.11",
                 extra_surface=(),
             ),
-            source_policy_identity="source-policy",
+            source_plan_identity="source-plan",
             allow_prereleases=False,
         )
         outcome = UvAdapter(Runner()).resolve_project(

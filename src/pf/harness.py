@@ -13,9 +13,8 @@ from pf.schemas.project import (
     HarnessSpecifierClause,
     PackagePlan,
     RelaxedHarness,
-    ResolutionSourceMode,
     SourceIdentity,
-    package_source,
+    SourcePlan,
 )
 
 
@@ -62,7 +61,7 @@ def relax_harness(
     package: PackagePlan,
     baseline: HarnessBaseline,
     *,
-    source_mode: ResolutionSourceMode,
+    source_plan: SourcePlan,
 ) -> RelaxedHarness:
     requirements = package.harness_requirements
     active = active_harness_requirements(requirements, baseline.cell)
@@ -74,7 +73,7 @@ def relax_harness(
     for requirement in active:
         policy = harness_requirement_policy(
             requirement,
-            source=package_source(package, requirement.name, source_mode),
+            source=source_plan.source_for(requirement.name),
         )
         clauses = tuple(
             clause
@@ -114,9 +113,10 @@ def original_harness(
     package: PackagePlan,
     cell: Cell,
     *,
-    source_mode: ResolutionSourceMode,
+    source_plan: SourcePlan,
 ) -> tuple[HarnessResolutionRequirement, ...]:
     """Project active declarations without applying the relaxation policy."""
+    del source_plan
     return tuple(
         HarnessResolutionRequirement(
             declaration=requirement,

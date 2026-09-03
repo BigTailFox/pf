@@ -49,11 +49,10 @@ from pf.schemas.project import (
     Proposal,
     SelectedCandidate,
     SourceIdentity,
+    SourcePlan,
     VersionPin,
     candidate_snapshot_digest,
-    package_source_plan,
     selected_candidate_evidence_digest,
-    source_plan_identity,
 )
 from pf.schemas.report import (
     CellIndeterminate,
@@ -175,6 +174,7 @@ test-command = ["python", "-c", "pass"]
         )
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 CellIndeterminate(
@@ -228,7 +228,6 @@ def _attempt(
     )
     return Attempt.from_identity(
         AttemptIdentity(
-            identity_version="attempt-v2",
             source_snapshot_digest=snapshot_digest,
             cell=cell,
             requested_resolution=resolution,
@@ -348,7 +347,7 @@ def _write_success_with_predecessor_report(
     try:
         cell = package.cells[0]
         policy_identity = evaluation_policy_identity(package.config)
-        plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
+        plan_identity = SourcePlan.for_package(package, "SEARCH").identity
         source = next(
             route.search_source
             for route in package.source_routes
@@ -455,6 +454,7 @@ def _write_success_with_predecessor_report(
         )
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 CellSuccess(

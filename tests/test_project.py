@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,9 @@ from pf.project import ProjectLoader, host_target, marker_platform
 from pf.project_discovery import PackageLocation, ProjectDiscovery
 from pf.schemas.config import RootPackage, WorkspacePackage
 from pf.schemas.project import (
+    DependencySourceRoute,
+    DynamicWorkspaceMemberVersion,
+    SourcePlan,
     SourceIdentity,
     StaticWorkspaceMemberVersion,
 )
@@ -296,6 +300,167 @@ class TestProjectDiscovery:
 
 
 class TestProjectPlanning:
+    @pytest.mark.parametrize("mode", ("DEVELOPMENT", "SEARCH"))
+    def test_source_plan_selects_the_effective_source_for_its_mode(
+        self,
+        tmp_path: Path,
+        mode: str,
+    ) -> None:
+        write_basic_project(tmp_path, "")
+        package = ProjectLoader().load(root=tmp_path).target
+
+        plan = SourcePlan.for_package(package, mode)
+
+        route = package.source_routes[0]
+        expected = (
+            route.development_source if mode == "DEVELOPMENT" else route.search_source
+        )
+        assert plan.source_for("idna") == expected
+
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        (("DEVELOPMENT", "workspace"), ("SEARCH", "registry")),
+    )
+    def test_source_plan_selects_each_side_of_a_dual_route(
+        self,
+        mode: str,
+        expected: str,
+    ) -> None:
+        plan = SourcePlan(
+            source_mode=mode,
+            routes=(
+                DependencySourceRoute(
+                    dependency="member",
+                    development_source=SourceIdentity(
+                        kind="workspace", locator="packages/member"
+                    ),
+                    search_source=SourceIdentity(kind="registry"),
+                    workspace_member_version=StaticWorkspaceMemberVersion(
+                        value="1.2"
+                    ),
+                ),
+            ),
+        )
+
+        assert plan.source_for("member").kind == expected
+
+    def test_search_source_plan_reports_only_registry_routed_workspace_dependencies(
+        self,
+    ) -> None:
+        registry = SourceIdentity(kind="registry", locator="https://pypi.org/simple")
+        local = SourceIdentity(kind="workspace", locator="packages/local")
+        managed = SourceIdentity(kind="workspace", locator="packages/managed")
+        plan = SourcePlan(
+            source_mode="SEARCH",
+            routes=(
+                DependencySourceRoute(
+                    dependency="local",
+                    development_source=local,
+                    search_source=local,
+                    workspace_member_version=DynamicWorkspaceMemberVersion(),
+                ),
+                DependencySourceRoute(
+                    dependency="managed",
+                    development_source=managed,
+                    search_source=registry,
+                    workspace_member_version=StaticWorkspaceMemberVersion(value="1.2"),
+                ),
+            ),
+        )
+
+        assert plan.registry_routed_workspace_dependencies() == ("managed",)
+
+        development = plan.model_copy(update={"source_mode": "DEVELOPMENT"})
+        assert development.registry_routed_workspace_dependencies() == ()
+
+    @pytest.mark.parametrize(
+        "member_version",
+        (
+            StaticWorkspaceMemberVersion(value="1.2"),
+            DynamicWorkspaceMemberVersion(),
+        ),
+    )
+    def test_source_plan_returns_frozen_workspace_member_metadata(
+        self,
+        member_version: StaticWorkspaceMemberVersion
+        | DynamicWorkspaceMemberVersion,
+    ) -> None:
+        workspace = SourceIdentity(kind="workspace", locator="packages/member")
+        plan = SourcePlan(
+            source_mode="DEVELOPMENT",
+            routes=(
+                DependencySourceRoute(
+                    dependency="member",
+                    development_source=workspace,
+                    search_source=workspace,
+                    workspace_member_version=member_version,
+                ),
+                DependencySourceRoute(
+                    dependency="registry",
+                    development_source=SourceIdentity(kind="registry"),
+                    search_source=SourceIdentity(kind="registry"),
+                ),
+            ),
+        )
+
+        assert plan.workspace_member_version_for("member") is member_version
+        assert plan.workspace_member_version_for("registry") is None
+
+    @pytest.mark.parametrize(
+        "query",
+        (SourcePlan.source_for, SourcePlan.workspace_member_version_for),
+    )
+    def test_source_plan_rejects_a_missing_dependency(
+        self,
+        query: Callable[[SourcePlan, str], object],
+    ) -> None:
+        plan = SourcePlan(source_mode="SEARCH", routes=())
+
+        with pytest.raises(ValueError, match="source plan route is missing: missing"):
+            query(plan, "missing")
+
+    def test_source_plan_rejects_unsorted_or_duplicate_routes(self) -> None:
+        registry = SourceIdentity(kind="registry")
+        route = DependencySourceRoute(
+            dependency="demo",
+            development_source=registry,
+            search_source=registry,
+        )
+
+        with pytest.raises(ValueError, match="routes must be sorted and unique"):
+            SourcePlan(source_mode="SEARCH", routes=(route, route))
+
+    def test_source_plan_identity_is_stable_across_queries_and_wire_round_trip(
+        self,
+    ) -> None:
+        registry = SourceIdentity(kind="registry")
+        plan = SourcePlan(
+            source_mode="SEARCH",
+            routes=(
+                DependencySourceRoute(
+                    dependency="demo",
+                    development_source=registry,
+                    search_source=registry,
+                ),
+            ),
+        )
+        original_hash = hash(plan)
+        original_dump = plan.model_dump(mode="json")
+
+        plan.source_for("demo")
+        plan.workspace_member_version_for("demo")
+        plan.registry_routed_workspace_dependencies()
+        round_trip = SourcePlan.model_validate_json(plan.model_dump_json())
+
+        assert plan.identity == (
+            "7c3cbb244a395ac45e1f54cd5eef15d3d29847b9c52c2649b28234aa3a71b795"
+        )
+        assert round_trip.identity == plan.identity
+        assert plan == round_trip
+        assert hash(plan) == original_hash
+        assert plan.model_dump(mode="json") == original_dump
+        assert tuple(original_dump) == ("source_mode", "routes")
+
     def test_workspace_routes_only_target_direct_dependencies_by_management_policy(
         self,
         tmp_path: Path,
@@ -437,7 +602,7 @@ test-command = ["pytest"]
         )
         assert "token" not in package.model_dump_json()
 
-    def test_harness_source_is_owned_by_the_package_source_plan(
+    def test_harness_source_is_owned_by_the_canonical_source_plan(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "vendor" / "pytest").mkdir(parents=True)

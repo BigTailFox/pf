@@ -34,12 +34,11 @@ from pf.schemas.project import (
     PackagePlan,
     RequirementDeclaration,
     SelectedCandidate,
+    SourcePlan,
     VersionPin,
     candidate_snapshot_digest,
     cell_id,
-    package_source_plan,
     selected_candidate_evidence_digest,
-    source_plan_identity,
 )
 from pf.schemas.report import (
     CellSuccess,
@@ -87,7 +86,7 @@ def candidate_snapshot(
         ),
     )
     representatives = ((pin.version, pin.version),)
-    plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
+    plan_identity = SourcePlan.for_package(package, "SEARCH").identity
     return (
         CandidateSnapshot(
             dependency=pin.name,
@@ -120,7 +119,6 @@ def report_attempt(
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
-            identity_version="attempt-v2",
             source_snapshot_digest=snapshot_digest,
             cell=cell,
             requested_resolution=resolution,
@@ -223,7 +221,7 @@ def successful_cell(
     snapshot_digest: str,
 ) -> CellSuccess:
     vector = (VersionPin(name="idna", version=floor),)
-    plan_identity = source_plan_identity(package_source_plan(package, "SEARCH"))
+    plan_identity = SourcePlan.for_package(package, "SEARCH").identity
     final_attempt = report_attempt(
         cell=cell,
         snapshot_digest=snapshot_digest,
@@ -621,6 +619,7 @@ class TestReportProjection:
         snapshot = SnapshotBuilder.without_processes().build(tmp_path)
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
@@ -665,7 +664,7 @@ class TestReportProjection:
             source_snapshot=report.source_snapshot,
             policy_identity=report.policy_identity,
             requirement_declarations=report.requirement_declarations,
-            source_plan=package_source_plan(package, "SEARCH"),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             target_cells=target_cells,
         )
         path.write_text(json.dumps(incomplete_coverage), encoding="utf-8")
@@ -700,6 +699,7 @@ class TestReportProjection:
 
         report = PackageReportBuilder().build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=tuple(
                 successful_cell(
@@ -753,6 +753,7 @@ class TestReportProjection:
         builder = PackageReportBuilder()
         first = builder.build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
@@ -765,6 +766,7 @@ class TestReportProjection:
         )
         second = builder.build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(
@@ -797,6 +799,7 @@ class TestReportProjection:
 
         replacement = builder.build(
             package=package,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot.identity,
             cell_results=(
                 successful_cell(

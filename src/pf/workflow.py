@@ -66,7 +66,7 @@ from pf.schemas.project import (
     Cell,
     PackagePlan,
     ProjectPlan,
-    ResolutionSourceMode,
+    SourcePlan,
 )
 from pf.schemas.config import (
     ApplyRequest,
@@ -129,7 +129,7 @@ class CheckEnvironmentOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         resolution: ResolutionRequest,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> PreparedEnvironment | PrepareFailure: ...
 
 
@@ -160,7 +160,7 @@ class CheckCellOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> CheckCellOutcome: ...
 
 
@@ -188,7 +188,7 @@ class CompatibilityChecker:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> CheckCellOutcome:
         require_full_evaluation_contract(package, "check")
         if self._events is not None:
@@ -200,7 +200,7 @@ class CompatibilityChecker:
             cell=cell,
             snapshot=snapshot,
             resolution=HighestResolution(),
-            source_mode=source_mode,
+            source_plan=source_plan,
         )
         if isinstance(highest, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -228,7 +228,7 @@ class CompatibilityChecker:
             cell=cell,
             snapshot=snapshot,
             resolution=LowestDirectResolution(highest.harness_baseline),
-            source_mode=source_mode,
+            source_plan=source_plan,
         )
         if isinstance(prepared, ToolFailure):
             raise ValueError("check prepare must establish an Attempt")
@@ -356,6 +356,7 @@ class CheckCommandWorkflow:
         try:
             self._emit(StatusEvent(message="checking declarations"))
             package = project.target
+            source_plan = SourcePlan.for_package(package, "SEARCH")
             cells = selected_host_cells(package, self._host_target)
             self._emit(_cell_matrix_event(package, cells))
             require_full_evaluation_contract(package, "check")
@@ -367,7 +368,7 @@ class CheckCommandWorkflow:
                 VerificationRun(
                     command="check",
                     package=package,
-                    source_mode="SEARCH",
+                    source_plan=source_plan,
                     snapshot=snapshot,
                     tasks=tuple(
                         VerificationTask(
@@ -395,13 +396,13 @@ class CheckCommandWorkflow:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Callable[[], CheckCellOutcome]:
-        def run() -> CheckCellOutcome:
+    ) -> Callable[[SourcePlan], CheckCellOutcome]:
+        def run(source_plan: SourcePlan) -> CheckCellOutcome:
             return self._checker.check(
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
-                source_mode="SEARCH",
+                source_plan=source_plan,
             )
 
         return run
@@ -465,7 +466,7 @@ class SmokeCellOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> HighestVersionOutcome: ...
 
 
@@ -504,6 +505,7 @@ class SmokeCommandWorkflow:
         try:
             self._emit(StatusEvent(message="smoke testing"))
             package = project.target
+            source_plan = SourcePlan.for_package(package, "DEVELOPMENT")
             cells = selected_host_cells(package, self._host_target)
             self._emit(_cell_matrix_event(package, cells))
             require_full_evaluation_contract(package, "smoke")
@@ -515,7 +517,7 @@ class SmokeCommandWorkflow:
                 VerificationRun(
                     command="smoke",
                     package=package,
-                    source_mode="DEVELOPMENT",
+                    source_plan=source_plan,
                     snapshot=snapshot,
                     tasks=tuple(
                         VerificationTask(
@@ -543,8 +545,8 @@ class SmokeCommandWorkflow:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Callable[[], HighestVersionOutcome]:
-        def run() -> HighestVersionOutcome:
+    ) -> Callable[[SourcePlan], HighestVersionOutcome]:
+        def run(source_plan: SourcePlan) -> HighestVersionOutcome:
             self._events.consume(
                 CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
             )
@@ -552,7 +554,7 @@ class SmokeCommandWorkflow:
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
-                source_mode="DEVELOPMENT",
+                source_plan=source_plan,
             )
 
         return run
@@ -603,7 +605,7 @@ class CellSearchOperations(Protocol):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_mode: ResolutionSourceMode,
+        source_plan: SourcePlan,
     ) -> CellResult: ...
 
 
@@ -659,6 +661,7 @@ class SearchCommandWorkflow:
         try:
             self._events.consume(StatusEvent(message="searching cells"))
             package = project.target
+            source_plan = SourcePlan.for_package(package, "SEARCH")
             tasks = tuple(
                 VerificationTask(
                     cell=cell,
@@ -687,7 +690,7 @@ class SearchCommandWorkflow:
                 VerificationRun(
                     command="search",
                     package=package,
-                    source_mode="SEARCH",
+                    source_plan=source_plan,
                     snapshot=snapshot,
                     tasks=tasks,
                     jobs=request.jobs,
@@ -697,6 +700,7 @@ class SearchCommandWorkflow:
             self._assert_source_snapshot_current(root=root, expected=snapshot)
             report = self._report_builder.build(
                 package=package,
+                source_plan=source_plan,
                 source_snapshot=snapshot.identity,
                 cell_results=results,
             )
@@ -754,13 +758,13 @@ class SearchCommandWorkflow:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-    ) -> Callable[[], CellResult]:
-        def run() -> CellResult:
+    ) -> Callable[[SourcePlan], CellResult]:
+        def run(source_plan: SourcePlan) -> CellResult:
             return self._coordinator.search(
                 package=package,
                 cell=cell,
                 snapshot=snapshot,
-                source_mode="SEARCH",
+                source_plan=source_plan,
             )
 
         return run
