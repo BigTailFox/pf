@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-08-31
+- **最后核对：** 2026-09-03
 
 本页只负责文档治理、契约所有权和导航。每条现行规则只有一个规范性所有者；其他文档只引用，不复述。代码与文档冲突时，同一变更必须修正实现或所有者文档。
 
@@ -11,7 +11,7 @@
 README.md                  使用入口
 CONTEXT.md                 领域词汇；不定义行为
 docs/
-├── designs/               现行或草案设计
+├── designs/               现行或临时迁移 Design
 ├── plans/                 进行中的实施计划与证据记录
 ├── experiments/           非规范性实验事实与 dogfood 结论
 ├── reviews/               尚未解决的评审
@@ -24,7 +24,9 @@ docs/
     └── investigations/    结论已被设计吸收的探索
 ```
 
-现行文档使用“现行”或“草案”；归档文档不再承担规范性。Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
+长期 owner Design 使用“现行”；临时迁移 Design 可以是“草案”或“已接受、待实施/实施中”。已接受
+Design 定义唯一目标契约，但在实现与 owner 归并完成前不冒充现行行为。归档文档不再承担规范性。
+Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
 
 ## 契约所有权
 
@@ -51,6 +53,8 @@ docs/
 ## 开放事项与归档
 
 - [R004](reviews/R004-pf-search-performance-review.md) 保留在现行目录，因为其中的性能优化候选尚未实施。
+- [R005](reviews/R005-pf-module-depth-review.md) 仍保留 workspace inventory、Verification Run、评价层假想 Protocol、terminal-private result-card 与 SearchCoordinator 测试表面的未实施 module-depth 候选；SourcePlan 已由 D019/P025 解决并归并到现行 owner。
+- [D019](archived/designs/D019-pf-source-plan-depth.md) / [P025](archived/plans/P025-pf-source-plan-depth.md) 的 SourcePlan 深化迁移已完成；设计理由与完整验证证据见归档记录。
 - D018/P024的诊断与结果命令卡片迁移已完成；稳定规则已由D001/D002/D005/D006/D008接管，
   D014的merge authority保持不变，设计理由和实施证据见归档索引。
 - D017/P023的单target与workspace direct dependency迁移已完成；设计理由和实施证据见归档索引。

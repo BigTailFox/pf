@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-08-31
+- **最后核对：** 2026-09-03
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -80,11 +80,11 @@ sha256("pf:source-snapshot:v1\0" + canonical_identity_json({entries, pyproject_i
 - `candidate_snapshots` 以 `candidate_snapshot_id` 唯一、排序，每个 `(cell_ref, dependency)` 最多一条。
 - `source_plan`是required generation input，保存`source_mode = SEARCH`与按dependency排序、唯一的
   `DependencySourceRoute`；每条route绑定development/search source及可选workspace member version
-  metadata。
+  metadata。它是唯一 SourcePlan wire 值；派生 `identity` 与查询不进入 JSON。
 
 CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带 `policy_identity`。Reader 以 record 自身 policy、完整 Cell、source、候选和 series representatives 重算现行 CandidateSnapshot digest。
-每条 CandidateSnapshot 还保存`source_plan_identity`；它必须等于完整generation SourcePlan的摘要，
-且其dependency/source必须精确对应同名route的registry `search_source`。Workspace member当前版本
+每条 CandidateSnapshot 还保存`source_plan_identity`；它必须等于完整generation SourcePlan的唯一摘要，
+且 Reader 必须通过 `SourcePlan.source_for` 证明其 dependency/source 精确对应 registry SEARCH effective source。Workspace member当前版本
 不进入candidate records。
 
 ### 1.3 Evidence
@@ -110,7 +110,7 @@ Failure wire 必须恰有一个判别 `authority`：`process | configured-verifi
 拒绝缺失、混合、额外或与 cause/stage/disposition 不匹配的 authority，并以完整
 `pf:failure:v2` preimage 重算 failure ID。
 
-Schema 1只接受`attempt-v2` identity。每个Attempt的`source_plan_identity`必须等于generation
+Schema 1只接受当前完整 preimage 的`attempt-v1` identity。每个Attempt的`source_plan_identity`必须等于generation
 SourcePlan；exact-vector的`selected_candidate_evidence_digest`继续绑定由registry search route
 取得的CandidateSnapshots。Proposal保存运行期已闭合的两个plan digest与graph ref，不把native
 pylock或本地workspace provenance复制进公共wire。
@@ -152,8 +152,8 @@ Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Eval
 3. 以严格 wire model 验证字段、类型、判别 union、无额外字段和无显式 null；
 4. 要求输入与 `model_dump(exclude_none=True)` 完全一致，禁止 coercion/default 补事实；
 5. 建立线性的 typed indexes，拒绝重复、未知或错误种类的 ref；
-6. 要求SourcePlan为SEARCH，复算其mode/routes摘要及generation、Cell、CandidateSnapshot、
-   ResolutionGraph、Attempt、Proposal、region与Failure v2 identity；
+6. 要求SourcePlan为SEARCH，通过其 interface 复算唯一摘要与 effective source，并复算generation、
+   Cell、CandidateSnapshot、ResolutionGraph、当前 Attempt v1、Proposal、region与Failure v2 identity；
 7. 验证 cross-cell scope、Evaluation/Failure/Proposal 闭环、搜索边界、projection 与 result；
 8. 从 roots 检查全图可达性和规范顺序；
 9. 返回 immutable、resolved `ValidatedReport`，不向调用方泄漏 wire refs 或 join 规则。
@@ -182,7 +182,7 @@ json.dumps(
 ## 5. Module interface
 
 ```text
-PackageReportBuilder.build(package, source_snapshot, cell_results)
+PackageReportBuilder.build(package, source_plan, source_snapshot, cell_results)
     -> ValidatedReport
 PackageReportBuilder.project(declarations, target_cells, floors,
                              selected_selectors, platform_scoped)
@@ -197,7 +197,7 @@ ReportStore.update_path(path, replacement) -> ReportUpdate
 
 `MergeCommandWorkflow`可把validated report、ordered input paths和output path包装为结构化command result/error供Presenter使用；这些presentation facts不进入report，不改变下述merge compatibility、canonical graph、generation或atomic write authority。
 
-`PackageReportBuilder`把领域`CellResult` intern为规范图并计算report projection/result；同一owner的`project`按dependency group重生成Cell→PEP 508 projection并重求值。`ReportStore`独占wire codec、typed index、ref展开、完整验证、merge/update和原子事务。Workflow、authorizer、explain与diagnose只消费`ValidatedReport`；editor只消费authorized edits。上述模块不得import wire records、读取`_wire`或自行join refs。
+`PackageReportBuilder`把领域`CellResult` intern为规范图并计算report projection/result；Search writer 把真实 Run plan 同时用于 generation identity 与 `inputs.source_plan`，merge/update reintern 复用 generation plan，不从 PackagePlan 重建。同一owner的`project`按dependency group重生成Cell→PEP 508 projection并重求值。`ReportStore`独占wire codec、typed index、ref展开、完整验证、merge/update和原子事务；raw routes 只用于严格 codec、public locator 与 cross-ref，effective source/identity 闭合走 SourcePlan interface。Workflow、authorizer、explain与diagnose只消费`ValidatedReport`；editor只消费authorized edits。上述模块不得import wire records、读取`_wire`或自行join refs。
 
 同generation merge/update要求generator、package/requires-python、source snapshot（含dependency-array identity）、policy、verifier policy、SourcePlan、declarations与target Cells完全兼容；先展开final CellResult roots，再重新intern整图，因此旧的不可达evidence被清理，共享graph只保留一次。相同Cell的冲突结果失败。`--force`不参与merge。不同generation的`update_path`整体替换；空replacement不删除existing Cells。坏existing report必须在任何覆盖前失败。合法apply会改变dependency-array/full snapshot identity并开始新generation，apply前后reports不可merge/rebase。
 

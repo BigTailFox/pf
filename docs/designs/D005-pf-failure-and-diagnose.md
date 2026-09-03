@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `failure-runtime-v2`
-- **最后核对：** 2026-08-31
+- **最后核对：** 2026-09-03
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
 - **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
@@ -47,8 +47,10 @@ NONDETERMINISTIC
 ## 2. Attempt 与 scope
 
 Attempt 在 environment resolution 前建立，identity 绑定 source snapshot、完整 Cell、
-resolution request、exact managed vector、active declarations、逐dependency route与source mode的
-SourcePlan identity、evaluation/resolution/harness policy以及可用selected-candidate evidence。Schema 1只接受`attempt-v2`。
+resolution request、exact managed vector、active declarations、唯一 SourcePlan identity、evaluation
+policy、`ResolutionContext` digest、original/relaxed harness policy、harness declarations/baseline，以及
+exact request 的 selected-candidate evidence。当前唯一布局与摘要均为 `attempt-v1` / `pf:attempt:v1`；
+Schema 1 只按该完整 preimage 重建和复算，不接受开发期旧 identity。
 
 Failure scope 是判别 union：
 

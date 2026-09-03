@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-08-31
+- **最后核对：** 2026-09-03
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -99,7 +99,7 @@ ConfigDict(
 | Schema module | 记录范围 | 行为所有者 |
 | --- | --- | --- |
 | `schemas.config` | effective config、CLI/workflow requests | D001 / `ConfigLoader` |
-| `schemas.project` | declarations、Cells、source、candidates、Proposal、project plan | `ProjectLoader`、Candidate/Environment owner |
+| `schemas.project` | declarations、Cells、SourcePlan、candidates、Proposal、project plan | `ProjectLoader`、SourcePlan、Candidate/Environment owner |
 | `schemas.evaluation` | process、Attempt、Failure、static/runtime outcome、Journal、activity events | D004、D005、D008、D013 |
 | `schemas.report` | search evidence、CellResult、projection、private Schema 1 wire | D003、D014 |
 | `schemas.apply` | workspace/package/group授权、presentation facts与command result | `ApplyAuthorizer`、`ProjectEditor` |
@@ -151,10 +151,10 @@ SnapshotBuilder.build(root, owned_pyproject_paths=...) -> SourceSnapshot
 核心 interface：
 
 ```text
-CandidateBuilder.build(package, cell, baseline, source_mode)
+CandidateBuilder.build(package, cell, baseline, source_plan)
     -> tuple[CandidateSnapshot, ...]
 
-EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_mode)
+EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_plan)
     -> PreparedEnvironment | PrepareFailure
 
 StaticEvaluator.capture/evaluate(...)
@@ -167,7 +167,9 @@ SearchCoordinator.search(...) -> CellResult
 VerificationRunner.run(VerificationRun) -> ordered outcomes
 ```
 
-`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。`VerificationRun.package` 与 `source_mode` 在跨 Cell 调度前固定；`smoke=DEVELOPMENT`，`check/search=SEARCH`。`PackagePlan.source_routes + source_mode` 规范化为同一 `SourcePlan`，由 candidate、harness、两次 resolution 与 Attempt/report identity 共同消费。Request、structured harness、two-resolution plan、environment identity 和 install 边界由 D012 定义。
+上述 Candidate/Environment/Highest/Check/Search interface 的最后一个参数均为同一 `source_plan`，不是裸 `source_mode`。`SourcePlan.for_package(package, mode)` 是在线 workflow 与 apply 的领域构造入口；其 `source_for`、`registry_routed_workspace_dependencies`、`workspace_member_version_for` 与派生 `identity` 独占 effective source、dual-route/member facts 和 source identity。只有 `source_mode + routes` 进入 wire；查询不保存实例缓存。ProjectLoader 仍独占 route 分类，UvAdapter 独占 argv，ApplyAuthorizer 独占授权，ReportStore 独占 codec/cross-ref。
+
+`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。`VerificationRun.package` 与完整 `source_plan` 在跨 Cell 调度前固定；`smoke=DEVELOPMENT`，`check/search=SEARCH`。Runner 验证 command/mode、package/routes、重复与越界 Cell，再以 `VerificationTask.execute(source_plan)` 把同一对象注入每个 operation。candidate、harness、两次 resolution、Attempt 与 search report 共同消费该 plan；workflow task closure 不捕获第二份 plan。Request、structured harness、two-resolution plan、environment identity 和 install 边界由 D012 定义。
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；测试后标记为可能污染。不同 Proposal 不通过原地 upgrade/downgrade 复用环境。
 
@@ -204,7 +206,7 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 | Module | 唯一负责 | 不负责 |
 | --- | --- | --- |
 | `RunLogStore` | secure Process Logs、Verification Journal、Diagnosis Index 与 associations | disposition、报告 authority |
-| `ReportStore` | Schema 1 codec/validation、merge/update、canonical/atomic write | 搜索或领域 identity 算法 |
+| `ReportStore` | Schema 1 codec/validation、merge/update、canonical/atomic write；reader 从 wire SourcePlan 查询 identity/effective source | 搜索、source classification 或 apply authority |
 | `PackageReportBuilder` | CellResult roots → interned report/result；dependency group Cell→PEP 508 projection与重求值 | wire I/O、TOML I/O、apply授权 |
 | `ApplyAuthorizer` | report/current plan/snapshot的前置条件、platform scope、dependency state、source waiver与frozen authorized edits | TOML I/O、终端措辞、wire join |
 | `ProjectEditor` | expected snapshot/pyproject复核、authorized group replacement、raw CAS、写后验证、recovery/rollback | report internals、scope/projection/waiver推导 |

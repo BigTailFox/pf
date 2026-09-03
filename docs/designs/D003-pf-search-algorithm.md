@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **算法版本：** `runtime-static-v1`
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-09-03
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态 transition 与 witness：** [D004](D004-pf-ty-enhancement.md)
@@ -61,7 +61,7 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 9. 非单调判断只读取相同 Slice 中的直接 runtime observation，不读取 region guidance。
 10. 同一精确 Proposal 的完整 Evaluation 在一次 search 内最多执行一次。
 11. `CandidateSnapshot` 只冻结target受管project direct dependency的registry搜索候选；workspace member自身依赖、harness与任意transitive distribution完全属于uv resolution，不建立PF catalog、coordinate或floor。
-12. 一次 Verification Run 固定精确 uv profile、逐dependency SourcePlan、SEARCH mode、release cutoff 与共享 cache；相同 project/environment resolution input 最多解析一次，但 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。
+12. 一次 Verification Run 固定精确 uv profile、唯一 SEARCH SourcePlan 对象、release cutoff 与共享 cache；baseline、CandidateSnapshot freeze 与全部 exact probe 由 Runner 注入并消费该对象及其 identity。相同 project/environment resolution input 最多解析一次，但 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。
 
 ## 4. SearchCoordinator 状态机
 

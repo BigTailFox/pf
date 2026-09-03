@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v2`
-- **最后核对：** 2026-08-31
+- **最后核对：** 2026-09-03
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -16,16 +16,16 @@
 VerificationRun
   command: smoke | check | search
   package: one PackagePlan target
-  source_mode: DEVELOPMENT | SEARCH
+  source_plan: one SourcePlan
   one immutable SourceSnapshot
-  unique Cell tasks
+  unique in-package Cell tasks: execute(source_plan)
   jobs
   optional max-duration
 ```
 
 每个 Cell task 在外部 operation 前必须建立 Attempt；Attempt 前的 candidate discovery 或 scheduler deadline 只能形成 `CellFailureScope`。Prepare failure 保留完整 `PrepareFailure(attempt, failure, acquired plan digests)`，调用方不得 unwrap 成裸 ToolFailure。
 
-`source_mode`必须与命令闭合：`smoke=DEVELOPMENT`，`check/search=SEARCH`。它与package逐dependency routes形成Run级SourcePlan；Runner拒绝不匹配的mode或不属于该package的Cell task。
+`source_plan.source_mode`必须与命令闭合：`smoke=DEVELOPMENT`，`check/search=SEARCH`；plan routes 必须精确等于 package 已分类 routes。Runner 在调度前拒绝 command/mode、package/routes、重复 Cell 或不属于该 package 完整 Cell 集的 task；验证后只由 Runner 把同一个 Run plan 对象传给每个 `VerificationTask.execute(source_plan)`，operation 不从 workflow closure 取得另一份 plan。
 
 一个 Cell 的链路是：
 
@@ -108,7 +108,7 @@ VerificationRunner.run(VerificationRun) -> ordered outcomes
 
 Runner 独占：
 
-- 验证 package/task/Cell identity；
+- 验证 command/package/SourcePlan/task/Cell 聚合不变量，并向 task operation 注入 Run plan；
 - 构造 generic Scheduler；
 - max-duration 未启动 task 的 `TIMEOUT @ scheduler-deadline` CellResult；
 - 领域 result → Cell completion 投影；

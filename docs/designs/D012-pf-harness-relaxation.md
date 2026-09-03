@@ -1,7 +1,7 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-08-29
+- **最后核对：** 2026-09-03
 - **适用范围：** search probe 与 `check` Declaration Attempt 的环境准备
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -37,15 +37,15 @@ E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
 `ResolutionContext` 固定本次运行的：
 
 - 精确 uv 版本、protocol 和 qualification profile；
-- source policy、prerelease/yanked policy 和规范输入顺序；
+- SourcePlan identity、prerelease/yanked policy 和规范输入顺序；
 - Python、target、marker 与 wheel-tag 环境；
 - release cutoff 与共享 cache policy。
 
-一次 `VerificationRun` 还固定单个 target package 与 `ResolutionSourceMode`。Loader 为 target
+一次 `VerificationRun` 还固定单个 target package 与一个 canonical `SourcePlan`。Loader 为 target
 每条 direct declaration 给出规范化 `DependencySourceRoute(development_source, search_source,
-workspace_member_version)`；mode 选择每条 route 的有效 source，并与 ordered routes 一同形成
-`SourcePlan` identity。`smoke` 使用 `DEVELOPMENT`，`check`/`search` 使用 `SEARCH`。Candidate、
-harness、project/environment resolution、Attempt 和 report 必须消费同一 identity，resolver 不得
+workspace_member_version)`；SourcePlan 按 Run mode 提供 effective source、已分类 dual-route facts、
+冻结 member metadata 与唯一 identity。`smoke` 使用 `DEVELOPMENT`，`check`/`search` 使用 `SEARCH`。
+Candidate、harness、project/environment resolution、Attempt 和 report 必须消费同一 plan/identity，resolver 不得
 重新读取 source table 推导另一条领域 route。
 
 `UvAdapter` 运行 resolver 与 installer 时必须隔离用户级 uv 配置文件及外部 source-selection
@@ -68,8 +68,9 @@ Baseline 和 declaration-capture 不用 relaxed harness 修复用户当前声明
 
 ### 2.2 Workspace source 投影
 
-`UvAdapter` 独占 `SourcePlan -> uv argv` 投影。SEARCH mode 中，只有 development source 为
-workspace 且 search source 为 registry 的受管 direct dependency 进入 suppression 集；名称按
+`UvAdapter` 独占 `SourcePlan -> uv argv` 投影。SEARCH plan 中，由 ProjectLoader 分类为
+development workspace → search registry 的 direct dependency 进入 plan 的 dual-route 查询结果；
+adapter 不再读取 `declaration.managed` 或重新分类。名称按
 canonical distribution name 排序、去重，并在 project/environment 两次 compile 中生成完全相同的
 重复参数：
 
@@ -213,7 +214,7 @@ EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
 
 `EnvironmentFactory.prepare` 是上层唯一环境准备入口；harness relaxation、两次 resolution、一次 installation 和 graph 复证都隐藏在其内。
-调用者只传 package、Cell、resolution request、snapshot 与 source mode；suppression names 不是 public
+调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public
 interface。
 
 Request 类型限制非法组合：
@@ -228,7 +229,7 @@ Identity 按取得证据的时点分开：
 
 `PreparedEnvironment` 与 `Proposal` 保存两个 plan digest。Evaluation cache 以 `EnvironmentIdentity` 为边界；FailureRecord 只保存失败发生前已经取得的 evidence，不虚构尚未产生的 plan 或 artifact。
 
-`CandidateBuilder` 只建立受管 project direct dependencies 的有限搜索空间并缓存 source 查询。它不递归构造 project/harness catalog，不枚举 harness version，也不证明 resolution 无解。
+`CandidateBuilder` 只建立受管 project direct dependencies 的有限搜索空间，并通过 SourcePlan 查询 SEARCH effective source。它不缓存或重建 source facts，不递归构造 project/harness catalog，不枚举 harness version，也不证明 resolution 无解。
 
 ## 7. Failure projection
 
@@ -248,7 +249,7 @@ Identity 按取得证据的时点分开：
 - Harness transitive resolution 归 uv 所有。
 - 只有已认证且 evidence 完整的 resolver conflict 可以拒绝 Attempt。
 - source、artifact、build、tool 和未知失败保持 Indeterminate。
-- source mode/routes 在一次 Attempt 内固定；两次 compile 的逐 package suppression 必须相同。
+- 同一 SourcePlan identity 在一次 Attempt 内固定；两次 compile 的逐 package suppression 必须相同。
 - 未资格化的 mixed managed-suppressed/unmanaged-workspace source 不得通过 local fallback 继续。
 
 ## 9. 非目标
