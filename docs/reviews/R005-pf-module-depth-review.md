@@ -1,15 +1,16 @@
 # R005 — PF 模块深化架构评审
 
-- **状态：** 开放（SourcePlan 与 WorkspaceInventory 已解决；其余候选尚未设计或实施）
+- **状态：** 开放（SourcePlan、WorkspaceInventory 与轨 B 已解决；评价 seam、terminal result-card 与 SearchCoordinator 测试表面尚未设计或实施）
 - **日期：** 2026-09-02
 - **性质：** 非规范性架构评审；不定义命令、算法、Schema 或 module interface
 - **对照：** `main` / `b8efadc`（`docs: archive diagnostic result card design`）
 - **改进方案核对：** `main` / `c1aff33`（2026-09-03；SourcePlan 深化后的剩余项）
+- **轨 B Design 核对：** `main` / `e570cea`（2026-09-03；WorkspaceInventory 深化后的当前实现）
 - **输入材料：** `architecture-review-20260902-123228.html`；同日一次未读取本文的独立实现评审，再对照源码与现行契约校准
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D014](../designs/D014-pf-report-schema.md)
 - **历史决策：** [D010](../archived/designs/D010-pf-v1-architecture.md)、[D017](../archived/designs/D017-pf-single-target-workspace-dependencies.md)、[D018](../archived/designs/D018-pf-diagnostic-result-cards.md)
 - **前序评审：** [R002](../archived/reviews/R002-pf-v1-architecture-review.md)
-- **已解决项：** [D019](../archived/designs/D019-pf-source-plan-depth.md) / [P025](../archived/plans/P025-pf-source-plan-depth.md) 已完成 §3 SourcePlan；[D020](../archived/designs/D020-pf-workspace-inventory.md) / [P026](../archived/plans/P026-pf-workspace-inventory.md) 已完成 §4 WorkspaceInventory；本文因其余候选继续开放而不归档
+- **已解决项：** [D019](../archived/designs/D019-pf-source-plan-depth.md) / [P025](../archived/plans/P025-pf-source-plan-depth.md) 已完成 §3 SourcePlan；[D020](../archived/designs/D020-pf-workspace-inventory.md) / [P026](../archived/plans/P026-pf-workspace-inventory.md) 已完成 §4 WorkspaceInventory；[D021](../archived/designs/D021-pf-verification-run-request.md) / [P027](../archived/plans/P027-pf-verification-run-request.md) 已完成 §5 / §11.3 Verification Run request；本文因其余候选继续开放而不归档
 
 本文把输入材料中的四项架构建议，以及独立实现评审中经源码核对成立的中层 depth 问题，整理为可追踪的 Review，并对照当前源码与现行契约校准 ownership、优先级和完成标准。本文只记录时间点判断；任何被接受的 substantial 架构变更都必须先进入规范性 Design，再以 durable Plan 实施和验证。
 
@@ -23,12 +24,12 @@
 | --- | --- | --- | --- |
 | P1 | Strong；已解决 | 深化 SourcePlan module | 已由 D019/P025 把逐 dependency route、mode、lookup、identity 与 dual-route 结构事实收回一个 locality |
 | P1 | Strong；已解决 | 把 workspace discovery 深化为一次 canonical inventory | 已由 D020/P026 让 selection、planning facts、member facts 与 owned paths 来自同一次文件系统观察 |
-| P2 | Worth exploring | 继续深化 Verification Run module | 从三个 workflow 收回 task assembly、Journal projection、association 与 deadline plumbing |
+| P2 | Strong；已解决 | 继续深化 Verification Run module | D021/P027 已从三个 workflow 收回 task assembly、Journal projection、association 与 deadline plumbing |
 | P2 | Worth exploring | 合并评价层假想 Protocol | 三套同形 env/static/full Protocol 对应同一组生产 adapter；测试不再手造 `PreparedEnvironment` |
 | P2 | Worth exploring | 深化 terminal-private result-card module | 统一 TTY/plain、literal path、宽度布局与 final emission mechanics |
 | P3 | Later | 降低 `SearchCoordinator` 测试表面 | 协作槽位留在内部；替换走已有 `UvOperations` / `ProcessRunner` |
 
-SourcePlan 与 WorkspaceInventory 已分别按 D019/P025、D020/P026 完成并归并到现行 owner。当前最高优先级开放项转为 Verification Run interface alternatives；评价 seam、result-card 与 SearchCoordinator 测试表面仍按独立轨道处理。独立实现评审主张先收成一个 Cell 评价 module；该方向看到了真实重复，但会越过 D002 对 `CompatibilityChecker`、`HighestVersionVerifier` 与 `SearchCoordinator` 的产品所有权，因此仍校准为「只合并假想 Protocol，不合并三个产品编排器」。
+SourcePlan 与 WorkspaceInventory 已分别按 D019/P025、D020/P026 完成并归并到现行 owner。轨 B 也已由 [D021](../archived/designs/D021-pf-verification-run-request.md) / [P027](../archived/plans/P027-pf-verification-run-request.md) 完成 command-discriminated Verification Run request，稳定规则已由 D002/D006/D008 接管并同步归档。评价 seam、result-card 与 SearchCoordinator 测试表面继续按独立轨道处理。独立实现评审主张先收成一个 Cell 评价 module；该方向看到了真实重复，但会越过 D002 对 `CompatibilityChecker`、`HighestVersionVerifier` 与 `SearchCoordinator` 的产品所有权，因此仍校准为「只合并假想 Protocol，不合并三个产品编排器」。
 
 ## 2. 当前证据与校准
 
@@ -171,6 +172,10 @@ Inventory 属于 local-substitutable filesystem module：使用真实临时目�
 
 ## 5. P2：继续深化 Verification Run module
 
+[D021](../archived/designs/D021-pf-verification-run-request.md) 已将本节与 §11.3 收敛为临时性迁移目标，
+[P027](../archived/plans/P027-pf-verification-run-request.md) 已完成实现、验证、owner 归并与同步归档。
+下列内容继续保留为 Review 来源；当前行为只由现行 owner 定义。
+
 ### 5.1 问题
 
 Runner 的 implementation 已拥有 lifecycle，但 caller-facing task interface 仍暴露 closure、Journal projection、association 与 deadline failure 所需知识。删除当前 `VerificationTask` 后，这些 mechanics 会重新散回三个 workflow，说明还有可收回的复杂度。`completion_outcome` 对开放 `object` 的 overload，以及三条 workflow 各自投影 journal，是同一泄漏的具体证据。
@@ -257,7 +262,7 @@ Check / Highest / Search 各维护一套 env/static/full Protocol，生产路径
 1. SourcePlan 已按归档 [D019](../archived/designs/D019-pf-source-plan-depth.md) 与
    [P025](../archived/plans/P025-pf-source-plan-depth.md) 完成；多处 route/mode 知识已经删除。
 2. WorkspaceInventory 已按 [D020](../archived/designs/D020-pf-workspace-inventory.md) / [P026](../archived/plans/P026-pf-workspace-inventory.md) 完成；它收敛 SourcePlan 上游的 filesystem observation，但不与 SourcePlan 合成一个 module。
-3. Verification Run 先做 interface alternatives 与删除测试，只有明显变深时才实施。
+3. Verification Run 已按D021/P027完成interface alternatives、删除测试、实现、owner归并与同步归档。
 4. 合并评价层假想 Protocol；三个产品编排器保持独立 owner。
 5. Result-card 在下一次真实跨命令展示改动前设计，避免为纯整理制造 churn。
 6. SearchCoordinator 测试表面跟在第 4 项之后，作为测试改写而不是新的产品 module。
@@ -298,7 +303,7 @@ Design 并获得接受，再建立映射全部验收项的 durable Plan；不能
 | 顺序 | 独立 Design 范围 | 目标 | 进入条件 |
 | --- | --- | --- | --- |
 | A | [`WorkspaceInventory`](../archived/designs/D020-pf-workspace-inventory.md) | 一次 planning invocation 只读取并解释一份 workspace observation | 已由 D020/P026 完成 |
-| B | Verification Run request | 删除 workflow 暴露的 task callback、Journal、association 与 deadline mechanics | A 可独立完成后进入；先比较两种 interface |
+| B | [Verification Run request](../archived/designs/D021-pf-verification-run-request.md) | 删除 workflow 暴露的 task callback、Journal、association 与 deadline mechanics | D021/P027 已实现、通过验收并同步归档 |
 | C | 评价 seam 与 SearchCoordinator tests | 删除三套同形 Protocol，并把测试替换移到已有真实 adapter seam | B 后进入；SearchCoordinator 测试整改并入本轨 |
 | D | terminal-private result card | 一个私有 emitter 独占 TTY/plain、path、layout 与 final emission | 下一次真实跨命令展示变更触发，不为纯搬运提前实施 |
 
@@ -367,6 +372,10 @@ inventory，不验证未选中成员的 version、dependency、PF config 或 Cel
   classification，则停止并缩回 Design。
 
 ### 11.3 轨 B：command-discriminated Verification Run
+
+[D021](../archived/designs/D021-pf-verification-run-request.md) 已按本节形成并获得接受，进一步比较单一判别 request、
+三个 verb-first entry point 与 registered Run session，并选择前者；[P027](../archived/plans/P027-pf-verification-run-request.md)
+已完成该目标的实现、测试、证据、owner 归并与同步归档。下列原始方向继续作为追踪来源。
 
 #### Interface 比较与选择
 
