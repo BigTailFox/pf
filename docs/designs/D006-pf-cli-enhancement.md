@@ -122,7 +122,7 @@ scope facts 首部卡片先显示 setup 完成状态，再显示 matrix heading
 `selected N cells, P active packages (F pinned)`；其下一行是 `run-id: <id>`，随后显示
 Python、platform 与 extra surface。`active packages` 是所选 Cell 中至少
 生效一次的唯一 direct dependency name，`pinned` 是其中 fixed declaration 的唯一
-package name。上述计数由 workflow 随 `CellMatrixEvent` 发布，Presenter 不读取项目或
+package name。上述计数由 VerificationRunner 随 `CellMatrixEvent` 发布，Presenter 不读取项目或
 declaration。run ID 整行 dim；`YYYYMMDD` 与 `HHMMSS` 分别使用 dim bold green，点号后
 三个连字符分段分别使用 dim bold magenta。Python minor 版本使用 dim bold 默认前景色。
 setup、run ID、live/footer、完成 Cell、错误与 final summary 都使用 native Rich marker/content
@@ -222,6 +222,12 @@ path[:line[:column]] [check_name] single-line message
 每个 Cell 独立展示，不跨 Cell 聚合。TTY completion 立即从 active Cell 区移入 setup
 首部下方的 pinned 完成区；命令 outcome 确定后与首部一起固结，不得改变两者顺序。
 非 TTY 在 Cell completion 时立即输出等价稳定文本。
+
+Live completion只消费Runner发布的`CellCompletedEvent`；Check/Smoke/Search final分别从typed command
+outcome或report `CellResult`经terminal-private、按命令闭合的projector形成；Explain与剩余
+`SearchFailureEvent`从Evaluation/Failure facts经另一terminal-private projector形成。两类private
+projector与Run live对共同事实保持D008规定的语义相等，但Terminal不导入Runner private函数，也不建立
+接受任意object的shared public projector。
 
 ## 7. Result card 与 final summary
 

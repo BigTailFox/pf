@@ -113,8 +113,8 @@ class Scheduler:
                 task = next(pending)
             except StopIteration:
                 return
-            running[executor.submit(task.run)] = task
             on_started(task)
+            running[executor.submit(task.run)] = task
 
     @staticmethod
     def _worker_count(jobs: int | str) -> int:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
@@ -19,18 +18,13 @@ from pf.errors import (
     MergeInputError,
     MergeOutputError,
 )
-from pf.evaluation import require_full_evaluation_contract
-from pf.policy import evaluation_policy_identity
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
-    BaselineDetailIdentity,
     CellContextEvent,
-    CellFailureScope,
-    CellMatrixEvent,
     CheckCellOutcome,
     CheckCompatibilityFailure,
     CheckIndeterminate,
@@ -56,7 +50,6 @@ from pf.schemas.evaluation import (
     StaticEvaluation,
     StatusEvent,
     ToolFailure,
-    VerificationJournalEntry,
     VerificationJournalRecord,
     VerificationRole,
 )
@@ -79,46 +72,24 @@ from pf.schemas.config import (
     WorkspacePackage,
 )
 from pf.schemas.report import (
-    CellResult,
     ProjectEditResult,
     failure_records_for_result,
     failure_runtime_runs_for_result,
 )
-from pf.project import ProjectLoader, host_target as current_host_target
+from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.verification import (
     ActivityConsumer,
-    VerificationRun,
+    CellSearchOperations,
+    CheckCellOperations,
+    CheckVerificationRun,
+    SearchVerificationRun,
+    SmokeCellOperations,
+    SmokeVerificationRun,
     VerificationRunner,
-    VerificationTask,
 )
-
-
-def selected_host_cells(package: PackagePlan, host_target: str) -> tuple[Cell, ...]:
-    return tuple(cell for cell in package.cells if cell.target == host_target)
-
-
-def _cell_matrix_event(
-    package: PackagePlan,
-    cells: tuple[Cell, ...],
-) -> CellMatrixEvent:
-    active_names: set[str] = set()
-    pinned_names: set[str] = set()
-    for cell in cells:
-        active_ids = set(cell.active_declaration_ids)
-        for declaration in package.declarations:
-            if declaration.declaration_id not in active_ids:
-                continue
-            active_names.add(declaration.name)
-            if declaration.kind == "fixed":
-                pinned_names.add(declaration.name)
-    return CellMatrixEvent(
-        cells=cells,
-        active_packages=len(active_names),
-        pinned_packages=len(pinned_names),
-    )
 
 
 class CheckEnvironmentOperations(Protocol):
@@ -153,17 +124,6 @@ class CheckFullOperations(Protocol):
     ) -> RuntimeEvaluationRun: ...
 
 
-class CheckCellOperations(Protocol):
-    def check(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
-    ) -> CheckCellOutcome: ...
-
-
 class CompatibilityChecker:
     """Validate current declarations for one cell without searching."""
 
@@ -190,11 +150,6 @@ class CompatibilityChecker:
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
     ) -> CheckCellOutcome:
-        require_full_evaluation_contract(package, "check")
-        if self._events is not None:
-            self._events.consume(
-                CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
-            )
         highest = self._environments.prepare(
             package=package,
             cell=cell,
@@ -332,14 +287,12 @@ class CheckCommandWorkflow:
         checker: CheckCellOperations,
         verification: VerificationRunner,
         events: ActivityConsumer,
-        host_target: str | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
         self._checker = checker
         self._verification = verification
         self._events = events
-        self._host_target = host_target or current_host_target()
 
     def run(self, request: CheckRequest) -> CheckResult:
         root = Path(request.root)
@@ -357,71 +310,19 @@ class CheckCommandWorkflow:
             self._emit(StatusEvent(message="checking declarations"))
             package = project.target
             source_plan = SourcePlan.for_package(package, "SEARCH")
-            cells = selected_host_cells(package, self._host_target)
-            self._emit(_cell_matrix_event(package, cells))
-            require_full_evaluation_contract(package, "check")
-            if not cells:
-                raise ConfigurationError(
-                    f"no configured cell matches host target: {self._host_target}"
-                )
             outcomes = self._verification.run(
-                VerificationRun(
-                    command="check",
+                CheckVerificationRun(
                     package=package,
                     source_plan=source_plan,
                     snapshot=snapshot,
-                    tasks=tuple(
-                        VerificationTask(
-                            cell=cell,
-                            execute=self._cell_task(
-                                package,
-                                cell,
-                                snapshot,
-                            ),
-                            journal_entries=self._journal_entries,
-                        )
-                        for cell in cells
-                    ),
+                    operation=self._checker,
                     jobs=request.jobs,
-                    max_duration_seconds=None,
                 )
             )
             result = self._aggregate(outcomes)
             return result
         finally:
             snapshot.close()
-
-    def _cell_task(
-        self,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-    ) -> Callable[[SourcePlan], CheckCellOutcome]:
-        def run(source_plan: SourcePlan) -> CheckCellOutcome:
-            return self._checker.check(
-                package=package,
-                cell=cell,
-                snapshot=snapshot,
-                source_plan=source_plan,
-            )
-
-        return run
-
-    @staticmethod
-    def _journal_entries(
-        outcome: CheckCellOutcome,
-    ) -> tuple[VerificationJournalEntry, ...]:
-        if outcome.failure is None:
-            return ()
-        return (
-            VerificationJournalEntry(
-                package=outcome.attempt.identity.cell.package,
-                cell=outcome.attempt.identity.cell,
-                role=outcome.role,
-                attempt=outcome.attempt,
-                failure=outcome.failure,
-            ),
-        )
 
     @staticmethod
     def _aggregate(
@@ -455,19 +356,8 @@ class CheckCommandWorkflow:
             outcomes=outcomes,
         )
 
-    def _emit(self, event: StatusEvent | CellMatrixEvent) -> None:
+    def _emit(self, event: StatusEvent) -> None:
         self._events.consume(event)
-
-
-class SmokeCellOperations(Protocol):
-    def verify(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
-    ) -> HighestVersionOutcome: ...
 
 
 class SmokeCommandWorkflow:
@@ -481,14 +371,12 @@ class SmokeCommandWorkflow:
         verifier: SmokeCellOperations,
         verification: VerificationRunner,
         events: ActivityConsumer,
-        host_target: str | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
         self._verifier = verifier
         self._verification = verification
         self._events = events
-        self._host_target = host_target or current_host_target()
 
     def run(self, request: SmokeRequest) -> SmokeResult:
         root = Path(request.root)
@@ -506,74 +394,19 @@ class SmokeCommandWorkflow:
             self._emit(StatusEvent(message="smoke testing"))
             package = project.target
             source_plan = SourcePlan.for_package(package, "DEVELOPMENT")
-            cells = selected_host_cells(package, self._host_target)
-            self._emit(_cell_matrix_event(package, cells))
-            require_full_evaluation_contract(package, "smoke")
-            if not cells:
-                raise ConfigurationError(
-                    f"no configured cell matches host target: {self._host_target}"
-                )
             outcomes = self._verification.run(
-                VerificationRun(
-                    command="smoke",
+                SmokeVerificationRun(
                     package=package,
                     source_plan=source_plan,
                     snapshot=snapshot,
-                    tasks=tuple(
-                        VerificationTask(
-                            cell=cell,
-                            execute=self._cell_task(
-                                package,
-                                cell,
-                                snapshot,
-                            ),
-                            journal_entries=self._journal_entries,
-                        )
-                        for cell in cells
-                    ),
+                    operation=self._verifier,
                     jobs=request.jobs,
-                    max_duration_seconds=None,
                 ),
             )
             result = self._aggregate(outcomes)
             return result
         finally:
             snapshot.close()
-
-    def _cell_task(
-        self,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-    ) -> Callable[[SourcePlan], HighestVersionOutcome]:
-        def run(source_plan: SourcePlan) -> HighestVersionOutcome:
-            self._events.consume(
-                CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
-            )
-            return self._verifier.verify(
-                package=package,
-                cell=cell,
-                snapshot=snapshot,
-                source_plan=source_plan,
-            )
-
-        return run
-
-    @staticmethod
-    def _journal_entries(
-        outcome: HighestVersionOutcome,
-    ) -> tuple[VerificationJournalEntry, ...]:
-        if not isinstance(outcome, (BaselineRejection, BaselineIndeterminate)):
-            return ()
-        return (
-            VerificationJournalEntry(
-                package=outcome.cell.package,
-                cell=outcome.cell,
-                role="baseline",
-                attempt=outcome.attempt,
-                failure=outcome.failure,
-            ),
-        )
 
     @staticmethod
     def _aggregate(
@@ -594,19 +427,8 @@ class SmokeCommandWorkflow:
             )
         )
 
-    def _emit(self, event: StatusEvent | CellMatrixEvent) -> None:
+    def _emit(self, event: StatusEvent) -> None:
         self._events.consume(event)
-
-
-class CellSearchOperations(Protocol):
-    def search(
-        self,
-        *,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
-    ) -> CellResult: ...
 
 
 class FailureLogAssociations(Protocol):
@@ -634,7 +456,6 @@ class SearchCommandWorkflow:
         report_builder: PackageReportBuilder,
         events: ActivityConsumer,
         associations: FailureLogAssociations | None = None,
-        host_target: str | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
@@ -644,7 +465,6 @@ class SearchCommandWorkflow:
         self._report_builder = report_builder
         self._events = events
         self._associations = associations
-        self._host_target = host_target or current_host_target()
 
     def run(self, request: SearchRequest) -> ValidatedReport:
         root = Path(request.root)
@@ -662,37 +482,12 @@ class SearchCommandWorkflow:
             self._events.consume(StatusEvent(message="searching cells"))
             package = project.target
             source_plan = SourcePlan.for_package(package, "SEARCH")
-            tasks = tuple(
-                VerificationTask(
-                    cell=cell,
-                    execute=self._cell_task(package, cell, snapshot),
-                    journal_entries=self._journal_entries_for_result,
-                    runtime_associations=self._runtime_associations_for_result,
-                    deadline_scope=CellFailureScope(
-                        package=package.name,
-                        cell=cell,
-                        source_snapshot_digest=snapshot.identity.digest,
-                        evaluation_policy_identity=evaluation_policy_identity(
-                            package.config
-                        ),
-                    ),
-                )
-                for cell in package.cells
-                if cell.target == self._host_target
-            )
-            self._events.consume(
-                _cell_matrix_event(
-                    package,
-                    tuple(task.cell for task in tasks),
-                )
-            )
             results = self._verification.run(
-                VerificationRun(
-                    command="search",
+                SearchVerificationRun(
                     package=package,
                     source_plan=source_plan,
                     snapshot=snapshot,
-                    tasks=tasks,
+                    operation=self._coordinator,
                     jobs=request.jobs,
                     max_duration_seconds=request.max_duration_seconds,
                 )
@@ -752,70 +547,6 @@ class SearchCommandWorkflow:
                 )
         finally:
             current.close()
-
-    def _cell_task(
-        self,
-        package: PackagePlan,
-        cell: Cell,
-        snapshot: SourceSnapshot,
-    ) -> Callable[[SourcePlan], CellResult]:
-        def run(source_plan: SourcePlan) -> CellResult:
-            return self._coordinator.search(
-                package=package,
-                cell=cell,
-                snapshot=snapshot,
-                source_plan=source_plan,
-            )
-
-        return run
-
-    @classmethod
-    def _journal_entries_for_result(
-        cls,
-        result: CellResult,
-    ) -> tuple[VerificationJournalEntry, ...]:
-        return cls._journal_entries((result,))
-
-    @staticmethod
-    def _runtime_associations_for_result(
-        result: CellResult,
-    ) -> tuple[tuple[str, ProcessObservation], ...]:
-        return tuple(
-            (item.failure_id, process)
-            for item in failure_runtime_runs_for_result(result)
-            if (process := item.process_observation) is not None
-        )
-
-    @classmethod
-    def _journal_entries(
-        cls,
-        results: tuple[CellResult, ...],
-    ) -> tuple[VerificationJournalEntry, ...]:
-        entries: list[VerificationJournalEntry] = []
-        for result in results:
-            for failure in failure_records_for_result(result):
-                if isinstance(failure.scope, AttemptFailureScope):
-                    attempt = failure.scope.attempt
-                    role: VerificationRole = (
-                        "baseline"
-                        if attempt.identity.requested_resolution == "highest"
-                        else "probe"
-                    )
-                    cell = attempt.identity.cell
-                else:
-                    role = "probe"
-                    attempt = None
-                    cell = failure.scope.cell
-                entries.append(
-                    VerificationJournalEntry(
-                        package=cell.package,
-                        cell=cell,
-                        role=role,
-                        attempt=attempt,
-                        failure=failure,
-                    )
-                )
-        return tuple(entries)
 
 
 class ExplainCommandWorkflow:

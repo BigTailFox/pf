@@ -7,13 +7,12 @@ from typing import Literal, Protocol
 from pf.coordinate_search import CoordinateProgressConsumer, CoordinateSearch
 from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.environment import ExactSelection, PreparedEnvironment, ResolutionRequest
-from pf.evaluation import EvaluationCache, require_full_evaluation_contract
+from pf.evaluation import EvaluationCache
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     BaselineIndeterminate,
-    BaselineDetailIdentity,
     BaselineRejection,
     CacheConflict,
     CellContextEvent,
@@ -989,11 +988,6 @@ class SearchCoordinator:
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
     ) -> CellResult:
-        require_full_evaluation_contract(package, "search")
-        if self._events is not None:
-            self._events.consume(
-                CellContextEvent(cell=cell, detail=BaselineDetailIdentity())
-            )
         capture = self._highest.verify(
             package=package,
             cell=cell,

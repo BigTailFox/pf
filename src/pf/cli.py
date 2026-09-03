@@ -24,7 +24,7 @@ from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError, InvocationError, PfError
 from pf.evaluation import RuntimeEvaluator, StaticEvaluator
-from pf.project import ProjectLoader
+from pf.project import ProjectLoader, host_target
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
 from pf.runlog import RunLogStore
@@ -414,6 +414,7 @@ def _assemble_context(
     verification = VerificationRunner(
         events=presenter,
         logs=logs,
+        host_target=host_target(),
     )
     return CliContext(
         check_workflow=CheckCommandWorkflow(

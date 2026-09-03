@@ -1220,6 +1220,24 @@ class TestMinimizeCommandCompleteReport:
 
 
 class TestDefaultContext:
+    def test_default_context_detects_runner_host_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = 0
+
+        def detect_host() -> str:
+            nonlocal calls
+            calls += 1
+            return "x86_64-unknown-linux-gnu"
+
+        monkeypatch.setattr("pf.cli.host_target", detect_host)
+
+        context = build_context()
+
+        assert calls == 1
+        context.close()
+
     def test_default_context_assembles_every_v1_workflow(self) -> None:
         context = build_context()
 

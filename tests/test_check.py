@@ -23,7 +23,6 @@ from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
-    BaselineDetailIdentity,
     CellCompletedEvent,
     CellContextEvent,
     CellMatrixEvent,
@@ -336,7 +335,7 @@ class TestCompatibilityChecker:
             event.detail
             for event in events.items
             if isinstance(event, CellContextEvent)
-        ] == [BaselineDetailIdentity(), DeclarationDetailIdentity()]
+        ] == [DeclarationDetailIdentity()]
         assert prepared["highest"].tested is False
         assert prepared["lowest-direct"].tested is True
 
@@ -428,7 +427,7 @@ class TestCompatibilityChecker:
             event.detail
             for event in events.items
             if isinstance(event, CellContextEvent)
-        ] == [BaselineDetailIdentity()]
+        ] == []
 
     def test_check_only_evaluates_cells_for_the_exact_host_target(
         self, tmp_path: Path
@@ -468,17 +467,32 @@ class TestCompatibilityChecker:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(events=Events(), logs=None),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=Events(),
-            host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
         assert seen == ["x86_64-unknown-linux-gnu"]
 
 
 class TestCheckWorkflow:
-    def test_check_reports_progress_for_each_host_cell(self, tmp_path: Path) -> None:
+    def test_check_reports_progress_and_closes_snapshot(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         write_check_project(tmp_path)
+        closed: list[SourceSnapshot] = []
+        close_snapshot = SourceSnapshot.close
+
+        def close(snapshot: SourceSnapshot) -> None:
+            closed.append(snapshot)
+            close_snapshot(snapshot)
+
+        monkeypatch.setattr(SourceSnapshot, "close", close)
 
         class Checker:
             def check(
@@ -496,9 +510,12 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(events=events, logs=None),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=events,
-            host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
         progress = [
@@ -509,6 +526,7 @@ class TestCheckWorkflow:
         ] == [
             ("INDETERMINATE", 1, 1),
         ]
+        assert len(closed) == 1
 
     @pytest.mark.parametrize(
         ("test_command", "test_group", "host", "message"),
@@ -555,9 +573,12 @@ class TestCheckWorkflow:
                 projects=ProjectLoader(),
                 snapshots=SnapshotBuilder.without_processes(),
                 checker=cast(CompatibilityChecker, NeverChecker()),
-                verification=VerificationRunner(events=Events(), logs=None),
+                verification=VerificationRunner(
+                    events=Events(),
+                    logs=None,
+                    host_target=host,
+                ),
                 events=Events(),
-                host_target=host,
             ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
     @pytest.mark.parametrize(
@@ -753,9 +774,12 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(events=events, logs=None),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=events,
-            host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
         assert result.status == ("INDETERMINATE" if indeterminate else "PASS")
@@ -808,9 +832,12 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(events=events, logs=None),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=events,
-            host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
 
         matrix = next(
@@ -882,9 +909,12 @@ class TestCheckWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             checker=cast(CompatibilityChecker, Checker()),
-            verification=VerificationRunner(events=events, logs=None),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=events,
-            host_target="x86_64-unknown-linux-gnu",
         ).run(CheckRequest(root=tmp_path.as_posix(), jobs=2))
 
         assert maximum_active == 2

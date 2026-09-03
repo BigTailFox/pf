@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Protocol
 
 from pf.environment import HighestResolution, PreparedEnvironment, ResolutionRequest
-from pf.evaluation import require_full_evaluation_contract
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     AttemptFailureScope,
@@ -85,7 +84,6 @@ class HighestVersionVerifier:
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
     ) -> HighestVersionOutcome:
-        require_full_evaluation_contract(package, "highest-version verification")
         prepared = self._environments.prepare(
             package=package,
             cell=cell,

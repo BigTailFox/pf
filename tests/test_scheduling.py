@@ -18,6 +18,26 @@ def make_cell(python_minor: str) -> Cell:
 
 
 class TestScheduler:
+    def test_scheduler_finishes_started_callback_before_operation(self) -> None:
+        cell = make_cell("3.10")
+        timeline: list[str] = []
+
+        def run() -> str:
+            assert timeline == ["started"]
+            timeline.append("operation")
+            return "done"
+
+        results = Scheduler().run(
+            (ScheduledCellTask(cell=cell, run=run),),
+            jobs=1,
+            max_duration_seconds=None,
+            on_started=lambda _task: timeline.append("started"),
+            on_completed=lambda *_: timeline.append("completed"),
+        )
+
+        assert results == ("done",)
+        assert timeline == ["started", "operation", "completed"]
+
     def test_scheduling_order_does_not_delegate_to_cell_identity(
         self,
         monkeypatch,

@@ -10,20 +10,39 @@ from rich.text import Text
 
 from pf.schemas.evaluation import (
     BaselineDetailIdentity,
+    BaselineIndeterminate,
+    BaselineRejection,
     CellCompletedEvent,
     CellDetailIdentity,
     CellFailed,
     CellResultDetail,
     CellSucceeded,
+    CheckCellOutcome,
     DeclarationDetailIdentity,
     FailureRecord,
+    FailureEvaluationRuntimeRun,
+    HighestVersionOutcome,
+    HighestVersionPass,
+    IndeterminateEvaluation,
+    PassEvaluation,
+    ProcessObservation,
     ProcessResult,
+    RuntimeEvaluationRun,
+    RuntimeInterfaceMissingEvaluation,
+    RuntimeWitnessResult,
     SearchFailureEvent,
     SearchProbeDetailIdentity,
+    StaticIssueDetail,
+    VerifierRejectedEvaluation,
     VerificationRole,
 )
 from pf.schemas.project import Cell, VersionPin
-from pf.verification import completion_outcome
+from pf.schemas.report import (
+    CellIndeterminate,
+    CellResult,
+    CellSearchFailure,
+    CellSuccess,
+)
 
 
 OutcomeKind = Literal["success", "failure", "warning", "indeterminate"]
@@ -344,7 +363,7 @@ class CellPresentation:
     @classmethod
     def from_result(
         cls,
-        result: object,
+        result: CheckCellOutcome | HighestVersionOutcome | CellResult,
         *,
         cell: Cell,
         elapsed: float | None = None,
@@ -358,11 +377,36 @@ class CellPresentation:
             cell=cell,
             identity=identity,
             completed_packages=completed_packages,
-            outcome=completion_outcome(result),
+            outcome=_run_result_outcome(result),
             elapsed=elapsed,
             search_events=search_events,
             command=command,
             diagnose_available=diagnose_available,
+        )
+
+    @classmethod
+    def from_evaluation(
+        cls,
+        evaluation: (
+            PassEvaluation
+            | RuntimeInterfaceMissingEvaluation
+            | VerifierRejectedEvaluation
+            | IndeterminateEvaluation
+        ),
+        *,
+        cell: Cell,
+        identity: CellDetailIdentity | None = None,
+        command: str | None = None,
+    ) -> "CellPresentation":
+        return cls._from_outcome(
+            cell=cell,
+            identity=identity,
+            completed_packages=None,
+            outcome=_evaluation_outcome(evaluation),
+            elapsed=None,
+            search_events=(),
+            command=command,
+            diagnose_available=True,
         )
 
     @classmethod
@@ -454,6 +498,202 @@ def _unique_failures(
     return tuple(ordered)
 
 
+def _run_result_outcome(
+    result: CheckCellOutcome | HighestVersionOutcome | CellResult,
+) -> CellSucceeded | CellFailed:
+    if isinstance(result, CheckCellOutcome):
+        if isinstance(result.evaluation, PassEvaluation):
+            return CellSucceeded(status=result.status, phase="complete")
+        assert result.failure is not None
+        detail = _evaluation_detail(result.evaluation, runtime=result.runtime)
+        process = (
+            _failed_evaluation_process(
+                result.evaluation,
+                result.failure,
+                runtime=result.runtime,
+            )
+            or result.failure_process
+        )
+        return CellFailed(
+            status=result.status,
+            phase=result.failure.stage,
+            detail=detail,
+            detail_failure_id=(
+                result.failure.failure_id if detail is not None else None
+            ),
+            process=process,
+            process_failure_id=(
+                result.failure.failure_id if process is not None else None
+            ),
+            failures=(result.failure,),
+            verification_role=result.role,
+        )
+    if isinstance(result, HighestVersionPass):
+        return CellSucceeded(status=result.status, phase="complete")
+    if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
+        detail = _evaluation_detail(result.evaluation, runtime=result.runtime)
+        process = _failed_evaluation_process(
+            result.evaluation,
+            result.failure,
+            runtime=result.runtime,
+        ) or (
+            result.failure_process
+            if isinstance(result, BaselineIndeterminate)
+            else None
+        )
+        return CellFailed(
+            status=result.status,
+            phase=result.failure.stage,
+            detail=detail,
+            detail_failure_id=(
+                result.failure.failure_id if detail is not None else None
+            ),
+            process=process,
+            process_failure_id=(
+                result.failure.failure_id if process is not None else None
+            ),
+            failures=(result.failure,),
+            verification_role="baseline",
+        )
+    if isinstance(result, CellSuccess):
+        return CellSucceeded(status=result.status, phase="complete")
+    if isinstance(result, CellSearchFailure):
+        return CellFailed(
+            status=result.reason,
+            phase=result.phase,
+            failures=result.failure_records,
+            verification_role="probe",
+        )
+    if isinstance(result, CellIndeterminate):
+        terminal = next(
+            failure
+            for failure in result.failure_records
+            if failure.failure_id == result.failure_id
+        )
+        runtime_run = next(
+            (
+                item
+                for item in result.failure_runtime_runs
+                if item.failure_id == terminal.failure_id
+            ),
+            None,
+        )
+        runtime = (
+            runtime_run.runtime
+            if isinstance(runtime_run, FailureEvaluationRuntimeRun)
+            else None
+        )
+        detail = _evaluation_detail(
+            None if runtime is None else runtime.evaluation,
+            runtime=runtime,
+        )
+        process = (
+            None if runtime_run is None else runtime_run.process_observation
+        ) or _failed_evaluation_process(
+            None if runtime is None else runtime.evaluation,
+            terminal,
+            runtime=runtime,
+        )
+        return CellFailed(
+            status=result.status,
+            phase=result.phase,
+            detail=detail,
+            detail_failure_id=(
+                terminal.failure_id if detail is not None else None
+            ),
+            process=process,
+            process_failure_id=(
+                terminal.failure_id if process is not None else None
+            ),
+            failures=result.failure_records,
+            verification_role="probe",
+        )
+    raise TypeError(f"unsupported Run result: {type(result).__name__}")
+
+
+def _evaluation_outcome(
+    evaluation: (
+        PassEvaluation
+        | RuntimeInterfaceMissingEvaluation
+        | VerifierRejectedEvaluation
+        | IndeterminateEvaluation
+    ),
+    *,
+    runtime: RuntimeEvaluationRun | None = None,
+) -> CellSucceeded | CellFailed:
+    if isinstance(evaluation, PassEvaluation):
+        return CellSucceeded(status=evaluation.status, phase="complete")
+    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+        confirmed = evaluation.witnesses[-1].outcome
+        assert isinstance(confirmed, RuntimeWitnessResult)
+        return CellFailed(
+            status=evaluation.status,
+            phase="witness",
+            detail=_evaluation_detail(evaluation, runtime=runtime),
+            process=confirmed.process,
+        )
+    if isinstance(evaluation, VerifierRejectedEvaluation):
+        return CellFailed(status=evaluation.status, phase="test")
+    if evaluation.verifier is not None:
+        return CellFailed(status=evaluation.status, phase="test")
+    assert evaluation.failure is not None
+    return CellFailed(
+        status=evaluation.status,
+        phase=evaluation.failure.stage,
+        process=evaluation.failure.process,
+    )
+
+
+def _failed_evaluation_process(
+    evaluation: object,
+    failure: FailureRecord | None,
+    *,
+    runtime: RuntimeEvaluationRun | None = None,
+) -> ProcessObservation | None:
+    process = _runtime_process(runtime)
+    if process is not None:
+        return process
+    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+        confirmed = evaluation.witnesses[-1].outcome
+        assert isinstance(confirmed, RuntimeWitnessResult)
+        return confirmed.process
+    if isinstance(evaluation, IndeterminateEvaluation):
+        if evaluation.failure is None:
+            return None
+        return evaluation.failure.process
+    return None if failure is None else failure.process
+
+
+def _evaluation_detail(
+    evaluation: object | None,
+    *,
+    runtime: RuntimeEvaluationRun | None = None,
+) -> CellResultDetail | None:
+    if runtime is not None and runtime.diagnostics is not None:
+        detail = runtime.diagnostics.detail
+        if detail is not None:
+            return detail
+    if not isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
+        return None
+    confirmed = evaluation.witnesses[-1].outcome
+    assert isinstance(confirmed, RuntimeWitnessResult)
+    identities = set(confirmed.plan.diagnostic_identities)
+    relevant = tuple(
+        diagnostic
+        for diagnostic in evaluation.static.incremental
+        if diagnostic.identity in identities
+    )
+    if not relevant:
+        return None
+    return StaticIssueDetail(first=relevant[0], total=len(relevant))
+
+
+def _runtime_process(runtime: RuntimeEvaluationRun | None) -> ProcessObservation | None:
+    if runtime is None or runtime.diagnostics is None:
+        return None
+    return runtime.diagnostics.process
+
+
 def _search_projection(
     search_events: tuple[SearchFailureEvent, ...],
 ) -> tuple[str, CellResultDetail | None] | None:
@@ -462,6 +702,9 @@ def _search_projection(
     terminal = search_events[-1]
     if terminal.evaluation is None:
         return terminal.failure.failure_id, None
-    outcome = completion_outcome(terminal.evaluation)
+    outcome = _evaluation_outcome(
+        terminal.evaluation,
+        runtime=terminal.runtime,
+    )
     detail = outcome.detail if isinstance(outcome, CellFailed) else None
     return terminal.failure.failure_id, detail

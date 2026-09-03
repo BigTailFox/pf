@@ -43,6 +43,7 @@ from pf.schemas.evaluation import (
     CellSearchProgressEvent,
     CellStageEvent,
     CellSucceeded,
+    CheckCellOutcome,
     CheckCompatibilityFailure,
     CheckIndeterminate,
     CheckPass,
@@ -2838,6 +2839,149 @@ class TestProgressRendering:
 
 
 class TestVerificationRendering:
+    def test_check_live_and_typed_final_share_completion_semantics(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        attempt = attempt_for(cell, resolution="lowest-direct")
+        failure = verifier_failure(attempt)
+        outcome = CheckCellOutcome(
+            status="REJECTED",
+            role="declaration",
+            attempt=attempt,
+            failure=failure,
+        )
+        live, _, live_stderr = presenter()
+        live.bind_command("check")
+        final, _, final_stderr = presenter()
+
+        live.consume(
+            CellCompletedEvent(
+                cell=cell,
+                completed=1,
+                total=1,
+                outcome=CellFailed(
+                    status=outcome.status,
+                    phase=failure.stage,
+                    failures=(failure,),
+                    verification_role=outcome.role,
+                ),
+                diagnose_available=True,
+            )
+        )
+        final.render_check(
+            CheckCompatibilityFailure(
+                evaluations=(),
+                outcomes=(outcome,),
+            )
+        )
+
+        fragments = (
+            "check failed at [declaration][lowest-direct][testing]",
+            "The configured verifier rejected this version combination.",
+            f"pf diagnose {failure.failure_id} --package demo",
+        )
+        assert all(fragment in live_stderr.getvalue() for fragment in fragments), (
+            live_stderr.getvalue()
+        )
+        assert all(fragment in final_stderr.getvalue() for fragment in fragments), (
+            final_stderr.getvalue()
+        )
+
+    def test_smoke_live_and_typed_final_share_completion_semantics(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        attempt = attempt_for(cell)
+        failure = FailurePolicy().classify(
+            scope=AttemptFailureScope(attempt=attempt),
+            cause="SOURCE_FAILURE",
+            stage="resolve-project",
+            process=None,
+            detail=FailureDetail(
+                code="offline",
+                message="registry unavailable",
+            ),
+        )
+        outcome = BaselineIndeterminate(attempt=attempt, failure=failure)
+        live, _, live_stderr = presenter()
+        live.bind_command("smoke")
+        final, _, final_stderr = presenter()
+
+        live.consume(
+            completed_event(
+                cell,
+                status=outcome.status,
+                failure=failure,
+                role="baseline",
+                stage=failure.stage,
+            )
+        )
+        final.render_smoke(SmokeIndeterminate(outcomes=(outcome,)))
+
+        fragments = (
+            "smoke failed at [baseline][highest][resolving project dependencies]",
+            "PF could not reach or read a configured package source.",
+            f"pf diagnose {failure.failure_id} --package demo",
+        )
+        assert all(fragment in live_stderr.getvalue() for fragment in fragments), (
+            live_stderr.getvalue()
+        )
+        assert all(fragment in final_stderr.getvalue() for fragment in fragments), (
+            final_stderr.getvalue()
+        )
+
+    def test_search_live_and_typed_final_share_completion_semantics(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        outcome = cell_indeterminate(
+            cell,
+            cause="SOURCE_FAILURE",
+            stage="candidate-discovery",
+        )
+        failure = outcome.failure_records[0]
+        live, _, live_stderr = presenter()
+        live.bind_command("search")
+        final, _, final_stderr = presenter()
+
+        live.consume(
+            completed_event(
+                cell,
+                status=outcome.status,
+                failure=failure,
+                role="probe",
+                stage=failure.stage,
+            )
+        )
+        final.render_search(
+            incomplete_report(
+                "INDETERMINATE",
+                cell_results=(outcome,),
+            )
+        )
+
+        fragments = (
+            "search stopped at [candidate discovery]",
+            "could not reach or read a configured package source.",
+            f"pf diagnose {failure.failure_id} --package demo",
+        )
+        assert all(fragment in live_stderr.getvalue() for fragment in fragments), (
+            live_stderr.getvalue()
+        )
+        assert all(fragment in final_stderr.getvalue() for fragment in fragments), (
+            final_stderr.getvalue()
+        )
+
     def test_search_completion_lists_completed_packages_above_identity(self) -> None:
         cell = Cell(
             package="demo",

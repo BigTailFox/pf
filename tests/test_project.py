@@ -325,7 +325,7 @@ class TestProjectDiscoveryInventory:
         with pytest.raises(TypeError):
             cast(Any, project)["name"] = "changed"
         with pytest.raises(AttributeError):
-            cast(Any, project["dependencies"]).append("other")
+            project["dependencies"].append("other")
 
     def test_inventory_selects_before_member_version_validation(
         self,

@@ -187,9 +187,12 @@ class TestSmokeWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
-            verification=VerificationRunner(events=terminal, logs=None),
+            verification=VerificationRunner(
+                events=terminal,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=terminal,
-            host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         assert result.status == "PASS"
@@ -286,9 +289,12 @@ class TestSmokeWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
-            verification=VerificationRunner(events=Events(), logs=None),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=Events(),
-            host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         assert result.status == "BASELINE_REJECTION"
@@ -348,9 +354,12 @@ class TestSmokeWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             verifier=Verifier(),
-            verification=VerificationRunner(events=Events(), logs=None),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             events=Events(),
-            host_target="x86_64-unknown-linux-gnu",
         ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         assert result.status == "INDETERMINATE"
@@ -358,7 +367,9 @@ class TestSmokeWorkflow:
         assert result.outcomes[0].failure.process is process
 
     def test_smoke_omits_diagnose_when_journal_write_fails(
-        self, tmp_path: Path
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -378,6 +389,14 @@ class TestSmokeWorkflow:
             encoding="utf-8",
         )
         failure_id = ""
+        closed: list[SourceSnapshot] = []
+        close_snapshot = SourceSnapshot.close
+
+        def close(snapshot: SourceSnapshot) -> None:
+            closed.append(snapshot)
+            close_snapshot(snapshot)
+
+        monkeypatch.setattr(SourceSnapshot, "close", close)
         stdout = StringIO()
         stderr = StringIO()
         terminal = TerminalPresenter(
@@ -447,9 +466,12 @@ class TestSmokeWorkflow:
                 projects=ProjectLoader(),
                 snapshots=SnapshotBuilder.without_processes(),
                 verifier=Verifier(),
-                verification=VerificationRunner(events=terminal, logs=journal),
+                verification=VerificationRunner(
+                    events=terminal,
+                    logs=journal,
+                    host_target="x86_64-unknown-linux-gnu",
+                ),
                 events=terminal,
-                host_target="x86_64-unknown-linux-gnu",
             ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
 
         output = stderr.getvalue()
@@ -459,3 +481,4 @@ class TestSmokeWorkflow:
         assert failure_id not in output
         assert "1 failed" not in output
         assert "Detailed diagnosis unavailable." in output
+        assert len(closed) == 1

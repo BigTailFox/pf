@@ -9,7 +9,7 @@ from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
-from pf.report import PackageReportBuilder, ReportStore
+from pf.report import PackageReportBuilder, ReportStore, ReportUpdate, ValidatedReport
 from pf.runlog import RunLogStore
 from pf.schemas.config import SearchRequest
 from pf.schemas.evaluation import (
@@ -233,6 +233,84 @@ class Events:
 
 
 class TestSearchWorkflow:
+    @pytest.mark.parametrize(
+        ("failure_stage", "expected_closed"),
+        (("operation", 1), ("report", 2)),
+    )
+    def test_search_closes_snapshot_when_run_or_report_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        failure_stage: str,
+        expected_closed: int,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        closed: list[SourceSnapshot] = []
+        close_snapshot = SourceSnapshot.close
+
+        def close(snapshot: SourceSnapshot) -> None:
+            closed.append(snapshot)
+            close_snapshot(snapshot)
+
+        monkeypatch.setattr(SourceSnapshot, "close", close)
+
+        class CrashingSearch:
+            def search(
+                self,
+                *,
+                package: PackagePlan,
+                cell: Cell,
+                snapshot: SourceSnapshot,
+                source_plan: SourcePlan,
+            ) -> CellIndeterminate:
+                raise RuntimeError("operation failed")
+
+        class FailingReportStore(ReportStore):
+            def update_path(
+                self,
+                path: Path,
+                replacement: ValidatedReport,
+            ) -> ReportUpdate:
+                raise RuntimeError("report failed")
+
+        coordinator = CrashingSearch() if failure_stage == "operation" else FailedSearch()
+        reports = FailingReportStore() if failure_stage == "report" else ReportStore()
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            coordinator=coordinator,
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
+            reports=reports,
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+        )
+
+        with pytest.raises(RuntimeError, match=failure_stage):
+            workflow.run(SearchRequest(root=tmp_path.as_posix()))
+
+        assert len(closed) == expected_closed
+
     def test_search_does_not_publish_a_report_if_source_drifts_during_run(
         self,
         tmp_path: Path,
@@ -259,7 +337,11 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=SourceDriftingSearch(tmp_path),
-            verification=VerificationRunner(events=Events(), logs=None),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
@@ -301,7 +383,11 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(),
-            verification=VerificationRunner(events=events, logs=None),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=store,
             report_builder=PackageReportBuilder(),
             events=events,
@@ -398,7 +484,11 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(process),
-            verification=VerificationRunner(events=Events(), logs=logs),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=logs,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
@@ -470,7 +560,11 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=TimedOutVerifierSearch(process),
-            verification=VerificationRunner(events=Events(), logs=logs),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=logs,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
@@ -532,7 +626,11 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=UnavailableBaselineSearch(process),
-            verification=VerificationRunner(events=Events(), logs=logs),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=logs,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
@@ -576,7 +674,11 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=FailedSearch(),
-            verification=VerificationRunner(events=Events(), logs=None),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=store,
             report_builder=PackageReportBuilder(),
             events=Events(),
@@ -622,11 +724,14 @@ class TestSearchWorkflow:
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
             coordinator=coordinator,
-            verification=VerificationRunner(events=events, logs=None),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=events,
-            host_target="x86_64-unknown-linux-gnu",
         )
 
         reports = workflow.run(SearchRequest(root=tmp_path.as_posix()))
@@ -640,3 +745,48 @@ class TestSearchWorkflow:
         assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
         assert reports.result.status == "incomplete"
         assert "MISSING_CELL" in reports.result.reasons
+
+    def test_search_empty_host_set_writes_missing_cell_report_without_contract(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [tool.pf]
+    python = ["3.10"]
+    platform = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        coordinator = FailedSearch()
+        events = Events()
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            coordinator=coordinator,
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="aarch64-apple-darwin",
+            ),
+            reports=ReportStore(),
+            report_builder=PackageReportBuilder(),
+            events=events,
+        )
+
+        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+
+        assert coordinator.cells == []
+        matrix = next(
+            event for event in events.items if isinstance(event, CellMatrixEvent)
+        )
+        assert matrix.cells == ()
+        assert report.result.status == "incomplete"
+        assert report.result.reasons == ("MISSING_CELL",)
+        assert (tmp_path / "package-floor.json").is_file()

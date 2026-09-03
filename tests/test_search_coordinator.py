@@ -21,9 +21,7 @@ from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
     Attempt,
     AttemptIdentity,
-    BaselineDetailIdentity,
     CellContextEvent,
-    CellFailed,
     CellSearchProgressEvent,
     CellStageEvent,
     DiagnosticClassification,
@@ -84,7 +82,6 @@ from pf.schemas.report import (
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.static_transition import static_fingerprint
-from pf.verification import completion_outcome
 
 
 def successful_process() -> ProcessResult:
@@ -881,7 +878,6 @@ class TestSearchCoordinator:
             for event in activity.events
             if isinstance(event, CellContextEvent)
         ] == [
-            BaselineDetailIdentity(),
             None,
             SearchProbeDetailIdentity(
                 dependency="a",
@@ -1352,14 +1348,14 @@ class TestSearchCoordinator:
         assert len(result.failure_runtime_runs) == 1
         runtime = result.failure_runtime_runs[0]
         assert runtime.failure_id == result.failure_id
-        completion = completion_outcome(result)
-        assert isinstance(completion, CellFailed)
-        assert completion.detail_failure_id == result.failure_id
-        assert isinstance(completion.detail, PytestFailureDetail)
-        assert completion.detail.first.nodeid == "test_demo.py::test_old"
-        assert completion.process_failure_id == result.failure_id
-        assert isinstance(completion.process, ProcessResult)
-        assert completion.process.timed_out is True
+        assert isinstance(runtime, FailureEvaluationRuntimeRun)
+        assert runtime.runtime.diagnostics is not None
+        assert isinstance(runtime.runtime.diagnostics.detail, PytestFailureDetail)
+        assert runtime.runtime.diagnostics.detail.first.nodeid == (
+            "test_demo.py::test_old"
+        )
+        assert isinstance(runtime.process_observation, ProcessResult)
+        assert runtime.process_observation.timed_out is True
         dumped = result.model_dump(mode="json")
         assert "failure_runtime_runs" not in dumped
         assert "test_demo.py::test_old" not in repr(dumped)

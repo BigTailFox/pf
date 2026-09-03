@@ -67,7 +67,7 @@ src/pf/
 ├── coordinate_search.py         pure vector search
 ├── search.py                    single-Cell SearchCoordinator
 ├── scheduling.py                generic Scheduler 与 schedule order
-├── verification.py              VerificationRunner、completion、Journal timing
+├── verification.py              command requests、VerificationRunner、Run lifecycle 与 Journal timing
 ├── report.py                    builder、resolved facade、store transaction
 ├── authorization.py             report/current plan/snapshot → frozen apply grant
 ├── editor.py                    authorized TOML transaction/recovery
@@ -198,12 +198,25 @@ ConfiguredVerifier.run(VerifierRequest) -> VerifierRun
 
 CoordinateSearch.minimize(...) -> CoordinateOutcome
 SearchCoordinator.search(...) -> CellResult
-VerificationRunner.run(VerificationRun) -> ordered outcomes
+VerificationRunner.run(CheckVerificationRun) -> tuple[CheckCellOutcome, ...]
+VerificationRunner.run(SmokeVerificationRun) -> tuple[HighestVersionOutcome, ...]
+VerificationRunner.run(SearchVerificationRun) -> tuple[CellResult, ...]
 ```
 
 上述 Candidate/Environment/Highest/Check/Search interface 的最后一个参数均为同一 `source_plan`，不是裸 `source_mode`。`SourcePlan.for_package(package, mode)` 是在线 workflow 与 apply 的领域构造入口；其 `source_for`、`registry_routed_workspace_dependencies`、`workspace_member_version_for` 与派生 `identity` 独占 effective source、dual-route/member facts 和 source identity。只有 `source_mode + routes` 进入 wire；查询不保存实例缓存。ProjectLoader 仍独占 route 分类，UvAdapter 独占 argv，ApplyAuthorizer 独占授权，ReportStore 独占 codec/cross-ref。
 
-`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。`VerificationRun.package` 与完整 `source_plan` 在跨 Cell 调度前固定；`smoke=DEVELOPMENT`，`check/search=SEARCH`。Runner 验证 command/mode、package/routes、重复与越界 Cell，再以 `VerificationTask.execute(source_plan)` 把同一对象注入每个 operation。candidate、harness、两次 resolution、Attempt 与 search report 共同消费该 plan；workflow task closure 不捕获第二份 plan。Request、structured harness、two-resolution plan、environment identity 和 install 边界由 D012 定义。
+`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。跨 Cell request 是
+`CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun` 的 closed union；三个 frozen variant
+以不进入构造器的 `ClassVar` 固定 command，分别携带现有 `CheckCellOperations`、`SmokeCellOperations`、
+`CellSearchOperations`。共同字段只含 package、完整 `source_plan`、borrowed `SourceSnapshot`、operation 与
+jobs，只有 Search 能表达 total duration；request 不进入 Schema、report、Journal、identity 或 cache。
+
+Runner 构造时固定 composition root 对 `pf.project.host_target()` 的单次探测结果。它验证 jobs/duration、
+command/mode 与 package/routes，从 `package.cells` 选择唯一完整 host Cell 集，并把同一 package、plan 与
+snapshot对象直接传给每个 operation；workflow不再选择Cell、建立per-Cell closure或保存host target。
+candidate、harness、两次resolution、Attempt与search report共同消费该plan。Workflow仍在`finally`独占
+snapshot close，Search仍在Run后消费snapshot identity做drift/report工作。structured harness、
+two-resolution plan、environment identity和install边界由D012定义。
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；测试后标记为可能污染。不同 Proposal 不通过原地 upgrade/downgrade 复用环境。
 
@@ -211,7 +224,12 @@ Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `Confi
 terminal disposition 由 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的
 稳定 operation facts，不能决定搜索 Role。
 
-`CoordinateSearch` 只拥有 invocation-local vector state；其算法由 D003 定义。`SearchCoordinator` 只拥有一个 Cell 的 baseline→candidates→coordinate-search 状态机。`VerificationRunner` 拥有跨 Cell scheduling、deadline outcome、completion projection 与 Journal timing；generic `Scheduler` 不导入领域结果。
+`CoordinateSearch` 只拥有 invocation-local vector state；其算法由 D003 定义。`SearchCoordinator` 只拥有
+一个Cell的baseline→candidates→coordinate-search状态机。`VerificationRunner`拥有Run admission、host
+Cell/matrix、private task/deadline assembly、每个已启动Cell的initial baseline context、跨Cell
+scheduling、typed live completion、Journal timing与journal-side association；它不拥有三个单Cell算法、
+snapshot lifecycle、命令聚合、report或terminal。generic `Scheduler`只保证started callback在operation
+前完成并处理worker/deadline/规范排序，不导入领域结果。
 
 ## 8. Adapter 与 process boundary
 
@@ -251,7 +269,7 @@ ReportStore的interface与交易语义只见D014；Process Log只见D007，Journ
 
 ## 10. Terminal boundary
 
-`pf.terminal` 是业务 Rich 的唯一使用点。`TerminalPresenter.consume(ActivityEvent)` 是 thread-safe consumer；private `LiveVerificationView` 与 `CellPresentation` 管理 live/final view。共享result-card primitive只消费结构化facts，并为explain/apply/minimize/diagnose/merge和typed command errors统一marker、gutter、路径与final样式。Worker、adapter、workflow 和 report module 不打印、不拼文案。Help、通道、cell detail、summary、explain 与 diagnose 布局只见 D006。
+`pf.terminal` 是业务 Rich 的唯一使用点。`TerminalPresenter.consume(ActivityEvent)` 是 thread-safe consumer；private `LiveVerificationView` 与 `CellPresentation` 管理 live/final view。Run live只消费Runner发布的`CellCompletedEvent`；Run final从Check/Smoke typed outcomes或Search `CellResult`经command-closed private projector形成；Explain与剩余Search failure从Evaluation/Failure facts经另一private projector形成。Terminal不导入Runner private projector，也不存在shared public `object` projector。共享result-card primitive只消费结构化facts，并为explain/apply/minimize/diagnose/merge和typed command errors统一marker、gutter、路径与final样式。Worker、adapter、workflow 和 report module 不打印、不拼文案。Help、通道、cell detail、summary、explain 与 diagnose 布局只见 D006。
 
 Expected command failures使用typed `PfError`：explain report read/validation、diagnose not-found和merge input/compatibility/output分别携带Presenter所需的稳定facts；workflow不构造card文本或Usage。
 

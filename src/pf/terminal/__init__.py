@@ -895,7 +895,7 @@ class TerminalPresenter:
                 ),
             ):
                 continue
-            presentation = CellPresentation.from_result(
+            presentation = CellPresentation.from_evaluation(
                 evaluation,
                 cell=evaluation.proposal.cell,
                 identity=DeclarationDetailIdentity(),

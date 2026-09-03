@@ -13,19 +13,30 @@
 ## 1. Verification Run
 
 ```text
-VerificationRun
-  command: smoke | check | search
+VerificationRun = CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun
+  command: ClassVar[smoke | check | search]
   package: one PackagePlan target
   source_plan: one SourcePlan
-  one immutable SourceSnapshot
-  unique in-package Cell tasks: execute(source_plan)
+  snapshot: one borrowed immutable SourceSnapshot
+  operation: command-specific Check | Smoke | Search Cell operation
   jobs
-  optional max-duration
+  Search only: optional max-duration
 ```
 
-每个 Cell task 在外部 operation 前必须建立 Attempt；Attempt 前的 candidate discovery 或 scheduler deadline 只能形成 `CellFailureScope`。Prepare failure 保留完整 `PrepareFailure(attempt, failure, acquired plan digests)`，调用方不得 unwrap 成裸 ToolFailure。
+三个 request 都是 invocation-local frozen dataclass；command 不进入实例字段或构造器。Runner只有一个
+`run(VerificationRun)`行为入口，以typed overload返回各命令的精确outcome tuple。Request不进入Schema、
+report、Journal、identity、cache或CLI context persistence。每个Cell operation在外部执行前必须建立
+Attempt；Attempt前的candidate discovery或scheduler deadline只能形成`CellFailureScope`。Prepare failure
+保留完整`PrepareFailure(attempt, failure, acquired plan digests)`，调用方不得unwrap成裸ToolFailure。
 
-`source_plan.source_mode`必须与命令闭合：`smoke=DEVELOPMENT`，`check/search=SEARCH`；plan routes 必须精确等于 package 已分类 routes。Runner 在调度前拒绝 command/mode、package/routes、重复 Cell 或不属于该 package 完整 Cell 集的 task；验证后只由 Runner 把同一个 Run plan 对象传给每个 `VerificationTask.execute(source_plan)`，operation 不从 workflow closure 取得另一份 plan。
+`source_plan.source_mode`必须与命令闭合：`smoke=DEVELOPMENT`，`check/search=SEARCH`；plan routes必须精确
+等于package已分类routes。Runner在operation前依次验证jobs、Search正有限duration、mode/routes，再从
+`package.cells`选择全部且仅有`cell.target == host_target`的规范identity唯一Cell。Runner构造时接收
+composition root一次探测的host target；它不隐式探测，request与workflow都不携带override。所选集合
+必须等于一次`CellMatrixEvent`、Scheduler tasks、completion total、Search deadline scope与规范返回集合。
+Runner把同一个PackagePlan、SourcePlan与borrowed snapshot对象传给全部operation；operation不从workflow
+closure取得第二份plan。Check/Smoke在空集错误前验证full-evaluation contract；Search只在非空集验证。
+Search空集仍finalize空Journal并返回`()`，workflow继续形成`MISSING_CELL` incomplete report。
 
 一个 Cell 的链路是：
 
@@ -96,7 +107,7 @@ prepare(highest, original harness, DEVELOPMENT)
 
 ### 3.3 Search
 
-每个宿主Cell先以SEARCH source运行一次full highest registry baseline；只有`HighestVersionPass`才从相同registry routes冻结candidates并进入D003。每个真实probe是exact-vector Attempt且继续使用同一SourcePlan。Candidate discovery/scheduler deadline可形成Cell-scoped Indeterminate；registry失败或managed coordinate local leakage不得回退到DEVELOPMENT。
+每个宿主Cell先以SEARCH source运行一次full highest registry baseline；只有`HighestVersionPass`才从相同registry routes冻结candidates并进入D003。每个真实probe是exact-vector Attempt且继续使用同一SourcePlan。Candidate discovery/scheduler deadline可形成Cell-scoped Indeterminate；registry失败或managed coordinate local leakage不得回退到DEVELOPMENT。没有宿主Cell是合法空Run，不启动full-evaluation或operation；report coverage仍记录`MISSING_CELL`。
 
 Search 同时把 FailureRecord 放入 Journal 与 Schema 1 report。Report 是 apply/explain/merge 的唯一公共接口；Journal 只用于本机 diagnose。
 
@@ -108,16 +119,30 @@ VerificationRunner.run(VerificationRun) -> ordered outcomes
 
 Runner 独占：
 
-- 验证 command/package/SourcePlan/task/Cell 聚合不变量，并向 task operation 注入 Run plan；
+- 验证request limits、command/package/SourcePlan与host Cell聚合不变量；
+- 发布唯一`CellMatrixEvent`，私有装配command-specific operation task并注入同一Run facts；
+- 经Scheduler `on_started`为每个真正启动的Cell发布唯一initial
+  `CellContextEvent(BaselineDetailIdentity)`；
 - 构造 generic Scheduler；
-- max-duration 未启动 task 的 `TIMEOUT @ scheduler-deadline` CellResult；
-- 领域 result → Cell completion 投影；
-- per-Cell Journal merge、持久化与 diagnose availability；
+- Search max-duration未启动task的`TIMEOUT @ scheduler-deadline` CellResult；`None`不安装deadline callback；
+- 三个implementation-private typed projector同时形成Run-live completion、Journal entries与journal-side
+  Process Log facts，并拒绝outcome family/Cell mismatch或Search lowest-direct Attempt；
+- per-Cell Journal/association merge、持久化与diagnose availability；
 - final Journal 错误上抛。
 
-Scheduler 只理解 `ScheduledCellTask`, worker, deadline callback, `jobs`, monotonic clock 与 `cell_schedule_key`。它不导入 Evaluation、Failure、Journal、CellResult 或 terminal facts。结果按 target/Python/extra 规范排序；单 Cell 内 probe 串行。
+Scheduler只理解`ScheduledCellTask`, worker, deadline callback, `jobs`, monotonic clock与
+`cell_schedule_key`。它在取得worker slot后先完成`on_started`再提交operation；deadline到达时留在pending
+的Cell不调用started。它不导入Evaluation、Failure、Role、Journal、CellResult或terminal facts。结果按
+target/Python/extra规范排序，completion保留真实完成顺序；单Cell内probe串行。
 
-当 Cell 完成时，Runner 先合并 buffered search failures 与 final task failures，再写当前完整 Journal；只有写入成功，`CellCompletedEvent.diagnose_available` 才为 true。写入失败仍发布 `diagnose_available=false` 的 completion，随后以 InfrastructureError 结束 run，不能静默宣称可诊断。
+当Cell完成时，Runner先做typed projection，再合并buffered与terminal failures，写当前完整Journal并写
+`journal:<run-id>` Process Log associations；两者都成功才让`CellCompletedEvent.diagnose_available`为true。
+`logs=None`永远false。写入失败仍发布false completion，Scheduler收尾后以InfrastructureError结束Run；
+final persist failure也不能被typed command result吞掉。同failure ID对应不同portable entry时fail closed。
+
+Workflow继续拥有project load、snapshot build/close、SourcePlan构造、status与typed聚合；Search还拥有
+post-run source drift、report build/update与report-generation association replacement。Runner不关闭、
+materialize或重建snapshot，也不拥有report ID。
 
 ## 5. Activity 与 completion
 
@@ -132,6 +157,11 @@ StatusEvent / CellMatrixEvent / ProcessEvent / SearchFailureEvent
 
 Context、stage 与 completion 不能用 optional field 组合或 `completed == 0` 隐式编码。`0 < completed <= total`。
 
+Initial context只由Runner为已启动Cell发布。Smoke workflow、`CompatibilityChecker`与
+`SearchCoordinator`不再发布baseline initial；Check的`DeclarationDetailIdentity`、Search的`detail=None`
+与probe context继续由对应单Celloperation拥有。该initial event happens-before operation的任何context或
+stage；未启动deadline Cell没有context。`HighestVersionVerifier`不发布context。
+
 统一 completion outcome 是：
 
 ```text
@@ -140,14 +170,21 @@ CellFailed(status, phase, failures, process?, role?, runtime detail?)
 ```
 
 `RuntimeEvaluator.evaluate` 返回 `RuntimeEvaluationRun(evaluation, diagnostics?)`。Evaluation 是
-cache/report/Journal authority；diagnostics 是 invocation-local、excluded 数据。唯一投影路径是：
+cache/report/Journal authority；diagnostics 是 invocation-local、excluded 数据。Completion展示有三条
+closed且不共享public projector的投影路径：
 
 ```text
-VerifierRun.diagnostics
--> RuntimeEvaluationRun.diagnostics
--> completion projector
--> CellResultDetail(detail_failure_id)
+Run live: command outcome + RuntimeEvaluationRun diagnostics
+  -> Runner private typed projector -> CellCompletedEvent
+Run final: Check/Smoke typed outcomes | Search CellResult
+  -> terminal-private command projector -> CellPresentation
+Explain / remaining Search failure: Evaluation | Failure facts
+  -> terminal-private evaluation projector -> CellPresentation
 ```
+
+三者对共同适用的kind/status/phase、detail及其Failure source、process及其Failure source、Failure集与Role
+保持语义相等，但不要求共享实现或object identity。Terminal不导入Runner private projector；不存在接受
+任意`object`的shared projector。Run live只从`CellCompletedEvent`读取completion，final不缓存或重放live。
 
 Non-success `phase` 来自 FailureRecord stage；Presenter 不从 Schema status 猜 stage。
 `CellResultDetail` 是 excluded runtime-only union：pytest failure detail 或 confirmed-missing
@@ -253,3 +290,5 @@ D005 拥有 title/next step 与 disposition；D008 唯一选择上述 impact；D
 - Cell completion 必须保留 stage 与 FailureRecord，不能退化为裸 status/message。
 - Journal/Index/Process Log 是本机诊断材料，不是 apply authority。
 - Scheduler 不拥有领域 failure；workflow 不复制 Runner 的 Journal timing。
+- Matrix、task、completion total、deadline scope与返回集合必须来自同一个host Cell集。
+- Borrowed snapshot总由workflow `finally`关闭；Search在Runner返回后继续拥有drift/report/association。

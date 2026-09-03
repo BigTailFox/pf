@@ -26,7 +26,6 @@ from pf.schemas.evaluation import (
     AttemptFailureScope,
     AttemptIdentity,
     CellStageEvent,
-    CellFailed,
     DiagnosticClassification,
     Evaluation,
     GraphSuccess,
@@ -41,7 +40,6 @@ from pf.schemas.evaluation import (
     StaticBaseline,
     StaticBaselineCapture,
     StaticRegressionEvaluation,
-    StaticIssueDetail,
     StageProgress,
     ToolFailure,
     ToolSuccess,
@@ -67,7 +65,6 @@ from pf.schemas.project import (
 )
 from pf.snapshot import SnapshotBuilder
 from pf.static_transition import static_fingerprint
-from pf.verification import completion_outcome
 
 
 def process_result(*, exit_code: int = 0) -> ProcessResult:
@@ -733,9 +730,9 @@ class TestRuntimeWitnessEvaluator:
 
         assert isinstance(result, RuntimeInterfaceMissingEvaluation)
         assert test_calls == 0
-        completion = completion_outcome(result)
-        assert isinstance(completion, CellFailed)
-        assert completion.detail == StaticIssueDetail(first=increment, total=1)
+        assert result.witnesses[-1].plan.diagnostic_identities == (
+            increment.identity,
+        )
 
     def test_runtime_evaluator_stops_after_witness_tool_failure(
         self,
@@ -809,7 +806,7 @@ class TestRuntimeWitnessEvaluator:
         assert witnesses.calls == 1
         assert len(result.evaluation.witnesses) == 1
 
-    def test_completion_outcome_reports_only_confirmed_witness_issues(
+    def test_runtime_interface_missing_retains_only_confirmed_witness_issues(
         self,
         tmp_path: Path,
     ) -> None:
@@ -817,13 +814,14 @@ class TestRuntimeWitnessEvaluator:
             tmp_path
         )
 
-        completion = completion_outcome(evaluation)
-
-        assert isinstance(completion, CellFailed)
-        assert completion.detail == StaticIssueDetail(
-            first=related_one,
-            total=2,
+        identities = set(evaluation.witnesses[-1].plan.diagnostic_identities)
+        relevant = tuple(
+            item
+            for item in evaluation.static.incremental
+            if item.identity in identities
         )
+        assert relevant[0] == related_one
+        assert len(relevant) == 2
         prepared.close()
 
 
