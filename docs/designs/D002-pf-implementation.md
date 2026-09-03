@@ -52,9 +52,9 @@ src/pf/
 ├── __init__.py / __main__.py    version 与统一 CLI entry point
 ├── cli.py                       Cyclopts、CliContext、composition root
 ├── errors.py                    PfError 与 D001 exit-code mapping
-├── config.py / policy.py        配置合并、CLI parser、evaluation identity
-├── project_discovery.py         离线 package identity/path discovery
-├── project.py                   planning、declarations、Cells、test groups
+├── config.py / policy.py        observation 上的配置合并、CLI parser、evaluation identity
+├── project_discovery.py         离线 package catalog、在线 immutable workspace inventory
+├── project.py                   inventory planning、declarations、Cells、test groups
 ├── snapshot.py                  immutable SourceSnapshot lifecycle
 ├── candidates.py                frozen CandidateSnapshots
 ├── harness.py                   original/relaxed direct harness 纯变换
@@ -136,15 +136,49 @@ main() -> None
 ProjectDiscovery.select(root=..., selector=RootPackage | WorkspacePackage)
     -> PackageLocation
 
+ProjectDiscovery.inventory(root=..., selector=RootPackage | WorkspacePackage)
+    -> WorkspaceInventory
+
+WorkspaceInventory
+    -> target + root/target observations + owned paths + member point query
+
+ConfigLoader.load(root_observation=..., target_observation=...)
+    -> EffectiveConfig
+
 ProjectLoader.load(root=..., selector=...)
     -> ProjectPlan
 
 SnapshotBuilder.build(root, owned_pyproject_paths=...) -> SourceSnapshot
 ```
 
-`ProjectDiscovery` 只读取 identity/path 与 workspace/package selection，供在线与离线命令复用；省略 selector 时只返回可安装 root，`WorkspacePackage` 只按 canonical distribution name 唯一匹配并返回一个 location。`ProjectLoader` 在其上唯一完成三层配置、PEP 508 declaration、marker/extra Cell、逐 dependency source route、workspace member version 与 recursive test-group planning；`ProjectPlan.target` 是唯一执行 target。
+`ProjectDiscovery.select` 是 explain/diagnose 的轻量离线入口：它只完成 root/workspace package catalog 与
+selector，省略 selector 时只返回可安装 root，`WorkspacePackage` 只按 canonical distribution name 唯一
+匹配并返回一个 location。`ProjectDiscovery.inventory` 是 `ProjectLoader` 的唯一在线 workspace observation
+入口。两者复用同一 private catalog，因此 root resolve、workspace glob/exclude、installable name、canonical
+uniqueness、selector 与候选列表只有一个实现；selector 失败时不读取或校验 member version、recursive path、
+PF config、declaration、Cell 或 harness facts。
 
-`ProjectPlan.owned_pyproject_paths`由discovery收集root、全部workspace candidates（包括未选中/排除member）和递归in-tree path packages。`SnapshotBuilder`负责Git/non-Git discovery、路径与symlink安全、普通blob、owned `PyprojectIdentity`的type-tagged canonical TOML编码、完整摘要、immutable staging、独立materialize和cleanup；所有在线workflow、authorizer与editor复用同一builder和owned paths。Git模式使用注入的ProcessRunner；`without_processes()`只允许non-Git traversal。Snapshot产品范围由D001、wire编码由D014定义。
+一次成功 `inventory` 对每个纳入的 `pyproject.toml` 只保留一份 canonical-path + recursively immutable
+TOML observation；root target 复用同一 observation。`WorkspaceInventory` 只暴露 selected location、
+root/target observations、排序唯一的 owned paths 和 canonical-name member point query；它不暴露任意
+document/members collection、raw bytes、digest、wire、cache 或 cleanup lifecycle，构造后不访问 filesystem。
+`ConfigLoader` 只在 root/target observations 上独占三层 PF config merge/validation，不读取 filesystem。
+`ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration、marker/extra
+Cell、逐 dependency source route、member-version attachment 与 recursive test-group planning；
+`ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
+
+`ProjectPlan.owned_pyproject_paths` 包含 root；全部 installable、未排除 workspace packages（包括未选中的
+member）；以及从这些 metadata 的 `tool.uv.sources.*.path` 递归可达、存在且不越过 root 的 metadata。
+Excluded member 不因 workspace glob 进入，只有由合法 in-tree path source 可达时才以 path metadata 进入；
+path-only 或 non-installable metadata 不成为 selector/member fact，也不做 workspace version validation。
+closure 排序、唯一、cycle-safe；合法 in-tree path 缺少 `pyproject.toml` 时跳过，越界在 existence 前失败。
+
+`SnapshotBuilder` 在 planning 后独立重读 filesystem 是有意的执行 evidence observation；它继续负责
+Git/non-Git discovery、路径与 symlink 安全、普通 blob、owned `PyprojectIdentity` 的 type-tagged canonical
+TOML 编码、完整摘要、immutable staging、独立 materialize 和 cleanup。所有在线 workflow、authorizer 与
+editor 复用同一 builder 和 owned paths；inventory 不替代 SourceSnapshot、drift check、authorization 或
+raw CAS。Git 模式使用注入的 ProcessRunner；`without_processes()` 只允许 non-Git traversal。Snapshot
+产品范围由 D001、wire 编码由 D014 定义。
 
 ## 7. Verification modules
 

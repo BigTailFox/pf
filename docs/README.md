@@ -53,7 +53,8 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 ## 开放事项与归档
 
 - [R004](reviews/R004-pf-search-performance-review.md) 保留在现行目录，因为其中的性能优化候选尚未实施。
-- [R005](reviews/R005-pf-module-depth-review.md) 仍保留 workspace inventory、Verification Run、评价层假想 Protocol、terminal-private result-card 与 SearchCoordinator 测试表面的未实施 module-depth 候选；SourcePlan 已由 D019/P025 解决并归并到现行 owner。
+- [R005](reviews/R005-pf-module-depth-review.md) 仍保留 Verification Run、评价层假想 Protocol、terminal-private result-card 与 SearchCoordinator 测试表面的未实施 module-depth 候选；SourcePlan 与 WorkspaceInventory 已分别由 D019/P025、D020/P026 解决并归并到现行 owner。
+- [D020](archived/designs/D020-pf-workspace-inventory.md) / [P026](archived/plans/P026-pf-workspace-inventory.md) 的 WorkspaceInventory 深化迁移已完成；稳定 interface 与 ownership 由 D002 接管。
 - [D019](archived/designs/D019-pf-source-plan-depth.md) / [P025](archived/plans/P025-pf-source-plan-depth.md) 的 SourcePlan 深化迁移已完成；设计理由与完整验证证据见归档记录。
 - D018/P024的诊断与结果命令卡片迁移已完成；稳定规则已由D001/D002/D005/D006/D008接管，
   D014的merge authority保持不变，设计理由和实施证据见归档索引。

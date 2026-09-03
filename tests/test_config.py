@@ -3,12 +3,95 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import tomli
 
 from pf.config import ConfigLoader, parse_jobs, parse_max_duration
 from pf.errors import ConfigurationError
+from pf.project_discovery import PyprojectObservation
+from pf.schemas.config import EffectiveConfig
+
+
+def observation(path: Path, document: dict[str, object]) -> PyprojectObservation:
+    return PyprojectObservation(path=path / "pyproject.toml", document=document)
+
+
+def load_config(root: Path, package: Path) -> EffectiveConfig:
+    root_observation = PyprojectObservation(
+        path=root / "pyproject.toml",
+        document=tomli.loads((root / "pyproject.toml").read_text(encoding="utf-8")),
+    )
+    target_observation = (
+        root_observation
+        if package.resolve() == root.resolve()
+        else PyprojectObservation(
+            path=package / "pyproject.toml",
+            document=tomli.loads(
+                (package / "pyproject.toml").read_text(encoding="utf-8")
+            ),
+        )
+    )
+    return ConfigLoader().load(
+        root_observation=root_observation,
+        target_observation=target_observation,
+    )
 
 
 class TestConfiguration:
+    def test_config_loader_merges_observations_without_reading_the_filesystem(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = observation(
+            tmp_path,
+            {
+                "project": {"name": "root"},
+                "tool": {
+                    "pf": {
+                        "python": ["3.10"],
+                        "package": {"demo": {"python": ["3.11"]}},
+                    }
+                },
+            },
+        )
+        target = observation(
+            tmp_path / "missing-package",
+            {
+                "project": {"name": "demo"},
+                "tool": {"pf": {"python": ["3.12"]}},
+            },
+        )
+
+        config = ConfigLoader().load(
+            root_observation=root,
+            target_observation=target,
+        )
+
+        assert config.python == ("3.12",)
+
+    def test_root_target_applies_root_package_config_after_matching_override(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = observation(
+            tmp_path,
+            {
+                "project": {"name": "demo"},
+                "tool": {
+                    "pf": {
+                        "python": ["3.10"],
+                        "package": {"demo": {"python": ["3.11"]}},
+                    }
+                },
+            },
+        )
+
+        config = ConfigLoader().load(
+            root_observation=root,
+            target_observation=root,
+        )
+
+        assert config.python == ("3.10",)
+
     def test_package_config_overrides_root_override_and_replaces_lists(
         self,
         tmp_path: Path,
@@ -46,7 +129,7 @@ class TestConfiguration:
             encoding="utf-8",
         )
 
-        config = ConfigLoader().load(root=tmp_path, package=package)
+        config = load_config(tmp_path, package)
 
         assert config.python == ("3.12",)
         assert config.ty_args == ()
@@ -57,7 +140,7 @@ class TestConfiguration:
             encoding="utf-8",
         )
 
-        config = ConfigLoader().load(root=tmp_path, package=tmp_path)
+        config = load_config(tmp_path, tmp_path)
 
         assert config.release_granularity == "minor"
         assert config.search_space == "all"
@@ -93,7 +176,7 @@ class TestConfiguration:
             encoding="utf-8",
         )
 
-        config = ConfigLoader().load(root=tmp_path, package=tmp_path)
+        config = load_config(tmp_path, tmp_path)
 
         assert config.platform == ("x86_64-unknown-linux-gnu",)
         assert config.extras == "all"
@@ -159,7 +242,7 @@ class TestConfiguration:
         )
 
         with pytest.raises(ConfigurationError, match=message):
-            ConfigLoader().load(root=tmp_path, package=tmp_path)
+            load_config(tmp_path, tmp_path)
 
     def test_config_normalizes_explicit_extra_surfaces(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -177,7 +260,7 @@ class TestConfiguration:
             encoding="utf-8",
         )
 
-        config = ConfigLoader().load(root=tmp_path, package=tmp_path)
+        config = load_config(tmp_path, tmp_path)
 
         assert config.extras is None
         assert config.extra_surfaces == ((), ("fast", "gpu"))

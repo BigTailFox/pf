@@ -395,6 +395,41 @@ class TestReportWorkflows:
         assert caught.value.report_path == "packages/demo/package-floor.json"
         assert caught.value.recovery_command == "pf search --package demo"
 
+    def test_explain_ignores_unselected_planning_only_metadata(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        selected = tmp_path / "packages" / "selected"
+        broken = tmp_path / "packages" / "broken"
+        selected.mkdir(parents=True)
+        broken.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
+            '[tool.uv.sources]\noutside = { path = "../outside" }\n',
+            encoding="utf-8",
+        )
+        (selected / "pyproject.toml").write_text(
+            '[project]\nname = "selected"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+        (broken / "pyproject.toml").write_text(
+            '[project]\nname = "broken"\nversion = 1\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ExplainReportError) as caught:
+            ExplainCommandWorkflow(
+                discovery=ProjectDiscovery(),
+                reports=ReportStore(),
+            ).run(
+                ReportRequest(
+                    root=tmp_path.as_posix(),
+                    selector=WorkspacePackage(canonical_name="selected"),
+                )
+            )
+
+        assert caught.value.reason == "report is unavailable"
+
     def test_merge_stops_at_the_first_invalid_input_and_keeps_all_request_paths(
         self,
     ) -> None:

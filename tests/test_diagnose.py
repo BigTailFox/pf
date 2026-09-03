@@ -816,6 +816,31 @@ class TestDiagnoseWorkflow:
 
         assert diagnosis.failure.failure_id == failure_id
 
+    def test_diagnose_ignores_planning_only_workspace_and_path_metadata(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _, failure_id = _write_indeterminate_report(tmp_path)
+        broken = tmp_path / "packages" / "broken"
+        broken.mkdir(parents=True)
+        with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as stream:
+            stream.write(
+                '\n[tool.uv.workspace]\nmembers = ["packages/*"]\n'
+                '[tool.uv.sources]\noutside = { path = "../outside" }\n'
+            )
+        (broken / "pyproject.toml").write_text(
+            '[project]\nname = "broken"\nversion = 1\n',
+            encoding="utf-8",
+        )
+
+        diagnosis = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=RecordingLogLocator(),
+        ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
+
+        assert diagnosis.failure.failure_id == failure_id
+
     def test_diagnose_rejects_an_unknown_failure_id(self, tmp_path: Path) -> None:
         _write_indeterminate_report(tmp_path)
         logs = RecordingLogLocator()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 import hashlib
 import json
 from dataclasses import dataclass
@@ -7,8 +8,6 @@ from pathlib import Path
 import re
 from typing import Any, Literal, Protocol, cast
 from urllib.parse import parse_qs, urlsplit
-
-import tomli
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.markers import Marker, default_environment
@@ -18,13 +17,16 @@ from packaging.version import InvalidVersion, Version
 
 from pf.config import ConfigLoader
 from pf.errors import ConfigurationError
-from pf.project_discovery import ProjectDiscovery
+from pf.project_discovery import (
+    ProjectDiscovery,
+    WorkspaceInventory,
+    WorkspaceMemberFact,
+)
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.config import RootPackage, TargetSelector
 from pf.schemas.project import (
     Cell,
     DependencySourceRoute,
-    DynamicWorkspaceMemberVersion,
     HarnessGroupProvenance,
     HarnessRequirement,
     HarnessSpecifierClause,
@@ -32,8 +34,6 @@ from pf.schemas.project import (
     ProjectPlan,
     RequirementDeclaration,
     SourceIdentity,
-    StaticWorkspaceMemberVersion,
-    WorkspaceMemberVersion,
     public_locator,
 )
 
@@ -65,12 +65,6 @@ class _ExpandedGroupRequirement:
     raw: str
     group_path: tuple[str, ...]
     item_path: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class _WorkspaceMember:
-    locator: str
-    version: WorkspaceMemberVersion
 
 
 def host_target() -> str:
@@ -146,23 +140,28 @@ class ProjectLoader:
         root: Path,
         selector: TargetSelector = RootPackage(),
     ) -> ProjectPlan:
-        root = root.resolve()
-        location = self._discovery.select(
+        inventory = self._discovery.inventory(
             root=root,
             selector=selector,
         )
-        package = self._load_package(root=root, package_path=location.package_root)
-        if package.name != location.name:
-            raise ConfigurationError("package identity changed during project loading")
+        canonical_root = inventory.root_observation.path.parent
+        package = self._load_package(root=canonical_root, inventory=inventory)
         return ProjectPlan(
             target=package,
-            owned_pyproject_paths=self._discovery.owned_pyproject_paths(root=root),
+            owned_pyproject_paths=inventory.owned_pyproject_paths,
         )
 
-    def _load_package(self, *, root: Path, package_path: Path) -> PackagePlan:
-        document = self._read(package_path / "pyproject.toml")
+    def _load_package(
+        self,
+        *,
+        root: Path,
+        inventory: WorkspaceInventory,
+    ) -> PackagePlan:
+        location = inventory.target
+        package_path = location.package_root
+        document = inventory.target_observation.document
         project = document.get("project")
-        if not isinstance(project, dict) or "name" not in project:
+        if not isinstance(project, Mapping) or "name" not in project:
             raise ConfigurationError(f"not an installable package: {package_path}")
         dynamic = set(project.get("dynamic", ()))
         unsupported_dynamic = dynamic & {"dependencies", "optional-dependencies"}
@@ -171,13 +170,12 @@ class ProjectLoader:
             raise ConfigurationError(f"dynamic project.{field} is not supported")
 
         package_name = canonicalize_name(project["name"])
-        config = self._config_loader.load(root=root, package=package_path)
-        pyproject_path = (package_path / "pyproject.toml").relative_to(root).as_posix()
-        root_document = self._read(root / "pyproject.toml")
-        workspace_members = self._workspace_members(
-            root=root,
-            root_document=root_document,
+        config = self._config_loader.load(
+            root_observation=inventory.root_observation,
+            target_observation=inventory.target_observation,
         )
+        pyproject_path = location.pyproject_path.relative_to(root).as_posix()
+        root_document = inventory.root_observation.document
         registry = self._default_registry(
             root_document=root_document,
             package_document=document,
@@ -187,9 +185,7 @@ class ProjectLoader:
             package_path=package_path,
             root_document=root_document,
             package_document=document,
-            workspace_paths={
-                name: member.locator for name, member in workspace_members.items()
-            },
+            workspace_member_for=inventory.workspace_member_for,
         )
         declarations: list[RequirementDeclaration] = []
         source_routes: dict[str, DependencySourceRoute] = {}
@@ -203,7 +199,7 @@ class ProjectLoader:
                 raw=raw,
                 source=sources.get(requirement_name, registry),
                 registry=registry,
-                workspace_members=workspace_members,
+                workspace_member_for=inventory.workspace_member_for,
                 config=config,
             )
             declarations.append(declaration)
@@ -220,7 +216,7 @@ class ProjectLoader:
                     raw=raw,
                     source=sources.get(requirement_name, registry),
                     registry=registry,
-                    workspace_members=workspace_members,
+                    workspace_member_for=inventory.workspace_member_for,
                     config=config,
                 )
                 declarations.append(declaration)
@@ -346,7 +342,7 @@ class ProjectLoader:
                     )
                 continue
             member = (
-                workspace_members.get(requirement.name)
+                inventory.workspace_member_for(requirement.name)
                 if source.kind == "workspace"
                 else None
             )
@@ -468,7 +464,7 @@ class ProjectLoader:
         raw: str,
         source: SourceIdentity,
         registry: SourceIdentity,
-        workspace_members: dict[str, _WorkspaceMember],
+        workspace_member_for: Callable[[str], WorkspaceMemberFact | None],
         config: EffectiveConfig,
     ) -> tuple[RequirementDeclaration, DependencySourceRoute]:
         try:
@@ -513,7 +509,7 @@ class ProjectLoader:
             managed = name not in unmanaged_deps
         else:
             managed = True
-        member = workspace_members.get(name) if source.kind == "workspace" else None
+        member = workspace_member_for(name) if source.kind == "workspace" else None
         if source.kind == "workspace" and member is None:
             raise ConfigurationError(
                 f"workspace source does not name a workspace package: {name}"
@@ -606,9 +602,9 @@ class ProjectLoader:
         *,
         root: Path,
         package_path: Path,
-        root_document: dict[str, Any],
-        package_document: dict[str, Any],
-        workspace_paths: dict[str, str],
+        root_document: Mapping[str, Any],
+        package_document: Mapping[str, Any],
+        workspace_member_for: Callable[[str], WorkspaceMemberFact | None],
     ) -> dict[str, SourceIdentity]:
         root_sources = root_document.get("tool", {}).get("uv", {}).get("sources", {})
         package_sources = (
@@ -619,10 +615,10 @@ class ProjectLoader:
         index_urls: dict[str, str] = {}
         for document in (root_document, package_document):
             raw_indexes = document.get("tool", {}).get("uv", {}).get("index", ())
-            if isinstance(raw_indexes, dict):
+            if isinstance(raw_indexes, Mapping):
                 raw_indexes = (raw_indexes,)
             for raw_index in raw_indexes:
-                if not isinstance(raw_index, dict):
+                if not isinstance(raw_index, Mapping):
                     raise ConfigurationError("invalid uv index declaration")
                 name = raw_index.get("name")
                 url = raw_index.get("url")
@@ -650,7 +646,7 @@ class ProjectLoader:
                     root=root,
                     declaration_root=declaration_root,
                     index_urls=index_urls,
-                    workspace_paths=workspace_paths,
+                    workspace_member_for=workspace_member_for,
                 )
                 previous = result.get(name)
                 if previous is not None and previous != identity:
@@ -663,16 +659,16 @@ class ProjectLoader:
     @staticmethod
     def _default_registry(
         *,
-        root_document: dict[str, Any],
-        package_document: dict[str, Any],
+        root_document: Mapping[str, Any],
+        package_document: Mapping[str, Any],
     ) -> SourceIdentity:
         indexes: dict[str, tuple[str, bool, bool]] = {}
         for document in (root_document, package_document):
             raw_indexes = document.get("tool", {}).get("uv", {}).get("index", ())
-            if isinstance(raw_indexes, dict):
+            if isinstance(raw_indexes, Mapping):
                 raw_indexes = (raw_indexes,)
             for raw_index in raw_indexes:
-                if not isinstance(raw_index, dict):
+                if not isinstance(raw_index, Mapping):
                     raise ConfigurationError("invalid uv index declaration")
                 name = raw_index.get("name")
                 url = raw_index.get("url")
@@ -718,25 +714,25 @@ class ProjectLoader:
         root: Path,
         declaration_root: Path,
         index_urls: dict[str, str],
-        workspace_paths: dict[str, str],
+        workspace_member_for: Callable[[str], WorkspaceMemberFact | None],
     ) -> SourceIdentity:
-        if isinstance(value, list):
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             raise ConfigurationError(
                 f"multiple uv sources are not supported for: {name}"
             )
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             raise ConfigurationError(f"invalid uv source for dependency: {name}")
         if value.get("workspace") is True:
             if set(value) != {"workspace"}:
                 raise ConfigurationError(
                     f"workspace source must be single and unconditional: {name}"
                 )
-            locator = workspace_paths.get(name)
-            if locator is None:
+            member = workspace_member_for(name)
+            if member is None:
                 raise ConfigurationError(
                     f"workspace source does not name a workspace package: {name}"
                 )
-            return SourceIdentity(kind="workspace", locator=locator)
+            return SourceIdentity(kind="workspace", locator=member.locator)
         if "path" in value:
             resolved = (declaration_root / value["path"]).resolve()
             if root not in resolved.parents and resolved != root:
@@ -778,89 +774,6 @@ class ProjectLoader:
                 raise ConfigurationError(f"unknown uv index for dependency: {name}")
             return SourceIdentity(kind="registry", index=index, locator=locator)
         raise ConfigurationError(f"unsupported uv source for dependency: {name}")
-
-    @staticmethod
-    def _workspace_members(
-        *,
-        root: Path,
-        root_document: dict[str, Any],
-    ) -> dict[str, _WorkspaceMember]:
-        candidates = {root}
-        workspace = root_document.get("tool", {}).get("uv", {}).get("workspace", {})
-        if not isinstance(workspace, dict):
-            raise ConfigurationError("tool.uv.workspace must be a table")
-        members = workspace.get("members", [])
-        if not isinstance(members, list) or any(
-            not isinstance(pattern, str) for pattern in members
-        ):
-            raise ConfigurationError("workspace members must be an array of strings")
-        excludes = workspace.get("exclude", [])
-        if not isinstance(excludes, list) or any(
-            not isinstance(pattern, str) for pattern in excludes
-        ):
-            raise ConfigurationError("workspace exclude must be an array of strings")
-        excluded: set[Path] = set()
-        for pattern in excludes:
-            for path in root.glob(pattern):
-                resolved = path.resolve()
-                if root not in resolved.parents and resolved != root:
-                    raise ConfigurationError("workspace exclude escapes project root")
-                excluded.add(resolved)
-        for pattern in members:
-            for path in root.glob(pattern):
-                resolved = path.resolve()
-                if root not in resolved.parents and resolved != root:
-                    raise ConfigurationError("workspace member escapes project root")
-                if resolved in excluded:
-                    continue
-                candidates.add(resolved)
-        result: dict[str, _WorkspaceMember] = {}
-        for candidate in sorted(candidates):
-            pyproject = candidate / "pyproject.toml"
-            if not pyproject.is_file():
-                continue
-            project = ProjectLoader._read(pyproject).get("project")
-            if not isinstance(project, dict) or not isinstance(
-                project.get("name"), str
-            ):
-                continue
-            name = canonicalize_name(project["name"])
-            locator = candidate.relative_to(root).as_posix()
-            dynamic = project.get("dynamic", [])
-            if not isinstance(dynamic, list) or any(
-                not isinstance(field, str) for field in dynamic
-            ):
-                raise ConfigurationError(
-                    f"invalid project.dynamic for workspace package: {name}"
-                )
-            if "version" in project:
-                raw_version = project["version"]
-                if not isinstance(raw_version, str):
-                    raise ConfigurationError(
-                        f"invalid workspace member version: {name}"
-                    )
-                try:
-                    version: WorkspaceMemberVersion = StaticWorkspaceMemberVersion(
-                        value=str(Version(raw_version))
-                    )
-                except InvalidVersion as error:
-                    raise ConfigurationError(
-                        f"invalid workspace member version: {name}"
-                    ) from error
-            elif "version" in dynamic:
-                version = DynamicWorkspaceMemberVersion()
-            else:
-                raise ConfigurationError(
-                    f"workspace package must declare project.version or dynamic version: {name}"
-                )
-            member = _WorkspaceMember(locator=locator, version=version)
-            previous = result.get(name)
-            if previous is not None and previous != member:
-                raise ConfigurationError(
-                    f"duplicate canonical workspace package name: {name}"
-                )
-            result[name] = member
-        return result
 
     @staticmethod
     def _public_url(value: Any) -> str:
@@ -989,13 +902,8 @@ class ProjectLoader:
         return host_target()
 
     @staticmethod
-    def _read(path: Path) -> dict[str, Any]:
-        with path.open("rb") as stream:
-            return tomli.load(stream)
-
-    @staticmethod
     def _expand_group(
-        groups: dict[str, Any],
+        groups: Mapping[str, Any],
         name: str,
         stack: tuple[str, ...] = (),
         item_stack: tuple[int, ...] = (),
@@ -1014,7 +922,7 @@ class ProjectLoader:
                         item_path=(*item_stack, index),
                     )
                 )
-            elif isinstance(item, dict) and set(item) == {"include-group"}:
+            elif isinstance(item, Mapping) and set(item) == {"include-group"}:
                 expanded.extend(
                     ProjectLoader._expand_group(
                         groups,

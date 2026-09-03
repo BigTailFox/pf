@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Literal
-
-import tomli
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from pydantic import ValidationError
 
 from pf.errors import ConfigurationError
+from pf.project_discovery import PyprojectObservation
 from pf.schemas.config import EffectiveConfig
 
 
@@ -59,16 +58,20 @@ def parse_max_duration(value: str | None) -> int | None:
 class ConfigLoader:
     """Merge PF configuration layers into one immutable effective config."""
 
-    def load(self, *, root: Path, package: Path) -> EffectiveConfig:
-        root_document = self._read(root / "pyproject.toml")
-        package_document = (
-            root_document
-            if package.resolve() == root.resolve()
-            else self._read(package / "pyproject.toml")
-        )
+    def load(
+        self,
+        *,
+        root_observation: PyprojectObservation,
+        target_observation: PyprojectObservation,
+    ) -> EffectiveConfig:
+        root_document = root_observation.document
+        package_document = target_observation.document
         package_name = canonicalize_name(package_document["project"]["name"])
 
-        root_config = root_document.get("tool", {}).get("pf", {})
+        root_tool = root_document.get("tool", {})
+        root_config = (
+            root_tool.get("pf", {}) if isinstance(root_tool, Mapping) else {}
+        )
         for field in ("packages", "exclude-packages"):
             if field in root_config:
                 raise ConfigurationError(
@@ -77,9 +80,11 @@ class ConfigLoader:
                 )
         self._validate_layer(root_config, location="[tool.pf]", allowed=_ROOT_FIELDS)
         package_overrides = root_config.get("package", {})
-        matching_override: dict[str, Any] = {}
+        if not isinstance(package_overrides, Mapping):
+            raise ConfigurationError("tool.pf.package metadata must be a table")
+        matching_override: Mapping[str, Any] = {}
         for name, patch in package_overrides.items():
-            if isinstance(patch, dict) and "path" in patch:
+            if isinstance(patch, Mapping) and "path" in patch:
                 raise ConfigurationError(
                     f"[tool.pf.package.{name}].path is no longer supported; "
                     "workspace discovery owns package paths and --package selects the target"
@@ -92,8 +97,11 @@ class ConfigLoader:
             if canonicalize_name(name) == package_name:
                 matching_override = patch
 
-        package_config = package_document.get("tool", {}).get("pf", {})
-        if package.resolve() != root.resolve():
+        package_tool = package_document.get("tool", {})
+        package_config = (
+            package_tool.get("pf", {}) if isinstance(package_tool, Mapping) else {}
+        )
+        if target_observation.path != root_observation.path:
             self._validate_layer(
                 package_config,
                 location="package [tool.pf]",
@@ -166,17 +174,14 @@ class ConfigLoader:
             raise ConfigurationError(str(error)) from error
 
     @staticmethod
-    def _read(path: Path) -> dict[str, Any]:
-        with path.open("rb") as stream:
-            return tomli.load(stream)
-
-    @staticmethod
     def _validate_layer(
-        layer: dict[str, Any],
+        layer: object,
         *,
         location: str,
         allowed: frozenset[str],
     ) -> None:
+        if not isinstance(layer, Mapping):
+            raise ConfigurationError(f"{location} metadata must be a table")
         unknown = sorted(set(layer) - allowed)
         if unknown:
             raise ConfigurationError(f"unknown {location} key: {unknown[0]}")

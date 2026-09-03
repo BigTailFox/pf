@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader, host_target, marker_platform
-from pf.project_discovery import PackageLocation, ProjectDiscovery
-from pf.schemas.config import RootPackage, WorkspacePackage
+from pf.project_discovery import (
+    ProjectDiscovery,
+    WorkspaceInventory,
+)
+from pf.schemas.config import RootPackage, TargetSelector, WorkspacePackage
 from pf.schemas.project import (
     DependencySourceRoute,
     DynamicWorkspaceMemberVersion,
@@ -298,6 +302,193 @@ class TestProjectDiscovery:
         assert "duplicate canonical package name: demo-package" in str(caught.value)
         assert "packages/first" in str(caught.value)
         assert "packages/second" in str(caught.value)
+
+
+class TestProjectDiscoveryInventory:
+    def test_inventory_exposes_one_frozen_root_target_observation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        write_basic_project(tmp_path, "")
+
+        inventory = ProjectDiscovery().inventory(
+            root=tmp_path,
+            selector=RootPackage(),
+        )
+
+        assert inventory.target.name == "demo"
+        assert inventory.root_observation is inventory.target_observation
+        assert inventory.root_observation.path == (tmp_path / "pyproject.toml").resolve()
+        project = inventory.root_observation.document["project"]
+        assert isinstance(project, Mapping)
+        assert project["dependencies"] == ("idna",)
+        with pytest.raises(TypeError):
+            cast(Any, project)["name"] = "changed"
+        with pytest.raises(AttributeError):
+            cast(Any, project["dependencies"]).append("other")
+
+    def test_inventory_selects_before_member_version_validation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        member = tmp_path / "packages" / "demo"
+        member.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\n',
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = 1\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError) as caught:
+            ProjectDiscovery().inventory(
+                root=tmp_path,
+                selector=WorkspacePackage(canonical_name="missing"),
+            )
+
+        assert "unknown package selection: missing" in str(caught.value)
+        assert caught.value.candidates == ("demo",)
+        assert ProjectDiscovery().select(
+            root=tmp_path,
+            selector=WorkspacePackage(canonical_name="demo"),
+        ).name == "demo"
+        with pytest.raises(ConfigurationError, match="invalid workspace member version"):
+            ProjectDiscovery().inventory(
+                root=tmp_path,
+                selector=WorkspacePackage(canonical_name="demo"),
+            )
+
+    def test_inventory_projects_workspace_and_path_owned_metadata(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        for name in ("selected", "unselected", "excluded"):
+            package = tmp_path / "packages" / name
+            package.mkdir(parents=True)
+            version = '"1"' if name != "excluded" else "1"
+            (package / "pyproject.toml").write_text(
+                f'[project]\nname = "{name}"\nversion = {version}\n',
+                encoding="utf-8",
+            )
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[tool.uv.workspace]
+members = ["packages/*"]
+exclude = ["packages/excluded"]
+
+[tool.uv.sources]
+excluded = { path = "packages/excluded" }
+missing = { path = "vendor/missing" }
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        inventory = ProjectDiscovery().inventory(
+            root=tmp_path,
+            selector=WorkspacePackage(canonical_name="selected"),
+        )
+
+        assert inventory.owned_pyproject_paths == (
+            "packages/excluded/pyproject.toml",
+            "packages/selected/pyproject.toml",
+            "packages/unselected/pyproject.toml",
+            "pyproject.toml",
+        )
+        selected = inventory.workspace_member_for("selected")
+        unselected = inventory.workspace_member_for("unselected")
+        assert selected is not None
+        assert selected.locator == "packages/selected"
+        assert selected.version == StaticWorkspaceMemberVersion(value="1")
+        assert unselected is not None
+        assert unselected.locator == "packages/unselected"
+        assert inventory.workspace_member_for("excluded") is None
+
+    def test_inventory_owned_path_closure_is_cycle_safe_and_skips_missing_metadata(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        first = tmp_path / "vendor" / "first"
+        second = tmp_path / "vendor" / "second"
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            '[tool.uv.sources]\nfirst = { path = "vendor/first" }\n',
+            encoding="utf-8",
+        )
+        (first / "pyproject.toml").write_text(
+            '[tool.uv.sources]\nsecond = { path = "../second" }\n'
+            'missing = { path = "../missing" }\n',
+            encoding="utf-8",
+        )
+        (second / "pyproject.toml").write_text(
+            '[tool.uv.sources]\nfirst = { path = "../first" }\n',
+            encoding="utf-8",
+        )
+
+        inventory = ProjectDiscovery().inventory(root=tmp_path, selector=RootPackage())
+
+        assert inventory.owned_pyproject_paths == (
+            "pyproject.toml",
+            "vendor/first/pyproject.toml",
+            "vendor/second/pyproject.toml",
+        )
+
+    def test_inventory_rejects_an_escaping_path_before_metadata_existence(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            '[tool.uv.sources]\noutside = { path = "../outside" }\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError, match="escapes the workspace root"):
+            ProjectDiscovery().inventory(root=tmp_path, selector=RootPackage())
+
+    def test_inventory_is_a_frozen_observation_of_mutable_filesystem_state(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        write_basic_project(tmp_path, "", project='dynamic = ["version"]')
+        discovery = ProjectDiscovery()
+
+        first = discovery.inventory(root=tmp_path, selector=RootPackage())
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "changed"\nversion = "2"\n',
+            encoding="utf-8",
+        )
+        second = discovery.inventory(root=tmp_path, selector=RootPackage())
+
+        first_project = first.root_observation.document["project"]
+        second_project = second.root_observation.document["project"]
+        assert isinstance(first_project, Mapping)
+        assert isinstance(second_project, Mapping)
+        assert first.target.name == "demo"
+        assert first_project["name"] == "demo"
+        assert second.target.name == "changed"
+        assert second_project["name"] == "changed"
+
+    def test_inventory_keeps_an_installable_root_matched_by_exclude(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\ndynamic = ["version"]\n'
+            '[tool.uv.workspace]\nexclude = ["**"]\n',
+            encoding="utf-8",
+        )
+
+        inventory = ProjectDiscovery().inventory(root=tmp_path, selector=RootPackage())
+
+        assert inventory.owned_pyproject_paths == ("pyproject.toml",)
+        member = inventory.workspace_member_for("demo")
+        assert member is not None
+        assert member.version == DynamicWorkspaceMemberVersion()
 
 
 class TestProjectPlanning:
@@ -981,31 +1172,75 @@ class TestTargetPlatform:
 
 
 class TestProjectLoader:
-    def test_project_loader_rejects_identity_drift_during_loading(
+    def test_project_loader_consumes_one_inventory_observation(
         self,
         tmp_path: Path,
     ) -> None:
-        write_basic_project(tmp_path, "")
+        member = tmp_path / "packages" / "member"
+        member.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["member"]\n'
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
+            '[tool.uv.sources]\nmember = { workspace = true }\n'
+            '[tool.pf]\npython = ["3.10"]\n'
+            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            '[project]\nname = "member"\nversion = "1"\n',
+            encoding="utf-8",
+        )
 
-        class DriftingDiscovery(ProjectDiscovery):
-            def select(
+        class MutatingDiscovery(ProjectDiscovery):
+            def inventory(
                 self,
                 *,
                 root: Path,
-                selector: object,
-            ) -> PackageLocation:
-                del selector
-                return PackageLocation(
-                    name="other",
-                    package_root=root,
-                    pyproject_path=root / "pyproject.toml",
-                    report_path=root / "package-floor.json",
+                selector: TargetSelector,
+            ) -> WorkspaceInventory:
+                inventory = super().inventory(root=root, selector=selector)
+                (root / "pyproject.toml").write_text(
+                    '[project]\nname = "changed"\nversion = "2"\n'
+                    'dependencies = ["other"]\n'
+                    '[tool.pf]\npython = ["3.12"]\n',
+                    encoding="utf-8",
                 )
+                (root / "packages" / "member" / "pyproject.toml").write_text(
+                    '[project]\nname = "member"\nversion = "9"\n',
+                    encoding="utf-8",
+                )
+                return inventory
 
-        with pytest.raises(ConfigurationError, match="identity changed"):
-            ProjectLoader(discovery=DriftingDiscovery()).load(
-                root=tmp_path,
-            )
+        package = ProjectLoader(discovery=MutatingDiscovery()).load(root=tmp_path).target
+
+        assert package.name == "demo"
+        assert package.config.python == ("3.10",)
+        assert tuple(item.name for item in package.declarations) == ("member",)
+        assert package.source_routes[0].workspace_member_version == (
+            StaticWorkspaceMemberVersion(value="1")
+        )
+
+    def test_project_loader_validates_inventory_before_target_planning(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        broken = tmp_path / "packages" / "broken"
+        broken.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["not [valid"]\n'
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\n',
+            encoding="utf-8",
+        )
+        (broken / "pyproject.toml").write_text(
+            '[project]\nname = "broken"\nversion = 1\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError, match="invalid workspace member version"):
+            ProjectLoader().load(root=tmp_path)
 
     @pytest.mark.parametrize(
         ("configuration", "message"),
@@ -1037,7 +1272,7 @@ class TestProjectLoader:
             ('[tool.uv.sources]\nidna = "bad"', "invalid uv source"),
             (
                 '[tool.uv.sources]\nidna = { path = "../outside" }',
-                "escapes snapshot root",
+                "escapes the workspace root",
             ),
             (
                 '[tool.uv.sources]\nidna = { git = "https://example.test/repo", rev = "main" }',
