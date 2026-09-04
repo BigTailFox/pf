@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v2`
-- **最后核对：** 2026-09-03
+- **最后核对：** 2026-09-04
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -261,13 +261,13 @@ Association/locator 不进入 report，缺失不改变 Failure evidence。
 `pf diagnose FAILURE_ID [--package PACKAGE]`只查一个canonical Failure ID，并按顺序读取：
 
 ```text
-1. 选中 package 的 `package-floor.json`（若存在）；
-2. 仅当报告没有该 ID 时，该 package 的 latest Verification Journal（若存在）。
+1. 选中 package 的可读 Schema 1 `package-floor.json`（若存在）；
+2. 仅当报告不存在、不可读/非法、或没有该 ID 时，该 package 的 latest Verification Journal（若存在）。
 ```
 
-报告命中后不读取Journal。两处都没有该ID时形成D001的typed配置错误，不遍历历史runs，也不枚举、合并或排序多个Failure。Journal/Index缺失只使本地log link不可用，不削弱报告中的portable authority。
+可读报告命中后不读取Journal。两处都没有该ID时形成D001的typed配置错误，不遍历历史runs，也不枚举、合并或排序多个Failure。Journal/Index缺失只使本地log link不可用，不削弱报告中的portable authority。不可读报告不是一次命中，不能阻止 Journal 诊断最近一次 run。
 
-`explain`、`apply` 与 `merge` 只使用 report；Journal 缺失不削弱 report authority，report 缺失不阻止诊断最近一次 run。读取必须离线，不规划 environment、不启动 process、不修改项目。
+`explain`、`apply` 与 `merge` 只使用 report；Journal 缺失不削弱 report authority，report 缺失或不合法不阻止诊断最近一次 run。读取必须离线，不规划 environment、不启动 process、不修改项目。
 
 ## 10. Role-aware impact
 

@@ -464,39 +464,45 @@ class DiagnoseCommandWorkflow:
         )
         report_path = location.report_path
         if report_path.is_file():
-            report = self._reports.read(report_path)
-            relative_pyproject = location.pyproject_path.relative_to(
-                root.resolve()
-            ).as_posix()
-            if (
-                report.package.name != location.name
-                or report.package.pyproject_path != relative_pyproject
-            ):
-                raise ConfigurationError("report package identity mismatch")
-            failure = report.failure(request.failure_id)
-            if failure is not None:
-                context = report.failure_context(request.failure_id)
-                if context is None:
-                    raise ConfigurationError(
-                        f"report failure has no resolved context: {failure.failure_id}"
+            try:
+                report = self._reports.read(report_path)
+            except ConfigurationError:
+                report = None
+            if report is not None:
+                relative_pyproject = location.pyproject_path.relative_to(
+                    root.resolve()
+                ).as_posix()
+                if (
+                    report.package.name != location.name
+                    or report.package.pyproject_path != relative_pyproject
+                ):
+                    raise ConfigurationError("report package identity mismatch")
+                failure = report.failure(request.failure_id)
+                if failure is not None:
+                    context = report.failure_context(request.failure_id)
+                    if context is None:
+                        raise ConfigurationError(
+                            f"report failure has no resolved context: {failure.failure_id}"
+                        )
+                    log_path = self._logs.lookup(
+                        report.report_generation_id,
+                        failure.failure_id,
                     )
-                log_path = self._logs.lookup(
-                    report.report_generation_id,
-                    failure.failure_id,
-                )
-                return FailureDiagnosis(
-                    report_generation_id=report.report_generation_id,
-                    package=report.package.name,
-                    failure=failure,
-                    proposal_id=context.proposal_id,
-                    boundary_role=context.boundary_role,
-                    log_path=log_path,
-                    output_tail=(
-                        self._logs.read_tail(log_path) if log_path is not None else ()
-                    ),
-                    source="report",
-                    source_path=report_path.relative_to(root.resolve()).as_posix(),
-                )
+                    return FailureDiagnosis(
+                        report_generation_id=report.report_generation_id,
+                        package=report.package.name,
+                        failure=failure,
+                        proposal_id=context.proposal_id,
+                        boundary_role=context.boundary_role,
+                        log_path=log_path,
+                        output_tail=(
+                            self._logs.read_tail(log_path)
+                            if log_path is not None
+                            else ()
+                        ),
+                        source="report",
+                        source_path=report_path.relative_to(root.resolve()).as_posix(),
+                    )
         journal = self._logs.read_latest_journal(location.name)
         if journal is not None:
             for item in journal.entries:

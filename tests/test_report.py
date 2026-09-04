@@ -222,21 +222,19 @@ class TestReportStore:
         assert process.stdout == ""
         assert process.stderr == ""
 
-    def test_update_path_rejects_bad_existing_without_overwrite(
+    def test_update_path_replaces_unreadable_existing_with_validated_replacement(
         self,
         tmp_path: Path,
     ) -> None:
         path = tmp_path / "package-floor.json"
-        original = b'{"schema_version":2}\n'
-        path.write_bytes(original)
+        path.write_bytes(b'{"schema_version":2}\n')
+        replacement = report_for()
 
-        with pytest.raises(
-            ConfigurationError,
-            match="unsupported report schema_version",
-        ):
-            ReportStore().update_path(path, report_for())
+        update = ReportStore().update_path(path, replacement)
 
-        assert path.read_bytes() == original
+        assert update.replace_generation is True
+        assert update.removed_failure_ids == ()
+        assert ReportStore().read(path) == replacement
 
     def test_reader_rejects_cross_cell_failure_reference(
         self,

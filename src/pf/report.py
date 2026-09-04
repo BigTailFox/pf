@@ -3527,7 +3527,15 @@ class ReportStore:
                 replace_generation=True,
                 removed_failure_ids=(),
             )
-        existing = self.read(path)
+        try:
+            existing = self.read(path)
+        except ConfigurationError:
+            self.write(path, replacement)
+            return ReportUpdate(
+                report=replacement,
+                replace_generation=True,
+                removed_failure_ids=(),
+            )
         if existing.report_generation_id != replacement.report_generation_id:
             self.write(path, replacement)
             return ReportUpdate(

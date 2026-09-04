@@ -1087,6 +1087,65 @@ class TestDiagnoseWorkflow:
         assert "source latest pf check" in rendered
         assert "The declared lower bounds did not pass the required checks." in rendered
 
+    def test_diagnose_reads_latest_journal_when_floor_report_is_unreadable(
+        self, tmp_path: Path
+    ) -> None:
+        _write_managed_project(tmp_path)
+        project = ProjectLoader().load(root=tmp_path)
+        cell = project.target.cells[0]
+        attempt = _attempt(
+            cell=cell,
+            snapshot_digest="snapshot",
+            vector=None,
+            policy_identity="policy",
+            requested_resolution="lowest-direct",
+        )
+        failure = _verifier_failure(attempt)
+        (tmp_path / "package-floor.json").write_text(
+            '{"schema_version": 2}\n',
+            encoding="utf-8",
+        )
+        logs = RunLogStore(root=tmp_path, run_id="search-run")
+        logs.write_journal(
+            VerificationJournal(
+                run_id="search-run",
+                command="search",
+                source_snapshot_digest="snapshot",
+                package_policies=(
+                    VerificationPackagePolicy(
+                        package="demo",
+                        evaluation_policy_identity="policy",
+                    ),
+                ),
+                entries=(
+                    VerificationJournalEntry(
+                        package="demo",
+                        cell=cell,
+                        role="probe",
+                        attempt=attempt,
+                        failure=failure,
+                    ),
+                ),
+            )
+        )
+
+        diagnosis = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
+        ).run(
+            DiagnoseRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+                failure_id=failure.failure_id,
+            )
+        )
+
+        assert diagnosis.source == "journal"
+        assert diagnosis.command == "search"
+        assert diagnosis.verification_role == "probe"
+        assert diagnosis.failure.failure_id == failure.failure_id
+
     def test_diagnose_uses_declaration_capture_impact_for_highest_check_failures(
         self,
         tmp_path: Path,
