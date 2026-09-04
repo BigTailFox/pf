@@ -1,60 +1,78 @@
 # PF — Package Floor
 
-> 找出 Python 包在给定环境中经过验证的直接依赖下界。
+English | [简体中文](README.zh.md)
 
-PF 在隔离环境中发现候选版本，以最高允许版本环境的 `ty` 诊断作为静态基线，再运行项目完整测试，为直接依赖生成可解释、可复现的精确下界。
+> Find verified lower bounds for a Python package's direct dependencies.
 
-## 当前能力
+## What it does
 
-PF v1 以一个可独立安装的包和一个兼容性 cell 为搜索单位：
+PF discovers candidate versions in isolated environments, captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. It returns an explainable, reproducible floor for each managed direct dependency.
 
-```text
-(精确 uv target triple, CPython minor, extra 兼容面)
+The search unit is one installable package and one compatibility cell: exact uv target triple, CPython minor, and extra surface. On a frozen candidate snapshot, PF returns a coordinate-minimal vector that passed full tests. It does not claim a global minimum over the Cartesian product of dependencies, and it does not prove that unprobed versions or other combinations work. The product contract is [D001](docs/designs/D001-pf.md).
+
+## Installation
+
+```bash
+uv tool install package-floor
 ```
 
-在冻结的候选快照中，PF 返回经过完整测试的坐标最小向量。它不声称得到依赖笛卡尔积的全局最小值，也不证明未探测版本或其他组合兼容。完整产品边界以 [D001 产品契约](docs/designs/D001-pf.md) 为准。
+`pip install package-floor` also works. The CLI name is `pf`. From a clone, `uv run pf` uses the local tree.
 
-## 命令契约
+## Quick Start
 
-```text
-pf smoke [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N]
-pf check [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N]
-pf search [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N] [--max-duration DURATION]
-pf apply [--package PACKAGE] [--force]
-pf minimize [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N] [--max-duration DURATION]
-pf explain [--package PACKAGE]
-pf diagnose FAILURE_ID [--package PACKAGE]
-pf merge REPORT [REPORT ...] --output PATH
+The target project needs static `project.dependencies` (and optional-dependencies, if used), a `test` dependency group (may be empty), and a `[tool.pf]` test command:
+
+```toml
+[tool.pf]
+test-command = ["pytest"]
 ```
 
-开发环境可直接运行：
+Then:
 
-```text
-uv run pf --help
-uv run pf smoke
-uv run pf check
-uv run pf search
-uv run pf explain
-uv run pf apply
+```bash
+pf smoke
+pf search
+pf apply
 ```
 
-项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。持久配置只从workspace root `[tool.pf]` 到所选member自己的
-`[tool.pf]` 两层合并；CLI显式值只覆盖本次运行。`max-cells`、`ty-jobs`和`test-jobs`分别限制Cell、ty和
-configured verifier并发。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。本宿主全部成功且只缺其他宿主时，`pf search` 退出 0 并写出 incomplete report，便于 CI 收集 artifact。
-省略`--package`选择可安装的workspace root；显式值只按规范distribution name选择一个workspace
-member，不接受目录或`pyproject.toml`路径。
+`smoke` checks a fresh install at the newest allowed versions. `search` writes `package-floor.json`. `apply` updates the project's requirement floors from that report when authorization succeeds.
 
-PF 的发行依赖精确固定为已验证的 uv `0.12.5` 与 ty `0.0.74`。当前 resolver protocol 只支持 uv `0.12.5`；其他 uv 版本会 fail closed，不沿用未经 qualification 的诊断 parser。升级任一工具都必须先复跑对应验证，再更新精确版本。
+## Commands
 
-`search` 只写 `package-floor.json`。`apply` 只消费与当前项目、source 与 policy 一致并通过授权检查的报告；完整报告可授权 declared-matrix apply，已有至少一个完整 EvidencePlatform 且缺失项只来自完整 MissingSelector 的 incomplete report 也可能授权 platform-scoped apply。`apply` 不重新解析依赖、不运行 `ty` 或测试。
+| Command | What it does |
+| --- | --- |
+| `pf smoke` | Fresh-install at newest allowed versions, capture a `ty` baseline, run the full tests. Does not search or write a report. |
+| `pf check` | Verify the lower bounds the project already declares. Does not search or write a report. |
+| `pf search` | Find verified floors and write `package-floor.json`. Never edits project metadata. |
+| `pf explain` | Read the report and show floors, coverage, and apply blockers. |
+| `pf apply` | Edit project metadata from an authorized report. `--force` only waives source-layer drift. |
+| `pf minimize` | Run `search`, then the default `apply`. |
+| `pf diagnose FAILURE_ID` | Explain one recorded rejection or indeterminate result. Offline; does not replay. |
+| `pf merge REPORT ... --output PATH` | Combine compatible reports produced on different hosts. |
 
-`smoke` 在当前声明约束内建立尽可能新的 fresh install，捕获一次 `ty` 静态基线并运行完整测试。静态诊断本身不是兼容性失败；普通 Cell 摘要只展示最终结果，详细进程记录写入 `.pf/logs/`，失败时通过 `pf diagnose` 查看。
+Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Use `pf minimize` to search and apply in one step.
 
-`diagnose` 只读、离线地解释报告或最近一次验证运行中的 Rejection / Indeterminate；它不访问网络、不创建环境，也不隐式重放失败。
+## Requirements
 
-## 文档
+- Omit `--package` to select the installable workspace root. An explicit value is a canonical distribution name of one workspace member, not a path.
+- Each process only runs the target that matches the current host. Merge other hosts with `pf merge`. When this host succeeds and the only gaps are other hosts, `pf search` exits 0 with an incomplete report so CI can collect artifacts.
+- `search` writes `package-floor.json`. `apply` does not re-resolve dependencies or rerun `ty` or tests.
 
-- [工程文档索引](docs/README.md)：契约所有权、状态词和文档布局
-- [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
+## Configuration
 
-D001–D008、D012–D014 是现行契约。已完成的 Plan、已归并的 Design、已解决的 Review 与已吸收的 Investigation 统一保存在 [工程文档归档](docs/archived/README.md)，不承担现行契约。
+Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only.
+
+`max-cells`, `ty-jobs`, and `test-jobs` limit cell, `ty`, and verifier concurrency. Full fields, defaults, and exit codes are in [D001](docs/designs/D001-pf.md).
+
+## Pinned tools
+
+Released PF pins uv `0.12.5` and ty `0.0.74`. The resolver protocol accepts only that uv version; other versions fail closed. Upgrading either tool requires re-qualification before the pin changes.
+
+## Documentation
+
+- [D001 — product and command contract](docs/designs/D001-pf.md): floors, commands, configuration, reports, and exit codes
+- [Engineering docs index](docs/README.md): contract ownership and layout
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

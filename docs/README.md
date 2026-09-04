@@ -8,7 +8,8 @@
 ## 目录
 
 ```text
-README.md                  使用入口
+README.md                  英文使用入口
+README.zh.md               中文使用入口
 CONTEXT.md                 领域词汇；不定义行为
 docs/
 ├── designs/               现行或临时迁移 Design
