@@ -62,7 +62,7 @@ directory = "tests/.cache/cov/html"
 fail_under = 90
 
 [tool.pf]
-test-command = ["pytest", "--no-testmon", "--maxfail=1"]
+test-command = ["pytest", "--no-testmon", "--no-cov", "--maxfail=1"]
 
 [tool.ruff]
 target-version = "py310"
