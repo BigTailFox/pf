@@ -521,7 +521,9 @@ class TestCommandDispatch:
         assert "--no-force" not in help_result.stdout
         assert invocation_result.returncode == 1
         assert invocation_result.stdout == ""
-        assert "Unknown option: --no-force" in invocation_result.stderr
+        assert "--no-force" in invocation_result.stderr
+        assert "Usage: pf apply [OPTIONS]" in invocation_result.stderr
+        assert "pf apply --help" in invocation_result.stderr
 
     @pytest.mark.parametrize(
         ("arguments", "error_fragment"),
