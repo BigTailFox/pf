@@ -3,7 +3,7 @@ name = "pf"
 version = "0.1.0"
 description = "pf finds the floor the package can stand on for you."
 readme = "README.md"
-authors = [{ name = "liulihao", email = "liulihao.leo@bytedance.com" }]
+authors = [{ name = "bigtailfox", email = "leoherz.liu@gmail.com" }]
 requires-python = ">=3.10, <3.13"
 dependencies = [
     "cyclopts>=4.10.2",
