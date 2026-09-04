@@ -43,6 +43,7 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 | [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、resolution/install 与 uv 资格边界 |
 | [D013](designs/D013-pf-pytest-observer.md) | direct pytest observer、progress/detail telemetry 与透明性资格 |
 | [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、编码与 reader 验证 |
+| [D024](designs/D024-pf-failed-case-pruning.md) | 搜索期 FailedCaseSet 拒绝预言与 pytest early-exit（草案，待接受） |
 
 [JSON Schema](schemas/package-floor-v1.schema.json) 与 [complete](examples/package-floor-v1-minimal-complete.json) / [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例是 D014 Pydantic wire model 的生成物，不建立第二份契约。
 
@@ -58,6 +59,8 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
   verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化和报告预检候选；
   E002 保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
+  搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 的规范性草案见
+  [D024](designs/D024-pf-failed-case-pruning.md)（待接受）。
 - [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
   新增 CI coverage 门禁、报告路径 owner 与自举 artifact 引用漂移等发现，并校准 host-partial、composition、
   中断、搜索性能和资格候选的治理边界；E002/R006 继续保存各自详细证据。R007 是非规范性评审，不授权实施。

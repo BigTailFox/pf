@@ -17,6 +17,8 @@
   [D014](../designs/D014-pf-report-schema.md)
 - **与既有文档的关系：** E002 保存 2026-08-28 运行的原始计数与当时结论；R007 继续保存
   全项目优先级。本文只汇总当前搜索流程、瓶颈判断、候选排序与治理边界，不把历史基线改写成当前性能实测。
+  搜索期 FailedCaseSet 分段的规范性草案见 [D024](../designs/D024-pf-failed-case-pruning.md)；
+  该草案待接受，本文仍不授权实施。
 
 ## 1. 最终结论
 
@@ -174,10 +176,25 @@ cache。合法但 generation 不同的报告继续被替换，不能误报为 bl
 该候选不减少正常 verifier 次数，但能消除晚失败造成的整次成本浪费。若实现改变 workflow/interface 或
 错误时序，应由 D002/D014 Design 明确；不能借 preflight 引入旧 Schema compatibility reader。
 
+### 4.6 P1：按坐标 FailedCaseSet 做搜索期分段
+
+完整 verifier 次数即使不变，同一坐标相继 Rejection 仍可能被同一批测试打死。在 Cell 内按主动
+坐标记录失败 pytest nodeid，后续探针先跑该集合、失败即停，可以直接砍掉这些 Rejection 的大部
+分 wall-clock。这改变搜索探针如何形成 Rejection，不是内部 cache。
+
+规范性草案为 [D024](../designs/D024-pf-failed-case-pruning.md)（待接受）。PASS 只来自一次原命令
+进程；failed-set 只做 Rejection oracle。direct pytest 的 smoke / check / search 原命令与
+failed-set 在用户未配置时附加 `--maxfail=1`。D024 以无跨 invocation 外部副作用、无用例间
+关联副作用的用户测试 oracle 契约为正确性前提；固定内部策略、具体 nodeid 与 pruning context
+都不进入 evaluation policy identity。E002 没有 nodeid 命中率；early-exit 另有操作者
+30min→10min 对照，实施前仍须按 §7.1 复测。
+
 ## 5. 不采用的方向
 
-- PF 隐式增加 `--maxfail`、改写 `test-command`、自动启用 testmon 或改跑 partial tests；项目所有者可以
-  主动选择并独立评估新的 verifier policy，但那改变诊断完整性，不是 PF 搜索实现优化；
+- 改写用户 `test-command` 文本、隐式启用 testmon / pytest `--lf`，或把 last-failed 做成跨运行
+  cache；也不得用两段 pytest 拼接冒充一次原命令 PASS。direct pytest 附加 `--maxfail=1` 与
+  failed-set 拒绝预言由待接受的 [D024](../designs/D024-pf-failed-case-pruning.md) 定义；
+  PASS 仍须一次原命令进程；
 - 把 static-only evidence、跨 Cell 结果或旧报告结果直接当作 floor、predecessor 或 final authority；
 - 跨运行 Evaluation cache，或不同 Proposal 共用已经运行 verifier 的可写环境；
 - 为获取 sibling hint 而等待另一个 Cell，或在单 Cell 内并行、乱序执行状态相关探针；
@@ -221,7 +238,8 @@ Plan，并把每条验收标准映射到有序切片、迁移、测试和证据�
 2. 用固定 trace/fake evaluator 分别模拟“旧 floor hint”和“更早 region guidance”，比较 verifier 次数、
    unique vector、最坏探针数与结果等价性；
 3. 根据数据只选择一个 P1 方向进入 D003 相关 Design；若收益接近，优先选择已经存在 interface 的 hints
-   接线，避免先放宽 static guidance；
+   接线，避免先放宽 static guidance。坐标内 FailedCaseSet 分段由 [D024](../designs/D024-pf-failed-case-pruning.md)
+   草案独立拥有，不与 region/hint 捆成一次算法改动；
 4. per-key single-flight 可独立实施和验证，不与算法 Design 绑定；
 5. materialize 与 report preflight 分别按实测占比和晚失败频率决定是否推进，不打包成“搜索重构”。
 

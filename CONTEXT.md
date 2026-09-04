@@ -72,6 +72,12 @@ _Avoid_: Cause, status
 
 _Avoid_: Test adapter, pytest observer
 
+**FailedCaseSet**
+
+一次 Verification Run 内，某个 Cell 在当前下降坐标上已观察到的失败 pytest nodeid 集合。
+
+_Avoid_: last-failed, testmon, 测试缓存, 过滤器
+
 **Verifier Terminal**
 
 配置 verifier 的可移植权威终态。具体 union 与 disposition 映射只见
