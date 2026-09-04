@@ -60,9 +60,39 @@ pf apply
 
 ## 配置
 
-持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。
+持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除 `test-command`、`pythons`、`platforms` 外都是省略时的默认值；这三项没有静态默认。
 
-`max-cells`、`ty-jobs` 和 `test-jobs` 分别限制 Cell、`ty` 和 verifier 并发。完整字段、默认值与退出码见 [D001](docs/designs/D001-pf.md)。
+```toml
+[tool.pf]
+test-command = ["pytest"]          # 必填 argv，不是 shell 字符串，不能以 "uv run" 开头
+# pythons = ["3.10", "3.11", "3.12"]  # CPython minor；省略则按 requires-python 推断
+# platforms = ["x86_64-unknown-linux-gnu"]  # uv target triple；省略则用当前宿主
+extra-policy = "each"              # none | each | all
+extra-surfaces = []                # 额外 extra 组合，例如 [["docs", "check"]]
+search-space = "all"               # all | current-major | current-minor
+search-step = "minor"              # major | minor | patch
+search-prereleases = false
+resolve-artifact = "wheel"         # wheel | sdist | any
+# managed-deps = ["rich"]          # 与 unmanaged-deps 互斥
+# unmanaged-deps = ["build"]       # 两者都省略则管理全部可搜索直接依赖
+test-group = "test"                # 可为空
+test-cwd = "package"               # package | root
+ty-args = []
+max-cells = "auto"                 # auto 或正整数；Cell 并发
+ty-jobs = "auto"                   # ty 进程并发
+test-jobs = "auto"                 # verifier 并发
+resolve-timeout = "10m"
+ty-timeout = "10m"
+test-timeout = "30m"               # 三个 timeout 都可设 "none"
+
+# [[tool.pf.dep]]
+# name = "rich"                    # 规范 distribution name
+# search-space = "current-major"   # 或一段 PEP 440 specifier；省略字段继承全局 search-*
+# search-step = "minor"
+# search-prereleases = false
+```
+
+`search-space` × `search-step` 只能是 `all` × `major|minor|patch`、`current-major` × `minor|patch`，或 `current-minor` × `patch`。`[[tool.pf.dep]]` 整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。完整字段与退出码见 [D001](docs/designs/D001-pf.md)。
 
 ## 锁定的工具版本
 

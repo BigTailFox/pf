@@ -60,9 +60,39 @@ Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Us
 
 ## Configuration
 
-Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only.
+Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `test-command`, `pythons`, and `platforms`, which have no static default.
 
-`max-cells`, `ty-jobs`, and `test-jobs` limit cell, `ty`, and verifier concurrency. Full fields, defaults, and exit codes are in [D001](docs/designs/D001-pf.md).
+```toml
+[tool.pf]
+test-command = ["pytest"]          # required argv; not a shell string; must not start with "uv run"
+# pythons = ["3.10", "3.11", "3.12"]  # CPython minors; omit to infer from requires-python
+# platforms = ["x86_64-unknown-linux-gnu"]  # uv target triples; omit to use the host
+extra-policy = "each"              # none | each | all
+extra-surfaces = []                # extra extra-combinations, e.g. [["docs", "check"]]
+search-space = "all"               # all | current-major | current-minor
+search-step = "minor"              # major | minor | patch
+search-prereleases = false
+resolve-artifact = "wheel"         # wheel | sdist | any
+# managed-deps = ["rich"]          # mutually exclusive with unmanaged-deps
+# unmanaged-deps = ["build"]       # omit both to manage every searchable direct dependency
+test-group = "test"                # may be empty
+test-cwd = "package"               # package | root
+ty-args = []
+max-cells = "auto"                 # auto or a positive integer; cell concurrency
+ty-jobs = "auto"                   # ty process concurrency
+test-jobs = "auto"                 # verifier concurrency
+resolve-timeout = "10m"
+ty-timeout = "10m"
+test-timeout = "30m"               # each timeout may be "none"
+
+# [[tool.pf.dep]]
+# name = "rich"                    # canonical distribution name
+# search-space = "current-major"   # or a PEP 440 specifier; omitted fields inherit the globals
+# search-step = "minor"
+# search-prereleases = false
+```
+
+`search-space` × `search-step` must be one of `all` × `major|minor|patch`, `current-major` × `minor|patch`, or `current-minor` × `patch`. Per-dependency `[[tool.pf.dep]]` rows replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. Full fields and exit codes are in [D001](docs/designs/D001-pf.md).
 
 ## Pinned tools
 
