@@ -4226,11 +4226,13 @@ class TestSearchRendering:
         )
 
         rendered = " ".join(stderr.getvalue().split())
-        assert exit_code == 2
+        assert exit_code == 0
         assert stdout.getvalue() == ""
+        assert "Search incomplete" in rendered
         assert "1 cell passed" in rendered
         assert "1 cell awaits another host" in rendered
         assert "collect reports and run pf merge" in rendered
+        assert "Search complete" not in rendered
         assert "no applicable floor" not in rendered
 
     def test_search_mixed_failure_summary_does_not_claim_host_success(self) -> None:
@@ -4269,6 +4271,44 @@ class TestSearchRendering:
         assert "1 cell has no applicable floor" in rendered
         assert "1 cell awaits another host" in rendered
         assert "collect reports and run pf merge" not in rendered
+
+    def test_search_same_host_missing_cell_is_not_host_partial_success(self) -> None:
+        local_310 = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        local_311 = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        remote = Cell(
+            package="demo",
+            target="aarch64-apple-darwin",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        success = CellSuccess.model_construct(cell=local_310)
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_search(
+            incomplete_report(
+                "MISSING_CELL",
+                cell_results=(success,),
+                target_cells=(local_310, local_311, remote),
+            )
+        )
+
+        rendered = " ".join(stderr.getvalue().split())
+        assert exit_code == 2
+        assert stdout.getvalue() == ""
+        assert "1 cell is missing" in rendered
+        assert "1 cell awaits another host" in rendered
+        assert "collect reports and run pf merge" not in rendered
+        assert "Search complete" not in rendered
 
     def test_search_baseline_rejection_prints_user_guidance(self) -> None:
         cell = Cell(

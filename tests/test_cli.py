@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 import re
 import runpy
@@ -43,12 +44,15 @@ from pf.schemas.apply import ApplyCommandResult, ApplyPresentationFacts
 from pf.schemas.evaluation import CheckPass, SmokePass, StatusEvent
 from pf.schemas.project import (
     ApplySelector,
+    Cell,
     PackagePlan,
     SourcePlan,
     SourceSnapshotIdentity,
     source_snapshot_digest,
 )
 from pf.schemas.report import (
+    CellSuccess,
+    IncompleteReportResult,
     ProjectEditResult,
 )
 from pf.terminal import TerminalPresenter
@@ -157,6 +161,27 @@ def minimal_report() -> ValidatedReport:
         source_plan=SourcePlan.for_package(package, "SEARCH"),
         source_snapshot=snapshot,
         cell_results=(),
+    )
+
+
+def host_partial_report() -> ValidatedReport:
+    local = Cell(
+        package="demo",
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    remote = Cell(
+        package="demo",
+        target="aarch64-apple-darwin",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+    return replace(
+        minimal_report(),
+        target_cells=(local, remote),
+        cell_results=(CellSuccess.model_construct(cell=local),),
+        result=IncompleteReportResult(status="incomplete", reasons=("MISSING_CELL",)),
     )
 
 
@@ -1138,6 +1163,123 @@ class TestMinimizeCommand:
         rendered = " ".join(stdout.getvalue().split())
         assert "demo · minimized verified floors" in rendered
         assert rendered.endswith("✓ Minimized floors · no metadata changes")
+
+    def test_minimize_warns_when_host_partial_search_still_applies(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class SearchWorkflow:
+            def run(self, request: SearchRequest) -> ValidatedReport:
+                return host_partial_report()
+
+        class ApplyWorkflow:
+            def __init__(self) -> None:
+                self.request: ApplyRequest | None = None
+
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
+                self.request = request
+                return apply_result(
+                    changed=False,
+                    selected=(
+                        ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+                    ),
+                    preserved=(
+                        ApplySelector(sys_platform="darwin", platform_machine="arm64"),
+                    ),
+                )
+
+        monkeypatch.chdir(tmp_path)
+        stdout = StringIO()
+        stderr = StringIO()
+        apply = ApplyWorkflow()
+        context = make_context(
+            check_workflow=NeverCheck(),
+            search_workflow=SearchWorkflow(),
+            apply_workflow=apply,
+            presenter=TerminalPresenter(
+                stdout=Console(file=stdout, force_terminal=False, color_system=None),
+                stderr=Console(file=stderr, force_terminal=False, color_system=None),
+            ),
+        )
+
+        exit_code = create_app(context)(
+            ["minimize", "--package", "demo"],
+            exit_on_error=False,
+            result_action="return_value",
+        )
+
+        assert exit_code == 0
+        assert apply.request == ApplyRequest(
+            root=tmp_path.as_posix(),
+            selector=WorkspacePackage(canonical_name="demo"),
+        )
+        assert stdout.getvalue() == ""
+        rendered = " ".join(stderr.getvalue().split())
+        assert "demo · minimized verified floors" in rendered
+        assert "Scope linux/x86_64 verified" in rendered
+        assert "Preserved macos/arm64 · original constraints retained" in rendered
+        preserved_text = rendered.split("Preserved", 1)[1].split("Metadata", 1)[0]
+        assert "passed" not in preserved_text
+        assert "1 cell awaits another host" in rendered
+        assert "collect reports and run pf merge" in rendered
+        assert rendered.endswith(
+            "⚠ Minimized floors · no metadata changes · "
+            "1 cell awaits another host · next: collect reports and run pf merge"
+        )
+
+    def test_minimize_combines_source_drift_and_host_partial_on_stderr(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class SearchWorkflow:
+            def run(self, request: SearchRequest) -> ValidatedReport:
+                return host_partial_report()
+
+        class ApplyWorkflow:
+            def run(self, request: ApplyRequest) -> ApplyCommandResult:
+                return apply_result(
+                    changed=True,
+                    source_drift_path_count=1,
+                    source_drift_paths=("src/a.py",),
+                    selected=(
+                        ApplySelector(sys_platform="linux", platform_machine="x86_64"),
+                    ),
+                    preserved=(
+                        ApplySelector(sys_platform="darwin", platform_machine="arm64"),
+                    ),
+                )
+
+        monkeypatch.chdir(tmp_path)
+        stdout = StringIO()
+        stderr = StringIO()
+        context = make_context(
+            check_workflow=NeverCheck(),
+            search_workflow=SearchWorkflow(),
+            apply_workflow=ApplyWorkflow(),
+            presenter=TerminalPresenter(
+                stdout=Console(file=stdout, force_terminal=False, color_system=None),
+                stderr=Console(file=stderr, force_terminal=False, color_system=None),
+            ),
+        )
+
+        exit_code = create_app(context)(
+            ["minimize", "--package", "demo"],
+            exit_on_error=False,
+            result_action="return_value",
+        )
+
+        assert exit_code == 0
+        assert stdout.getvalue() == ""
+        rendered = " ".join(stderr.getvalue().split())
+        assert "source-drift override" in rendered
+        assert "original constraints retained" in rendered
+        assert "1 cell awaits another host" in rendered
+        assert rendered.endswith(
+            "⚠ Minimized floors with source-drift override · project updated · "
+            "1 cell awaits another host · next: collect reports and run pf merge"
+        )
 
 
 class TestResultCardWidths:

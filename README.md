@@ -40,7 +40,7 @@ uv run pf apply
 
 项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。持久配置只从workspace root `[tool.pf]` 到所选member自己的
 `[tool.pf]` 两层合并；CLI显式值只覆盖本次运行。`max-cells`、`ty-jobs`和`test-jobs`分别限制Cell、ty和
-configured verifier并发。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
+configured verifier并发。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。本宿主全部成功且只缺其他宿主时，`pf search` 退出 0 并写出 incomplete report，便于 CI 收集 artifact。
 省略`--package`选择可安装的workspace root；显式值只按规范distribution name选择一个workspace
 member，不接受目录或`pyproject.toml`路径。
 

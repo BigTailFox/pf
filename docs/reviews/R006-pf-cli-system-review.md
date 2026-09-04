@@ -1,10 +1,10 @@
 # R006 — PF CLI 系统评审
 
-- **状态：** 开放（help/README 与 reason-aware incomplete 文案已修复；其余候选待接受或 Design）
+- **状态：** 开放（help/README、reason-aware incomplete 文案与 host-partial 自动化协议已修复；其余候选待接受或 Design）
 - **日期：** 2026-09-03
 - **性质：** 非规范性产品与架构评审；不定义命令、退出码、展示或 module interface，不授权实施
 - **对照：** 初评基于 `010e048`；源码位置已在 D022/P028 完成后重校，本轮直接修复以 `9e4d1bb` 为起点
-- **已解决项：** 诊断 help 的 Failure ID 语义、apply 的唯一 `--force` 语法、README 命令/apply 摘要与 search incomplete reason-aware final
+- **已解决项：** 诊断 help 的 Failure ID 语义、apply 的唯一 `--force` 语法、README 命令/apply 摘要、search incomplete reason-aware final，以及 host-partial search/minimize 协议
 - **输入材料：** 两份独立 CLI 评审意见，再对照当前源码、现行契约、公共 help 与 focused tests 校准
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)
 - **收归来源与边界：** [E002](../experiments/E002-pf-search-performance.md) §5 的非 TTY 搜索遥测、[R005](../archived/reviews/R005-pf-module-depth-review.md) 轨 D 的 terminal-private result-card 已移交本文；[D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 的评价 seam 与 SearchCoordinator 测试不属于 CLI 问题
@@ -28,14 +28,14 @@ help/README三项可直接对照现行契约修复的公开表面偏差也已处
 | P1 | 契约歧义与失效配置 | `[tool.pf].jobs` 没有调度消费者 | 已由D023/P029解决：拆分三个有消费者的limit，省略继承配置、显式CLI覆盖 |
 | P1 | 小型契约修复 | `diagnose` help 吞掉 `<id>`；`apply` 暴露 `--no-force`；README 过期 | 已按 D001/D006 修复；公共 CLI 测试覆盖 help 与 parser 拒绝 |
 | P1 | D006 展示契约修复 | incomplete reasons 被统一说成“no applicable floor” | 已恢复 reason-aware 文案；现行退出码不变 |
-| P1 | 需要 Design | 多宿主 `search` 的纯 host-partial artifact 仍退出 `2` | 先钉住自动化协议，再由 D001/D006 决定是否改为成功-with-warning |
+| 已完成 | 产品协议 | 多宿主 `search` 的纯 host-partial artifact 仍退出 `2` | 已由 D025/P031 解决：host-partial search 退出 `0` 且 minimize 提示 merge |
 | P2 | 需要 Design | 所有命令在解析前装配完整验证图，且 composition-time `PfError` 越过统一错误映射 | 在唯一 composition root 内按 capability 惰性装配；不得引入第二个 root 或 DI framework |
 | P2 | R006；原 R005 轨 D | apply/no-floor/普通配置错误仍是 `category: message` | 下一次真实跨命令错误展示变更时启动 terminal-private result-card，不另建错误 module |
 | P2 | 需要 Design | `KeyboardInterrupt` 没有 CLI 终态，可能显示 traceback | 若采用退出 `130`，先修改 D001/D006；不得错误映射成基础设施退出 `4` |
 | P2 | R006；来源 E002 §5(3) | 非 TTY 搜索在阶段开始后没有持续活动反馈 | 作为独立 presentation/activity Design 候选；activity 不进入 report identity |
 
-上述help/README、D006 incomplete文案及jobs配置项已完成；multi-host outcome与command-scoped
-composition仍是独立后续事项，不与本次配置模型收敛捆绑。
+上述help/README、D006 incomplete文案、jobs配置项与host-partial自动化协议已完成；command-scoped
+composition仍是独立后续事项。
 
 ## 2. 已确认的公开表面与契约问题
 
@@ -161,6 +161,8 @@ evidence。当前实现却把这些原因与 `MISSING_CELL` 收成同一句 no-f
 退出语义。
 
 ### 3.3 host-partial 退出码需要 Design
+
+**处理状态：已由 [D025](../archived/designs/D025-pf-host-partial-protocol.md)/[P031](../archived/plans/P031-pf-host-partial-protocol.md) 解决。** 纯 host-partial search 退出 `0`、stderr warning incomplete final；minimize 成功 apply 后提示剩余宿主与 `pf merge`。empty-host、同宿主缺失、本机失败与混合结果保持非零。以下段落保留评审时的基线证据与验收边界。
 
 Design 应以 `(report.result.reasons, local host CellResult set)` 为判定输入，并保留 D008 已定义的 aggregate
 dominance。优先评估把第 1 类定义为“host-partial artifact 成功”：保留 report 的 `incomplete` 与
@@ -326,9 +328,8 @@ workflow Protocol 则有生产 context 与 `NeverCalledWorkflow` 等测试 adapt
    contract projection 与公共测试，未建立兼容层。
 2. 已由D023/P029修订并实施D001：删除`--jobs`，以三个独立limit明确省略继承effective config、显式
    `auto|N`覆盖，并迁移request/workflow/minimize、调度消费者、测试与文档owner。
-3. 已按 D006 修正 incomplete 的 reason-aware 文案并保持现行自动化协议；后续再单独建立 multi-host search
-   outcome 临时 Design，决定纯 host-partial 与 empty-host 的退出语义。不得把文案合规修复和退出码变更
-   捆成一次实现。
+3. 已按 D006 修正 incomplete 的 reason-aware 文案；随后由 D025/P031 把纯 host-partial search 定为退出
+   `0` 的 success-with-warning，并补齐 minimize 的 merge 提示。文案修复与退出码变更未捆成一次实现。
 4. 单独建立 command-scoped composition 临时 Design，比较 bootstrap 与 lazy provider，使用 UvAdapter/
    evaluation graph 删除测试选择方案，并把 composition-time expected failure 纳入同一验收。
 5. 若接受 Ctrl+C 退出 `130`，先修改 D001/D006；可与 composition 共用实施 Plan 的 slice，但保持独立

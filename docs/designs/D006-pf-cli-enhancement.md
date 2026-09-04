@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-08-31
+- **最后核对：** 2026-09-04
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -13,8 +13,8 @@
 
 默认信息顺序是 Outcome → Scope → reason/impact → next action → technical details。只有 `diagnose` 展开 Enum、ID、process facts 和日志；普通命令不要求用户理解 Proposal ID、declaration digest、cause 或 Schema status。
 
-- `✓` 只用于退出 `0`；`⚠` 表示 warning/no floor；`✗` 表示 Rejection/compatibility failure；`!` 表示 Indeterminate/infrastructure failure。
-- 非零结果不得输出无修饰的 `completed`。`complete` 只描述 D001 的可授权报告。
+- `✓` 只用于无 warning 的退出 `0`；`⚠` 表示 warning、no floor 或 host-partial remainder；`✗` 表示 Rejection/compatibility failure；`!` 表示 Indeterminate/infrastructure failure。host-partial search 与 source-drift apply/minimize 使用 `⚠` 且退出 `0`。
+- 非零结果不得输出无修饰的 `completed`。`complete` 只描述 D001 的完整可授权报告；host-partial artifact 仍说 incomplete。
 - 颜色只作补充；去掉 ANSI/OSC 8 后文字仍完整。
 - 用户 Cell 使用 `Python 3.11`、精确 target triple 和 `no-extra`；内部 Enum 不作为默认结论。
 - 展示事实不进入 source、policy、Evaluation 或 report identity。
@@ -97,7 +97,7 @@ Try 'pf <command> --help' for more information.
 | warning、failure、incomplete/stopped summary | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
-`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的typed配置错误结果。无source override的apply成功card与final走stdout；实际使用source override时，全部facts与warning final走stderr且退出0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。
+`explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的typed配置错误结果。无source override的apply成功card与final走stdout；实际使用source override时，全部facts与warning final走stderr且退出0。host-partial 的 search 与成功 minimize 同样走 stderr warning、退出 0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。host-partial 成功 apply 后，minimize 仍只渲染一张 apply/minimize 卡和一个 final；final 必须包含剩余其他宿主 Cell 计数与 `pf merge` 下一步，Preserved 只表示 original constraints retained。
 
 TTY 运行中顺序固定：
 
@@ -258,12 +258,14 @@ Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 ✗ Check failed · declared lower bounds are incompatible · 1 cell
 ✓ Search complete · package-floor.json
 ⚠ Search incomplete · package-floor.json written · 3 cells have no applicable floor
+⚠ Search incomplete · package-floor.json written · 2 cells passed · 1 cell awaits another host · next: collect reports and run pf merge
 ! Search stopped · compatibility is unknown · package-floor.json written
 ✗ Search stopped · highest-version baseline did not pass · package-floor.json written
 ✓ Applied floors · project updated
 ✓ Applied floors · no metadata changes
 ✓ Merge complete · merged.json
 ✓ Minimized floors · project updated
+⚠ Minimized floors · project updated · 1 cell awaits another host · next: collect reports and run pf merge
 ```
 
 Apply卡片必须从`ApplyCommandResult`显示package、Evidence、Scope、可选Preserved、可选Override/Paths与Metadata。default/scoped/noop共享此结构；Preserved只表示保留original constraints，不得描述为passed/covered。实际source override最多展示8条规范相对路径，不显示内容、diff或digest；整张卡和warning final走stderr且退出0：
@@ -279,19 +281,20 @@ Apply卡片必须从`ApplyCommandResult`显示package、Evidence、Scope、可�
 ⚠  Applied floors with source-drift override · project updated
 ```
 
-selector标签把`win32/AMD64`显示为`windows/x86_64`、`darwin/arm64`显示为`macos/arm64`。`minimize`复用同一apply card，只把final outcome改为Minimized。
+selector标签把`win32/AMD64`显示为`windows/x86_64`、`darwin/arm64`显示为`macos/arm64`。`minimize`复用同一apply card，只把final outcome改为Minimized。host-partial 成功时 card 仍走 stderr warning；Preserved 不得写成 passed/covered；final 追加 remaining other-host 计数与 `next: collect reports and run pf merge`。source-drift 与 host-partial 同时成立时仍是一张卡、一个 warning final。
 
 Merge成功卡必须显示全部有序input paths、合并后report的complete/incomplete状态、Cell分布和output path，随后只有一个final。input读取失败显示第一个失败路径；compatibility失败显示有序inputs与output；output失败显示目标路径。三类都是typed stderr error card且不带Usage，Presenter不得硬编码输入数量。
 
 Search/incomplete reason 的主导映射：
 
-| 主导 reason | 文案 | 图标 |
-| --- | --- | --- |
-| `BASELINE_REJECTION` | stopped | `✗` |
-| `INDETERMINATE` | stopped | `!` |
-| `NO_PASS_IN_SEARCH_SPACE`、`NON_MONOTONIC`、`NONDETERMINISTIC`、`MISSING_CELL`、`UNREPRESENTABLE_PROJECTION` | incomplete | `⚠` |
+| 主导 reason | 文案 | 图标 | 退出 |
+| --- | --- | --- | --- |
+| `BASELINE_REJECTION` | stopped | `✗` | `1` |
+| `INDETERMINATE` | stopped | `!` | `4` |
+| 纯 host-partial `MISSING_CELL`（本宿主全部成功，缺失只来自其他宿主） | incomplete | `⚠` | `0` |
+| `NO_PASS_IN_SEARCH_SPACE`、`NON_MONOTONIC`、`NONDETERMINISTIC`、empty-host/`同宿主 MISSING_CELL`、`UNREPRESENTABLE_PROJECTION` | incomplete | `⚠` | `2` |
 
-多 reason 使用 D008 聚合结果；数值退出码只见 D001。Summary 使用人类语言，不回显 Enum，也不把一个 Proposal 的结果说成 dependency version 的全局结论。
+多 reason 使用 D008 聚合结果；数值退出码只见 D001。host-partial 的判定输入是 `(reasons, cell_results, target_cells)`，Presenter 不重算 apply authority。Summary 使用人类语言，不回显 Enum，也不把一个 Proposal 的结果说成 dependency version 的全局结论。
 
 ## 8. Explain
 

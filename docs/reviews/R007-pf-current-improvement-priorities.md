@@ -22,15 +22,15 @@
 当前没有发现新的 P0 正确性、安全、证据授权或 fail-closed 缺口。[D019](../archived/designs/D019-pf-source-plan-depth.md)–
 [D023](../archived/designs/D023-pf-configuration-model.md) 已依次收口 SourcePlan、WorkspaceInventory、
 Verification Run request、评价 seam 与配置模型；[R005](../archived/reviews/R005-pf-module-depth-review.md)
-已归档。现阶段最高价值不在继续拆分叶子实现，而在完成用户和 CI 可观察的协议、降低搜索成本，并让少数
-仍由多个调用方重复学习的规则拥有单一 owner。
+已归档。CI coverage 门禁与 host-partial search/minimize 协议已收口。现阶段最高价值不在继续拆分叶子
+实现，而在降低搜索成本，并让少数仍由多个调用方重复学习的规则拥有单一 owner。
 
 当前建议优先级如下：
 
 | 优先级 | 事项 | 路径与治理 |
 | --- | --- | --- |
-| P1 | 多宿主 host-partial 的 search/minimize 协议 | R006 已跟踪；建立一份 D001/D006 临时 Design，必须共同覆盖 search 数值退出与 minimize 展示/授权流程 |
-| P1 | CI coverage 门禁 | 新发现；现行阈值已明确，可直接修改 CI 与验证，不需要产品 Design |
+| 已完成 | 多宿主 host-partial 的 search/minimize 协议 | D025/P031 已归并到 D001/D006 |
+| 已完成 | CI coverage 门禁 | Python 3.10 CI job 执行 `--cov`；3.11/3.12 跑完整无 coverage 套件 |
 | P1 | 昂贵 configured verifier 的有效裁剪率 | R008 已汇总；先在当前 HEAD 刷新性能基线，再决定是否建立 D003/D012 Design |
 | P2 | 按命令装配 capability graph | R006 已跟踪；建立 D002 临时 Design，保持唯一 composition root |
 | P2 | Ctrl+C 稳定终态 | R006 已跟踪；先由 D001/D006 接受退出码和终态语义，可与 composition 共用实现但保持独立验收 |
@@ -41,6 +41,8 @@ Verification Run request、评价 seam 与配置模型；[R005](../archived/revi
 规范化和 ty qualification 都是有效候选，但不应挤占上述主线或被错误捆成一次大改。
 
 ## 2. P1：多宿主 host-partial search/minimize 协议
+
+**处理状态：已由 [D025](../archived/designs/D025-pf-host-partial-protocol.md)/[P031](../archived/plans/P031-pf-host-partial-protocol.md) 解决。** 稳定规则由 D001/D006 拥有。以下段落保留评审时的基线证据。
 
 ### 2.1 已确认问题
 
@@ -77,8 +79,10 @@ host-partial success-with-warning。Design 必须同时区分：
 
 ## 3. P1：让 coverage 阈值真正成为 CI 门禁
 
+**处理状态：已接入。** Python 3.10 CI job 执行 `pytest --no-testmon --cov --cov-report=term-missing`，沿用 `fail_under = 90`；3.11/3.12 仍跑完整无 coverage 套件。以下段落保留评审时的基线证据。
+
 [`pyproject.toml`](../../pyproject.toml) 已启用 branch coverage 并定义 `fail_under = 90`，归档 Plan 也一直
-把 full coverage 作为完成证据；但 [CI](../../.github/workflows/ci.yml) 当前只执行
+把 full coverage 作为完成证据；但评审当时 [CI](../../.github/workflows/ci.yml) 只执行
 `uv run pytest --no-testmon`。普通测试可以全部通过而 coverage 低于 90%，PR 不会因此失败。
 
 这是现行工程规则没有接入自动化，不需要新的产品或架构 Design。直接整改应：
@@ -292,10 +296,8 @@ R002 发现的互斥 resolution 参数已经收敛为
 
 ## 10. 建议实施顺序与治理
 
-1. 以小型 CI 改动接入 coverage gate；运行 canonical coverage、其余 Python minor full suite、Ruff、ty 与
-   build，单独记录网络资格限制。
-2. 建立 host-partial 临时 Design，一次钉住 search exit 与 minimize 的 authorizer/merge 提示验收；接受后
-   再建立 durable Plan。
+1. 已以小型 CI 改动接入 coverage gate：canonical Python 3.10 跑 `--cov`，其余 Python minor 跑 full suite。
+2. 已建立并实施 host-partial 临时 Design：search 纯 host-partial 退出 `0`，minimize 提示 merge；稳定规则归并 D001/D006。
 3. 在当前 HEAD 记录新的性能基线；只有新数据仍证明昂贵 verifier 裁剪不足时，才建立性能 Design。
 4. 建立 command-scoped composition 临时 Design；可把 `FailureLogAssociations` 清理作为非目标驱动的小切片，
    但不得借机删除其他真实 seam。

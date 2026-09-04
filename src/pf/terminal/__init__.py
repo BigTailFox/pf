@@ -488,14 +488,91 @@ def _search_reasons(report: ValidatedReport) -> set[str]:
     return set(report.result.reasons)
 
 
-def _search_exit_code(reasons: set[str]) -> int:
+def _missing_cells(report: ValidatedReport) -> tuple[Cell, ...]:
+    observed = {_cell_key(result.cell) for result in report.cell_results}
+    return tuple(
+        cell for cell in report.target_cells if _cell_key(cell) not in observed
+    )
+
+
+def _other_host_missing_count(report: ValidatedReport) -> int:
+    observed_targets = {result.cell.target for result in report.cell_results}
+    return sum(
+        1 for cell in _missing_cells(report) if cell.target not in observed_targets
+    )
+
+
+def _same_host_missing_count(report: ValidatedReport) -> int:
+    observed_targets = {result.cell.target for result in report.cell_results}
+    return sum(1 for cell in _missing_cells(report) if cell.target in observed_targets)
+
+
+def _is_host_partial_success(report: ValidatedReport) -> bool:
+    if _search_reasons(report) != {"MISSING_CELL"}:
+        return False
+    if not report.cell_results:
+        return False
+    if not all(isinstance(result, CellSuccess) for result in report.cell_results):
+        return False
+    missing = _missing_cells(report)
+    if not missing:
+        return False
+    observed_targets = {result.cell.target for result in report.cell_results}
+    return all(cell.target not in observed_targets for cell in missing)
+
+
+def _host_partial_remainder(report: ValidatedReport) -> str | None:
+    if not _is_host_partial_success(report):
+        return None
+    other = _other_host_missing_count(report)
+    return (
+        f"{_counted(other, 'cell')} "
+        f"{'awaits another host' if other == 1 else 'await other hosts'} · "
+        "next: collect reports and run pf merge"
+    )
+
+
+def _search_cli_outcome(report: ValidatedReport) -> tuple[int, OutcomeKind]:
+    reasons = _search_reasons(report)
     if "BASELINE_REJECTION" in reasons:
-        return 1
+        return 1, "failure"
     if "INDETERMINATE" in reasons:
-        return 4
+        return 4, "indeterminate"
+    if _is_host_partial_success(report):
+        return 0, "warning"
     if reasons:
-        return 2
-    return 0
+        return 2, "warning"
+    return 0, "success"
+
+
+def _missing_cell_conclusion(report: ValidatedReport) -> tuple[str, ...]:
+    if not report.cell_results:
+        return ("no configured cells match this host",)
+    if _is_host_partial_success(report):
+        passed_count = sum(
+            isinstance(result, CellSuccess) for result in report.cell_results
+        )
+        remainder = _host_partial_remainder(report)
+        passed = (
+            (f"{_counted(passed_count, 'cell')} passed",) if passed_count else ()
+        )
+        return (*passed, *((remainder,) if remainder is not None else ()))
+    parts: list[str] = []
+    other = _other_host_missing_count(report)
+    same = _same_host_missing_count(report)
+    if other:
+        parts.append(
+            f"{_counted(other, 'cell')} "
+            f"{'awaits another host' if other == 1 else 'await other hosts'}"
+        )
+    if same:
+        parts.append(
+            f"{_counted(same, 'cell')} "
+            f"{'is missing' if same == 1 else 'are missing'}"
+        )
+    if not parts:
+        parts.append("target cell results are missing")
+    return tuple(parts)
 
 
 def _search_incomplete_conclusion(report: ValidatedReport) -> str:
@@ -522,27 +599,7 @@ def _search_incomplete_conclusion(report: ValidatedReport) -> str:
     if "UNREPRESENTABLE_PROJECTION" in reasons:
         conclusions.append("the full-matrix floor projection is not representable")
     if "MISSING_CELL" in reasons:
-        target_count = len(report.target_cells) or len(report.cell_results)
-        missing_count = max(0, target_count - len(report.cell_results))
-        if not report.cell_results:
-            conclusions.append("no configured cells match this host")
-        else:
-            if reasons == {"MISSING_CELL"}:
-                passed_count = sum(
-                    isinstance(result, CellSuccess) for result in report.cell_results
-                )
-                if passed_count:
-                    conclusions.append(f"{_counted(passed_count, 'cell')} passed")
-            conclusions.append(
-                (
-                    f"{_counted(missing_count, 'cell')} "
-                    f"{'awaits another host' if missing_count == 1 else 'await other hosts'}"
-                )
-                if missing_count
-                else "target cell results are missing"
-            )
-            if reasons == {"MISSING_CELL"}:
-                conclusions.append("next: collect reports and run pf merge")
+        conclusions.extend(_missing_cell_conclusion(report))
     return " · ".join(conclusions) or "report evidence is incomplete"
 
 
@@ -953,16 +1010,7 @@ class TerminalPresenter:
                 self._print_cell_report(presentation)
 
     def render_search(self, report: ValidatedReport) -> int:
-        search_exit_code = _search_exit_code(_search_reasons(report))
-        search_kind: OutcomeKind
-        if search_exit_code == 0:
-            search_kind = "success"
-        elif search_exit_code == 1:
-            search_kind = "failure"
-        elif search_exit_code == 4:
-            search_kind = "indeterminate"
-        else:
-            search_kind = "warning"
+        _, search_kind = _search_cli_outcome(report)
         self.close(final_outcome=search_kind)
         leftover = self._take_search_diagnostics()
         events_by_cell: dict[
@@ -1207,10 +1255,9 @@ class TerminalPresenter:
         self,
         report: ValidatedReport,
     ) -> int:
-        reasons = _search_reasons(report)
-        exit_code = _search_exit_code(reasons)
+        exit_code, kind = _search_cli_outcome(report)
         path = _report_path(report)
-        if exit_code == 0:
+        if kind == "success":
             self._print_outcome(
                 "success",
                 f"Search complete · {path}",
@@ -1236,16 +1283,19 @@ class TerminalPresenter:
                 f"{_search_incomplete_conclusion(report)}"
             ),
         )
-        return 2
+        return exit_code
 
     def render_minimize(
         self,
         report: ValidatedReport,
         result: ApplyCommandResult,
     ) -> int:
-        del report
         self.close()
-        return self.render_apply(result, command="minimize")
+        return self.render_apply(
+            result,
+            command="minimize",
+            host_partial_remainder=_host_partial_remainder(report),
+        )
 
     def _print_step(self, message: str | Text | Panel | Group) -> None:
         self._live.print_step(message)
@@ -1338,6 +1388,7 @@ class TerminalPresenter:
         result: ApplyCommandResult,
         *,
         command: Literal["apply", "minimize"] = "apply",
+        host_partial_remainder: str | None = None,
     ) -> int:
         self.close()
         edit = result.edit
@@ -1350,8 +1401,9 @@ class TerminalPresenter:
             _selector_label(item) for item in facts.preserved_selectors
         )
         waiver = facts.source_drift_path_count > 0
-        kind: OutcomeKind = "warning" if waiver else "success"
-        console = self.stderr if waiver else self.stdout
+        remainder = host_partial_remainder
+        kind: OutcomeKind = "warning" if waiver or remainder else "success"
+        console = self.stderr if kind == "warning" else self.stdout
         header_outcome = (
             f"{action} with source-drift override"
             if waiver
@@ -1412,11 +1464,15 @@ class TerminalPresenter:
             if console.is_terminal
             else _plain_result_card(card_rows)
         )
-        if waiver:
-            self._print_outcome(
-                "warning",
-                f"{verb} with source-drift override · {outcome}",
+        if waiver or remainder:
+            summary = (
+                f"{verb} with source-drift override · {outcome}"
+                if waiver
+                else f"{verb} · {outcome}"
             )
+            if remainder:
+                summary = f"{summary} · {remainder}"
+            self._print_outcome("warning", summary)
             return 0
         self._print_outcome(
             "success",

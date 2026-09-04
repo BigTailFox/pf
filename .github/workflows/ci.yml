@@ -24,6 +24,10 @@ jobs:
       - name: ty
         run: uv run ty check src
       - name: Pytest (testmon disabled)
+        if: matrix.python-version != '3.10'
         run: uv run pytest --no-testmon
+      - name: Pytest with coverage gate
+        if: matrix.python-version == '3.10'
+        run: uv run pytest --no-testmon --cov --cov-report=term-missing
       - name: Build
         run: uv build
