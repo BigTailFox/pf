@@ -499,6 +499,7 @@ def _diagnosis(
         proposal_id=None,
         boundary_role=None,
         log_path=log_path,
+        source_path="package-floor.json",
     )
 
 

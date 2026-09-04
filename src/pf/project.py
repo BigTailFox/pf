@@ -155,6 +155,9 @@ class ProjectLoader:
         package = self._load_package(root=canonical_root, inventory=inventory)
         return ProjectPlan(
             target=package,
+            report_path=inventory.target.report_path.relative_to(
+                canonical_root
+            ).as_posix(),
             owned_pyproject_paths=inventory.owned_pyproject_paths,
         )
 

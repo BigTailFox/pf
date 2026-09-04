@@ -138,8 +138,8 @@ presenter，再关闭 logs，并在嵌套中断下仍完成。`build_context()` 
 | --- | --- |
 | `CheckCommandWorkflow` | planning → snapshot → VerificationRunner → CompatibilityChecker |
 | `SmokeCommandWorkflow` | planning → snapshot → VerificationRunner → HighestVersionVerifier |
-| `SearchCommandWorkflow` | planning → snapshot → VerificationRunner → report update → diagnosis associations |
-| `ExplainCommandWorkflow` | offline discovery → report read |
+| `SearchCommandWorkflow` | planning → snapshot → VerificationRunner → report update → diagnosis associations → `SearchCommandResult` |
+| `ExplainCommandWorkflow` | offline discovery → report read → `ExplainCommandResult` |
 | `DiagnoseCommandWorkflow` | offline discovery → selected report then latest Journal → one `FailureDiagnosis` |
 | `MergeCommandWorkflow` | ordered report read → merge → write → `MergeCommandResult` |
 | `ApplyCommandWorkflow` | planning → current owned snapshot → reports → ApplyAuthorizer → ProjectEditor transaction |
@@ -180,6 +180,11 @@ document/members collection、raw bytes、digest、wire、cache 或 cleanup life
 `ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration、marker/extra
 Cell、逐 dependency source route、完整 `NamedSearchPolicy` binding、member-version attachment 与 recursive test-group planning；
 `ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
+`ProjectPlan.report_path` 是所选 package 报告文件的 root-relative posix，由 `ProjectLoader` 从
+`inventory.target.report_path` 复制；该绝对路径只由 `ProjectDiscovery` 按
+`package_root / "package-floor.json"` 物化。Search/Apply 只用 `request.root / project.report_path`
+读写；Explain/Diagnose 消费 `PackageLocation.report_path`。不得在 workflow 或 Presenter 中从
+`pyproject_path` 重建文件名或 package-relative location。
 
 `ProjectPlan.owned_pyproject_paths` 包含 root；全部 installable、未排除 workspace packages（包括未选中的
 member）；以及从这些 metadata 的 `tool.uv.sources.*.path` 递归可达、存在且不越过 root 的 metadata。
@@ -296,7 +301,11 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 | `ApplyAuthorizer` | report/current plan/snapshot的前置条件、platform scope、dependency state、source waiver与frozen authorized edits | TOML I/O、终端措辞、wire join |
 | `ProjectEditor` | expected snapshot/pyproject复核、authorized group replacement、raw CAS、写后验证、recovery/rollback | report internals、scope/projection/waiver推导 |
 
-`ApplyAuthorizer.authorize(report, project, current_snapshot, force) -> AuthorizedWorkspaceApply`只产生单数`package_apply`，但grant仍绑定全部owned pyproject identities以保护未选中member。`ProjectEditor.apply(authorization, root)`只执行冻结的target edits；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`携带必填package、edit结果和结构化presentation facts；`MergeCommandResult`携带validated report、有序input paths与output path。Presenter不得从artifact反推这些命令事实。
+`ApplyAuthorizer.authorize(report, project, current_snapshot, force) -> AuthorizedWorkspaceApply`只产生单数`package_apply`，但grant仍绑定全部owned pyproject identities以保护未选中member。`ProjectEditor.apply(authorization, root)`只执行冻结的target edits；prepare记录原始bytes digest，事务前匹配expected snapshot，每次replace前CAS，并在异常时all-or-nothing rollback。`ApplyCommandResult`携带必填package、edit结果和结构化presentation facts；`SearchCommandResult` 与
+`ExplainCommandResult` 携带 validated report 与已解析的 root-relative `report_path`；
+`MergeCommandResult`携带validated report、有序input paths与output path。Presenter不得从artifact或
+`pyproject_path` 反推这些命令事实。绝对 filesystem path、checkout root 与 display path 不进入
+Schema 1、report identity、Journal 或 merge。Merge 显式 request/result 路径不被 package 默认路径覆盖。
 
 ReportStore的interface与交易语义只见D014；Process Log只见D007，Journal/Index只见D008；apply产品授权只见D001，展示只见D006。
 

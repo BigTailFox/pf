@@ -238,6 +238,9 @@ projector与Run live对共同事实保持D008规定的语义相等，但Terminal
 ## 7. Result card 与 final summary
 
 `explain`、`apply`、`minimize`、`diagnose`、`merge`及其typed command errors复用同一结果卡primitive。TTY卡片使用rounded border、固定marker/content两列和2空格gutter；标题marker、border与结果色一致。Field label固定宽度，长value从value列继续换行，不能回到终端左边缘。路径按literal user data渲染；TTY可使用underline cyan与OSC 8 file link，non-TTY不得包含ANSI/OSC。不得为获得路径链接调用`resolve()`而改变用户给出的相对路径。
+`search` summary 与 `explain` overview 的报告路径等于对应 command result 的 `report_path`；
+`diagnose` 的 report 来源等于 `FailureDiagnosis.source_path`。Presenter 不从
+`ValidatedReport.package.pyproject_path` 拼接文件名。
 
 56、80、120列是必测宽度。窄宽度可以增加物理换行，但不能丢失package、Cell、artifact、ordered inputs、reason、next action或technical facts；TTY/non-TTY拥有相同信息层级和语义。final summary位于卡片之后，是最后一条结果信息，icon与整句同色且bold。成功结果中的red/yellow事实仍随成功card走stdout，不拆到stderr。
 

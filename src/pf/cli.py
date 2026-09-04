@@ -42,7 +42,6 @@ from pf.schemas.config import (
     WorkspacePackage,
 )
 from pf.schemas.evaluation import CheckResult, SmokeResult
-from pf.report import ValidatedReport
 from pf.schemas.apply import ApplyCommandResult
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
@@ -53,9 +52,11 @@ from pf.workflow import (
     DiagnoseCommandWorkflow,
     FailureDiagnosis,
     ApplyCommandWorkflow,
+    ExplainCommandResult,
     ExplainCommandWorkflow,
     MergeCommandResult,
     MergeCommandWorkflow,
+    SearchCommandResult,
     SearchCommandWorkflow,
     SmokeCommandWorkflow,
 )
@@ -66,7 +67,7 @@ class CheckWorkflow(Protocol):
 
 
 class SearchWorkflow(Protocol):
-    def run(self, request: SearchRequest) -> ValidatedReport: ...
+    def run(self, request: SearchRequest) -> SearchCommandResult: ...
 
 
 class SmokeWorkflow(Protocol):
@@ -74,7 +75,7 @@ class SmokeWorkflow(Protocol):
 
 
 class ExplainWorkflow(Protocol):
-    def run(self, request: ReportRequest) -> ValidatedReport: ...
+    def run(self, request: ReportRequest) -> ExplainCommandResult: ...
 
 
 class DiagnoseWorkflow(Protocol):
@@ -566,7 +567,7 @@ def create_app(context: CliContext) -> App:
         """Search for floors, then apply the authorized result."""
         context.presenter.bind_command("minimize")
         root = Path.cwd().as_posix()
-        reports = context.search_workflow.run(
+        search = context.search_workflow.run(
             SearchRequest(
                 root=root,
                 selector=_cli_selector(package),
@@ -579,7 +580,7 @@ def create_app(context: CliContext) -> App:
         result = context.apply_workflow.run(
             ApplyRequest(root=root, selector=_cli_selector(package))
         )
-        return context.presenter.render_minimize(reports, result)
+        return context.presenter.render_minimize(search.report, result)
 
     @app.command(group=_INSPECT, sort_key=1)
     def diagnose(

@@ -11,7 +11,7 @@ from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore, ReportUpdate, ValidatedReport
 from pf.runlog import RunLogStore
-from pf.schemas.config import SearchRequest
+from pf.schemas.config import SearchRequest, WorkspacePackage
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
@@ -401,8 +401,8 @@ class TestSearchWorkflow:
             )
         )
 
-        assert output.result.status == "incomplete"
-        assert output.result.reasons == (
+        assert output.report.result.status == "incomplete"
+        assert output.report.result.reasons == (
             "INDETERMINATE",
             "UNREPRESENTABLE_PROJECTION",
         )
@@ -417,7 +417,8 @@ class TestSearchWorkflow:
             ("3.10", "x86_64-unknown-linux-gnu"),
             ("3.11", "x86_64-unknown-linux-gnu"),
         ]
-        assert store.read(tmp_path / "package-floor.json") == output
+        assert store.read(tmp_path / "package-floor.json") == output.report
+        assert output.report_path == "package-floor.json"
 
         repeated = workflow.run(
             SearchRequest(
@@ -426,8 +427,8 @@ class TestSearchWorkflow:
                 max_duration_seconds=None,
             )
         )
-        assert repeated.source_snapshot == output.source_snapshot
-        assert repeated.cell_results != output.cell_results
+        assert repeated.report.source_snapshot == output.report.source_snapshot
+        assert repeated.report.cell_results != output.report.cell_results
 
         (tmp_path / "new-source.py").write_text("VALUE = 1\n", encoding="utf-8")
         refreshed = workflow.run(
@@ -437,8 +438,8 @@ class TestSearchWorkflow:
                 max_duration_seconds=None,
             )
         )
-        assert refreshed.source_snapshot != output.source_snapshot
-        assert store.read(tmp_path / "package-floor.json") == refreshed
+        assert refreshed.report.source_snapshot != output.report.source_snapshot
+        assert store.read(tmp_path / "package-floor.json") == refreshed.report
 
     def test_search_workflow_indexes_failure_logs_after_writing_the_report(
         self,
@@ -495,20 +496,23 @@ class TestSearchWorkflow:
             logs=logs,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        result = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        report = result.report
         failure = report.failure_records[0]
 
+        assert result.report_path == "package-floor.json"
         assert logs.lookup(report.report_generation_id, failure.failure_id) == Path(
             ".pf/logs/search-run/process-0001.log"
         )
 
         replacement = workflow.run(SearchRequest(root=tmp_path.as_posix()))
-        replacement_failure = replacement.failure_records[0]
+        replacement_report = replacement.report
+        replacement_failure = replacement_report.failure_records[0]
 
         assert replacement_failure.failure_id != failure.failure_id
         assert logs.lookup(report.report_generation_id, failure.failure_id) is None
         assert logs.lookup(
-            replacement.report_generation_id,
+            replacement_report.report_generation_id,
             replacement_failure.failure_id,
         ) == Path(".pf/logs/search-run/process-0001.log")
         journal = logs.read_latest_journal("demo")
@@ -571,7 +575,8 @@ class TestSearchWorkflow:
             logs=logs,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        result = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        report = result.report
         failure = report.failure_records[0]
         expected = Path(".pf/logs/runtime-search/process-0001.log")
 
@@ -637,7 +642,8 @@ class TestSearchWorkflow:
             logs=logs,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        result = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        report = result.report
         failure = report.failure_records[0]
         expected = Path(".pf/logs/unavailable-baseline/process-0001.log")
 
@@ -693,9 +699,11 @@ class TestSearchWorkflow:
 
         refreshed = workflow.run(request)
 
-        assert refreshed.policy_identity == current.policy_identity
-        assert refreshed.report_generation_id != current.report_generation_id
-        assert store.read(report_path) == refreshed
+        assert refreshed.report.policy_identity == current.report.policy_identity
+        assert refreshed.report.report_generation_id != current.report.report_generation_id
+        assert store.read(report_path) == refreshed.report
+        assert current.report_path == "package-floor.json"
+        assert refreshed.report_path == "package-floor.json"
 
     def test_search_workflow_never_executes_a_non_host_target(
         self, tmp_path: Path
@@ -743,8 +751,9 @@ class TestSearchWorkflow:
             event for event in events.items if isinstance(event, CellMatrixEvent)
         )
         assert [cell.target for cell in matrix.cells] == ["x86_64-unknown-linux-gnu"]
-        assert reports.result.status == "incomplete"
-        assert "MISSING_CELL" in reports.result.reasons
+        assert reports.report.result.status == "incomplete"
+        assert "MISSING_CELL" in reports.report.result.reasons
+        assert reports.report_path == "package-floor.json"
 
     def test_search_empty_host_set_rejects_missing_contract_before_snapshot(
         self,
@@ -792,4 +801,60 @@ class TestSearchWorkflow:
             workflow.run(SearchRequest(root=tmp_path.as_posix()))
 
         assert coordinator.cells == []
+        assert not (tmp_path / "package-floor.json").exists()
+
+    def test_search_writes_the_selected_package_report_path(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/demo"]\n',
+            encoding="utf-8",
+        )
+        member = tmp_path / "packages" / "demo"
+        member.mkdir(parents=True)
+        (member / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [dependency-groups]
+    test = []
+
+    [tool.pf]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    managed-deps = []
+    test-command = ["python", "-c", "pass"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        store = ReportStore()
+        workflow = SearchCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            coordinator=FailedSearch(),
+            verification=VerificationRunner(
+                events=Events(),
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
+            reports=store,
+            report_builder=PackageReportBuilder(),
+            events=Events(),
+        )
+
+        result = workflow.run(
+            SearchRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+            )
+        )
+
+        assert result.report_path == "packages/demo/package-floor.json"
+        assert (
+            store.read(tmp_path / "packages/demo/package-floor.json") == result.report
+        )
         assert not (tmp_path / "package-floor.json").exists()

@@ -66,10 +66,11 @@ def render(
     presenter: ExplainPresenter,
     report: ValidatedReport,
     *,
+    report_path: str,
     root: Path,
 ) -> int:
     presenter.close()
-    _render_report(presenter, report, root=root)
+    _render_report(presenter, report, report_path=report_path, root=root)
     return 0
 
 
@@ -77,6 +78,7 @@ def _render_report(
     presenter: ExplainPresenter,
     report: ValidatedReport,
     *,
+    report_path: str,
     root: Path,
 ) -> None:
     declarations = {
@@ -108,7 +110,6 @@ def _render_report(
         None,
     )
 
-    report_path = _report_path(report)
     title = Text.assemble(
         (report.package.name, "bold cyan"),
         " · ",
@@ -428,13 +429,3 @@ def _requirement_text(requirement: str, *, color: str) -> Text:
 def _counted(count: int, singular: str, plural: str | None = None) -> str:
     noun = singular if count == 1 else (plural or f"{singular}s")
     return f"{count} {noun}"
-
-
-def _report_path(report: ValidatedReport) -> str:
-    parent = Path(report.package.pyproject_path).parent
-    relative = (
-        Path("package-floor.json")
-        if parent == Path(".")
-        else parent / "package-floor.json"
-    )
-    return relative.as_posix()

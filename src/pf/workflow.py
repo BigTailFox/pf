@@ -265,7 +265,7 @@ class SearchCommandWorkflow:
         self._events = events
         self._logs = logs
 
-    def run(self, request: SearchRequest) -> ValidatedReport:
+    def run(self, request: SearchRequest) -> SearchCommandResult:
         root = Path(request.root)
         self._events.consume(StatusEvent(message="loading project"))
         project = self._projects.load(
@@ -273,6 +273,7 @@ class SearchCommandWorkflow:
             selector=request.selector,
         )
         package = project.target
+        report_path = root / project.report_path
         require_full_evaluation_contract(package, "search")
         limits = resolve_run_limits(
             package.config.scheduling,
@@ -305,9 +306,6 @@ class SearchCommandWorkflow:
                 source_snapshot=snapshot.identity,
                 cell_results=results,
             )
-            report_path = (
-                root / Path(package.pyproject_path).parent / "package-floor.json"
-            )
             update = self._reports.update_path(report_path, report)
             report = update.report
             if self._logs is not None:
@@ -330,7 +328,10 @@ class SearchCommandWorkflow:
                     replace_generation=update.replace_generation,
                     remove_failure_ids=update.removed_failure_ids,
                 )
-            return report
+            return SearchCommandResult(
+                report=report,
+                report_path=project.report_path,
+            )
         finally:
             snapshot.close()
 
@@ -362,7 +363,7 @@ class ExplainCommandWorkflow:
         self._discovery = discovery
         self._reports = reports
 
-    def run(self, request: ReportRequest) -> ValidatedReport:
+    def run(self, request: ReportRequest) -> ExplainCommandResult:
         root = Path(request.root)
         location = self._discovery.select(
             root=root,
@@ -399,7 +400,7 @@ class ExplainCommandWorkflow:
                 report_path=display_path,
                 reason="report package identity does not match the selected package",
             )
-        return report
+        return ExplainCommandResult(report=report, report_path=display_path)
 
 
 class DiagnosisLogLocator(Protocol):
@@ -429,6 +430,10 @@ class FailureDiagnosis:
     source_path: str | None = None
     verification_role: VerificationRole | None = None
     command: Literal["smoke", "check", "search"] | None = None
+
+    def __post_init__(self) -> None:
+        if self.source == "report" and self.source_path is None:
+            raise ValueError("report diagnosis requires source_path")
 
 
 class DiagnoseCommandWorkflow:
@@ -521,6 +526,18 @@ class DiagnoseCommandWorkflow:
             failure_id=request.failure_id,
             package=location.name,
         )
+
+
+@dataclass(frozen=True)
+class SearchCommandResult:
+    report: ValidatedReport
+    report_path: str
+
+
+@dataclass(frozen=True)
+class ExplainCommandResult:
+    report: ValidatedReport
+    report_path: str
 
 
 @dataclass(frozen=True)
@@ -622,9 +639,7 @@ class ApplyCommandWorkflow:
                     total=1,
                 )
             )
-        report = self._reports.read(
-            root / Path(project.target.pyproject_path).parent / "package-floor.json"
-        )
+        report = self._reports.read(root / project.report_path)
         snapshot = self._snapshots.build(
             root,
             owned_pyproject_paths=project.owned_pyproject_paths,

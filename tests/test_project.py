@@ -120,6 +120,7 @@ class TestProjectDiscovery:
         plan = ProjectLoader().load(root=tmp_path)
 
         package = plan.target
+        assert plan.report_path == "package-floor.json"
         assert package.name == "demo-app"
         assert [(item.name, item.kind) for item in package.declarations] == [
             ("numpy", "searchable"),
@@ -181,6 +182,14 @@ class TestProjectDiscovery:
 
         assert plan.target.name == "beta"
         assert plan.target.pyproject_path == "packages/beta/pyproject.toml"
+        assert plan.report_path == "packages/beta/package-floor.json"
+        location = ProjectDiscovery().select(
+            root=tmp_path,
+            selector=WorkspacePackage(canonical_name="beta"),
+        )
+        assert location.report_path == (
+            tmp_path.resolve() / "packages/beta/package-floor.json"
+        )
         assert plan.owned_pyproject_paths == (
             "packages/alpha/pyproject.toml",
             "packages/beta/pyproject.toml",

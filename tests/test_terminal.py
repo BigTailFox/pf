@@ -107,7 +107,7 @@ from pf.schemas.report import (
 )
 from pf.terminal import PF_THEME, TerminalPresenter
 from pf.static_transition import static_fingerprint
-from pf.workflow import MergeCommandResult
+from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -118,6 +118,18 @@ _FOREGROUND_SGR_CODES = frozenset(
 
 def visible(text: str) -> str:
     return _ANSI.sub("", text)
+
+
+def search_result(
+    report: ValidatedReport, report_path: str = "package-floor.json"
+) -> SearchCommandResult:
+    return SearchCommandResult(report=report, report_path=report_path)
+
+
+def explain_result(
+    report: ValidatedReport, report_path: str = "package-floor.json"
+) -> ExplainCommandResult:
+    return ExplainCommandResult(report=report, report_path=report_path)
 
 
 def sgr_codes(text: str) -> set[str]:
@@ -1402,7 +1414,7 @@ class TestProgressRendering:
         terminal.consume(CellMatrixEvent(cells=(cell,)))
         terminal.consume(completed_event(cell, status="SUCCESS"))
 
-        exit_code = terminal.render_search(incomplete_report("NO_PASS_IN_SEARCH_SPACE"))
+        exit_code = terminal.render_search(search_result(incomplete_report("NO_PASS_IN_SEARCH_SPACE")))
 
         raw = stderr.getvalue()
         loaded_at = raw.rindex("loaded project")
@@ -3000,12 +3012,12 @@ class TestVerificationRendering:
                 stage=failure.stage,
             )
         )
-        final.render_search(
+        final.render_search(search_result(
             incomplete_report(
                 "INDETERMINATE",
                 cell_results=(outcome,),
             )
-        )
+        ))
 
         fragments = (
             "search stopped at [candidate discovery]",
@@ -3957,7 +3969,7 @@ class TestSearchRendering:
             ),
         )
 
-        exit_code = terminal.render_search(incomplete_report("INDETERMINATE"))
+        exit_code = terminal.render_search(search_result(incomplete_report("INDETERMINATE")))
 
         output = stderr.getvalue()
         assert exit_code == 4
@@ -4123,7 +4135,7 @@ class TestSearchRendering:
         )
         terminal.consume(SearchFailureEvent(cell=cell, failure=install_failure))
 
-        exit_code = terminal.render_search(incomplete_report("NO_PASS_IN_SEARCH_SPACE"))
+        exit_code = terminal.render_search(search_result(incomplete_report("NO_PASS_IN_SEARCH_SPACE")))
 
         output = stderr.getvalue()
         assert exit_code == 2
@@ -4158,7 +4170,7 @@ class TestSearchRendering:
     ) -> None:
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(incomplete_report(*reasons))
+        exit_code = terminal.render_search(search_result(incomplete_report(*reasons)))
 
         assert exit_code == expected_exit
         expected_stderr: dict[tuple[str, ...], str] = {
@@ -4185,6 +4197,22 @@ class TestSearchRendering:
                 expected_stderr[reasons].split()
             )
 
+    def test_search_summary_displays_the_command_result_report_path(self) -> None:
+        terminal, stdout, stderr = presenter()
+
+        exit_code = terminal.render_search(
+            search_result(
+                incomplete_report(),
+                report_path="packages/demo/package-floor.json",
+            )
+        )
+
+        assert exit_code == 0
+        assert stderr.getvalue() == ""
+        assert stdout.getvalue() == (
+            "✓  Search complete · packages/demo/package-floor.json\n"
+        )
+
     @pytest.mark.parametrize(
         ("reason", "expected_conclusion"),
         (
@@ -4204,7 +4232,7 @@ class TestSearchRendering:
     ) -> None:
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(incomplete_report(reason))
+        exit_code = terminal.render_search(search_result(incomplete_report(reason)))
 
         rendered = " ".join(stderr.getvalue().split())
         assert exit_code == 2
@@ -4222,9 +4250,9 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(
+        exit_code = terminal.render_search(search_result(
             incomplete_report("MISSING_CELL", target_cells=(target,))
-        )
+        ))
 
         rendered = " ".join(stderr.getvalue().split())
         assert exit_code == 2
@@ -4248,13 +4276,13 @@ class TestSearchRendering:
         success = CellSuccess.model_construct(cell=local)
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(
+        exit_code = terminal.render_search(search_result(
             incomplete_report(
                 "MISSING_CELL",
                 cell_results=(success,),
                 target_cells=(local, remote),
             )
-        )
+        ))
 
         rendered = " ".join(stderr.getvalue().split())
         assert exit_code == 0
@@ -4287,14 +4315,14 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(
+        exit_code = terminal.render_search(search_result(
             incomplete_report(
                 "MISSING_CELL",
                 "NO_PASS_IN_SEARCH_SPACE",
                 cell_results=(failure,),
                 target_cells=(local, remote),
             )
-        )
+        ))
 
         rendered = " ".join(stderr.getvalue().split())
         assert exit_code == 2
@@ -4325,13 +4353,13 @@ class TestSearchRendering:
         success = CellSuccess.model_construct(cell=local_310)
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(
+        exit_code = terminal.render_search(search_result(
             incomplete_report(
                 "MISSING_CELL",
                 cell_results=(success,),
                 target_cells=(local_310, local_311, remote),
             )
-        )
+        ))
 
         rendered = " ".join(stderr.getvalue().split())
         assert exit_code == 2
@@ -4363,7 +4391,7 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(report)
+        exit_code = terminal.render_search(search_result(report))
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
@@ -4395,7 +4423,7 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(report)
+        exit_code = terminal.render_search(search_result(report))
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
@@ -4440,7 +4468,7 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(report)
+        exit_code = terminal.render_search(search_result(report))
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
@@ -4514,7 +4542,7 @@ class TestSearchRendering:
         )
         terminal, stdout, stderr = presenter()
 
-        exit_code = terminal.render_search(report)
+        exit_code = terminal.render_search(search_result(report))
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
@@ -4552,11 +4580,25 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        terminal.render_explain(report)
+        terminal.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
         assert rendered.count("demo · package-floor.json") == 1
         assert rendered.count("no applicable floor") == 1
+
+    def test_explain_overview_displays_the_command_result_report_path(self) -> None:
+        terminal, stdout, _ = presenter()
+
+        terminal.render_explain(
+            explain_result(
+                incomplete_report(),
+                report_path="packages/demo/package-floor.json",
+            )
+        )
+
+        rendered = stdout.getvalue()
+        assert "demo · packages/demo/package-floor.json" in rendered
+        assert rendered.count("package-floor.json") == 1
 
     def test_explain_renders_the_complete_report_next_action(self) -> None:
         declaration = requirement_declaration(
@@ -4580,7 +4622,7 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        terminal.render_explain(report)
+        terminal.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
         assert "complete · report evidence is eligible for apply" in rendered
@@ -4605,7 +4647,7 @@ class TestExplainRendering:
             stderr=Console(file=StringIO(), force_terminal=True),
         )
 
-        assert terminal.render_explain(report) == 0
+        assert terminal.render_explain(explain_result(report)) == 0
 
         rendered = stdout.getvalue()
         assert malicious in rendered
@@ -4646,7 +4688,7 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        exit_code = terminal.render_explain(report)
+        exit_code = terminal.render_explain(explain_result(report))
 
         assert exit_code == 0
         rendered = stdout.getvalue()
@@ -4679,7 +4721,7 @@ class TestExplainRendering:
             ConfigurationError,
             match="report projection is missing its requirement declaration",
         ):
-            terminal.render_explain(report)
+            terminal.render_explain(explain_result(report))
 
         assert digest not in stdout.getvalue()
 
@@ -4800,7 +4842,7 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        exit_code = terminal.render_explain(report)
+        exit_code = terminal.render_explain(explain_result(report))
 
         assert exit_code == 0
         rendered = stdout.getvalue()
@@ -4951,9 +4993,9 @@ class TestExplainRendering:
         )
         terminal, stdout, _ = presenter()
 
-        terminal.render_explain(
+        terminal.render_explain(explain_result(
             incomplete_report("NO_PASS_IN_SEARCH_SPACE", cell_results=(failure,))
-        )
+        ))
 
         rendered = stdout.getvalue()
         assert "configured search space was fully evaluated" in rendered
@@ -4985,7 +5027,7 @@ class TestExplainRendering:
             ),
         )
 
-        terminal.render_explain(report)
+        terminal.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
         assert "demo · package-floor.json" in rendered

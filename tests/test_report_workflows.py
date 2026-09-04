@@ -61,11 +61,12 @@ from pf.workflow import (
 def report(
     *,
     package_name: str = "demo",
+    pyproject_path: str = "pyproject.toml",
     config: EffectiveConfig | None = None,
 ) -> ValidatedReport:
     package = PackagePlan(
         name=package_name,
-        pyproject_path="pyproject.toml",
+        pyproject_path=pyproject_path,
         config=config or EffectiveConfig(test=PfTestConfig(timeout_seconds=1)),
         declarations=(),
         cells=(),
@@ -107,7 +108,8 @@ class TestReportWorkflows:
             MergeRequest(reports=(source.as_posix(),), output=output.as_posix())
         )
 
-        assert explained == report()
+        assert explained.report == report()
+        assert explained.report_path == "package-floor.json"
         assert source.read_bytes() == before
         assert store.read(output) == merged.report
         assert merged.input_paths == (source.as_posix(),)
@@ -128,7 +130,8 @@ class TestReportWorkflows:
             reports=store,
         ).run(ReportRequest(root=tmp_path.as_posix()))
 
-        assert explained == report()
+        assert explained.report == report()
+        assert explained.report_path == "package-floor.json"
 
     def test_apply_workflow_validates_report_then_edits_the_target(
         self,
@@ -222,6 +225,98 @@ class TestReportWorkflows:
         status = [event for event in events.items if isinstance(event, StatusEvent)]
         assert [event.message for event in status] == ["applying floors"]
         assert status[0].total == 1
+
+    def test_apply_reads_the_selected_package_report_path(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "packages/demo").mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/demo"]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "packages/demo/pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+        project = ProjectLoader().load(
+            root=tmp_path,
+            selector=WorkspacePackage(canonical_name="demo"),
+        )
+        current_report = report(
+            pyproject_path="packages/demo/pyproject.toml",
+            config=project.target.config,
+        )
+        ReportStore().write(
+            tmp_path / "packages/demo/package-floor.json",
+            current_report,
+        )
+        seen: list[ValidatedReport] = []
+
+        class Authorizer:
+            def authorize(
+                self,
+                *,
+                report: ValidatedReport,
+                project: ProjectPlan,
+                current_snapshot: SourceSnapshot,
+                force: bool,
+            ) -> AuthorizedWorkspaceApply:
+                seen.append(report)
+                return AuthorizedWorkspaceApply(
+                    mode="DEFAULT",
+                    expected_snapshot=current_snapshot.identity,
+                    owned_pyproject_paths=project.owned_pyproject_paths,
+                    package_apply=AuthorizedPackageApply(
+                        package=PackageIdentity(
+                            name=project.target.name,
+                            pyproject_path=project.target.pyproject_path,
+                        ),
+                        scope="DECLARED_MATRIX",
+                        declared_platforms=(),
+                        selected_selectors=(),
+                        preserved_selectors=(),
+                        dependency_state="NOOP",
+                        observed_cells=0,
+                        authorized_edits=(),
+                    ),
+                    presentation_facts=ApplyPresentationFacts(
+                        observed_cells=0,
+                        selected_selectors=(),
+                        preserved_selectors=(),
+                    ),
+                )
+
+        class Editor:
+            def apply(
+                self,
+                *,
+                authorization: AuthorizedWorkspaceApply,
+                root: Path,
+            ) -> ProjectEditResult:
+                return ProjectEditResult(
+                    changed=False,
+                    pyproject_path="packages/demo/pyproject.toml",
+                    recovery_log_path=".pf/apply-recovery.json",
+                )
+
+        result = ApplyCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            reports=ReportStore(),
+            authorizer=Authorizer(),
+            editor=Editor(),
+        ).run(
+            ApplyRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+            )
+        )
+
+        assert seen == [current_report]
+        assert result.package == "demo"
+        assert not (tmp_path / "package-floor.json").exists()
+        assert project.report_path == "packages/demo/package-floor.json"
 
     def test_apply_workflow_rejects_report_from_an_obsolete_evaluation_policy(
         self,
@@ -395,6 +490,35 @@ class TestReportWorkflows:
 
         assert caught.value.report_path == "packages/demo/package-floor.json"
         assert caught.value.recovery_command == "pf search --package demo"
+
+    def test_explain_reads_the_selected_package_report_path(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "packages/demo").mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["packages/demo"]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "packages/demo/pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+        current = report(pyproject_path="packages/demo/pyproject.toml")
+        ReportStore().write(tmp_path / "packages/demo/package-floor.json", current)
+
+        explained = ExplainCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+        ).run(
+            ReportRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+            )
+        )
+
+        assert explained.report == current
+        assert explained.report_path == "packages/demo/package-floor.json"
 
     def test_explain_ignores_unselected_planning_only_metadata(
         self,

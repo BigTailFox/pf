@@ -65,7 +65,12 @@ from pf.terminal._presentation import (
 )
 
 if TYPE_CHECKING:
-    from pf.workflow import FailureDiagnosis, MergeCommandResult
+    from pf.workflow import (
+        ExplainCommandResult,
+        FailureDiagnosis,
+        MergeCommandResult,
+        SearchCommandResult,
+    )
 
 
 PF_THEME = Theme(
@@ -436,16 +441,6 @@ def _selector_label(selector: ApplySelector) -> str:
         "aarch64": "arm64",
     }.get(selector.platform_machine, selector.platform_machine)
     return f"{platform}/{machine}"
-
-
-def _report_path(report: ValidatedReport) -> str:
-    parent = Path(report.package.pyproject_path).parent
-    relative = (
-        Path("package-floor.json")
-        if parent == Path(".")
-        else parent / "package-floor.json"
-    )
-    return relative.as_posix()
 
 
 def _report_cell_counts(report: ValidatedReport) -> tuple[tuple[str, int], ...]:
@@ -1012,7 +1007,8 @@ class TerminalPresenter:
             if presentation.kind != "success":
                 self._print_cell_report(presentation)
 
-    def render_search(self, report: ValidatedReport) -> int:
+    def render_search(self, result: "SearchCommandResult") -> int:
+        report = result.report
         _, search_kind = _search_cli_outcome(report)
         self.close(final_outcome=search_kind)
         leftover = self._take_search_diagnostics()
@@ -1021,13 +1017,13 @@ class TerminalPresenter:
         ] = {}
         for event in leftover:
             events_by_cell.setdefault(_cell_key(event.cell), []).append(event)
-        for result in report.cell_results:
-            key = _cell_key(result.cell)
+        for cell_result in report.cell_results:
+            key = _cell_key(cell_result.cell)
             events = tuple(events_by_cell.pop(key, ()))
             self._print_cell_report(
                 CellPresentation.from_result(
-                    result,
-                    cell=result.cell,
+                    cell_result,
+                    cell=cell_result.cell,
                     search_events=events,
                     command="search",
                 )
@@ -1060,7 +1056,7 @@ class TerminalPresenter:
                     command="search",
                 )
             )
-        return self._print_search_summary(report)
+        return self._print_search_summary(result)
 
     def _print_cell_report(
         self,
@@ -1263,10 +1259,11 @@ class TerminalPresenter:
 
     def _print_search_summary(
         self,
-        report: ValidatedReport,
+        result: "SearchCommandResult",
     ) -> int:
+        report = result.report
         exit_code, kind = _search_cli_outcome(report)
-        path = _report_path(report)
+        path = result.report_path
         if kind == "success":
             self._print_outcome(
                 "success",
@@ -1310,10 +1307,15 @@ class TerminalPresenter:
     def _print_step(self, message: str | Text | Panel | Group) -> None:
         self._live.print_step(message)
 
-    def render_explain(self, report: ValidatedReport) -> int:
+    def render_explain(self, result: "ExplainCommandResult") -> int:
         from pf.terminal import _explain
 
-        return _explain.render(self, report, root=self._root)
+        return _explain.render(
+            self,
+            result.report,
+            report_path=result.report_path,
+            root=self._root,
+        )
 
     def render_diagnose(
         self,

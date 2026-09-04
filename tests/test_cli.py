@@ -62,7 +62,7 @@ from pf.schemas.report import (
     ProjectEditResult,
 )
 from pf.terminal import TerminalPresenter
-from pf.workflow import MergeCommandResult
+from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
 
 
 class NeverCheck:
@@ -167,6 +167,14 @@ def minimal_report() -> ValidatedReport:
         source_snapshot=snapshot,
         cell_results=(),
     )
+
+
+def located_search(report: ValidatedReport) -> SearchCommandResult:
+    return SearchCommandResult(report=report, report_path="package-floor.json")
+
+
+def located_explain(report: ValidatedReport) -> ExplainCommandResult:
+    return ExplainCommandResult(report=report, report_path="package-floor.json")
 
 
 def host_partial_report() -> ValidatedReport:
@@ -733,9 +741,9 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: SearchRequest | None = None
 
-            def run(self, request: SearchRequest) -> ValidatedReport:
+            def run(self, request: SearchRequest) -> SearchCommandResult:
                 self.request = request
-                return minimal_report()
+                return located_search(minimal_report())
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
@@ -783,9 +791,9 @@ class TestCommandDispatch:
             def __init__(self) -> None:
                 self.request: ReportRequest | None = None
 
-            def run(self, request: ReportRequest) -> ValidatedReport:
+            def run(self, request: ReportRequest) -> ExplainCommandResult:
                 self.request = request
-                return minimal_report()
+                return located_explain(minimal_report())
 
         monkeypatch.chdir(tmp_path)
         stdout = StringIO()
@@ -1124,8 +1132,8 @@ class TestMinimizeCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class SearchWorkflow:
-            def run(self, request: SearchRequest) -> ValidatedReport:
-                return minimal_report()
+            def run(self, request: SearchRequest) -> SearchCommandResult:
+                return located_search(minimal_report())
 
         class ApplyWorkflow:
             def __init__(self) -> None:
@@ -1170,8 +1178,8 @@ class TestMinimizeCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class SearchWorkflow:
-            def run(self, request: SearchRequest) -> ValidatedReport:
-                return host_partial_report()
+            def run(self, request: SearchRequest) -> SearchCommandResult:
+                return located_search(host_partial_report())
 
         class ApplyWorkflow:
             def __init__(self) -> None:
@@ -1234,8 +1242,8 @@ class TestMinimizeCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class SearchWorkflow:
-            def run(self, request: SearchRequest) -> ValidatedReport:
-                return host_partial_report()
+            def run(self, request: SearchRequest) -> SearchCommandResult:
+                return located_search(host_partial_report())
 
         class ApplyWorkflow:
             def run(self, request: ApplyRequest) -> ApplyCommandResult:
@@ -1363,9 +1371,9 @@ class TestMinimizeCommandCompleteReport:
             def __init__(self) -> None:
                 self.request: SearchRequest | None = None
 
-            def run(self, request: SearchRequest) -> ValidatedReport:
+            def run(self, request: SearchRequest) -> SearchCommandResult:
                 self.request = request
-                return minimal_report()
+                return located_search(minimal_report())
 
         class ApplyWorkflow:
             def __init__(self) -> None:

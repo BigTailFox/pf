@@ -814,4 +814,10 @@ class PackagePlan(FrozenSchema):
 class ProjectPlan(FrozenSchema):
     root: str = "."
     target: PackagePlan
+    report_path: str
     owned_pyproject_paths: tuple[str, ...] = ()
+
+    @field_validator("report_path")
+    @classmethod
+    def validate_report_path(cls, value: str) -> str:
+        return public_relative_path(value)

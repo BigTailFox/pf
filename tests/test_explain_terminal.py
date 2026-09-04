@@ -54,6 +54,13 @@ from pf.schemas.report import (
     failure_records_for_result,
 )
 from pf.terminal import PF_THEME, TerminalPresenter
+from pf.workflow import ExplainCommandResult
+
+
+def explain_result(
+    report: ValidatedReport, report_path: str = "package-floor.json"
+) -> ExplainCommandResult:
+    return ExplainCommandResult(report=report, report_path=report_path)
 
 
 def _process_result(*, exit_code: int = 1) -> ProcessResult:
@@ -244,9 +251,9 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        assert presenter.render_explain(
+        assert presenter.render_explain(explain_result(
             _report(target_cells=(cell,), cell_results=(result,))
-        ) == 0
+        )) == 0
 
         rendered = " ".join(stdout.getvalue().split())
         assert bucket in rendered
@@ -285,14 +292,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(managed, fixed),
                 projections=(projection,),
             )
-        )
+        ))
 
         rendered = " ".join(stdout.getvalue().split())
         assert "rich>=14" in rendered
@@ -348,9 +355,9 @@ class TestExplainCellCards:
         )
 
         assert (
-            presenter.render_explain(
+            presenter.render_explain(explain_result(
                 _report(target_cells=(cell,), cell_results=(result,))
-            )
+            ))
             == 0
         )
 
@@ -398,14 +405,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(declaration,),
                 projections=(projection,),
             )
-        )
+        ))
 
         rendered = stdout.getvalue()
         assert rendered.count("╭") == 1
@@ -436,14 +443,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(rich, packaging),
                 projections=projections,
             )
-        )
+        ))
 
         requirement_lines = [
             line.rstrip()
@@ -478,14 +485,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(declaration,),
                 projections=(projection,),
             )
-        )
+        ))
 
         assert "rich\x1b[36m>=\x1b[0m\x1b[1;36m14.0\x1b[0m" in stdout.getvalue()
 
@@ -512,14 +519,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(declaration,),
                 projections=(projection,),
             )
-        )
+        ))
 
         rendered = stdout.getvalue()
         assert "-> rich\x1b[32m>=\x1b[0m\x1b[1;32m15.0\x1b[0m" in rendered
@@ -549,14 +556,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(declaration,),
                 projections=(projection,),
             )
-        )
+        ))
 
         rendered = stdout.getvalue()
         assert (
@@ -596,14 +603,14 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(),
                 cell_results=(),
                 declarations=(declaration,),
                 projections=(projection,),
             )
-        )
+        ))
 
         rendered = " ".join(stdout.getvalue().split())
         assert "foo>=1" in rendered
@@ -680,7 +687,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(_report(target_cells=(cell,), cell_results=(result,)))
+        presenter.render_explain(explain_result(_report(target_cells=(cell,), cell_results=(result,))))
 
         rendered = stdout.getvalue()
         assert "ty baseline" not in rendered
@@ -699,7 +706,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(report)
+        presenter.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
         assert "⚠  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
@@ -723,7 +730,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(report)
+        presenter.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
         assert rendered.count("╭") == 1
@@ -770,12 +777,12 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(passed.cell, rejected_cell),
                 cell_results=(passed, rejected),
             )
-        )
+        ))
 
         rendered = stdout.getvalue()
         passed_identity = "[py3.12][x86_64-unknown-linux-gnu][no-extra]"
@@ -857,7 +864,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(_report(target_cells=(cell,), cell_results=(result,)))
+        presenter.render_explain(explain_result(_report(target_cells=(cell,), cell_results=(result,))))
 
         rendered = stdout.getvalue()
         assert "The configured verifier rejected this version combination." in rendered
@@ -890,7 +897,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(_report(target_cells=(cell,), cell_results=(result,)))
+        presenter.render_explain(explain_result(_report(target_cells=(cell,), cell_results=(result,))))
 
         rendered = stdout.getvalue()
         normalized = " ".join(rendered.split())
@@ -923,7 +930,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(report)
+        presenter.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
         assert "\x1b[2;33m╭" in rendered
@@ -989,12 +996,12 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(
+        presenter.render_explain(explain_result(
             _report(
                 target_cells=(rejected_cell, indeterminate_cell),
                 cell_results=(rejected, indeterminate),
             )
-        )
+        ))
 
         assert "\x1b[1;31mReport incomplete" in stdout.getvalue()
         assert "1 rejected cell" in stdout.getvalue()
@@ -1020,7 +1027,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(report)
+        presenter.render_explain(explain_result(report))
 
         assert "\x1b[1;33mReport incomplete" in stdout.getvalue()
         assert "1 missing cell" in stdout.getvalue()
@@ -1045,7 +1052,7 @@ class TestExplainCellCards:
             stderr=Console(file=StringIO(), force_terminal=False),
         )
 
-        presenter.render_explain(report)
+        presenter.render_explain(explain_result(report))
 
         assert (
             "\x1b[1;32mNo managed dependencies require floor changes."

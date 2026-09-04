@@ -92,8 +92,11 @@ def render(
 
     source: Text
     if diagnosis.source == "report":
+        source_path = diagnosis.source_path
+        if source_path is None:
+            raise ValueError("report diagnosis requires source_path")
         source = _path_text(
-            diagnosis.source_path or "package-floor.json",
+            source_path,
             base=root,
             terminal=presenter.stdout.is_terminal,
         )

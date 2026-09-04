@@ -23,7 +23,8 @@
 [D023](../archived/designs/D023-pf-configuration-model.md) 已依次收口 SourcePlan、WorkspaceInventory、
 Verification Run request、评价 seam 与配置模型；[R005](../archived/reviews/R005-pf-module-depth-review.md)
 已归档。CI coverage 门禁、host-partial search/minimize 协议、command-scoped composition 与 Ctrl+C
-终态已收口。现阶段最高价值不在继续拆分叶子
+终态已收口。包默认 `package-floor.json` 路径规则已由 Discovery 单一 owner 物化，并由
+planning/command result 传递。现阶段最高价值不在继续拆分叶子
 实现，而在降低搜索成本，并让少数仍由多个调用方重复学习的规则拥有单一 owner。
 
 当前建议优先级如下：
@@ -35,7 +36,7 @@ Verification Run request、评价 seam 与配置模型；[R005](../archived/revi
 | 已完成 | 按命令装配 capability graph | D026/P032 已归并到 D002 |
 | 已完成 | Ctrl+C 稳定终态 | D026/P032 已归并到 D001/D006/D007 |
 | P1 | 昂贵 configured verifier 的有效裁剪率 | R008 已汇总；先在当前 HEAD 刷新性能基线，再决定是否建立 D003/D012 Design |
-| P2 | `package-floor.json` 路径规则单一 owner | 新发现；目标是传递已解析路径值，不建立 path module、不持久化路径 |
+| 已完成 | `package-floor.json` 路径规则单一 owner | D027/P033 已归并到 D002/D006 |
 | P2 | 发布支持与资格证据 | E001 已记录部分缺口；发布前明确 host 支持范围并补足对应 current-pin/平台证据 |
 
 搜索前报告预检、非 TTY 搜索活动、typed result-card、targeted runtime floor、局部假想 Protocol、PEP 508
@@ -145,6 +146,8 @@ no-traceback/唯一结果表面却没有覆盖这个阶段。
 加入退出 `130`。
 
 ## 6. P2：报告路径规则只由一处拥有
+
+**处理状态：已由 [D027](../archived/designs/D027-pf-report-path-ownership.md)/[P033](../archived/plans/P033-pf-report-path-ownership.md) 解决。** 稳定规则由 D002/D006 拥有。以下段落保留评审时的基线证据。
 
 ### 6.1 已确认的重复知识
 
@@ -309,8 +312,8 @@ R002 发现的互斥 resolution 参数已经收敛为
 3. 在当前 HEAD 记录新的性能基线；只有新数据仍证明昂贵 verifier 裁剪不足时，才建立性能 Design。
 4. 已建立并实施 command-scoped composition 临时 Design：唯一 `cli.py` root 按命令装配；`FailureLogAssociations` 已删除。稳定规则归并 D002。
 5. 已单独接受并实施 Ctrl+C 退出 `130`；与 composition 共享 Plan 与 bootstrap，验收分列。稳定规则归并 D001/D006/D007。
-6. 为报告路径 ownership 选择明确 value flow；若跨 ProjectPlan/command result/Presenter interface，先建立
-   D002 Design，不以 helper-only patch 假装完成。
+6. 已建立并实施报告路径 ownership 临时 Design：Discovery 物化默认位置，planning/command result
+   传递已解析路径值，Presenter 不从 `pyproject_path` 重建；稳定规则归并 D002/D006。
 7. 报告预检、非 TTY activity、ResultCardEmitter、targeted runtime floor 与资格矩阵继续按各自触发条件推进，
    不合并成“CLI 重构”或“发布整改”大包。
 
