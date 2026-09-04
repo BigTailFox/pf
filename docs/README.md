@@ -65,12 +65,14 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   [P030](archived/plans/P030-pf-failed-case-pruning.md)。
 - [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
   新增报告路径 owner 与自举 artifact 引用漂移等发现，并校准 composition、中断、搜索性能和资格候选的
-  治理边界；CI coverage 门禁与 host-partial 协议已实施。E002/R006 继续保存各自详细证据。
-  R007 是非规范性评审，不授权其余开放项。
+  治理边界；CI coverage 门禁、host-partial 协议、command-scoped composition 与 Ctrl+C 终态已实施。
+  E002/R006 继续保存各自详细证据。R007 是非规范性评审，不授权其余开放项。
 - [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差、
-  reason-aware incomplete 文案、jobs 契约歧义与 host-partial 自动化协议已解决；它继续跟踪
-  command-scoped composition 与中断语义，也完整接管 E002 的非 TTY 搜索遥测和 R005 的
-  terminal-private result-card；它是非规范性评审，不授权实施。
+  reason-aware incomplete 文案、jobs 契约歧义、host-partial 自动化协议、command-scoped composition 与
+  Ctrl+C 终态已解决；它继续跟踪非 TTY 搜索遥测和 terminal-private result-card；它是非规范性评审，
+  不授权实施。
+- [D026](archived/designs/D026-pf-command-composition-and-interrupt.md) / [P032](archived/plans/P032-pf-command-composition-and-interrupt.md)
+  已完成按命令装配 capability graph 与 Ctrl+C 退出 `130`；稳定规则由 D001/D002/D006/D007 接管。
 - [D025](archived/designs/D025-pf-host-partial-protocol.md) / [P031](archived/plans/P031-pf-host-partial-protocol.md)
   已完成纯 host-partial search 退出 `0` 与 minimize merge 提示；稳定规则由 D001/D006 接管。
 - [D024](archived/designs/D024-pf-failed-case-pruning.md) / [P030](archived/plans/P030-pf-failed-case-pruning.md)

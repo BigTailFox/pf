@@ -118,9 +118,21 @@ build_context() -> CliContext
 main() -> None
 ```
 
-`pf` 与 `python -m pf` 进入同一个 `main()`。除 `minimize` 外，handler 只构造 request、调用一个 workflow、让 `TerminalPresenter` 渲染。`minimize` 顺序复用 search/apply workflow。Expected failures 继承 `PfError` 并只在最外层映射退出码；内部 module 不调用 `sys.exit()`。
+`pf` 与 `python -m pf` 进入同一个 `main()`。`build_context()` 只建立 `RunLogStore` 与
+`TerminalPresenter`。命令 handler 在同一 `cli.py` root 内按命令装配 capability graph：
+help/version 只使用 parser/presenter；explain/diagnose/merge 不构造 UvAdapter、host target、
+评价图或 SearchCoordinator；apply 不构造 static/runtime evaluator、SearchCoordinator 或
+host target；check/smoke/search/minimize 装配各自验证图，`host_target()` 每 invocation 最多
+一次，minimize 共享已缓存子图。生产 `CliContext` 构造不要求七个 workflow 同时存在。
 
-`CliContext` 保存七个 workflow、presenter 与 RunLogStore；幂等 `close()` 先关闭 presenter，再关闭 logs。`build_context()` 装配失败时关闭已创建资源。
+除 `minimize` 外，handler 只构造 request、调用一个 workflow、让 `TerminalPresenter` 渲染。
+`minimize` 顺序复用 search/apply workflow。Expected failures 继承 `PfError` 并只在最外层映射
+退出码，composition-time 预期失败与运行期失败走同一 `render_error()`；`KeyboardInterrupt`
+由 `main()` 映射为退出 130。内部 module 不调用 `sys.exit()`。
+
+`CliContext` 保存 presenter、RunLogStore 与 invocation-local 子图缓存；幂等 `close()` 先关闭
+presenter，再关闭 logs，并在嵌套中断下仍完成。`build_context()` 装配失败时关闭已创建资源。
+`interrupt_processes()` 在 runner 尚未装配时为空操作。
 
 | Workflow | Owner boundary |
 | --- | --- |

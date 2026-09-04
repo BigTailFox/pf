@@ -13,7 +13,7 @@
 
 默认信息顺序是 Outcome → Scope → reason/impact → next action → technical details。只有 `diagnose` 展开 Enum、ID、process facts 和日志；普通命令不要求用户理解 Proposal ID、declaration digest、cause 或 Schema status。
 
-- `✓` 只用于无 warning 的退出 `0`；`⚠` 表示 warning、no floor 或 host-partial remainder；`✗` 表示 Rejection/compatibility failure；`!` 表示 Indeterminate/infrastructure failure。host-partial search 与 source-drift apply/minimize 使用 `⚠` 且退出 `0`。
+- `✓` 只用于无 warning 的退出 `0`；`⚠` 表示 warning、no floor、host-partial remainder 或用户中断；`✗` 表示 Rejection/compatibility failure；`!` 表示 Indeterminate/infrastructure failure。host-partial search 与 source-drift apply/minimize 使用 `⚠` 且退出 `0`。用户中断使用 `⚠` 且退出 `130`。
 - 非零结果不得输出无修饰的 `completed`。`complete` 只描述 D001 的完整可授权报告；host-partial artifact 仍说 incomplete。
 - 颜色只作补充；去掉 ANSI/OSC 8 后文字仍完整。
 - 用户 Cell 使用 `Python 3.11`、精确 target triple 和 `no-extra`；内部 Enum 不作为默认结论。
@@ -94,7 +94,7 @@ Try 'pf <command> --help' for more information.
 | 内容 | 通道 |
 | --- | --- |
 | 成功 final summary、成功 explain/diagnose、成功 artifact | stdout |
-| warning、failure、incomplete/stopped summary | stderr |
+| warning、failure、incomplete/stopped summary、用户中断 | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
 `explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的typed配置错误结果。无source override的apply成功card与final走stdout；实际使用source override时，全部facts与warning final走stderr且退出0。host-partial 的 search 与成功 minimize 同样走 stderr warning、退出 0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。host-partial 成功 apply 后，minimize 仍只渲染一张 apply/minimize 卡和一个 final；final 必须包含剩余其他宿主 Cell 计数与 `pf merge` 下一步，Preserved 只表示 original constraints retained。
@@ -366,4 +366,4 @@ header使用disposition对应的red/yellow事实色；What happened与Next step�
 
 Worker、adapter、Evaluator、workflow、report 与 editor 不导入 Rich 或拼用户文案。Presenter 不发现 package、不读 TOML、不扫描 artifact，也不改变领域结果。
 
-必须保持：调用错误无 traceback；非零命令无成功措辞；每个顶层命令只有一个 final summary；Cell 始终含 Python/target/extra；diagnostic folding 不丢重数；非 TTY 无控制序列；display-only facts 不持久化。
+必须保持：调用错误无 traceback；非零命令无成功措辞；每个顶层命令只有一个 final summary；用户中断在尚无命令 final 时于 stderr 发出唯一 `⚠ Interrupted`，TTY/non-TTY 同一句且无 traceback；Cell 始终含 Python/target/extra；diagnostic folding 不丢重数；非 TTY 无控制序列；display-only facts 不持久化。

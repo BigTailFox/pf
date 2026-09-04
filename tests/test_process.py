@@ -5,7 +5,10 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
+import threading
+import time
 from typing import TextIO
 
 import pytest
@@ -304,6 +307,106 @@ class TestSubprocessRunner:
         assert isinstance(result, ProcessResult)
         assert result.timed_out is True
         assert result.signal is not None
+
+    def test_subprocess_runner_interrupt_stops_an_inflight_process_group(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        runner = SubprocessRunner(terminate_grace_seconds=0.05)
+        ready = tmp_path / "child-ready"
+        finished: list[str] = []
+
+        def worker() -> None:
+            try:
+                runner.run(
+                    ProcessSpec(
+                        argv=(
+                            sys.executable,
+                            "-c",
+                            (
+                                "import pathlib,time;"
+                                f" pathlib.Path({str(ready)!r}).write_text('1');"
+                                " time.sleep(30)"
+                            ),
+                        ),
+                        cwd=tmp_path.as_posix(),
+                        timeout_seconds=None,
+                    )
+                )
+            except KeyboardInterrupt:
+                finished.append("interrupted")
+            else:
+                finished.append("returned")
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not ready.is_file():
+            time.sleep(0.01)
+        assert ready.is_file()
+        runner.interrupt()
+        thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert finished == ["interrupted"]
+
+        with pytest.raises(KeyboardInterrupt):
+            runner.run(
+                ProcessSpec(
+                    argv=(sys.executable, "-c", "print('late')"),
+                    cwd=tmp_path.as_posix(),
+                    timeout_seconds=5,
+                )
+            )
+
+    def test_subprocess_runner_interrupt_during_spawn_does_not_leave_a_child(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = SubprocessRunner(terminate_grace_seconds=0.05)
+        real_popen = subprocess.Popen
+
+        def popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+            process = real_popen(*args, **kwargs)
+            runner.interrupt()
+            return process
+
+        monkeypatch.setattr(subprocess, "Popen", popen)
+
+        with pytest.raises(KeyboardInterrupt):
+            runner.run(
+                ProcessSpec(
+                    argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+                    cwd=tmp_path.as_posix(),
+                    timeout_seconds=None,
+                )
+            )
+
+    def test_subprocess_runner_communicate_keyboard_interrupt_terminates_child(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = SubprocessRunner(terminate_grace_seconds=0.05)
+
+        def communicate(
+            self: subprocess.Popen[bytes],
+            *_args: object,
+            **_kwargs: object,
+        ) -> tuple[bytes, bytes]:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(subprocess.Popen, "communicate", communicate)
+
+        with pytest.raises(KeyboardInterrupt):
+            runner.run(
+                ProcessSpec(
+                    argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+                    cwd=tmp_path.as_posix(),
+                    timeout_seconds=None,
+                )
+            )
 
     def test_subprocess_runner_reports_a_process_signal(self, tmp_path: Path) -> None:
         result = SubprocessRunner().run(

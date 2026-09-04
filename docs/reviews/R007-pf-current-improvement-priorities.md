@@ -22,7 +22,8 @@
 当前没有发现新的 P0 正确性、安全、证据授权或 fail-closed 缺口。[D019](../archived/designs/D019-pf-source-plan-depth.md)–
 [D023](../archived/designs/D023-pf-configuration-model.md) 已依次收口 SourcePlan、WorkspaceInventory、
 Verification Run request、评价 seam 与配置模型；[R005](../archived/reviews/R005-pf-module-depth-review.md)
-已归档。CI coverage 门禁与 host-partial search/minimize 协议已收口。现阶段最高价值不在继续拆分叶子
+已归档。CI coverage 门禁、host-partial search/minimize 协议、command-scoped composition 与 Ctrl+C
+终态已收口。现阶段最高价值不在继续拆分叶子
 实现，而在降低搜索成本，并让少数仍由多个调用方重复学习的规则拥有单一 owner。
 
 当前建议优先级如下：
@@ -31,9 +32,9 @@ Verification Run request、评价 seam 与配置模型；[R005](../archived/revi
 | --- | --- | --- |
 | 已完成 | 多宿主 host-partial 的 search/minimize 协议 | D025/P031 已归并到 D001/D006 |
 | 已完成 | CI coverage 门禁 | Python 3.10 CI job 执行 `--cov`；3.11/3.12 跑完整无 coverage 套件 |
+| 已完成 | 按命令装配 capability graph | D026/P032 已归并到 D002 |
+| 已完成 | Ctrl+C 稳定终态 | D026/P032 已归并到 D001/D006/D007 |
 | P1 | 昂贵 configured verifier 的有效裁剪率 | R008 已汇总；先在当前 HEAD 刷新性能基线，再决定是否建立 D003/D012 Design |
-| P2 | 按命令装配 capability graph | R006 已跟踪；建立 D002 临时 Design，保持唯一 composition root |
-| P2 | Ctrl+C 稳定终态 | R006 已跟踪；先由 D001/D006 接受退出码和终态语义，可与 composition 共用实现但保持独立验收 |
 | P2 | `package-floor.json` 路径规则单一 owner | 新发现；目标是传递已解析路径值，不建立 path module、不持久化路径 |
 | P2 | 发布支持与资格证据 | E001 已记录部分缺口；发布前明确 host 支持范围并补足对应 current-pin/平台证据 |
 
@@ -97,6 +98,8 @@ host-partial success-with-warning。Design 必须同时区分：
 
 ## 4. P2：按命令装配 capability graph
 
+**处理状态：已由 [D026](../archived/designs/D026-pf-command-composition-and-interrupt.md)/[P032](../archived/plans/P032-pf-command-composition-and-interrupt.md) 解决。** 稳定规则由 D002 拥有。以下段落保留评审时的基线证据。
+
 ### 4.1 当前 interface 税
 
 `main()` 在 Cyclopts 解析前进入 `build_context()`；`_assemble_context()` 因而为 `--help`、`--version`、
@@ -123,6 +126,8 @@ no-traceback/唯一结果表面却没有覆盖这个阶段。
 仍要求七个 workflow 同时存在，则没有获得 depth，应停止实施。
 
 ## 5. P2：Ctrl+C 稳定终态
+
+**处理状态：已由 [D026](../archived/designs/D026-pf-command-composition-and-interrupt.md)/[P032](../archived/plans/P032-pf-command-composition-and-interrupt.md) 解决。** 退出 `130` 与落盘由 D001 拥有，interrupt final 由 D006 拥有，in-flight 停止由 D007 拥有。以下段落保留评审时的基线证据。
 
 `main()` 当前只捕获 `PfError` 与 `CycloptsError`。`KeyboardInterrupt` 会经过 context manager 的资源关闭，
 但没有 PF 定义的退出码、stderr final、运行中 child/process-group 中断或 report 落盘规则，也可能由 Python
@@ -235,9 +240,12 @@ snapshot `855e6dc6...`。因此后续直接文档整改应：
 
 ### 8.2 只删除已证明的假想 Protocol
 
+**处理状态：`FailureLogAssociations` 已随 D026/P032 删除；Search association 仍从 workflow public
+behavior 覆盖。** `DiagnosisLogLocator` 等有两个真实用途的 Protocol 保留。以下段落保留评审时的
+推广边界。
+
 `FailureLogAssociations` 只有 `RunLogStore` 一个生产 adapter，Search workflow tests 也直接使用真实
-`RunLogStore`；删除该 Protocol 后不会把复杂度推回多个 adapter，删除测试成立。若 command-scoped
-composition Design 进入实施，可以把该清理作为小切片并继续从 workflow public behavior 验证 association。
+`RunLogStore`；删除该 Protocol 后不会把复杂度推回多个 adapter，删除测试成立。
 
 不能把这个结论推广为“workflow 内单生产 adapter Protocol 全删”：
 
@@ -299,10 +307,8 @@ R002 发现的互斥 resolution 参数已经收敛为
 1. 已以小型 CI 改动接入 coverage gate：canonical Python 3.10 跑 `--cov`，其余 Python minor 跑 full suite。
 2. 已建立并实施 host-partial 临时 Design：search 纯 host-partial 退出 `0`，minimize 提示 merge；稳定规则归并 D001/D006。
 3. 在当前 HEAD 记录新的性能基线；只有新数据仍证明昂贵 verifier 裁剪不足时，才建立性能 Design。
-4. 建立 command-scoped composition 临时 Design；可把 `FailureLogAssociations` 清理作为非目标驱动的小切片，
-   但不得借机删除其他真实 seam。
-5. 单独接受 Ctrl+C 产品语义；若与 composition 同时接受，可共享 Plan 和 bootstrap implementation，验收仍
-   分列。
+4. 已建立并实施 command-scoped composition 临时 Design：唯一 `cli.py` root 按命令装配；`FailureLogAssociations` 已删除。稳定规则归并 D002。
+5. 已单独接受并实施 Ctrl+C 退出 `130`；与 composition 共享 Plan 与 bootstrap，验收分列。稳定规则归并 D001/D006/D007。
 6. 为报告路径 ownership 选择明确 value flow；若跨 ProjectPlan/command result/Presenter interface，先建立
    D002 Design，不以 helper-only patch 假装完成。
 7. 报告预检、非 TTY activity、ResultCardEmitter、targeted runtime floor 与资格矩阵继续按各自触发条件推进，

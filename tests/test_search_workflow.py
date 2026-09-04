@@ -492,7 +492,7 @@ class TestSearchWorkflow:
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
-            associations=logs,
+            logs=logs,
         )
 
         report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
@@ -568,7 +568,7 @@ class TestSearchWorkflow:
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
-            associations=logs,
+            logs=logs,
         )
 
         report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
@@ -634,7 +634,7 @@ class TestSearchWorkflow:
             reports=ReportStore(),
             report_builder=PackageReportBuilder(),
             events=Events(),
-            associations=logs,
+            logs=logs,
         )
 
         report = workflow.run(SearchRequest(root=tmp_path.as_posix()))

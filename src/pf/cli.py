@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import re
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Protocol, TypeVar, cast
 
 from cyclopts import App, Group, Parameter
 from cyclopts.exceptions import CycloptsError, MissingArgumentError
@@ -23,7 +23,7 @@ from pf.config import parse_max_duration, parse_scheduling_limit
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
-from pf.errors import ConfigurationError, InvocationError, PfError
+from pf.errors import ConfigurationError, ExitCode, InvocationError, PfError
 from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
 from pf.project import ProjectLoader, host_target
 from pf.project_discovery import ProjectDiscovery
@@ -89,18 +89,40 @@ class ApplyWorkflow(Protocol):
     def run(self, request: ApplyRequest) -> ApplyCommandResult: ...
 
 
+T = TypeVar("T")
+
+
+def _assembled(value: T | None) -> T:
+    return cast(T, value)
+
+
 @dataclass
 class CliContext:
-    check_workflow: CheckWorkflow
-    smoke_workflow: SmokeWorkflow
-    search_workflow: SearchWorkflow
-    explain_workflow: ExplainWorkflow
-    diagnose_workflow: DiagnoseWorkflow
-    merge_workflow: MergeWorkflow
-    apply_workflow: ApplyWorkflow
     presenter: TerminalPresenter
     run_logs: RunLogStore
+    root: Path = field(default_factory=Path.cwd)
     _closed: bool = field(default=False, init=False, repr=False)
+    _discovery: ProjectDiscovery | None = field(default=None, init=False, repr=False)
+    _reports: ReportStore | None = field(default=None, init=False, repr=False)
+    _runner: SubprocessRunner | None = field(default=None, init=False, repr=False)
+    _uv: UvAdapter | None = field(default=None, init=False, repr=False)
+    _projects: ProjectLoader | None = field(default=None, init=False, repr=False)
+    _snapshots: SnapshotBuilder | None = field(default=None, init=False, repr=False)
+    _environments: EnvironmentFactory | None = field(default=None, init=False, repr=False)
+    _static: StaticEvaluator | None = field(default=None, init=False, repr=False)
+    _full: RuntimeEvaluator | None = field(default=None, init=False, repr=False)
+    _checker: CompatibilityChecker | None = field(default=None, init=False, repr=False)
+    _highest: HighestVersionVerifier | None = field(default=None, init=False, repr=False)
+    _verification: VerificationRunner | None = field(default=None, init=False, repr=False)
+    _coordinator: SearchCoordinator | None = field(default=None, init=False, repr=False)
+    _report_builder: PackageReportBuilder | None = field(default=None, init=False, repr=False)
+    _check_workflow: CheckWorkflow | None = field(default=None, init=False, repr=False)
+    _smoke_workflow: SmokeWorkflow | None = field(default=None, init=False, repr=False)
+    _search_workflow: SearchWorkflow | None = field(default=None, init=False, repr=False)
+    _explain_workflow: ExplainWorkflow | None = field(default=None, init=False, repr=False)
+    _diagnose_workflow: DiagnoseWorkflow | None = field(default=None, init=False, repr=False)
+    _merge_workflow: MergeWorkflow | None = field(default=None, init=False, repr=False)
+    _apply_workflow: ApplyWorkflow | None = field(default=None, init=False, repr=False)
 
     def __enter__(self) -> "CliContext":
         return self
@@ -112,8 +134,220 @@ class CliContext:
         if self._closed:
             return
         self._closed = True
-        self.presenter.close()
-        self.run_logs.close()
+        try:
+            self.presenter.close()
+        except KeyboardInterrupt:
+            try:
+                self.presenter.close()
+            except KeyboardInterrupt:
+                pass
+        try:
+            self.run_logs.close()
+        except KeyboardInterrupt:
+            try:
+                self.run_logs.close()
+            except KeyboardInterrupt:
+                pass
+
+    def interrupt_processes(self) -> None:
+        runner = self._runner
+        if runner is not None:
+            runner.interrupt()
+
+    @property
+    def check_workflow(self) -> CheckWorkflow:
+        if self._check_workflow is None:
+            self._assemble_check()
+        return _assembled(self._check_workflow)
+
+    @property
+    def smoke_workflow(self) -> SmokeWorkflow:
+        if self._smoke_workflow is None:
+            self._assemble_smoke()
+        return _assembled(self._smoke_workflow)
+
+    @property
+    def search_workflow(self) -> SearchWorkflow:
+        if self._search_workflow is None:
+            self._assemble_search()
+        return _assembled(self._search_workflow)
+
+    @property
+    def explain_workflow(self) -> ExplainWorkflow:
+        if self._explain_workflow is None:
+            self._assemble_explain()
+        return _assembled(self._explain_workflow)
+
+    @property
+    def diagnose_workflow(self) -> DiagnoseWorkflow:
+        if self._diagnose_workflow is None:
+            self._assemble_diagnose()
+        return _assembled(self._diagnose_workflow)
+
+    @property
+    def merge_workflow(self) -> MergeWorkflow:
+        if self._merge_workflow is None:
+            self._assemble_merge()
+        return _assembled(self._merge_workflow)
+
+    @property
+    def apply_workflow(self) -> ApplyWorkflow:
+        if self._apply_workflow is None:
+            self._assemble_apply()
+        return _assembled(self._apply_workflow)
+
+    def _ensure_discovery(self) -> ProjectDiscovery:
+        if self._discovery is None:
+            self._discovery = ProjectDiscovery()
+        return self._discovery
+
+    def _ensure_reports(self) -> ReportStore:
+        if self._reports is None:
+            self._reports = ReportStore()
+        return self._reports
+
+    def _ensure_process_runtime(self) -> tuple[UvAdapter, SubprocessRunner]:
+        if self._uv is None or self._runner is None:
+            registry_access = RegistryAccess.from_environment(os.environ)
+            redactor = SecretRedactor(registry_access.secret_literals)
+            runner = SubprocessRunner(
+                redactor=redactor,
+                listener=self.presenter,
+                logs=self.run_logs,
+            )
+            self._runner = runner
+            self._uv = UvAdapter(
+                runner,
+                registry_access=registry_access,
+                redactor=redactor,
+            )
+        return self._uv, self._runner
+
+    def _ensure_planning(self) -> tuple[ProjectLoader, SnapshotBuilder]:
+        if self._projects is None or self._snapshots is None:
+            uv, runner = self._ensure_process_runtime()
+            self._projects = ProjectLoader(
+                pythons=uv,
+                discovery=self._ensure_discovery(),
+            )
+            self._snapshots = SnapshotBuilder(runner)
+        return self._projects, self._snapshots
+
+    def _ensure_evaluation(self) -> None:
+        if self._verification is not None:
+            return
+        uv, runner = self._ensure_process_runtime()
+        environments = EnvironmentFactory(uv, events=self.presenter)
+        permits = StagePermitPools()
+        static = StaticEvaluator(
+            TyAdapter(runner),
+            events=self.presenter,
+            permits=permits,
+        )
+        full = RuntimeEvaluator(
+            static=static,
+            verifier=ConfiguredVerifier(runner),
+            witnesses=RuntimeWitnessAdapter(runner),
+            events=self.presenter,
+            permits=permits,
+        )
+        self._environments = environments
+        self._static = static
+        self._full = full
+        self._checker = CompatibilityChecker(
+            environments=environments,
+            static=static,
+            full=full,
+            events=self.presenter,
+        )
+        self._highest = HighestVersionVerifier(
+            environments=environments,
+            static=static,
+            full=full,
+        )
+        self._verification = VerificationRunner(
+            events=self.presenter,
+            logs=self.run_logs,
+            host_target=host_target(),
+            permits=permits,
+        )
+
+    def _assemble_explain(self) -> None:
+        self._explain_workflow = ExplainCommandWorkflow(
+            discovery=self._ensure_discovery(),
+            reports=self._ensure_reports(),
+        )
+
+    def _assemble_diagnose(self) -> None:
+        self._diagnose_workflow = DiagnoseCommandWorkflow(
+            discovery=self._ensure_discovery(),
+            reports=self._ensure_reports(),
+            logs=self.run_logs,
+        )
+
+    def _assemble_merge(self) -> None:
+        self._merge_workflow = MergeCommandWorkflow(reports=self._ensure_reports())
+
+    def _assemble_apply(self) -> None:
+        projects, snapshots = self._ensure_planning()
+        self._apply_workflow = ApplyCommandWorkflow(
+            projects=projects,
+            snapshots=snapshots,
+            reports=self._ensure_reports(),
+            authorizer=ApplyAuthorizer(),
+            editor=ProjectEditor(snapshots=snapshots),
+            events=self.presenter,
+        )
+
+    def _assemble_check(self) -> None:
+        self._ensure_evaluation()
+        projects, snapshots = self._ensure_planning()
+        self._check_workflow = CheckCommandWorkflow(
+            projects=projects,
+            snapshots=snapshots,
+            checker=_assembled(self._checker),
+            verification=_assembled(self._verification),
+            events=self.presenter,
+        )
+
+    def _assemble_smoke(self) -> None:
+        self._ensure_evaluation()
+        projects, snapshots = self._ensure_planning()
+        self._smoke_workflow = SmokeCommandWorkflow(
+            projects=projects,
+            snapshots=snapshots,
+            verifier=_assembled(self._highest),
+            verification=_assembled(self._verification),
+            events=self.presenter,
+        )
+
+    def _assemble_search(self) -> None:
+        self._ensure_evaluation()
+        projects, snapshots = self._ensure_planning()
+        uv, _runner = self._ensure_process_runtime()
+        if self._coordinator is None:
+            self._coordinator = SearchCoordinator(
+                environments=_assembled(self._environments),
+                candidates=CandidateBuilder(uv),
+                static=_assembled(self._static),
+                full=_assembled(self._full),
+                highest=_assembled(self._highest),
+                coordinate_search=CoordinateSearch(),
+                diagnostics=self.presenter,
+                events=self.presenter,
+            )
+        if self._report_builder is None:
+            self._report_builder = PackageReportBuilder()
+        self._search_workflow = SearchCommandWorkflow(
+            projects=projects,
+            snapshots=snapshots,
+            coordinator=self._coordinator,
+            verification=_assembled(self._verification),
+            reports=self._ensure_reports(),
+            report_builder=self._report_builder,
+            events=self.presenter,
+            logs=self.run_logs,
+        )
 
 
 _PACKAGE_HELP = (
@@ -214,7 +448,7 @@ def _invocation_error(error: CycloptsError) -> str:
 
 
 def create_app(context: CliContext) -> App:
-    """Create a Cyclopts app around already assembled application modules."""
+    """Create a Cyclopts app; handlers assemble the current command graph."""
     app = App(
         name="pf",
         help="Find verified lower bounds for direct Python dependencies.",
@@ -407,7 +641,7 @@ def build_context() -> CliContext:
     presenter: TerminalPresenter | None = None
     try:
         presenter = TerminalPresenter(logs=logs, root=root)
-        return _assemble_context(root=root, logs=logs, presenter=presenter)
+        return CliContext(presenter=presenter, run_logs=logs, root=root)
     except BaseException:
         if presenter is not None:
             presenter.close(abandon_pending=True)
@@ -415,113 +649,29 @@ def build_context() -> CliContext:
         raise
 
 
-def _assemble_context(
-    *,
-    root: Path,
-    logs: RunLogStore,
-    presenter: TerminalPresenter,
-) -> CliContext:
-    registry_access = RegistryAccess.from_environment(os.environ)
-    redactor = SecretRedactor(registry_access.secret_literals)
-    runner = SubprocessRunner(redactor=redactor, listener=presenter, logs=logs)
-    uv = UvAdapter(
-        runner,
-        registry_access=registry_access,
-        redactor=redactor,
-    )
-    environments = EnvironmentFactory(uv, events=presenter)
-    permits = StagePermitPools()
-    static = StaticEvaluator(TyAdapter(runner), events=presenter, permits=permits)
-    full = RuntimeEvaluator(
-        static=static,
-        verifier=ConfiguredVerifier(runner),
-        witnesses=RuntimeWitnessAdapter(runner),
-        events=presenter,
-        permits=permits,
-    )
-    checker = CompatibilityChecker(
-        environments=environments,
-        static=static,
-        full=full,
-        events=presenter,
-    )
-    highest = HighestVersionVerifier(
-        environments=environments,
-        static=static,
-        full=full,
-    )
-    discovery = ProjectDiscovery()
-    projects = ProjectLoader(pythons=uv, discovery=discovery)
-    snapshots = SnapshotBuilder(runner)
-    reports = ReportStore()
-    verification = VerificationRunner(
-        events=presenter,
-        logs=logs,
-        host_target=host_target(),
-        permits=permits,
-    )
-    return CliContext(
-        check_workflow=CheckCommandWorkflow(
-            projects=projects,
-            snapshots=snapshots,
-            checker=checker,
-            verification=verification,
-            events=presenter,
-        ),
-        presenter=presenter,
-        smoke_workflow=SmokeCommandWorkflow(
-            projects=projects,
-            snapshots=snapshots,
-            verifier=highest,
-            verification=verification,
-            events=presenter,
-        ),
-        search_workflow=SearchCommandWorkflow(
-            projects=projects,
-            snapshots=snapshots,
-            coordinator=SearchCoordinator(
-                environments=environments,
-                candidates=CandidateBuilder(uv),
-                static=static,
-                full=full,
-                highest=highest,
-                coordinate_search=CoordinateSearch(),
-                diagnostics=presenter,
-                events=presenter,
-            ),
-            verification=verification,
-            reports=reports,
-            report_builder=PackageReportBuilder(),
-            events=presenter,
-            associations=logs,
-        ),
-        explain_workflow=ExplainCommandWorkflow(
-            discovery=discovery,
-            reports=reports,
-        ),
-        diagnose_workflow=DiagnoseCommandWorkflow(
-            discovery=discovery,
-            reports=reports,
-            logs=logs,
-        ),
-        merge_workflow=MergeCommandWorkflow(reports=reports),
-        apply_workflow=ApplyCommandWorkflow(
-            projects=projects,
-            snapshots=snapshots,
-            reports=reports,
-            authorizer=ApplyAuthorizer(),
-            editor=ProjectEditor(snapshots=snapshots),
-            events=presenter,
-        ),
-        run_logs=logs,
-    )
-
-
 def main() -> None:
-    with build_context() as context:
+    try:
+        context = build_context()
+    except KeyboardInterrupt:
+        raise SystemExit(int(ExitCode.INTERRUPTED)) from None
+    try:
         try:
             create_app(context)()
         except PfError as error:
             raise SystemExit(context.presenter.render_error(error)) from error
+        except KeyboardInterrupt:
+            context.interrupt_processes()
+            try:
+                raise SystemExit(context.presenter.render_interrupt()) from None
+            except KeyboardInterrupt:
+                raise SystemExit(int(ExitCode.INTERRUPTED)) from None
         except CycloptsError:
             raise SystemExit(1)
+    finally:
+        try:
+            context.close()
+        except KeyboardInterrupt:
+            try:
+                context.close()
+            except KeyboardInterrupt:
+                pass

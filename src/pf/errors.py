@@ -9,6 +9,7 @@ class ExitCode(IntEnum):
     NO_APPLICABLE_FLOOR = 2
     INVALID_INPUT = 3
     INDETERMINATE = 4
+    INTERRUPTED = 130
 
 
 class PfError(Exception):

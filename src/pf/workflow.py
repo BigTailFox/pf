@@ -26,7 +26,6 @@ from pf.schemas.evaluation import (
     HighestVersionOutcome,
     HighestVersionPass,
     PassEvaluation,
-    ProcessObservation,
     SmokeIndeterminate,
     SmokeBaselineRejection,
     SmokePass,
@@ -58,6 +57,7 @@ from pf.schemas.report import (
 )
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
+from pf.runlog import RunLogStore
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.verification import (
@@ -241,17 +241,6 @@ class SmokeCommandWorkflow:
         self._events.consume(event)
 
 
-class FailureLogAssociations(Protocol):
-    def replace_associations(
-        self,
-        report_generation_id: str,
-        failures: tuple[tuple[str, ProcessObservation | None], ...],
-        *,
-        replace_generation: bool = True,
-        remove_failure_ids: tuple[str, ...] = (),
-    ) -> None: ...
-
-
 class SearchCommandWorkflow:
     """Own load, snapshot, bounded cell scheduling, and report persistence."""
 
@@ -265,7 +254,7 @@ class SearchCommandWorkflow:
         reports: ReportStore,
         report_builder: PackageReportBuilder,
         events: ActivityConsumer,
-        associations: FailureLogAssociations | None = None,
+        logs: RunLogStore | None = None,
     ) -> None:
         self._projects = projects
         self._snapshots = snapshots
@@ -274,7 +263,7 @@ class SearchCommandWorkflow:
         self._reports = reports
         self._report_builder = report_builder
         self._events = events
-        self._associations = associations
+        self._logs = logs
 
     def run(self, request: SearchRequest) -> ValidatedReport:
         root = Path(request.root)
@@ -321,7 +310,7 @@ class SearchCommandWorkflow:
             )
             update = self._reports.update_path(report_path, report)
             report = update.report
-            if self._associations is not None:
+            if self._logs is not None:
                 runtime_processes = {
                     item.failure_id: item.process_observation
                     for result in results
@@ -335,7 +324,7 @@ class SearchCommandWorkflow:
                     for result in results
                     for failure in failure_records_for_result(result)
                 )
-                self._associations.replace_associations(
+                self._logs.replace_associations(
                     report.report_generation_id,
                     current_failures,
                     replace_generation=update.replace_generation,

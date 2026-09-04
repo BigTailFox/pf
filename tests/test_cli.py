@@ -25,8 +25,14 @@ from pf.cli import (
     SmokeWorkflow as SmokeWorkflowProtocol,
     build_context,
     create_app,
+    main,
 )
-from pf.errors import ApplyAuthorizationError, NoApplicableFloorError, PfError
+from pf.errors import (
+    ApplyAuthorizationError,
+    ConfigurationError,
+    NoApplicableFloorError,
+    PfError,
+)
 from pf.report import PackageReportBuilder, ValidatedReport
 from pf.runlog import RunLogStore
 from pf.schemas.config import (
@@ -111,35 +117,34 @@ def make_context(
     apply_workflow: ApplyWorkflowProtocol | None = None,
     run_logs: RunLogStore | None = None,
 ) -> CliContext:
-    return CliContext(
-        check_workflow=(
-            check_workflow if check_workflow is not None else NeverCalledWorkflow()
-        ),
-        smoke_workflow=(
-            smoke_workflow if smoke_workflow is not None else NeverCalledWorkflow()
-        ),
-        search_workflow=(
-            search_workflow if search_workflow is not None else NeverCalledWorkflow()
-        ),
-        explain_workflow=(
-            explain_workflow if explain_workflow is not None else NeverCalledWorkflow()
-        ),
-        diagnose_workflow=(
-            diagnose_workflow
-            if diagnose_workflow is not None
-            else NeverCalledWorkflow()
-        ),
-        merge_workflow=(
-            merge_workflow if merge_workflow is not None else NeverCalledWorkflow()
-        ),
-        apply_workflow=(
-            apply_workflow if apply_workflow is not None else NeverCalledWorkflow()
-        ),
+    context = CliContext(
         presenter=presenter,
         run_logs=(
             run_logs if run_logs is not None else cast(RunLogStore, NoOpRunLogs())
         ),
     )
+    context._check_workflow = (
+        check_workflow if check_workflow is not None else NeverCalledWorkflow()
+    )
+    context._smoke_workflow = (
+        smoke_workflow if smoke_workflow is not None else NeverCalledWorkflow()
+    )
+    context._search_workflow = (
+        search_workflow if search_workflow is not None else NeverCalledWorkflow()
+    )
+    context._explain_workflow = (
+        explain_workflow if explain_workflow is not None else NeverCalledWorkflow()
+    )
+    context._diagnose_workflow = (
+        diagnose_workflow if diagnose_workflow is not None else NeverCalledWorkflow()
+    )
+    context._merge_workflow = (
+        merge_workflow if merge_workflow is not None else NeverCalledWorkflow()
+    )
+    context._apply_workflow = (
+        apply_workflow if apply_workflow is not None else NeverCalledWorkflow()
+    )
+    return context
 
 
 def minimal_report() -> ValidatedReport:
@@ -1072,19 +1077,20 @@ class TestCommandDispatch:
             "⚠  Applied floors with source-drift override · project updated" in rendered
         )
 
-    def test_cli_context_requires_the_complete_object_graph(self) -> None:
-        with pytest.raises(TypeError):
-            CliContext(  # ty: ignore[missing-argument]
-                check_workflow=NeverCheck(),
-                presenter=TerminalPresenter(
-                    stdout=Console(
-                        file=StringIO(), force_terminal=False, color_system=None
-                    ),
-                    stderr=Console(
-                        file=StringIO(), force_terminal=False, color_system=None
-                    ),
-                ),
-            )
+    def test_cli_context_bootstraps_without_command_workflows(self) -> None:
+        presenter = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=False, color_system=None),
+            stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
+        )
+        context = CliContext(
+            presenter=presenter,
+            run_logs=cast(RunLogStore, NoOpRunLogs()),
+        )
+
+        assert context._check_workflow is None
+        assert context._search_workflow is None
+        assert context._apply_workflow is None
+        context.close()
 
     def test_cli_context_closes_presenter_then_logs_once(self) -> None:
         events: list[str] = []
@@ -1099,16 +1105,10 @@ class TestCommandDispatch:
 
         never = NeverCalledWorkflow()
         context = CliContext(
-            check_workflow=never,
-            smoke_workflow=never,
-            search_workflow=never,
-            explain_workflow=never,
-            diagnose_workflow=never,
-            merge_workflow=never,
-            apply_workflow=never,
             presenter=cast(TerminalPresenter, Presenter()),
             run_logs=cast(RunLogStore, Logs()),
         )
+        context._check_workflow = never
 
         with context:
             pass
@@ -1408,7 +1408,7 @@ class TestMinimizeCommandCompleteReport:
 
 
 class TestDefaultContext:
-    def test_default_context_detects_runner_host_once(
+    def test_default_context_does_not_detect_host_until_verification_graph(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1422,23 +1422,262 @@ class TestDefaultContext:
         monkeypatch.setattr("pf.cli.host_target", detect_host)
 
         context = build_context()
-
+        assert calls == 0
+        context.explain_workflow
+        context.merge_workflow
+        context.apply_workflow
+        assert calls == 0
+        context.search_workflow
+        assert calls == 1
+        context.smoke_workflow
+        context.check_workflow
         assert calls == 1
         context.close()
 
-    def test_default_context_assembles_every_v1_workflow(self) -> None:
+    def test_search_assembly_surfaces_host_target_configuration_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "pf.cli.host_target",
+            lambda: (_ for _ in ()).throw(
+                ConfigurationError("unsupported host platform: plan9")
+            ),
+        )
         context = build_context()
+        try:
+            with pytest.raises(ConfigurationError, match="plan9"):
+                context.search_workflow
+        finally:
+            context.close()
 
-        assert context.check_workflow is not None
-        assert context.smoke_workflow is not None
-        assert context.search_workflow is not None
-        assert context.apply_workflow is not None
-        assert context.explain_workflow is not None
-        assert context.diagnose_workflow is not None
-        assert context.merge_workflow is not None
+    def test_help_and_version_do_not_construct_online_capabilities(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def boom(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("online capability must not be constructed")
+
+        monkeypatch.setattr("pf.cli.UvAdapter", boom)
+        monkeypatch.setattr("pf.cli.host_target", boom)
+        monkeypatch.setattr("pf.cli.SearchCoordinator", boom)
+        monkeypatch.setattr("pf.cli.StaticEvaluator", boom)
+
+        context = build_context()
+        app = create_app(context)
+        try:
+            for tokens in (["--help"], ["--version"]):
+                exit_code = app(
+                    tokens,
+                    exit_on_error=False,
+                    result_action="return_value",
+                )
+                assert int(exit_code or 0) == 0
+        finally:
+            context.close()
+
+    def test_explain_does_not_construct_uv_or_evaluation_graph(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def boom(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("online capability must not be constructed")
+
+        monkeypatch.setattr("pf.cli.UvAdapter", boom)
+        monkeypatch.setattr("pf.cli.host_target", boom)
+        monkeypatch.setattr("pf.cli.SearchCoordinator", boom)
+        monkeypatch.setattr("pf.cli.StaticEvaluator", boom)
+
+        context = build_context()
+        context.explain_workflow
+        context.diagnose_workflow
+        context.merge_workflow
         context.close()
 
-    def test_build_context_cleans_created_resources_when_assembly_fails(
+    def test_apply_does_not_construct_evaluators_or_search(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def boom(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("evaluation graph must not be constructed")
+
+        monkeypatch.setattr("pf.cli.host_target", boom)
+        monkeypatch.setattr("pf.cli.SearchCoordinator", boom)
+        monkeypatch.setattr("pf.cli.StaticEvaluator", boom)
+        monkeypatch.setattr("pf.cli.RuntimeEvaluator", boom)
+
+        context = build_context()
+        context.apply_workflow
+        context.close()
+
+    def test_composition_configuration_error_uses_typed_error_surface(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def raise_during_command(context: CliContext) -> object:
+            def run() -> None:
+                raise ConfigurationError("unsupported host platform: plan9")
+
+            return run
+
+        monkeypatch.setattr("pf.cli.create_app", raise_during_command)
+
+        with pytest.raises(SystemExit) as caught:
+            main()
+
+        captured = capsys.readouterr()
+        assert caught.value.code == 3
+        assert "configuration:" in captured.err
+        assert "unsupported host platform: plan9" in captured.err
+        assert "Traceback" not in captured.err
+        assert "Traceback" not in captured.out
+
+    def test_main_maps_keyboard_interrupt_to_exit_130(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def interrupt_app(context: CliContext) -> object:
+            def run() -> None:
+                context.presenter.bind_command("search")
+                raise KeyboardInterrupt
+
+            return run
+
+        monkeypatch.setattr("pf.cli.create_app", interrupt_app)
+
+        with pytest.raises(SystemExit) as caught:
+            main()
+
+        captured = capsys.readouterr()
+        assert caught.value.code == 130
+        assert "Interrupted" in captured.err
+        assert captured.err.count("Interrupted") == 1
+        assert "Traceback" not in captured.err
+        assert "Traceback" not in captured.out
+
+    def test_main_maps_bootstrap_interrupt_to_exit_130(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "pf.cli.build_context",
+            lambda: (_ for _ in ()).throw(KeyboardInterrupt()),
+        )
+
+        with pytest.raises(SystemExit) as caught:
+            main()
+
+        assert caught.value.code == 130
+
+    def test_main_swallows_nested_interrupt_while_rendering(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def interrupt_app(context: CliContext) -> object:
+            def run() -> None:
+                raise KeyboardInterrupt
+
+            def boom() -> int:
+                raise KeyboardInterrupt
+
+            context.presenter.render_interrupt = boom  # type: ignore[method-assign]
+            return run
+
+        monkeypatch.setattr("pf.cli.create_app", interrupt_app)
+
+        with pytest.raises(SystemExit) as caught:
+            main()
+
+        captured = capsys.readouterr()
+        assert caught.value.code == 130
+        assert "Traceback" not in captured.err
+
+    def test_close_completes_after_nested_keyboard_interrupt(self) -> None:
+        events: list[str] = []
+
+        class Resource:
+            def __init__(self, name: str) -> None:
+                self.name = name
+                self.calls = 0
+
+            def close(self, *_args: object, **_kwargs: object) -> None:
+                self.calls += 1
+                events.append(f"{self.name}:{self.calls}")
+                if self.calls == 1:
+                    raise KeyboardInterrupt
+
+        context = CliContext(
+            presenter=cast(TerminalPresenter, Resource("presenter")),
+            run_logs=cast(RunLogStore, Resource("logs")),
+        )
+        context.close()
+        context.close()
+
+        assert events == ["presenter:1", "presenter:2", "logs:1", "logs:2"]
+
+    def test_assembled_search_interrupt_stops_runner_without_children(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        context = build_context()
+        context.search_workflow
+        context.interrupt_processes()
+        context.close()
+
+    def test_build_context_cleans_created_resources_when_presenter_fails(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[str] = []
+
+        class Logs:
+            def __init__(self, *, root: Path) -> None:
+                return
+
+            def close(self) -> None:
+                events.append("logs")
+
+        class Presenter:
+            def __init__(self, *, logs: object, root: Path) -> None:
+                raise RuntimeError("presenter failed")
+
+            def close(self, *, abandon_pending: bool = False) -> None:
+                events.append(f"presenter:{abandon_pending}")
+
+        monkeypatch.setattr("pf.cli.RunLogStore", Logs)
+        monkeypatch.setattr("pf.cli.TerminalPresenter", Presenter)
+
+        with pytest.raises(RuntimeError, match="presenter failed"):
+            build_context()
+
+        assert events == ["logs"]
+
+    def test_build_context_closes_presenter_when_context_construction_fails(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1461,11 +1700,11 @@ class TestDefaultContext:
         monkeypatch.setattr("pf.cli.RunLogStore", Logs)
         monkeypatch.setattr("pf.cli.TerminalPresenter", Presenter)
         monkeypatch.setattr(
-            "pf.cli.RegistryAccess.from_environment",
-            lambda environment: (_ for _ in ()).throw(RuntimeError("assembly failed")),
+            "pf.cli.CliContext",
+            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("context failed")),
         )
 
-        with pytest.raises(RuntimeError, match="assembly failed"):
+        with pytest.raises(RuntimeError, match="context failed"):
             build_context()
 
         assert events == ["presenter:True", "logs"]

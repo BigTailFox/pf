@@ -16,6 +16,7 @@ from rich.theme import Theme
 from pf.errors import (
     ConfigurationError,
     DiagnoseNotFoundError,
+    ExitCode,
     ExplainReportError,
     InvocationError,
     MergeCompatibilityError,
@@ -709,6 +710,7 @@ class TerminalPresenter:
             self._root = Path.cwd() / self._root
         self._emitted_cell_keys: set[tuple[str, str, str, tuple[str, ...]]] = set()
         self._command: str | None = None
+        self._final_emitted = False
         self._live = LiveVerificationView(
             stderr=self.stderr,
             render_cell=self._cell_report_renderables,
@@ -720,6 +722,7 @@ class TerminalPresenter:
         self._live.bind_command(command)
 
     def render_error(self, error: PfError) -> int:
+        self._final_emitted = True
         if isinstance(error, InvocationError):
             return self._render_invocation(error)
         self._live.close(abandon_pending=True, final_outcome="failure")
@@ -1235,6 +1238,12 @@ class TerminalPresenter:
             technical_code=f"{failure.disposition}/{failure.cause}",
         )
 
+    def render_interrupt(self) -> int:
+        if not self._final_emitted:
+            self._live.close(abandon_pending=True, final_outcome="warning")
+            self._print_outcome("warning", "Interrupted")
+        return int(ExitCode.INTERRUPTED)
+
     def _print_outcome(
         self,
         kind: OutcomeKind,
@@ -1242,6 +1251,7 @@ class TerminalPresenter:
         *,
         console: Console | None = None,
     ) -> None:
+        self._final_emitted = True
         style = f"summary.{kind}"
         (console or self.stderr).print(
             marker_group(

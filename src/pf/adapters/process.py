@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import BinaryIO, Protocol
 
@@ -283,8 +284,22 @@ class SubprocessRunner:
         self._terminate_grace_seconds = terminate_grace_seconds
         self._outputs: dict[int, ProcessOutput] = {}
         self._output_full: dict[int, tuple[bool, bool]] = {}
+        self._lock = threading.Lock()
+        self._interrupted = False
+        self._inflight: list[tuple[subprocess.Popen[bytes], bool]] = []
+
+    def interrupt(self) -> None:
+        """Stop in-flight process groups using the timeout terminate path."""
+        with self._lock:
+            self._interrupted = True
+            processes = list(self._inflight)
+        for process, process_group in processes:
+            self._terminate(process, process_group)
 
     def run(self, spec: ProcessSpec) -> ProcessObservation:
+        with self._lock:
+            if self._interrupted:
+                raise KeyboardInterrupt
         started = time.monotonic()
         process_id = next(self._process_ids)
         redactor = self._redactor.with_secrets(
@@ -340,11 +355,29 @@ class SubprocessRunner:
 
             timed_out = False
             try:
-                process.communicate(timeout=spec.timeout_seconds)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                self._terminate(process, spec.start_new_session)
-                process.communicate()
+                with self._lock:
+                    if self._interrupted:
+                        registered = False
+                    else:
+                        self._inflight.append((process, spec.start_new_session))
+                        registered = True
+                if not registered:
+                    self._terminate(process, spec.start_new_session)
+                    raise KeyboardInterrupt
+                try:
+                    process.communicate(timeout=spec.timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    self._terminate(process, spec.start_new_session)
+                    process.communicate()
+                except KeyboardInterrupt:
+                    self._terminate(process, spec.start_new_session)
+                    raise
+            finally:
+                with self._lock:
+                    self._inflight = [
+                        item for item in self._inflight if item[0] is not process
+                    ]
 
             cache = _OutputCacheBuilder(cache_limit)
             writer = self._begin_log(process_id, spec, argv, redactor)
@@ -387,6 +420,8 @@ class SubprocessRunner:
                     duration_seconds=duration_seconds,
                 )
             )
+            if self._interrupted:
+                raise KeyboardInterrupt
             return unavailable
         exit_code = return_code if return_code >= 0 else None
         process_signal = -return_code if return_code < 0 else None
@@ -409,6 +444,8 @@ class SubprocessRunner:
                 duration_seconds=result.duration_seconds,
             )
         )
+        if self._interrupted:
+            raise KeyboardInterrupt
         return result
 
     def output(self, result: ProcessResult) -> ProcessOutput:

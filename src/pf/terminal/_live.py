@@ -142,6 +142,7 @@ class LiveVerificationView:
         self._cell_matrix_active = False
         self._run_id = run_id
         self._run_id_rendered = False
+        self._closed = False
 
     def bind_command(self, command: str) -> None:
         self._command = command
@@ -174,6 +175,9 @@ class LiveVerificationView:
         final_outcome: OutcomeKind | None = None,
     ) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             if not self._stderr.is_terminal:
                 self._print_run_id()
             if abandon_pending:

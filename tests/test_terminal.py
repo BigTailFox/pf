@@ -419,6 +419,37 @@ class TestErrorRendering:
         assert stderr.getvalue() == "✗  configuration: unknown key: surprise\n"
         assert "\x1b[" not in stderr.getvalue()
 
+    def test_render_interrupt_writes_one_stderr_final_without_traceback(self) -> None:
+        stdout = StringIO()
+        stderr = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        )
+
+        exit_code = presenter.render_interrupt()
+
+        assert exit_code == 130
+        assert stdout.getvalue() == ""
+        assert stderr.getvalue() == "⚠  Interrupted\n"
+        assert "Traceback" not in stderr.getvalue()
+        assert "\x1b[" not in stderr.getvalue()
+
+    def test_render_interrupt_does_not_emit_a_second_final(self) -> None:
+        stdout = StringIO()
+        stderr = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        )
+        presenter.render_error(ConfigurationError("already finished"))
+
+        exit_code = presenter.render_interrupt()
+
+        assert exit_code == 130
+        assert stderr.getvalue() == "✗  configuration: already finished\n"
+        assert "Interrupted" not in stderr.getvalue()
+
     def test_render_error_lists_known_package_candidates(self) -> None:
         terminal, stdout, stderr = presenter()
 
