@@ -52,6 +52,9 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
+- [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
+  新增 CI coverage 门禁、报告路径 owner 与自举 artifact 引用漂移等发现，并校准 host-partial、composition、
+  中断、搜索性能和资格候选的治理边界；R004/R006 继续保存各自详细证据。R007 是非规范性评审，不授权实施。
 - [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差、
   reason-aware incomplete 文案与jobs契约歧义已解决；它继续跟踪multi-host outcome、command-scoped composition 与中断语义，也完整接管 R004 的非 TTY
   搜索遥测和 R005 的 terminal-private result-card；它是非规范性评审，不授权实施。
