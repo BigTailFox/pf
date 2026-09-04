@@ -689,8 +689,10 @@ class EnvironmentFactory:
         for package in plan.packages:
             if package.source.kind != "registry":
                 continue
-            artifact = package.selected_artifact
-            if artifact is not None and artifact.kind in allowed:
+            if package.available_artifacts and all(
+                artifact.kind in allowed
+                for artifact in package.available_artifacts
+            ):
                 continue
             return ToolFailure(
                 cause="INTERNAL_INVARIANT",

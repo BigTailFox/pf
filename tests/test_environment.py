@@ -359,6 +359,54 @@ class TestEvaluationPolicy:
 
 
 class TestEnvironmentFactory:
+    def test_shared_artifact_policy_accepts_native_alternatives_without_selection(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class NativeArtifactUv(SuccessfulUv):
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+                assert kwargs["artifact_policy"] == "wheel"
+                artifacts = tuple(
+                    ResolutionArtifact(
+                        filename=filename,
+                        kind="wheel",
+                        locator=f"https://files.example/{filename}",
+                        content_hash=f"sha256:{digest * 64}",
+                    )
+                    for filename, digest in (
+                        ("idna-3.10-cp310-cp310-manylinux_x86_64.whl", "a"),
+                        ("idna-3.10-py3-none-any.whl", "b"),
+                    )
+                )
+                return self._plan(
+                    "project",
+                    packages=(
+                        ResolutionPackage(
+                            name="idna",
+                            version="3.10",
+                            source=SourceIdentity(kind="registry"),
+                            available_artifacts=artifacts,
+                            selected_artifact=None,
+                        ),
+                    ),
+                    kwargs=kwargs,
+                )
+
+        root = _write_demo(tmp_path)
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+
+        result = EnvironmentFactory(NativeArtifactUv()).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+            resolution=HighestResolution(),
+        )
+
+        assert isinstance(result, PreparedEnvironment)
+        result.close()
+
     @pytest.mark.parametrize(
         ("policy", "resolved_kind"),
         (("wheel", "sdist"), ("sdist", "wheel")),
