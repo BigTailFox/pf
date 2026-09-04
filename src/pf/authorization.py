@@ -33,7 +33,7 @@ from pf.schemas.project import (
     dependency_group_key,
 )
 from pf.schemas.report import CellResult, CellSuccess, FloorProjection
-from pf.snapshot import SourceSnapshot
+from pf.snapshot import SourceSnapshot, uv_project_configuration_identity
 
 
 GroupKey = tuple[str, str, str | None, str]
@@ -69,6 +69,25 @@ class ApplyAuthorizer:
             source_plan=source_plan,
             current_snapshot=current_snapshot,
         )
+        report_uv_configuration_identity = uv_project_configuration_identity(
+            report.source_snapshot,
+            package.pyproject_path,
+        )
+        report_target_pyproject = self._pyproject_identity(
+            report.source_snapshot.pyproject_identities,
+            package.pyproject_path,
+        )
+        current_uv_configuration_identity = uv_project_configuration_identity(
+            current_snapshot.identity,
+            package.pyproject_path,
+            target_dependency_arrays_digest=(
+                report_target_pyproject.dependency_arrays_digest
+            ),
+        )
+        if report_uv_configuration_identity != current_uv_configuration_identity:
+            raise ApplyAuthorizationError(
+                "uv project configuration has drifted since search"
+            )
 
         selected_paths = frozenset((package.pyproject_path,))
         changed_paths = self._source_layer_changes(
@@ -207,7 +226,7 @@ class ApplyAuthorizer:
         return AuthorizedPackageApply(
             package=report.package,
             scope=scope,
-            declared_platforms=package.config.platform,
+            declared_platforms=package.config.target.platforms or (),
             selected_selectors=selected,
             preserved_selectors=preserved,
             dependency_state=dependency_state,
@@ -270,7 +289,7 @@ class ApplyAuthorizer:
             raise NoApplicableFloorError("report declares no target cells")
         if not any(isinstance(result, CellSuccess) for result in report.cell_results):
             raise NoApplicableFloorError("report has no successful final cell")
-        declared = package.config.platform
+        declared = package.config.target.platforms
         if not declared:
             if len(target_platforms) != 1:
                 raise ApplyAuthorizationError(

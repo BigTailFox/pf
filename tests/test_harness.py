@@ -26,7 +26,7 @@ def _load_harness(
     requirements: tuple[str, ...],
     *,
     sources: str = "",
-    allow_prereleases: bool = False,
+    search_prereleases: bool = False,
     unmanaged: tuple[str, ...] = (),
 ):
     rendered = ",\n        ".join(repr(item) for item in requirements)
@@ -45,9 +45,9 @@ test = [
 {sources}
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
-allow-prereleases = {str(allow_prereleases).lower()}
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
+search-prereleases = {str(search_prereleases).lower()}
 {unmanaged_line}test-command = ["pytest"]
 """.strip()
         + "\n",
@@ -114,8 +114,8 @@ test = [{ include-group = "common" }, "pytest>=8"]
 common = ["coverage[toml]>=7; python_version >= '3.10'"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
             + "\n",
@@ -190,25 +190,29 @@ test = ["pytest>=8", "pluggy<2"]
         )
         assert requirement.original_text.startswith("PyTest[testing]")
 
-    def test_project_loader_preserves_explicit_prerelease_admission(
+    def test_project_loader_preserves_explicit_prerelease_specifier(
         self,
         tmp_path: Path,
     ) -> None:
         package = _load_harness(tmp_path, ("tool>=2.0a1",))
 
-        assert package.harness_requirements[0].prerelease_allowed is True
+        assert [
+            (clause.operator, clause.version)
+            for clause in package.harness_requirements[0].specifier
+        ] == [(">=", "2.0a1")]
 
-    def test_project_loader_preserves_configured_prerelease_admission(
+    def test_search_prerelease_policy_is_owned_by_search_configuration(
         self,
         tmp_path: Path,
     ) -> None:
         package = _load_harness(
             tmp_path,
             ("tool>=2",),
-            allow_prereleases=True,
+            search_prereleases=True,
         )
 
-        assert package.harness_requirements[0].prerelease_allowed is True
+        assert package.config.search.default.prereleases is True
+        assert package.harness_requirements[0].original_text == "tool>=2"
 
 
 class TestHarnessRelaxation:
@@ -285,8 +289,6 @@ class TestHarnessRelaxation:
 
         assert _render(package, relaxed.requirements[0]) == expected
         assert relaxed.requirements[0].ceiling == ceiling
-        if raw == "pytest===vendor":
-            assert relaxed.requirements[0].declaration.prerelease_allowed is False
 
     @pytest.mark.parametrize(
         ("source", "raw"),
@@ -344,7 +346,7 @@ class TestHarnessRelaxation:
         assert requirement.ceiling is None
         assert _render(package, requirement) == raw
 
-    def test_removing_prerelease_minimum_keeps_admission_policy(
+    def test_relaxation_replaces_a_prerelease_minimum_with_the_ceiling(
         self,
         tmp_path: Path,
     ) -> None:
@@ -356,7 +358,6 @@ class TestHarnessRelaxation:
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
-        assert relaxed.requirements[0].declaration.prerelease_allowed is True
         assert _render(package, relaxed.requirements[0]) == "tool<=8.4"
 
     def test_marker_inactive_declaration_is_not_part_of_cell_relaxation(

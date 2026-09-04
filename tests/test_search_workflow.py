@@ -254,8 +254,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -325,8 +325,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -370,8 +370,8 @@ class TestSearchWorkflow:
     test = ["pytest"]
 
     [tool.pf]
-    python = ["3.10", "3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10", "3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -396,7 +396,7 @@ class TestSearchWorkflow:
         output = workflow.run(
             SearchRequest(
                 root=tmp_path.as_posix(),
-                jobs=2,
+                max_cells=2,
                 max_duration_seconds=None,
             )
         )
@@ -422,7 +422,7 @@ class TestSearchWorkflow:
         repeated = workflow.run(
             SearchRequest(
                 root=tmp_path.as_posix(),
-                jobs=2,
+                max_cells=2,
                 max_duration_seconds=None,
             )
         )
@@ -433,7 +433,7 @@ class TestSearchWorkflow:
         refreshed = workflow.run(
             SearchRequest(
                 root=tmp_path.as_posix(),
-                jobs=2,
+                max_cells=2,
                 max_duration_seconds=None,
             )
         )
@@ -454,8 +454,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -533,8 +533,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -600,8 +600,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -661,8 +661,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -710,8 +710,8 @@ class TestSearchWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+    pythons = ["3.10"]
+    platforms = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -746,9 +746,10 @@ class TestSearchWorkflow:
         assert reports.result.status == "incomplete"
         assert "MISSING_CELL" in reports.result.reasons
 
-    def test_search_empty_host_set_writes_missing_cell_report_without_contract(
+    def test_search_empty_host_set_rejects_missing_contract_before_snapshot(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -757,8 +758,8 @@ class TestSearchWorkflow:
     version = "0.1.0"
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     """.strip()
             + "\n",
@@ -766,6 +767,13 @@ class TestSearchWorkflow:
         )
         coordinator = FailedSearch()
         events = Events()
+        monkeypatch.setattr(
+            SnapshotBuilder,
+            "build",
+            lambda *_args, **_kwargs: pytest.fail(
+                "contract admission must precede snapshot construction"
+            ),
+        )
         workflow = SearchCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
@@ -780,13 +788,8 @@ class TestSearchWorkflow:
             events=events,
         )
 
-        report = workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        with pytest.raises(ConfigurationError, match="test-command"):
+            workflow.run(SearchRequest(root=tmp_path.as_posix()))
 
         assert coordinator.cells == []
-        matrix = next(
-            event for event in events.items if isinstance(event, CellMatrixEvent)
-        )
-        assert matrix.cells == ()
-        assert report.result.status == "incomplete"
-        assert report.result.reasons == ("MISSING_CELL",)
-        assert (tmp_path / "package-floor.json").is_file()
+        assert not (tmp_path / "package-floor.json").exists()

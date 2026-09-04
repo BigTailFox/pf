@@ -70,7 +70,7 @@ def resolution_context_digest(
     run: ResolutionRunContext,
     cell: Cell,
     source_plan_identity: str,
-    prerelease_policy: str,
+    uv_project_configuration_identity: str,
 ) -> str:
     return _digest(
         b"pf:resolution-context:v1\0",
@@ -78,8 +78,8 @@ def resolution_context_digest(
             "run": run.model_dump(mode="json"),
             "cell": cell.model_dump(mode="json"),
             "source_plan_identity": source_plan_identity,
+            "uv_project_configuration_identity": uv_project_configuration_identity,
             "resolution_policy_identity": "uv-highest-normalized-input-v1",
-            "prerelease_policy": prerelease_policy,
             "yanked_policy_identity": "uv-default-v1",
         },
     )
@@ -89,10 +89,10 @@ class ResolutionContext(FrozenSchema):
     run: ResolutionRunContext
     cell: Cell
     source_plan_identity: str
+    uv_project_configuration_identity: str
     resolution_policy_identity: Literal["uv-highest-normalized-input-v1"] = (
         "uv-highest-normalized-input-v1"
     )
-    prerelease_policy: Literal["allow", "explicit"]
     yanked_policy_identity: Literal["uv-default-v1"] = "uv-default-v1"
     digest: str
 
@@ -103,19 +103,18 @@ class ResolutionContext(FrozenSchema):
         run: ResolutionRunContext,
         cell: Cell,
         source_plan_identity: str,
-        allow_prereleases: bool,
+        uv_project_configuration_identity: str,
     ) -> "ResolutionContext":
-        prerelease_policy = "allow" if allow_prereleases else "explicit"
         return cls(
             run=run,
             cell=cell,
             source_plan_identity=source_plan_identity,
-            prerelease_policy=prerelease_policy,
+            uv_project_configuration_identity=uv_project_configuration_identity,
             digest=resolution_context_digest(
                 run=run,
                 cell=cell,
                 source_plan_identity=source_plan_identity,
-                prerelease_policy=prerelease_policy,
+                uv_project_configuration_identity=uv_project_configuration_identity,
             ),
         )
 
@@ -123,11 +122,13 @@ class ResolutionContext(FrozenSchema):
     def validate_context(self) -> "ResolutionContext":
         if not self.source_plan_identity:
             raise ValueError("resolution source plan identity cannot be empty")
+        if not self.uv_project_configuration_identity:
+            raise ValueError("uv project configuration identity cannot be empty")
         expected = resolution_context_digest(
             run=self.run,
             cell=self.cell,
             source_plan_identity=self.source_plan_identity,
-            prerelease_policy=self.prerelease_policy,
+            uv_project_configuration_identity=self.uv_project_configuration_identity,
         )
         if self.digest != expected:
             raise ValueError("resolution context digest does not match its inputs")

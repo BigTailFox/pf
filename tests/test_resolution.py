@@ -48,7 +48,7 @@ def _context() -> ResolutionContext:
             extra_surface=(),
         ),
         source_plan_identity="source-plan",
-        allow_prereleases=False,
+        uv_project_configuration_identity="uv-config",
     )
 
 
@@ -117,7 +117,9 @@ class TestResolutionIdentity:
                 run=context.run,
                 cell=context.cell,
                 source_plan_identity=source_plan_identity,
-                prerelease_policy=context.prerelease_policy,
+                uv_project_configuration_identity=(
+                    context.uv_project_configuration_identity
+                ),
                 digest=digest,
             )
 
@@ -299,7 +301,7 @@ class TestResolutionIdentity:
                 release_cutoff="2026-08-23T01:02:03+00:00",
             )
 
-    def test_context_covers_run_cell_source_and_candidate_policy(self) -> None:
+    def test_context_covers_run_cell_source_and_uv_project_configuration(self) -> None:
         context = _context()
 
         changed_cutoff = ResolutionContext.from_inputs(
@@ -308,17 +310,19 @@ class TestResolutionIdentity:
             ),
             cell=context.cell,
             source_plan_identity=context.source_plan_identity,
-            allow_prereleases=False,
+            uv_project_configuration_identity=(
+                context.uv_project_configuration_identity
+            ),
         )
-        prereleases = ResolutionContext.from_inputs(
+        changed_uv_config = ResolutionContext.from_inputs(
             run=context.run,
             cell=context.cell,
             source_plan_identity=context.source_plan_identity,
-            allow_prereleases=True,
+            uv_project_configuration_identity="changed-uv-config",
         )
 
         assert context.digest != changed_cutoff.digest
-        assert context.digest != prereleases.digest
+        assert context.digest != changed_uv_config.digest
 
     def test_plan_identity_uses_normalized_and_native_evidence(self) -> None:
         native = NativeResolutionPlan.from_content(

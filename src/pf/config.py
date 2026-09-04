@@ -1,49 +1,76 @@
 from __future__ import annotations
 
+import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from packaging.requirements import InvalidRequirement, Requirement
-from packaging.utils import canonicalize_name
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import InvalidName, canonicalize_name
 from pydantic import ValidationError
 
 from pf.errors import ConfigurationError
 from pf.project_discovery import PyprojectObservation
-from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import (
+    AllSearchableDependencies,
+    DependencySearchPolicy,
+    EffectiveConfig,
+    ExtraConfig,
+    ManagedDependencies,
+    ResolutionConfig,
+    RunLimits,
+    SchedulingLimit,
+    SchedulingConfig,
+    SearchConfig,
+    SearchPolicy,
+    TargetConfig,
+    TestConfig,
+    TyConfig,
+    UnmanagedDependencies,
+)
 
 
-_PACKAGE_FIELDS = frozenset(
+_FIELDS = frozenset(
     {
-        "python",
-        "platform",
-        "extras",
-        "extra-surfaces",
-        "release-granularity",
-        "search-space",
-        "distribution",
-        "allow-prereleases",
+        "pythons",
+        "platforms",
         "managed-deps",
         "unmanaged-deps",
+        "extra-policy",
+        "extra-surfaces",
+        "max-cells",
+        "search-space",
+        "search-step",
+        "search-prereleases",
+        "resolve-artifact",
+        "resolve-timeout",
         "ty-args",
+        "ty-timeout",
+        "ty-jobs",
         "test-group",
         "test-command",
-        "command-cwd",
-        "jobs",
-        "resolve-timeout",
-        "ty-timeout",
+        "test-cwd",
         "test-timeout",
+        "test-jobs",
+        "dep",
     }
 )
-_ROOT_FIELDS = _PACKAGE_FIELDS | {"package"}
-_OVERRIDE_FIELDS = _PACKAGE_FIELDS
+_DEP_FIELDS = frozenset(
+    {"name", "search-space", "search-step", "search-prereleases"}
+)
+_GLOBAL_SPACES = frozenset({"all", "current-major", "current-minor"})
+_SEARCH_STEPS = frozenset({"major", "minor", "patch"})
 
 
-def parse_jobs(value: str) -> Literal["auto"] | int:
+def parse_scheduling_limit(
+    value: str,
+    *,
+    field: str,
+) -> Literal["auto"] | int:
     if value == "auto":
         return "auto"
     if re.fullmatch(r"[1-9][0-9]*", value) is None:
-        raise ConfigurationError("jobs must be 'auto' or a positive integer")
+        raise ConfigurationError(f"{field} must be 'auto' or a positive integer")
     return int(value)
 
 
@@ -55,8 +82,40 @@ def parse_max_duration(value: str | None) -> int | None:
     return parsed
 
 
+def resolve_run_limits(
+    scheduling: SchedulingConfig,
+    *,
+    max_cells: SchedulingLimit | None = None,
+    ty_jobs: SchedulingLimit | None = None,
+    test_jobs: SchedulingLimit | None = None,
+    max_duration_seconds: float | None = None,
+    logical_cpus: int | None = None,
+) -> RunLimits:
+    """Resolve persistent and invocation-local scheduling policy once per run."""
+
+    cpu_count = max(1, logical_cpus if logical_cpus is not None else (os.cpu_count() or 1))
+    selected_max_cells = scheduling.max_cells if max_cells is None else max_cells
+    resolved_max_cells = (
+        cpu_count if selected_max_cells == "auto" else selected_max_cells
+    )
+
+    def stage_limit(
+        override: SchedulingLimit | None,
+        persistent: SchedulingLimit,
+    ) -> int:
+        selected = persistent if override is None else override
+        return resolved_max_cells if selected == "auto" else selected
+
+    return RunLimits(
+        max_cells=resolved_max_cells,
+        ty_jobs=stage_limit(ty_jobs, scheduling.ty_jobs),
+        test_jobs=stage_limit(test_jobs, scheduling.test_jobs),
+        max_duration_seconds=max_duration_seconds,
+    )
+
+
 class ConfigLoader:
-    """Merge PF configuration layers into one immutable effective config."""
+    """Own raw PF validation and the root-to-member effective configuration."""
 
     def load(
         self,
@@ -64,133 +123,338 @@ class ConfigLoader:
         root_observation: PyprojectObservation,
         target_observation: PyprojectObservation,
     ) -> EffectiveConfig:
-        root_document = root_observation.document
-        package_document = target_observation.document
-        package_name = canonicalize_name(package_document["project"]["name"])
-
-        root_tool = root_document.get("tool", {})
-        root_config = (
-            root_tool.get("pf", {}) if isinstance(root_tool, Mapping) else {}
+        root = self._config_layer(
+            root_observation.document,
+            location="[tool.pf]",
         )
-        for field in ("packages", "exclude-packages"):
-            if field in root_config:
-                raise ConfigurationError(
-                    f"[tool.pf].{field} is no longer supported; "
-                    "select one target with --package PACKAGE"
-                )
-        self._validate_layer(root_config, location="[tool.pf]", allowed=_ROOT_FIELDS)
-        package_overrides = root_config.get("package", {})
-        if not isinstance(package_overrides, Mapping):
-            raise ConfigurationError("tool.pf.package metadata must be a table")
-        matching_override: Mapping[str, Any] = {}
-        for name, patch in package_overrides.items():
-            if isinstance(patch, Mapping) and "path" in patch:
-                raise ConfigurationError(
-                    f"[tool.pf.package.{name}].path is no longer supported; "
-                    "workspace discovery owns package paths and --package selects the target"
-                )
-            self._validate_layer(
-                patch,
-                location=f"[tool.pf.package.{name}]",
-                allowed=_OVERRIDE_FIELDS,
-            )
-            if canonicalize_name(name) == package_name:
-                matching_override = patch
-
-        package_tool = package_document.get("tool", {})
-        package_config = (
-            package_tool.get("pf", {}) if isinstance(package_tool, Mapping) else {}
-        )
+        layers = [root]
         if target_observation.path != root_observation.path:
-            self._validate_layer(
-                package_config,
-                location="package [tool.pf]",
-                allowed=_PACKAGE_FIELDS,
+            layers.append(
+                self._config_layer(
+                    target_observation.document,
+                    location="package [tool.pf]",
+                )
             )
+
         merged: dict[str, Any] = {}
-        for layer in (root_config, matching_override, package_config):
-            for key in _PACKAGE_FIELDS:
-                if key in layer:
-                    merged[key] = layer[key]
+        for layer in layers:
+            if "managed-deps" in layer or "unmanaged-deps" in layer:
+                merged.pop("managed-deps", None)
+                merged.pop("unmanaged-deps", None)
+            merged.update(layer)
 
-        if "managed-deps" in merged and "unmanaged-deps" in merged:
-            raise ConfigurationError(
-                "managed-deps and unmanaged-deps are mutually exclusive"
+        default_space = merged.get("search-space", "all")
+        default_step = merged.get("search-step", "minor")
+        self._validate_search_combination(default_space, default_step)
+        default_policy = SearchPolicy(
+            space=default_space,
+            step=default_step,
+            prereleases=merged.get("search-prereleases", False),
+        )
+
+        overrides: list[DependencySearchPolicy] = []
+        for raw in merged.get("dep", ()):
+            space = (
+                self._dependency_space(raw["search-space"])
+                if "search-space" in raw
+                else default_policy.space
             )
-        if "extras" in merged and "extra-surfaces" in merged:
-            raise ConfigurationError("extras and extra-surfaces are mutually exclusive")
-        scalar_space = merged.get("search-space", "all")
-        granularity = merged.get("release-granularity", "minor")
-        if scalar_space == "current-major" and granularity == "major":
-            raise ConfigurationError(
-                "current-major search-space requires minor or patch granularity"
-            )
-        if scalar_space == "current-minor" and granularity != "patch":
-            raise ConfigurationError(
-                "current-minor search-space requires patch granularity"
+            step = raw.get("search-step", default_policy.step)
+            self._validate_search_combination(space, step)
+            overrides.append(
+                DependencySearchPolicy(
+                    name=self._canonical_name(raw["name"], field="dep name"),
+                    space=space,
+                    step=step,
+                    prereleases=raw.get(
+                        "search-prereleases",
+                        default_policy.prereleases,
+                    ),
+                )
             )
 
-        test_command = tuple(merged.get("test-command", ()))
-        if test_command[:2] == ("uv", "run"):
+        test_command = (
+            tuple(merged["test-command"]) if "test-command" in merged else None
+        )
+        if test_command is not None and test_command[:2] == ("uv", "run"):
             raise ConfigurationError("test-command cannot start with 'uv run'")
+        overrides.sort(key=lambda item: item.name)
 
         try:
             return EffectiveConfig(
-                python=tuple(sorted(set(merged.get("python", ())))),
-                platform=tuple(merged.get("platform", ())),
-                extras=(
-                    None if "extra-surfaces" in merged else merged.get("extras", "each")
+                target=TargetConfig(
+                    python_minors=(
+                        tuple(merged["pythons"]) if "pythons" in merged else None
+                    ),
+                    platforms=(
+                        tuple(merged["platforms"]) if "platforms" in merged else None
+                    ),
+                    dependency_selection=self._dependency_selection(merged),
+                    extras=ExtraConfig(
+                        policy=merged.get("extra-policy", "each"),
+                        custom_surfaces=self._extra_surfaces(
+                            merged.get("extra-surfaces", ())
+                        ),
+                    ),
                 ),
-                extra_surfaces=(
-                    self._extra_surfaces(merged["extra-surfaces"])
-                    if "extra-surfaces" in merged
-                    else None
+                search=SearchConfig(
+                    default=default_policy,
+                    overrides=tuple(overrides),
                 ),
-                release_granularity=merged.get("release-granularity", "minor"),
-                search_space=self._search_space(merged.get("search-space", "all")),
-                distribution=merged.get("distribution", "wheel"),
-                allow_prereleases=merged.get("allow-prereleases", False),
-                managed_deps=self._dependency_names(merged.get("managed-deps")),
-                unmanaged_deps=self._dependency_names(merged.get("unmanaged-deps")),
-                ty_args=tuple(merged.get("ty-args", ())),
-                test_group=merged.get("test-group", "test"),
-                test_command=test_command,
-                command_cwd=merged.get("command-cwd", "package"),
-                jobs=merged.get("jobs", "auto"),
-                resolve_timeout=self._duration(
-                    merged.get("resolve-timeout", "10m"),
-                    field="resolve-timeout",
+                resolution=ResolutionConfig(
+                    artifact=merged.get("resolve-artifact", "wheel"),
+                    timeout_seconds=self._duration(
+                        merged.get("resolve-timeout", "10m"),
+                        field="resolve-timeout",
+                    ),
                 ),
-                ty_timeout=self._duration(
-                    merged.get("ty-timeout", "10m"),
-                    field="ty-timeout",
+                ty=TyConfig(
+                    args=tuple(merged.get("ty-args", ())),
+                    timeout_seconds=self._duration(
+                        merged.get("ty-timeout", "10m"),
+                        field="ty-timeout",
+                    ),
                 ),
-                test_timeout=self._duration(
-                    merged.get("test-timeout", "30m"),
-                    field="test-timeout",
+                test=TestConfig(
+                    group=merged.get("test-group", "test"),
+                    command=test_command,
+                    cwd=merged.get("test-cwd", "package"),
+                    timeout_seconds=self._duration(
+                        merged.get("test-timeout", "30m"),
+                        field="test-timeout",
+                    ),
+                ),
+                scheduling=SchedulingConfig(
+                    max_cells=merged.get("max-cells", "auto"),
+                    ty_jobs=merged.get("ty-jobs", "auto"),
+                    test_jobs=merged.get("test-jobs", "auto"),
                 ),
             )
         except ValidationError as error:
             raise ConfigurationError(str(error)) from error
 
-    @staticmethod
-    def _validate_layer(
-        layer: object,
+    def _config_layer(
+        self,
+        document: Mapping[str, Any],
         *,
         location: str,
-        allowed: frozenset[str],
-    ) -> None:
+    ) -> dict[str, Any]:
+        tool = document.get("tool", {})
+        if not isinstance(tool, Mapping):
+            raise ConfigurationError("[tool] metadata must be a table")
+        layer = tool.get("pf", {})
         if not isinstance(layer, Mapping):
             raise ConfigurationError(f"{location} metadata must be a table")
-        unknown = sorted(set(layer) - allowed)
+        unknown = sorted(set(layer) - _FIELDS)
         if unknown:
             raise ConfigurationError(f"unknown {location} key: {unknown[0]}")
+        if "managed-deps" in layer and "unmanaged-deps" in layer:
+            raise ConfigurationError(
+                "managed-deps and unmanaged-deps are mutually exclusive"
+            )
+
+        normalized = dict(layer)
+        if "pythons" in layer:
+            pythons = self._string_list(layer["pythons"], field="pythons")
+            if not pythons:
+                raise ConfigurationError("pythons must be non-empty")
+            if tuple(sorted(set(pythons))) != pythons:
+                raise ConfigurationError("pythons must be sorted and unique")
+            if any(re.fullmatch(r"3\.[0-9]+", value) is None for value in pythons):
+                raise ConfigurationError(
+                    "pythons entries must be CPython minor versions like '3.11'"
+                )
+            normalized["pythons"] = pythons
+        if "platforms" in layer:
+            platforms = self._string_list(layer["platforms"], field="platforms")
+            if not platforms:
+                raise ConfigurationError("platforms must be non-empty")
+            if tuple(sorted(set(platforms))) != platforms:
+                raise ConfigurationError("platforms must be sorted and unique")
+            normalized["platforms"] = platforms
+        for field in ("managed-deps", "unmanaged-deps"):
+            if field in layer:
+                normalized[field] = self._dependency_names(
+                    layer[field],
+                    field=field,
+                )
+        if "extra-policy" in layer:
+            self._literal(
+                layer["extra-policy"],
+                field="extra-policy",
+                allowed={"none", "each", "all"},
+            )
+        if "extra-surfaces" in layer:
+            self._validate_extra_surfaces(layer["extra-surfaces"])
+        if "search-space" in layer:
+            self._literal(
+                layer["search-space"],
+                field="search-space",
+                allowed=_GLOBAL_SPACES,
+            )
+        if "search-step" in layer:
+            self._literal(
+                layer["search-step"],
+                field="search-step",
+                allowed=_SEARCH_STEPS,
+            )
+        if "search-prereleases" in layer:
+            self._boolean(layer["search-prereleases"], field="search-prereleases")
+        if "resolve-artifact" in layer:
+            self._literal(
+                layer["resolve-artifact"],
+                field="resolve-artifact",
+                allowed={"wheel", "sdist", "any"},
+            )
+        for field in ("resolve-timeout", "ty-timeout", "test-timeout"):
+            if field in layer:
+                self._duration(layer[field], field=field)
+        if "ty-args" in layer:
+            normalized["ty-args"] = self._string_list(
+                layer["ty-args"],
+                field="ty-args",
+            )
+        if "test-group" in layer:
+            value = layer["test-group"]
+            if not isinstance(value, str) or not value:
+                raise ConfigurationError("test-group must be a non-empty string")
+        if "test-command" in layer:
+            command = self._string_list(layer["test-command"], field="test-command")
+            if not command or any(not item for item in command):
+                raise ConfigurationError("test-command must be non-empty")
+            normalized["test-command"] = command
+        if "test-cwd" in layer:
+            self._literal(
+                layer["test-cwd"],
+                field="test-cwd",
+                allowed={"package", "root"},
+            )
+        for field in ("max-cells", "ty-jobs", "test-jobs"):
+            if field in layer:
+                self._scheduling_value(layer[field], field=field)
+        if "dep" in layer:
+            normalized["dep"] = self._dependency_entries(
+                layer["dep"],
+                location=location,
+            )
+        return normalized
+
+    @classmethod
+    def _dependency_entries(
+        cls,
+        value: Any,
+        *,
+        location: str,
+    ) -> tuple[dict[str, Any], ...]:
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+            raise ConfigurationError(f"{location}.dep must be an array of tables")
+        entries = []
+        seen: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, Mapping):
+                raise ConfigurationError(f"{location}.dep entries must be tables")
+            unknown = sorted(set(raw) - _DEP_FIELDS)
+            if unknown:
+                raise ConfigurationError(f"unknown {location}.dep key: {unknown[0]}")
+            if "name" not in raw:
+                raise ConfigurationError(f"{location}.dep entry requires name")
+            name = cls._canonical_name(raw["name"], field="dep name")
+            if name in seen:
+                raise ConfigurationError(f"duplicate dep dependency: {name}")
+            seen.add(name)
+            entry = dict(raw)
+            entry["name"] = name
+            if "search-space" in raw:
+                entry["search-space"] = cls._dependency_space(raw["search-space"])
+            if "search-step" in raw:
+                cls._literal(
+                    raw["search-step"],
+                    field="dep search-step",
+                    allowed=_SEARCH_STEPS,
+                )
+            if "search-prereleases" in raw:
+                cls._boolean(
+                    raw["search-prereleases"],
+                    field="dep search-prereleases",
+                )
+            entries.append(entry)
+        return tuple(entries)
 
     @staticmethod
-    def _dependency_names(value: Any) -> tuple[str, ...] | None:
-        if value is None:
-            return None
-        return tuple(sorted({canonicalize_name(name) for name in value}))
+    def _dependency_selection(
+        merged: Mapping[str, Any],
+    ) -> (
+        AllSearchableDependencies | ManagedDependencies | UnmanagedDependencies
+    ):
+        if "managed-deps" in merged:
+            return ManagedDependencies(names=tuple(merged["managed-deps"]))
+        if "unmanaged-deps" in merged:
+            return UnmanagedDependencies(names=tuple(merged["unmanaged-deps"]))
+        return AllSearchableDependencies()
+
+    @classmethod
+    def _dependency_names(cls, value: Any, *, field: str) -> tuple[str, ...]:
+        names = cls._string_list(value, field=field)
+        normalized = []
+        seen: set[str] = set()
+        for raw in names:
+            name = cls._canonical_name(raw, field=field)
+            if name in seen:
+                raise ConfigurationError(f"duplicate {field} dependency: {name}")
+            seen.add(name)
+            normalized.append(name)
+        return tuple(sorted(normalized))
+
+    @staticmethod
+    def _canonical_name(value: Any, *, field: str) -> str:
+        if not isinstance(value, str):
+            raise ConfigurationError(f"{field} must be a distribution name")
+        try:
+            return canonicalize_name(value, validate=True)
+        except InvalidName as error:
+            raise ConfigurationError(f"invalid {field}: {value}") from error
+
+    @staticmethod
+    def _string_list(value: Any, *, field: str) -> tuple[str, ...]:
+        if (
+            not isinstance(value, Sequence)
+            or isinstance(value, (str, bytes))
+            or any(not isinstance(item, str) for item in value)
+        ):
+            raise ConfigurationError(f"{field} must be an array of strings")
+        return tuple(value)
+
+    @classmethod
+    def _validate_extra_surfaces(cls, value: Any) -> None:
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+            raise ConfigurationError("extra-surfaces must be an array of arrays")
+        for surface in value:
+            cls._string_list(surface, field="extra-surfaces entry")
+
+    @classmethod
+    def _extra_surfaces(cls, value: Any) -> tuple[tuple[str, ...], ...]:
+        cls._validate_extra_surfaces(value)
+        surfaces = {tuple(sorted(set(surface))) for surface in value}
+        return tuple(sorted(surfaces, key=lambda surface: (len(surface), surface)))
+
+    @staticmethod
+    def _literal(value: Any, *, field: str, allowed: set[str] | frozenset[str]) -> None:
+        if not isinstance(value, str) or value not in allowed:
+            raise ConfigurationError(f"invalid {field}: {value}")
+
+    @staticmethod
+    def _boolean(value: Any, *, field: str) -> None:
+        if not isinstance(value, bool):
+            raise ConfigurationError(f"{field} must be a boolean")
+
+    @staticmethod
+    def _scheduling_value(value: Any, *, field: str) -> None:
+        if value == "auto":
+            return
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ConfigurationError(
+                f"{field} must be 'auto' or a valid integer greater than zero"
+            )
 
     @staticmethod
     def _duration(value: Any, *, field: str) -> int | None:
@@ -206,37 +470,27 @@ class ConfigLoader:
         return int(amount) * multiplier
 
     @staticmethod
-    def _search_space(
-        value: Any,
-    ) -> Literal["all", "current-major", "current-minor"] | tuple[str, ...]:
-        if isinstance(value, str):
-            if value not in {"all", "current-major", "current-minor"}:
-                raise ConfigurationError(f"invalid search-space: {value}")
+    def _dependency_space(value: Any) -> str:
+        if not isinstance(value, str) or not value:
+            raise ConfigurationError(f"invalid dep search-space: {value}")
+        if value in _GLOBAL_SPACES:
             return value
-        normalized: dict[str, str] = {}
-        for text in value:
-            try:
-                requirement = Requirement(text)
-            except InvalidRequirement as error:
-                raise ConfigurationError(
-                    f"invalid search-space entry: {text}"
-                ) from error
-            if (
-                requirement.extras
-                or requirement.marker is not None
-                or requirement.url is not None
-                or not requirement.specifier
-            ):
-                raise ConfigurationError(
-                    f"search-space entry must contain only a name and specifier: {text}"
-                )
-            name = canonicalize_name(requirement.name)
-            if name in normalized:
-                raise ConfigurationError(f"duplicate search-space dependency: {name}")
-            normalized[name] = f"{name}{requirement.specifier}"
-        return tuple(normalized[name] for name in sorted(normalized))
+        try:
+            parsed = SpecifierSet(value)
+        except InvalidSpecifier as error:
+            raise ConfigurationError(f"invalid dep search-space: {value}") from error
+        normalized = str(parsed)
+        if not normalized:
+            raise ConfigurationError(f"invalid dep search-space: {value}")
+        return normalized
 
     @staticmethod
-    def _extra_surfaces(value: Any) -> tuple[tuple[str, ...], ...]:
-        surfaces = {tuple(sorted(set(surface))) for surface in value}
-        return tuple(sorted(surfaces))
+    def _validate_search_combination(space: str, step: str) -> None:
+        if space == "current-major" and step == "major":
+            raise ConfigurationError(
+                "current-major search-space requires minor or patch step"
+            )
+        if space == "current-minor" and step != "patch":
+            raise ConfigurationError(
+                "current-minor search-space requires patch step"
+            )

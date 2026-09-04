@@ -165,8 +165,8 @@ version = "0.1.0"
 
 {group}
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 {command}
 """.strip()
         + "\n",
@@ -271,8 +271,8 @@ class TestCompatibilityChecker:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -302,7 +302,7 @@ class TestCompatibilityChecker:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=Events(),
-        ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=1))
 
         assert seen == ["x86_64-unknown-linux-gnu"]
 
@@ -345,7 +345,7 @@ class TestCheckWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=events,
-        ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=1))
 
         progress = [
             event for event in events.items if isinstance(event, CellCompletedEvent)
@@ -408,7 +408,7 @@ class TestCheckWorkflow:
                     host_target=host,
                 ),
                 events=Events(),
-            ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
+            ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=1))
 
     @pytest.mark.parametrize(
         "evaluation_status",
@@ -507,7 +507,7 @@ class TestCheckWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=events,
-        ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=1))
 
         assert result.status == ("INDETERMINATE" if indeterminate else "PASS")
         assert [
@@ -534,9 +534,9 @@ class TestCheckWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10", "3.11"]
-    platform = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
-    extras = "each"
+    pythons = ["3.10", "3.11"]
+    platforms = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+    extra-policy = "each"
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -565,7 +565,7 @@ class TestCheckWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=events,
-        ).run(CheckRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=1))
 
         matrix = next(
             event for event in events.items if isinstance(event, CellMatrixEvent)
@@ -593,8 +593,8 @@ class TestCheckWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10", "3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10", "3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -642,7 +642,7 @@ class TestCheckWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=events,
-        ).run(CheckRequest(root=tmp_path.as_posix(), jobs=2))
+        ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=2))
 
         assert maximum_active == 2
         assert sorted(seen) == ["3.10", "3.11"]

@@ -13,7 +13,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.markers import Marker, default_environment
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
 
 from pf.config import ConfigLoader
 from pf.errors import ConfigurationError
@@ -22,14 +22,21 @@ from pf.project_discovery import (
     WorkspaceInventory,
     WorkspaceMemberFact,
 )
-from pf.schemas.config import EffectiveConfig
-from pf.schemas.config import RootPackage, TargetSelector
+from pf.schemas.config import (
+    AllSearchableDependencies,
+    EffectiveConfig,
+    ManagedDependencies,
+    RootPackage,
+    TargetSelector,
+    UnmanagedDependencies,
+)
 from pf.schemas.project import (
     Cell,
     DependencySourceRoute,
     HarnessGroupProvenance,
     HarnessRequirement,
     HarnessSpecifierClause,
+    NamedSearchPolicy,
     PackagePlan,
     ProjectPlan,
     RequirementDeclaration,
@@ -222,13 +229,14 @@ class ProjectLoader:
                 declarations.append(declaration)
                 self._register_route(source_routes, route)
 
-        if config.managed_deps is not None:
+        selection = config.target.dependency_selection
+        if isinstance(selection, ManagedDependencies):
             fixed_names = {
                 declaration.name
                 for declaration in declarations
                 if declaration.kind == "fixed"
             }
-            explicitly_fixed = sorted(set(config.managed_deps) & fixed_names)
+            explicitly_fixed = sorted(set(selection.names) & fixed_names)
             if explicitly_fixed:
                 raise ConfigurationError(
                     f"fixed dependency cannot be managed: {explicitly_fixed[0]}"
@@ -252,13 +260,15 @@ class ProjectLoader:
                 )
 
         surfaces = self._extra_surfaces(tuple(sorted(optional)), config)
-        targets = config.platform or (host_target(),)
+        targets = config.target.platforms or (host_target(),)
         requires_python = project.get("requires-python")
-        python_minors = config.python or self._python_minors(
-            requires_python,
-            root=root,
+        configured_pythons = config.target.python_minors
+        python_minors = (
+            configured_pythons
+            if configured_pythons is not None
+            else self._python_minors(requires_python, root=root)
         )
-        if config.python and requires_python:
+        if configured_pythons is not None and requires_python:
             try:
                 required = SpecifierSet(requires_python)
             except InvalidSpecifier as error:
@@ -267,7 +277,7 @@ class ProjectLoader:
                 ) from error
             unsupported = tuple(
                 minor
-                for minor in config.python
+                for minor in configured_pythons
                 if Version(f"{minor}.0") not in required
             )
             if unsupported:
@@ -303,7 +313,7 @@ class ProjectLoader:
         )
         root_groups = root_document.get("dependency-groups", {})
         package_groups = document.get("dependency-groups", {})
-        group_name = config.test_group
+        group_name = config.test.group
         test_group_present = group_name in root_groups or group_name in package_groups
         expanded_harness = (
             *(
@@ -328,7 +338,6 @@ class ProjectLoader:
                 expanded=item,
                 sources=sources,
                 registry=registry,
-                allow_prereleases=config.allow_prereleases,
             )
             for owner, group_pyproject, item in expanded_harness
         )
@@ -355,6 +364,10 @@ class ProjectLoader:
                     workspace_member_version=(member.version if member else None),
                 ),
             )
+        dependency_search_policies = self._dependency_search_policies(
+            config=config,
+            declarations=tuple(declarations),
+        )
         return PackagePlan(
             name=package_name,
             pyproject_path=pyproject_path,
@@ -363,6 +376,7 @@ class ProjectLoader:
             declarations=tuple(declarations),
             cells=cells,
             source_routes=tuple(source_routes[name] for name in sorted(source_routes)),
+            dependency_search_policies=dependency_search_policies,
             harness_requirements=harness_requirements,
             test_group_present=test_group_present,
         )
@@ -377,7 +391,6 @@ class ProjectLoader:
         expanded: _ExpandedGroupRequirement,
         sources: dict[str, SourceIdentity],
         registry: SourceIdentity,
-        allow_prereleases: bool,
     ) -> tuple[HarnessRequirement, SourceIdentity]:
         raw = expanded.raw
         try:
@@ -438,10 +451,6 @@ class ProjectLoader:
             marker=marker,
             original_text=raw,
         )
-        try:
-            specifier_allows_prereleases = requirement.specifier.prereleases is True
-        except InvalidVersion:
-            specifier_allows_prereleases = False
         return HarnessRequirement(
             declaration_id=declaration_id,
             package=package,
@@ -450,7 +459,6 @@ class ProjectLoader:
             requested_extras=extras,
             specifier=specifier,
             marker=marker,
-            prerelease_allowed=(allow_prereleases or specifier_allows_prereleases),
             original_text=raw,
         ), source
 
@@ -499,15 +507,15 @@ class ProjectLoader:
                 spec.operator in {"==", "===", "~="} for spec in requirement.specifier
             )
         )
-        managed_deps = config.managed_deps
-        unmanaged_deps = config.unmanaged_deps
+        selection = config.target.dependency_selection
         if fixed:
             managed = False
-        elif managed_deps is not None:
-            managed = name in managed_deps
-        elif unmanaged_deps is not None:
-            managed = name not in unmanaged_deps
+        elif isinstance(selection, ManagedDependencies):
+            managed = name in selection.names
+        elif isinstance(selection, UnmanagedDependencies):
+            managed = name not in selection.names
         else:
+            assert isinstance(selection, AllSearchableDependencies)
             managed = True
         member = workspace_member_for(name) if source.kind == "workspace" else None
         if source.kind == "workspace" and member is None:
@@ -801,35 +809,67 @@ class ProjectLoader:
         return public_locator(value)
 
     @staticmethod
+    def _dependency_search_policies(
+        *,
+        config: EffectiveConfig,
+        declarations: tuple[RequirementDeclaration, ...],
+    ) -> tuple[NamedSearchPolicy, ...]:
+        by_name: dict[str, list[RequirementDeclaration]] = {}
+        for declaration in declarations:
+            by_name.setdefault(declaration.name, []).append(declaration)
+        managed_searchable = {
+            name
+            for name, items in by_name.items()
+            if any(item.managed and item.kind == "searchable" for item in items)
+        }
+        overrides = {item.name: item for item in config.search.overrides}
+        for name in overrides:
+            items = by_name.get(name)
+            if items is None:
+                raise ConfigurationError(
+                    f"dependency search override is not a direct dependency: {name}"
+                )
+            if name not in managed_searchable:
+                fixed = any(item.kind == "fixed" for item in items)
+                reason = "fixed" if fixed else "unmanaged"
+                article = "a" if fixed else "an"
+                raise ConfigurationError(
+                    f"dependency search override names {article} {reason} dependency: {name}"
+                )
+        policies = []
+        for name in sorted(managed_searchable):
+            source = overrides.get(name, config.search.default)
+            policies.append(
+                NamedSearchPolicy(
+                    name=name,
+                    space=source.space,
+                    step=source.step,
+                    prereleases=source.prereleases,
+                )
+            )
+        return tuple(policies)
+
+    @staticmethod
     def _extra_surfaces(
         extras: tuple[str, ...],
         config: EffectiveConfig,
     ) -> tuple[tuple[str, ...], ...]:
-        if config.extra_surfaces is not None:
-            surfaces = config.extra_surfaces
-            if () not in surfaces:
-                raise ConfigurationError(
-                    "extra-surfaces must include the base surface []"
-                )
-            known = set(extras)
-            for surface in surfaces:
-                unknown = sorted(set(surface) - known)
-                if unknown:
-                    raise ConfigurationError(
-                        f"unknown extra in extra-surfaces: {unknown[0]}"
-                    )
-            for extra in extras:
-                if (extra,) not in surfaces:
-                    raise ConfigurationError(
-                        f"extra-surfaces must include each single extra: {extra}"
-                    )
-        elif config.extras == "none":
-            surfaces = ((),)
-        elif config.extras == "each":
-            surfaces = ((), *((extra,) for extra in extras))
+        extra_config = config.target.extras
+        if extra_config.policy == "none":
+            policy_surfaces = ((),)
+        elif extra_config.policy == "each":
+            policy_surfaces = ((), *((extra,) for extra in extras))
         else:
             maximal = (extras,) if len(extras) > 1 else ()
-            surfaces = ((), *((extra,) for extra in extras), *maximal)
+            policy_surfaces = ((), *((extra,) for extra in extras), *maximal)
+        known = set(extras)
+        for surface in extra_config.custom_surfaces:
+            unknown = sorted(set(surface) - known)
+            if unknown:
+                raise ConfigurationError(
+                    f"unknown extra in extra-surfaces: {unknown[0]}"
+                )
+        surfaces = (*policy_surfaces, *extra_config.custom_surfaces)
         return tuple(sorted(set(surfaces), key=lambda value: (len(value), value)))
 
     @staticmethod

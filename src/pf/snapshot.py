@@ -63,8 +63,52 @@ class SourceSnapshot:
         """Create an independent writable proposal copy of this snapshot."""
         shutil.copytree(self._staged_root, destination, symlinks=True)
 
+    def uv_project_configuration_identity(self, target_pyproject_path: str) -> str:
+        """Identify the frozen root and target files uv receives as project config."""
+        return uv_project_configuration_identity(
+            self.identity,
+            target_pyproject_path,
+        )
+
     def close(self) -> None:
         self._temporary_directory.cleanup()
+
+
+def uv_project_configuration_identity(
+    snapshot: SourceSnapshotIdentity,
+    target_pyproject_path: str,
+    *,
+    target_dependency_arrays_digest: str | None = None,
+) -> str:
+    """Identify the frozen root and target files uv receives as project config."""
+    paths = tuple(sorted({"pyproject.toml", target_pyproject_path}))
+    identities = {
+        identity.path: identity for identity in snapshot.pyproject_identities
+    }
+    entries = {entry.path: entry for entry in snapshot.entries}
+    inputs = []
+    for path in paths:
+        identity = identities.get(path)
+        if identity is not None:
+            document = identity.model_dump(mode="json")
+            if (
+                path == target_pyproject_path
+                and target_dependency_arrays_digest is not None
+            ):
+                document["dependency_arrays_digest"] = (
+                    target_dependency_arrays_digest
+                )
+            inputs.append(
+                {"kind": "owned-pyproject", **document}
+            )
+            continue
+        entry = entries.get(path)
+        if entry is None or entry.kind != "file" or entry.content_digest is None:
+            raise ConfigurationError(f"uv project configuration input is missing: {path}")
+        inputs.append({"kind": "snapshot-file", **entry.model_dump(mode="json")})
+    return hashlib.sha256(
+        b"pf:uv-project-configuration:v1\0" + canonical_identity_json(inputs)
+    ).hexdigest()
 
 
 class SnapshotBuilder:

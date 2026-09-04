@@ -290,8 +290,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             'dependencies = ["idna<4"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
@@ -327,8 +327,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             'dependencies = ["idna<4"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["aarch64-apple-darwin", '
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["aarch64-apple-darwin", '
             '"x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
@@ -375,8 +375,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             'dependencies = ["idna<4"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["aarch64-apple-darwin", '
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["aarch64-apple-darwin", '
             '"x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
@@ -422,8 +422,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             'dependencies = ["idna<4"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu", '
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu", '
             '"x86_64-unknown-linux-musl"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
@@ -459,8 +459,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             'dependencies = ["idna<4"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu", '
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu", '
             '"x86_64-unknown-linux-musl"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
@@ -500,8 +500,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             "dependencies = [\"idna[socks]!=2.5,<4; python_version >= '3.10'\"]\n"
-            '[tool.pf]\npython = ["3.10", "3.11"]\n'
-            'platform = ["x86_64-pc-windows-msvc", '
+            '[tool.pf]\npythons = ["3.10", "3.11"]\n'
+            'platforms = ["x86_64-pc-windows-msvc", '
             '"x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
@@ -559,8 +559,8 @@ class TestReportProjection:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "1"\n'
             '[project.optional-dependencies]\ndocs = ["idna<4"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
@@ -608,8 +608,8 @@ class TestReportProjection:
     test = ["pytest"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -686,8 +686,8 @@ class TestReportProjection:
     test = ["pytest"]
 
     [tool.pf]
-    python = ["3.10", "3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10", "3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -741,8 +741,8 @@ class TestReportProjection:
     test = []
 
     [tool.pf]
-    python = ["3.10", "3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10", "3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",

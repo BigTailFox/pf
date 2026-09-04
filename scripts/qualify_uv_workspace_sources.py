@@ -130,8 +130,8 @@ pf-qualification-local = { path = "packages/local" }
 members = ["packages/*"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 unmanaged-deps = ["pf-qualification-local"]
 test-command = ["python", "-c", "import pf_qualification_app"]
 """

@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import json
+from typing import Literal
 from urllib.error import URLError
 from urllib.request import Request
 
@@ -106,6 +107,65 @@ class TestRegistryAccess:
 
 
 class TestUvAdapter:
+    @pytest.mark.parametrize(
+        ("policy", "flag"),
+        (("wheel", "--only-binary"), ("sdist", "--no-binary"), ("any", None)),
+    )
+    def test_resolution_maps_shared_artifact_policy_to_uv_admission(
+        self,
+        tmp_path: Path,
+        policy: Literal["wheel", "sdist", "any"],
+        flag: str | None,
+    ) -> None:
+        class Runner:
+            def __init__(self) -> None:
+                self.specs: list[ProcessSpec] = []
+
+            def run(self, spec: ProcessSpec) -> ProcessResult:
+                self.specs.append(spec)
+                return process_result(exit_code=1, stderr="resolution failed")
+
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-28T00:00:00+00:00",
+            ),
+            cell=cell,
+            source_plan_identity="source-plan",
+            uv_project_configuration_identity="uv-config",
+        )
+        runner = Runner()
+
+        UvAdapter(runner).resolve_project(
+            package=tmp_path,
+            package_name="demo",
+            cell=cell,
+            resolution=HighestResolution(),
+            context=context,
+            request_digest="request",
+            work_directory=tmp_path,
+            artifact_policy=policy,
+            timeout_seconds=30,
+            source_plan=SourcePlan(source_mode="DEVELOPMENT", routes=()),
+        )
+
+        argv = runner.specs[0].argv
+        if flag is None:
+            assert "--only-binary" not in argv
+            assert "--no-binary" not in argv
+        else:
+            assert argv[argv.index(flag) + 1] == ":all:"
+
     def test_default_executable_comes_from_the_uv_runtime_dependency(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -175,7 +235,7 @@ tool = { path = "vendor/tool" }
             ),
             cell=cell,
             source_plan_identity="source-plan",
-            allow_prereleases=False,
+            uv_project_configuration_identity="uv-config",
         )
 
         outcome = UvAdapter(SubprocessRunner()).resolve_project(
@@ -186,7 +246,7 @@ tool = { path = "vendor/tool" }
             context=context,
             request_digest="request",
             work_directory=work_directory,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=SourcePlan(
                 source_mode="DEVELOPMENT",
@@ -269,8 +329,8 @@ dependencies = ["idna"]
 test = ["pytest>=8.0a1"]
 
 [tool.pf]
-python = ["3.11"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.11"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
             + "\n",
@@ -288,7 +348,7 @@ test-command = ["pytest"]
             run=run,
             cell=package.cells[0],
             source_plan_identity="source-plan",
-            allow_prereleases=False,
+            uv_project_configuration_identity="uv-config",
         )
         baseline = HarnessBaseline.from_evidence(
             cell=package.cells[0],
@@ -350,7 +410,7 @@ test-command = ["pytest"]
             context=context,
             request_digest="project-request",
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=search_source_plan,
         )
@@ -369,7 +429,7 @@ test-command = ["pytest"]
                 source_plan=search_source_plan,
             ).requirements,
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=search_source_plan,
         )
@@ -408,10 +468,8 @@ test-command = ["pytest"]
             == "highest"
         )
         assert runner.specs[-1].argv[1:3] == ("pip", "sync")
-        assert "--prerelease" in runner.specs[2].argv
-        assert runner.specs[2].argv[runner.specs[2].argv.index("--prerelease") + 1] == (
-            "allow"
-        )
+        assert "--prerelease" not in runner.specs[2].argv
+        assert "--prerelease-package" not in runner.specs[2].argv
         assert not any(spec.argv[1:3] == ("pip", "install") for spec in runner.specs)
         for spec in runner.specs[1:3]:
             assert "--no-sources" not in spec.argv
@@ -422,6 +480,9 @@ test-command = ["pytest"]
             ) == ("idna", "urllib3")
             assert "UV_NO_SOURCES" in spec.environment_removals
             assert "UV_NO_SOURCES_PACKAGE" in spec.environment_removals
+            assert "UV_PRERELEASE" in spec.environment_removals
+            assert "--only-binary" in spec.argv
+            assert spec.argv[spec.argv.index("--only-binary") + 1] == ":all:"
 
         development = adapter.resolve_project(
             package=package_root,
@@ -431,7 +492,7 @@ test-command = ["pytest"]
             context=context,
             request_digest="development-project-request",
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=SourcePlan(
                 source_mode="DEVELOPMENT",
@@ -467,7 +528,7 @@ test-command = ["pytest"]
                 extra_surface=(),
             ),
             source_plan_identity="source-plan",
-            allow_prereleases=False,
+            uv_project_configuration_identity="uv-config",
         )
         outcome = UvAdapter(Runner()).resolve_project(
             package=tmp_path,
@@ -477,7 +538,7 @@ test-command = ["pytest"]
             context=context,
             request_digest="request",
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=SourcePlan(source_mode="SEARCH", routes=()),
         )
@@ -510,8 +571,8 @@ test = ["tool>=1"]
 tool = { path = "vendor/tool" }
 
 [tool.pf]
-python = ["3.11"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.11"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["python", "-c", "pass"]
 """.strip()
             + "\n",
@@ -553,7 +614,7 @@ packages = [
             ),
             cell=package.cells[0],
             source_plan_identity="source-plan",
-            allow_prereleases=False,
+            uv_project_configuration_identity="uv-config",
         )
         adapter = UvAdapter(Runner())
         project = adapter.resolve_project(
@@ -564,7 +625,7 @@ packages = [
             context=context,
             request_digest="project-request",
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
@@ -583,7 +644,7 @@ packages = [
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
             ),
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
@@ -620,7 +681,7 @@ packages = [
                 extra_surface=(),
             ),
             source_plan_identity="source-plan",
-            allow_prereleases=False,
+            uv_project_configuration_identity="uv-config",
         )
         outcome = UvAdapter(Runner()).resolve_project(
             package=tmp_path,
@@ -630,7 +691,7 @@ packages = [
             context=context,
             request_digest="request",
             work_directory=tmp_path,
-            allow_prereleases=False,
+            artifact_policy="wheel",
             timeout_seconds=30,
             source_plan=SourcePlan(source_mode="SEARCH", routes=()),
         )

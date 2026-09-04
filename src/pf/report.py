@@ -53,6 +53,7 @@ from pf.schemas.project import (
     AvailableArtifact,
     CandidateSnapshot,
     Cell,
+    NamedSearchPolicy,
     PackagePlan,
     Proposal,
     RequirementDeclaration,
@@ -3568,6 +3569,21 @@ class ReportStore:
             declarations=generation.requirement_declarations,
             cells=generation.target_cells,
             source_routes=generation.source_plan.routes,
+            dependency_search_policies=tuple(
+                NamedSearchPolicy(
+                    name=name,
+                    space="all",
+                    step="minor",
+                    prereleases=False,
+                )
+                for name in sorted(
+                    {
+                        declaration.name
+                        for declaration in generation.requirement_declarations
+                        if declaration.managed and declaration.kind == "searchable"
+                    }
+                )
+            ),
         )
         rebuilt = PackageReportBuilder().build(
             package=package,

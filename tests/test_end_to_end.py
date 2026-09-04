@@ -29,8 +29,8 @@ class TestInstalledCli:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     """.strip()

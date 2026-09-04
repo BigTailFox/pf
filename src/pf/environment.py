@@ -119,7 +119,7 @@ class UvOperations(Protocol):
         context: ResolutionContext,
         request_digest: str,
         work_directory: Path,
-        allow_prereleases: bool,
+        artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
         source_plan: SourcePlan,
     ) -> ResolutionOutcome: ...
@@ -136,7 +136,7 @@ class UvOperations(Protocol):
         project_plan: ResolutionPlan,
         harness: tuple[HarnessResolutionRequirement, ...],
         work_directory: Path,
-        allow_prereleases: bool,
+        artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
         source_plan: SourcePlan,
     ) -> ResolutionOutcome: ...
@@ -237,7 +237,7 @@ class EnvironmentFactory:
     ) -> PreparedEnvironment | PrepareFailure:
         run = self._uv.resolution_run_context(
             root=Path.cwd(),
-            timeout_seconds=package.config.resolve_timeout,
+            timeout_seconds=package.config.resolution.timeout_seconds,
         )
         if isinstance(run, ToolFailure):
             raise ConfigurationError("uv resolver protocol could not be established")
@@ -245,7 +245,9 @@ class EnvironmentFactory:
             run=run,
             cell=cell,
             source_plan_identity=source_plan.identity,
-            allow_prereleases=package.config.allow_prereleases,
+            uv_project_configuration_identity=(
+                snapshot.uv_project_configuration_identity(package.pyproject_path)
+            ),
         )
         managed_vector = (
             self._selection_vector(resolution.selection)
@@ -308,14 +310,21 @@ class EnvironmentFactory:
                     context=context,
                     request_digest=project_request,
                     work_directory=runtime_root,
-                    allow_prereleases=package.config.allow_prereleases,
-                    timeout_seconds=package.config.resolve_timeout,
+                    artifact_policy=package.config.resolution.artifact,
+                    timeout_seconds=package.config.resolution.timeout_seconds,
                     source_plan=source_plan,
                 ),
             )
             if not isinstance(project_outcome, ResolutionPlan):
                 temporary_directory.cleanup()
                 return failed(self._resolution_failure(project_outcome))
+            artifact_failure = self._artifact_policy_failure(
+                project_outcome,
+                policy=package.config.resolution.artifact,
+            )
+            if artifact_failure is not None:
+                temporary_directory.cleanup()
+                return failed(artifact_failure)
             project_plan_digest = project_outcome.semantic_digest
             source_failure = self._managed_source_failure(
                 package=package,
@@ -358,14 +367,21 @@ class EnvironmentFactory:
                     project_plan=project_outcome,
                     harness=harness,
                     work_directory=runtime_root,
-                    allow_prereleases=package.config.allow_prereleases,
-                    timeout_seconds=package.config.resolve_timeout,
+                    artifact_policy=package.config.resolution.artifact,
+                    timeout_seconds=package.config.resolution.timeout_seconds,
                     source_plan=source_plan,
                 ),
             )
             if not isinstance(environment_outcome, ResolutionPlan):
                 temporary_directory.cleanup()
                 return failed(self._resolution_failure(environment_outcome))
+            artifact_failure = self._artifact_policy_failure(
+                environment_outcome,
+                policy=package.config.resolution.artifact,
+            )
+            if artifact_failure is not None:
+                temporary_directory.cleanup()
+                return failed(artifact_failure)
             environment_plan_digest = environment_outcome.semantic_digest
             if not self._project_graph_is_exact(project_outcome, environment_outcome):
                 temporary_directory.cleanup()
@@ -390,7 +406,7 @@ class EnvironmentFactory:
                 environment=environment_root,
                 python_minor=cell.python_minor,
                 cwd=proposal_root,
-                timeout_seconds=package.config.resolve_timeout,
+                timeout_seconds=package.config.resolution.timeout_seconds,
             )
             if isinstance(create, ToolFailure):
                 temporary_directory.cleanup()
@@ -399,7 +415,7 @@ class EnvironmentFactory:
             interpreter_result = self._uv.inspect_interpreter(
                 interpreter=interpreter,
                 cwd=package_root,
-                timeout_seconds=package.config.resolve_timeout,
+                timeout_seconds=package.config.resolution.timeout_seconds,
             )
             if not isinstance(interpreter_result, InterpreterSuccess):
                 temporary_directory.cleanup()
@@ -424,7 +440,7 @@ class EnvironmentFactory:
                 interpreter=interpreter,
                 cwd=package_root,
                 work_directory=runtime_root,
-                timeout_seconds=package.config.resolve_timeout,
+                timeout_seconds=package.config.resolution.timeout_seconds,
             )
             if isinstance(install, InstallFailure):
                 temporary_directory.cleanup()
@@ -441,7 +457,7 @@ class EnvironmentFactory:
             graph = self._uv.inspect_environment(
                 interpreter=interpreter,
                 cwd=package_root,
-                timeout_seconds=package.config.resolve_timeout,
+                timeout_seconds=package.config.resolution.timeout_seconds,
             )
             if isinstance(graph, ToolFailure):
                 temporary_directory.cleanup()
@@ -662,6 +678,34 @@ class EnvironmentFactory:
             and resolved.selected_artifact == item.selected_artifact
             for item in project.packages
         )
+
+    @staticmethod
+    def _artifact_policy_failure(
+        plan: ResolutionPlan,
+        *,
+        policy: Literal["wheel", "sdist", "any"],
+    ) -> ToolFailure | None:
+        allowed = {"wheel", "sdist"} if policy == "any" else {policy}
+        for package in plan.packages:
+            if package.source.kind != "registry":
+                continue
+            artifact = package.selected_artifact
+            if artifact is not None and artifact.kind in allowed:
+                continue
+            return ToolFailure(
+                cause="INTERNAL_INVARIANT",
+                stage=f"resolve-{plan.kind}",
+                process=plan.process,
+                summary_code="artifact-policy-mismatch",
+                detail=FailureDetail(
+                    code="artifact-policy-mismatch",
+                    message=(
+                        f"registry resolution for {package.name} did not satisfy "
+                        f"the {policy} artifact policy"
+                    ),
+                ),
+            )
+        return None
 
     @staticmethod
     def _managed_source_failure(

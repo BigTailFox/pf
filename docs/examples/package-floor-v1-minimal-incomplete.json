@@ -18,8 +18,8 @@
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "485288849d5b189554d574a0a2253f60af00ee2a9cce92b57ebd13f7cb012181",
-    "report_generation_id": "eb36ac709191d3b9bdc9153ca7db671537cf804ce1f9adcec6a12d43b2a45bc7",
+    "policy_identity": "1ec787266a2cf1cf2e659db745cfbb95767a26fd8aaf0d8aa192201ec8cd46e5",
+    "report_generation_id": "8fab3ceb8202a4039d3910b4c9bf8409d35f2b0ec3addb5f74e0101e28cdde06",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],

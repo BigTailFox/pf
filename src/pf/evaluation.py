@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 import os
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Protocol
 
 from pf.environment import PreparedEnvironment, StageConsumer, emit_cell_stage
@@ -41,12 +43,54 @@ from pf.static_transition import StaticTransitionClassifier, static_fingerprint
 
 
 def require_full_evaluation_contract(package: PackagePlan, command: str) -> None:
-    if not package.config.test_command:
+    if package.config.test.command is None:
         raise ConfigurationError(f"test-command is required for {command}")
     if not package.test_group_present:
         raise ConfigurationError(
-            f"test dependency group is required: {package.config.test_group}"
+            f"test dependency group is required: {package.config.test.group}"
         )
+
+
+class StagePermitPools:
+    """Share invocation-wide permits at the ty and configured-test seams."""
+
+    def __init__(
+        self,
+        *,
+        ty_jobs: int | None = None,
+        test_jobs: int | None = None,
+    ) -> None:
+        self._ty: BoundedSemaphore | None = None
+        self._test: BoundedSemaphore | None = None
+        if ty_jobs is not None or test_jobs is not None:
+            if ty_jobs is None or test_jobs is None:
+                raise ValueError("both stage pool limits are required")
+            self.configure(ty_jobs=ty_jobs, test_jobs=test_jobs)
+
+    def configure(self, *, ty_jobs: int, test_jobs: int) -> None:
+        if ty_jobs <= 0 or test_jobs <= 0:
+            raise ValueError("stage pool limits must be positive")
+        self._ty = BoundedSemaphore(ty_jobs)
+        self._test = BoundedSemaphore(test_jobs)
+
+    @contextmanager
+    def ty(self) -> Iterator[None]:
+        with self._permit(self._ty):
+            yield
+
+    @contextmanager
+    def test(self) -> Iterator[None]:
+        with self._permit(self._test):
+            yield
+
+    @staticmethod
+    @contextmanager
+    def _permit(semaphore: BoundedSemaphore | None) -> Iterator[None]:
+        if semaphore is None:
+            yield
+            return
+        with semaphore:
+            yield
 
 
 class EvaluationCache:
@@ -199,10 +243,12 @@ class StaticEvaluator:
         *,
         classifier: StaticTransitionClassifier | None = None,
         events: StageConsumer | None = None,
+        permits: StagePermitPools | None = None,
     ) -> None:
         self._ty = ty
         self._classifier = classifier or StaticTransitionClassifier()
         self._events = events
+        self._permits = permits or StagePermitPools()
 
     def evaluate(
         self,
@@ -288,15 +334,16 @@ class StaticEvaluator:
         *,
         package: PackagePlan,
     ) -> TyCheck | ToolFailure:
-        return self._ty.check(
-            interpreter=prepared.interpreter,
-            package=prepared.package_root,
-            python_minor=prepared.proposal.cell.python_minor,
-            target=prepared.proposal.cell.target,
-            args=package.config.ty_args,
-            timeout_seconds=package.config.ty_timeout,
-            snapshot_root=prepared.proposal_root,
-        )
+        with self._permits.ty():
+            return self._ty.check(
+                interpreter=prepared.interpreter,
+                package=prepared.package_root,
+                python_minor=prepared.proposal.cell.python_minor,
+                target=prepared.proposal.cell.target,
+                args=package.config.ty.args,
+                timeout_seconds=package.config.ty.timeout_seconds,
+                snapshot_root=prepared.proposal_root,
+            )
 
     @staticmethod
     def _increment(
@@ -323,11 +370,13 @@ class RuntimeEvaluator:
         verifier: VerifierOperations,
         witnesses: RuntimeWitnessOperations | None = None,
         events: StageConsumer | None = None,
+        permits: StagePermitPools | None = None,
     ) -> None:
         self._static = static
         self._verifier = verifier
         self._witnesses = witnesses
         self._events = events
+        self._permits = permits or StagePermitPools()
 
     def evaluate(
         self,
@@ -357,7 +406,7 @@ class RuntimeEvaluator:
                     plan=plan,
                     interpreter=prepared.interpreter,
                     cwd=prepared.package_root,
-                    timeout_seconds=package.config.test_timeout,
+                    timeout_seconds=package.config.test.timeout_seconds,
                 )
                 attempt = RuntimeWitnessAttempt(plan=plan, outcome=witness)
                 witness_attempts.append(attempt)
@@ -382,7 +431,7 @@ class RuntimeEvaluator:
         emit_cell_stage(self._events, prepared.proposal.cell, "dynamic tests")
         cwd = (
             prepared.proposal_root
-            if package.config.command_cwd == "root"
+            if package.config.test.cwd == "root"
             else prepared.package_root
         )
         environment_bin = prepared.interpreter.parent.as_posix()
@@ -399,15 +448,19 @@ class RuntimeEvaluator:
                 progress=progress,
             )
         )
-        run = self._verifier.run(
-            VerifierRequest(
-                command=package.config.test_command,
-                cwd=cwd,
-                environment=(EnvironmentVariable(name="PATH", value=path),),
-                timeout_seconds=package.config.test_timeout,
-            ),
-            progress=progress,
-        )
+        command = package.config.test.command
+        if command is None:
+            raise ConfigurationError("test-command is required for evaluation")
+        with self._permits.test():
+            run = self._verifier.run(
+                VerifierRequest(
+                    command=command,
+                    cwd=cwd,
+                    environment=(EnvironmentVariable(name="PATH", value=path),),
+                    timeout_seconds=package.config.test.timeout_seconds,
+                ),
+                progress=progress,
+            )
         prepared.mark_tested()
         authoritative = run.authoritative
         if isinstance(authoritative, VerifierPass):

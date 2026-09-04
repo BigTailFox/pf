@@ -23,6 +23,7 @@ from pf.schemas.config import (
     EffectiveConfig,
     MergeRequest,
     ReportRequest,
+    TestConfig as PfTestConfig,
     WorkspacePackage,
 )
 from pf.schemas.apply import (
@@ -65,7 +66,7 @@ def report(
     package = PackagePlan(
         name=package_name,
         pyproject_path="pyproject.toml",
-        config=config or EffectiveConfig(test_timeout=1),
+        config=config or EffectiveConfig(test=PfTestConfig(timeout_seconds=1)),
         declarations=(),
         cells=(),
         source_routes=(),
@@ -298,8 +299,8 @@ class TestReportWorkflows:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",

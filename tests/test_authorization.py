@@ -350,12 +350,14 @@ def _write_project(
     root: Path,
     *,
     platforms: tuple[str, ...] | None,
-    python: tuple[str, ...] = ("3.10",),
+    pythons: tuple[str, ...] = ("3.10",),
     dependency: str | tuple[str, ...] = "idna<4",
     extra: str = "",
 ) -> None:
     platform_line = (
-        "platform = [" + ", ".join(f'"{item}"' for item in platforms) + "]\n"
+        "platforms = ["
+        + ", ".join(f'"{item}"' for item in sorted(platforms))
+        + "]\n"
         if platforms is not None
         else ""
     )
@@ -364,8 +366,8 @@ def _write_project(
     (root / "pyproject.toml").write_text(
         '[project]\nname = "demo"\nversion = "1"\nrequires-python = ">=3.10"\n'
         f"dependencies = [{dependency_array}]\n"
-        "[tool.pf]\npython = ["
-        + ", ".join(f'"{item}"' for item in python)
+        "[tool.pf]\npythons = ["
+        + ", ".join(f'"{item}"' for item in pythons)
         + "]\n"
         + platform_line
         + 'test-command = ["pytest"]\n'
@@ -599,7 +601,7 @@ class TestApplyAuthorizer:
         _write_project(
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
-            python=("3.10", "3.11"),
+            pythons=("3.10", "3.11"),
         )
         project = ProjectLoader().load(root=tmp_path)
         snapshot = _snapshot(project, tmp_path)
@@ -647,7 +649,7 @@ class TestApplyAuthorizer:
         )
         current_snapshot = _snapshot(current_project, tmp_path)
 
-        with pytest.raises(ApplyAuthorizationError, match="policy"):
+        with pytest.raises(ApplyAuthorizationError, match="platform declaration"):
             ApplyAuthorizer().authorize(
                 report=report,
                 project=current_project,
@@ -846,8 +848,8 @@ idna = { workspace = true }
 members = ["packages/*"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
             + "\n",
@@ -923,8 +925,8 @@ idna = { workspace = true }
 members = ["packages/*"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
             + "\n",
@@ -1330,11 +1332,12 @@ dynamic = ["version"]
         report_snapshot.close()
         current_snapshot.close()
 
-    def test_pyproject_remainder_drift_is_only_forceable_source_drift(
+    @pytest.mark.parametrize("force", (False, True))
+    def test_uv_project_configuration_drift_is_not_forceable(
         self,
         tmp_path: Path,
+        force: bool,
     ) -> None:
-        remainder = '[project.scripts]\ndemo = "demo:main"\n'
         _write_project(
             tmp_path,
             platforms=("x86_64-unknown-linux-gnu",),
@@ -1350,29 +1353,23 @@ dynamic = ["version"]
         (tmp_path / "pyproject.toml").write_text(
             raw.replace(
                 "[tool.pf]",
-                remainder + "[tool.pf]",
+                '[tool.uv]\nprerelease = "allow"\n\n[tool.pf]',
             ),
             encoding="utf-8",
         )
         current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
-        with pytest.raises(ApplyAuthorizationError, match="source snapshot"):
+        with pytest.raises(
+            ApplyAuthorizationError,
+            match="uv project configuration",
+        ):
             ApplyAuthorizer().authorize(
                 report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
-                force=False,
+                force=force,
             )
-        authorized = ApplyAuthorizer().authorize(
-            report=report,
-            project=current_project,
-            current_snapshot=current_snapshot,
-            force=True,
-        )
-
-        assert authorized.waivers_used == ("SOURCE_SNAPSHOT_DRIFT",)
-        assert authorized.presentation_facts.source_drift_paths == ("pyproject.toml",)
         report_snapshot.close()
         current_snapshot.close()
 
@@ -1485,8 +1482,8 @@ dynamic = ["version"]
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )

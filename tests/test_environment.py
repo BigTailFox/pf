@@ -35,7 +35,7 @@ from pf.resolution import (
     ResolutionUnsat,
     environment_identity_digest,
 )
-from pf.schemas.config import EffectiveConfig, WorkspacePackage
+from pf.schemas.config import EffectiveConfig, SchedulingConfig, WorkspacePackage
 from pf.schemas.evaluation import (
     AttemptFailureScope,
     CellStageEvent,
@@ -105,6 +105,22 @@ def exact_selection(cell, *pins: VersionPin) -> ExactSelection:
     )
 
 
+def registry_package(name: str, version: str) -> ResolutionPackage:
+    artifact = ResolutionArtifact(
+        filename=f"{name}-{version}-py3-none-any.whl",
+        kind="wheel",
+        locator=f"https://files.example/{name}-{version}-py3-none-any.whl",
+        content_hash=f"sha256:{'a' * 64}",
+    )
+    return ResolutionPackage(
+        name=name,
+        version=version,
+        source=SourceIdentity(kind="registry"),
+        available_artifacts=(artifact,),
+        selected_artifact=artifact,
+    )
+
+
 class SuccessfulUv:
     def resolution_run_context(self, **kwargs: object) -> ResolutionRunContext:
         return ResolutionRunContext(
@@ -122,17 +138,31 @@ class SuccessfulUv:
                 ResolutionPackage(
                     name=item.dependency,
                     version=item.version,
-                    source=SourceIdentity(kind="registry"),
+                    source=SourceIdentity(
+                        kind="url",
+                        locator=item.artifact.locator,
+                        content_hash=item.artifact.content_hash,
+                    ),
+                    available_artifacts=(
+                        ResolutionArtifact(
+                            filename=item.artifact.filename,
+                            kind=item.artifact.kind,
+                            locator=item.artifact.locator or "",
+                            content_hash=item.artifact.content_hash,
+                        ),
+                    ),
+                    selected_artifact=ResolutionArtifact(
+                        filename=item.artifact.filename,
+                        kind=item.artifact.kind,
+                        locator=item.artifact.locator or "",
+                        content_hash=item.artifact.content_hash,
+                    ),
                 )
                 for item in resolution.selection
             )
             if isinstance(resolution, ExactSelection)
             else (
-                ResolutionPackage(
-                    name="idna",
-                    version="3.10",
-                    source=SourceIdentity(kind="registry"),
-                ),
+                registry_package("idna", "3.10"),
             )
         )
         return self._plan("project", packages=packages, kwargs=kwargs)
@@ -151,10 +181,14 @@ class SuccessfulUv:
             if name in {item.name for item in packages}:
                 package = next(item for item in packages if item.name == name)
             else:
-                package = ResolutionPackage(
-                    name=name,
-                    version=requirement.ceiling or "8.4",
-                    source=source,
+                package = (
+                    registry_package(name, requirement.ceiling or "8.4")
+                    if source.kind == "registry"
+                    else ResolutionPackage(
+                        name=name,
+                        version=requirement.ceiling or "8.4",
+                        source=source,
+                    )
                 )
                 packages.append(package)
             assert package.version is not None
@@ -164,6 +198,16 @@ class SuccessfulUv:
                         name=name,
                         version=package.version,
                         source=package.source,
+                        selected_artifact=(
+                            AvailableArtifact(
+                                filename=package.selected_artifact.filename,
+                                kind=package.selected_artifact.kind,
+                                content_hash=package.selected_artifact.content_hash,
+                                locator=package.selected_artifact.locator,
+                            )
+                            if package.selected_artifact is not None
+                            else None
+                        ),
                         ceiling_bound=requirement.ceiling is not None
                         or source.kind == "registry",
                     )
@@ -274,8 +318,8 @@ version = "0.1.0"
 dependencies = ["idna"]
 {harness_toml}
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = {command}
 """.strip()
         + "\n",
@@ -306,8 +350,8 @@ def _failed_process(cause: FailureCause, stage: str) -> ProcessResult:
 
 class TestEvaluationPolicy:
     def test_evaluation_policy_identity_ignores_scheduler_concurrency(self) -> None:
-        automatic = EffectiveConfig(jobs="auto")
-        serial = EffectiveConfig(jobs=1)
+        automatic = EffectiveConfig(scheduling=SchedulingConfig(max_cells="auto"))
+        serial = EffectiveConfig(scheduling=SchedulingConfig(max_cells=1))
 
         assert evaluation_policy_identity(automatic) == evaluation_policy_identity(
             serial
@@ -315,6 +359,69 @@ class TestEvaluationPolicy:
 
 
 class TestEnvironmentFactory:
+    @pytest.mark.parametrize(
+        ("policy", "resolved_kind"),
+        (("wheel", "sdist"), ("sdist", "wheel")),
+    )
+    def test_shared_artifact_policy_rejects_a_mismatched_project_resolution(
+        self,
+        tmp_path: Path,
+        policy: str,
+        resolved_kind: Literal["wheel", "sdist"],
+    ) -> None:
+        class WrongArtifactUv(SuccessfulUv):
+            created = False
+
+            def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+                assert kwargs["artifact_policy"] == policy
+                suffix = "whl" if resolved_kind == "wheel" else "tar.gz"
+                artifact = ResolutionArtifact(
+                    filename=f"idna-3.10.{suffix}",
+                    kind=resolved_kind,
+                    locator=f"https://files.example/idna-3.10.{suffix}",
+                    content_hash=f"sha256:{'a' * 64}",
+                )
+                return self._plan(
+                    "project",
+                    packages=(
+                        ResolutionPackage(
+                            name="idna",
+                            version="3.10",
+                            source=SourceIdentity(kind="registry"),
+                            available_artifacts=(artifact,),
+                            selected_artifact=artifact,
+                        ),
+                    ),
+                    kwargs=kwargs,
+                )
+
+            def create_environment(self, **kwargs: object) -> ToolOutcome:
+                self.created = True
+                return super().create_environment(**kwargs)
+
+        root = _write_demo(tmp_path)
+        pyproject = root / "pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text(encoding="utf-8")
+            + f'\nresolve-artifact = "{policy}"\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        uv = WrongArtifactUv()
+
+        result = EnvironmentFactory(uv).prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+            resolution=HighestResolution(),
+        )
+
+        assert isinstance(result, PrepareFailure)
+        assert result.failure.summary_code == "artifact-policy-mismatch"
+        assert uv.created is False
+
     @pytest.mark.parametrize(
         ("resolved_source", "summary_code", "message"),
         (
@@ -324,7 +431,7 @@ class TestEnvironmentFactory:
                 "a managed workspace dependency resolved from a local source in SEARCH mode",
             ),
             (
-                SourceIdentity(kind="registry", locator="https://pypi.org/simple"),
+                SourceIdentity(kind="registry", locator="https://other.example/simple"),
                 "managed-source-mismatch",
                 "a managed workspace dependency did not resolve to the expected registry artifact",
             ),
@@ -354,8 +461,8 @@ idna = { workspace = true }
 members = ["packages/*"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["python", "-c", "pass"]
 """.strip()
             + "\n",
@@ -370,15 +477,20 @@ test-command = ["python", "-c", "pass"]
 
         class WrongSourceUv(SuccessfulUv):
             def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
+                resolved = (
+                    registry_package("idna", "3.10").model_copy(
+                        update={"source": resolved_source}
+                    )
+                    if resolved_source.kind == "registry"
+                    else ResolutionPackage(
+                        name="idna",
+                        version="3.10",
+                        source=resolved_source,
+                    )
+                )
                 return self._plan(
                     "project",
-                    packages=(
-                        ResolutionPackage(
-                            name="idna",
-                            version="3.10",
-                            source=resolved_source,
-                        ),
-                    ),
+                    packages=(resolved,),
                     kwargs=kwargs,
                 )
 
@@ -433,8 +545,8 @@ idna = { workspace = true }
 members = ["packages/*"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["python", "-c", "pass"]
 """.strip()
             + "\n",
@@ -448,7 +560,7 @@ test-command = ["python", "-c", "pass"]
         snapshot = SnapshotBuilder.without_processes().build(root)
         selected = ResolutionArtifact(
             filename="idna-3.10-py3-none-any.whl",
-            kind="archive",
+            kind="wheel",
             locator="https://files.example/idna-3.10-py3-none-any.whl",
             content_hash=f"sha256:{'a' * 64}",
         )
@@ -474,6 +586,7 @@ test-command = ["python", "-c", "pass"]
                         version="3.10",
                         source=SourceIdentity(kind="registry"),
                         available_artifacts=(selected,),
+                        selected_artifact=selected,
                     )
                 )
                 return self._plan(
@@ -560,8 +673,8 @@ test-command = ["python", "-c", "pass"]
     dependencies = ["idna"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-m", "unittest"]
     """.strip()
             + "\n",
@@ -604,7 +717,15 @@ test-command = ["python", "-c", "pass"]
             graph=prepared.proposal.resolved_graph,
         )
         policy_document = {
-            "config": package.config.model_dump(mode="json", exclude={"jobs"}),
+            "config": {
+                "resolution": package.config.resolution.model_dump(mode="json"),
+                "ty": package.config.ty.model_dump(mode="json"),
+                "test": {
+                    "command": package.config.test.command,
+                    "cwd": package.config.test.cwd,
+                    "timeout_seconds": package.config.test.timeout_seconds,
+                },
+            },
             "tool_versions": {"ty": distribution_version("ty")},
             "verifier_outcome_policy": "configured-verifier-terminal-v1",
             "ty_diagnostic_policy": {
@@ -722,8 +843,8 @@ test-command = ["python", "-c", "pass"]
     dependencies = ["idna>=3,<4"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n"
@@ -796,8 +917,8 @@ test-command = ["python", "-c", "pass"]
     dependencies = ["idna>=3,<4"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -883,8 +1004,8 @@ test-command = ["python", "-c", "pass"]
     dependencies = ["idna>=3,<4"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -952,8 +1073,8 @@ test-command = ["python", "-c", "pass"]
     dependencies = ["idna>=3"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -1024,9 +1145,9 @@ test-command = ["python", "-c", "pass"]
     members = ["packages/*"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    extras = "each"
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    extra-policy = "each"
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n"
@@ -1127,8 +1248,8 @@ test-command = ["python", "-c", "pass"]
     test = ["pytest"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1159,17 +1280,9 @@ test-command = ["python", "-c", "pass"]
                 assert isinstance(outcome, ResolutionPlan)
                 resolution = kwargs["resolution"]
                 transitive = (
-                    ResolutionPackage(
-                        name="pluggy",
-                        version="1.6.0",
-                        source=SourceIdentity(kind="registry"),
-                    )
+                    registry_package("pluggy", "1.6.0")
                     if isinstance(resolution, HighestResolution)
-                    else ResolutionPackage(
-                        name="iniconfig",
-                        version="2.1.0",
-                        source=SourceIdentity(kind="registry"),
-                    )
+                    else registry_package("iniconfig", "2.1.0")
                 )
                 return self._plan(
                     "environment",
@@ -1243,8 +1356,8 @@ test-command = ["python", "-c", "pass"]
     test = ["pytest"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",

@@ -425,12 +425,11 @@ class TestPlanningSchemas:
     @pytest.mark.parametrize(
         "config",
         (
-            {"python": ("python3",)},
-            {"python": ("3.11", "3.10")},
-            {"jobs": True},
-            {"jobs": 0},
-            {"test_failure_exit_codes": (1, 1)},
-            {"test_failure_exit_codes": (0,)},
+            {"resolution": {"timeout_seconds": 0}},
+            {"ty": {"timeout_seconds": True}},
+            {"test": {"timeout_seconds": 0}},
+            {"scheduling": {"max_cells": True}},
+            {"scheduling": {"ty_jobs": 0}},
         ),
     )
     def test_effective_config_rejects_ambiguous_runtime_policy(
@@ -443,8 +442,9 @@ class TestPlanningSchemas:
     @pytest.mark.parametrize(
         "payload",
         (
-            {"root": ".", "jobs": True},
-            {"root": ".", "jobs": 0},
+            {"root": ".", "max_cells": True},
+            {"root": ".", "ty_jobs": 0},
+            {"root": ".", "test_jobs": False},
             {"root": ".", "max_duration_seconds": 0},
         ),
     )
@@ -458,8 +458,9 @@ class TestPlanningSchemas:
     @pytest.mark.parametrize(
         "payload",
         (
-            {"root": ".", "jobs": True},
-            {"root": ".", "jobs": 0},
+            {"root": ".", "max_cells": True},
+            {"root": ".", "ty_jobs": 0},
+            {"root": ".", "test_jobs": False},
         ),
     )
     def test_check_request_rejects_invalid_scheduling(
@@ -742,7 +743,7 @@ class TestSearchSchemas:
     @pytest.mark.parametrize("jobs", (True, 0))
     def test_smoke_request_rejects_invalid_scheduling(self, jobs: bool | int) -> None:
         with pytest.raises(ValidationError):
-            SmokeRequest(root=".", jobs=jobs)
+            SmokeRequest(root=".", max_cells=jobs)
 
     def test_highest_version_and_smoke_results_enforce_their_evidence(self) -> None:
         attempt, baseline, passed = _baseline_evidence()

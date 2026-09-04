@@ -19,12 +19,12 @@ from pf.baseline import HighestVersionVerifier
 from pf.authorization import ApplyAuthorizer
 from pf.candidates import CandidateBuilder
 from pf.check import CompatibilityChecker
-from pf.config import parse_jobs, parse_max_duration
+from pf.config import parse_max_duration, parse_scheduling_limit
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError, InvocationError, PfError
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
 from pf.project import ProjectLoader, host_target
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
@@ -120,13 +120,26 @@ _PACKAGE_HELP = (
     "Canonical distribution name of one installable workspace package. "
     "Omit to select the installable workspace root package."
 )
-_JOBS_HELP = "Maximum concurrent cells. Use auto or a positive integer."
+_MAX_CELLS_HELP = (
+    "Maximum concurrent cells. Omit to use project configuration; "
+    "use auto or a positive integer."
+)
+_TY_JOBS_HELP = (
+    "Maximum concurrent ty checks. Omit to use project configuration; "
+    "use auto or a positive integer."
+)
+_TEST_JOBS_HELP = (
+    "Maximum concurrent configured test commands. Omit to use project "
+    "configuration; use auto or a positive integer."
+)
 _DURATION_HELP = (
     "Stop scheduling after DURATION and save an incomplete report. "
     "Accepts a positive integer followed by s, m, or h; use none for no limit."
 )
 _PACKAGE = Annotated[str | None, Parameter(help=_PACKAGE_HELP)]
-_JOBS = Annotated[str, Parameter(help=_JOBS_HELP)]
+_MAX_CELLS = Annotated[str | None, Parameter(help=_MAX_CELLS_HELP)]
+_TY_JOBS = Annotated[str | None, Parameter(help=_TY_JOBS_HELP)]
+_TEST_JOBS = Annotated[str | None, Parameter(help=_TEST_JOBS_HELP)]
 _DURATION = Annotated[str | None, Parameter(help=_DURATION_HELP)]
 _FAILURE_ID = Annotated[
     str,
@@ -142,9 +155,15 @@ _FIND = Group("Find and apply floors", sort_key=2)
 _INSPECT = Group("Inspect and combine reports", sort_key=3)
 
 
-def _cli_jobs(value: str) -> Literal["auto"] | int:
+def _cli_scheduling_limit(
+    value: str | None,
+    *,
+    field: str,
+) -> Literal["auto"] | int | None:
+    if value is None:
+        return None
     try:
-        return parse_jobs(value)
+        return parse_scheduling_limit(value, field=field)
     except ConfigurationError as error:
         raise InvocationError(str(error)) from error
 
@@ -215,14 +234,18 @@ def create_app(context: CliContext) -> App:
     def smoke(
         *,
         package: _PACKAGE = None,
-        jobs: _JOBS = "auto",
+        max_cells: _MAX_CELLS = None,
+        ty_jobs: _TY_JOBS = None,
+        test_jobs: _TEST_JOBS = None,
     ) -> int:
         """Verify a fresh install with the newest versions allowed by current declarations."""
         context.presenter.bind_command("smoke")
         request = SmokeRequest(
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
-            jobs=_cli_jobs(jobs),
+            max_cells=_cli_scheduling_limit(max_cells, field="max-cells"),
+            ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
+            test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
         )
         return context.presenter.render_smoke(context.smoke_workflow.run(request))
 
@@ -230,14 +253,18 @@ def create_app(context: CliContext) -> App:
     def check(
         *,
         package: _PACKAGE = None,
-        jobs: _JOBS = "auto",
+        max_cells: _MAX_CELLS = None,
+        ty_jobs: _TY_JOBS = None,
+        test_jobs: _TEST_JOBS = None,
     ) -> int:
         """Verify the lower bounds declared by the project."""
         context.presenter.bind_command("check")
         request = CheckRequest(
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
-            jobs=_cli_jobs(jobs),
+            max_cells=_cli_scheduling_limit(max_cells, field="max-cells"),
+            ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
+            test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
         )
         result = context.check_workflow.run(request)
         return context.presenter.render_check(result)
@@ -246,7 +273,9 @@ def create_app(context: CliContext) -> App:
     def search(
         *,
         package: _PACKAGE = None,
-        jobs: _JOBS = "auto",
+        max_cells: _MAX_CELLS = None,
+        ty_jobs: _TY_JOBS = None,
+        test_jobs: _TEST_JOBS = None,
         max_duration: _DURATION = None,
     ) -> int:
         """Find verified floors and write package-floor.json."""
@@ -254,7 +283,9 @@ def create_app(context: CliContext) -> App:
         request = SearchRequest(
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
-            jobs=_cli_jobs(jobs),
+            max_cells=_cli_scheduling_limit(max_cells, field="max-cells"),
+            ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
+            test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
             max_duration_seconds=_cli_duration(max_duration),
         )
         return context.presenter.render_search(context.search_workflow.run(request))
@@ -293,7 +324,9 @@ def create_app(context: CliContext) -> App:
     def minimize(
         *,
         package: _PACKAGE = None,
-        jobs: _JOBS = "auto",
+        max_cells: _MAX_CELLS = None,
+        ty_jobs: _TY_JOBS = None,
+        test_jobs: _TEST_JOBS = None,
         max_duration: _DURATION = None,
     ) -> int:
         """Search for floors, then apply the authorized result."""
@@ -303,7 +336,9 @@ def create_app(context: CliContext) -> App:
             SearchRequest(
                 root=root,
                 selector=_cli_selector(package),
-                jobs=_cli_jobs(jobs),
+                max_cells=_cli_scheduling_limit(max_cells, field="max-cells"),
+                ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
+                test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
                 max_duration_seconds=_cli_duration(max_duration),
             )
         )
@@ -395,12 +430,14 @@ def _assemble_context(
         redactor=redactor,
     )
     environments = EnvironmentFactory(uv, events=presenter)
-    static = StaticEvaluator(TyAdapter(runner), events=presenter)
+    permits = StagePermitPools()
+    static = StaticEvaluator(TyAdapter(runner), events=presenter, permits=permits)
     full = RuntimeEvaluator(
         static=static,
         verifier=ConfiguredVerifier(runner),
         witnesses=RuntimeWitnessAdapter(runner),
         events=presenter,
+        permits=permits,
     )
     checker = CompatibilityChecker(
         environments=environments,
@@ -421,6 +458,7 @@ def _assemble_context(
         events=presenter,
         logs=logs,
         host_target=host_target(),
+        permits=permits,
     )
     return CliContext(
         check_workflow=CheckCommandWorkflow(

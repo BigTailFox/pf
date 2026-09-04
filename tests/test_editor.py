@@ -78,7 +78,7 @@ def _authorization(
                 requires_python=package.requires_python,
             ),
             scope="DECLARED_MATRIX",
-            declared_platforms=package.config.platform,
+            declared_platforms=package.config.target.platforms or (),
             selected_selectors=(
                 ApplySelector(
                     sys_platform="linux",
@@ -152,8 +152,8 @@ dependencies = [
 ]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """,
         encoding="utf-8",
@@ -280,8 +280,8 @@ dependencies = [
 ]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """,
             encoding="utf-8",
@@ -311,8 +311,8 @@ test-command = ["pytest"]
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
@@ -349,8 +349,8 @@ test-command = ["pytest"]
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )

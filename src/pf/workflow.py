@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
+from pf.config import resolve_run_limits
 from pf.errors import (
     ConfigurationError,
     DiagnoseNotFoundError,
@@ -12,6 +13,7 @@ from pf.errors import (
     MergeInputError,
     MergeOutputError,
 )
+from pf.evaluation import require_full_evaluation_contract
 from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
@@ -95,6 +97,14 @@ class CheckCommandWorkflow:
             root=root,
             selector=request.selector,
         )
+        package = project.target
+        require_full_evaluation_contract(package, "check")
+        limits = resolve_run_limits(
+            package.config.scheduling,
+            max_cells=request.max_cells,
+            ty_jobs=request.ty_jobs,
+            test_jobs=request.test_jobs,
+        )
         self._emit(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(
             root,
@@ -102,7 +112,6 @@ class CheckCommandWorkflow:
         )
         try:
             self._emit(StatusEvent(message="checking declarations"))
-            package = project.target
             source_plan = SourcePlan.for_package(package, "SEARCH")
             outcomes = self._verification.run(
                 CheckVerificationRun(
@@ -110,7 +119,7 @@ class CheckCommandWorkflow:
                     source_plan=source_plan,
                     snapshot=snapshot,
                     operation=self._checker,
-                    jobs=request.jobs,
+                    limits=limits,
                 )
             )
             result = self._aggregate(outcomes)
@@ -179,6 +188,14 @@ class SmokeCommandWorkflow:
             root=root,
             selector=request.selector,
         )
+        package = project.target
+        require_full_evaluation_contract(package, "smoke")
+        limits = resolve_run_limits(
+            package.config.scheduling,
+            max_cells=request.max_cells,
+            ty_jobs=request.ty_jobs,
+            test_jobs=request.test_jobs,
+        )
         self._emit(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(
             root,
@@ -186,7 +203,6 @@ class SmokeCommandWorkflow:
         )
         try:
             self._emit(StatusEvent(message="smoke testing"))
-            package = project.target
             source_plan = SourcePlan.for_package(package, "DEVELOPMENT")
             outcomes = self._verification.run(
                 SmokeVerificationRun(
@@ -194,7 +210,7 @@ class SmokeCommandWorkflow:
                     source_plan=source_plan,
                     snapshot=snapshot,
                     operation=self._verifier,
-                    jobs=request.jobs,
+                    limits=limits,
                 ),
             )
             result = self._aggregate(outcomes)
@@ -267,6 +283,15 @@ class SearchCommandWorkflow:
             root=root,
             selector=request.selector,
         )
+        package = project.target
+        require_full_evaluation_contract(package, "search")
+        limits = resolve_run_limits(
+            package.config.scheduling,
+            max_cells=request.max_cells,
+            ty_jobs=request.ty_jobs,
+            test_jobs=request.test_jobs,
+            max_duration_seconds=request.max_duration_seconds,
+        )
         self._events.consume(StatusEvent(message="building snapshot"))
         snapshot = self._snapshots.build(
             root,
@@ -274,7 +299,6 @@ class SearchCommandWorkflow:
         )
         try:
             self._events.consume(StatusEvent(message="searching cells"))
-            package = project.target
             source_plan = SourcePlan.for_package(package, "SEARCH")
             results = self._verification.run(
                 SearchVerificationRun(
@@ -282,8 +306,7 @@ class SearchCommandWorkflow:
                     source_plan=source_plan,
                     snapshot=snapshot,
                     operation=self._coordinator,
-                    jobs=request.jobs,
-                    max_duration_seconds=request.max_duration_seconds,
+                    limits=limits,
                 )
             )
             self._assert_source_snapshot_current(root=root, expected=snapshot)

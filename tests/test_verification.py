@@ -11,7 +11,7 @@ import pytest
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
-from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import EffectiveConfig, RunLimits, TestConfig as PfTestConfig
 from pf.schemas.evaluation import (
     ActivityEvent,
     Attempt,
@@ -147,7 +147,9 @@ def _package(
         name="demo",
         pyproject_path="pyproject.toml",
         config=EffectiveConfig(
-            test_command=("pytest",) if full_contract else (),
+            test=PfTestConfig(
+                command=("pytest",) if full_contract else None,
+            ),
         ),
         declarations=(),
         cells=cells,
@@ -329,7 +331,7 @@ def _search_request(
     snapshot: SourceSnapshot,
     operation: CellSearchOperations,
     *,
-    jobs: int | Literal["auto"] = 1,
+    jobs: int = 1,
     duration: float | None = None,
 ) -> SearchVerificationRun:
     return SearchVerificationRun(
@@ -337,7 +339,19 @@ def _search_request(
         source_plan=SourcePlan.for_package(package, "SEARCH"),
         snapshot=snapshot,
         operation=operation,
-        jobs=jobs,
+        limits=_limits(max_cells=jobs, duration=duration),
+    )
+
+
+def _limits(
+    *,
+    max_cells: int = 1,
+    duration: float | None = None,
+) -> RunLimits:
+    return RunLimits(
+        max_cells=max_cells,
+        ty_jobs=max_cells,
+        test_jobs=max_cells,
         max_duration_seconds=duration,
     )
 
@@ -376,8 +390,7 @@ class TestVerificationRunnerRequest:
                 source_plan=source_plan,
                 snapshot=snapshot,
                 operation=operation,
-                jobs=1,
-                max_duration_seconds=None,
+                limits=_limits(),
             )
         )
 
@@ -427,7 +440,7 @@ class TestVerificationRunnerRequest:
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 operation=_CheckOperation(lambda *_: check),
-                jobs=1,
+                limits=_limits(),
             )
         )
         smoke_results = runner.run(
@@ -436,7 +449,7 @@ class TestVerificationRunnerRequest:
                 source_plan=SourcePlan.for_package(package, "DEVELOPMENT"),
                 snapshot=snapshot,
                 operation=_SmokeOperation(lambda *_: smoke),
-                jobs=1,
+                limits=_limits(),
             )
         )
 
@@ -476,25 +489,12 @@ class TestVerificationRunnerAdmission:
         jobs: object,
     ) -> None:
         snapshot, package = _case(tmp_path)
-        called = False
-
-        def run(*_: object) -> CellResult:
-            nonlocal called
-            called = True
-            return _search_indeterminate(package, snapshot, package.cells[0])
-
-        request = _search_request(
-            package,
-            snapshot,
-            _SearchOperation(run),
-            jobs=cast(int, jobs),
-        )
-
-        with pytest.raises(ValueError, match="jobs"):
-            VerificationRunner(
-                events=_Events(), logs=None, host_target=HOST
-            ).run(request)
-        assert called is False
+        with pytest.raises(ValueError, match="max_cells|integer"):
+            RunLimits(
+                max_cells=cast(int, jobs),
+                ty_jobs=1,
+                test_jobs=1,
+            )
         snapshot.close()
 
     @pytest.mark.parametrize("duration", [0.0, -1.0, float("inf"), float("nan")])
@@ -504,19 +504,8 @@ class TestVerificationRunnerAdmission:
         duration: float,
     ) -> None:
         snapshot, package = _case(tmp_path)
-        request = _search_request(
-            package,
-            snapshot,
-            _SearchOperation(
-                lambda *_: pytest.fail("invalid duration must not start operation")
-            ),
-            duration=duration,
-        )
-
         with pytest.raises(ValueError, match="duration"):
-            VerificationRunner(
-                events=_Events(), logs=None, host_target=HOST
-            ).run(request)
+            _limits(duration=duration)
         snapshot.close()
 
     def test_source_mode_mismatch_stops_before_matrix(self, tmp_path: Path) -> None:
@@ -529,8 +518,7 @@ class TestVerificationRunnerAdmission:
             operation=_SearchOperation(
                 lambda *_: pytest.fail("source mismatch must not start operation")
             ),
-            jobs=1,
-            max_duration_seconds=None,
+            limits=_limits(),
         )
 
         with pytest.raises(ValueError, match="source mode does not match"):
@@ -559,8 +547,7 @@ class TestVerificationRunnerAdmission:
             operation=_SearchOperation(
                 lambda *_: pytest.fail("route mismatch must not start operation")
             ),
-            jobs=1,
-            max_duration_seconds=None,
+            limits=_limits(),
         )
 
         with pytest.raises(ValueError, match="source plan does not match"):
@@ -586,7 +573,7 @@ class TestVerificationRunnerAdmission:
                 CheckCellOperations,
                 object(),
             ),
-            jobs=1,
+            limits=_limits(),
         )
 
         with pytest.raises(ConfigurationError, match="test-command"):
@@ -595,28 +582,30 @@ class TestVerificationRunnerAdmission:
             ).run(request)
         snapshot.close()
 
-    def test_search_empty_host_set_skips_full_contract(self, tmp_path: Path) -> None:
+    def test_search_empty_host_set_still_requires_full_contract(
+        self,
+        tmp_path: Path,
+    ) -> None:
         snapshot, package = _case(
             tmp_path,
             cells=(_cell(target="aarch64-apple-darwin"),),
             full_contract=False,
         )
         events = _Events()
-        results = VerificationRunner(
-            events=events,
-            logs=None,
-            host_target=HOST,
-        ).run(
-            _search_request(
-                package,
-                snapshot,
-                _SearchOperation(
-                    lambda *_: pytest.fail("empty Run must not start operation")
-                ),
+        with pytest.raises(ConfigurationError, match="test-command"):
+            VerificationRunner(
+                events=events,
+                logs=None,
+                host_target=HOST,
+            ).run(
+                _search_request(
+                    package,
+                    snapshot,
+                    _SearchOperation(
+                        lambda *_: pytest.fail("empty Run must not start operation")
+                    ),
+                )
             )
-        )
-
-        assert results == ()
         matrix = next(item for item in events.items if isinstance(item, CellMatrixEvent))
         assert matrix.cells == ()
         assert not any(isinstance(item, CellCompletedEvent) for item in events.items)
@@ -797,7 +786,7 @@ class TestVerificationRunnerProjection:
                     source_plan=SourcePlan.for_package(package, "SEARCH"),
                     snapshot=snapshot,
                     operation=cast(CheckCellOperations, WrongOperation()),
-                    jobs=1,
+                    limits=_limits(),
                 )
             )
         assert not any(isinstance(item, CellCompletedEvent) for item in events.items)
@@ -860,7 +849,7 @@ class TestVerificationRunnerProjection:
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 operation=_CheckOperation(lambda *_: outcome),
-                jobs=1,
+                limits=_limits(),
             )
         )
 
@@ -900,7 +889,7 @@ class TestVerificationRunnerProjection:
                 source_plan=SourcePlan.for_package(package, "DEVELOPMENT"),
                 snapshot=snapshot,
                 operation=_SmokeOperation(lambda *_: outcome),
-                jobs=1,
+                limits=_limits(),
             )
         )
 
@@ -1008,7 +997,7 @@ class TestVerificationRunnerDurability:
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
                 snapshot=snapshot,
                 operation=_CheckOperation(lambda *_: outcome),
-                jobs=1,
+                limits=_limits(),
             )
         )
 
@@ -1025,7 +1014,7 @@ class TestVerificationRunnerDurability:
         snapshot, package = _case(
             tmp_path,
             cells=(_cell(target="aarch64-apple-darwin"),),
-            full_contract=False,
+            full_contract=True,
         )
         journals: list[VerificationJournal] = []
 
@@ -1067,7 +1056,7 @@ class TestVerificationRunnerDurability:
         snapshot, package = _case(
             tmp_path,
             cells=(_cell(target="aarch64-apple-darwin"),),
-            full_contract=False,
+            full_contract=True,
         )
 
         class FailingLogs:

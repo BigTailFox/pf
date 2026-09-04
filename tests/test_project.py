@@ -37,8 +37,8 @@ dependencies = ["idna"]
 {configuration}
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
         + "\n",
@@ -53,9 +53,6 @@ class TestProjectDiscovery:
             "tool = 1\n",
             "[tool]\nuv = 1\n",
             "[tool.uv]\nworkspace = 1\n",
-            "[tool]\npf = 1\n",
-            "[tool.pf]\npackage = 1\n",
-            "[tool.pf.package]\ndemo = 1\n",
             '[tool.uv.workspace]\nmembers = "packages/*"\n',
             "[tool.uv.workspace]\nmembers = [1]\n",
         ),
@@ -63,9 +60,6 @@ class TestProjectDiscovery:
             "tool",
             "uv",
             "workspace",
-            "pf",
-            "package-map",
-            "package-entry",
             "member-string",
             "member-item",
         ),
@@ -114,9 +108,9 @@ class TestProjectDiscovery:
     test = ["pytest"]
 
     [tool.pf]
-    python = ["3.10", "3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    extras = "each"
+    pythons = ["3.10", "3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    extra-policy = "each"
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -193,6 +187,57 @@ class TestProjectDiscovery:
             "pyproject.toml",
         )
 
+    def test_member_target_combines_root_and_member_test_groups(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "workspace-root"
+    version = "0.1.0"
+
+    [tool.uv.workspace]
+    members = ["packages/demo"]
+
+    [dependency-groups]
+    qa = ["root-tool"]
+
+    [tool.pf]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    test-group = "qa"
+    test-command = ["pytest"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        member = tmp_path / "packages" / "demo"
+        member.mkdir(parents=True)
+        (member / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+
+    [dependency-groups]
+    qa = ["member-tool"]
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        package = ProjectLoader().load(
+            root=tmp_path,
+            selector=WorkspacePackage(canonical_name="demo"),
+        ).target
+
+        assert package.test_group_present is True
+        assert tuple(
+            (requirement.name, requirement.provenance.owner)
+            for requirement in package.harness_requirements
+        ) == (("root-tool", "root"), ("member-tool", "package"))
+
     def test_non_package_root_requires_an_explicit_member_selector(
         self,
         tmp_path: Path,
@@ -214,31 +259,6 @@ class TestProjectDiscovery:
         assert "workspace root has no installable [project]" in str(caught.value)
         assert caught.value.candidates == ("demo",)
 
-    @pytest.mark.parametrize(
-        ("configuration", "field"),
-        (
-            ('packages = ["demo"]', "packages"),
-            ('exclude-packages = ["demo"]', "exclude-packages"),
-            ('[tool.pf.package.demo]\npath = "packages/demo"', "path"),
-        ),
-    )
-    def test_legacy_package_selection_configuration_is_rejected(
-        self,
-        tmp_path: Path,
-        configuration: str,
-        field: str,
-    ) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            f'[project]\nname = "demo"\nversion = "1"\n[tool.pf]\n{configuration}\n',
-            encoding="utf-8",
-        )
-
-        with pytest.raises(ConfigurationError) as caught:
-            ProjectLoader().load(root=tmp_path)
-
-        assert field in str(caught.value)
-        assert "--package" in str(caught.value)
-
     def test_project_plan_owns_recursive_in_tree_path_package_metadata(
         self,
         tmp_path: Path,
@@ -251,8 +271,8 @@ class TestProjectDiscovery:
             '[project]\nname = "demo"\nversion = "1"\n'
             'dependencies = ["first"]\n'
             '[tool.uv.sources]\nfirst = { path = "vendor/first" }\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
@@ -700,9 +720,9 @@ fixed-lib = { workspace = true }
 members = ["packages/*"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
-extras = "each"
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
+extra-policy = "each"
 unmanaged-deps = ["unmanaged-lib"]
 test-command = ["pytest"]
 """.strip()
@@ -763,8 +783,8 @@ test-command = ["pytest"]
     members = ["packages/*"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -811,8 +831,8 @@ test = ["pytest"]
 pytest = { path = "vendor/pytest" }
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
             + "\n",
@@ -843,8 +863,8 @@ test-command = ["pytest"]
     ]
 
     [tool.pf]
-    python = ["3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -857,7 +877,7 @@ test-command = ["pytest"]
         ):
             ProjectLoader().load(root=tmp_path)
 
-    def test_explicit_extra_surfaces_must_cover_base_and_each_extra(
+    def test_extra_policy_and_custom_surfaces_form_a_normalized_union(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -871,20 +891,23 @@ test-command = ["pytest"]
     arrow = ["arrow-lib"]
 
     [tool.pf]
-    python = ["3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    extra-surfaces = [[], ["cuda", "arrow"]]
+    pythons = ["3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    extra-surfaces = [["cuda", "arrow", "cuda"], ["arrow", "cuda"]]
     test-command = ["pytest"]
     """.strip()
             + "\n",
             encoding="utf-8",
         )
 
-        with pytest.raises(
-            ConfigurationError,
-            match="extra-surfaces must include each single extra: arrow",
-        ):
-            ProjectLoader().load(root=tmp_path)
+        package = ProjectLoader().load(root=tmp_path).target
+
+        assert [cell.extra_surface for cell in package.cells] == [
+            (),
+            ("arrow",),
+            ("cuda",),
+            ("arrow", "cuda"),
+        ]
 
     def test_fixed_dependency_cannot_be_explicitly_managed(
         self, tmp_path: Path
@@ -898,8 +921,8 @@ test-command = ["pytest"]
 
     [tool.pf]
     managed-deps = ["requests"]
-    python = ["3.11"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -910,6 +933,108 @@ test-command = ["pytest"]
             ConfigurationError,
             match="fixed dependency cannot be managed: requests",
         ):
+            ProjectLoader().load(root=tmp_path)
+
+    def test_project_loader_binds_complete_search_policy_per_managed_dependency(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    dependencies = ["numpy>=1", "requests>=2", "click==8.1.8"]
+
+    [tool.pf]
+    pythons = ["3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    search-step = "patch"
+    test-command = ["pytest"]
+
+    [[tool.pf.dep]]
+    name = "numpy"
+    search-space = ">=1.20,<2"
+    search-prereleases = true
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        package = ProjectLoader().load(root=tmp_path).target
+
+        assert tuple(
+            policy.model_dump() for policy in package.dependency_search_policies
+        ) == (
+            {
+                "name": "numpy",
+                "space": "<2,>=1.20",
+                "step": "patch",
+                "prereleases": True,
+            },
+            {
+                "name": "requests",
+                "space": "all",
+                "step": "patch",
+                "prereleases": False,
+            },
+        )
+        assert package.search_policy_for("numpy") is (
+            package.dependency_search_policies[0]
+        )
+
+    @pytest.mark.parametrize(
+        ("dependencies", "selection", "override", "message"),
+        (
+            (
+                '["numpy>=1"]',
+                "",
+                "missing",
+                "not a direct dependency: missing",
+            ),
+            (
+                '["click==8.1.8"]',
+                "",
+                "click",
+                "names a fixed dependency: click",
+            ),
+            (
+                '["requests>=2"]',
+                'unmanaged-deps = ["requests"]',
+                "requests",
+                "names an unmanaged dependency: requests",
+            ),
+        ),
+    )
+    def test_project_loader_rejects_unqualified_dependency_search_override(
+        self,
+        tmp_path: Path,
+        dependencies: str,
+        selection: str,
+        override: str,
+        message: str,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            f"""
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    dependencies = {dependencies}
+
+    [tool.pf]
+    pythons = ["3.11"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    test-command = ["pytest"]
+    {selection}
+
+    [[tool.pf.dep]]
+    name = "{override}"
+    """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError, match=message):
             ProjectLoader().load(root=tmp_path)
 
     def test_managed_dependency_rejects_marker_dimensions_apply_cannot_project(
@@ -924,8 +1049,8 @@ test-command = ["pytest"]
     dependencies = ["idna; implementation_name == 'cpython'"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -966,8 +1091,8 @@ test-command = ["pytest"]
     idna = {{ index = "private" }}
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -997,8 +1122,8 @@ test-command = ["pytest"]
     default = true
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1031,7 +1156,7 @@ test-command = ["pytest"]
     requires-python = ">=3.11,<3.13"
 
     [tool.pf]
-    platform = ["x86_64-unknown-linux-gnu"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1060,8 +1185,8 @@ test-command = ["pytest"]
     dependencies = ["demo-lib @ https://example.test/demo.whl#sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1093,8 +1218,8 @@ class TestTargetPlatform:
     dependencies = ["idna; platform_machine == 'arm64'"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["aarch64-apple-darwin"]
+    pythons = ["3.10"]
+    platforms = ["aarch64-apple-darwin"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1183,8 +1308,8 @@ class TestProjectLoader:
             'dependencies = ["member"]\n'
             '[tool.uv.workspace]\nmembers = ["packages/*"]\n'
             '[tool.uv.sources]\nmember = { workspace = true }\n'
-            '[tool.pf]\npython = ["3.10"]\n'
-            'platform = ["x86_64-unknown-linux-gnu"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\n'
             'test-command = ["pytest"]\n',
             encoding="utf-8",
         )
@@ -1204,7 +1329,7 @@ class TestProjectLoader:
                 (root / "pyproject.toml").write_text(
                     '[project]\nname = "changed"\nversion = "2"\n'
                     'dependencies = ["other"]\n'
-                    '[tool.pf]\npython = ["3.12"]\n',
+                    '[tool.pf]\npythons = ["3.12"]\n',
                     encoding="utf-8",
                 )
                 (root / "packages" / "member" / "pyproject.toml").write_text(
@@ -1216,7 +1341,7 @@ class TestProjectLoader:
         package = ProjectLoader(discovery=MutatingDiscovery()).load(root=tmp_path).target
 
         assert package.name == "demo"
-        assert package.config.python == ("3.10",)
+        assert package.config.target.python_minors == ("3.10",)
         assert tuple(item.name for item in package.declarations) == ("member",)
         assert package.source_routes[0].workspace_member_version == (
             StaticWorkspaceMemberVersion(value="1")
@@ -1345,8 +1470,8 @@ class TestProjectLoader:
     dependencies = [{dependency!r}]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1391,24 +1516,12 @@ class TestProjectLoader:
             )
         assert caught.value.candidates == ("demo",)
 
-    @pytest.mark.parametrize(
-        ("surface", "message"),
-        (
-            ('extra-surfaces = [["gpu"]]', "include the base surface"),
-            (
-                'extra-surfaces = [[], ["missing"]]',
-                "unknown extra in extra-surfaces",
-            ),
-        ),
-    )
-    def test_project_loader_rejects_invalid_explicit_extra_surfaces(
+    def test_project_loader_rejects_unknown_custom_extra_surfaces(
         self,
         tmp_path: Path,
-        surface: str,
-        message: str,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
-            f"""
+            """
     [project]
     name = "demo"
     version = "0.1.0"
@@ -1417,16 +1530,16 @@ class TestProjectLoader:
     gpu = ["gpu-lib"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
-    {surface}
+    extra-surfaces = [[], ["missing"]]
     """.strip()
             + "\n",
             encoding="utf-8",
         )
 
-        with pytest.raises(ConfigurationError, match=message):
+        with pytest.raises(ConfigurationError, match="unknown extra in extra-surfaces"):
             ProjectLoader().load(root=tmp_path)
 
     @pytest.mark.parametrize(
@@ -1453,9 +1566,9 @@ class TestProjectLoader:
     b = ["b-lib"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    extras = "{extras}"
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    extra-policy = "{extras}"
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -1492,8 +1605,8 @@ class TestProjectLoader:
     {groups}
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",

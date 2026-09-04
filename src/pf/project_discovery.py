@@ -139,7 +139,6 @@ class ProjectDiscovery:
         root_observation = self._observe(root_pyproject)
         observations = {root_pyproject: root_observation}
         document = root_observation.document
-        self._validate_obsolete_selection(document)
         members, excludes = self._workspace_patterns(document)
 
         excluded_paths: set[Path] = set()
@@ -345,30 +344,6 @@ class ProjectDiscovery:
                 workspace.get("exclude", ()), "workspace exclude"
             ),
         )
-
-    @staticmethod
-    def _validate_obsolete_selection(document: Mapping[str, Any]) -> None:
-        tool = document.get("tool", {})
-        pf = tool.get("pf", {}) if isinstance(tool, Mapping) else {}
-        if not isinstance(pf, Mapping):
-            raise ConfigurationError("tool.pf metadata must be a table")
-        for field_name in ("packages", "exclude-packages"):
-            if field_name in pf:
-                raise ConfigurationError(
-                    f"[tool.pf].{field_name} is no longer supported; "
-                    "select one target with --package PACKAGE"
-                )
-        package_patches = pf.get("package", {})
-        if not isinstance(package_patches, Mapping):
-            raise ConfigurationError("tool.pf.package metadata must be a table")
-        for name, package_patch in package_patches.items():
-            if not isinstance(package_patch, Mapping):
-                raise ConfigurationError("tool.pf.package entry must be a table")
-            if "path" in package_patch:
-                raise ConfigurationError(
-                    f"[tool.pf.package.{name}].path is no longer supported; "
-                    "workspace discovery owns package paths and --package selects the target"
-                )
 
     @staticmethod
     def _validate_unique_names(

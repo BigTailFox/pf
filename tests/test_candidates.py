@@ -51,6 +51,7 @@ class CandidateIndex:
 
 
 def configured_package(tmp_path: Path, policy: str) -> PackagePlan:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "pyproject.toml").write_text(
         f"""
 [project]
@@ -59,8 +60,8 @@ version = "0.1.0"
 dependencies = ["demo-dep"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 {policy}
 """.strip()
@@ -109,8 +110,8 @@ dependencies = ["idna"]
 test = ["pytest"]
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["pytest"]
 """.strip()
             + "\n",
@@ -149,10 +150,10 @@ test-command = ["pytest"]
     dependencies = ["demo-dep<2,!=1.0.0"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
-    release-granularity = "minor"
-    distribution = "wheel"
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
+    search-step = "minor"
+    resolve-artifact = "wheel"
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -196,8 +197,8 @@ test-command = ["pytest"]
     dependencies = ["demo-dep"]
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
     """.strip()
             + "\n",
@@ -218,24 +219,24 @@ test-command = ["pytest"]
         (
             ('search-space = "current-major"', "2.0.0", ["2.0.0"]),
             (
-                'search-space = "current-minor"\nrelease-granularity = "patch"',
+                'search-space = "current-minor"\nsearch-step = "patch"',
                 "1.1.1",
                 ["1.1.1"],
             ),
             (
-                'search-space = ["demo-dep>=1.0,<1.1"]\nrelease-granularity = "patch"',
+                'search-step = "patch"\n[[tool.pf.dep]]\nname = "demo-dep"\nsearch-space = ">=1.0,<1.1"',
                 "1.1.1",
                 ["1.0.1"],
             ),
-            ('distribution = "sdist"', "1.1.1", ["1.1.0"]),
+            ('resolve-artifact = "sdist"', "1.1.1", ["1.1.0"]),
             (
-                'distribution = "any"\nallow-prereleases = true\nrelease-granularity = "patch"',
+                'resolve-artifact = "any"\nsearch-prereleases = true\nsearch-step = "patch"',
                 "1.1.1",
                 ["0.9.9", "1.0.1", "1.1.0", "1.1.1"],
             ),
         ),
     )
-    def test_candidate_builder_applies_each_search_and_distribution_policy(
+    def test_candidate_builder_applies_each_search_and_artifact_policy(
         self,
         tmp_path: Path,
         policy: str,
@@ -252,6 +253,77 @@ test-command = ["pytest"]
         )
 
         assert [candidate.version for candidate in snapshots[0].candidates] == expected
+
+    @pytest.mark.parametrize(
+        ("prereleases", "expected"),
+        ((False, ["0.9"]), (True, ["0.9", "1.0rc1"])),
+    )
+    def test_search_prereleases_only_changes_frozen_candidates(
+        self,
+        tmp_path: Path,
+        prereleases: bool,
+        expected: list[str],
+    ) -> None:
+        class PrereleaseIndex:
+            def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
+                def candidate(version: str) -> AvailableCandidate:
+                    return AvailableCandidate(
+                        version=version,
+                        artifacts=(
+                            AvailableArtifact(
+                                filename=f"demo_dep-{version}-py3-none-any.whl",
+                                kind="wheel",
+                                content_hash=f"sha256:{version}",
+                                python_minors=("3.10",),
+                                targets=("x86_64-unknown-linux-gnu",),
+                            ),
+                        ),
+                    )
+
+                return candidate("0.9"), candidate("1.0rc1")
+
+        package = configured_package(
+            tmp_path,
+            "\n".join(
+                (
+                    "[[tool.pf.dep]]",
+                    'name = "demo-dep"',
+                    'search-space = ">=0,<2"',
+                    f"search-prereleases = {str(prereleases).lower()}",
+                )
+            ),
+        )
+
+        snapshot = CandidateBuilder(PrereleaseIndex()).build(
+            package=package,
+            cell=package.cells[0],
+            baseline=(VersionPin(name="demo-dep", version="1.0rc1"),),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )[0]
+
+        assert [candidate.version for candidate in snapshot.candidates] == expected
+
+    def test_candidate_policy_identity_contains_only_named_policy_and_artifact(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        first = configured_package(tmp_path / "first", "")
+        unrelated = configured_package(
+            tmp_path / "unrelated",
+            'test-timeout = "1m"\nmax-cells = 1',
+        )
+        changed = configured_package(tmp_path / "changed", 'search-step = "patch"')
+
+        def identity(package: PackagePlan) -> str:
+            return CandidateBuilder(CandidateIndex()).build(
+                package=package,
+                cell=package.cells[0],
+                baseline=(VersionPin(name="demo-dep", version="1.1.1"),),
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+            )[0].policy_identity
+
+        assert identity(first) == identity(unrelated)
+        assert identity(first) != identity(changed)
 
     def test_candidate_builder_requires_baseline_and_registry_search_source(
         self,
@@ -311,7 +383,7 @@ test-command = ["pytest"]
                     ),
                 )
 
-        package = configured_package(tmp_path, 'distribution = "any"')
+        package = configured_package(tmp_path, 'resolve-artifact = "any"')
 
         with pytest.raises(NoApplicableFloorError):
             CandidateBuilder(WrongWheelIndex()).build(

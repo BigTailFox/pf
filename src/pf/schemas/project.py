@@ -344,7 +344,6 @@ class HarnessRequirement(FrozenSchema):
     requested_extras: tuple[str, ...] = ()
     specifier: tuple[HarnessSpecifierClause, ...] = ()
     marker: str | None = None
-    prerelease_allowed: bool = False
     original_text: str
 
     @staticmethod
@@ -750,6 +749,20 @@ class CandidateSnapshot(FrozenSchema):
         return self
 
 
+class NamedSearchPolicy(FrozenSchema):
+    name: str
+    space: str
+    step: Literal["major", "minor", "patch"]
+    prereleases: bool
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not is_canonical_distribution_name(value):
+            raise ValueError("search policy name must be canonical")
+        return value
+
+
 class PackagePlan(FrozenSchema):
     name: str
     pyproject_path: str
@@ -758,6 +771,7 @@ class PackagePlan(FrozenSchema):
     declarations: tuple[RequirementDeclaration, ...]
     cells: tuple[Cell, ...]
     source_routes: tuple[DependencySourceRoute, ...]
+    dependency_search_policies: tuple[NamedSearchPolicy, ...] = ()
     harness_requirements: tuple[HarnessRequirement, ...] = ()
     test_group_present: bool = False
 
@@ -772,7 +786,29 @@ class PackagePlan(FrozenSchema):
         }
         if not dependency_names <= set(names):
             raise ValueError("package source routes must cover every direct dependency")
+        policy_names = tuple(
+            policy.name for policy in self.dependency_search_policies
+        )
+        if policy_names != tuple(sorted(set(policy_names))):
+            raise ValueError("dependency search policies must be sorted and unique")
+        managed_searchable = {
+            declaration.name
+            for declaration in self.declarations
+            if declaration.managed and declaration.kind == "searchable"
+        }
+        if set(policy_names) != managed_searchable:
+            raise ValueError(
+                "dependency search policies must cover managed searchable dependencies"
+            )
         return self
+
+    def search_policy_for(self, dependency: str) -> NamedSearchPolicy:
+        if canonicalize_name(dependency) != dependency:
+            raise ValueError("search policy lookup requires a canonical name")
+        for policy in self.dependency_search_policies:
+            if policy.name == dependency:
+                return policy
+        raise ValueError(f"dependency search policy is missing: {dependency}")
 
 
 class ProjectPlan(FrozenSchema):

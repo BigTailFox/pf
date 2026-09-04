@@ -100,8 +100,8 @@ version = "0.1.0"
 test = []
 
 [tool.pf]
-python = ["3.10"]
-platform = ["x86_64-unknown-linux-gnu"]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["python", "-c", "pass"]
 """.strip()
         + "\n",
@@ -190,19 +190,37 @@ class ScriptedUv:
             name = requirement.declaration.name
             package = next((item for item in packages if item.name == name), None)
             if package is None:
+                version = requirement.ceiling or "8.4"
+                artifact = self._resolution_package(
+                    selected_candidate(name, version)
+                ).selected_artifact
+                assert artifact is not None
                 package = ResolutionPackage(
                     name=name,
-                    version=requirement.ceiling or "8.4",
+                    version=version,
                     source=source_plan.source_for(name),
+                    available_artifacts=(artifact,),
+                    selected_artifact=artifact,
                 )
                 packages.append(package)
             assert package.version is not None
+            selected_artifact = package.selected_artifact
+            harness_artifact = (
+                None
+                if selected_artifact is None
+                else AvailableArtifact(
+                    filename=selected_artifact.filename,
+                    kind=selected_artifact.kind,
+                    content_hash=selected_artifact.content_hash,
+                    locator=selected_artifact.locator,
+                )
+            )
             selections.append(
                 HarnessSelection(
                     name=name,
                     version=package.version,
                     source=package.source,
-                    selected_artifact=None,
+                    selected_artifact=harness_artifact,
                     ceiling_bound=requirement.ceiling is not None
                     or package.source.kind == "registry",
                 )
@@ -248,11 +266,7 @@ class ScriptedUv:
             return tuple(self._resolution_package(item) for item in resolution.selection)
         vector = self.lowest if isinstance(resolution, LowestDirectResolution) else self.highest
         return tuple(
-            ResolutionPackage(
-                name=pin.name,
-                version=pin.version,
-                source=SourceIdentity(kind="registry"),
-            )
+            self._resolution_package(selected_candidate(pin.name, pin.version))
             for pin in vector
         )
 
@@ -273,7 +287,6 @@ class ScriptedUv:
             available_artifacts=(resolved_artifact,),
             selected_artifact=resolved_artifact,
         )
-
     def create_environment(self, **kwargs: object) -> ToolSuccess:
         environment = cast(Path, kwargs["environment"])
         environment.mkdir(parents=True, exist_ok=True)

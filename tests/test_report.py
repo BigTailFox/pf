@@ -9,7 +9,7 @@ from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
-from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import EffectiveConfig, TestConfig as PfTestConfig
 from pf.schemas.evaluation import (
     CellFailureScope,
     FailureCause,
@@ -31,7 +31,7 @@ def package_for(cells: tuple[Cell, ...]) -> PackagePlan:
     return PackagePlan(
         name="demo",
         pyproject_path="pyproject.toml",
-        config=EffectiveConfig(test_timeout=1),
+        config=EffectiveConfig(test=PfTestConfig(timeout_seconds=1)),
         declarations=(),
         cells=cells,
         source_routes=(),

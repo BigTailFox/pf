@@ -96,6 +96,11 @@ _UV_SOURCE_ENVIRONMENT_REMOVALS = (
     "UV_INDEX_STRATEGY",
     "UV_NO_SOURCES",
     "UV_NO_SOURCES_PACKAGE",
+    "UV_PRERELEASE",
+    "UV_PRERELEASE_PACKAGE",
+    "UV_NO_BINARY",
+    "UV_ONLY_BINARY",
+    "UV_NO_BUILD",
 )
 
 
@@ -279,7 +284,7 @@ class UvAdapter:
         context: ResolutionContext,
         request_digest: str,
         work_directory: Path,
-        allow_prereleases: bool,
+        artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
         source_plan: SourcePlan,
     ) -> ResolutionOutcome:
@@ -294,7 +299,7 @@ class UvAdapter:
             project_plan=None,
             harness=(),
             work_directory=work_directory,
-            allow_prereleases=allow_prereleases,
+            artifact_policy=artifact_policy,
             timeout_seconds=timeout_seconds,
             source_plan=source_plan,
         )
@@ -311,7 +316,7 @@ class UvAdapter:
         project_plan: ResolutionPlan,
         harness: tuple[HarnessResolutionRequirement, ...],
         work_directory: Path,
-        allow_prereleases: bool,
+        artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
         source_plan: SourcePlan,
     ) -> ResolutionOutcome:
@@ -326,7 +331,7 @@ class UvAdapter:
             project_plan=project_plan,
             harness=harness,
             work_directory=work_directory,
-            allow_prereleases=allow_prereleases,
+            artifact_policy=artifact_policy,
             timeout_seconds=timeout_seconds,
             source_plan=source_plan,
         )
@@ -344,7 +349,7 @@ class UvAdapter:
         project_plan: ResolutionPlan | None,
         harness: tuple[HarnessResolutionRequirement, ...],
         work_directory: Path,
-        allow_prereleases: bool,
+        artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
         source_plan: SourcePlan,
     ) -> ResolutionOutcome:
@@ -398,10 +403,10 @@ class UvAdapter:
         ]
         for extra in cell.extra_surface:
             argv.extend(("--extra", extra))
-        if allow_prereleases or any(
-            item.declaration.prerelease_allowed for item in harness
-        ):
-            argv.extend(("--prerelease", "allow"))
+        if artifact_policy == "wheel":
+            argv.extend(("--only-binary", ":all:"))
+        elif artifact_policy == "sdist":
+            argv.extend(("--no-binary", ":all:"))
         for dependency in source_plan.registry_routed_workspace_dependencies():
             argv.extend(("--no-sources-package", dependency))
         if project_plan is not None:

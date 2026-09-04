@@ -321,8 +321,8 @@ class TestCliInterface:
         assert "Traceback" not in result.stderr
         assert "\x1b" not in result.stderr
 
-    def test_illegal_jobs_is_an_invocation_error(self) -> None:
-        result = invoke_app("check", "--jobs", "nope")
+    def test_illegal_stage_limit_is_an_invocation_error(self) -> None:
+        result = invoke_app("check", "--ty-jobs", "nope")
 
         assert result.returncode == 1
         assert "Error:" in result.stderr
@@ -361,8 +361,8 @@ class TestCliInterface:
     build-backend = "uv_build"
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     managed-deps = []
     test-command = ["python", "-c", "pass"]
     """.strip()
@@ -472,12 +472,15 @@ class TestCommandDispatch:
     @pytest.mark.parametrize(
         ("command", "expected_fragments"),
         (
-            ("smoke", ("--jobs", "auto")),
-            ("check", ("--jobs", "auto")),
-            ("search", ("--jobs", "auto", "--max-duration", "none")),
+            ("smoke", ("--max-cells", "--ty-jobs", "--test-jobs", "auto")),
+            ("check", ("--max-cells", "--ty-jobs", "--test-jobs", "auto")),
+            (
+                "search",
+                ("--max-cells", "--ty-jobs", "--test-jobs", "--max-duration", "none"),
+            ),
             ("explain", ()),
             ("apply", ("--force",)),
-            ("minimize", ()),
+            ("minimize", ("--max-cells", "--ty-jobs", "--test-jobs")),
             (
                 "diagnose",
                 (
@@ -544,7 +547,7 @@ class TestCommandDispatch:
         assert "Usage: pf diagnose FAILURE_ID [OPTIONS]" in result.stderr
         assert "Try 'pf diagnose --help' for more information." in result.stderr
 
-    def test_check_command_normalizes_jobs_before_workflow(
+    def test_check_command_normalizes_limits_before_workflow(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -570,7 +573,17 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["check", "--package", "demo", "--jobs", "2"],
+            [
+                "check",
+                "--package",
+                "demo",
+                "--max-cells",
+                "2",
+                "--ty-jobs",
+                "auto",
+                "--test-jobs",
+                "3",
+            ],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -579,7 +592,9 @@ class TestCommandDispatch:
         assert workflow.request == CheckRequest(
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
-            jobs=2,
+            max_cells=2,
+            ty_jobs="auto",
+            test_jobs=3,
         )
 
     def test_check_command_builds_a_request_and_renders_the_workflow_result(
@@ -617,7 +632,9 @@ class TestCommandDispatch:
         assert workflow.request is not None
         assert workflow.request.selector == WorkspacePackage(canonical_name="demo")
         assert workflow.request.root == tmp_path.as_posix()
-        assert workflow.request.jobs == "auto"
+        assert workflow.request.max_cells is None
+        assert workflow.request.ty_jobs is None
+        assert workflow.request.test_jobs is None
         assert stdout.getvalue() == "✓  Check passed · 0 cells\n"
         assert stderr.getvalue() == ""
 
@@ -648,7 +665,7 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["smoke", "--package", "demo", "--jobs", "2"],
+            ["smoke", "--package", "demo", "--max-cells", "2"],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -657,12 +674,12 @@ class TestCommandDispatch:
         assert workflow.request == SmokeRequest(
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
-            jobs=2,
+            max_cells=2,
         )
         assert stdout.getvalue() == "✓  Smoke passed · 0 cells\n"
         assert stderr.getvalue() == ""
 
-    def test_search_command_normalizes_jobs_and_duration_before_workflow(
+    def test_search_command_normalizes_limits_and_duration_before_workflow(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -693,7 +710,7 @@ class TestCommandDispatch:
                 "search",
                 "--package",
                 "demo",
-                "--jobs",
+                "--max-cells",
                 "2",
                 "--max-duration",
                 "1m",
@@ -706,7 +723,7 @@ class TestCommandDispatch:
         assert workflow.request == SearchRequest(
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
-            jobs=2,
+            max_cells=2,
             max_duration_seconds=60,
         )
         assert "Search complete · package-floor.json" in stdout.getvalue()

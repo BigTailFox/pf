@@ -122,8 +122,8 @@ class TestSmokeWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+    pythons = ["3.10"]
+    platforms = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -193,7 +193,7 @@ class TestSmokeWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=terminal,
-        ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
 
         assert result.status == "PASS"
         assert len(result.outcomes) == 1
@@ -223,8 +223,8 @@ class TestSmokeWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "raise SystemExit(1)"]
     """.strip()
             + "\n",
@@ -295,7 +295,7 @@ class TestSmokeWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=Events(),
-        ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
 
         assert result.status == "BASELINE_REJECTION"
 
@@ -313,8 +313,8 @@ class TestSmokeWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "pass"]
     """.strip()
             + "\n",
@@ -360,7 +360,7 @@ class TestSmokeWorkflow:
                 host_target="x86_64-unknown-linux-gnu",
             ),
             events=Events(),
-        ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
+        ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
 
         assert result.status == "INDETERMINATE"
         assert isinstance(result.outcomes[0], BaselineIndeterminate)
@@ -381,8 +381,8 @@ class TestSmokeWorkflow:
     test = []
 
     [tool.pf]
-    python = ["3.10"]
-    platform = ["x86_64-unknown-linux-gnu"]
+    pythons = ["3.10"]
+    platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["python", "-c", "raise SystemExit(1)"]
     """.strip()
             + "\n",
@@ -472,7 +472,7 @@ class TestSmokeWorkflow:
                     host_target="x86_64-unknown-linux-gnu",
                 ),
                 events=terminal,
-            ).run(SmokeRequest(root=tmp_path.as_posix(), jobs=1))
+            ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
 
         output = stderr.getvalue()
         assert "smoke failed at [baseline][highest][testing]" in output

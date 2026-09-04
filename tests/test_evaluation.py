@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock
+import time
 from typing import Literal
 
 import pytest
@@ -15,7 +18,7 @@ from evaluation_fixtures import (
 )
 
 from pf.environment import ExactSelection, HighestResolution, PreparedEnvironment
-from pf.evaluation import RuntimeEvaluator
+from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     AttemptFailureScope,
@@ -578,6 +581,120 @@ class TestEvaluationProgress:
             total=5,
             unit="tests",
         )
+        prepared.close()
+
+
+class TestStagePermitPools:
+    def test_ty_permits_bound_concurrent_public_static_evaluations(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project", dependency=None)
+        assembly = evaluation_assembly(highest=())
+        prepared = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+        lock = Lock()
+        active = 0
+        maximum_active = 0
+        calls: list[dict[str, object]] = []
+
+        class BlockingTy:
+            def check(self, **kwargs: object) -> TyCheck:
+                nonlocal active, maximum_active
+                with lock:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                    calls.append(kwargs)
+                time.sleep(0.05)
+                with lock:
+                    active -= 1
+                return empty_check()
+
+        static = StaticEvaluator(
+            BlockingTy(),
+            permits=StagePermitPools(ty_jobs=1, test_jobs=2),
+        )
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            captures = tuple(
+                executor.map(
+                    lambda _: static.capture(prepared, package=project.package),
+                    range(2),
+                )
+            )
+
+        assert all(isinstance(item, StaticBaselineCapture) for item in captures)
+        assert maximum_active == 1
+        assert len(calls) == 2
+        assert all("jobs" not in call for call in calls)
+        prepared.close()
+
+    def test_test_permits_bound_concurrent_public_runtime_evaluations(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project", dependency=None)
+        assembly = evaluation_assembly(highest=())
+        prepared = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+        capture = assembly.static.capture(prepared, package=project.package)
+        assert isinstance(capture, StaticBaselineCapture)
+        lock = Lock()
+        active = 0
+        maximum_active = 0
+        requests: list[VerifierRequest] = []
+
+        class BlockingVerifier:
+            def run(
+                self,
+                request: VerifierRequest,
+                progress: Callable[[StageProgress | None], None] | None = None,
+            ) -> VerifierRun:
+                del progress
+                nonlocal active, maximum_active
+                with lock:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                    requests.append(request)
+                time.sleep(0.05)
+                with lock:
+                    active -= 1
+                return VerifierRun(
+                    authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+                )
+
+        runtime = RuntimeEvaluator(
+            static=assembly.static,
+            verifier=BlockingVerifier(),
+            permits=StagePermitPools(ty_jobs=2, test_jobs=1),
+        )
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            runs = tuple(
+                executor.map(
+                    lambda _: runtime.evaluate(
+                        prepared,
+                        package=project.package,
+                        baseline=capture.baseline,
+                        static_result=capture.static,
+                    ),
+                    range(2),
+                )
+            )
+
+        assert all(run.evaluation.status == "PASS" for run in runs)
+        assert maximum_active == 1
+        assert len(requests) == 2
         prepared.close()
 
     def test_runtime_evaluator_uses_the_prepared_root_for_the_test_command(

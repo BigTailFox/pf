@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import math
 from pathlib import Path
 from threading import Lock
 import time
 from typing import ClassVar, Literal, Protocol, overload
 
 from pf.errors import ConfigurationError, InfrastructureError
-from pf.evaluation import require_full_evaluation_contract
+from pf.evaluation import StagePermitPools, require_full_evaluation_contract
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
@@ -44,6 +43,7 @@ from pf.schemas.evaluation import (
     VerificationRole,
 )
 from pf.schemas.project import Cell, PackagePlan, SourcePlan, cell_identity
+from pf.schemas.config import RunLimits
 from pf.schemas.report import (
     CellIndeterminate,
     CellResult,
@@ -93,9 +93,6 @@ class CellSearchOperations(Protocol):
     ) -> CellResult: ...
 
 
-RunJobs = int | Literal["auto"]
-
-
 @dataclass(frozen=True)
 class CheckVerificationRun:
     command: ClassVar[Literal["check"]] = "check"
@@ -103,7 +100,7 @@ class CheckVerificationRun:
     source_plan: SourcePlan
     snapshot: SourceSnapshot
     operation: CheckCellOperations
-    jobs: RunJobs
+    limits: RunLimits
 
 
 @dataclass(frozen=True)
@@ -113,7 +110,7 @@ class SmokeVerificationRun:
     source_plan: SourcePlan
     snapshot: SourceSnapshot
     operation: SmokeCellOperations
-    jobs: RunJobs
+    limits: RunLimits
 
 
 @dataclass(frozen=True)
@@ -123,8 +120,7 @@ class SearchVerificationRun:
     source_plan: SourcePlan
     snapshot: SourceSnapshot
     operation: CellSearchOperations
-    jobs: RunJobs
-    max_duration_seconds: float | None
+    limits: RunLimits
 
 
 VerificationRun = CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun
@@ -155,12 +151,14 @@ class VerificationRunner:
         logs: JournalStore | None,
         host_target: str,
         monotonic: Callable[[], float] = time.monotonic,
+        permits: StagePermitPools | None = None,
     ) -> None:
         self._scheduler = Scheduler(monotonic=monotonic)
         self._failures = FailurePolicy()
         self._events = events
         self._logs = logs
         self._host_target = host_target
+        self._permits = permits
 
     @overload
     def run(self, request: CheckVerificationRun) -> tuple[CheckCellOutcome, ...]: ...
@@ -180,11 +178,15 @@ class VerificationRunner:
             (CheckVerificationRun, SmokeVerificationRun, SearchVerificationRun),
         ):
             raise TypeError("unsupported verification request")
-        self._validate_limits(request)
         self._validate_source_plan(request)
         cells = self._host_cells(request.package)
         self._events.consume(_cell_matrix_event(request.package, cells))
         self._admit_evaluation(request, cells)
+        if self._permits is not None:
+            self._permits.configure(
+                ty_jobs=request.limits.ty_jobs,
+                test_jobs=request.limits.test_jobs,
+            )
 
         gate = _VerificationEvents(
             inner=self._events,
@@ -193,12 +195,8 @@ class VerificationRunner:
         )
         outcomes = self._scheduler.run(
             tuple(self._task(request, cell) for cell in cells),
-            jobs=request.jobs,
-            max_duration_seconds=(
-                request.max_duration_seconds
-                if isinstance(request, SearchVerificationRun)
-                else None
-            ),
+            jobs=request.limits.max_cells,
+            max_duration_seconds=request.limits.max_duration_seconds,
             on_started=lambda task: self._events.consume(
                 CellContextEvent(
                     cell=task.cell,
@@ -209,26 +207,6 @@ class VerificationRunner:
         )
         gate.finalize()
         return outcomes
-
-    @staticmethod
-    def _validate_limits(request: VerificationRun) -> None:
-        jobs = request.jobs
-        if jobs != "auto" and (
-            not isinstance(jobs, int) or isinstance(jobs, bool) or jobs <= 0
-        ):
-            raise ValueError("jobs must be 'auto' or a positive integer")
-        if not isinstance(request, SearchVerificationRun):
-            return
-        duration = request.max_duration_seconds
-        if duration is None:
-            return
-        if (
-            isinstance(duration, bool)
-            or not isinstance(duration, (int, float))
-            or not math.isfinite(duration)
-            or duration <= 0
-        ):
-            raise ValueError("search duration must be a positive finite value")
 
     @staticmethod
     def _validate_source_plan(request: VerificationRun) -> None:
@@ -255,8 +233,7 @@ class VerificationRunner:
         cells: tuple[Cell, ...],
     ) -> None:
         if isinstance(request, SearchVerificationRun):
-            if cells:
-                require_full_evaluation_contract(request.package, request.command)
+            require_full_evaluation_contract(request.package, request.command)
             return
         require_full_evaluation_contract(request.package, request.command)
         if not cells:
@@ -305,7 +282,7 @@ class VerificationRunner:
     ) -> Callable[[], VerificationResult] | None:
         if not isinstance(request, SearchVerificationRun):
             return None
-        if request.max_duration_seconds is None:
+        if request.limits.max_duration_seconds is None:
             return None
 
         def deadline_result() -> VerificationResult:

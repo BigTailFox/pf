@@ -29,7 +29,15 @@ CONFIGURED_VERIFIER_OUTCOME_POLICY = "configured-verifier-terminal-v1"
 def evaluation_policy_identity(config: EffectiveConfig) -> str:
     """Return the identity of every setting that changes evaluation evidence."""
     document = {
-        "config": config.model_dump(mode="json", exclude={"jobs"}),
+        "config": {
+            "resolution": config.resolution.model_dump(mode="json"),
+            "ty": config.ty.model_dump(mode="json"),
+            "test": {
+                "command": config.test.command,
+                "cwd": config.test.cwd,
+                "timeout_seconds": config.test.timeout_seconds,
+            },
+        },
         "tool_versions": {"ty": distribution_version("ty")},
         "verifier_outcome_policy": CONFIGURED_VERIFIER_OUTCOME_POLICY,
         "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,

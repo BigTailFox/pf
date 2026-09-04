@@ -58,6 +58,7 @@ from pf.schemas.project import (
     DependencySourceRoute,
     PackagePlan,
     InterpreterIdentity,
+    NamedSearchPolicy,
     Proposal,
     ResolvedNode,
     RequirementDeclaration,
@@ -748,6 +749,14 @@ class _CompleteReportCase:
                     search_source=source,
                 )
                 for name in (dependency, "fixed-dep")
+            ),
+            dependency_search_policies=(
+                NamedSearchPolicy(
+                    name=dependency,
+                    space="all",
+                    step="minor",
+                    prereleases=False,
+                ),
             ),
         )
         snapshot = SourceSnapshotIdentity(

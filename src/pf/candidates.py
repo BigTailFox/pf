@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import threading
 from typing import Protocol
 
-from packaging.requirements import Requirement
-from packaging.specifiers import Specifier
+from packaging.specifiers import Specifier, SpecifierSet
 from packaging.version import Version
 
 from pf.errors import ConfigurationError, NoApplicableFloorError
+from pf.schemas.base import canonical_identity_json
 from pf.schemas.project import (
     AvailableArtifact,
     AvailableCandidate,
     Candidate,
     CandidateSnapshot,
     Cell,
+    NamedSearchPolicy,
     PackagePlan,
     SourceIdentity,
     SourcePlan,
@@ -23,6 +23,23 @@ from pf.schemas.project import (
     candidate_snapshot_digest,
     cell_identity,
 )
+
+
+def candidate_policy_identity(
+    policy: NamedSearchPolicy,
+    *,
+    artifact: str,
+) -> str:
+    """Identify only the facts that select one dependency's candidates."""
+    return hashlib.sha256(
+        b"pf:candidate-policy:v1\0"
+        + canonical_identity_json(
+            {
+                "policy": policy.model_dump(mode="json"),
+                "artifact": artifact,
+            }
+        )
+    ).hexdigest()
 
 
 class CandidateProvider(Protocol):
@@ -63,14 +80,6 @@ class CandidateBuilder:
                 if declaration.managed and declaration.declaration_id in active_ids
             }
         )
-        policy_json = json.dumps(
-            package.config.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        policy_identity = hashlib.sha256(
-            f"pf:candidate-policy:v1\0{policy_json}".encode()
-        ).hexdigest()
         snapshots = []
         plan_identity = source_plan.identity
         for dependency in managed_names:
@@ -78,6 +87,11 @@ class CandidateBuilder:
                 raise ConfigurationError(
                     f"baseline is missing managed dependency: {dependency}"
                 )
+            policy = package.search_policy_for(dependency)
+            policy_identity = candidate_policy_identity(
+                policy,
+                artifact=package.config.resolution.artifact,
+            )
             declarations = tuple(
                 declaration
                 for declaration in package.declarations
@@ -106,13 +120,18 @@ class CandidateBuilder:
                 for specifier in declaration.specifier.split(",")
                 if specifier and Specifier(specifier).operator in {"<", "<=", "!="}
             )
-            search_requirement = self._search_requirement(package, dependency)
+            search_specifier = (
+                SpecifierSet(policy.space)
+                if policy.space
+                not in {"all", "current-major", "current-minor"}
+                else None
+            )
             eligible: list[tuple[Version, AvailableArtifact]] = []
             for raw_candidate in available:
                 version = Version(raw_candidate.version)
                 if raw_candidate.yanked:
                     continue
-                if version.is_prerelease and not package.config.allow_prereleases:
+                if version.is_prerelease and not policy.prereleases:
                     continue
                 if version > baseline_versions[dependency]:
                     continue
@@ -122,34 +141,36 @@ class CandidateBuilder:
                 ):
                     continue
                 if (
-                    search_requirement is not None
-                    and version not in search_requirement.specifier
+                    search_specifier is not None
+                    and not search_specifier.contains(
+                        version,
+                        prereleases=policy.prereleases,
+                    )
                 ):
                     continue
-                if isinstance(package.config.search_space, str):
-                    baseline_version = baseline_versions[dependency]
-                    if (
-                        package.config.search_space == "current-major"
-                        and self._release(version)[0]
-                        != self._release(baseline_version)[0]
-                    ):
-                        continue
-                    if (
-                        package.config.search_space == "current-minor"
-                        and self._release(version)[:2]
-                        != self._release(baseline_version)[:2]
-                    ):
-                        continue
+                baseline_version = baseline_versions[dependency]
+                if (
+                    policy.space == "current-major"
+                    and self._release(version)[0]
+                    != self._release(baseline_version)[0]
+                ):
+                    continue
+                if (
+                    policy.space == "current-minor"
+                    and self._release(version)[:2]
+                    != self._release(baseline_version)[:2]
+                ):
+                    continue
                 artifact = self._artifact(
                     raw_candidate.artifacts,
                     cell=cell,
-                    distribution=package.config.distribution,
+                    artifact_policy=package.config.resolution.artifact,
                 )
                 if artifact is not None:
                     eligible.append((version, artifact))
             representatives: dict[str, tuple[Version, AvailableArtifact]] = {}
             for version, artifact in eligible:
-                key = self._series_key(version, package.config.release_granularity)
+                key = self._series_key(version, policy.step)
                 current = representatives.get(key)
                 if current is None or version > current[0]:
                     representatives[key] = (version, artifact)
@@ -192,24 +213,11 @@ class CandidateBuilder:
         return tuple(snapshots)
 
     @staticmethod
-    def _search_requirement(
-        package: PackagePlan,
-        dependency: str,
-    ) -> Requirement | None:
-        if isinstance(package.config.search_space, str):
-            return None
-        for text in package.config.search_space:
-            requirement = Requirement(text)
-            if requirement.name == dependency:
-                return requirement
-        return None
-
-    @staticmethod
     def _artifact(
         artifacts: tuple[AvailableArtifact, ...],
         *,
         cell: Cell,
-        distribution: str,
+        artifact_policy: str,
     ) -> AvailableArtifact | None:
         wheels = sorted(
             (
@@ -225,9 +233,9 @@ class CandidateBuilder:
             (artifact for artifact in artifacts if artifact.kind == "sdist"),
             key=lambda artifact: artifact.filename,
         )
-        if distribution == "wheel":
+        if artifact_policy == "wheel":
             return wheels[0] if wheels else None
-        if distribution == "sdist":
+        if artifact_policy == "sdist":
             return sdists[0] if sdists else None
         if wheels:
             return wheels[0]
