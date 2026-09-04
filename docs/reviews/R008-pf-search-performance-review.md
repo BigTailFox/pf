@@ -4,7 +4,7 @@
 - **日期：** 2026-09-04
 - **性质：** 非规范性性能与架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
 - **对照：** 当前 `main`，HEAD `d6eecc6`
-- **输入：** [R004](R004-pf-search-performance-review.md) 的历史运行证据、
+- **输入：** [E002](../experiments/E002-pf-search-performance.md) 的历史运行证据、
   [R007 §7.1–7.2](R007-pf-current-improvement-priorities.md#7-既有开放轨继续跟踪不重复新开)、
   当前实现与本轮汇总评审意见
 - **现行契约所有者：** [D001](../designs/D001-pf.md)、
@@ -15,23 +15,23 @@
   [D008](../designs/D008-pf-verification-run.md)、
   [D012](../designs/D012-pf-harness-relaxation.md)、
   [D014](../designs/D014-pf-report-schema.md)
-- **与既有 Review 的关系：** R004 继续保存 2026-08-28 运行的原始计数与当时结论；R007 继续保存
+- **与既有文档的关系：** E002 保存 2026-08-28 运行的原始计数与当时结论；R007 继续保存
   全项目优先级。本文只汇总当前搜索流程、瓶颈判断、候选排序与治理边界，不把历史基线改写成当前性能实测。
 
 ## 1. 最终结论
 
 PF 搜索的主导瓶颈是用户配置的完整 `test-command`，通常是整份 pytest；不是死循环，也不是组合空间
-失控。R004 中 Python 3.11/3.12 各只访问 54 个唯一向量，而这些已观察坐标版本的笛卡尔积已经达到
+失控。E002 中 Python 3.11/3.12 各只访问 54 个唯一向量，而这些已观察坐标版本的笛卡尔积已经达到
 114,048。`CoordinateSearch` 的坐标下降、二分/小窗口线性定位、单调下降与 invocation-local cache 已经
 有效避免枚举组合空间。
 
-真正昂贵的是每个需要直接 runtime 证据的 Proposal 仍须运行权威 verifier。R004 的 106 次 configured
+真正昂贵的是每个需要直接 runtime 证据的 Proposal 仍须运行权威 verifier。E002 的 106 次 configured
 verifier 累计 3,470.40 秒，中位 36.22 秒，P90 39.34 秒；static region 只让 18 个 search-only 唯一
 向量免于运行 pytest，约占 14.9%。因此最高杠杆是减少进入 verifier 的探针数，同时继续直接认证最终
 floor 与 predecessor；不是由 PF 缩短、拆分或跳过用户的 `test-command`。
 
 每个唯一 Proposal 还需要独立的可写源码副本、resolution、venv、sync 与静态评价。这是明确的重复
-结构成本，但 R004 没有分离记录 `copytree` 等进程内耗时，不能据此声称它已经是第二大 wall-clock
+结构成本，但 E002 没有分离记录 `copytree` 等进程内耗时，不能据此声称它已经是第二大 wall-clock
 来源。D022/P028 已解决同一 Proposal 从 static-only promotion 到 runtime 时的重复 prepare；不同
 Proposal 的环境隔离仍是现行正确性要求。
 
@@ -108,11 +108,11 @@ Evaluation cache、observation、region 与 prepared lifecycle 全部 invocation
 | 完整 verifier | 106 次；累计 3,470.40s；median 36.22s；P90 39.34s | 已证实的主导成本 |
 | Static region | 18/121 个 search-only 唯一向量免 verifier，约 14.9% | 二分点通常不相邻，guidance 建立较晚 |
 | Proposal 环境 | 每个唯一 Proposal 独立 materialize、resolve、venv、sync | 重复结构成本；缺少当前分阶段 wall-time 证明 |
-| Promotion | R004 有 19 次同 Proposal 重复 prepare | 已由 D022/P028 解决，不再是开放瓶颈 |
+| Promotion | E002 有 19 次同 Proposal 重复 prepare | 已由 D022/P028 解决，不再是开放瓶颈 |
 | 并发 | Cell 可并行、Cell 内串行；resolution 与 candidate HTTP 各有全局锁 | 不同 key 也会排队，可能削弱多 Cell prepare 并行；尚未量化 |
 | Report 校验 | 已有 report 在全部搜索完成后才读取 | 不增加正常搜索成本，但失败时可能浪费整次运行 |
 
-R004 是当前最完整的可复查定量基线，但它早于 D022。启动任何性能 Design 前，应在当前 HEAD 用固定
+E002 是当前最完整的可复查定量基线，但它早于 D022。启动任何性能 Design 前，应在当前 HEAD 用固定
 source、candidate cutoff、Cell 集合与缓存条件重跑基线；历史计数只能定位问题，不能作为改动后的验收对照。
 
 ## 4. 优化候选与排序
@@ -217,7 +217,7 @@ Plan，并把每条验收标准映射到有序切片、迁移、测试和证据�
 
 ### 7.2 建议顺序
 
-1. 在当前 HEAD 刷新 R004 基线，补齐进程内 materialize 与锁等待数据；
+1. 在当前 HEAD 另行记录新的性能基线，补齐进程内 materialize 与锁等待数据；
 2. 用固定 trace/fake evaluator 分别模拟“旧 floor hint”和“更早 region guidance”，比较 verifier 次数、
    unique vector、最坏探针数与结果等价性；
 3. 根据数据只选择一个 P1 方向进入 D003 相关 Design；若收益接近，优先选择已经存在 interface 的 hints

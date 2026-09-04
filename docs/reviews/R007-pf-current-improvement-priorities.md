@@ -4,14 +4,15 @@
 - **日期：** 2026-09-04
 - **性质：** 非规范性产品、架构与工程评审；不定义命令、退出码、Schema 或 module interface，不授权实施
 - **对照：** 当前 `main`，HEAD `d231a0e`
-- **输入：** 两轮当前仓库独立梳理、[R004](R004-pf-search-performance-review.md)、
+- **输入：** 两轮当前仓库独立梳理、[E002](../experiments/E002-pf-search-performance.md)、
   [R006](R006-pf-cli-system-review.md)、[E001](../experiments/E001-pf-self-bootstrap-validation-contract.md)
 - **现行契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
   [D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、
   [D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)、
   [D012](../designs/D012-pf-harness-relaxation.md)、[D014](../designs/D014-pf-report-schema.md)
-- **与既有 Review 的关系：** 本文汇总当前优先级和新增发现；R004 继续保存搜索性能运行证据，R006
-  继续保存 CLI 详细评审。本文不以重复摘要替代或关闭它们。
+- **与既有文档的关系：** 本文汇总当前优先级和新增发现；E002 保存搜索性能运行证据，R006
+  继续保存 CLI 详细评审，后续 [R008](R008-pf-search-performance-review.md) 汇总当前搜索性能候选。
+  本文不以重复摘要替代这些文档。
 
 本文使用 `module`、`interface`、`seam`、`adapter`、`depth`、`leverage` 与 `locality` 判断架构候选，
 并对每个候选应用删除测试。文件行数、helper 数量或把实现移动到新文件，不单独构成改进理由。
@@ -30,7 +31,7 @@ Verification Run request、评价 seam 与配置模型；[R005](../archived/revi
 | --- | --- | --- |
 | P1 | 多宿主 host-partial 的 search/minimize 协议 | R006 已跟踪；建立一份 D001/D006 临时 Design，必须共同覆盖 search 数值退出与 minimize 展示/授权流程 |
 | P1 | CI coverage 门禁 | 新发现；现行阈值已明确，可直接修改 CI 与验证，不需要产品 Design |
-| P1 | 昂贵 configured verifier 的有效裁剪率 | R004 已跟踪；先在当前 HEAD 刷新性能基线，再决定是否建立 D003/D012 Design |
+| P1 | 昂贵 configured verifier 的有效裁剪率 | R008 已汇总；先在当前 HEAD 刷新性能基线，再决定是否建立 D003/D012 Design |
 | P2 | 按命令装配 capability graph | R006 已跟踪；建立 D002 临时 Design，保持唯一 composition root |
 | P2 | Ctrl+C 稳定终态 | R006 已跟踪；先由 D001/D006 接受退出码和终态语义，可与 composition 共用实现但保持独立验收 |
 | P2 | `package-floor.json` 路径规则单一 owner | 新发现；目标是传递已解析路径值，不建立 path module、不持久化路径 |
@@ -169,7 +170,7 @@ Design；不能用一个新的 helper 掩盖路径仍由多个调用方重建的
 
 ### 7.1 提高昂贵 verifier 的有效裁剪率
 
-R004 的基线显示 coordinate descent 有效，但 static region 只让约 15% 的 search-only 唯一向量免于完整
+E002 的基线显示 coordinate descent 有效，但 static region 只让约 15% 的 search-only 唯一向量免于完整
 verifier；106 次 configured verifier 累计约 3,470 秒。D022/P028 后续已消除同 Proposal
 static-to-runtime promotion 的重复 environment prepare，因此任何新 Design 前必须在当前 HEAD 重新记录：
 
@@ -295,7 +296,7 @@ R002 发现的互斥 resolution 参数已经收敛为
    build，单独记录网络资格限制。
 2. 建立 host-partial 临时 Design，一次钉住 search exit 与 minimize 的 authorizer/merge 提示验收；接受后
    再建立 durable Plan。
-3. 在当前 HEAD 刷新 R004 性能基线；只有新数据仍证明昂贵 verifier 裁剪不足时，才建立性能 Design。
+3. 在当前 HEAD 记录新的性能基线；只有新数据仍证明昂贵 verifier 裁剪不足时，才建立性能 Design。
 4. 建立 command-scoped composition 临时 Design；可把 `FailureLogAssociations` 清理作为非目标驱动的小切片，
    但不得借机删除其他真实 seam。
 5. 单独接受 Ctrl+C 产品语义；若与 composition 同时接受，可共享 Plan 和 bootstrap implementation，验收仍
@@ -316,7 +317,7 @@ R002 发现的互斥 resolution 参数已经收敛为
 - `src/pf/terminal/__init__.py`、`terminal/_live.py`、`terminal/_explain.py`；
 - `.github/workflows/ci.yml`、`pyproject.toml`、根 README 与入库 `package-floor.json`；
 - workflow/CLI/terminal/authorization tests 中的公开 seam 与 test adapters；
-- D001、D002、D003、D005、D006、D008、D012、D014、R004、R006、归档 R002/R005 与 E001。
+- D001、D002、D003、D005、D006、D008、D012、D014、E001、E002、R006 与归档 R002/R005。
 
 入库 report 的历史核对确认：`pf-self-bootstrap` 中的 SHA-256 为 `8e6c7d98...`，当前根文件为
 `4514a69d...`；E001 和当前文件的 generation/snapshot identity 也不同。本轮没有重新执行真实多宿主 CI、

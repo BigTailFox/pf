@@ -49,20 +49,21 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 ## 实验报告
 
 - [E001](experiments/E001-pf-self-bootstrap-validation-contract.md) 记录 PF 自举 full-repository contract 下 `packaging>=22` 的 dogfood 归因，以及当前单测锁定的 pytest、uv、ty 兼容性证据边界；它是非规范性实验证据。
+- [E002](experiments/E002-pf-search-performance.md) 保存 2026-08-28 PF 自搜索的空间裁剪、verifier 成本、
+  static region 与异常 source timeout 计数；当前瓶颈判断与优化候选由 R008 汇总。E002 是已完成的
+  非规范性性能实验，不跟踪实施状态。
 
 ## 开放事项与归档
 
-- [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、R004 性能基线的适用边界、
+- [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
   verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化和报告预检候选；
-  R004 继续保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
+  E002 保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
 - [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
   新增 CI coverage 门禁、报告路径 owner 与自举 artifact 引用漂移等发现，并校准 host-partial、composition、
-  中断、搜索性能和资格候选的治理边界；R004/R006 继续保存各自详细证据。R007 是非规范性评审，不授权实施。
+  中断、搜索性能和资格候选的治理边界；E002/R006 继续保存各自详细证据。R007 是非规范性评审，不授权实施。
 - [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差、
-  reason-aware incomplete 文案与jobs契约歧义已解决；它继续跟踪multi-host outcome、command-scoped composition 与中断语义，也完整接管 R004 的非 TTY
+  reason-aware incomplete 文案与jobs契约歧义已解决；它继续跟踪multi-host outcome、command-scoped composition 与中断语义，也完整接管 E002 的非 TTY
   搜索遥测和 R005 的 terminal-private result-card；它是非规范性评审，不授权实施。
-- [R004](reviews/R004-pf-search-performance-review.md) 继续跟踪尚未实施的搜索性能候选；prepared promotion
-  复用已由 D022/P028 解决，原 CLI 非 TTY 搜索遥测已移交 R006。
 - [D023](archived/designs/D023-pf-configuration-model.md) / [P029](archived/plans/P029-pf-configuration-model.md)
   已完成配置模型收敛、uv ownership、分层并发与R006 jobs项修复；稳定规则由D001/D002/D003/D004/D006/
   D008/D012/D014接管。

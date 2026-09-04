@@ -7,7 +7,7 @@
 - **已解决项：** 诊断 help 的 Failure ID 语义、apply 的唯一 `--force` 语法、README 命令/apply 摘要与 search incomplete reason-aware final
 - **输入材料：** 两份独立 CLI 评审意见，再对照当前源码、现行契约、公共 help 与 focused tests 校准
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)
-- **收归来源与边界：** [R004](R004-pf-search-performance-review.md) §5 的非 TTY 搜索遥测、[R005](../archived/reviews/R005-pf-module-depth-review.md) 轨 D 的 terminal-private result-card 已移交本文；[D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 的评价 seam 与 SearchCoordinator 测试不属于 CLI 问题
+- **收归来源与边界：** [E002](../experiments/E002-pf-search-performance.md) §5 的非 TTY 搜索遥测、[R005](../archived/reviews/R005-pf-module-depth-review.md) 轨 D 的 terminal-private result-card 已移交本文；[D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 的评价 seam 与 SearchCoordinator 测试不属于 CLI 问题
 
 本文只回答当前 PF CLI 还有哪些值得优化、各事项由谁拥有，以及进入实现前需要什么治理步骤。
 结论按当前时间点成立；现行行为和唯一规范仍由 owner Design 定义。
@@ -32,7 +32,7 @@ help/README三项可直接对照现行契约修复的公开表面偏差也已处
 | P2 | 需要 Design | 所有命令在解析前装配完整验证图，且 composition-time `PfError` 越过统一错误映射 | 在唯一 composition root 内按 capability 惰性装配；不得引入第二个 root 或 DI framework |
 | P2 | R006；原 R005 轨 D | apply/no-floor/普通配置错误仍是 `category: message` | 下一次真实跨命令错误展示变更时启动 terminal-private result-card，不另建错误 module |
 | P2 | 需要 Design | `KeyboardInterrupt` 没有 CLI 终态，可能显示 traceback | 若采用退出 `130`，先修改 D001/D006；不得错误映射成基础设施退出 `4` |
-| P2 | R006；原 R004 §5(3) | 非 TTY 搜索在阶段开始后没有持续活动反馈 | 作为独立 presentation/activity Design 候选；activity 不进入 report identity |
+| P2 | R006；来源 E002 §5(3) | 非 TTY 搜索在阶段开始后没有持续活动反馈 | 作为独立 presentation/activity Design 候选；activity 不进入 report identity |
 
 上述help/README、D006 incomplete文案及jobs配置项已完成；multi-host outcome与command-scoped
 composition仍是独立后续事项，不与本次配置模型收敛捆绑。
@@ -220,9 +220,9 @@ Design 应比较以下形状，并优先选择 interface 更小、调用方知�
 composition-time expected `PfError` 走一个稳定结果、所有已建立资源只关闭一次、`cli.py` 仍是唯一生产
 root。若新 interface 仍要求七个 workflow 同时存在，或只把现有等宽 assembly 搬到多个文件，本候选停止。
 
-## 5. 从 R005/R004 收归的 CLI 问题
+## 5. 从 R005/E002 收归的 CLI 问题
 
-本节完整接管原 R005 轨 D 与 R004 §5(3) 的跟踪职责。R004/R005 只保留来源链接；这两项的后续
+本节完整接管原 R005 轨 D 与 E002 §5(3) 的跟踪职责。E002/R005 只保留来源链接；这两项的后续
 Design、Plan、证据与完成状态只在 R006 更新。
 
 ### 5.1 原 R005 轨 D：terminal-private ResultCardEmitter
@@ -262,9 +262,9 @@ marker/gutter、TTY Panel 与 plain Group、path/OSC 8、折行和 card-before-f
 或若新 interface 迫使所有命令进入 `render(command_result_union)` public facade，则保留现状。文件行数不是
 启动理由。
 
-### 5.2 原 R004 §5(3)：非 TTY 搜索活动遥测
+### 5.2 来源 E002 §5(3)：非 TTY 搜索活动遥测
 
-重定向输出的 search 在阶段开始后直到 Cell 终态没有持续反馈，用户只能观察 Process Log 增长。R004 从
+重定向输出的 search 在阶段开始后直到 Cell 终态没有持续反馈，用户只能观察 Process Log 增长。E002 从
 一次约 37 分钟的 PF 自搜索中确认：搜索是有限但昂贵的，然而非交互用户无法从 CLI 区分“仍在有限推进”
 与“没有进展”。
 
@@ -349,7 +349,7 @@ Review 本身不代替 Design 或 Plan。
 - `src/pf/cli.py`、`config.py`、`schemas/config.py`、`workflow.py`、`verification.py`、`errors.py`；
 - `src/pf/terminal/` 的 search summary、typed errors、apply/minimize/merge card；
 - `tests/test_cli.py`、`tests/test_search_workflow.py` 的 public help/request 与 host selection 覆盖；
-- D001、D002、D006、D008、R004、归档 R005、D022/P028 与根 README。
+- D001、D002、D006、D008、E002、归档 R005、D022/P028 与根 README。
 
 R006 初次评审时动态抽查了 `pf diagnose --help` 与 `pf apply --help`，确认 `<id>` 丢失和
 `--no-force` 暴露。对照 `010e048` 的 focused 测试命令与结果：
@@ -363,7 +363,7 @@ UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/pytest --no-testmon \
 初评未运行全量 pytest、coverage、真实 smoke/search、多宿主 CI 或非宿主平台验证；focused pass 只证明
 被抽查的现行测试通过，不证明上述缺口已修复。
 
-把 R004/R005 CLI 项收归本文时只运行了 `git diff --check` 与相对 Markdown 链接检查，结果均通过；当时
+把 E002/R005 CLI 项收归本文时只运行了 `git diff --check` 与相对 Markdown 链接检查，结果均通过；当时
 D022/P028 尚在实施，其后完成的测试不计入上述 R006 `010e048` 初始评审基线证据。
 
 2026-09-03 的直接修复没有改动数值退出码、report/schema、workflow ownership 或生成物。
