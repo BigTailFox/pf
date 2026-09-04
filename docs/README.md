@@ -56,7 +56,8 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 ## 开放事项与归档
 
 - [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
-  verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化和报告预检候选；
+  verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化、报告预检与
+  xdist failed-set 早停候选；
   E002 保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
   搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 已落地为默认内部策略；稳定规则由
   D001/D002/D003/D004/D005/D013 接管。历史 Design/Plan 见

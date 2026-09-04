@@ -121,6 +121,7 @@ Evaluation cache、observation、region 与 prepared lifecycle 全部 invocation
 | Promotion | E002 有 19 次同 Proposal 重复 prepare | 已由 D022/P028 解决，不再是开放瓶颈 |
 | 并发 | Cell 可并行、Cell 内串行；resolution 与 candidate HTTP 各有全局锁 | 不同 key 也会排队，可能削弱多 Cell prepare 并行；尚未量化 |
 | Report 校验 | 已有 report 在全部搜索完成后才读取 | 不增加正常搜索成本，但失败时可能浪费整次运行 |
+| FailedCaseSet × xdist | pytest-xdist controller 不收集 `session.items`，failed-set 缺 controller 证明后回退原命令 | serial 已有拒绝预言早停；xdist `test-command` 拿不到该段 |
 
 E002 是当前最完整的可复查定量基线，但它早于 D022。启动任何性能 Design 前，应在当前 HEAD 用固定
 source、candidate cutoff、Cell 集合与缓存条件重跑基线；历史计数只能定位问题，不能作为改动后的验收对照。
@@ -195,6 +196,30 @@ cache。合法但 generation 不同的报告继续被替换，不能误报为 bl
 nodeid 与 pruning context 都不进入 evaluation policy identity。E002 没有 nodeid 命中率；没有
 §11 第 2 组 wall-clock / 命中率数据时，不把 FailedCaseSet 作为已证实的第二段收益关闭本 Review。
 
+### 4.7 P2：让 xdist `test-command` 也能采用 failed-set Rejection
+
+现行 reject-oracle 的 collection 证明只认 serial/controller 在 `pytest_collection_finish` 之后的
+`session.items`。pytest-xdist 的 controller `pytest_collection` 禁止收集 items，controller 没有这份
+列表；worker 的 collected 投影只做防御。因此带 `-n` / `--dist load` 的 direct pytest 在 failed-set
+阶段缺少 controller 权威，总是回退原命令。`Config.args` 替换在 controller 与 worker 上已经成立，
+早停收益被证明规则挡住，不是 pruning plugin 没执行。
+
+这只影响用户 `test-command` 本身走 xdist 的项目；serial pytest 不受影响。它不减少探针次数，只让
+这些 Rejection 有机会停在 failed-set 的一个 child process。没有 xdist 套件上的命中率与 wall-clock
+对照前，不能把它排到 region/hint 之前。
+
+后续 Design 必须先定义 xdist 下何谓 controller 侧 collection 证明，例如在全部 worker 完成 collection
+之后，用 xdist 公开 hook 上的 nodeid 列表作为 controller 侧 collection 证明，并保持：
+
+- PASS 仍只来自不收窄用户 collection 的原命令；
+- worker 划分不一致仍不构成 invalid；
+- 任一 worker 含请求外 item 仍回退，不得 Rejection；
+- 不得用 worker 列表并集在 Design 改写前授权 Rejection；
+- 不得改回自写 argv parser 或 `pytest_collection_modifyitems` 过滤。
+
+该改动属于 D002 `ConfiguredVerifier` 与 D013 collected projection，不进入 `CoordinateSearch`，也不
+新增 policy identity。历史偏差记录见 [P030](../archived/plans/P030-pf-failed-case-pruning.md) §7。
+
 ## 5. 不采用的方向
 
 - 改写用户 `test-command` 文本、隐式启用 testmon / pytest `--lf`，或把 last-failed 做成跨运行
@@ -246,7 +271,9 @@ Plan，并把每条验收标准映射到有序切片、迁移、测试和证据�
    接线，避免先放宽 static guidance。坐标内 FailedCaseSet 拒绝预言已落地为默认策略，不与
    region/hint 捆成一次算法改动；
 4. per-key single-flight 可独立实施和验证，不与算法 Design 绑定；
-5. materialize 与 report preflight 分别按实测占比和晚失败频率决定是否推进，不打包成“搜索重构”。
+5. materialize 与 report preflight 分别按实测占比和晚失败频率决定是否推进，不打包成“搜索重构”；
+6. xdist failed-set 早停可在 FailedCaseSet 已落地后独立推进，但必须先接受 controller 侧 collection
+   证明的 Design；不能把 worker collected 并集直接当成现行 Rejection 资格。
 
 若候选不能减少 configured verifier 次数或 wall-clock critical path，或者需要削弱 runtime authority、
 环境隔离与确定终止，则停止该方向。本文本身不构成任何实现授权。
