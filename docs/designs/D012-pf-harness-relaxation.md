@@ -37,7 +37,7 @@ E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
 `ResolutionContext` 固定本次运行的：
 
 - 精确 uv 版本、protocol 和 qualification profile；
-- SourcePlan identity、prerelease/yanked policy 和规范输入顺序；
+- SourcePlan identity、source snapshot 中 uv project-configuration identity、release cutoff 和规范输入顺序；
 - Python、target、marker 与 wheel-tag 环境；
 - release cutoff 与共享 cache policy。
 
@@ -84,7 +84,7 @@ DEVELOPMENT 或空集合不增加参数。全局 `--no-sources` 禁止使用；a
 `[tool.uv.sources]`。
 
 SEARCH project plan 对每个上述受管 coordinate 必须满足：highest/lowest resolution 的 source 与
-规范 registry locator 等价且 native plan 含带 locator/hash 的 artifact alternatives；exact-vector
+规范 registry locator 等价且 native plan 含带 locator/hash 的 artifact alternatives；`resolve-artifact = wheel | sdist | any` 同时约束 project/environment resolution，任何 registry selected artifact 与该 policy 不一致都在 Proposal/PASS 前失败。exact-vector
 以 CandidateSnapshot 选定的 artifact URL/hash materialize 时，version、filename、locator 与 hash
 必须全部匹配。path/workspace leakage、缺 artifact 或 source/artifact mismatch 在 Proposal 建立前
 fail closed。project graph 随后必须按名称、版本、source 与可靠 selected artifact 原样嵌入
@@ -96,7 +96,7 @@ Project discovery 将展开 `include-group` 后的每条 direct harness requirem
 
 - declaration identity 与 group provenance；
 - 规范 distribution name、extras 和结构化 specifier clauses；
-- marker、source identity、prerelease admission 和原始文本。
+- marker、source identity 和原始文本。
 
 只有 project discovery 解析 dependency group；其他 module 不重新解析原始字符串或 source。
 
@@ -125,7 +125,7 @@ ceiling_bound  registry 且非 fixed
 | `~=X`、`==X`、`==X.*`、`===X` | 保留 |
 | URL、Git、path、workspace source | 原样固定 |
 
-变换随后为每个 `ceiling_bound` distribution 追加 `<=U_B[name]`。名称、extras、marker、source、upper bound、exclusion 和既定 prerelease admission 均保持不变。多个同名 declaration 由 uv 求交集。
+变换随后为每个 `ceiling_bound` distribution 追加 `<=U_B[name]`。名称、extras、marker、source、upper bound、exclusion 和其它原始 specifier 语义均保持不变。多个同名 declaration 由 uv 求交集。
 
 该变换由 `packaging` 支持的纯函数实现，并有版本化 policy identity；PF 不扩展 `~=` 或 wildcard equality，也不建立第二套 requirement semantics engine。
 
@@ -230,6 +230,8 @@ Identity 按取得证据的时点分开：
 `PreparedEnvironment` 与 `Proposal` 保存两个 plan digest。Evaluation cache 以 `EnvironmentIdentity` 为边界；FailureRecord 只保存失败发生前已经取得的 evidence，不虚构尚未产生的 plan 或 artifact。
 
 `CandidateBuilder` 只建立受管 project direct dependencies 的有限搜索空间，并通过 SourcePlan 查询 SEARCH effective source。它不缓存或重建 source facts，不递归构造 project/harness catalog，不枚举 harness version，也不证明 resolution 无解。
+
+PF 不从 requirement 或 `search-prereleases` 推断 uv prerelease mode，也不传 `--prerelease`、package allowlist 或对应环境变量。Highest 与 exact resolution 是否选择 prerelease 完整服从 snapshot 内 uv 项目配置；该配置的 canonical input identity 进入 `pf:resolution-context:v1`，并由apply authorization在任何source-drift waiver前复核；target dependency arrays按apply已授权的original/projected语义独立处理。Search candidate 的 prerelease inclusion 是 D003 的独立 named policy，不改变 resolver ownership。
 
 ## 7. Failure projection
 

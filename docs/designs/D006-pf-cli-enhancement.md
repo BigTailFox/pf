@@ -54,8 +54,14 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
 公共选项：
 
 ```text
---jobs auto|N
-    Maximum concurrent cells. Use auto or a positive integer. [default: auto]
+--max-cells auto|N
+    Maximum concurrent cells. Omit to use project configuration.
+
+--ty-jobs auto|N
+    Maximum concurrent ty checks. Omit to use project configuration.
+
+--test-jobs auto|N
+    Maximum concurrent configured test commands. Omit to use project configuration.
 
 --max-duration DURATION
     Stop scheduling after DURATION and save an incomplete report.
@@ -65,11 +71,11 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
     Accept source-layer drift after structural authorization.
 ```
 
-`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose`的Usage固定为`pf diagnose FAILURE_ID [OPTIONS]`；Failure ID是必填位置参数，可传`failure-<16 hex>`或省略前缀的`<16 hex>`。
+三个 scheduling flags 同时属于 smoke/check/search/minimize；parser/request 必须保留省略为 `None` 与显式 `auto` 的区别。`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose`的Usage固定为`pf diagnose FAILURE_ID [OPTIONS]`；Failure ID是必填位置参数，可传`failure-<16 hex>`或省略前缀的`<16 hex>`。
 
 ## 3. 调用错误
 
-未知 command/option、缺失或多余参数、非法 jobs/duration、非distribution-name形状的`--package`值与request构造错误都形成D001的调用错误结果。结构错误尽早由Cyclopts拒绝；Request Schema只作defense-in-depth。合法形状但未知/重复package、non-package root省略selector、配置字段与project planning失败都是配置错误。不得宽泛捕获深模块ValidationError并伪装成调用错误。
+未知 command/option、缺失或多余参数、非法 scheduling limit/duration、非distribution-name形状的`--package`值与request构造错误都形成D001的调用错误结果。结构错误尽早由Cyclopts拒绝；Request Schema只作defense-in-depth。合法形状但未知/重复package、non-package root省略selector、配置字段与project planning失败都是配置错误。不得宽泛捕获深模块ValidationError并伪装成调用错误。
 
 所有按本节格式渲染的调用错误退出`1`；配置、Schema或apply授权错误不带Usage块并按D001退出`3`。
 
@@ -164,7 +170,7 @@ static/witness/test 阶段保留 identity。Candidate discovery 清空 identity�
 
 只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
-Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 `jobs`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；三个数字使用 dim bold 默认前景色，不显示方块矩阵或 completed/total。Cell title elapsed 与 footer 总 elapsed 都使用 dim cyan。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
+Cell matrix 只登记总数；未启动 Cell 不建立 panel，因此可见 live Cell 数由 scheduler 实际并发自然约束为不超过 resolved `max-cells`。最后一行只显示 spinner、命令 phase、`N running`、`F finished`、`M left` 和右对齐总耗时，其中 `finished = completed`、`left = total - completed - running`；三个数字使用 dim bold 默认前景色，不显示方块矩阵或 completed/total。Cell title elapsed 与 footer 总 elapsed 都使用 dim cyan。Live view 以 20 Hz 刷新 spinner/elapsed；一次 ActivityEvent 的 task snapshot 必须原子可见，stage progress 不通过删除/重建 task 产生闪烁。
 
 外层 Console 最宽 120 列；内部 renderable 不设置固定 width/height。窄终端优先隐藏 bar、换行或改为 label block，不能丢失 package、Cell、artifact 或 next action。非 TTY 无 box drawing。
 

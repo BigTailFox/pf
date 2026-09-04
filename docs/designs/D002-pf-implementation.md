@@ -163,9 +163,9 @@ PF config、declaration、Cell 或 harness facts。
 TOML observation；root target 复用同一 observation。`WorkspaceInventory` 只暴露 selected location、
 root/target observations、排序唯一的 owned paths 和 canonical-name member point query；它不暴露任意
 document/members collection、raw bytes、digest、wire、cache 或 cleanup lifecycle，构造后不访问 filesystem。
-`ConfigLoader` 只在 root/target observations 上独占三层 PF config merge/validation，不读取 filesystem。
+`ConfigLoader` 只在 root/target observations 上独占 root default → member local 两层 PF config merge/validation，不读取 filesystem；root target 只消费 root observation 一次，`tool.pf.package` 没有内部入口。
 `ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration、marker/extra
-Cell、逐 dependency source route、member-version attachment 与 recursive test-group planning；
+Cell、逐 dependency source route、完整 `NamedSearchPolicy` binding、member-version attachment 与 recursive test-group planning；
 `ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
 
 `ProjectPlan.owned_pyproject_paths` 包含 root；全部 installable、未排除 workspace packages（包括未选中的
@@ -215,14 +215,17 @@ Protocol。Search 还直接依赖 `CandidateBuilder`、共享的 `HighestVersion
 verifier、runtime witness/process 及 activity/diagnostic consumer。不得用 evaluator facade、parameter
 bundle、factory、locator 或 service registry隐藏该依赖图。
 
+`EffectiveConfig` 是按消费者分组的 frozen interface：`target`、`search`、`resolution`、`ty`、`test`、`scheduling`。ConfigLoader 独占 raw key/default/merge/canonicalization；ProjectLoader 独占 dependency selection 与 `DependencySearchPolicy` 到 managed searchable direct dependency 的资格绑定，并在 `PackagePlan.dependency_search_policies` 中提供排序唯一的完整 named policy。CandidateBuilder 和其他消费者不得重新读取 raw TOML 或实现平行默认逻辑。
+
 `ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。跨 Cell request 是
 `CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun` 的 closed union；三个 frozen variant
 以不进入构造器的 `ClassVar` 固定 command，分别携带现有 `CheckCellOperations`、`SmokeCellOperations`、
 `CellSearchOperations`。共同字段只含 package、完整 `source_plan`、borrowed `SourceSnapshot`、operation 与
-jobs，只有 Search 能表达 total duration；request 不进入 Schema、report、Journal、identity 或 cache。
+一次解析后的 `RunLimits(max_cells, ty_jobs, test_jobs, max_duration_seconds)`；request 不进入 Schema、report、Journal、identity 或 cache。
 
-Runner 构造时固定 composition root 对 `pf.project.host_target()` 的单次探测结果。它验证 jobs/duration、
-command/mode 与 package/routes，从 `package.cells` 选择唯一完整 host Cell 集，并把同一 package、plan 与
+Workflow 在 project load 后、snapshot build 前验证 full evaluation contract并从 persistent scheduling 与显式 CLI override 只解析一次 RunLimits。Runner 构造时固定 composition root 对 `pf.project.host_target()` 的单次探测结果；它验证 command/mode 与 package/routes，使用 `limits.max_cells` 调度 Cell，并在开始任务前把 `limits.ty_jobs/test_jobs` 配置给 composition root 共享的 `StagePermitPools`。
+
+Runner 从 `package.cells` 选择唯一完整 host Cell 集，并把同一 package、plan 与
 snapshot对象直接传给每个 operation；workflow不再选择Cell、建立per-Cell closure或保存host target。
 candidate、harness、两次resolution、Attempt与search report共同消费该plan。Workflow仍在`finally`独占
 snapshot close，Search仍在Run后消费snapshot identity做drift/report工作。structured harness、

@@ -212,9 +212,11 @@ Proposal identity 已吸收 static/full policy；EvaluationCache 仍显式接收
 
 旧 `STATIC_PASS` / `STATIC_FAIL`、`StaticPassEvaluation` / `StaticFailEvaluation` 和 `increment-v2` 证据不兼容，不能 merge/apply。
 
+`StaticEvaluator` 只消费 `EffectiveConfig.ty.args/timeout_seconds`，并只在真正调用 `TyOperations.check` 时取得 invocation-wide ty permit。`RuntimeEvaluator` 消费 `test.command/cwd/timeout_seconds`；runtime witness 使用 test timeout，但不占 test permit，只有真正调用 configured verifier 时取得 invocation-wide test permit。两个 pool 由 composition root 共享并在 Verification Run 开始前用 resolved `RunLimits.ty_jobs/test_jobs` 配置；limits 不写入 ty/test argv。`test-group` 只用于 project/harness planning，不进入 configured verifier request。
+
 ## 11. 策略 identity
 
-Evaluation policy 包含实际 `ty` distribution、有效 ty/test 配置及：
+Evaluation policy 包含实际 `ty` distribution、完整 resolution artifact/timeout、ty args/timeout、test command/cwd/timeout（不含 test-group）及：
 
 ```text
 static_policy      = static-transition-v1

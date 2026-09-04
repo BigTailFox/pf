@@ -17,11 +17,11 @@ PF v1 以一个可独立安装的包和一个兼容性 cell 为搜索单位：
 ## 命令契约
 
 ```text
-pf smoke [--package PACKAGE] [--jobs auto|N]
-pf check [--package PACKAGE] [--jobs auto|N]
-pf search [--package PACKAGE] [--jobs auto|N] [--max-duration DURATION]
+pf smoke [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N]
+pf check [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N]
+pf search [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N] [--max-duration DURATION]
 pf apply [--package PACKAGE] [--force]
-pf minimize [--package PACKAGE] [--jobs auto|N] [--max-duration DURATION]
+pf minimize [--package PACKAGE] [--max-cells auto|N] [--ty-jobs auto|N] [--test-jobs auto|N] [--max-duration DURATION]
 pf explain [--package PACKAGE]
 pf diagnose FAILURE_ID [--package PACKAGE]
 pf merge REPORT [REPORT ...] --output PATH
@@ -38,7 +38,9 @@ uv run pf explain
 uv run pf apply
 ```
 
-项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
+项目至少需要静态 `project.dependencies` / `project.optional-dependencies`、一个 `test` dependency group（可为空）以及 `[tool.pf].test-command`。持久配置只从workspace root `[tool.pf]` 到所选member自己的
+`[tool.pf]` 两层合并；CLI显式值只覆盖本次运行。`max-cells`、`ty-jobs`和`test-jobs`分别限制Cell、ty和
+configured verifier并发。每个进程只执行与当前宿主精确匹配的 target；其他宿主生成的报告使用 `pf merge` 合并。
 省略`--package`选择可安装的workspace root；显式值只按规范distribution name选择一个workspace
 member，不接受目录或`pyproject.toml`路径。
 

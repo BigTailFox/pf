@@ -18,13 +18,14 @@
 ## 1. 最终结论
 
 当前没有发现新的 P0 安全、证据授权或 fail-closed 缺口；D001/D006 已建立命令、数值退出码、live
-Cell、explain/diagnose/merge 结果卡的主体契约。但“没有新的正确性缺口”不能作为完整结论：
-`[tool.pf].jobs` 当前会被解析并保存，却不会影响任何调度，暴露了一个 P1 失效配置表面以及 D001
-对“省略 CLI”语义尚未写死的契约歧义。此外，help/README 有三项可直接对照现行契约修复的公开表面偏差。
+Cell、explain/diagnose/merge 结果卡的主体契约。评审当时发现的`[tool.pf].jobs`失效配置表面与CLI省略
+语义歧义，已由[D023](../archived/designs/D023-pf-configuration-model.md)/
+[P029](../archived/plans/P029-pf-configuration-model.md)以`max-cells`、`ty-jobs`、`test-jobs`及一次RunLimits解析完整替换。此外，
+help/README三项可直接对照现行契约修复的公开表面偏差也已处理。
 
 | 优先级 | 分类 | 事项 | 结论 |
 | --- | --- | --- | --- |
-| P1 | 契约歧义与失效配置 | `[tool.pf].jobs` 没有调度消费者 | 先在 D001 写死“省略时读 effective config、显式 CLI 覆盖”，接受后再建立 focused Plan |
+| P1 | 契约歧义与失效配置 | `[tool.pf].jobs` 没有调度消费者 | 已由D023/P029解决：拆分三个有消费者的limit，省略继承配置、显式CLI覆盖 |
 | P1 | 小型契约修复 | `diagnose` help 吞掉 `<id>`；`apply` 暴露 `--no-force`；README 过期 | 已按 D001/D006 修复；公共 CLI 测试覆盖 help 与 parser 拒绝 |
 | P1 | D006 展示契约修复 | incomplete reasons 被统一说成“no applicable floor” | 已恢复 reason-aware 文案；现行退出码不变 |
 | P1 | 需要 Design | 多宿主 `search` 的纯 host-partial artifact 仍退出 `2` | 先钉住自动化协议，再由 D001/D006 决定是否改为成功-with-warning |
@@ -33,13 +34,18 @@ Cell、explain/diagnose/merge 结果卡的主体契约。但“没有新的正�
 | P2 | 需要 Design | `KeyboardInterrupt` 没有 CLI 终态，可能显示 traceback | 若采用退出 `130`，先修改 D001/D006；不得错误映射成基础设施退出 `4` |
 | P2 | R006；原 R004 §5(3) | 非 TTY 搜索在阶段开始后没有持续活动反馈 | 作为独立 presentation/activity Design 候选；activity 不进入 report identity |
 
-上述 help/README 与 D006 incomplete 文案小修复已完成。后续再分别接受
-D001 的 jobs 省略语义、设计 multi-host outcome 与 command-scoped composition。这些项不应被捆成
-一个 CLI 大重构。
+上述help/README、D006 incomplete文案及jobs配置项已完成；multi-host outcome与command-scoped
+composition仍是独立后续事项，不与本次配置模型收敛捆绑。
 
 ## 2. 已确认的公开表面与契约问题
 
 ### 2.1 `[tool.pf].jobs` 被解析但从未参与调度
+
+**处理状态：已由[D023](../archived/designs/D023-pf-configuration-model.md)/
+[P029](../archived/plans/P029-pf-configuration-model.md)解决。** 以下段落保留评审时的基线证据；现行契约已删除`jobs`，分别以
+`max-cells`、`ty-jobs`与`test-jobs`限制Cell、ty和configured verifier并发。CLI request保留省略与显式
+`auto|N`，workflow在project load后只解析一次RunLimits，三个值都有直接消费者且不进入外部argv或
+evaluation policy identity。
 
 `EffectiveConfig.jobs` 由 `ConfigLoader` 从三层 `[tool.pf]` 配置合并结果中建立
 （`src/pf/config.py:140-172`、`src/pf/schemas/config.py:12-55`），且 `PackagePlan.config` 保留该值。
@@ -318,8 +324,8 @@ workflow Protocol 则有生产 context 与 `NeverCalledWorkflow` 等测试 adapt
 
 1. 已在一个小型契约修复中处理 diagnose Failure ID help、隐藏并拒绝 `--no-force`、对齐 README；只修改现行
    contract projection 与公共测试，未建立兼容层。
-2. 先修订并接受 D001，明确省略 `--jobs` 是否继承 effective config、显式 `auto|N` 如何覆盖；只有目标
-   行为成为规范后，才建立 focused Plan，映射 request ownership、三个 workflow、minimize、测试与文档证据。
+2. 已由D023/P029修订并实施D001：删除`--jobs`，以三个独立limit明确省略继承effective config、显式
+   `auto|N`覆盖，并迁移request/workflow/minimize、调度消费者、测试与文档owner。
 3. 已按 D006 修正 incomplete 的 reason-aware 文案并保持现行自动化协议；后续再单独建立 multi-host search
    outcome 临时 Design，决定纯 host-partial 与 empty-host 的退出语义。不得把文案合规修复和退出码变更
    捆成一次实现。

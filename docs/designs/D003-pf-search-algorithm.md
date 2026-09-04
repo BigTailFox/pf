@@ -63,6 +63,8 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 11. `CandidateSnapshot` 只冻结target受管project direct dependency的registry搜索候选；workspace member自身依赖、harness与任意transitive distribution完全属于uv resolution，不建立PF catalog、coordinate或floor。
 12. 一次 Verification Run 固定精确 uv profile、唯一 SEARCH SourcePlan 对象、release cutoff 与共享 cache；baseline、CandidateSnapshot freeze 与全部 exact probe 由 Runner 注入并消费该对象及其 identity。相同 project/environment resolution input 最多解析一次，但 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。
 
+每个 managed searchable coordinate 在 `PackagePlan` 中都有唯一完整 `NamedSearchPolicy(name, space, step, prereleases)`。ProjectLoader 负责把 global `search-*` 与最终 `dep[]` 绑定到 dependency；CandidateBuilder 只按 name 取得该 policy，不读取 EffectiveConfig 的 raw merge 语义。它先按 Cell/Python/platform 与 `resolve-artifact` 选出可安装 artifact，再按 policy space、baseline 上界和 prerelease inclusion 过滤，最后按 `step` 取每个 series 的最新精确代表。`pf:candidate-policy:v1` 的 preimage 精确包含该 named policy 与 resolution artifact policy；任一字段变化都冻结新的 CandidateSnapshot。
+
 ## 4. SearchCoordinator 状态机
 
 ```text

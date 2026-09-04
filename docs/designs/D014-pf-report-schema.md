@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-09-03
+- **最后核对：** 2026-09-04
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -71,6 +71,21 @@ sha256("pf:source-snapshot:v1\0" + canonical_identity_json({entries, pyproject_i
 
 `dependency_arrays`保留`project.dependencies`与`project.optional-dependencies`字段是否存在；remainder是移除这两项后的parsed TOML。tagged TOML tree区分table/array/string/bool/int/float、offset/local datetime、date与time；table key排序、array保序，finite float用hex并保留`-0.0`，inf/-inf/nan使用规范token。缺`pyproject_identities`的旧Schema 1开发期报告fail closed，不提供fallback。
 
+raw `[tool.pf]`仍属于owned pyproject remainder，因此任何持久PF配置变化都会改变SourceSnapshot与
+generation identity；报告不另行序列化raw配置。每次resolution另外从冻结snapshot中的root与target
+`pyproject.toml`输入计算
+`sha256("pf:uv-project-configuration:v1\0" + canonical_identity_json(inputs))`：owned pyproject使用完整
+`PyprojectIdentity`，非owned target使用snapshot file entry。该摘要进入`pf:resolution-context:v1`，与exact
+uv version、Cell、SourcePlan和既有resolution/yanked policy facts共同闭合Attempt；PF search、timeout、
+scheduling和prerelease推断不进入resolution context。Apply authorizer从report/current SourceSnapshot中的
+同一root/target inputs重算该摘要并在任何source-drift waiver前比较；target dependency arrays先投影为
+已由apply结构授权的report值，以保留original/projected/no-op语义，不新增wire字段。
+
+evaluation policy identity的唯一当前preimage是resolution的`artifact/timeout_seconds`、ty的
+`args/timeout_seconds`、test的`command/cwd/timeout_seconds`，以及既有ty tool version、diagnostic、configured
+verifier outcome与failure policy facts；前缀仍为`pf:policy:v1`。test group、target/extra、candidate search和
+全部scheduling limits不进入该identity。
+
 ### 1.2 Inputs
 
 `inputs` 是 generation 的声明与搜索输入：
@@ -82,7 +97,10 @@ sha256("pf:source-snapshot:v1\0" + canonical_identity_json({entries, pyproject_i
   `DependencySourceRoute`；每条route绑定development/search source及可选workspace member version
   metadata。它是唯一 SourcePlan wire 值；派生 `identity` 与查询不进入 JSON。
 
-CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带 `policy_identity`。Reader 以 record 自身 policy、完整 Cell、source、候选和 series representatives 重算现行 CandidateSnapshot digest。
+CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带
+`policy_identity`。它以`pf:candidate-policy:v1`为前缀，只绑定该dependency已规范化的named search policy
+（name、space、step、prereleases）与共享resolution artifact policy，不绑定整份EffectiveConfig。
+Reader 以 record 自身 policy、完整 Cell、source、候选和 series representatives 重算现行 CandidateSnapshot digest。
 每条 CandidateSnapshot 还保存`source_plan_identity`；它必须等于完整generation SourcePlan的唯一摘要，
 且 Reader 必须通过 `SourcePlan.source_for` 证明其 dependency/source 精确对应 registry SEARCH effective source。Workspace member当前版本
 不进入candidate records。

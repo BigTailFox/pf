@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-03
+- **最后核对：** 2026-09-04
 
 本页只负责文档治理、契约所有权和导航。每条现行规则只有一个规范性所有者；其他文档只引用，不复述。代码与文档冲突时，同一变更必须修正实现或所有者文档。
 
@@ -52,11 +52,14 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
-- [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差与
-  reason-aware incomplete 文案已解决；它继续跟踪 jobs 契约歧义、multi-host outcome、command-scoped composition 与中断语义，也完整接管 R004 的非 TTY
+- [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差、
+  reason-aware incomplete 文案与jobs契约歧义已解决；它继续跟踪multi-host outcome、command-scoped composition 与中断语义，也完整接管 R004 的非 TTY
   搜索遥测和 R005 的 terminal-private result-card；它是非规范性评审，不授权实施。
 - [R004](reviews/R004-pf-search-performance-review.md) 继续跟踪尚未实施的搜索性能候选；prepared promotion
   复用已由 D022/P028 解决，原 CLI 非 TTY 搜索遥测已移交 R006。
+- [D023](archived/designs/D023-pf-configuration-model.md) / [P029](archived/plans/P029-pf-configuration-model.md)
+  已完成配置模型收敛、uv ownership、分层并发与R006 jobs项修复；稳定规则由D001/D002/D003/D004/D006/
+  D008/D012/D014接管。
 - [D022](archived/designs/D022-pf-evaluation-seam.md) / [P028](archived/plans/P028-pf-evaluation-seam.md) 已完成
   评价 seam 收敛与 SearchCoordinator 测试替换；稳定规则由 D002/D003/D004 接管。
 - [R005](archived/reviews/R005-pf-module-depth-review.md) 的 SourcePlan、WorkspaceInventory、Verification Run
