@@ -52,6 +52,9 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
+- [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、R004 性能基线的适用边界、
+  verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化和报告预检候选；
+  R004 继续保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
 - [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
   新增 CI coverage 门禁、报告路径 owner 与自举 artifact 引用漂移等发现，并校准 host-partial、composition、
   中断、搜索性能和资格候选的治理边界；R004/R006 继续保存各自详细证据。R007 是非规范性评审，不授权实施。
