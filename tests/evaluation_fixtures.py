@@ -393,6 +393,7 @@ class ScriptedVerifier:
             )
         )
         self.vectors: list[tuple[VersionPin, ...]] = []
+        self.requests: list[VerifierRequest] = []
 
     def run(
         self,
@@ -402,6 +403,7 @@ class ScriptedVerifier:
         del progress
         vector = self._uv.vector_for_root(request.cwd)
         self.vectors.append(vector)
+        self.requests.append(request)
         return self._handler(vector, len(self.vectors))
 
 

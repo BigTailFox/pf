@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Observer 协议：** `pf-pytest-observer-v1`
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-09-04
 - **Verifier authority：** [D002](D002-pf-implementation.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行时投影：** [D008](D008-pf-verification-run.md)
@@ -37,12 +37,18 @@ PF 把 `pf/_pytest_observer.py` 复制到 invocation-local 私有目录，并通
 PF_PYTEST_OBSERVER_DIR
 PF_PYTEST_OBSERVER_NONCE
 PF_PYTEST_OBSERVER_DETAILS_DIR
+PF_PYTEST_OBSERVER_CASES_DIR
+PF_PYTEST_OBSERVER_CASES_PROJECTION
 PF_PYTEST_PROGRESS_DIR
 PF_PYTEST_PROGRESS_NONCE
+PF_PYTEST_PRUNE_REQUEST
+PF_PYTEST_PRUNE_NONCE
 ```
 
 嵌套 invocation 必须先从继承环境删除全部私有变量，再应用本次 overlay。Observer 不得修改
 test selection、collection continuation、hook outcome、执行顺序或 pytest exit status。
+`PF_PYTEST_PRUNE_*` 由 `ConfiguredVerifier` 的 private pruning plugin 消费；observer 只读取
+nonce 一致性，不替换 `Config.args`。
 
 Observer 只观察 pytest 公开 hook：
 
@@ -104,15 +110,38 @@ VerifierRun.diagnostics
 detail 不进入 disposition、cause、FailureRecord、Attempt、Proposal、cache、Journal、report、
 merge/apply 或 policy identity。
 
+## 4.1 Optional collected / failed projection
+
+Observer 按阶段写入同一私有协议 `pf-pytest-observer-cases-v1` 的不同 projection：
+
+- 原命令阶段：`failed`，仅 setup / call / teardown 失败 nodeid，供 FailedCaseSet additions；
+  不序列化完整原命令 collection。
+- failed-set 阶段：`collected`，collection 是否完成及最终 `session.items` nodeids，供
+  collection 证明；即使同时观察到 failure，也不作为 additions。
+
+serial 与 xdist **controller** 在 `pytest_collection_finish` 之后的 `session.items` 是
+`collected` 权威。pytest-xdist 的 controller `pytest_collection` 禁止收集 items，因此
+controller 通常没有 collected projection；此时视为无法证明，回退原命令，不得用 worker
+投影单独授权 Rejection。worker `collected` 只做防御：内部唯一且 ⊆ requested 即可；含请求外
+item 则回退。`failed` 对多个 worker 作 set union 后按 nodeid 排序，不设数量上限。冲突、非法、
+资源越界或无法证明本次 invocation 时丢弃整个可选 projection，不得截断。
+
+该 artifact 只供 `ConfiguredVerifier` 决定 failed-set normal terminal 能否采用；不进入
+`VerifierRun.authoritative`、Failure authority 或任何 schema。UI detail 与 mandatory
+summary 语义不变。pruning plugin 与 argv overlay 不属于本文。
+
 ## 5. 透明性资格与发布资源
 
 `scripts/qualify_pytest_observer.py` 的版本矩阵只证明注入在已观察 case 中保持 pytest exit、
-selection、hook outcome、执行顺序与 canonical telemetry。资格结果不授予 Rejection
-authority，也不进入生产 selector 或 identity。
+selection、hook outcome、执行顺序与 canonical telemetry。`scripts/qualify_pytest_pruning.py`
+覆盖 FailedCaseSet 的 `Config.args` 替换、动态 collection 回退与 xdist `--dist load`：controller 无
+collected projection 时必须回退原命令，不得用 worker 投影单独授权 Rejection。资格结果不授予
+Rejection authority，也不进入生产 selector 或 identity。
 
 Wheel 与 sdist 必须包含 `pf/_pytest_observer.py` 和 `pf/adapters/pytest_observer.py`。公开行为
 测试只穿过 `ConfiguredVerifier.run(VerifierRequest) -> VerifierRun`；terminal classifier、
-command-shape selector、注入与 telemetry projection 都是私有实现。
+command-shape selector、注入与 telemetry projection 都是私有实现。private pruning plugin 是
+D002 `ConfiguredVerifier` 资源，资格矩阵须覆盖 `Config.args` 替换顺序保证。
 
 ## 6. 非目标
 

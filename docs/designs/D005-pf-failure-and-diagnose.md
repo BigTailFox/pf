@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `failure-runtime-v2`
-- **最后核对：** 2026-09-03
+- **最后核对：** 2026-09-04
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
 - **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
@@ -76,7 +76,10 @@ Rejection 只否定完整 Attempt。现行允许：
 Configured verifier 的 terminal disposition 已由 `ConfiguredVerifier` 机械形成；
 FailurePolicy 不再读取 exit code、output completeness、pytest facts 或 cause 重新判断。
 normal nonzero 的具体整数、stdout/stderr 是否完整、pytest phase 与 observer metadata 都不
-改变 Rejection。
+改变 Rejection。已采用的 failed-set 阶段 terminal 使用同一映射：collection artifact 证明
+有效 requested-set collection 后，任意 `NormalExit(exit_code != 0)` 都是 `VerifierRejected`；
+timeout、signal、start failure 与 typed terminal unavailable 仍是 Indeterminate，不回退原命令。
+不按 pytest 退出码 1/2/3/4/5 建立专用 disposition 分支。
 
 Cell scope、source/build/environment/tool/internal/nondeterministic failure、timeout、signal、
 start failure、typed terminal unavailable 或未建模异常始终不足以 Rejection。它们形成

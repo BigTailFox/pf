@@ -212,6 +212,7 @@ class _ProposalRunner:
             item.dependency: item for item in candidate_snapshots
         }
         self._region_points: dict[StaticRegionSlice, dict[int, _RegionPoint]] = {}
+        self._failed_cases: dict[str, tuple[str, ...]] = {}
 
     def __enter__(self) -> "_ProposalRunner":
         return self
@@ -249,7 +250,9 @@ class _ProposalRunner:
                 package=self._package,
                 baseline=self._static_baseline,
                 static_result=static,
+                failed_case_nodeids=self._failed_case_nodeids(request),
             )
+            self._merge_failed_cases(request, runtime.failed_case_additions)
             stored = self._cache.record_full(
                 runtime.evaluation,
                 baseline_digest=self._static_baseline.digest,
@@ -358,7 +361,9 @@ class _ProposalRunner:
                 package=self._package,
                 baseline=self._static_baseline,
                 static_result=static,
+                failed_case_nodeids=self._failed_case_nodeids(request),
             )
+            self._merge_failed_cases(request, runtime.failed_case_additions)
             stored_full = self._cache.record_full(
                 runtime.evaluation,
                 baseline_digest=self._static_baseline.digest,
@@ -442,6 +447,27 @@ class _ProposalRunner:
                 ),
             )
         )
+
+    def _failed_case_nodeids(
+        self,
+        request: SearchProbeRequest | None,
+    ) -> tuple[str, ...]:
+        if request is None:
+            return ()
+        return self._failed_cases.get(request.active_dependency, ())
+
+    def _merge_failed_cases(
+        self,
+        request: SearchProbeRequest | None,
+        additions: tuple[str, ...],
+    ) -> None:
+        if request is None or not additions:
+            return
+        current = self._failed_cases.get(request.active_dependency, ())
+        seen = set(current)
+        extra = tuple(nodeid for nodeid in additions if nodeid not in seen)
+        if extra:
+            self._failed_cases[request.active_dependency] = (*current, *extra)
 
     @property
     def regions(self) -> tuple[StaticRegion, ...]:

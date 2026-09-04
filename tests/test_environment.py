@@ -800,6 +800,10 @@ test-command = ["python", "-c", "pass"]
             ).encode()
         ).hexdigest()
         assert prepared.proposal.policy_identity == expected_policy
+        encoded = json.dumps(policy_document, sort_keys=True)
+        assert "prun" not in encoded
+        assert "failed_case" not in encoded
+        assert "maxfail" not in encoded
         source = prepared.proposal_root / "pyproject.toml"
         assert source.is_file()
         source.write_text("changed\n", encoding="utf-8")

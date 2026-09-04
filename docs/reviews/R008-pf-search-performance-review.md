@@ -3,7 +3,7 @@
 - **状态：** 开放
 - **日期：** 2026-09-04
 - **性质：** 非规范性性能与架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
-- **对照：** 当前 `main`，HEAD `d6eecc6`
+- **对照：** 当前 `main`
 - **输入：** [E002](../experiments/E002-pf-search-performance.md) 的历史运行证据、
   [R007 §7.1–7.2](R007-pf-current-improvement-priorities.md#7-既有开放轨继续跟踪不重复新开)、
   当前实现与本轮汇总评审意见
@@ -14,11 +14,14 @@
   [D005](../designs/D005-pf-failure-and-diagnose.md)、
   [D008](../designs/D008-pf-verification-run.md)、
   [D012](../designs/D012-pf-harness-relaxation.md)、
+  [D013](../designs/D013-pf-pytest-observer.md)、
   [D014](../designs/D014-pf-report-schema.md)
 - **与既有文档的关系：** E002 保存 2026-08-28 运行的原始计数与当时结论；R007 继续保存
   全项目优先级。本文只汇总当前搜索流程、瓶颈判断、候选排序与治理边界，不把历史基线改写成当前性能实测。
-  搜索期 FailedCaseSet 分段的规范性草案见 [D024](../designs/D024-pf-failed-case-pruning.md)；
-  该草案待接受，本文仍不授权实施。
+  搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 已落地为默认内部策略；完成后的稳定规则由
+  D001/D002/D003/D004/D005/D013 拥有。历史见
+  [D024](../archived/designs/D024-pf-failed-case-pruning.md) 与
+  [P030](../archived/plans/P030-pf-failed-case-pruning.md)。本文仍不把协议测试描述为已证实的第二段 wall-clock 收益。
 
 ## 1. 最终结论
 
@@ -29,8 +32,13 @@ PF 搜索的主导瓶颈是用户配置的完整 `test-command`，通常是整�
 
 真正昂贵的是每个需要直接 runtime 证据的 Proposal 仍须运行权威 verifier。E002 的 106 次 configured
 verifier 累计 3,470.40 秒，中位 36.22 秒，P90 39.34 秒；static region 只让 18 个 search-only 唯一
-向量免于运行 pytest，约占 14.9%。因此最高杠杆是减少进入 verifier 的探针数，同时继续直接认证最终
-floor 与 predecessor；不是由 PF 缩短、拆分或跳过用户的 `test-command`。
+向量免于运行 pytest，约占 14.9%。因此最高杠杆仍是减少进入 verifier 的探针数，同时继续直接认证最终
+floor 与 predecessor。
+
+对带 active dependency 的 search runtime probe/promotion，默认 reject-oracle 会先用已知失败
+nodeid 做拒绝预言，并在首败后提前结束；PASS、current、floor 与 final 仍只来自不收窄用户 collection
+的原命令阶段 `NormalExit(0)`。该策略不新增 evaluation policy identity。early-exit 的 wall-clock
+对照见实施证据；没有 FailedCaseSet 命中率数据时，不得把协议测试写成已证实的第二段收益。
 
 每个唯一 Proposal 还需要独立的可写源码副本、resolution、venv、sync 与静态评价。这是明确的重复
 结构成本，但 E002 没有分离记录 `copytree` 等进程内耗时，不能据此声称它已经是第二大 wall-clock
@@ -176,25 +184,22 @@ cache。合法但 generation 不同的报告继续被替换，不能误报为 bl
 该候选不减少正常 verifier 次数，但能消除晚失败造成的整次成本浪费。若实现改变 workflow/interface 或
 错误时序，应由 D002/D014 Design 明确；不能借 preflight 引入旧 Schema compatibility reader。
 
-### 4.6 P1：按坐标 FailedCaseSet 做搜索期分段
+### 4.6 已落地：按坐标 FailedCaseSet 做搜索期拒绝预言
 
-完整 verifier 次数即使不变，同一坐标相继 Rejection 仍可能被同一批测试打死。在 Cell 内按主动
-坐标记录失败 pytest nodeid，后续探针先跑该集合、失败即停，可以直接砍掉这些 Rejection 的大部
-分 wall-clock。这改变搜索探针如何形成 Rejection，不是内部 cache。
+完整 verifier 次数即使不变，同一坐标相继 Rejection 仍可能被同一批测试打死。现行默认策略在 Cell 内
+按主动坐标记录失败 pytest nodeid，后续探针先跑该集合；collection 证明成立且任意 normal nonzero
+时直接 Rejection，不再跑原命令。PASS 只来自一次原命令进程。direct pytest 原样保留用户 argv，并
+在末位附加 `--maxfail=1` 与 invocation-local `cache_dir`。
 
-规范性草案为 [D024](../designs/D024-pf-failed-case-pruning.md)（待接受）。PASS 只来自一次原命令
-进程；failed-set 只做 Rejection oracle。direct pytest 的 smoke / check / search 原命令与
-failed-set 在用户未配置时附加 `--maxfail=1`。D024 以无跨 invocation 外部副作用、无用例间
-关联副作用的用户测试 oracle 契约为正确性前提；固定内部策略、具体 nodeid 与 pruning context
-都不进入 evaluation policy identity。E002 没有 nodeid 命中率；early-exit 另有操作者
-30min→10min 对照，实施前仍须按 §7.1 复测。
+正确性前提是用户测试 oracle 无跨 invocation 外部副作用、无用例间关联副作用。固定内部策略、具体
+nodeid 与 pruning context 都不进入 evaluation policy identity。E002 没有 nodeid 命中率；没有
+§11 第 2 组 wall-clock / 命中率数据时，不把 FailedCaseSet 作为已证实的第二段收益关闭本 Review。
 
 ## 5. 不采用的方向
 
 - 改写用户 `test-command` 文本、隐式启用 testmon / pytest `--lf`，或把 last-failed 做成跨运行
-  cache；也不得用两段 pytest 拼接冒充一次原命令 PASS。direct pytest 附加 `--maxfail=1` 与
-  failed-set 拒绝预言由待接受的 [D024](../designs/D024-pf-failed-case-pruning.md) 定义；
-  PASS 仍须一次原命令进程；
+  cache；也不得用两段 pytest 拼接冒充一次原命令 PASS。direct pytest 的 `--maxfail=1` overlay
+  与 failed-set 拒绝预言是默认内部策略；PASS 仍须一次原命令进程，不新增 policy identity；
 - 把 static-only evidence、跨 Cell 结果或旧报告结果直接当作 floor、predecessor 或 final authority；
 - 跨运行 Evaluation cache，或不同 Proposal 共用已经运行 verifier 的可写环境；
 - 为获取 sibling hint 而等待另一个 Cell，或在单 Cell 内并行、乱序执行状态相关探针；
@@ -238,8 +243,8 @@ Plan，并把每条验收标准映射到有序切片、迁移、测试和证据�
 2. 用固定 trace/fake evaluator 分别模拟“旧 floor hint”和“更早 region guidance”，比较 verifier 次数、
    unique vector、最坏探针数与结果等价性；
 3. 根据数据只选择一个 P1 方向进入 D003 相关 Design；若收益接近，优先选择已经存在 interface 的 hints
-   接线，避免先放宽 static guidance。坐标内 FailedCaseSet 分段由 [D024](../designs/D024-pf-failed-case-pruning.md)
-   草案独立拥有，不与 region/hint 捆成一次算法改动；
+   接线，避免先放宽 static guidance。坐标内 FailedCaseSet 拒绝预言已落地为默认策略，不与
+   region/hint 捆成一次算法改动；
 4. per-key single-flight 可独立实施和验证，不与算法 Design 绑定；
 5. materialize 与 report preflight 分别按实测占比和晚失败频率决定是否推进，不打包成“搜索重构”。
 

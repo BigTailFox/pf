@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
+from pf.adapters.process import SubprocessRunner
 from pf.adapters.test_command import ConfiguredVerifier
 from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
+    EnvironmentVariable,
     ProcessResult,
     ProcessSpec,
     ProcessTerminalUnavailable,
@@ -28,7 +31,75 @@ class _Runner:
 
     def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
         self.spec = spec
+        if _is_direct_pytest_command(spec.argv):
+            _write_observer_summary(spec)
         return self.result
+
+
+def _is_direct_pytest_command(command: tuple[str, ...]) -> bool:
+    executable = command[0].replace("\\", "/").rsplit("/", 1)[-1]
+    if executable.casefold().endswith(".exe"):
+        executable = executable[:-4]
+    name = executable.casefold()
+    if name in {"pytest", "py.test"}:
+        return True
+    return name.startswith("python") and command[1:3] == ("-m", "pytest")
+
+
+def _write_observer_summary(spec: ProcessSpec) -> None:
+    environment = {item.name: item.value for item in spec.environment}
+    observer_directory = environment.get("PF_PYTEST_OBSERVER_DIR")
+    nonce = environment.get("PF_PYTEST_OBSERVER_NONCE")
+    if observer_directory is None or nonce is None:
+        return
+    document = {
+        "execution_mode": "unknown",
+        "facts": [],
+        "finalized": True,
+        "protocol": "pf-pytest-observer-v1",
+        "pytest_version": "unknown",
+        "python_implementation": "cpython",
+        "python_minor": "3.12",
+        "run_nonce": nonce,
+    }
+    payload = json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n"
+    Path(observer_directory, f"summary-{'a' * 32}.json").write_text(
+        payload,
+        encoding="utf-8",
+    )
+
+
+def _overlay_tokens(argv: tuple[str, ...]) -> tuple[str, ...]:
+    try:
+        separator = argv.index("--")
+    except ValueError:
+        separator = len(argv)
+    overlay = argv[separator - 3 : separator]
+    assert overlay[0] == "--maxfail=1"
+    assert overlay[1] == "-o"
+    assert overlay[2].startswith("cache_dir=")
+    return overlay
+
+
+def _cache_dir(argv: tuple[str, ...]) -> Path:
+    overlay = _overlay_tokens(argv)
+    return Path(overlay[2].removeprefix("cache_dir="))
+
+
+def _user_argv(argv: tuple[str, ...]) -> tuple[str, ...]:
+    tokens = list(argv)
+    overlay = _overlay_tokens(argv)
+    overlay_at = (
+        len(tokens) - len(overlay) if "--" not in tokens else tokens.index("--") - 3
+    )
+    del tokens[overlay_at : overlay_at + 3]
+    index = 0
+    while index < len(tokens) - 1:
+        if tokens[index] == "-p" and tokens[index + 1].startswith("_pf_pytest_"):
+            del tokens[index : index + 2]
+            continue
+        index += 1
+    return tuple(tokens)
 
 
 @pytest.mark.parametrize("exit_code", (1, 2, 3, 4, 5, 137))
@@ -101,32 +172,14 @@ def test_configured_verifier_terminal_authority_is_command_shape_independent(
     tmp_path: Path,
     command: tuple[str, ...],
 ) -> None:
-    class ShapeRunner:
-        def run(self, spec: ProcessSpec) -> ProcessResult:
-            environment = {item.name: item.value for item in spec.environment}
-            observer_directory = environment.get("PF_PYTEST_OBSERVER_DIR")
-            nonce = environment.get("PF_PYTEST_OBSERVER_NONCE")
-            if observer_directory is not None and nonce is not None:
-                document = {
-                    "execution_mode": "unknown",
-                    "facts": [],
-                    "finalized": True,
-                    "protocol": "pf-pytest-observer-v1",
-                    "pytest_version": "unknown",
-                    "python_implementation": "cpython",
-                    "python_minor": "3.12",
-                    "run_nonce": nonce,
-                }
-                payload = (
-                    json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n"
-                )
-                Path(observer_directory, f"summary-{'a' * 32}.json").write_text(
-                    payload,
-                    encoding="utf-8",
-                )
-            return ProcessResult(exit_code=4, duration_seconds=0.1)
+    runner = _Runner(
+        ProcessResult(
+            exit_code=4,
+            duration_seconds=0.1,
+        )
+    )
 
-    run = ConfiguredVerifier(ShapeRunner()).run(
+    run = ConfiguredVerifier(runner).run(
         VerifierRequest(command=command, cwd=tmp_path, timeout_seconds=30)
     )
 
@@ -291,3 +344,137 @@ def test_configured_verifier_wraps_an_unexpected_runner_exception(
         )
 
     assert captured.value.detail == "runner exploded for custom-verifier"
+
+
+def test_verifier_run_excludes_runtime_only_additions(tmp_path: Path) -> None:
+    run = ConfiguredVerifier(
+        _Runner(ProcessResult(exit_code=1, duration_seconds=0.1))
+    ).run(
+        VerifierRequest(
+            command=("custom-verifier",),
+            cwd=tmp_path,
+            timeout_seconds=30,
+        )
+    )
+
+    dumped = run.model_dump(mode="json")
+    assert "failed_case_additions" not in dumped
+    assert "diagnostics" not in dumped
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        ("pytest",),
+        ("py.test", "tests"),
+        ("python", "-m", "pytest", "-q"),
+        ("python3.12", "-m", "pytest"),
+    ),
+)
+def test_direct_pytest_appends_maxfail_and_isolated_cache_dir(
+    tmp_path: Path,
+    command: tuple[str, ...],
+) -> None:
+    runner = _Runner(ProcessResult(exit_code=0, duration_seconds=0.1))
+
+    ConfiguredVerifier(runner).run(
+        VerifierRequest(command=command, cwd=tmp_path, timeout_seconds=30)
+    )
+
+    assert runner.spec is not None
+    overlay = _overlay_tokens(runner.spec.argv)
+    cache_dir = _cache_dir(runner.spec.argv)
+    assert overlay[0] == "--maxfail=1"
+    assert _user_argv(runner.spec.argv) == command
+    assert not cache_dir.exists()
+
+
+def test_direct_pytest_keeps_user_tokens_and_inserts_overlay_before_separator(
+    tmp_path: Path,
+) -> None:
+    command = (
+        "pytest",
+        "-x",
+        "--exitfirst",
+        "--maxfail=5",
+        "-o",
+        "cache_dir=/tmp/user-cache",
+        "--maxfail",
+        "9",
+        "tests",
+        "--",
+        "-k",
+        "not overlay",
+    )
+    runner = _Runner(ProcessResult(exit_code=0, duration_seconds=0.1))
+
+    ConfiguredVerifier(runner).run(
+        VerifierRequest(command=command, cwd=tmp_path, timeout_seconds=30)
+    )
+
+    assert runner.spec is not None
+    argv = runner.spec.argv
+    overlay = _overlay_tokens(argv)
+    assert _user_argv(argv) == command
+    assert argv[argv.index("--") :] == ("--", "-k", "not overlay")
+    assert overlay == argv[argv.index("--") - 3 : argv.index("--")]
+    assert overlay[2] != "cache_dir=/tmp/user-cache"
+
+
+def test_generic_command_argv_is_unchanged(tmp_path: Path) -> None:
+    runner = _Runner(ProcessResult(exit_code=0, duration_seconds=0.1))
+    command = ("wrapper", "pytest", "--maxfail=5")
+
+    ConfiguredVerifier(runner).run(
+        VerifierRequest(command=command, cwd=tmp_path, timeout_seconds=30)
+    )
+
+    assert runner.spec is not None
+    assert runner.spec.argv == command
+
+
+def test_direct_pytest_overlay_last_wins_for_maxfail_and_cache_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--maxfail=9 -o cache_dir=/tmp/addopts-cache")
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\naddopts = --maxfail=8\ncache_dir = ini-cache\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_overlay.py").write_text(
+        "from pathlib import Path\n"
+        "def test_first():\n"
+        "    Path('first').write_text('ran')\n"
+        "    assert False\n"
+        "def test_second():\n"
+        "    Path('second').write_text('ran')\n",
+        encoding="utf-8",
+    )
+    user_cache = tmp_path / "user-cache"
+    user_cache.mkdir()
+
+    run = ConfiguredVerifier(SubprocessRunner()).run(
+        VerifierRequest(
+            command=(
+                sys.executable,
+                "-m",
+                "pytest",
+                "--maxfail=7",
+                "-o",
+                f"cache_dir={user_cache.as_posix()}",
+                "test_overlay.py",
+            ),
+            cwd=tmp_path,
+            environment=(
+                EnvironmentVariable(name="PYTEST_DISABLE_PLUGIN_AUTOLOAD", value="1"),
+            ),
+            timeout_seconds=30,
+        )
+    )
+
+    assert isinstance(run.authoritative, VerifierRejected)
+    assert (tmp_path / "first").read_text(encoding="utf-8") == "ran"
+    assert not (tmp_path / "second").exists()
+    assert not any(user_cache.iterdir())
+    assert not (tmp_path / "ini-cache").exists()

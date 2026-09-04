@@ -200,6 +200,7 @@ class VerifierRequest(FrozenSchema):
     cwd: Path
     environment: tuple[EnvironmentVariable, ...] = ()
     timeout_seconds: int | None
+    failed_case_nodeids: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_request(self) -> "VerifierRequest":
@@ -211,6 +212,7 @@ class VerifierRequest(FrozenSchema):
 class VerifierRun(FrozenSchema):
     authoritative: VerifierOutcome
     diagnostics: VerifierDiagnostics | None = Field(default=None, exclude=True)
+    failed_case_additions: tuple[str, ...] = Field(default=(), exclude=True)
 
 
 def process_facts_match(
@@ -1211,6 +1213,7 @@ Evaluation = Annotated[
 class RuntimeEvaluationRun(FrozenSchema):
     evaluation: Evaluation
     diagnostics: VerifierDiagnostics | None = Field(default=None, exclude=True)
+    failed_case_additions: tuple[str, ...] = Field(default=(), exclude=True)
 
 
 def runtime_process_observation(

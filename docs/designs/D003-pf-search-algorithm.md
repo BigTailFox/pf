@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **算法版本：** `runtime-static-v1`
-- **最后核对：** 2026-09-03
+- **最后核对：** 2026-09-04
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态 transition 与 witness：** [D004](D004-pf-ty-enhancement.md)
@@ -22,7 +22,8 @@ V = {d1: version, ..., dn: version}
 ```
 
 - `B = V_hi`：SEARCH SourcePlan 下受管 direct coordinates 的最高合格 registry release 解析；开始搜索前已直接完整通过。Workspace member 当前版本不充当 baseline sentinel。
-- `current`：每个坐标提交后的向量；始终有该精确向量的直接 `test-command` pass。
+- `current`：每个坐标提交后的向量；始终有该精确向量的原命令阶段直接 `test-command` pass。
+  failed-set Rejection 可以成为 predecessor 或拒绝边界，但不能更新 `current`、floor 或 final。
 - `static frontier`：只有本 Proposal 的 TyCheck、increment 和 fingerprint，可用于调度但不是 PASS、boundary 或 current。
 - `V_final`：最终不动点；等于成功结果的 `final_vector`。
 
@@ -52,7 +53,7 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 
 1. `B` 有直接完整 PASS，并冻结本 cell 唯一的 D004 静态基线。
 2. 候选快照在本次 search 内不变；每个 snapshot 绑定与 exact probe 相同的 registry search route 和 SourcePlan identity，不包含 workspace HEAD/member version。
-3. `current` 只能由该精确向量的直接 `test-command` pass 更新。
+3. `current` 只能由该精确向量的原命令阶段直接 `test-command` pass 更新。
 4. static-only observation 没有 disposition；不能成为 ProbePass、ProbeRejection、boundary 或 final。
 5. 只有 D005 的 Probe Rejection 能移动拒绝边界；Indeterminate 立即停止 cell。
 6. floor 与 predecessor 在提交边界前必须晋升为直接 runtime evidence。
@@ -218,6 +219,7 @@ until not changed
 
 - 任意非单调空间中的全局最低点或 hole certification；
 - static-only floor、region runtime 等价证明或 witness pass；
-- 上界搜索、partial tests、progressive budget；
+- 上界搜索、progressive budget；
+- 任意用户选测或用失败子集冒充一次原命令 PASS；PF 可以用已知失败 nodeid 做拒绝预言并在首败后提前结束；
 - 单 cell 并行 probe、cost-aware 或 best-first 顺序；
 - flaky retry 和跨运行 Evaluation cache。

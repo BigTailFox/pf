@@ -16,16 +16,25 @@ from pf.schemas.evaluation import (
 
 OBSERVATION_DIRECTORY_VARIABLE = "PF_PYTEST_OBSERVER_DIR"
 DETAILS_DIRECTORY_VARIABLE = "PF_PYTEST_OBSERVER_DETAILS_DIR"
+CASES_DIRECTORY_VARIABLE = "PF_PYTEST_OBSERVER_CASES_DIR"
+CASES_PROJECTION_VARIABLE = "PF_PYTEST_OBSERVER_CASES_PROJECTION"
 RUN_NONCE_VARIABLE = "PF_PYTEST_OBSERVER_NONCE"
 PROTOCOL = "pf-pytest-observer-v1"
 DETAILS_PROTOCOL = "pf-pytest-observer-details-v1"
+CASES_PROTOCOL = "pf-pytest-observer-cases-v1"
+PRUNE_REQUEST_VARIABLE = "PF_PYTEST_PRUNE_REQUEST"
+PRUNE_NONCE_VARIABLE = "PF_PYTEST_PRUNE_NONCE"
 
 _MAX_SUMMARIES = 1024
 _MAX_SUMMARY_BYTES = 4 * 1024
 _SUMMARY_NAME = re.compile(r"summary-[0-9a-f]{32}\.json")
 _DETAIL_NAME = re.compile(r"details-[0-9a-f]{32}\.json")
+_CASES_NAME = re.compile(r"cases-[0-9a-f]{32}\.json")
 _MAX_DETAIL_BYTES = 8 * 1024
 _MAX_DETAIL_ARTIFACTS = 1024
+_MAX_CASES_BYTES = 8 * 1024 * 1024
+_MAX_CASES_TOTAL_BYTES = 32 * 1024 * 1024
+_MAX_CASES_ARTIFACTS = 1024
 _SUMMARY_FIELDS = frozenset(
     {
         "execution_mode",
@@ -48,6 +57,19 @@ _VALID_FACTS = frozenset(
         ("INTERNAL_ERROR", "pytest"),
     }
 )
+_CASES_FIELDS = frozenset(
+    {
+        "collection_completed",
+        "collection_failed",
+        "nodeids",
+        "projection",
+        "protocol",
+        "role",
+        "run_nonce",
+    }
+)
+_VALID_ROLES = frozenset({"serial", "controller", "worker"})
+_VALID_PROJECTIONS = frozenset({"failed", "collected"})
 _FAILURE_FACTS = _VALID_FACTS - {("INTERNAL_ERROR", "pytest")}
 
 ExecutionMode = Literal["serial", "xdist", "unknown"]
@@ -79,6 +101,124 @@ class _Summary:
     @property
     def identity(self) -> tuple[str, str, str]:
         return self.execution_mode, self.python_minor, self.pytest_version
+
+
+CasesRole = Literal["serial", "controller", "worker"]
+CasesProjection = Literal["failed", "collected"]
+CasesStatus = Literal["missing", "invalid", "present"]
+
+
+@dataclass(frozen=True)
+class PytestCasesRecord:
+    role: CasesRole
+    projection: CasesProjection
+    collection_completed: bool
+    collection_failed: bool
+    nodeids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PytestCasesObservation:
+    status: CasesStatus
+    projection: CasesProjection | None = None
+    records: tuple[PytestCasesRecord, ...] = ()
+
+
+def read_pytest_observer_cases(
+    directory: Path,
+    *,
+    nonce: str,
+    projection: CasesProjection,
+) -> PytestCasesObservation:
+    """Read optional collected/failed projection without affecting disposition."""
+    try:
+        with os.scandir(directory) as entries:
+            paths = tuple(
+                Path(entry.path)
+                for entry in islice(entries, _MAX_CASES_ARTIFACTS + 1)
+            )
+        if not paths:
+            return PytestCasesObservation(status="missing", projection=projection)
+        if len(paths) > _MAX_CASES_ARTIFACTS:
+            return PytestCasesObservation(status="invalid", projection=projection)
+        total_bytes = 0
+        records: list[PytestCasesRecord] = []
+        for path in paths:
+            metadata = path.stat(follow_symlinks=False)
+            total_bytes += metadata.st_size
+            if total_bytes > _MAX_CASES_TOTAL_BYTES:
+                return PytestCasesObservation(status="invalid", projection=projection)
+            artifact_nonce, record = _read_cases_artifact(path)
+            if artifact_nonce != nonce:
+                continue
+            if record.projection != projection:
+                return PytestCasesObservation(status="invalid", projection=projection)
+            records.append(record)
+        if not records:
+            return PytestCasesObservation(status="missing", projection=projection)
+        return PytestCasesObservation(
+            status="present",
+            projection=projection,
+            records=tuple(records),
+        )
+    except (
+        InvalidPytestObservation,
+        OSError,
+        RecursionError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ):
+        return PytestCasesObservation(status="invalid", projection=projection)
+
+
+def _read_cases_artifact(path: Path) -> tuple[str, PytestCasesRecord]:
+    if _CASES_NAME.fullmatch(path.name) is None:
+        raise InvalidPytestObservation("observer cases artifact name is invalid")
+    metadata = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_CASES_BYTES:
+        raise InvalidPytestObservation("observer cases is not a bounded regular file")
+    with path.open("rb") as stream:
+        payload = stream.read(_MAX_CASES_BYTES + 1)
+    if len(payload) > _MAX_CASES_BYTES:
+        raise InvalidPytestObservation("observer cases exceeds the byte limit")
+    document = json.loads(payload.decode("utf-8"))
+    if type(document) is not dict or frozenset(document) != _CASES_FIELDS:
+        raise InvalidPytestObservation("observer cases fields do not match")
+    canonical = (
+        json.dumps(
+            document,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    if payload != canonical:
+        raise InvalidPytestObservation("observer cases bytes are not canonical")
+    if document["protocol"] != CASES_PROTOCOL:
+        raise InvalidPytestObservation("observer cases protocol is invalid")
+    run_nonce = document["run_nonce"]
+    role = document["role"]
+    projection = document["projection"]
+    nodeids = document["nodeids"]
+    if (
+        type(run_nonce) is not str
+        or role not in _VALID_ROLES
+        or projection not in _VALID_PROJECTIONS
+        or type(document["collection_completed"]) is not bool
+        or type(document["collection_failed"]) is not bool
+        or type(nodeids) is not list
+        or any(type(item) is not str for item in nodeids)
+    ):
+        raise InvalidPytestObservation("observer cases values are invalid")
+    return run_nonce, PytestCasesRecord(
+        role=role,
+        projection=projection,
+        collection_completed=document["collection_completed"],
+        collection_failed=document["collection_failed"],
+        nodeids=tuple(nodeids),
+    )
 
 
 def read_pytest_observer(

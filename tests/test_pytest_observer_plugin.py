@@ -19,6 +19,10 @@ def _reset_observer(monkeypatch: pytest.MonkeyPatch):
         "PF_PYTEST_PROGRESS_DIR",
         "PF_PYTEST_PROGRESS_NONCE",
         "PF_PYTEST_OBSERVER_DETAILS_DIR",
+        "PF_PYTEST_OBSERVER_CASES_DIR",
+        "PF_PYTEST_OBSERVER_CASES_PROJECTION",
+        "PF_PYTEST_PRUNE_REQUEST",
+        "PF_PYTEST_PRUNE_NONCE",
     ):
         monkeypatch.delenv(variable, raising=False)
     yield

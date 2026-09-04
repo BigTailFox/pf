@@ -11,6 +11,7 @@ from evaluation_fixtures import (
 )
 
 from pf.errors import InfrastructureError
+from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
@@ -28,7 +29,7 @@ from pf.schemas.evaluation import (
     VerifierRejected,
     VerifierRun,
 )
-from pf.schemas.project import VersionPin
+from pf.schemas.project import SourcePlan, VersionPin
 from pf.schemas.report import (
     CellIndeterminate,
     CellSearchFailure,
@@ -38,6 +39,7 @@ from pf.schemas.report import (
     ProbeRejection,
     StaticOnlyEvidence,
 )
+from pf.snapshot import SnapshotBuilder
 
 
 class RecordingDiagnostics:
@@ -376,3 +378,129 @@ class TestSearchCoordinator:
         assert diagnostics.events[0].runtime is not None
         assert diagnostics.events[0].runtime.diagnostics is not None
         assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_search_reuses_failed_cases_on_the_same_coordinate(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project")
+
+        def handler(vector: tuple[VersionPin, ...], call: int) -> VerifierRun:
+            del call
+            version = int(vector[0].version)
+            if version >= 2:
+                return VerifierRun(
+                    authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+                )
+            return VerifierRun(
+                authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
+                failed_case_additions=("test_example.py::test_bad",),
+            )
+
+        assembly = evaluation_assembly(verifier_handler=handler)
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellSuccess)
+        nodeids = tuple(
+            request.failed_case_nodeids for request in assembly.verifier.requests
+        )
+        assert () in nodeids
+        assert ("test_example.py::test_bad",) in nodeids
+        passing = (VersionPin(name="demo-dep", version="2"),)
+        assert assembly.verifier.vectors.count(passing) == 1
+
+    def test_search_isolates_failed_cases_across_coordinates_and_runs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["alpha-dep", "beta-dep"]
+
+[dependency-groups]
+test = []
+
+[tool.pf]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
+test-command = ["python", "-c", "pass"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        project_source = SourcePlan.for_package(package, "SEARCH")
+
+        def handler(vector: tuple[VersionPin, ...], call: int) -> VerifierRun:
+            del call
+            versions = {pin.name: int(pin.version) for pin in vector}
+            if versions.get("alpha-dep", 3) < 2:
+                return VerifierRun(
+                    authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
+                    failed_case_additions=("test_alpha.py::test_bad",),
+                )
+            if versions.get("beta-dep", 3) < 2:
+                return VerifierRun(
+                    authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
+                    failed_case_additions=("test_beta.py::test_bad",),
+                )
+            return VerifierRun(
+                authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+            )
+
+        pins = (
+            VersionPin(name="alpha-dep", version="3"),
+            VersionPin(name="beta-dep", version="3"),
+        )
+        assembly = evaluation_assembly(
+            highest=pins,
+            lowest=pins,
+            verifier_handler=handler,
+        )
+
+        first = assembly.coordinator.search(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=project_source,
+        )
+        first_count = len(assembly.verifier.requests)
+        second = assembly.coordinator.search(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=project_source,
+        )
+
+        assert isinstance(first, CellSuccess)
+        assert isinstance(second, CellSuccess)
+        paired = list(
+            zip(assembly.verifier.vectors[:first_count], assembly.verifier.requests[:first_count])
+        )
+        first_beta = [
+            request.failed_case_nodeids
+            for vector, request in paired
+            if any(pin.name == "beta-dep" and pin.version == "1" for pin in vector)
+            and all(pin.version != "1" or pin.name == "beta-dep" for pin in vector)
+        ]
+        assert first_beta
+        assert first_beta[0] == ()
+        assert any(
+            request.failed_case_nodeids == ("test_alpha.py::test_bad",)
+            for request in assembly.verifier.requests[:first_count]
+        )
+        assert assembly.verifier.requests[first_count].failed_case_nodeids == ()
+
+

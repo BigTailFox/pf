@@ -512,6 +512,19 @@ class TestCommandDispatch:
         normalized_help = " ".join(result.stdout.split())
         assert all(fragment in normalized_help for fragment in expected_fragments)
 
+    def test_verification_commands_do_not_expose_pruning_options(self) -> None:
+        from pf.schemas.config import TestConfig
+
+        assert "prun" not in " ".join(TestConfig.model_fields)
+        assert "failed_case" not in " ".join(TestConfig.model_fields)
+        for command in ("smoke", "check", "search"):
+            result = invoke_app(command, "--help")
+            text = f"{result.stdout}\n{result.stderr}".casefold()
+            assert result.returncode == 0, result.stderr
+            assert "prun" not in text
+            assert "failed-case" not in text
+            assert "maxfail" not in text
+
     def test_apply_exposes_only_the_defined_force_option(self) -> None:
         help_result = invoke_app("apply", "--help")
         invocation_result = invoke_app("apply", "--no-force")

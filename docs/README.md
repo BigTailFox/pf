@@ -43,7 +43,6 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 | [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、resolution/install 与 uv 资格边界 |
 | [D013](designs/D013-pf-pytest-observer.md) | direct pytest observer、progress/detail telemetry 与透明性资格 |
 | [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、编码与 reader 验证 |
-| [D024](designs/D024-pf-failed-case-pruning.md) | 搜索期 FailedCaseSet 拒绝预言与 pytest early-exit（草案，待接受） |
 
 [JSON Schema](schemas/package-floor-v1.schema.json) 与 [complete](examples/package-floor-v1-minimal-complete.json) / [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例是 D014 Pydantic wire model 的生成物，不建立第二份契约。
 
@@ -59,14 +58,19 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
   verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化和报告预检候选；
   E002 保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
-  搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 的规范性草案见
-  [D024](designs/D024-pf-failed-case-pruning.md)（待接受）。
+  搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 已落地为默认内部策略；稳定规则由
+  D001/D002/D003/D004/D005/D013 接管。历史 Design/Plan 见
+  [D024](archived/designs/D024-pf-failed-case-pruning.md) /
+  [P030](archived/plans/P030-pf-failed-case-pruning.md)。
 - [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
   新增 CI coverage 门禁、报告路径 owner 与自举 artifact 引用漂移等发现，并校准 host-partial、composition、
   中断、搜索性能和资格候选的治理边界；E002/R006 继续保存各自详细证据。R007 是非规范性评审，不授权实施。
 - [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差、
   reason-aware incomplete 文案与jobs契约歧义已解决；它继续跟踪multi-host outcome、command-scoped composition 与中断语义，也完整接管 E002 的非 TTY
   搜索遥测和 R005 的 terminal-private result-card；它是非规范性评审，不授权实施。
+- [D024](archived/designs/D024-pf-failed-case-pruning.md) / [P030](archived/plans/P030-pf-failed-case-pruning.md)
+  已完成搜索期 FailedCaseSet 拒绝预言与 pytest early-exit；稳定规则由 D001/D002/D003/D004/D005/D013
+  接管。FailedCaseSet 第二段 wall-clock 收益未证实，R008 保持开放。
 - [D023](archived/designs/D023-pf-configuration-model.md) / [P029](archived/plans/P029-pf-configuration-model.md)
   已完成配置模型收敛、uv ownership、分层并发与R006 jobs项修复；稳定规则由D001/D002/D003/D004/D006/
   D008/D012/D014接管。

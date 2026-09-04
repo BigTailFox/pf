@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-03
+- **最后核对：** 2026-09-04
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -76,7 +76,8 @@ src/pf/
 ├── runlog.py                    Process Logs、Journal、Diagnosis Index
 ├── _secure_runlog.py            private secure-directory protocol/adapters
 ├── windows_runlog.py            Windows native handle/DACL implementation
-├── _pytest_observer.py          wheel-packaged standalone pytest plugin
+├── _pytest_observer.py          wheel-packaged standalone pytest observer plugin
+├── _pytest_pruning.py           wheel-packaged standalone pytest pruning plugin
 ├── terminal/                    presenter 与 private live/explain/diagnose views
 ├── schemas/                     base/config/project/evaluation/report/apply records
 └── adapters/                    process、uv/uv-lock、ty、verifier/pytest 与 runtime-witness seams
@@ -261,8 +262,15 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 - `RuntimeWitnessAdapter` 只执行 D004 的 structured harness。
 - `ConfiguredVerifier.run(VerifierRequest) -> VerifierRun` 是配置 verifier 的唯一 public
   module interface；D005 独占 terminal disposition，`VerifierDiagnostics` 只在运行期存在。
-- direct pytest selector、observer 注入与 telemetry projection 都是 `ConfiguredVerifier`
-  私有实现；D013 只拥有其透明性和诊断协议。
+- `VerifierRequest.failed_case_nodeids` 与 `VerifierRun.failed_case_additions` /
+  `RuntimeEvaluationRun.failed_case_additions` 是 runtime-only；additions 排除出 dump。
+  空 input 只跑原命令阶段。generic command 收到非空 nodeids 是调用方 invariant failure。
+- `_ProposalRunner` 唯一拥有 FailedCaseSet；`RuntimeEvaluator` 只把不可变 nodeid tuple 传给
+  verifier，不解释其语义。`CoordinateSearch` 只消费 Probe evidence。
+- direct pytest 原样保留用户 argv，并注入 PF-owned `--maxfail=1`、invocation-local
+  `cache_dir`、observer 与仅 failed-set 使用的 private pruning plugin。pruning plugin 在
+  `pytest_cmdline_main`（`hookwrapper=True, trylast=True`）pre-yield 替换已解析的
+  `Config.args`。D013 只拥有 observer 透明性、诊断协议与分阶段 collected/failed artifact。
 
 所有 adapter 在返回前脱敏；Presenter、ReportStore 与 workflow 不补救 raw secret，也不解析 stderr 重新分类。
 

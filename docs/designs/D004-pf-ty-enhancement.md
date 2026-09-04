@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `static-transition-v1`
-- **最后核对：** 2026-08-28
+- **最后核对：** 2026-09-04
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -231,6 +231,8 @@ witness_harness    = witness-harness-v1
 boundary_rule      = runtime-evidence-only
 final_verification = direct-test-command-pass
 ```
+
+`final_verification` 表示原命令阶段 `NormalExit(0)`：pytest 从用户 argv/ini/`PYTEST_ADDOPTS` 解析得到的 `Config.args` 不被 FailedCaseSet 替换。failed-set `NormalExit(0)` 不授权 PASS。
 
 改变 identity、multiset、allowlist、AST attribution、witness protocol、region scope 或 final rule 必须提升相应版本。
 

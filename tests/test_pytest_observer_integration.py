@@ -100,7 +100,7 @@ class TestPytestObserverIntegration:
         assert result.diagnostics.detail.first.phase == expected_phase
         assert result.diagnostics.detail.total == 1
 
-    def test_pytest_failure_detail_counts_distinct_nodeids_once(
+    def test_pytest_failure_detail_counts_call_and_teardown_as_one_nodeid(
         self,
         tmp_path: Path,
     ) -> None:
@@ -109,8 +109,7 @@ class TestPytestObserverIntegration:
             "import pytest\n"
             "@pytest.fixture\n"
             "def broken():\n    yield\n    raise RuntimeError('teardown')\n"
-            "def test_first(broken):\n    assert False\n"
-            "def test_second():\n    assert False\n",
+            "def test_first(broken):\n    assert False\n",
         )
 
         result = _run_pytest(tmp_path)
@@ -120,7 +119,7 @@ class TestPytestObserverIntegration:
         assert isinstance(result.diagnostics.detail, PytestFailureDetail)
         assert result.diagnostics.detail.first.nodeid == "test_example.py::test_first"
         assert result.diagnostics.detail.first.phase == "call"
-        assert result.diagnostics.detail.total == 2
+        assert result.diagnostics.detail.total == 1
 
     @pytest.mark.parametrize(
         "nodeid_escape",
@@ -332,7 +331,8 @@ class TestPytestObserverIntegration:
         result = _run_pytest(tmp_path)
 
         assert isinstance(result.authoritative, VerifierRejected)
-        assert result.authoritative.terminal.exit_code == 2
+        assert result.diagnostics is not None
+        assert result.diagnostics.pytest_facts == (("COLLECTION_FAILED", "collect"),)
 
     def test_pytest_observer_cannot_override_pass_rewritten_to_nonzero(
         self, tmp_path: Path
@@ -540,7 +540,8 @@ class TestPytestObserverXdistIntegration:
         result = _run_pytest(tmp_path, "-n1", autoload=True)
 
         assert isinstance(result.authoritative, VerifierRejected)
-        assert result.authoritative.terminal.exit_code == 1
+        assert result.diagnostics is not None
+        assert ("TEST_FAILED", "call") in result.diagnostics.pytest_facts
 
     def test_pytest_observer_does_not_override_xdist_internal_error(
         self, tmp_path: Path

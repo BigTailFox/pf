@@ -385,6 +385,7 @@ class RuntimeEvaluator:
         package: PackagePlan,
         baseline: StaticBaseline,
         static_result: StaticEvaluation | None = None,
+        failed_case_nodeids: tuple[str, ...] = (),
     ) -> RuntimeEvaluationRun:
         static = static_result or self._static.evaluate(
             prepared,
@@ -458,6 +459,7 @@ class RuntimeEvaluator:
                     cwd=cwd,
                     environment=(EnvironmentVariable(name="PATH", value=path),),
                     timeout_seconds=package.config.test.timeout_seconds,
+                    failed_case_nodeids=failed_case_nodeids,
                 ),
                 progress=progress,
             )
@@ -493,4 +495,5 @@ class RuntimeEvaluator:
         return RuntimeEvaluationRun(
             evaluation=evaluation,
             diagnostics=run.diagnostics,
+            failed_case_additions=run.failed_case_additions,
         )
