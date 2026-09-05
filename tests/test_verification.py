@@ -148,7 +148,7 @@ def _package(
         pyproject_path="pyproject.toml",
         config=EffectiveConfig(
             test=PfTestConfig(
-                command=("pytest",) if full_contract else None,
+                command=("pytest",),
             ),
         ),
         declarations=(),
@@ -374,10 +374,9 @@ class TestVerificationRunnerRequest:
         events = _Events()
         outcome = _search_indeterminate(package, snapshot, host)
         operation = _SearchOperation(
-            lambda package, cell, snapshot, plan: received.append(
-                (package, cell, snapshot, plan)
+            lambda package, cell, snapshot, plan: (
+                received.append((package, cell, snapshot, plan)) or outcome
             )
-            or outcome
         )
 
         results = VerificationRunner(
@@ -576,10 +575,10 @@ class TestVerificationRunnerAdmission:
             limits=_limits(),
         )
 
-        with pytest.raises(ConfigurationError, match="test-command"):
-            VerificationRunner(
-                events=_Events(), logs=None, host_target=HOST
-            ).run(request)
+        with pytest.raises(ConfigurationError, match="test dependency group"):
+            VerificationRunner(events=_Events(), logs=None, host_target=HOST).run(
+                request
+            )
         snapshot.close()
 
     def test_search_empty_host_set_still_requires_full_contract(
@@ -592,7 +591,7 @@ class TestVerificationRunnerAdmission:
             full_contract=False,
         )
         events = _Events()
-        with pytest.raises(ConfigurationError, match="test-command"):
+        with pytest.raises(ConfigurationError, match="test dependency group"):
             VerificationRunner(
                 events=events,
                 logs=None,

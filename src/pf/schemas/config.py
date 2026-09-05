@@ -59,7 +59,7 @@ class SearchConfig(FrozenSchema):
 
 
 class ResolutionConfig(FrozenSchema):
-    artifact: Literal["wheel", "sdist", "any"] = "wheel"
+    artifact: Literal["wheel", "sdist", "any"] = "any"
     timeout_seconds: StrictInt | None = 600
 
     @field_validator("timeout_seconds")
@@ -84,9 +84,18 @@ class TyConfig(FrozenSchema):
 
 class TestConfig(FrozenSchema):
     group: str = "test"
-    command: tuple[str, ...] | None = None
+    command: tuple[str, ...] = ("pytest",)
     cwd: Literal["package", "root"] = "package"
     timeout_seconds: StrictInt | None = 1800
+
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or not all(value):
+            raise ValueError("test-command must be non-empty")
+        if value[:2] == ("uv", "run"):
+            raise ValueError("test-command cannot start with 'uv run'")
+        return value
 
     @field_validator("timeout_seconds")
     @classmethod

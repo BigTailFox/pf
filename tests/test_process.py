@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import TextIO
+from typing import Any, TextIO
 
 import pytest
 
@@ -367,7 +367,7 @@ class TestSubprocessRunner:
         runner = SubprocessRunner(terminate_grace_seconds=0.05)
         real_popen = subprocess.Popen
 
-        def popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        def popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
             process = real_popen(*args, **kwargs)
             runner.interrupt()
             return process

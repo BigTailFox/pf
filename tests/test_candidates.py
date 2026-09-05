@@ -221,7 +221,7 @@ test-command = ["pytest"]
             (
                 'search-space = "current-minor"\nsearch-step = "patch"',
                 "1.1.1",
-                ["1.1.1"],
+                ["1.1.0", "1.1.1"],
             ),
             (
                 'search-step = "patch"\n[[tool.pf.dep]]\nname = "demo-dep"\nsearch-space = ">=1.0,<1.1"',

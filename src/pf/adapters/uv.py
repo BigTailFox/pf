@@ -75,7 +75,7 @@ from pf.schemas.project import (
     AvailableCandidate,
     Cell,
     HarnessResolutionRequirement,
-    HarnessSelection,
+    HarnessSatisfaction,
     InterpreterIdentity,
     ResolvedNode,
     SelectedCandidate,
@@ -501,6 +501,7 @@ class UvAdapter:
                     packages=packages,
                     requirements=harness,
                     source_plan=source_plan,
+                    project_plan=project_plan,
                 )
                 if kind == "environment"
                 else ()
@@ -620,8 +621,7 @@ class UvAdapter:
             assert source.locator is not None and source.content_hash is not None
             digest = source.content_hash.removeprefix("sha256:")
             direct = (
-                f"{declaration.name}{extras} @ "
-                f"{source.locator}#sha256={digest}{marker}"
+                f"{declaration.name}{extras} @ {source.locator}#sha256={digest}{marker}"
             )
         elif source.kind == "git":
             assert source.locator is not None and source.commit is not None
@@ -665,20 +665,36 @@ class UvAdapter:
         packages: tuple[ResolutionPackage, ...],
         requirements: tuple[HarnessResolutionRequirement, ...],
         source_plan: SourcePlan,
-    ) -> tuple[HarnessSelection, ...]:
+        project_plan: ResolutionPlan | None,
+    ) -> tuple[HarnessSatisfaction, ...]:
+        if project_plan is None:
+            raise ValueError("environment satisfaction requires a project plan")
+        project_by_name = {item.name: item for item in project_plan.packages}
         by_name = {item.name: item for item in packages}
-        selections: list[HarnessSelection] = []
+        observations: list[HarnessSatisfaction] = []
         for name in sorted({item.declaration.name for item in requirements}):
             package = by_name.get(name)
             if package is None or package.version is None:
                 raise ValueError(f"resolved harness package is missing: {name}")
+            project_node = project_by_name.get(name)
+            if project_node is not None and (
+                project_node.version != package.version
+                or project_node.source != package.source
+                or project_node.selected_artifact != package.selected_artifact
+            ):
+                raise ValueError(f"harness satisfaction changed project node: {name}")
             declarations = tuple(
                 item.declaration
                 for item in requirements
                 if item.declaration.name == name
             )
-            selections.append(
-                HarnessSelection(
+            observations.append(
+                HarnessSatisfaction(
+                    satisfied_by=(
+                        "PROJECT_GRAPH"
+                        if project_node is not None
+                        else "EXTERNAL_HARNESS"
+                    ),
                     name=name,
                     version=package.version,
                     source=package.source,
@@ -692,16 +708,16 @@ class UvAdapter:
                         if package.selected_artifact is not None
                         else None
                     ),
-                    ceiling_bound=any(
+                    ceiling_eligible=any(
                         harness_requirement_policy(
                             item,
                             source=source_plan.source_for(item.name),
-                        ).ceiling_bound
+                        ).ceiling_eligible
                         for item in declarations
                     ),
                 )
             )
-        return tuple(selections)
+        return tuple(observations)
 
     def available_cpython_minors(self, *, root: Path) -> tuple[str, ...]:
         process = self._runner.run(
@@ -893,10 +909,16 @@ class UvAdapter:
                         dependencies=tuple(sorted(dependencies)),
                     )
                 )
+            by_name: dict[str, ResolvedNode] = {}
+            for node in nodes:
+                previous = by_name.get(node.name)
+                if previous is not None and previous != node:
+                    raise ValueError("conflicting installed distribution observations")
+                by_name[node.name] = node
         except (KeyError, TypeError, ValueError, InvalidVersion, json.JSONDecodeError):
             return ToolFailure(cause="TOOL_FAILURE", stage="inspect", process=process)
         sorted_nodes: tuple[ResolvedNode, ...] = tuple(
-            sorted(nodes, key=lambda node: node.name)
+            by_name[name] for name in sorted(by_name)
         )
         return GraphSuccess(
             process=process,
@@ -1009,9 +1031,10 @@ class UvAdapter:
             if not isinstance(hashes, Mapping):
                 raise TypeError("Simple JSON hashes must be an object")
             sha256 = hashes.get("sha256")
-            if not isinstance(sha256, str) or re.fullmatch(
-                r"[0-9a-fA-F]{64}", sha256
-            ) is None:
+            if (
+                not isinstance(sha256, str)
+                or re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None
+            ):
                 raise ValueError("Simple JSON SHA-256 hash is invalid")
             requires_python = file.get("requires-python")
             if requires_python is not None:
@@ -1024,7 +1047,10 @@ class UvAdapter:
                 raise TypeError("Simple JSON yanked must be a boolean or string")
             resolved_locator = urljoin(project_url, locator)
             parsed_locator = urlsplit(resolved_locator)
-            if parsed_locator.scheme not in {"http", "https"} or not parsed_locator.hostname:
+            if (
+                parsed_locator.scheme not in {"http", "https"}
+                or not parsed_locator.hostname
+            ):
                 raise ValueError("Simple JSON artifact URL is invalid")
             artifact: AvailableArtifact
             try:

@@ -53,7 +53,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     AvailableArtifact,
     HarnessBaseline,
-    HarnessSelection,
+    HarnessSatisfaction,
     HarnessResolutionRequirement,
     InterpreterIdentity,
     ResolvedNode,
@@ -79,7 +79,7 @@ def empty_harness_baseline(cell) -> HarnessBaseline:
     return HarnessBaseline.from_evidence(
         cell=cell,
         declaration_ids=(),
-        selections=(),
+        observations=(),
     )
 
 
@@ -174,7 +174,7 @@ class SuccessfulUv:
         assert isinstance(source_plan, SourcePlan)
         harness = cast(tuple[HarnessResolutionRequirement, ...], kwargs["harness"])
         packages = list(project.packages)
-        selections: list[HarnessSelection] = []
+        observations: list[HarnessSatisfaction] = []
         for requirement in harness:
             name = requirement.declaration.name
             source = source_plan.source_for(name)
@@ -192,9 +192,14 @@ class SuccessfulUv:
                 )
                 packages.append(package)
             assert package.version is not None
-            if name not in {item.name for item in selections}:
-                selections.append(
-                    HarnessSelection(
+            if name not in {item.name for item in observations}:
+                observations.append(
+                    HarnessSatisfaction(
+                        satisfied_by=(
+                            "PROJECT_GRAPH"
+                            if name in {item.name for item in project.packages}
+                            else "EXTERNAL_HARNESS"
+                        ),
                         name=name,
                         version=package.version,
                         source=package.source,
@@ -208,14 +213,14 @@ class SuccessfulUv:
                             if package.selected_artifact is not None
                             else None
                         ),
-                        ceiling_bound=requirement.ceiling is not None
+                        ceiling_eligible=requirement.ceiling is not None
                         or source.kind == "registry",
                     )
                 )
         return self._plan(
             "environment",
             packages=tuple(sorted(packages, key=lambda item: item.name)),
-            direct_harness=tuple(sorted(selections, key=lambda item: item.name)),
+            direct_harness=tuple(sorted(observations, key=lambda item: item.name)),
             kwargs=kwargs,
         )
 
@@ -225,7 +230,7 @@ class SuccessfulUv:
         *,
         packages: tuple[ResolutionPackage, ...],
         kwargs: dict[str, object],
-        direct_harness: tuple[HarnessSelection, ...] = (),
+        direct_harness: tuple[HarnessSatisfaction, ...] = (),
     ) -> ResolutionPlan:
         context = kwargs["context"]
         request_digest = kwargs["request_digest"]
@@ -359,13 +364,85 @@ class TestEvaluationPolicy:
 
 
 class TestEnvironmentFactory:
+    @pytest.mark.parametrize("baseline_owned", (False, True))
+    def test_overlap_satisfaction_and_ceiling_follow_current_project(
+        self, tmp_path, baseline_owned
+    ):
+        class OverlapUv(SuccessfulUv):
+            owned = baseline_owned
+            harness_requests = []
+
+            def resolve_project(self, **kwargs):
+                packages = [registry_package("idna", "3.10")]
+                if self.owned:
+                    packages.append(registry_package("pytest", "9.0"))
+                return self._plan("project", packages=tuple(packages), kwargs=kwargs)
+
+            def resolve_environment(self, **kwargs):
+                self.harness_requests.append(kwargs["harness"])
+                return super().resolve_environment(**kwargs)
+
+        root = _write_demo(tmp_path, harness=True)
+        path = root / "pyproject.toml"
+        path.write_text(
+            path.read_text()
+            .replace('test = ["pytest"]', 'test = ["pytest>=1,<10", "demo[socks]"]')
+            .replace(
+                "[dependency-groups]",
+                "[project.optional-dependencies]\nsocks = []\n[dependency-groups]",
+            )
+        )
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        uv = OverlapUv()
+        factory = EnvironmentFactory(uv)
+        baseline = factory.prepare(
+            package=package,
+            cell=package.cells[0],
+            snapshot=snapshot,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+            resolution=HighestResolution(),
+        )
+        assert isinstance(baseline, PreparedEnvironment)
+        try:
+            assert baseline.proposal.cell.extra_surface == ("socks",)
+            observation = baseline.harness_baseline.observations[0]
+            assert observation.satisfied_by == (
+                "PROJECT_GRAPH" if baseline_owned else "EXTERNAL_HARNESS"
+            )
+            assert uv.harness_requests[0][0].relaxed_minimum is False
+            assert uv.harness_requests[0][0].ceiling is None
+            uv.owned = not baseline_owned
+            current = factory.prepare(
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+                resolution=LowestDirectResolution(baseline.harness_baseline),
+            )
+            assert isinstance(current, PreparedEnvironment)
+            try:
+                requirement = uv.harness_requests[-1][0]
+                assert requirement.relaxed_minimum is True
+                assert requirement.ceiling == ("9.0" if baseline_owned else None)
+                assert uv._installed_plan.direct_harness[0].satisfied_by == (
+                    "EXTERNAL_HARNESS" if baseline_owned else "PROJECT_GRAPH"
+                )
+                assert [item.name for item in uv._installed_plan.packages].count(
+                    "pytest"
+                ) == 1
+            finally:
+                current.close()
+        finally:
+            baseline.close()
+
     def test_shared_artifact_policy_accepts_native_alternatives_without_selection(
         self,
         tmp_path: Path,
     ) -> None:
         class NativeArtifactUv(SuccessfulUv):
             def resolve_project(self, **kwargs: object) -> ResolutionOutcome:
-                assert kwargs["artifact_policy"] == "wheel"
+                assert kwargs["artifact_policy"] == "any"
                 artifacts = tuple(
                     ResolutionArtifact(
                         filename=filename,
@@ -792,6 +869,14 @@ test-command = ["python", "-c", "pass"]
                 "final_verification": "direct-test-command-pass",
             },
             "failure_policy": "failure-runtime-v2",
+            "validation_contract_policy": {
+                "self_reference": "required-effective-cell-surface",
+                "extra_exploration": "nonempty-declared-groups-only",
+                "baseline_harness": "original-external-declarations",
+                "probe_harness": "remove-eligible-direct-lower-bounds",
+                "project_overlap": "exact-project-node-without-harness-ceiling",
+                "external_ceiling": "baseline-observed-version-for-current-harness-only-node",
+            },
         }
         expected_policy = hashlib.sha256(
             (

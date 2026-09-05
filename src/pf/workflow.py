@@ -98,7 +98,7 @@ class CheckCommandWorkflow:
             selector=request.selector,
         )
         package = project.target
-        require_full_evaluation_contract(package, "check")
+        require_full_evaluation_contract(package)
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,
@@ -189,7 +189,7 @@ class SmokeCommandWorkflow:
             selector=request.selector,
         )
         package = project.target
-        require_full_evaluation_contract(package, "smoke")
+        require_full_evaluation_contract(package)
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,
@@ -274,7 +274,7 @@ class SearchCommandWorkflow:
         )
         package = project.target
         report_path = root / project.report_path
-        require_full_evaluation_contract(package, "search")
+        require_full_evaluation_contract(package)
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,

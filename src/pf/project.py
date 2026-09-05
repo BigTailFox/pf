@@ -60,6 +60,7 @@ _MARKER_VARIABLES = frozenset(
         "implementation_version",
         "extra",
         "dependency_groups",
+        "extras",
     }
 )
 _PROJECTABLE_MARKER_VARIABLES = frozenset(
@@ -262,7 +263,115 @@ class ProjectLoader:
                     "unsupported managed marker dimension: " + unsupported[0]
                 )
 
-        surfaces = self._extra_surfaces(tuple(sorted(optional)), config)
+        root_groups = root_document.get("dependency-groups", {})
+        package_groups = document.get("dependency-groups", {})
+        group_name = config.test.group
+        test_group_present = group_name in root_groups or group_name in package_groups
+        expanded_harness = (
+            *(
+                ("root", root / "pyproject.toml", item)
+                for item in self._expand_group(root_groups, group_name)
+            ),
+            *(
+                ()
+                if package_path == root
+                else (
+                    ("package", package_path / "pyproject.toml", item)
+                    for item in self._expand_group(package_groups, group_name)
+                )
+            ),
+        )
+        self_references: list[tuple[Requirement, tuple[str, ...], str]] = []
+        harness_records = []
+        extra_names: dict[str, str] = {}
+        for extra in optional:
+            canonical = canonicalize_name(extra)
+            if canonical in extra_names:
+                raise ConfigurationError(f"ambiguous project extra name: {extra}")
+            extra_names[canonical] = extra
+        for owner, group_pyproject, item in expanded_harness:
+            provenance = (
+                f"{group_pyproject.relative_to(root)}: {owner} group "
+                f"{'/'.join(item.group_path)} item {item.item_path}: {item.raw}"
+            )
+            try:
+                requirement = Requirement(item.raw)
+            except InvalidRequirement as error:
+                raise ConfigurationError(
+                    f"invalid test group requirement: {provenance}"
+                ) from error
+            if canonicalize_name(requirement.name) == package_name:
+                if requirement.url is not None or (
+                    package_name in sources
+                    and sources[package_name].kind in {"url", "git", "path"}
+                ):
+                    raise ConfigurationError(
+                        f"self-reference cannot replace target source: {provenance}"
+                    )
+                marker = str(requirement.marker) if requirement.marker else None
+                if marker is not None:
+                    unquoted = re.sub(r"(['\"]).*?\1", "", marker)
+                    variables = (
+                        set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", unquoted))
+                        & _MARKER_VARIABLES
+                    )
+                    unsupported = variables - _PROJECTABLE_MARKER_VARIABLES
+                    if unsupported:
+                        raise ConfigurationError(
+                            f"unsupported self-reference marker dimension: {sorted(unsupported)[0]}: {provenance}"
+                        )
+                unknown = sorted(
+                    canonicalize_name(extra)
+                    for extra in requirement.extras
+                    if canonicalize_name(extra) not in extra_names
+                )
+                if unknown:
+                    raise ConfigurationError(
+                        f"unknown self-reference extra: {unknown[0]}: {provenance}"
+                    )
+                extras = tuple(
+                    sorted(
+                        extra_names[canonicalize_name(extra)]
+                        for extra in requirement.extras
+                    )
+                )
+                self_references.append((requirement, extras, provenance))
+            else:
+                harness_records.append(
+                    self._harness_requirement(
+                        package=package_name,
+                        root=root,
+                        owner=owner,
+                        pyproject_path=group_pyproject,
+                        expanded=item,
+                        requirement=requirement,
+                        sources=sources,
+                        registry=registry,
+                    )
+                )
+        harness_requirements = tuple(item[0] for item in harness_records)
+        for requirement, source in harness_records:
+            existing_route = source_routes.get(requirement.name)
+            if existing_route is not None:
+                if existing_route.development_source != source:
+                    raise ConfigurationError(
+                        f"ambiguous source route for dependency: {requirement.name}"
+                    )
+                continue
+            member = (
+                inventory.workspace_member_for(requirement.name)
+                if source.kind == "workspace"
+                else None
+            )
+            self._register_route(
+                source_routes,
+                DependencySourceRoute(
+                    dependency=requirement.name,
+                    development_source=source,
+                    search_source=source,
+                    workspace_member_version=(member.version if member else None),
+                ),
+            )
         targets = config.target.platforms or (host_target(),)
         requires_python = project.get("requires-python")
         configured_pythons = config.target.python_minors
@@ -296,7 +405,20 @@ class ProjectLoader:
             )
             for target in sorted(set(targets))
             for python_minor in sorted(set(python_minors))
-            for surface in surfaces
+            for surface in self._extra_surfaces(
+                optional,
+                config,
+                required=self._required_extras(
+                    self_references,
+                    project=project,
+                    cell=Cell(
+                        package=package_name,
+                        target=target,
+                        python_minor=python_minor,
+                        extra_surface=(),
+                    ),
+                ),
+            )
         )
         self._validate_declaration_overlap(tuple(declarations), cells)
         cells = tuple(
@@ -314,59 +436,6 @@ class ProjectLoader:
             )
             for cell in cells
         )
-        root_groups = root_document.get("dependency-groups", {})
-        package_groups = document.get("dependency-groups", {})
-        group_name = config.test.group
-        test_group_present = group_name in root_groups or group_name in package_groups
-        expanded_harness = (
-            *(
-                ("root", root / "pyproject.toml", item)
-                for item in self._expand_group(root_groups, group_name)
-            ),
-            *(
-                ()
-                if package_path == root
-                else (
-                    ("package", package_path / "pyproject.toml", item)
-                    for item in self._expand_group(package_groups, group_name)
-                )
-            ),
-        )
-        harness_records = tuple(
-            self._harness_requirement(
-                package=package_name,
-                root=root,
-                owner=owner,
-                pyproject_path=group_pyproject,
-                expanded=item,
-                sources=sources,
-                registry=registry,
-            )
-            for owner, group_pyproject, item in expanded_harness
-        )
-        harness_requirements = tuple(item[0] for item in harness_records)
-        for requirement, source in harness_records:
-            existing_route = source_routes.get(requirement.name)
-            if existing_route is not None:
-                if existing_route.development_source != source:
-                    raise ConfigurationError(
-                        f"ambiguous source route for dependency: {requirement.name}"
-                    )
-                continue
-            member = (
-                inventory.workspace_member_for(requirement.name)
-                if source.kind == "workspace"
-                else None
-            )
-            self._register_route(
-                source_routes,
-                DependencySourceRoute(
-                    dependency=requirement.name,
-                    development_source=source,
-                    search_source=source,
-                    workspace_member_version=(member.version if member else None),
-                ),
-            )
         dependency_search_policies = self._dependency_search_policies(
             config=config,
             declarations=tuple(declarations),
@@ -392,16 +461,11 @@ class ProjectLoader:
         owner: Literal["root", "package"],
         pyproject_path: Path,
         expanded: _ExpandedGroupRequirement,
+        requirement: Requirement,
         sources: dict[str, SourceIdentity],
         registry: SourceIdentity,
     ) -> tuple[HarnessRequirement, SourceIdentity]:
         raw = expanded.raw
-        try:
-            requirement = Requirement(raw)
-        except InvalidRequirement as error:
-            raise ConfigurationError(
-                f"invalid harness dependency declaration: {raw}"
-            ) from error
         name = canonicalize_name(requirement.name)
         source = sources.get(name, registry)
         if requirement.url is not None:
@@ -853,18 +917,56 @@ class ProjectLoader:
         return tuple(policies)
 
     @staticmethod
+    def _required_extras(
+        references: list[tuple[Requirement, tuple[str, ...], str]],
+        *,
+        project: Mapping[str, Any],
+        cell: Cell,
+    ) -> frozenset[str]:
+        required: set[str] = set()
+        for requirement, extras, provenance in references:
+            marker = str(requirement.marker) if requirement.marker else None
+            if not marker_applies(marker, cell):
+                continue
+            if requirement.specifier:
+                version = project.get("version")
+                if "version" in project.get("dynamic", ()) or not isinstance(
+                    version, str
+                ):
+                    raise ConfigurationError(
+                        f"self-reference specifier requires a static target version: {provenance}"
+                    )
+                try:
+                    matches = Version(version) in requirement.specifier
+                except ValueError as error:
+                    raise ConfigurationError(
+                        f"invalid static target version: {provenance}"
+                    ) from error
+                if not matches:
+                    raise ConfigurationError(
+                        f"self-reference specifier does not match target version: {provenance}"
+                    )
+            required.update(extras)
+        return frozenset(required)
+
+    @staticmethod
     def _extra_surfaces(
-        extras: tuple[str, ...],
+        extras: Mapping[str, Sequence[str]],
         config: EffectiveConfig,
+        *,
+        required: frozenset[str],
     ) -> tuple[tuple[str, ...], ...]:
         extra_config = config.target.extras
+        selectable = tuple(
+            extra for extra in sorted(extras) if extras[extra] and extra not in required
+        )
         if extra_config.policy == "none":
             policy_surfaces = ((),)
         elif extra_config.policy == "each":
-            policy_surfaces = ((), *((extra,) for extra in extras))
+            policy_surfaces = ((), *((extra,) for extra in selectable))
         else:
-            maximal = (extras,) if len(extras) > 1 else ()
-            policy_surfaces = ((), *((extra,) for extra in extras), *maximal)
+            maximal = (selectable,) if len(selectable) > 1 else ()
+            policy_surfaces = ((), *((extra,) for extra in selectable), *maximal)
         known = set(extras)
         for surface in extra_config.custom_surfaces:
             unknown = sorted(set(surface) - known)
@@ -872,7 +974,10 @@ class ProjectLoader:
                 raise ConfigurationError(
                     f"unknown extra in extra-surfaces: {unknown[0]}"
                 )
-        surfaces = (*policy_surfaces, *extra_config.custom_surfaces)
+        surfaces = tuple(
+            tuple(sorted(required | set(surface)))
+            for surface in (*policy_surfaces, *extra_config.custom_surfaces)
+        )
         return tuple(sorted(set(surfaces), key=lambda value: (len(value), value)))
 
     @staticmethod

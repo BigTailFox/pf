@@ -12,11 +12,19 @@ from pf.harness import (
     render_harness_requirement,
 )
 from pf.project import ProjectLoader
+from pf.resolution import (
+    NativeResolutionPlan,
+    ResolutionContext,
+    ResolutionPlan,
+    ResolutionRunContext,
+    ResolutionPackage,
+)
+from pf.schemas.evaluation import ProcessResult
 from pf.schemas.config import WorkspacePackage
 from pf.schemas.project import (
     HarnessBaseline,
     HarnessResolutionRequirement,
-    HarnessSelection,
+    HarnessSatisfaction,
     SourcePlan,
 )
 
@@ -56,6 +64,32 @@ search-prereleases = {str(search_prereleases).lower()}
     return ProjectLoader().load(root=tmp_path).target
 
 
+def _project_plan(
+    package, packages: tuple[ResolutionPackage, ...] = ()
+) -> ResolutionPlan:
+    source_plan = SourcePlan.for_package(package, "SEARCH")
+    return ResolutionPlan.from_evidence(
+        kind="project",
+        request_digest="project-request",
+        context=ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5", release_cutoff="2026-09-05T00:00:00Z"
+            ),
+            cell=package.cells[0],
+            source_plan_identity=source_plan.identity,
+            uv_project_configuration_identity="uv-config",
+        ),
+        packages=packages,
+        direct_harness=(),
+        native=NativeResolutionPlan.from_content(
+            'lock-version = "1.0"\npackages = []\n'
+        ),
+        process=ProcessResult(
+            exit_code=0, signal=None, duration_seconds=0.1, stdout="", stderr=""
+        ),
+    )
+
+
 def _baseline(package, *, version: str = "8.4") -> HarnessBaseline:
     source_plan = SourcePlan.for_package(package, "SEARCH")
     active = active_harness_requirements(
@@ -63,16 +97,17 @@ def _baseline(package, *, version: str = "8.4") -> HarnessBaseline:
         package.cells[0],
     )
     names = sorted({item.name for item in active})
-    selections = tuple(
-        HarnessSelection(
+    observations = tuple(
+        HarnessSatisfaction(
+            satisfied_by="EXTERNAL_HARNESS",
             name=name,
             version=version,
             source=source_plan.source_for(name),
-            ceiling_bound=any(
+            ceiling_eligible=any(
                 harness_requirement_policy(
                     item,
                     source=source_plan.source_for(item.name),
-                ).ceiling_bound
+                ).ceiling_eligible
                 for item in active
                 if item.name == name
             ),
@@ -82,7 +117,7 @@ def _baseline(package, *, version: str = "8.4") -> HarnessBaseline:
     return HarnessBaseline.from_evidence(
         cell=package.cells[0],
         declaration_ids=tuple(sorted(item.declaration_id for item in active)),
-        selections=selections,
+        observations=observations,
     )
 
 
@@ -216,6 +251,57 @@ test = ["pytest>=8", "pluggy<2"]
 
 
 class TestHarnessRelaxation:
+    @pytest.mark.parametrize("baseline_owner", ("PROJECT_GRAPH", "EXTERNAL_HARNESS"))
+    @pytest.mark.parametrize("project_owned", (False, True))
+    def test_ceiling_follows_current_graph_ownership(
+        self, tmp_path, baseline_owner, project_owned
+    ):
+        package = _load_harness(tmp_path, ("pytest>=8,<10",))
+        baseline = _baseline(package)
+        observation = baseline.observations[0].model_copy(
+            update={"satisfied_by": baseline_owner}
+        )
+        baseline = HarnessBaseline.from_evidence(
+            cell=baseline.cell,
+            declaration_ids=baseline.declaration_ids,
+            observations=(observation,),
+        )
+        project = _project_plan(
+            package,
+            (
+                ResolutionPackage(
+                    name="pytest", version="9.0", source=observation.source
+                ),
+            )
+            if project_owned
+            else (),
+        )
+        relaxed = relax_harness(
+            package,
+            baseline,
+            project_plan=project,
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )
+        requirement = relaxed.requirements[0]
+        assert requirement.ceiling == (None if project_owned else "8.4")
+        assert _render(package, requirement) == (
+            "pytest<10" if project_owned else "pytest<10,<=8.4"
+        )
+
+    def test_baseline_identity_binds_satisfaction_owner(self, tmp_path):
+        package = _load_harness(tmp_path, ("pytest",))
+        baseline = _baseline(package)
+        changed = HarnessBaseline.from_evidence(
+            cell=baseline.cell,
+            declaration_ids=baseline.declaration_ids,
+            observations=(
+                baseline.observations[0].model_copy(
+                    update={"satisfied_by": "PROJECT_GRAPH"}
+                ),
+            ),
+        )
+        assert baseline.digest != changed.digest
+
     def test_original_harness_keeps_active_declaration_semantics(
         self, tmp_path: Path
     ) -> None:
@@ -248,6 +334,7 @@ class TestHarnessRelaxation:
         relaxed = relax_harness(
             package,
             _baseline(package),
+            project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
@@ -284,6 +371,7 @@ class TestHarnessRelaxation:
         relaxed = relax_harness(
             package,
             _baseline(package),
+            project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
@@ -337,6 +425,7 @@ class TestHarnessRelaxation:
         relaxed = relax_harness(
             package,
             _baseline(package),
+            project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
@@ -355,6 +444,7 @@ class TestHarnessRelaxation:
         relaxed = relax_harness(
             package,
             _baseline(package),
+            project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
@@ -375,6 +465,7 @@ class TestHarnessRelaxation:
         relaxed = relax_harness(
             package,
             _baseline(package),
+            project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
@@ -391,5 +482,6 @@ class TestHarnessRelaxation:
             relax_harness(
                 package,
                 baseline,
+                project_plan=_project_plan(package),
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
             )

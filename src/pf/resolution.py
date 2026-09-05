@@ -13,7 +13,7 @@ from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.evaluation import FailureCause, ProcessObservation, ProcessResult
 from pf.schemas.project import (
     Cell,
-    HarnessSelection,
+    HarnessSatisfaction,
     ResolvedNode,
     SourceIdentity,
 )
@@ -216,7 +216,7 @@ def resolution_plan_digest(
     request_digest: str,
     context: ResolutionContext,
     packages: tuple[ResolutionPackage, ...],
-    direct_harness: tuple[HarnessSelection, ...],
+    direct_harness: tuple[HarnessSatisfaction, ...],
     native_digest: str,
 ) -> str:
     return _digest(
@@ -240,7 +240,7 @@ def resolution_semantic_digest(
     request_digest: str,
     context: ResolutionContext,
     packages: tuple[ResolutionPackage, ...],
-    direct_harness: tuple[HarnessSelection, ...],
+    direct_harness: tuple[HarnessSatisfaction, ...],
 ) -> str:
     return _digest(
         b"pf:resolution-semantic:v1\0",
@@ -275,7 +275,7 @@ class ResolutionPlan(FrozenSchema):
     request_digest: str
     context: ResolutionContext
     packages: tuple[ResolutionPackage, ...]
-    direct_harness: tuple[HarnessSelection, ...] = ()
+    direct_harness: tuple[HarnessSatisfaction, ...] = ()
     native: NativeResolutionPlan
     process: ProcessResult = Field(exclude=True, repr=False)
     semantic_digest: str
@@ -289,7 +289,7 @@ class ResolutionPlan(FrozenSchema):
         request_digest: str,
         context: ResolutionContext,
         packages: tuple[ResolutionPackage, ...],
-        direct_harness: tuple[HarnessSelection, ...],
+        direct_harness: tuple[HarnessSatisfaction, ...],
         native: NativeResolutionPlan,
         process: ProcessResult,
     ) -> "ResolutionPlan":
@@ -327,9 +327,9 @@ class ResolutionPlan(FrozenSchema):
             raise ValueError("single-cell resolution packages must be sorted and unique")
         harness_names = tuple(item.name for item in self.direct_harness)
         if harness_names != tuple(sorted(set(harness_names))):
-            raise ValueError("direct harness selections must be sorted and unique")
+            raise ValueError("direct harness observations must be sorted and unique")
         if self.kind == "project" and self.direct_harness:
-            raise ValueError("project plan cannot contain direct harness selections")
+            raise ValueError("project plan cannot contain direct harness observations")
         packages = {item.name: item for item in self.packages}
         for selection in self.direct_harness:
             package = packages.get(selection.name)
@@ -410,9 +410,12 @@ def resolution_graph_id(graph: tuple[ResolvedNode, ...]) -> str:
         if any(canonicalize_name(item) != item for item in node.dependencies):
             raise ValueError("resolution graph dependencies must be canonical")
     payload = [node.model_dump(mode="json") for node in graph]
-    return "resolution-" + hashlib.sha256(
-        b"pf:resolution-graph:v1\0" + canonical_identity_json(payload)
-    ).hexdigest()
+    return (
+        "resolution-"
+        + hashlib.sha256(
+            b"pf:resolution-graph:v1\0" + canonical_identity_json(payload)
+        ).hexdigest()
+    )
 
 
 class EnvironmentIdentity(FrozenSchema):

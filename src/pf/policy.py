@@ -25,6 +25,15 @@ TY_DIAGNOSTIC_POLICY = {
 
 CONFIGURED_VERIFIER_OUTCOME_POLICY = "configured-verifier-terminal-v1"
 
+VALIDATION_CONTRACT_POLICY = {
+    "self_reference": "required-effective-cell-surface",
+    "extra_exploration": "nonempty-declared-groups-only",
+    "baseline_harness": "original-external-declarations",
+    "probe_harness": "remove-eligible-direct-lower-bounds",
+    "project_overlap": "exact-project-node-without-harness-ceiling",
+    "external_ceiling": "baseline-observed-version-for-current-harness-only-node",
+}
+
 
 def evaluation_policy_identity(config: EffectiveConfig) -> str:
     """Return the identity of every setting that changes evaluation evidence."""
@@ -42,6 +51,7 @@ def evaluation_policy_identity(config: EffectiveConfig) -> str:
         "verifier_outcome_policy": CONFIGURED_VERIFIER_OUTCOME_POLICY,
         "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,
         "failure_policy": FailurePolicy.identity,
+        "validation_contract_policy": VALIDATION_CONTRACT_POLICY,
     }
     canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(f"pf:policy:v1\0{canonical}".encode()).hexdigest()

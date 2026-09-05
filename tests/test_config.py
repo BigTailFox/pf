@@ -240,12 +240,12 @@ class TestConfiguration:
             "prereleases": False,
         }
         assert config.search.overrides == ()
-        assert config.resolution.artifact == "wheel"
+        assert config.resolution.artifact == "any"
         assert config.resolution.timeout_seconds == 600
         assert config.ty.args == ()
         assert config.ty.timeout_seconds == 600
         assert config.test.group == "test"
-        assert config.test.command is None
+        assert config.test.command == ("pytest",)
         assert config.test.cwd == "package"
         assert config.test.timeout_seconds == 1800
         assert config.scheduling.model_dump() == {
@@ -328,7 +328,7 @@ class TestConfiguration:
             ('search-space = "future"', "invalid search-space"),
             ('managed-deps = ["NumPy", "numpy"]', "duplicate managed-deps"),
             ('pythons = ["3.12", "3.11"]', "pythons must be sorted and unique"),
-            ('test-command = []', "test-command must be non-empty"),
+            ("test-command = []", "test-command must be non-empty"),
             ("surprise = true", r"unknown \[tool.pf\] key: surprise"),
             ("package = {}", r"unknown \[tool.pf\] key: package"),
             (

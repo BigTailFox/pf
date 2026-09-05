@@ -342,6 +342,7 @@ class EnvironmentFactory:
                 cell=cell,
                 resolution=resolution,
                 source_plan=source_plan,
+                project_plan=project_outcome,
             )
             environment_request = self._request_digest(
                 kind="environment",
@@ -535,7 +536,7 @@ class EnvironmentFactory:
                 HarnessBaseline.from_evidence(
                     cell=cell,
                     declaration_ids=tuple(sorted(active_harness_ids)),
-                    selections=environment_outcome.direct_harness,
+                    observations=environment_outcome.direct_harness,
                 )
                 if isinstance(resolution, HighestResolution)
                 else resolution.harness_baseline
@@ -632,6 +633,7 @@ class EnvironmentFactory:
         cell: Cell,
         resolution: ResolutionRequest,
         source_plan: SourcePlan,
+        project_plan: ResolutionPlan,
     ) -> tuple[HarnessResolutionRequirement, ...]:
         if isinstance(resolution, HighestResolution):
             return original_harness(package, cell, source_plan=source_plan)
@@ -640,6 +642,7 @@ class EnvironmentFactory:
         return relax_harness(
             package,
             resolution.harness_baseline,
+            project_plan=project_plan,
             source_plan=source_plan,
         ).requirements
 
@@ -677,6 +680,10 @@ class EnvironmentFactory:
             and resolved.source == item.source
             and resolved.selected_artifact == item.selected_artifact
             for item in project.packages
+        ) and all(
+            (observation.satisfied_by == "PROJECT_GRAPH")
+            == (observation.name in {item.name for item in project.packages})
+            for observation in environment.direct_harness
         )
 
     @staticmethod

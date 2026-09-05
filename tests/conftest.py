@@ -15,5 +15,5 @@ def empty_harness_baseline(cell: Cell) -> HarnessBaseline:
     return HarnessBaseline.from_evidence(
         cell=cell,
         declaration_ids=(),
-        selections=(),
+        observations=(),
     )

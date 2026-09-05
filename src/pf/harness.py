@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from packaging.version import Version
 
 from pf.project import marker_applies
+from pf.resolution import ResolutionPlan
 from pf.schemas.project import (
     Cell,
     HarnessBaseline,
@@ -22,7 +23,7 @@ from pf.schemas.project import (
 class HarnessRequirementPolicy:
     fixed: bool
     relaxable: bool
-    ceiling_bound: bool
+    ceiling_eligible: bool
 
 
 def harness_requirement_policy(
@@ -42,7 +43,7 @@ def harness_requirement_policy(
     return HarnessRequirementPolicy(
         fixed=fixed,
         relaxable=relaxable,
-        ceiling_bound=source.kind == "registry" and not fixed,
+        ceiling_eligible=source.kind == "registry" and not fixed,
     )
 
 
@@ -61,6 +62,7 @@ def relax_harness(
     package: PackagePlan,
     baseline: HarnessBaseline,
     *,
+    project_plan: ResolutionPlan,
     source_plan: SourcePlan,
 ) -> RelaxedHarness:
     requirements = package.harness_requirements
@@ -68,7 +70,8 @@ def relax_harness(
     declaration_ids = tuple(sorted(item.declaration_id for item in active))
     if declaration_ids != baseline.declaration_ids:
         raise ValueError("harness baseline does not match active declarations")
-    selections = {item.name: item for item in baseline.selections}
+    observations = {item.name: item for item in baseline.observations}
+    project_names = {item.name for item in project_plan.packages}
     transformed: list[HarnessResolutionRequirement] = []
     for requirement in active:
         policy = harness_requirement_policy(
@@ -81,9 +84,9 @@ def relax_harness(
             if not (policy.relaxable and clause.operator in {">", ">="})
         )
         ceiling: str | None = None
-        if policy.ceiling_bound:
-            selection = selections.get(requirement.name)
-            if selection is None or not selection.ceiling_bound:
+        if policy.ceiling_eligible and requirement.name not in project_names:
+            selection = observations.get(requirement.name)
+            if selection is None or not selection.ceiling_eligible:
                 raise ValueError(
                     f"missing harness baseline ceiling: {requirement.name}"
                 )

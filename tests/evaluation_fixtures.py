@@ -48,7 +48,7 @@ from pf.schemas.project import (
     AvailableCandidate,
     Cell,
     HarnessResolutionRequirement,
-    HarnessSelection,
+    HarnessSatisfaction,
     InterpreterIdentity,
     PackagePlan,
     ResolvedNode,
@@ -185,7 +185,7 @@ class ScriptedUv:
         harness = cast(tuple[HarnessResolutionRequirement, ...], kwargs["harness"])
         source_plan = cast(SourcePlan, kwargs["source_plan"])
         packages = list(project.packages)
-        selections: list[HarnessSelection] = []
+        observations: list[HarnessSatisfaction] = []
         for requirement in harness:
             name = requirement.declaration.name
             package = next((item for item in packages if item.name == name), None)
@@ -215,13 +215,18 @@ class ScriptedUv:
                     locator=selected_artifact.locator,
                 )
             )
-            selections.append(
-                HarnessSelection(
+            observations.append(
+                HarnessSatisfaction(
+                    satisfied_by=(
+                        "PROJECT_GRAPH"
+                        if name in {item.name for item in project.packages}
+                        else "EXTERNAL_HARNESS"
+                    ),
                     name=name,
                     version=package.version,
                     source=package.source,
                     selected_artifact=harness_artifact,
-                    ceiling_bound=requirement.ceiling is not None
+                    ceiling_eligible=requirement.ceiling is not None
                     or package.source.kind == "registry",
                 )
             )
@@ -230,7 +235,7 @@ class ScriptedUv:
             resolution=resolution,
             kwargs=kwargs,
             packages=tuple(sorted(packages, key=lambda item: item.name)),
-            direct_harness=tuple(sorted(selections, key=lambda item: item.name)),
+            direct_harness=tuple(sorted(observations, key=lambda item: item.name)),
         )
 
     def _plan(
@@ -240,7 +245,7 @@ class ScriptedUv:
         resolution: ResolutionRequest,
         kwargs: dict[str, object],
         packages: tuple[ResolutionPackage, ...] | None = None,
-        direct_harness: tuple[HarnessSelection, ...] = (),
+        direct_harness: tuple[HarnessSatisfaction, ...] = (),
     ) -> ResolutionPlan:
         context = cast(ResolutionContext, kwargs["context"])
         request_digest = cast(str, kwargs["request_digest"])
@@ -263,8 +268,14 @@ class ScriptedUv:
         resolution: ResolutionRequest,
     ) -> tuple[ResolutionPackage, ...]:
         if isinstance(resolution, ExactSelection):
-            return tuple(self._resolution_package(item) for item in resolution.selection)
-        vector = self.lowest if isinstance(resolution, LowestDirectResolution) else self.highest
+            return tuple(
+                self._resolution_package(item) for item in resolution.selection
+            )
+        vector = (
+            self.lowest
+            if isinstance(resolution, LowestDirectResolution)
+            else self.highest
+        )
         return tuple(
             self._resolution_package(selected_candidate(pin.name, pin.version))
             for pin in vector

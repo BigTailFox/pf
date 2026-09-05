@@ -12,7 +12,12 @@ import pytest
 import tomli
 
 from pf.authorization import ApplyAuthorizer
-from pf.errors import ApplyAuthorizationError, NoApplicableFloorError
+from pf.errors import (
+    ApplyAuthorizationError,
+    ConfigurationError,
+    NoApplicableFloorError,
+)
+from pf import policy as policy_module
 from pf.policy import evaluation_policy_identity
 from pf.project import ProjectLoader, marker_applies
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
@@ -406,6 +411,89 @@ def _report(
 
 
 class TestApplyAuthorizer:
+    def test_normalization_policy_isolates_reports_with_explicit_defaults(
+        self, tmp_path, monkeypatch
+    ):
+        linux = "x86_64-unknown-linux-gnu"
+        macos = "aarch64-apple-darwin"
+        _write_project(
+            tmp_path,
+            platforms=(linux, macos),
+            extra='resolve-artifact = "any"\n[dependency-groups]\ntest = ["idna>=1"]\n',
+        )
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            with monkeypatch.context() as other_policy:
+                other_policy.setitem(
+                    policy_module.VALIDATION_CONTRACT_POLICY,
+                    "project_overlap",
+                    "different-normalization-contract",
+                )
+                other = _report(project.target, snapshot, {linux: "2.0"})
+            current = _report(project.target, snapshot, {macos: "2.0"})
+            assert other.source_snapshot == current.source_snapshot
+            assert other.target_cells == current.target_cells
+            assert other.generator == current.generator
+            assert other.policy_identity != current.policy_identity
+            assert other.report_generation_id != current.report_generation_id
+            store = ReportStore()
+            for operation in (
+                lambda: store.merge((other, current)),
+                lambda: store.update(other, current),
+            ):
+                with pytest.raises(
+                    ConfigurationError, match="generation identity mismatch"
+                ):
+                    operation()
+            for force in (False, True):
+                with pytest.raises(
+                    ApplyAuthorizationError, match="evaluation policy mismatch"
+                ):
+                    ApplyAuthorizer().authorize(
+                        report=other,
+                        project=project,
+                        current_snapshot=snapshot,
+                        force=force,
+                    )
+            report_path = tmp_path / "package-floor.json"
+            store.write(report_path, other)
+            updated = store.update_path(report_path, current)
+            assert updated.replace_generation
+            assert {result.cell.target for result in updated.report.cell_results} == {
+                macos
+            }
+            assert store.read(report_path).policy_identity == current.policy_identity
+        finally:
+            snapshot.close()
+
+    def test_required_surface_round_trips_and_authorizes_current_contract(
+        self, tmp_path
+    ):
+        linux = "x86_64-unknown-linux-gnu"
+        _write_project(
+            tmp_path,
+            platforms=(linux,),
+            extra='resolve-artifact = "any"\n[project.optional-dependencies]\nsocks = []\n[dependency-groups]\ntest = ["demo[socks]", "idna>=1"]\n',
+        )
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            report = _report(project.target, snapshot, {linux: "2.0"})
+            path = tmp_path / "package-floor.json"
+            store = ReportStore()
+            store.write(path, report)
+            restored = store.read(path)
+            assert {cell.extra_surface for cell in restored.target_cells} == {
+                ("socks",)
+            }
+            authority = ApplyAuthorizer().authorize(
+                report=restored, project=project, current_snapshot=snapshot, force=False
+            )
+            assert authority.package_apply.dependency_state == "WRITABLE"
+        finally:
+            snapshot.close()
+
     def test_omitted_platform_uses_declared_matrix_without_marker(
         self,
         tmp_path: Path,

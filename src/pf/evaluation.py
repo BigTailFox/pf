@@ -42,9 +42,7 @@ from pf.schemas.project import PackagePlan
 from pf.static_transition import StaticTransitionClassifier, static_fingerprint
 
 
-def require_full_evaluation_contract(package: PackagePlan, command: str) -> None:
-    if package.config.test.command is None:
-        raise ConfigurationError(f"test-command is required for {command}")
+def require_full_evaluation_contract(package: PackagePlan) -> None:
     if not package.test_group_present:
         raise ConfigurationError(
             f"test dependency group is required: {package.config.test.group}"
@@ -450,8 +448,6 @@ class RuntimeEvaluator:
             )
         )
         command = package.config.test.command
-        if command is None:
-            raise ConfigurationError("test-command is required for evaluation")
         with self._permits.test():
             run = self._verifier.run(
                 VerifierRequest(

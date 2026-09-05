@@ -177,11 +177,14 @@ platforms = ["x86_64-unknown-linux-gnu"]
 
 
 class TestCompatibilityChecker:
+    @pytest.mark.parametrize("test_command", (False, True))
     def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
         self,
         tmp_path: Path,
+        test_command: bool,
     ) -> None:
-        package, snapshot = write_check_project(tmp_path)
+        package, snapshot = write_check_project(tmp_path, test_command=test_command)
+        assert package.config.test.command == ("pytest",)
         events = Events()
         assembly = evaluation_assembly(highest=(), lowest=(), events=events)
 
@@ -360,7 +363,6 @@ class TestCheckWorkflow:
     @pytest.mark.parametrize(
         ("test_command", "test_group", "host", "message"),
         (
-            (False, True, "x86_64-unknown-linux-gnu", "test-command is required"),
             (
                 True,
                 False,

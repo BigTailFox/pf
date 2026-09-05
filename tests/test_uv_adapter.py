@@ -34,7 +34,7 @@ from pf.schemas.project import (
     Cell,
     DependencySourceRoute,
     HarnessBaseline,
-    HarnessSelection,
+    HarnessSatisfaction,
     SourceIdentity,
     SourcePlan,
     StaticWorkspaceMemberVersion,
@@ -326,7 +326,7 @@ version = "0.1.0"
 dependencies = ["idna"]
 
 [dependency-groups]
-test = ["pytest>=8.0a1"]
+test = ["pytest>=8.0a1", "idna>=3"]
 
 [tool.pf]
 pythons = ["3.11"]
@@ -352,15 +352,20 @@ test-command = ["pytest"]
         )
         baseline = HarnessBaseline.from_evidence(
             cell=package.cells[0],
-            declaration_ids=tuple(
+            declaration_ids=tuple(sorted(
                 item.declaration_id for item in package.harness_requirements
-            ),
-            selections=(
-                HarnessSelection(
+            )),
+            observations=(
+                HarnessSatisfaction(
+                    name="idna", version="3.10", source=SourceIdentity(kind="registry"),
+                    satisfied_by="PROJECT_GRAPH", ceiling_eligible=True,
+                ),
+                HarnessSatisfaction(
+                    satisfied_by="EXTERNAL_HARNESS",
                     name="pytest",
                     version="8.4.2",
                     source=SourceIdentity(kind="registry"),
-                    ceiling_bound=True,
+                    ceiling_eligible=True,
                 ),
             ),
         )
@@ -426,6 +431,7 @@ test-command = ["pytest"]
             harness=relax_harness(
                 package,
                 baseline,
+                project_plan=project,
                 source_plan=search_source_plan,
             ).requirements,
             work_directory=tmp_path,
@@ -445,13 +451,15 @@ test-command = ["pytest"]
         assert installed.status == "INSTALLED"
         assert installed.plan_digest == environment.digest
         assert [item.name for item in project.packages] == ["idna"]
-        assert [item.name for item in environment.direct_harness] == ["pytest"]
+        assert [(item.name, item.satisfied_by) for item in environment.direct_harness] == [
+            ("idna", "PROJECT_GRAPH"), ("pytest", "EXTERNAL_HARNESS"),
+        ]
+        assert [item.name for item in environment.packages].count("idna") == 1
+        assert environment.direct_harness[0].version == project.packages[0].version
         assert (tmp_path / "project-constraints.in").read_text() == "idna==3.10\n"
-        assert (
-            (tmp_path / "environment-requirements.in")
-            .read_text()
-            .endswith("pytest<=8.4.2\n")
-        )
+        assert set((tmp_path / "environment-requirements.in").read_text().splitlines()) == {
+            "-e .", "pytest<=8.4.2", "idna",
+        }
         project_compile_argv = runner.specs[1].argv
         environment_compile_argv = runner.specs[2].argv
         assert Path(project_compile_argv[0]).is_absolute()
@@ -699,8 +707,9 @@ packages = [
         assert isinstance(outcome, ResolutionIndeterminate)
         assert outcome.summary_code == "resolution-plan-invalid"
 
+    @pytest.mark.parametrize("duplicate", (False, True))
     def test_uv_adapter_inspects_a_canonical_installed_graph(
-        self, tmp_path: Path
+        self, tmp_path: Path, duplicate: bool
     ) -> None:
         class GraphRunner:
             def run(self, spec: ProcessSpec) -> ProcessResult:
@@ -711,7 +720,13 @@ packages = [
                     stdout=(
                         '[{"name":"Requests","version":"2.32.5",'
                         '"requires":["urllib3>=1.21", "Certifi"]},'
-                        '{"name":"certifi","version":"2026.1.1","requires":[]}]\n'
+                        '{"name":"certifi","version":"2026.1.1","requires":[]}'
+                        + (
+                            ',{"name":"requests","version":"2.32.5","requires":["Certifi", "urllib3>=1.21"]}'
+                            if duplicate
+                            else ""
+                        )
+                        + "]\n"
                     ),
                     stderr="",
                 )
@@ -871,6 +886,12 @@ packages = [
             process_result(stdout="[]", truncated=True),
             process_result(stdout="not-json"),
             process_result(stdout='[{"name":"demo","version":"bad","requires":[]}]'),
+            process_result(
+                stdout='[{"name":"demo","version":"1.0","requires":[]},{"name":"demo","version":"2.0","requires":[]}]'
+            ),
+            process_result(
+                stdout='[{"name":"demo","version":"1.0","requires":[]},{"name":"demo","version":"1.0","requires":["dep"]}]'
+            ),
         ),
     )
     def test_uv_graph_inspection_rejects_unusable_evidence(

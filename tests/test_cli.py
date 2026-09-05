@@ -1611,7 +1611,7 @@ class TestDefaultContext:
             def boom() -> int:
                 raise KeyboardInterrupt
 
-            context.presenter.render_interrupt = boom  # type: ignore[method-assign]
+            monkeypatch.setattr(context.presenter, "render_interrupt", boom)
             return run
 
         monkeypatch.setattr("pf.cli.create_app", interrupt_app)

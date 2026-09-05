@@ -174,9 +174,9 @@ class ConfigLoader:
             )
 
         test_command = (
-            tuple(merged["test-command"]) if "test-command" in merged else None
+            tuple(merged["test-command"]) if "test-command" in merged else ("pytest",)
         )
-        if test_command is not None and test_command[:2] == ("uv", "run"):
+        if test_command[:2] == ("uv", "run"):
             raise ConfigurationError("test-command cannot start with 'uv run'")
         overrides.sort(key=lambda item: item.name)
 
@@ -202,7 +202,7 @@ class ConfigLoader:
                     overrides=tuple(overrides),
                 ),
                 resolution=ResolutionConfig(
-                    artifact=merged.get("resolve-artifact", "wheel"),
+                    artifact=merged.get("resolve-artifact", "any"),
                     timeout_seconds=self._duration(
                         merged.get("resolve-timeout", "10m"),
                         field="resolve-timeout",
@@ -383,9 +383,7 @@ class ConfigLoader:
     @staticmethod
     def _dependency_selection(
         merged: Mapping[str, Any],
-    ) -> (
-        AllSearchableDependencies | ManagedDependencies | UnmanagedDependencies
-    ):
+    ) -> AllSearchableDependencies | ManagedDependencies | UnmanagedDependencies:
         if "managed-deps" in merged:
             return ManagedDependencies(names=tuple(merged["managed-deps"]))
         if "unmanaged-deps" in merged:

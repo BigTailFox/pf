@@ -482,21 +482,24 @@ class AvailableCandidate(FrozenSchema):
     artifacts: tuple[AvailableArtifact, ...]
 
 
-class HarnessSelection(FrozenSchema):
+class HarnessSatisfaction(FrozenSchema):
     name: str
+    satisfied_by: Literal["PROJECT_GRAPH", "EXTERNAL_HARNESS"]
     version: str
     source: SourceIdentity
     selected_artifact: AvailableArtifact | None = None
-    ceiling_bound: bool
+    ceiling_eligible: bool
 
     @model_validator(mode="after")
-    def validate_selection(self) -> "HarnessSelection":
+    def validate_satisfaction(self) -> "HarnessSatisfaction":
         if canonicalize_name(self.name) != self.name:
-            raise ValueError("harness selection name must be canonical")
+            raise ValueError("harness satisfaction name must be canonical")
         try:
             Version(self.version)
         except InvalidVersion as error:
-            raise ValueError("harness selection version must be normalized") from error
+            raise ValueError(
+                "harness satisfaction version must be normalized"
+            ) from error
         return self
 
 
@@ -504,12 +507,12 @@ def harness_baseline_digest(
     *,
     cell: Cell,
     declaration_ids: tuple[str, ...],
-    selections: tuple[HarnessSelection, ...],
+    observations: tuple[HarnessSatisfaction, ...],
 ) -> str:
     identity = {
         "cell": cell.model_dump(mode="json"),
         "declaration_ids": declaration_ids,
-        "selections": [item.model_dump(mode="json") for item in selections],
+        "observations": [item.model_dump(mode="json") for item in observations],
     }
     return hashlib.sha256(
         b"pf:harness-baseline:v1\0"
@@ -520,7 +523,7 @@ def harness_baseline_digest(
 class HarnessBaseline(FrozenSchema):
     cell: Cell
     declaration_ids: tuple[str, ...]
-    selections: tuple[HarnessSelection, ...]
+    observations: tuple[HarnessSatisfaction, ...]
     digest: str
 
     @classmethod
@@ -529,16 +532,16 @@ class HarnessBaseline(FrozenSchema):
         *,
         cell: Cell,
         declaration_ids: tuple[str, ...],
-        selections: tuple[HarnessSelection, ...],
+        observations: tuple[HarnessSatisfaction, ...],
     ) -> "HarnessBaseline":
         return cls(
             cell=cell,
             declaration_ids=declaration_ids,
-            selections=selections,
+            observations=observations,
             digest=harness_baseline_digest(
                 cell=cell,
                 declaration_ids=declaration_ids,
-                selections=selections,
+                observations=observations,
             ),
         )
 
@@ -546,13 +549,13 @@ class HarnessBaseline(FrozenSchema):
     def validate_baseline(self) -> "HarnessBaseline":
         if self.declaration_ids != tuple(sorted(set(self.declaration_ids))):
             raise ValueError("harness baseline declarations must be sorted and unique")
-        names = tuple(item.name for item in self.selections)
+        names = tuple(item.name for item in self.observations)
         if names != tuple(sorted(set(names))):
-            raise ValueError("harness baseline selections must be sorted and unique")
+            raise ValueError("harness baseline observations must be sorted and unique")
         expected = harness_baseline_digest(
             cell=self.cell,
             declaration_ids=self.declaration_ids,
-            selections=self.selections,
+            observations=self.observations,
         )
         if self.digest != expected:
             raise ValueError("harness baseline digest does not match its evidence")

@@ -233,9 +233,9 @@ class VerificationRunner:
         cells: tuple[Cell, ...],
     ) -> None:
         if isinstance(request, SearchVerificationRun):
-            require_full_evaluation_contract(request.package, request.command)
+            require_full_evaluation_contract(request.package)
             return
-        require_full_evaluation_contract(request.package, request.command)
+        require_full_evaluation_contract(request.package)
         if not cells:
             raise ConfigurationError(
                 f"no configured cell matches host target: {self._host_target}"

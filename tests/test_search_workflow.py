@@ -797,7 +797,7 @@ class TestSearchWorkflow:
             events=events,
         )
 
-        with pytest.raises(ConfigurationError, match="test-command"):
+        with pytest.raises(ConfigurationError, match="test dependency group"):
             workflow.run(SearchRequest(root=tmp_path.as_posix()))
 
         assert coordinator.cells == []
