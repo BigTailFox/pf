@@ -1,75 +1,43 @@
-# D031 — PF 多分辨率坐标搜索
+# C001 — PF Multi-Resolution Search
 
-- **状态：** 草案；本轮重写后的完整契约待评审，未开始实施
+- **状态：** 开放想法；树搜索延期，尚无明确真实性能收益证据
 - **日期：** 2026-09-05
-- **性质：** 临时性搜索算法、配置、候选与报告契约迁移 Design
-- **核对基线：** `85e195c`；起草前工作区干净
-- **来源：** 本轮 Multi-Resolution Coordinate Search 草案评审与六项修订决定
-- **稳定 owner：** [D001](D001-pf.md)、[D002](D002-pf-implementation.md)、
-  [D003](D003-pf-search-algorithm.md)、[D006](D006-pf-cli-enhancement.md)、
-  [D014](D014-pf-report-schema.md)
-- **关联：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)、
-  [D008](D008-pf-verification-run.md)、[D013](D013-pf-pytest-observer.md)、
-  [R008](../reviews/R008-pf-search-performance-review.md)、
-  [D030](../archived/designs/D030-pf-search-space-dsl.md)
+- **性质：** 非规范性 Concept，保存开发设想、待证假设与实验方向，不授权实施
+- **来源：** 原 D031 多分辨率坐标搜索草案中的树搜索部分；原编号 D031 不复用
+- **相关 Design：** [D033](../designs/D033-pf-predecessor-revalidate.md) 独立承接改名、重验、缓存与非单调终止
+- **现行 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
+  [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)、
+  [D014](../designs/D014-pf-report-schema.md)
+- **实验：** [E005](../experiments/E005-pf-multi-resolution-search-simulation.md)
 
-本文定义目标方案，不宣称目标行为已经落地。用户已接受本轮六项修订方向；完整 Design 接受后，
-生产实施前仍须建立 durable Plan，映射全部验收标准、迁移与证据。本文不创建 Plan。
-第一阶段纯算法模拟已完成，证据见 [E005](../experiments/E005-pf-multi-resolution-search-simulation.md)；
-尚无真实 evaluator 成本或完整产品性能实测，见 §8.6。
+本文保留树搜索的候选方案与验证方法，供后续探索；不定义当前或已接受的目标契约。
+下文的算法、接口、wire 形状和验收项都是待验证的设想。取得明确收益依据后，应重新评审范围，
+另建规范性 Design 并获得接受，再建立 Plan；本文不承担 Design 或 Plan 的职责。
 
-## 1. 目标与取舍
+## 1. 想法与拆分边界
 
-PF 在冻结候选上固定其他 direct coordinates，逐个降低当前依赖，直到完整一轮没有坐标变化。
-本方案把一维定位统一为 `major → minor → patch` 的层级 refinement，并增加跨 sweep 的 predecessor
-重验。每次提交仍只降低一个坐标，当前完整向量始终有直接 PASS。
+尝试把一维定位改为 `major → minor → patch` 层级 refinement：冻结完整合格精确 release，
+每个桶以当前 active interval 内最大候选作为代表，只细化首个 passing 桶，到用户选择的
+resolution 停止。每次提交仍只降低一个坐标，当前完整向量始终有直接 PASS。
 
-主要决定：
+原 D031 目标 2、3，以及目标 4 的树内虚拟高端处理留在本文。原目标 1 的 `search-resolution`
+改名、目标 5 的最低候选快路和 predecessor 重验、目标 6 的 evaluator 缓存、目标 7 的
+直接非单调终止由 D033 独立承担；现行 sentinel 安全规则也继续适用于平面搜索。
+这些决定不需要树、完整 U 快照或分层报告验证才能实施。
 
-1. `search-resolution = major | minor | patch` 替换 `search-step`，默认 `minor`。它决定 refinement
-   的终止层；不保留旧配置、CLI 或 wire 别名，也不保留另一套先采样再搜索的产品路径。
-2. CandidateBuilder 冻结空间内全部合格精确 release；树及目标层代表从这一份事实派生。
-3. 每个桶使用当前 active interval 内的最大精确候选作为代表；只细化首个 passing 桶。
-4. 保留空间外的虚拟 PASS sentinel；不能把 sentinel 的结果复制给最高候选或桶代表。
-5. 保留最低目标层候选的快速路径；后续 sweep 优先重验当前 floor 的直接 predecessor。
-6. 缓存统一在 evaluator 入口命中，搜索流程不维护“是否运行过”的分支，也不为每层维护 PASS cache。
-7. 观察到同 Slice 的直接非单调矛盾仍立即终止。动态坐标排序、跨坐标失败记忆与失败用例打分留待独立提案。
+E005 中树本身的收益不稳定，组合策略也劣于仅重验；目前没有依据把树作为默认性能优化。
+需要独立验证树在已具备重验和等价缓存后的增量收益，并计入内存、报告体积及实现复杂度。
 
-本次包含公开配置与候选存储契约的迁移，不能描述为只有 probe 顺序发生变化。默认分辨率仍为 minor，
-并保留同系列最高合格精确代表的选择含义；同一冻结发布观测、相同空间与相同层级下，目标层候选集合
-应与现行对应 step 的代表集合相同。探测顺序变化仍可能改变未完全单调空间中被观察到的失败或终态。
+## 2. 分辨率与结果设想
 
-## 2. 配置与结果语义
+配置名称、默认值、继承与系列代表规则由 [D033 §2](../designs/D033-pf-predecessor-revalidate.md#2-resolution-改名与候选语义)
+提出。树不新增另一套配置；它只尝试以分层选点实现相同 resolution 的精确代表搜索。
 
-```toml
-[tool.pf]
-search-resolution = "minor"
-search-space-defaults = { with-lower-bound = "majors[declaration-1:]", without-lower-bound = "majors[baseline-2:]" }
-
-[[tool.pf.dep]]
-name = "zero-series-lib"
-search-space = "minors[declaration:]"
-search-resolution = "patch"
-
-[[tool.pf.dep]]
-name = "other-lib"
-search-space = ">=1,<5"
-search-resolution = "major"
-```
-
-全局与逐依赖配置都支持 resolution；继承为逐依赖 → 全局 → 默认 minor，root/member 合并沿用 D001。
-对应 CLI 入口统一改为 `--search-resolution`。内部策略字段与报告 binding 字段统一为 `resolution`。
-`search-space`、条件默认表、prerelease 与 artifact 资格规则沿用 D030 归并后的现行契约。
-所有 space × resolution 组合合法；不根据 `0.x`、发布密度或 SemVer 含义自动选择层级。
-
-| Resolution | 搜索层级 | 允许提交的精确版本 |
+| Resolution | 设想的搜索层级 | 允许提交的精确版本 |
 | --- | --- | --- |
 | major | major | 选中 major 桶内最高合格 release |
 | minor | major → minor | 选中 minor 桶内最高合格 release |
 | patch | major → minor → patch | 选中 patch 桶内最高合格 release |
-
-“到 minor 为止”不等于把结果截断为 `x.y`。例如该 minor 桶的最高合格版本为 `2.3.7`，则输出和 apply
-仍使用经过直接验证的 `2.3.7`。PASS 只证明该精确 Proposal，不证明整个系列兼容。
 
 版本分组沿用现行系列规则：不足三段的 release 补零，major/minor/patch key 分别为
 `(epoch, major)`、`(epoch, major, minor)`、`(epoch, major, minor, patch)`。
@@ -82,7 +50,7 @@ patch 不另增“精确 release 穷举”层。由此保留当前 patch 系列�
 对于最终向量，固定其他坐标后，搜索在每个目标层序列上建立 floor 与直接 predecessor 的边界。
 这不认证未探测 hole、不证明每个更低原始 release 都失败，也不承诺笛卡尔积全局最小值。
 
-## 3. 候选冻结与结构树
+## 3. 候选冻结与结构树设想
 
 CandidateBuilder 继续使用一次成功 registry query 的 `release_versions + artifacts` 观测。
 先以过滤前的完整 release keys 求值 space DSL 的系列位置，再应用 space、Cell 兼容性、声明保留限制、
@@ -101,64 +69,20 @@ yanked、prerelease、artifact 与 baseline cap 等公共资格；顺序、ancho
 一次 refinement 只缩小到完整 child 桶，或缩小到已取得 PASS 的目标层代表，因此不产生临时的
 非目标层 floor，也不通过逐轮 clipping 隐式细化超过用户选择的 resolution。
 
-## 4. 统一证据入口与缓存
+## 4. 证据入口依赖
 
-### 4.1 生命周期与所有权
+若后续推进树方案，复用 D033 定义的 evaluator 入口、baseline evidence 注入、结果表与失败资格，
+不另建每层 PASS cache。树的跨层重复代表请求仍走同一入口；直接 cache hit 必须登记当前 Slice
+观测并参与非单调检测。static-only 不能跳过 floor/predecessor promotion。
 
-缓存属于一次 Cell search 的 evaluator 实例。该实例固定 Cell、SourceSnapshot、SEARCH SourcePlan、
-evaluation policy、static/harness baseline、resolver profile、release cutoff 与解析上下文。
-在这一固定作用域内，规范化的完整 managed vector 可作为 lookup key；不是跨运行或跨 Cell 的持久 key。
-同一精确解析请求继续消费现行解析缓存，不在命中旧证据时重新建立另一个解析图。
+树、缓存与重验的增量收益分别核算。D033 的缓存迁移不以本文为前提。
 
-`_ProposalRunner` 拥有实际 prepare/static/runtime 结果表及 prepared environment 生命周期；
-`CoordinateSearch` 只保存算法所需的观测、Slice、区间、边界与历史提示，不再另建一份执行结果缓存。
-baseline 的真实 PASS 及其 evidence 引用在创建 evaluator 时预置。普通算法测试通过合法 evaluator
-提供同等的已知结果，不以只有 status 的搜索私有对象代替产品证据。
-
-跨层、跨 sweep 的重复请求都走同一入口，不要求调用方先查 cache 或标记“已测”。空间外 sentinel
-是一个不可 probe 的已知高端，其特殊性来自候选资格，不来自缓存命中与否。
-
-### 4.2 命中规则
-
-| 已有状态 | 请求 | 行为 |
-| --- | --- | --- |
-| 直接完整结果或已分类 prepare 终态 | 同向量请求 | 返回原 evidence，跳过 prepare 与验证 |
-| 本 Slice 的 static-only observation | 调度 probe | 返回该 Slice 合法 guidance；不复制成直接结果 |
-| 只有 static/prepared 状态 | floor/predecessor promotion | 取得直接 runtime evidence，不能以 static 命中跳过验证 |
-| 相同向量但不同 active dependency 的 static-only 状态 | 调度 probe | 共享已有静态事实，按新的 Slice 判定 guidance |
-| 无缓存 | 任意实际 probe | 按现行 prepare → static → runtime 规则执行并记录 |
-
-缓存命中不能绕过算法对当前 Slice 的 observation 归属、非单调检测、边界引用与 final evidence 闭合。
-例如完整结果可跨 active dependency 复用，但每个 Slice 仍需登记实际使用的直接结果。命中不制造新的
-Attempt、验证进程或成功耗时；活动展示不把一次 lookup 冒充一次新验证。
-
-结果表必须保留证据强度与失败类型；不使用一个无类型的 `vector -> bool` 表覆盖 static 与 runtime。
-保留现行 `evaluate_in_slice(request)` / `promote(request)` 的调度与认证区分，两者共享结果入口。
-已有完整结果优先于 static-only；promotion 产生反证时保留历史 observation，并以直接结果重新定界。
-同一精确 Proposal 的完整评价最多执行一次。不同 Proposal 不共享被 verifier 污染的可写环境。
-
-### 4.3 失败资格
-
-只有 D005 的直接 `REJECTED` 可以建立拒绝边界，`INDETERMINATE` 立即停止 Cell；非完整执行不能当成 FAIL。
-FailedCaseSet 拒绝预言继续归 `_ProposalRunner` / RuntimeEvaluator / ConfiguredVerifier，保持现行主动
-坐标作用域与 collection 证明。其命中可拒绝当前 probe；其通过不能建立 PASS。
-本次不改 verifier 顺序，不把失败用例集传给树或坐标排序，也不新增 top-K 策略。
-
-## 5. 一维搜索
+## 5. 一维搜索设想
 
 ### 5.1 进入与 predecessor 重验
 
-进入 d 时 current 完整向量已有直接 PASS；只处理不高于 current 的目标层代表。
-
-1. 没有目标候选，返回 `NO_PASS_IN_SEARCH_SPACE`。
-2. current 已是目标序列首个候选，直接形成无 predecessor 的边界，复用 current 的真实证据。
-3. 有上一轮边界，且其 floor 等于 current、predecessor 仍是目标序列中的直接前驱时，先在当前完整
-   context 下请求 predecessor 的直接结果。REJECTED 则返回当前边界；PASS 则把搜索 upper 降到该点；
-   INDETERMINATE 则停止。缓存负责相同 context 的复用，旧 context 的结果只作为选点提示。
-4. 无可用边界，或 predecessor 已 PASS 后需要继续下降，进入最低候选快速路径。
-
-history 是调度提示，不是跨 context 的拒绝证据。无变化的最终 sweep 必须在最终 context 下建立全部边界。
-重验失败仅在局部单调假设下排除更低点，不承诺未观察 hole 不存在。
+复用 D033 的坐标进入和重验顺序，将其平面定位步骤替换为下述树 refinement；旧 context 的
+history 仍只提供选点提示。重验已证明边界不变时结束该坐标，否则进入最低目标候选快速路径。
 
 ### 5.2 最低候选快速路径
 
@@ -195,7 +119,7 @@ refine(groups, upper_bound):
 
 只有一个有已知 passing 方向的 group 时跳过定位，直接进入下一层或返回目标代表。
 初始 probe、层间重复代表和高端查询全部由统一缓存消除重复执行。
-继续采用现行确定小窗口阈值（默认 8）与升序线性/二分策略；本次不同时调参。
+对照设想采用现行确定小窗口阈值（默认 8）与升序线性/二分策略，避免同时调参混淆收益。
 
 实际 representative 的直接 PASS 向下复用时，下一层最后一个代表是同一精确向量。
 若搜索使用 static PASS guidance，它只提供调度高端，不满足 current 的直接 PASS 不变量；
@@ -237,37 +161,35 @@ until not changed
 
 依赖顺序固定，完整 sweep 覆盖全部坐标。空间有限、每次提交严格下降，因此 sweep 终止。
 最终无变化 sweep 的所有 boundary 属于最终 context；final 自身必须形成精确 PassEvaluation 闭环。
-本次不增加单 Cell 并行 probe、动态排序、跨 Cell hints、跨运行缓存或非单调恢复。
+单 Cell 并行 probe、动态排序、跨 Cell hints、跨运行缓存和非单调恢复不在这个想法的范围内。
 
-## 7. Module、报告与迁移
+## 7. 可能涉及的 Module、报告与迁移
 
-| Owner | 目标责任 |
+本节列出树方案若进入 Design 需要评审的增量，不是 D033 的实施要求。
+
+| Owner | 树方案的可能增量 |
 | --- | --- |
-| ConfigLoader / ProjectLoader / CLI | resolution 的输入、继承、默认值、named policy 与 help |
-| CandidateBuilder | 同次 registry 观测、DSL 求值、公共资格和完整 U 冻结；不提前按终止层删除候选 |
+| CandidateBuilder | 冻结完整 U，不提前按 resolution 删除候选 |
 | 候选纯分组逻辑 | 三层 key、连续区间与目标代表的共同派生规则，供算法与 reader 使用 |
-| CoordinateSearch | 树 refinement、快速路径、重验、Slice observation、promotion、window 与确定 sweep |
-| SearchCoordinator / _ProposalRunner | 注入 baseline evidence；统一结果入口、prepare/static/runtime 缓存和原资源清理 |
-| RuntimeEvaluator / ConfiguredVerifier | 保留现行 runtime authority 与 FailedCaseSet 拒绝预言 |
-| ReportStore / schemas / ApplyAuthorizer | 完整候选、新请求策略、目标代表派生、证据闭合与授权 |
-| Explain / terminal | 展示 resolution 与精确 floor，消费 validated projection 与实际候选窗口 |
+| CoordinateSearch | 在 D033 的重验与证据入口之上接入树 refinement，维护目标序列窗口 |
+| ReportStore / schemas / ApplyAuthorizer | 完整候选、目标代表派生、identity 与离线验证 |
+| Explain / terminal | 消费实际目标候选窗口，无需理解树结构 |
 
-结构树、缓存结果表与 history 均由现有 owner 隐藏；不新增通用 TreeService、CacheManager 或 HintProvider。
-算法的 public minimize seam 继续作为策略测试入口；产品测试沿现有 lower adapters 装配真实图。
-在实施 Plan 中明确移除搜索私有 known-pass/cache 与 baseline 注入的 interface 迁移，不保留并行权威来源。
+树拟由现有 owner 隐藏，不预设通用 TreeService。D033 独立提出配置命名和结果表统一，
+后续树 Design 应以届时现行 owner 为基线，不重复迁移这些规则。
 
-候选与报告的目标形状：
+候选与报告的可能形状：
 
 - CandidateSnapshot 的 `candidates` 保存完整 U，每项保留精确 version/artifact；移除仅描述既有
   采样层的 Candidate `series_key` 和 snapshot `series_representatives`，不另存重复目标列表。
 - resolution 从唯一 named policy / report binding 取得。目标序列与树均由完整候选派生；
   reader 以共享规则验证每个 probe、floor、predecessor 是对应目标序列中的合法精确代表。
 - D030 的过滤前 series inventory 继续仅用于 DSL anchor/位置证明；它与过滤后的 U 不能互相替代。
-- snapshot digest 绑定完整候选；`candidate_policy_identity` 将 step 输入替换为 resolution。
-  报告 `inputs.search_policy` binding 使用 required `resolution`，完整输入继续进入 generation，
-  不因本次实际 floor 恰好相同而忽略策略差异。
-- 本迁移把固定 search profile 替换为 `multi-resolution-coordinate-v1`，不更改 runtime evaluation
-  policy；Schema 1、现有 v1 identity 前缀与算法版本编号保持 v1，按 pre-release 规则一次替换。
+- snapshot digest 绑定完整候选；`candidate_policy_identity` 沿用 D033 的 resolution 输入。
+  报告 `inputs.search_policy` binding 沿用 required `resolution`，完整输入继续进入 generation，
+  不因实际 floor 恰好相同而忽略策略差异。
+- 原草案拟把固定 search profile 替换为 `multi-resolution-coordinate-v1`，保持 runtime evaluation
+  policy、Schema 1、现有 v1 identity 前缀与算法版本编号；后续 Design 应按届时基线重新评审。
 - reader、build/reintern、merge、纯 host-partial、apply 与 explain 一起消费目标形状；不从旧字段
   推断 resolution，不增加 dual reader。apply 在 force waiver 前验证完整 requested search policy，
   保留原声明/projected/no-op 授权及离线幂等行为。
@@ -278,10 +200,14 @@ until not changed
 
 ## 8. 收益验证：无需先完成产品实施
 
+以下保留原 D031 §8 的实验分阶段方法。A/B/C/D 名称对应 E005 的历史矩阵；后续测量须记录
+新的源码基线。D033 可单独做 A/B 验证，树是否推进主要取决于相对 B 的增量，不以 A/D 差异归功于树。
+
 ### 8.1 先定义对照问题
 
-实验把当前 HEAD 的平面搜索作为基线。在完全相同 U、space、resolution、目标序列、baseline 与
-规范坐标顺序下比较四组；现行基线以对应 step 接收相同目标代表，仅用作实验对照，不形成产品兼容路径。
+实验固定明确源码版本的平面搜索作为基线。在完全相同 U、space、resolution、目标序列、baseline 与
+规范坐标顺序下比较四组；E005 的历史基线以对应 step 接收相同目标代表，仅作实验对照。
+后续若基线已实施 D033，则 B 对应该基线，A 保留为显式关闭重验的实验对照，不形成产品兼容路径。
 
 | 组 | 一维策略 | 后续 sweep |
 | --- | --- | --- |
@@ -343,11 +269,11 @@ prepare、static guidance、promotion、FailedCaseSet 和资源隔离，不能�
 
 在观测闭合的单调对照上，各组必须给出相同目标向量和直接边界资格；错误/非单调场景保持合法终态。
 预先选定代表性场景和重复次数后，再比较 wall-clock 分布与波动，不从结果中只挑获益项目。
-阈值应由基线成本和测量波动确定，本草案不虚设统一百分比。
+阈值应由基线成本和测量波动确定，本 Concept 不虚设统一百分比。
 
 第一阶段通过即可支持继续投入实验，不能作为默认切换的性能验收；第三阶段可在完整产品迁移前
 决定是否值得实施。正式交付仍须验证配置、report、apply、终端与清理的完整产品路径。
-若收益只来自重验而树无净收益，应回到 Design 修订范围，不将重验的收益当作树的验收证据。
+若收益只来自重验而树无净收益，树继续延期，不将重验的收益当作树的验收证据。
 
 ### 8.6 第一阶段结果与待决事项
 
@@ -357,29 +283,27 @@ prepare、static guidance、promotion、FailedCaseSet 和资源隔离，不能�
 D 比 B 多 20.22%。多坐标矩阵同样是 B 更优。数字只代表所列合成输入的探针计数，不代表真实耗时。
 
 该结果支持先验证 predecessor 重验的真实成本，尚不支持将树作为默认性能优化。
-本 Design 保留重写方案作为评审对象，实施范围与树策略需依据这些退化证据再决策；
-不自动改变用户已接受的 resolution 配置方向，不把第一阶段通过写成 AC10 的完整收益验收。
+树方案因此转入本文，保留待证设想，暂不进入实施；resolution 改名与重验由 D033 独立推进。
+第一阶段通过不表示原 D031 AC10 的真实收益验收完成，也不授权树方案转为默认实现。
 
-## 9. 验收标准与 owner 吸收
+## 9. 转入 Design 前的门槛与候选验收项
 
-| AC | 必须取得的证据 |
+继续探索应先解释 E005 的退化，在等价缓存与 predecessor 重验条件下建立树的独立收益。
+纯模拟只能支持继续实验；默认切换需要真实 evaluator 对照，覆盖代表性输入、波动与退化，
+同时衡量完整 U 的内存、树构造和报告体积。尚未满足这些门槛，树搜索继续留作 Concept。
+
+若证据支持推进，新的 Design 可评审下列验收项，并映射至独立 Plan；它们目前不是承诺：
+
+| 候选项 | 待验证内容 |
 | --- | --- |
-| 1 | global/dep/CLI resolution 的值、minor 默认与继承；space/defaults/prerelease/artifact 规则保持；raw layer 和非法输入分类 |
-| 2 | public CandidateBuilder 冻结完整合格 U；同次观测、过滤前 DSL inventory、空间资格及错误时序；resolution 不提前删除 U |
-| 3 | 三层连续 partition、epoch、短 release、稀疏系列、pre/post/local/额外 release 段和最高合格代表；所有 space × resolution 组合 |
-| 4 | public minimize 在三种 resolution 上返回目标层精确 floor；最低代表快路、单桶、clipping、跨桶 predecessor 与虚拟 sentinel/no-pass |
-| 5 | 同 context 跨层/sweep 查询复用；真实 baseline seed；直接 cache hit 不触发 prepare/runtime；不同 invocation 和不同 Proposal 隔离 |
-| 6 | static-only 缓存不成为直接 PASS；跨 active dependency guidance 隔离；目标序列相邻 region、promotion 反证与窗口计数正确 |
-| 7 | context 改变后的 predecessor 重验、仍拒绝/转 PASS、首个候选无 predecessor；最终无变化 sweep 的边界全部属于最终 context |
-| 8 | direct NON_MONOTONIC 立即停止并保留反例；Indeterminate 不裁剪；确定 probe 顺序、有限终止与 final 直接证据闭合 |
-| 9 | resolution/profile/full U 进入相应 identity；报告仅派生目标代表；reader/build/merge/host-partial/explain 与 apply policy/force/幂等的 public 行为 |
-| 10 | A/B/C/D 策略模拟与真实 evaluator 对照，分别报告树、重验和缓存的增量；missing trace、波动、退化、内存及报告体积边界如实记录 |
-| 11 | 正式实施后 focused/full checks、typing/lint/build、Schema/examples 再生成及链接检查；只保留目标 public contract 的长期测试 |
-| 12 | README 双语、help、配置/model/schema/fixtures/scripts 全面替换；稳定规则归并 owner，Design 与 Plan 完成审计并同步归档 |
+| 完整候选 | 同次 registry 观测、过滤前 DSL inventory、资格与错误时序；resolution 不提前删除 U |
+| 结构与代表 | 三层连续 partition、epoch、短 release、稀疏系列、特殊版本、最高合格代表与全部 space × resolution |
+| 算法 | 三种 resolution 精确 floor、最低快路、单桶、clipping、跨桶 predecessor、虚拟 sentinel/no-pass |
+| 证据整合 | 复用 D033 的缓存、重验、promotion 和非单调契约；跨层重复、目标序列 region 与窗口准确 |
+| 报告 | full U/profile identity、派生代表、reader/build/merge/host-partial/explain 和 apply 授权 |
+| 成本 | 树相对平面加重验的真实增量、missing trace、波动、退化、内存和报告体积 |
+| 产品交付 | focused/full checks、typing/lint/build、Schema/examples、公共路径与链接检查 |
+| 文档闭环 | 稳定规则归并 D001/D002/D003/D006/D014；新 Design 与 Plan 同步验收归档 |
 
-D001 接收 resolution 配置、默认、目标层精确代表与结果范围；D002 接收完整候选模型、缓存入口和
-baseline 注入的 ownership；D003 接收树、重验、static window、promotion 与 sweep；D006 接收 help、
-窗口和 resolution 展示；D014 接收完整 U、策略字段、identity、派生验证与授权。
-D004/D005/D008/D013 的证据和执行规则保持，仅修正必要引用；R008 接收实验结果与剩余开放项。
-实施 Plan 必须将上述 AC 映射到有序切片、interface 迁移、生成物和确切验证命令，不以本文的实验方法
-代替已执行的证据。
+原 D031 的统一验收表随范围拆分退役；E005 对原 AC10 的引用是历史证据边界。
+D033 拥有其独立验收表。本文将来转入 Design 后保留来源链接和探索结论，不复用 D031 编号。

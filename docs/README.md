@@ -12,6 +12,7 @@ README.md                  英文使用入口
 README.zh.md               中文使用入口
 CONTEXT.md                 领域词汇；不定义行为
 docs/
+├── concepts/              非规范性开发构想、待证假设与探索方向
 ├── designs/               现行或临时迁移 Design
 ├── plans/                 进行中的实施计划与证据记录
 ├── experiments/           非规范性实验事实与 dogfood 结论
@@ -27,6 +28,15 @@ docs/
 
 长期 owner Design 使用“现行”；临时迁移 Design 可以是“草案”或“已接受、待实施/实施中”。已接受
 Design 定义唯一目标契约，但在实现与 owner 归并完成前不冒充现行行为。归档文档不再承担规范性。
+Concept 使用独立 `C` 编号，保存尚未形成明确依据的开发想法、待证假设、候选方案与验证方向；
+它是非规范性文档，不定义当前或已接受的目标契约，不授权生产实施，也不需要配套 Plan。
+建议记录状态、来源、证据缺口及进入 Design 的条件。取得足够依据后，另建规范性 Design 并获得
+接受，再建立 Plan；保留双向来源链接，将 Concept 标为已转入 Design 或已关闭。
+已有 Design 若拆回探索阶段，索引记录原编号去向，原编号不复用；修复引用，保留历史实验证据。
+Investigation 保留 `I` 编号并记录调查过程与结论，Experiment 保留 `E` 编号并保存实验事实。
+未实施不等于 Concept：现行契约的非目标仍留在 owner；已有 Review 的问题证据、优先级、验证和
+停止条件继续由 Review 跟踪，不为同一开放项重复建立构想清单。归档文档中的独立待证构想可抽出，
+新 Concept 引用原记录，索引接入新位置，历史事实与完成状态保持不变。
 Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
 
 ## 契约所有权
@@ -47,6 +57,20 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 [JSON Schema](schemas/package-floor-v1.schema.json) 与 [complete](examples/package-floor-v1-minimal-complete.json) / [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例是 D014 Pydantic wire model 的生成物，不建立第二份契约。
 
+## 开发构想
+
+- [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 保存从原 D031 拆出的 multi-resolution
+  树搜索设想。E005 尚不支持树本身的默认性能收益；完整候选冻结、树 refinement 与报告迁移延期，
+  待取得明确依据后另建 Design。改名、predecessor 重验与统一缓存由 D033 独立推进。
+- [C002](concepts/C002-pf-registry-analysis-cli.md) 接收 D030 §12 的独立 registry 发布分布分析 CLI
+  构想；探索空间/粒度比较与有依据的配置建议，命令和数据契约待确定。
+
+<a id="uv-resolution-output-completeness"></a>
+
+- [C003](concepts/C003-pf-resolution-output-completeness.md) 接收 D032 §9 的成功解析日志完整性
+  待证构想；先验证正常 terminal、完整可信 lock 与不完整诊断日志能否分离，再决定是否改变准入。
+  D032/P037 的完成状态不受影响。
+
 ## 实验报告
 
 - [E001](experiments/E001-pf-self-bootstrap-validation-contract.md) 记录 PF 自举 full-repository contract 下 `packaging>=22` 的 dogfood 归因，以及当前单测锁定的 pytest、uv、ty 兼容性证据边界；它是非规范性实验证据。
@@ -62,7 +86,7 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [E004](experiments/E004-requests-validation-surfaces.md) 记录 D028 后 requests 的 15 个 required-surface
   Cells 的 smoke/check/search 实测终态，以及空 extra 修正后的 10 Cells planning；原自引用投影缺口
   已消失，后续失败按实际 authority 保存。
-- [E005](experiments/E005-pf-multi-resolution-search-simulation.md) 完成 D031 第一阶段纯算法模拟：
+- [E005](experiments/E005-pf-multi-resolution-search-simulation.md) 完成原 D031 第一阶段纯算法模拟：
   A/B/C/D 四组、独立穷举与当前算法差分对照表明 predecessor 重验减少合成探针，树本身收益不稳定；
   保存脚本、逐案结果和 trace，不代表真实 evaluator 耗时或产品实现验收。
 
@@ -73,23 +97,14 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   pytest summary 可选化、不适用 artifact 的 locator/哈希检查后置、ty 项目展示默认值覆盖。
   稳定规则已归并 D003/D004/D013/D014；逐项验收与工作区独立限制见 P037。
 
-<a id="uv-resolution-output-completeness"></a>
-
-- **独立开放项：uv 成功解析的日志完整性门槛（开放、待验证）。** 来源：
-  [D032 §9](archived/designs/D032-pf-runtime-witness-stderr.md#9-待验证uv-成功解析的日志完整性门槛)。
-  当前只确认 exit 0 后 stdout/stderr 不完整会在读取 pylock 前停止；后续独立验证完整可信 lock
-  是否足以授权成功解析，并核对 D012/D007 的权威与完整性边界。该研究及其实施不属于 D032/P037，
-  不阻塞它们开始实施、验收完成或归档。若后续形成变更，单独建立 Design/Plan；不放宽非零退出
-  UNSAT classifier 所需的完整诊断。D032/P037 已归档，本项仍开放。
-
-- [D031](designs/D031-pf-multi-resolution-coordinate-search.md) 为多分辨率坐标搜索草案：
-  以 `search-resolution` 替换 `search-step`，统一层级 refinement、evaluator 缓存与跨 sweep 边界重验；
-  保留虚拟 PASS sentinel 和非单调终止。第一阶段证据见 E005；真实集成未执行，树策略与实施范围待评审。
-  尚未创建实施 Plan。
+- 原 D031 已拆分：树搜索降为 [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 开放想法，
+  原编号不复用；[D033](designs/D033-pf-predecessor-revalidate.md) 为 predecessor revalidate 草案，
+  保留原目标 1 的 `search-resolution` 改名、目标 5 的最低候选快路和后续 sweep 直接前驱重验，
+  以及目标 6 的 evaluator 统一缓存、目标 7 的直接非单调终止。继续使用平面搜索和代表候选快照，
+  独立于树搜索推进。完整契约待评审，尚未创建 Plan 或实施。
 - [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
   条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
   接管，实施与验收记录同步归档。
-- 待办：独立 registry 分析 CLI Design，分析系列分布、稀疏程度与 release 数，比较 space/step 的范围和候选数并提供有依据的配置建议；来源见 [D030 §12](archived/designs/D030-pf-search-space-dsl.md#12-待办独立-registry-分析-cli-design)。不预留编号或创建 Plan；命令/数据/输出契约由后续 Design 确定，不纳入 D030 实施范围。分析不自动改写 pyproject 或搜索策略；发布分布不证明兼容性，候选数不等同 verifier 次数或耗时。
 
 - [D029](archived/designs/D029-pf-conditional-resolution-projection.md) /
   [P035](archived/plans/P035-pf-conditional-resolution-projection.md) 已完成条件 resolution 节点投影修复；
