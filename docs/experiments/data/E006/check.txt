@@ -1,0 +1,67 @@
+loading project
+building snapshot
+checking declarations
+✓  selected 10 cells, 6 active packages (0 pinned)
+   run-id: 20260905T141935.195322Z-788444-6d7e586c
+   python: 3.10, 3.11, 3.12, 3.13, 3.14
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: socks, socks+use_chardet_on_py3
+✗  [py3.12][x86_64-unknown-linux-gnu][socks]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   -> run `pf diagnose failure-d2e1c29553a0afcc --package requests` for more
+   information.
+✗  [py3.12][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   -> run `pf diagnose failure-d7d2fa043ef85af8 --package requests` for more
+   information.
+✗  [py3.13][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   -> run `pf diagnose failure-f8467933b7f3020f --package requests` for more
+   information.
+✗  [py3.13][x86_64-unknown-linux-gnu][socks]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   -> run `pf diagnose failure-a0e2bccc333ec077 --package requests` for more
+   information.
+✗  [py3.14][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   -> run `pf diagnose failure-de0492befc00872d --package requests` for more
+   information.
+✗  [py3.14][x86_64-unknown-linux-gnu][socks]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   -> run `pf diagnose failure-4fd1727dfd8c1d5c --package requests` for more
+   information.
+✗  [py3.10][x86_64-unknown-linux-gnu][socks]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   FAILED
+   tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]
+   -> run `pf diagnose failure-ba7fa029fca4cb1e --package requests` for more
+   information.
+✗  [py3.11][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   FAILED
+   tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]
+   -> run `pf diagnose failure-7882a8381b23170f --package requests` for more
+   information.
+✗  [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   FAILED
+   tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]
+   -> run `pf diagnose failure-146c0d0c4b6b9196 --package requests` for more
+   information.
+✗  [py3.11][x86_64-unknown-linux-gnu][socks]
+   check failed at [declaration][lowest-direct][testing]
+   The configured verifier rejected this version combination.
+   FAILED
+   tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]
+   -> run `pf diagnose failure-6557cbd4e2fdf9de --package requests` for more
+   information.
+✗  Check failed · declared lower bounds are incompatible · 10 cells

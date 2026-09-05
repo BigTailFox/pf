@@ -1,0 +1,666 @@
+[
+  {
+    "command": "smoke",
+    "run_id": "20260905T141808.653261Z-783898-a1b8d058",
+    "journal_sha256": "43ba55f09ba5e06a3a905006706cebc95373329d31d913c97d68554bbefa4e52",
+    "snapshot": "75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3",
+    "policies": [
+      {
+        "evaluation_policy_identity": "aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0",
+        "package": "requests"
+      }
+    ],
+    "failures": [
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "package": "requests",
+          "python_minor": "3.13",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "baseline",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 1,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "b276a5cf824ec8aa7ca4679d530dde758e6f26c1ece6360b027b3e7e42e640e4",
+          "failure_id": "failure-2edfd9499a0bb6c9",
+          "project_plan_digest": "b24de2f7747c5ad9ffbfbff6219ff26e830f8fb76a415dfacf18542c438e3ea5",
+          "stage": "test"
+        }
+      }
+    ],
+    "pytest_processes": [
+      {
+        "log": "process-0057.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 78.04s (0:01:18)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0061.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.83s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0066.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.71s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0068.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.62s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0072.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.57s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0073.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.58s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0075.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.62s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0079.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.53s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0080.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.74s (0:01:17)"
+        ],
+        "errors": []
+      },
+      {
+        "log": "process-0083.log",
+        "exit_code": 1,
+        "summary": [
+          "1 ***, 64 passed in 20.40s"
+        ],
+        "errors": [
+          "E           ConnectionResetError: [Errno 104] Connection reset by peer",
+          "E           urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+          "E           requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+        ]
+      }
+    ]
+  },
+  {
+    "command": "check",
+    "run_id": "20260905T141935.195322Z-788444-6d7e586c",
+    "journal_sha256": "193a2966d6bcb88a5cdbdf4c154f2cd697349d9fdb0a8cd2cfdd3295025cde9d",
+    "snapshot": "75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3",
+    "policies": [
+      {
+        "evaluation_policy_identity": "aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0",
+        "package": "requests"
+      }
+    ],
+    "failures": [
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks"
+          ],
+          "package": "requests",
+          "python_minor": "3.10",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 1,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "c00be541f05319094363506d1c14dd0c689344144d6dc4581678ee659df10965",
+          "failure_id": "failure-ba7fa029fca4cb1e",
+          "project_plan_digest": "69674bfa33c66ad8e6f6e0ffe7db522b89ffd522e357285b3c293f3388ca51b8",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "package": "requests",
+          "python_minor": "3.10",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 1,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "553e6bb771993e8f025fe36c196d4bc8e3964aa766327fef2c05d9371ffe816f",
+          "failure_id": "failure-146c0d0c4b6b9196",
+          "project_plan_digest": "f2f0557f0c8cf5804a269c2ed14ca6b86163d67ceea8e0675bdf27620865e3a8",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks"
+          ],
+          "package": "requests",
+          "python_minor": "3.11",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 1,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "2ed03966b6af1fa02d88cdd6cdb4b271bf384d1212fe8e189c59ba313345e3b0",
+          "failure_id": "failure-6557cbd4e2fdf9de",
+          "project_plan_digest": "ba1246a259de5c84d6de10d4288c8503e0c891737d7d3c80763fc712494c8fc7",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "package": "requests",
+          "python_minor": "3.11",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 1,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "deafc06095c3a863fb8a939ea3422c61b645ffacc8a7fb57baa2778a63880aff",
+          "failure_id": "failure-7882a8381b23170f",
+          "project_plan_digest": "402affbe31a8d533cf3ee6c272dc881b69d0d2067107a159e5b0ab3a048f7c60",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks"
+          ],
+          "package": "requests",
+          "python_minor": "3.12",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 4,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "7fc47cc298242c70e6efca24cd5386370a8a5ac596e7b6989f53f7e7d7ddf13e",
+          "failure_id": "failure-d2e1c29553a0afcc",
+          "project_plan_digest": "7db86ec2a31361710ab243f1cf928f0e87a561347918dbe0335cda2e0ba25b0f",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "package": "requests",
+          "python_minor": "3.12",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 4,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "edec79b1ad12b4f13485e104b1823050b7ba5b0a1ce70240f49249c8f8e69276",
+          "failure_id": "failure-d7d2fa043ef85af8",
+          "project_plan_digest": "0536b565aab22872c26f89f1d91aa8dbe801983a5e24b51950ec811e4dc45ec3",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks"
+          ],
+          "package": "requests",
+          "python_minor": "3.13",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 4,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "696c94d0f8b1d022104595c25f165e4d7389cdfbfe4fce2c3bb376f18d9747df",
+          "failure_id": "failure-a0e2bccc333ec077",
+          "project_plan_digest": "761b2125df3426361ac3d1521f0a209f42cb514cce18058ad158eb6e2f078be1",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "package": "requests",
+          "python_minor": "3.13",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 4,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "3934aee9dd9c743a4de772ea88e0446c67e3ef623a52d82f0100eade8441f67c",
+          "failure_id": "failure-f8467933b7f3020f",
+          "project_plan_digest": "306b877998a336402c6e1af19b864833b278a0ae92c4cfc4b3b3f9ab82ab6206",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks"
+          ],
+          "package": "requests",
+          "python_minor": "3.14",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 4,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "bb7a1afcbada36309b3e5fd98bfae7bdcde0c687b79849da9e055b02e551cbad",
+          "failure_id": "failure-4fd1727dfd8c1d5c",
+          "project_plan_digest": "58c06ec2f7ca26d083afb00e024bee6614f21ea1afe5ae9a2470756ff4bc4fd2",
+          "stage": "test"
+        }
+      },
+      {
+        "cell": {
+          "active_declaration_ids": [
+            "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+            "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+            "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+            "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+            "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+            "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+          ],
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "package": "requests",
+          "python_minor": "3.14",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "role": "declaration",
+        "failure": {
+          "authority": {
+            "kind": "configured-verifier",
+            "terminal": {
+              "exit_code": 4,
+              "kind": "normal-exit"
+            }
+          },
+          "cause": "VERIFIER_EXITED_NONZERO",
+          "disposition": "REJECTED",
+          "environment_plan_digest": "b16f92bff9b324d5872e32238640f1a9889b3f74fcf7a0e30604b8dc6ee7d5dc",
+          "failure_id": "failure-de0492befc00872d",
+          "project_plan_digest": "aa0ea433d334557ea582e89a5f7fc7abb76b6b6b9b49089f636aa4a064044b19",
+          "stage": "test"
+        }
+      }
+    ],
+    "pytest_processes": [
+      {
+        "log": "process-0101.log",
+        "exit_code": 4,
+        "summary": [],
+        "errors": [
+          "E   ModuleNotFoundError: No module named 'urllib3.packages.six.moves'"
+        ]
+      },
+      {
+        "log": "process-0110.log",
+        "exit_code": 1,
+        "summary": [
+          "1 ***, 15 passed in 11.80s"
+        ],
+        "errors": [
+          "E       requests.exceptions.InvalidSchema: Missing dependencies for SOCKS support."
+        ]
+      },
+      {
+        "log": "process-0136.log",
+        "exit_code": 4,
+        "summary": [],
+        "errors": [
+          "E   ModuleNotFoundError: No module named 'urllib3.packages.six.moves'"
+        ]
+      },
+      {
+        "log": "process-0140.log",
+        "exit_code": 1,
+        "summary": [
+          "1 ***, 15 passed in 11.82s"
+        ],
+        "errors": [
+          "E       requests.exceptions.InvalidSchema: Missing dependencies for SOCKS support."
+        ]
+      },
+      {
+        "log": "process-0141.log",
+        "exit_code": 1,
+        "summary": [
+          "1 ***, 15 passed in 11.78s"
+        ],
+        "errors": [
+          "E       requests.exceptions.InvalidSchema: Missing dependencies for SOCKS support."
+        ]
+      },
+      {
+        "log": "process-0144.log",
+        "exit_code": 4,
+        "summary": [],
+        "errors": [
+          "E   ModuleNotFoundError: No module named 'urllib3.packages.six.moves'"
+        ]
+      },
+      {
+        "log": "process-0146.log",
+        "exit_code": 4,
+        "summary": [],
+        "errors": [
+          "E   ModuleNotFoundError: No module named 'urllib3.packages.six.moves'"
+        ]
+      },
+      {
+        "log": "process-0148.log",
+        "exit_code": 1,
+        "summary": [
+          "1 ***, 15 passed in 11.77s"
+        ],
+        "errors": [
+          "E       requests.exceptions.InvalidSchema: Missing dependencies for SOCKS support."
+        ]
+      },
+      {
+        "log": "process-0151.log",
+        "exit_code": 4,
+        "summary": [],
+        "errors": [
+          "E   ModuleNotFoundError: No module named 'urllib3.packages.six.moves'"
+        ]
+      },
+      {
+        "log": "process-0153.log",
+        "exit_code": 4,
+        "summary": [],
+        "errors": [
+          "E   ModuleNotFoundError: No module named 'urllib3.packages.six.moves'"
+        ]
+      }
+    ]
+  },
+  {
+    "command": "smoke-repeat",
+    "run_id": "20260905T142054.067994Z-793128-eb5cfb77",
+    "journal_sha256": "15bd6b67aa17ce094c9a16d8d837ab78163e6445fe7b73b1243538d0e1b79dbc",
+    "snapshot": "75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3",
+    "policies": [
+      {
+        "evaluation_policy_identity": "aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0",
+        "package": "requests"
+      }
+    ],
+    "failures": [],
+    "pytest_processes": [
+      {
+        "log": "process-0053.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.59s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0067.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 78.06s (0:01:18)"
+        ]
+      },
+      {
+        "log": "process-0068.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.78s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0070.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 78.04s (0:01:18)"
+        ]
+      },
+      {
+        "log": "process-0072.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.75s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0073.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.69s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0075.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.82s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0079.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.57s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0081.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.66s (0:01:17)"
+        ]
+      },
+      {
+        "log": "process-0083.log",
+        "exit_code": 0,
+        "summary": [
+          "619 passed, 15 skipped, 1 xpassed, 18 warnings in 77.56s (0:01:17)"
+        ]
+      }
+    ]
+  }
+]

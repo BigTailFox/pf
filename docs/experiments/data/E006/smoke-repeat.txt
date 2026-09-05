@@ -1,0 +1,29 @@
+loading project
+building snapshot
+smoke testing
+✓  selected 10 cells, 6 active packages (0 pinned)
+   run-id: 20260905T142054.067994Z-793128-eb5cfb77
+   python: 3.10, 3.11, 3.12, 3.13, 3.14
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: socks, socks+use_chardet_on_py3
+✓  [py3.12][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.13][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.12][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.14][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.11][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.11][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.10][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.14][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.13][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  Smoke passed · 10 cells

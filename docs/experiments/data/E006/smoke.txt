@@ -1,0 +1,34 @@
+loading project
+building snapshot
+smoke testing
+✓  selected 10 cells, 6 active packages (0 pinned)
+   run-id: 20260905T141808.653261Z-783898-a1b8d058
+   python: 3.10, 3.11, 3.12, 3.13, 3.14
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: socks, socks+use_chardet_on_py3
+✗  [py3.13][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke failed at [baseline][highest][testing]
+   The configured verifier rejected this version combination.
+   FAILED
+   tests/test_requests.py::TestRequests::test_HTTP_307_ALLOW_REDIRECT_POST
+   -> run `pf diagnose failure-2edfd9499a0bb6c9 --package requests` for more
+   information.
+✓  [py3.11][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.12][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.11][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.13][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.10][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.14][x86_64-unknown-linux-gnu][socks]
+   smoke passed at [baseline][highest]
+✓  [py3.12][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.14][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✓  [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]
+   smoke passed at [baseline][highest]
+✗  Smoke failed · highest-version resolution did not pass · 10 cells

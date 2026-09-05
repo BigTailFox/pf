@@ -1,0 +1,3691 @@
+{
+  "source_report": "experiments/requests/package-floor.json",
+  "source_report_sha256": "040e20a1fa9681502303fae3ee6fdb2f18fcdcf8614f590ce5984d755811a40d",
+  "search_run_id": "20260905T134722.724441Z-686839-efa6c438",
+  "reader_validation": "ReportStore.read passed during this report preparation; current production code matches 325e43d (documentation-only commits followed)",
+  "identity": {
+    "generator": {
+      "algorithm": "v1",
+      "name": "pf",
+      "version": "0.1.0"
+    },
+    "package": {
+      "name": "requests",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.10"
+    },
+    "policy_identity": "aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0",
+    "report_generation_id": "8611ccc7f3da74ae11fef4544367e856ea363c4c3258b0f28775e73c0c20b282",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "source_snapshot_digest": "75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3",
+  "result": {
+    "status": "complete"
+  },
+  "search_policy": {
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "certifi",
+          "chardet",
+          "charset-normalizer",
+          "idna",
+          "pysocks",
+          "urllib3"
+        ],
+        "prereleases": false,
+        "requested_space": null,
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "step": "minor"
+      }
+    ],
+    "profile": "registry-series-slice-v1"
+  },
+  "counts": {
+    "attempts": 370,
+    "evaluations": 330,
+    "failures": 200,
+    "proposals": 370,
+    "resolution_graphs": 222,
+    "static_evaluations": 370
+  },
+  "evaluation_status_counts": {
+    "PASS": 130,
+    "VERIFIER_REJECTED": 160,
+    "RUNTIME_INTERFACE_MISSING": 40
+  },
+  "failure_cause_counts": {
+    "RUNTIME_INTERFACE_MISSING": 40,
+    "VERIFIER_EXITED_NONZERO": 160
+  },
+  "declarations": [
+    {
+      "declaration_id": "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+      "kind": "searchable",
+      "location": "base",
+      "managed": true,
+      "name": "idna",
+      "package": "requests",
+      "pyproject_path": "pyproject.toml",
+      "raw": "idna>=2.5,<4",
+      "requested_extras": [],
+      "specifier": "<4,>=2.5"
+    },
+    {
+      "declaration_id": "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+      "kind": "searchable",
+      "location": "base",
+      "managed": true,
+      "name": "urllib3",
+      "package": "requests",
+      "pyproject_path": "pyproject.toml",
+      "raw": "urllib3>=1.26,<3",
+      "requested_extras": [],
+      "specifier": "<3,>=1.26"
+    },
+    {
+      "declaration_id": "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+      "extra": "use_chardet_on_py3",
+      "kind": "searchable",
+      "location": "optional",
+      "managed": true,
+      "name": "chardet",
+      "package": "requests",
+      "pyproject_path": "pyproject.toml",
+      "raw": "chardet>=3.0.2,<8",
+      "requested_extras": [],
+      "specifier": "<8,>=3.0.2"
+    },
+    {
+      "declaration_id": "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+      "extra": "socks",
+      "kind": "searchable",
+      "location": "optional",
+      "managed": true,
+      "name": "pysocks",
+      "package": "requests",
+      "pyproject_path": "pyproject.toml",
+      "raw": "PySocks>=1.5.6, !=1.5.7",
+      "requested_extras": [],
+      "specifier": "!=1.5.7,>=1.5.6"
+    },
+    {
+      "declaration_id": "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+      "kind": "searchable",
+      "location": "base",
+      "managed": true,
+      "name": "charset-normalizer",
+      "package": "requests",
+      "pyproject_path": "pyproject.toml",
+      "raw": "charset_normalizer>=2,<4",
+      "requested_extras": [],
+      "specifier": "<4,>=2"
+    },
+    {
+      "declaration_id": "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462",
+      "kind": "searchable",
+      "location": "base",
+      "managed": true,
+      "name": "certifi",
+      "package": "requests",
+      "pyproject_path": "pyproject.toml",
+      "raw": "certifi>=2023.5.7",
+      "requested_extras": [],
+      "specifier": ">=2023.5.7"
+    }
+  ],
+  "projections": [
+    {
+      "declaration_ref": "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+      "floors": [
+        {
+          "cell_ref": "cell-1fccca545319ceb7d484daee2e5c9406232304ab87ec9dda1434e085cf0d684b",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-3c1a2b4bed4870465a6c797d591a9f0e671f9bcc7ccdc77a2f03e298a7c34878",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-a251ea6ab48784765d1f944e031c62e3912de3aa356a4a808c1a1ae415f7d2f0",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-d96fd0200a135bc95313600483cacd2c3a0ffeb9312d58f6dec873e5b8f19d76",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-65873db2ef315ecbf7e3e366191258e9cdd3a600aa0a014e4a4fd8ae7e6dfcc4",
+          "version": "2.0"
+        },
+        {
+          "cell_ref": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+          "version": "2.0"
+        }
+      ],
+      "projected_requirements": [
+        "idna<4,>=2.0"
+      ],
+      "representable": true
+    },
+    {
+      "declaration_ref": "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+      "floors": [
+        {
+          "cell_ref": "cell-1fccca545319ceb7d484daee2e5c9406232304ab87ec9dda1434e085cf0d684b",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-3c1a2b4bed4870465a6c797d591a9f0e671f9bcc7ccdc77a2f03e298a7c34878",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-a251ea6ab48784765d1f944e031c62e3912de3aa356a4a808c1a1ae415f7d2f0",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-d96fd0200a135bc95313600483cacd2c3a0ffeb9312d58f6dec873e5b8f19d76",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-65873db2ef315ecbf7e3e366191258e9cdd3a600aa0a014e4a4fd8ae7e6dfcc4",
+          "version": "1.26.20"
+        },
+        {
+          "cell_ref": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+          "version": "1.26.20"
+        }
+      ],
+      "projected_requirements": [
+        "urllib3<3,>=1.26.20"
+      ],
+      "representable": true
+    },
+    {
+      "declaration_ref": "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+      "floors": [
+        {
+          "cell_ref": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+          "version": "2.2.1"
+        },
+        {
+          "cell_ref": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+          "version": "2.2.1"
+        },
+        {
+          "cell_ref": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+          "version": "2.2.1"
+        },
+        {
+          "cell_ref": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+          "version": "2.2.1"
+        },
+        {
+          "cell_ref": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+          "version": "2.2.1"
+        }
+      ],
+      "projected_requirements": [
+        "chardet<8,>=2.2.1"
+      ],
+      "representable": true
+    },
+    {
+      "declaration_ref": "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+      "floors": [
+        {
+          "cell_ref": "cell-1fccca545319ceb7d484daee2e5c9406232304ab87ec9dda1434e085cf0d684b",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-3c1a2b4bed4870465a6c797d591a9f0e671f9bcc7ccdc77a2f03e298a7c34878",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-a251ea6ab48784765d1f944e031c62e3912de3aa356a4a808c1a1ae415f7d2f0",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-d96fd0200a135bc95313600483cacd2c3a0ffeb9312d58f6dec873e5b8f19d76",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-65873db2ef315ecbf7e3e366191258e9cdd3a600aa0a014e4a4fd8ae7e6dfcc4",
+          "version": "1.7.1"
+        },
+        {
+          "cell_ref": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+          "version": "1.7.1"
+        }
+      ],
+      "projected_requirements": [
+        "PySocks!=1.5.7,>=1.7.1"
+      ],
+      "representable": true
+    },
+    {
+      "declaration_ref": "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+      "floors": [
+        {
+          "cell_ref": "cell-1fccca545319ceb7d484daee2e5c9406232304ab87ec9dda1434e085cf0d684b",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-3c1a2b4bed4870465a6c797d591a9f0e671f9bcc7ccdc77a2f03e298a7c34878",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-a251ea6ab48784765d1f944e031c62e3912de3aa356a4a808c1a1ae415f7d2f0",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-d96fd0200a135bc95313600483cacd2c3a0ffeb9312d58f6dec873e5b8f19d76",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-65873db2ef315ecbf7e3e366191258e9cdd3a600aa0a014e4a4fd8ae7e6dfcc4",
+          "version": "1.3.9"
+        },
+        {
+          "cell_ref": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+          "version": "1.3.9"
+        }
+      ],
+      "projected_requirements": [
+        "charset_normalizer<4,>=1.3.9"
+      ],
+      "representable": true
+    },
+    {
+      "declaration_ref": "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462",
+      "floors": [
+        {
+          "cell_ref": "cell-1fccca545319ceb7d484daee2e5c9406232304ab87ec9dda1434e085cf0d684b",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-3c1a2b4bed4870465a6c797d591a9f0e671f9bcc7ccdc77a2f03e298a7c34878",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-a251ea6ab48784765d1f944e031c62e3912de3aa356a4a808c1a1ae415f7d2f0",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-d96fd0200a135bc95313600483cacd2c3a0ffeb9312d58f6dec873e5b8f19d76",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-65873db2ef315ecbf7e3e366191258e9cdd3a600aa0a014e4a4fd8ae7e6dfcc4",
+          "version": "2022.5.18.1"
+        },
+        {
+          "cell_ref": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+          "version": "2022.5.18.1"
+        }
+      ],
+      "projected_requirements": [
+        "certifi>=2022.5.18.1"
+      ],
+      "representable": true
+    }
+  ],
+  "cells": [
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-1fccca545319ceb7d484daee2e5c9406232304ab87ec9dda1434e085cf0d684b",
+        "extra_surface": [
+          "socks"
+        ],
+        "package": "requests",
+        "python_minor": "3.10",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "09f2fc3aa3cc1e2a830edaca2c375c1cdc46518b85f2617a4d8791551421434f",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "09f2fc3aa3cc1e2a830edaca2c375c1cdc46518b85f2617a4d8791551421434f",
+          "static_evaluation_ref": "09f2fc3aa3cc1e2a830edaca2c375c1cdc46518b85f2617a4d8791551421434f",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "eaf76cf68832d9651943247363eed43c5f36f7e7a60ebe3d392bff644fb371cc",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "eaf76cf68832d9651943247363eed43c5f36f7e7a60ebe3d392bff644fb371cc",
+          "static_evaluation_ref": "eaf76cf68832d9651943247363eed43c5f36f7e7a60ebe3d392bff644fb371cc",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-d8c45e911bffb67d",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.3062545980064897,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "43e1cdde7ec33f7a590a3a4ae8ff487e9bfc2bd6821ea6b649d2557bdf2a93d9",
+            "failure_id": "failure-d8c45e911bffb67d",
+            "project_plan_digest": "58ccccdd3715467ed2ffcadc2a8295c258637b9b477ead8124d08d43d25501e7",
+            "scope": {
+              "attempt_ref": "2db9b39497dea72b252bbd46e54890486f97800673ef94d7f5ee3758ebae3c4b",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-d95c1c589be02dca",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "b68e99abcda594ebe2da4f36a7ceebb57d703081dd19b69455c47d203e910033",
+            "failure_id": "failure-d95c1c589be02dca",
+            "project_plan_digest": "ad4c6d7704606581f0e28fee9f50098083b8ec128c1baa5b63bf035107cd2c2c",
+            "scope": {
+              "attempt_ref": "165d1c1970d9c3e71087e6fa6ae383ce4f1f47c23c7da043ab0a0582a3c29589",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-a8b4c16b3f093cb0",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "fabe2351c26fe4d158ad975a4f82aa74d532b3d866cdb5ae012f8bc9433da6ef",
+            "failure_id": "failure-a8b4c16b3f093cb0",
+            "project_plan_digest": "23c5e42b6eac582865a73b3314f745e76d489d897569c609e1c85bc56333eabe",
+            "scope": {
+              "attempt_ref": "e7ecfab3929bf2c95c88b19b5e5f548e462c3b4d0d1456daf5849b87fa678316",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-d4678ac31411de4b",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "231d6212a5d23502efaba65724ddf96ce5dcaf579f90ee8507f65798ae55e6a5",
+            "failure_id": "failure-d4678ac31411de4b",
+            "project_plan_digest": "79018decb9b2fd89f22dde3968b2c298eebbffbf9a0e824a3f8899b3d71c01a9",
+            "scope": {
+              "attempt_ref": "ddd2a48367e8528b0b32a0683615bc8bf52f96381f58e5d4acce6cd02cd0c1df",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-d126b2ab31e26af3cc6c1145ea5acb2ea889d6190ca7961ccc3272f5b05481af",
+        "extra_surface": [
+          "socks",
+          "use_chardet_on_py3"
+        ],
+        "package": "requests",
+        "python_minor": "3.10",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "d16a7b645bf3dece2886a104425ebce178527e94a64b08976b380d163993e634",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "chardet",
+            "version": "7.6.0"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "d16a7b645bf3dece2886a104425ebce178527e94a64b08976b380d163993e634",
+          "static_evaluation_ref": "d16a7b645bf3dece2886a104425ebce178527e94a64b08976b380d163993e634",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "eb5c7bf0951cad3bc34ed360e7698a35caa7ceb9815bc8d772c146ce4df00637",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "chardet",
+            "version": "2.2.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "eb5c7bf0951cad3bc34ed360e7698a35caa7ceb9815bc8d772c146ce4df00637",
+          "static_evaluation_ref": "eb5c7bf0951cad3bc34ed360e7698a35caa7ceb9815bc8d772c146ce4df00637",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_ref": "failure-cec0aca6218b8e4c",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "277b47071864b9aea6c7e51c5c44be45a8da4e56ce7d701f0337d294ab770d90",
+            "failure_id": "failure-cec0aca6218b8e4c",
+            "project_plan_digest": "d7e090a03e8be7a28e8369fe421a4cb7c227d78c2913b0a23c5eb4d8649e284d",
+            "scope": {
+              "attempt_ref": "beb7654f77b57a4cb9226c6ac6e10fee4c1340e0a772b2a4b721c932e9425646",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.1.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-f6df5b4ae171a927",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.31558200899598887,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "a1bf24daebe3b6e75c19835a5485b0d7d6ed20cf1949148f285c3e83c3679696",
+            "failure_id": "failure-f6df5b4ae171a927",
+            "project_plan_digest": "fedaf89a638ac6e224c178ad09c9b38e3973b06edc8680f2ab1dcd671af9ef10",
+            "scope": {
+              "attempt_ref": "d8ea7fd4d12b3851b0b835975b62d10950aaca6bec54418e927422078c58601e",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-e452053235d0933d",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "7aba3d98e12bc347ec391d0fa5880b8b48e81512b9b9c6ffee416ecaf301a71c",
+            "failure_id": "failure-e452053235d0933d",
+            "project_plan_digest": "6225b9007733a2d660463435ed35bdab997de81cc3a8be56c413aeed13181f1e",
+            "scope": {
+              "attempt_ref": "7fb86e131c6c3c3ac00c9104eb732233a047f4e6fb15b1bc4adc4570b8c5f639",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-3e031cd90e1b527f",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "a7b2be637f792ab3d9b81f68c8cbdfcb7111481fc54ef4ad8e5d06d4f940b53d",
+            "failure_id": "failure-3e031cd90e1b527f",
+            "project_plan_digest": "073e595616c596c066441e7ea32282768405b2df9a11f89910785d8ab40e5935",
+            "scope": {
+              "attempt_ref": "0b81f9a038b66af4324cf5d16f78af6ea7e3eea700939758c2a971122a806a5d",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-d0cc8288562f6a39",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "890647a63e184eda24bf9fca8067147061f5fe65be8b8908c3b83457da59cdde",
+            "failure_id": "failure-d0cc8288562f6a39",
+            "project_plan_digest": "3f505ad7d0cb3c10c2f8b67a5e65309dd1d76720728c5c03e2f27c7286ecd944",
+            "scope": {
+              "attempt_ref": "e727e3fa9cffb70b0bf4f9aa93e2ca057ea840f96bfdd187a4111b995e09151e",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-3c1a2b4bed4870465a6c797d591a9f0e671f9bcc7ccdc77a2f03e298a7c34878",
+        "extra_surface": [
+          "socks"
+        ],
+        "package": "requests",
+        "python_minor": "3.11",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "1c7f6899d3993b88b99a164a5f958d3b81b7c6d657928860aaf0fc52fad3ddfa",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "1c7f6899d3993b88b99a164a5f958d3b81b7c6d657928860aaf0fc52fad3ddfa",
+          "static_evaluation_ref": "1c7f6899d3993b88b99a164a5f958d3b81b7c6d657928860aaf0fc52fad3ddfa",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "16e7d2007dbe0ca30705cb49a71f27d24f880ff293b91fe4636b3c3b03549098",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "16e7d2007dbe0ca30705cb49a71f27d24f880ff293b91fe4636b3c3b03549098",
+          "static_evaluation_ref": "16e7d2007dbe0ca30705cb49a71f27d24f880ff293b91fe4636b3c3b03549098",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-e8dfc0c5ca6ee708",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.3308120770016103,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "be587f139250b29aa474875a0bbae47686714d017aad65ffdfe109e36d6822c0",
+            "failure_id": "failure-e8dfc0c5ca6ee708",
+            "project_plan_digest": "149e8537be76133d0688a5d25705714f0f6c5eaaa8531d68694ee20527a1f60a",
+            "scope": {
+              "attempt_ref": "69b30aec0cdb6411161992122db3037d0eee04cbaa37ef21b9143cf182a7f63f",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-4939eb57a4b7ef01",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "e510d9d20537a05754c5ae59deda10e9119a93290ebd7b9f5ee725917e5d59d7",
+            "failure_id": "failure-4939eb57a4b7ef01",
+            "project_plan_digest": "b16e13dff2f4e62f3e685355a2f155f3043a250010b82af4c2d3aa08ce9a065e",
+            "scope": {
+              "attempt_ref": "68d15c4cf8202e985a4dfcc3be2bcefa6500774a9beed5f3c6b336241f126d23",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-1f53a05ba56fd655",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "271aea344ec9c98c217c8e26f20153372c3e28250e8b1b0c1cde548e0e83b5ab",
+            "failure_id": "failure-1f53a05ba56fd655",
+            "project_plan_digest": "5abf36c4ed0a3204cabf694bc627f92b0702d48999cca3941f184aa9a1954075",
+            "scope": {
+              "attempt_ref": "fb706d4f23f75122046f24af5209dd9a5fd51006676daa3122eda703460b2b55",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-1bd68dfd7bc4f311",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "825f627dddf70bc2bd0533518ee48c779b0d54416a428bddc5875bf036c2fed9",
+            "failure_id": "failure-1bd68dfd7bc4f311",
+            "project_plan_digest": "0b9c94795c66df4309682f8af9c646397a56d0d57dd0444d7bf4982c3f36c4be",
+            "scope": {
+              "attempt_ref": "e505dedadf1d4198759fb33fa1d2064eae8b60db05391f374eea8ce2548601f6",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-a3238f86a7c2711bc8b84b14b1d9a68539ea758eaf551f537f8eccd89a824a32",
+        "extra_surface": [
+          "socks",
+          "use_chardet_on_py3"
+        ],
+        "package": "requests",
+        "python_minor": "3.11",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "1443dab765b335f09131c77d61f51bd97419a683e400d38623818a8d2fc63011",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "chardet",
+            "version": "7.6.0"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "1443dab765b335f09131c77d61f51bd97419a683e400d38623818a8d2fc63011",
+          "static_evaluation_ref": "1443dab765b335f09131c77d61f51bd97419a683e400d38623818a8d2fc63011",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "82ad8639e69bdc792d0a1b48a321efac1ed6c99e8418d8dddb063458c6a1db9b",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "chardet",
+            "version": "2.2.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "82ad8639e69bdc792d0a1b48a321efac1ed6c99e8418d8dddb063458c6a1db9b",
+          "static_evaluation_ref": "82ad8639e69bdc792d0a1b48a321efac1ed6c99e8418d8dddb063458c6a1db9b",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_ref": "failure-5085e1d6c06ead79",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "d382f37732a879809bd68649f155da144f04fc49144785252fdeb9a9826b0753",
+            "failure_id": "failure-5085e1d6c06ead79",
+            "project_plan_digest": "e0bc477ba21a35fd1d429c78ce8f3ff5e78f085208c8aad881eb4611c36fdb9d",
+            "scope": {
+              "attempt_ref": "9e9e63025611dba55d143499609c5b34d7c5895500ac40526d2473b84b483f3b",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.1.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-f3fdaba6868b81d2",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.3306997049949132,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "c6f7102400aa3d1e69484bf6f77a4ffc914bbd8abf1c3c3d9ba91fc631b0f1d1",
+            "failure_id": "failure-f3fdaba6868b81d2",
+            "project_plan_digest": "40046bda6e49906bd91be006273c2691e863e5be7387d0eabffbeb82c521865d",
+            "scope": {
+              "attempt_ref": "e471649edc548c7483e580f593eda02c92bb1932e96d6451e0b6fd99e412889c",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-7e01e809d2ff5100",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "f4ebc458609f6e10d62e766c7a26ec1b72e66eb792b2abcaf628e4871b36ea63",
+            "failure_id": "failure-7e01e809d2ff5100",
+            "project_plan_digest": "2382ee0d1beae5c7c3e06b56652489a5e628cc8aa633a10caa9016f88592fc4f",
+            "scope": {
+              "attempt_ref": "2db13ce6e6f42f8b4ff8e352cc514a9ef6a828d73da7205e139f7299d4675a07",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-71dac9e2603a23e1",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "e5e0f6b9b72a916f273497c1fb351ee38904d26c1fe045b01e4dc97506e1f11d",
+            "failure_id": "failure-71dac9e2603a23e1",
+            "project_plan_digest": "d1d4749751c47c3ccba390a26a089900357dcf67d43337ec27e1f65775ab36ad",
+            "scope": {
+              "attempt_ref": "37c72bb52ffe9a664e100ea84430ef0efec6c14afd5b81c2f29dc2e57486b0bf",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-df58eac63024b00d",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "73dfe7fb25d29386b6967e39afe4c5ff939f605599484f204a07430719cfb59b",
+            "failure_id": "failure-df58eac63024b00d",
+            "project_plan_digest": "bf31c30aa5574f100f1abf76b5b74d894f1f34473045e97e84faf95f10eaa280",
+            "scope": {
+              "attempt_ref": "25655084be72d5904760928b04ade20cf5337a649ae9c0cef8e553f3a78f4c09",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-a251ea6ab48784765d1f944e031c62e3912de3aa356a4a808c1a1ae415f7d2f0",
+        "extra_surface": [
+          "socks"
+        ],
+        "package": "requests",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "6ef5fb46cdae6a51a7fd42c017e9891c19817b026ed2969b67a5fc5a94513821",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "6ef5fb46cdae6a51a7fd42c017e9891c19817b026ed2969b67a5fc5a94513821",
+          "static_evaluation_ref": "6ef5fb46cdae6a51a7fd42c017e9891c19817b026ed2969b67a5fc5a94513821",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "d4a2cb271e78f6475c6bc600b413a4151881493b5ee68c1f3033b1d06a54f8e1",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "d4a2cb271e78f6475c6bc600b413a4151881493b5ee68c1f3033b1d06a54f8e1",
+          "static_evaluation_ref": "d4a2cb271e78f6475c6bc600b413a4151881493b5ee68c1f3033b1d06a54f8e1",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-1bd86d50fa67eaa3",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.34401054400223074,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "8b7ec279c80876b9b90db1886042401c5b4f5e2086dc03fc675f98ca8aa93093",
+            "failure_id": "failure-1bd86d50fa67eaa3",
+            "project_plan_digest": "990f437cce6c111534c562a292420e71e524c516c8c23ee7caf8192dd22fe727",
+            "scope": {
+              "attempt_ref": "99e39dca9c91a478256e05348e60eeaff7cd686453026e659a4df3d05c00c25f",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-dea101a6911a6d5f",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "067f333939a51e757f8b08a0658828e52798032d42012600f24e5ac9ff0c5071",
+            "failure_id": "failure-dea101a6911a6d5f",
+            "project_plan_digest": "bfc406d75fa6222debb5be4fa7777721cd5120af17290afe2d6332dd400ea397",
+            "scope": {
+              "attempt_ref": "0f8595d5cbd4d7b9c643cab2f5e4ceca0fc410d27ba98ebad862cceaddbc0963",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-77375cdc7657d964",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "2c83658361c69ea9e945aa752f7039d1ea09f21fa6070226f1cb9f9e5404ec43",
+            "failure_id": "failure-77375cdc7657d964",
+            "project_plan_digest": "4d1ab3b2f142f1ae25b8e60bb4026e290e36d894306091a1009bf772eef06b75",
+            "scope": {
+              "attempt_ref": "77fa61b47762010304579fc315c16f92743dc7e2135e98a57acf21c42b18f64c",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-31f92f0d4bcc4cc1",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 4,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "bf23a60c22953f76dc6213d113c3bfe061d16d797eb6416a596a164733d1f694",
+            "failure_id": "failure-31f92f0d4bcc4cc1",
+            "project_plan_digest": "72f2bbb18b508ed31097ed4e3c532f219e0c417b2b04f2aff3f7bd7d7a2de08e",
+            "scope": {
+              "attempt_ref": "a676e053000ffd09e4832fc5d557b8a94de758825055d94a3e6d21acb64d3c5f",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-d1c5d08ec5b848597f7d02fa96922f6949490bebc423cff79b74487436ce1054",
+        "extra_surface": [
+          "socks",
+          "use_chardet_on_py3"
+        ],
+        "package": "requests",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "d190371939c1f59269ab07d181ea0d7fa6f4367fc22bdf7dad7bf92423f3775f",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "chardet",
+            "version": "7.6.0"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "d190371939c1f59269ab07d181ea0d7fa6f4367fc22bdf7dad7bf92423f3775f",
+          "static_evaluation_ref": "d190371939c1f59269ab07d181ea0d7fa6f4367fc22bdf7dad7bf92423f3775f",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "477209b92a4e49b635a9154c103ed492b555d60ba9d2f18e81a07d3efaca9cd1",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "chardet",
+            "version": "2.2.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "477209b92a4e49b635a9154c103ed492b555d60ba9d2f18e81a07d3efaca9cd1",
+          "static_evaluation_ref": "477209b92a4e49b635a9154c103ed492b555d60ba9d2f18e81a07d3efaca9cd1",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_ref": "failure-13a0d442b5508ca3",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "b3ec86e3e8d733fd04db1d5f199f5f650488e9ff6bc56d71797a810b47ebd957",
+            "failure_id": "failure-13a0d442b5508ca3",
+            "project_plan_digest": "c1654457413bbb5782a8a628f36f0cd50c592cbf31f01327e91f72cc01b05ff6",
+            "scope": {
+              "attempt_ref": "2dc7e2bfb7161c111a7e61e045984b2edb30528b8f8deeffb84561336e756275",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.1.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-f9dc3d9584498eb1",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.3259610690001864,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "bed3ba0414f41aa6f53258d2511ce95b9e84b0e0d1320f861202a1139887a706",
+            "failure_id": "failure-f9dc3d9584498eb1",
+            "project_plan_digest": "6d80d34c50e2bc1297b5ae40222cec40c2e4a781cd33a01e0c2edf027d84d9a4",
+            "scope": {
+              "attempt_ref": "6ddfd3909c1228a9da6b48ad0633d49201bc915126ed952ff9c7f884db3749c7",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-99146c97fb6e24d9",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "1b1474f59c537a74d84ac92a5716f9715dcf297c8d2ae7a4d44c583bd37e8697",
+            "failure_id": "failure-99146c97fb6e24d9",
+            "project_plan_digest": "213f81b42f9beab06e987fc0bc3d34b3efc227a67d63744401575ffdb2ae62d0",
+            "scope": {
+              "attempt_ref": "dd88624c764e7d24bb464241f0a2a2502886111527314b680d2ca04cfc065a00",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-a02ef9ed72e7c3be",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "b578b6d8c22837d208c5df4de02e02ee9b6fe4cacc7f902a86d1762db3a68056",
+            "failure_id": "failure-a02ef9ed72e7c3be",
+            "project_plan_digest": "b7b4382604b7b29f7d35bcc28411cee5b5888eaf874ab7891cdc1bbbbd597e3d",
+            "scope": {
+              "attempt_ref": "a37c83b1ce7265a86832cf8b2e599fa3dd8f79e50bef47465bce9c8dcfe7faab",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-c0b6eb7b5cc7aea4",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 4,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "d9d2b6d29fb9f1a36e1b55ba754e21c41f0c52aaa14aa48f2e7e1e055ca8a5b6",
+            "failure_id": "failure-c0b6eb7b5cc7aea4",
+            "project_plan_digest": "9ebd17ab30045d82f21a1a48b153f6e43b35825774d31d12289bd9f4cd8619a2",
+            "scope": {
+              "attempt_ref": "a9ea7497f6e65cbf62ff1519bfa1edf76cd1b833b3866a95de19655193b305a8",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-d96fd0200a135bc95313600483cacd2c3a0ffeb9312d58f6dec873e5b8f19d76",
+        "extra_surface": [
+          "socks"
+        ],
+        "package": "requests",
+        "python_minor": "3.13",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "66d844919636ed41bc58918e1dfc396d9a26003c20d42070763182a709f7559d",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "66d844919636ed41bc58918e1dfc396d9a26003c20d42070763182a709f7559d",
+          "static_evaluation_ref": "66d844919636ed41bc58918e1dfc396d9a26003c20d42070763182a709f7559d",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "1561ffb5545daa8dfdd3a826f3472c68c2ad03ba0272463965089b409c4d4d27",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "1561ffb5545daa8dfdd3a826f3472c68c2ad03ba0272463965089b409c4d4d27",
+          "static_evaluation_ref": "1561ffb5545daa8dfdd3a826f3472c68c2ad03ba0272463965089b409c4d4d27",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-433d367afd6b0450",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.2813070720003452,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "294f38dcdfd98e0410a167f663fa6e973c6124e391dfe1d358ba839aea3fba14",
+            "failure_id": "failure-433d367afd6b0450",
+            "project_plan_digest": "71ddb89d07ba76041cb52d85f7f87b03240d3217a0bc37959384b08224002ec4",
+            "scope": {
+              "attempt_ref": "19401dd33111e1b7353a3837219e8757900747b670777824d59e4cde78d48bcf",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-70de947e2ec4c44b",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "b7b62c0f02987409545015e62828aea9462227e809daf89bd9cb37c4be7c0bbe",
+            "failure_id": "failure-70de947e2ec4c44b",
+            "project_plan_digest": "bdf28e066b5617b0d4bb8dfacbe20ee383606d57b776a3c63f4d68360f27cfb7",
+            "scope": {
+              "attempt_ref": "b52479a3ff872ccd1f249aea01010b75df231b2e942d68c77966771baab8111a",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-d5e4c2f84d6019ae",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "ba4b778c508b203c1e1949c1ddcc283475329af9bdf151ee401f51a5dd754381",
+            "failure_id": "failure-d5e4c2f84d6019ae",
+            "project_plan_digest": "16e62559c8014dde4b81be77e925f642d1422e2d3b041453f0c89485c222a501",
+            "scope": {
+              "attempt_ref": "d5070b1cd22cb9e94c8a1a7048bf2457a9126d666eda47ac319c7286d3bd3eda",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-a1a9d58bcd1562da",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 4,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "15ea4daa127e4383f3a4fbe49dbf3edd3b3590a0e7a316cff26a8cf759352a9f",
+            "failure_id": "failure-a1a9d58bcd1562da",
+            "project_plan_digest": "ce128317c675aab078e4dcdf2cf9eae86592cc15cf5e4a1a082ba6d87c9fcf7f",
+            "scope": {
+              "attempt_ref": "cec9fff96fc3480d5f05e0898f8a3a85bb6d7a2a7364d06322bac941ba9f33f7",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-f3c2ee16e903629fb0856a9426aba24b0dc36fe6dc5435fe1934ae0d8363d3b2",
+        "extra_surface": [
+          "socks",
+          "use_chardet_on_py3"
+        ],
+        "package": "requests",
+        "python_minor": "3.13",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "f4b0839a7059d3953d4978cc3353158247ecdcd941b661308c213653e0f9b932",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "chardet",
+            "version": "7.6.0"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "f4b0839a7059d3953d4978cc3353158247ecdcd941b661308c213653e0f9b932",
+          "static_evaluation_ref": "f4b0839a7059d3953d4978cc3353158247ecdcd941b661308c213653e0f9b932",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "21fa02ea3c159b35161fd64fb0b2492954f4eb3e2dfc39aaedd92c831531f62f",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "chardet",
+            "version": "2.2.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "21fa02ea3c159b35161fd64fb0b2492954f4eb3e2dfc39aaedd92c831531f62f",
+          "static_evaluation_ref": "21fa02ea3c159b35161fd64fb0b2492954f4eb3e2dfc39aaedd92c831531f62f",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_ref": "failure-ec5a1e6e91fbd9c4",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "e7cc4d2da67bd43e48761336b67f0e7e220e3f28942bf6ef8f1eea4800cfe7c5",
+            "failure_id": "failure-ec5a1e6e91fbd9c4",
+            "project_plan_digest": "fba66f488920d788e19e3340899eb28097ba9d409a365019b248ed43997f9e91",
+            "scope": {
+              "attempt_ref": "324c33b59470d829b77463333beee13d58eb252fdbc504f48e635b5a0677f953",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.1.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-b072a72bba1b44c0",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.28504359999351436,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "7eb89a813bf3206b5a4f1db4d247f04120249deb4f2fa4707cbbdbe2e07ed9a3",
+            "failure_id": "failure-b072a72bba1b44c0",
+            "project_plan_digest": "a2a055b3e5d0695d89c3fb183260afe2607423396180865dcb9a9d6bcbf26a28",
+            "scope": {
+              "attempt_ref": "249c3b142f7dae6fb19353c4727790c61b8de271f0daad8d548bd41dfa091883",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-c2283edf858337c1",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "1e24d7e13b543b378d52840560de23be7610f31ea5fcec7fd3e304dded2676d9",
+            "failure_id": "failure-c2283edf858337c1",
+            "project_plan_digest": "75196588a5ce6f2f7e1e8b767505e8311c522f00cc39cc65b9ce0db557a6d704",
+            "scope": {
+              "attempt_ref": "8152d3e4560ba26a9364ea4d5d40569447d70886330421788e34393806951322",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-bfe7d4084e3fb055",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "b2a3292aeb0e65a7e1a03fcfeeb23904ea356963151281e62f6aa12abdc318bd",
+            "failure_id": "failure-bfe7d4084e3fb055",
+            "project_plan_digest": "abd274266d0f3613c262f9bfe645a5e8202bbbe8a7ab9ebfbad0c2b8f58ea91e",
+            "scope": {
+              "attempt_ref": "bd6f8f278c5582299fa2db7dbc80ed612819b8096b1699d45159830de9e4534a",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-d4962d055b7ca74d",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 4,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "c8efacb6ed43e852aaa190f78aa3679027f9b8b774ea0c20617530c1be4d3c78",
+            "failure_id": "failure-d4962d055b7ca74d",
+            "project_plan_digest": "bb5d5b1e2388f23f75e824ca441702eb990788016191751a769931062b58b935",
+            "scope": {
+              "attempt_ref": "904138fb083e34d99b3957d97e00f52cbb3ba68550eef1ed74799712b9abd4b7",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-65873db2ef315ecbf7e3e366191258e9cdd3a600aa0a014e4a4fd8ae7e6dfcc4",
+        "extra_surface": [
+          "socks"
+        ],
+        "package": "requests",
+        "python_minor": "3.14",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "795d16224ae0e085193cf24f25691b078564f8fe7d3a219e97544fecc5f5a6b5",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "795d16224ae0e085193cf24f25691b078564f8fe7d3a219e97544fecc5f5a6b5",
+          "static_evaluation_ref": "795d16224ae0e085193cf24f25691b078564f8fe7d3a219e97544fecc5f5a6b5",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "aaf8461d57f2cdf6a86ad20082dce2f59db9b5e3636d87b09157ad06da505d85",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "aaf8461d57f2cdf6a86ad20082dce2f59db9b5e3636d87b09157ad06da505d85",
+          "static_evaluation_ref": "aaf8461d57f2cdf6a86ad20082dce2f59db9b5e3636d87b09157ad06da505d85",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-5a8af47e81fc492a",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.28172851700219326,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "bb081fdb9fe9811efcd3f29b955ffdc5dd3b8030bab76f6b7f9fe98edb977dbd",
+            "failure_id": "failure-5a8af47e81fc492a",
+            "project_plan_digest": "a6acf9e69368aeba1e28af57a2ae546208f57ba4948f0b6115c7fd4fa5288059",
+            "scope": {
+              "attempt_ref": "79841e44f6cbdba805960387670eb396c8b792dac1f5a65d69004a9e361d05a0",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-b932bbfa42810d71",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "6c30b835528f1e31ce292df6b247a2110f4534600413a76b62585432f60a1ec7",
+            "failure_id": "failure-b932bbfa42810d71",
+            "project_plan_digest": "a07ad445ee66944eb8569ebd7fb17bac286c0a3d6a56ef614ae5406ffe4f3e92",
+            "scope": {
+              "attempt_ref": "c538de9296998d34fe5b0b85d1ee45aeedfd68590384e9d6dafe544b69c7706f",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-4ceb48088d633a1f",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "04597c4853ef9586010b8c3aacf9d87641751b59f5c24d2e3226e9bf3f4e9f13",
+            "failure_id": "failure-4ceb48088d633a1f",
+            "project_plan_digest": "f29b10a468d6dc13e5c3bc4de91b15f48bb1f7090f0a6af0a3ddcee6feb969fe",
+            "scope": {
+              "attempt_ref": "14341168ef0226d7aa79063efe54eed2000d94eb05c674878fdebdee74f56acd",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-5694e0be4a29721a",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 4,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "2eec85efb7493f6ca526a73d4b3990e675fc2d8d8526e3243613966faf7f8e97",
+            "failure_id": "failure-5694e0be4a29721a",
+            "project_plan_digest": "ddd3df86653c579285804f77ce186a5107459dd4e9d10eddb444ec06455056cc",
+            "scope": {
+              "attempt_ref": "d5a5d412af17527340542e7a95f882b1e2df44fb247ac04b3dfe74e1a28b1121",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "24d754d70df53177a3d2dab138a723854aa18f500b6678e94e7fbff6c7e1da5f",
+          "6b215d4f4d860e4b09f00a87792a066bacc971da926d53b43108fb9fb21e4c56",
+          "7e4017b2af128d17f2c3fab72417254ad311ae696acb5f36b34c226640203402",
+          "c1d3af46437d3bd86654a1e18f6bce29052c2c9a5482a2f9e60e8641e7bbd484",
+          "c28d897fb869faeb807000fa56ef7704564a9c6a574c71d5897f619e2ff52d2c",
+          "c4a70d90f28a3e99b143d41112dbc0f52ebf5e751ce0679fc87bfdfeaad63462"
+        ],
+        "cell_id": "cell-8cbdcca5838158fab7ec69ac8aeb9a031f15ac92df4efcd5ccf5fd5d99b28caa",
+        "extra_surface": [
+          "socks",
+          "use_chardet_on_py3"
+        ],
+        "package": "requests",
+        "python_minor": "3.14",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "SUCCESS",
+      "sweeps": 2,
+      "baseline": {
+        "proposal_ref": "cd9081502c10589de8121f120533ea3f8731c70f093d31c83a6624a63f7c8e46",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2026.7.22"
+          },
+          {
+            "name": "chardet",
+            "version": "7.6.0"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "3.5.1"
+          },
+          {
+            "name": "idna",
+            "version": "3.19"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "2.7.0"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "cd9081502c10589de8121f120533ea3f8731c70f093d31c83a6624a63f7c8e46",
+          "static_evaluation_ref": "cd9081502c10589de8121f120533ea3f8731c70f093d31c83a6624a63f7c8e46",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "final": {
+        "proposal_ref": "91962b7b086f9cc8581bc388a8ed58191e4d55c18083f583c11ebcfff9f888e5",
+        "vector": [
+          {
+            "name": "certifi",
+            "version": "2022.5.18.1"
+          },
+          {
+            "name": "chardet",
+            "version": "2.2.1"
+          },
+          {
+            "name": "charset-normalizer",
+            "version": "1.3.9"
+          },
+          {
+            "name": "idna",
+            "version": "2.0"
+          },
+          {
+            "name": "pysocks",
+            "version": "1.7.1"
+          },
+          {
+            "name": "urllib3",
+            "version": "1.26.20"
+          }
+        ],
+        "evaluation": {
+          "proposal_ref": "91962b7b086f9cc8581bc388a8ed58191e4d55c18083f583c11ebcfff9f888e5",
+          "static_evaluation_ref": "91962b7b086f9cc8581bc388a8ed58191e4d55c18083f583c11ebcfff9f888e5",
+          "status": "PASS",
+          "terminal": {
+            "exit_code": 0,
+            "kind": "normal-exit"
+          },
+          "witnesses": []
+        }
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "2022.5.18.1"
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_ref": "failure-6ddd656cd9f3be52",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "4ab688640c38e23884c39bcec4d86cd52b34b187740bf29f9309a66d9e9f47bd",
+            "failure_id": "failure-6ddd656cd9f3be52",
+            "project_plan_digest": "27522b087939b08d6d3070e937eac0f1b333b51f91d91b076da9541b7e2068c5",
+            "scope": {
+              "attempt_ref": "fcc78c8307b28de93fb70efca23bab31ea302836c6ab847ab985f0983779ef80",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.1.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_ref": "failure-9c3a40a1afcf75e9",
+          "failure": {
+            "authority": {
+              "kind": "process",
+              "process": {
+                "duration_seconds": 0.2875562540066312,
+                "exit_code": 0,
+                "stderr_complete": true,
+                "stdout_complete": true,
+                "timed_out": false
+              }
+            },
+            "cause": "RUNTIME_INTERFACE_MISSING",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "d4e17cfacafc17f303b630b4bd04d5cb4ac177d5bcbc1d738a13ca2d39f1fc92",
+            "failure_id": "failure-9c3a40a1afcf75e9",
+            "project_plan_digest": "ba3d42cbc9baa1415f2f82d60c25e2be2e6a2366b976720f67b49304576260b2",
+            "scope": {
+              "attempt_ref": "1d3b65ca8202bec827d7384a1da8d4129c037ad215e3db66e4a46bf047acc0a5",
+              "kind": "attempt"
+            },
+            "stage": "witness"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.2.0"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_ref": "failure-e05f0b5bdd624074",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "33851738d21df6a73a978331a423d72b63fc123da630b7e016309069e572b47e",
+            "failure_id": "failure-e05f0b5bdd624074",
+            "project_plan_digest": "334fb9571568875943fe3b2f4a287630a9446273e752ede40926ac1231fffda0",
+            "scope": {
+              "attempt_ref": "50119ce7711f31bbd599be19813f70b9225f6c5d5a50d476cd9007f39c4dc877",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "1.1"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_ref": "failure-0a5d2f752d6fcc71",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 1,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "47b40edf78a81d5dbd0e2b365d3125036f2af65a4ace37067b0c96eec6efd225",
+            "failure_id": "failure-0a5d2f752d6fcc71",
+            "project_plan_digest": "c93f648fb73953341fdd5953de2580eb722e68cd83d8182218be06c75958f3c2",
+            "scope": {
+              "attempt_ref": "1ebe20dcaacea4861508644003f2d48606254ce163ce1056e3b86e0263dcaa67",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.6.8"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.26.20"
+            }
+          ]
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_ref": "failure-9a2b39e0fca2829f",
+          "failure": {
+            "authority": {
+              "kind": "configured-verifier",
+              "terminal": {
+                "exit_code": 4,
+                "kind": "normal-exit"
+              }
+            },
+            "cause": "VERIFIER_EXITED_NONZERO",
+            "disposition": "REJECTED",
+            "environment_plan_digest": "1c23948b6cbf04687efbfda95386f4151c4ff6fc64e9f931d0a81be4d031425a",
+            "failure_id": "failure-9a2b39e0fca2829f",
+            "project_plan_digest": "87e43a2f551b7dbf55fcd33486876bac44e7f9f483ef9fb531f329c11cc4b055",
+            "scope": {
+              "attempt_ref": "1e3b0017ffb9a88a05d216e98ee8936eb8d65c56bd341dd5508f40694130f94f",
+              "kind": "attempt"
+            },
+            "stage": "test"
+          },
+          "predecessor_vector": [
+            {
+              "name": "certifi",
+              "version": "2022.5.18.1"
+            },
+            {
+              "name": "chardet",
+              "version": "2.2.1"
+            },
+            {
+              "name": "charset-normalizer",
+              "version": "1.3.9"
+            },
+            {
+              "name": "idna",
+              "version": "2.0"
+            },
+            {
+              "name": "pysocks",
+              "version": "1.7.1"
+            },
+            {
+              "name": "urllib3",
+              "version": "1.25.11"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "terminal_cell_durations_seconds": {
+    "socks": {
+      "3.10": 1078,
+      "3.11": 1077,
+      "3.12": 1053,
+      "3.13": 1049,
+      "3.14": 1036
+    },
+    "socks+use_chardet_on_py3": {
+      "3.10": 1451,
+      "3.11": 1440,
+      "3.12": 1417,
+      "3.13": 1412,
+      "3.14": 1433
+    }
+  },
+  "terminal_duration_source": "User-supplied terminal output; per-cell duration, not total command wall time"
+}
