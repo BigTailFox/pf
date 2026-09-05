@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `failure-runtime-v2`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
 - **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
@@ -19,9 +19,13 @@ operation facts应用本节资格规则。搜索只消费 disposition；Presente
 
 ```text
 完整成功事实                         -> PASS
-完整负向事实                         -> REJECTED
+完整负向事实：Attempt 不满足配置的验证契约 -> REJECTED
 没有可信完整终态                     -> INDETERMINATE
 ```
+
+Rejection 证明当前 Attempt 不满足 configured validation contract，不声称项目在其他 oracle 下不兼容。
+Certified harness UNSAT 保留 HARNESS_CONFLICT cause；投影、source、artifact、build、tool 或 timeout
+不能伪装为 verifier/runtime incompatibility。Static ty regression 不新增为直接 Rejection cause。
 
 Cause 回答发生了什么，不等于 disposition，也不声称单个 dependency 是根因。不得解析
 stderr substring、traceback、pytest facts 或自然语言来补 classification。

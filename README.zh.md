@@ -20,11 +20,11 @@ uv tool install package-floor
 
 ## 快速开始
 
-目标项目需要静态 `project.dependencies`（以及用到的 optional-dependencies），以及名为 `test` 的 dependency group。省略 `test-group` 即使用该名称；group 本身可为空。目前还需要在 `[tool.pf]` 里写测试命令：
+目标项目需要静态 `project.dependencies`（以及用到的 optional-dependencies），以及名为 `test` 的 dependency group。省略 `test-group` 即使用该名称；group 本身可为空。省略测试命令即运行 `pytest`。例如，为项目提供测试工具：
 
 ```toml
-[tool.pf]
-test-command = ["pytest"]
+[dependency-groups]
+test = ["pytest"]
 ```
 
 然后：
@@ -60,11 +60,11 @@ pf apply
 
 ## 配置
 
-持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除 `test-command`、`pythons`、`platforms` 外都是省略时的默认值；这三项没有静态默认。省略 `test-group` 即使用名为 `test` 的 dependency group。
+持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除 `pythons`、`platforms` 外都是省略时的默认值；这两项按项目与宿主推断。省略 `test-group` 即使用名为 `test` 的 dependency group。
 
 ```toml
 [tool.pf]
-test-command = ["pytest"]          # 必填 argv，不是 shell 字符串，不能以 "uv run" 开头
+test-command = ["pytest"]          # 默认 argv；显式值整体替换，不能以 "uv run" 开头
 # pythons = ["3.10", "3.11", "3.12"]  # CPython minor；省略则按 requires-python 推断
 # platforms = ["x86_64-unknown-linux-gnu"]  # uv target triple；省略则用当前宿主
 extra-policy = "each"              # none | each | all
@@ -72,7 +72,7 @@ extra-surfaces = []                # 额外 extra 组合，例如 [["docs", "che
 search-space = "all"               # all | current-major | current-minor
 search-step = "minor"              # major | minor | patch
 search-prereleases = false
-resolve-artifact = "wheel"         # wheel | sdist | any
+resolve-artifact = "any"         # wheel | sdist | any
 # managed-deps = ["rich"]          # 与 unmanaged-deps 互斥
 # unmanaged-deps = ["build"]       # 两者都省略则管理全部可搜索直接依赖
 test-group = "test"                # 省略即用名为 test 的 group；该 group 可为空
@@ -93,6 +93,8 @@ test-timeout = "30m"               # 三个 timeout 都可设 "none"
 ```
 
 `search-space` × `search-step` 只能是 `all` × `major|minor|patch`、`current-major` × `minor|patch`，或 `current-minor` × `patch`。`[[tool.pf.dep]]` 整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。完整字段与退出码见 [D001](docs/designs/D001-pf.md)。
+
+test group 中对当前项目的自引用 extras 是每个 Cell 的必需 surface。例如 `requests[socks]` 让所有 Cell 包含 `socks`；extra-policy 只自动探索其余依赖列表非空的 extras，`none` 也保留必需 extras。空组默认跳过，显式 `extra-surfaces` 和自引用要求仍可包含空组。Floor 相对于配置的验证契约成立；更换测试命令或 harness 可能改变结果。
 
 ## 锁定的工具版本
 

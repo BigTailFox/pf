@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -81,10 +81,33 @@ scheduling和prerelease推断不进入resolution context。Apply authorizer从re
 同一root/target inputs重算该摘要并在任何source-drift waiver前比较；target dependency arrays先投影为
 已由apply结构授权的report值，以保留original/projected/no-op语义，不新增wire字段。
 
-evaluation policy identity的唯一当前preimage是resolution的`artifact/timeout_seconds`、ty的
+evaluation policy identity的配置与既有工具preimage是resolution的`artifact/timeout_seconds`、ty的
 `args/timeout_seconds`、test的`command/cwd/timeout_seconds`，以及既有ty tool version、diagnostic、configured
 verifier outcome与failure policy facts；前缀仍为`pf:policy:v1`。test group、target/extra、candidate search和
 全部scheduling limits不进入该identity。
+
+Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` 字段，其值为：
+
+```json
+{
+  "self_reference": "required-effective-cell-surface",
+  "extra_exploration": "nonempty-declared-groups-only",
+  "baseline_harness": "original-external-declarations",
+  "probe_harness": "remove-eligible-direct-lower-bounds",
+  "project_overlap": "exact-project-node-without-harness-ceiling",
+  "external_ceiling": "baseline-observed-version-for-current-harness-only-node"
+}
+```
+
+`policy.py` 统一物化这些语义事实，不是用户配置项；baseline 同时指 declaration-capture，probe 同时指
+check declaration。行为本身由 D001/D012 拥有；具体 surface、declarations 和 observations 仍分别由
+Cell/source snapshot、Attempt/resolution evidence 绑定，不放入此固定 policy 字段。
+即使 source、Cells、generator 和显式 any/pytest 配置相同，normalization policy 不同也产生不同
+evaluation policy/generation。merge/update 拒绝跨 generation 混合；update_path 整体替换。Apply 在
+任何 source-drift waiver 前检查当前 evaluation policy，force 不绕过 mismatch。离线 read 内部自洽的
+报告不自动授予当前语义的 apply 或与新 generation merge 的权限。Schema 1 字段不扩形，前缀保持 v1；
+baseline/Attempt digest 的变化不能代替上述 generation/apply 检查。
+
 
 ### 1.2 Inputs
 

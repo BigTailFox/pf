@@ -1,8 +1,8 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-09-03
-- **适用范围：** search probe 与 `check` Declaration Attempt 的环境准备
+- **最后核对：** 2026-09-05
+- **适用范围：** smoke/check/search 各角色的环境准备；relaxation 仅适用于 declaration/probe
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -14,7 +14,7 @@
 
 ## 1. 目标与边界
 
-PF 搜索受管 project direct dependency 的最低可用版本。测试依赖可能通过自身约束抬高 project graph；这只能证明原 harness 与被测 graph 冲突，不能证明 project 不兼容。
+PF 搜索受管 project direct dependency 的最低可用版本。测试依赖可能通过自身约束否决 project graph；certified UNSAT 证明当前 Attempt 不满足 configured validation contract，不声称项目在其他 oracle 下不兼容。
 
 PF 因此：
 
@@ -92,7 +92,7 @@ environment plan；安装图再复证最终名称/版本图。
 
 ## 3. Structured harness
 
-Project discovery 将展开 `include-group` 后的每条 direct harness requirement 投影为 `HarnessRequirement`，至少保存：
+ProjectLoader 先按 D001 归一化 test-group 自引用为 required Cell surface；此规则适用于所有 verification role。自引用不进入 harness 或其 source routes。其余 external requirement 在展开 `include-group` 后投影为 `HarnessRequirement`，至少保存：
 
 - declaration identity 与 group provenance；
 - 规范 distribution name、extras 和结构化 specifier clauses；
@@ -102,9 +102,9 @@ Project discovery 将展开 `include-group` 后的每条 direct harness requirem
 
 ### 3.1 Baseline evidence
 
-Baseline 先以原始 harness 得到并安装 `E(B)`。`HarnessBaseline` 保存活跃 declaration IDs，以及每个 direct harness distribution 的实际 selection。
+Baseline 先以原始 harness 得到并安装 `E(B)`。`HarnessBaseline` 保存活跃 declaration IDs，以及按 distribution 聚合的 `observations: tuple[HarnessSatisfaction, ...]`。每个 observation 保存 name、version/source/selected_artifact、`satisfied_by: PROJECT_GRAPH | EXTERNAL_HARNESS` 与 `ceiling_eligible`。它引用 environment 中唯一同名节点；PROJECT_GRAPH 必须与 project node exact 相等，EXTERNAL_HARNESS 要求同名节点不在 project graph。此 record 不声称对 harness 独立选择了第二个版本。
 
-来自 registry 且仍允许 resolver 选择多个版本的 distribution 进入 `U_B`；是否含可删除下限不影响 ceiling 资格。精确 `==X`、`===X` 和固定 source 不追加 ceiling，但仍保留 baseline selection evidence。
+来自 registry 且仍允许 resolver 选择多个版本的 distribution 进入 `U_B`；是否含可删除下限不影响 ceiling 资格。精确 `==X`、`===X` 和固定 source 不追加 ceiling，但仍保留 baseline satisfaction evidence。
 
 ### 3.2 Relaxation
 
@@ -113,7 +113,7 @@ Baseline 先以原始 harness 得到并安装 `E(B)`。`HarnessBaseline` 保存�
 ```text
 fixed          非 registry source，或精确 ==X / ===X
 relaxable      非 fixed，且含显式 > / >= clause
-ceiling_bound  registry 且非 fixed
+ceiling_eligible  registry 且非 fixed
 ```
 
 变换规则：
@@ -125,7 +125,7 @@ ceiling_bound  registry 且非 fixed
 | `~=X`、`==X`、`==X.*`、`===X` | 保留 |
 | URL、Git、path、workspace source | 原样固定 |
 
-变换随后为每个 `ceiling_bound` distribution 追加 `<=U_B[name]`。名称、extras、marker、source、upper bound、exclusion 和其它原始 specifier 语义均保持不变。多个同名 declaration 由 uv 求交集。
+仅 declaration/probe 执行该变换：当前 `A in G(P)` 时由 Exact(G(P))[A] 独占版本，不追加 ceiling；当前 harness-only 且 `ceiling_eligible` 时追加 `<=U_B[A]`。Baseline 的 observation 即使来自 project graph，也为后续变为 harness-only 的 A 提供 upper bound；反向变为 project-owned 时 ceiling 不得约束该 project node。Baseline/declaration-capture 始终保留原始 external specifier 且无 ceiling。名称、extras、marker、source、upper bound、exclusion 和其它原始 specifier 语义均保持不变。多个同名 declaration 由 uv 求交集。
 
 该变换由 `packaging` 支持的纯函数实现，并有版本化 policy identity；PF 不扩展 `~=` 或 wildcard equality，也不建立第二套 requirement semantics engine。
 
@@ -150,9 +150,13 @@ G(P) ⊆exact E(P)
 installed graph == EnvironmentResolutionPlan
 ```
 
+安装 metadata 可能重复枚举同一 editable distribution；adapter 归并相同的 canonical name/version/
+dependency-name graph observation，同名但不同版本或依赖图的观测返回 ToolFailure。最终 installed graph
+仍要求名称排序唯一，不让 metadata 重复在 EnvironmentIdentity 构造时造成未分类异常。
+
 `⊆exact` 要求 project plan 中每个 package 的名称、版本、source 及可靠可得的 selected artifact evidence 在 environment plan 中不变。
 
-Harness-only transitive nodes 可以出现、消失或改变版本；它们没有 baseline ceiling，不进入 candidate catalog、search coordinate 或 floor result。直接 harness distribution 即使也属于 `G(P)`，仍须保留 direct-harness selection evidence。
+Harness-only transitive nodes 可以出现、消失或改变版本；它们没有 baseline ceiling，不进入 candidate catalog、search coordinate 或 floor result。direct external harness 即使也属于 `G(P)`，仍保留 PROJECT_GRAPH satisfaction observation；它不成为第二个 search coordinate。
 
 相同 resolution request 在一次运行内只求解一次；static、witness 和 test 复用同一 `PreparedEnvironment`。
 
@@ -168,7 +172,7 @@ ResolutionIndeterminate
 
 `ResolutionPlan` 同时保存：
 
-- 规范 semantic projection：package name、version、source、dependencies、direct harness selection，以及可靠可得的 selected artifact；
+- 规范 semantic projection：package name、version、source、dependencies、direct harness satisfaction，以及可靠可得的 selected artifact；
 - 经校验的 native `pylock.toml` 与 digest，供 installation 使用；
 - request、context、semantic 和 native identities；
 - 完整 `ProcessResult` evidence。
@@ -212,6 +216,8 @@ UvOperations.resolve_environment(...) -> ResolutionOutcome
 UvOperations.install_resolution(plan, ...) -> InstallOutcome
 EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
+
+`EnvironmentFactory` 在 project plan 成功后把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 evaluation-policy preimage 拥有。
 
 `EnvironmentFactory.prepare` 是上层唯一环境准备入口；harness relaxation、两次 resolution、一次 installation 和 graph 复证都隐藏在其内。
 调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public

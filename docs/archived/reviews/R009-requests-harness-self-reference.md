@@ -1,18 +1,22 @@
 # R009 — requests dogfood 与 harness 自引用评审
 
-- **状态：** 开放
+- **状态：** 已解决并归档
 - **日期：** 2026-09-05
 - **性质：** 非规范性产品与投影评审；不定义命令、算法、Schema 或 module interface，不授权实施
 - **对照：** PF `0.1.0`，工作树 `684df373070fab081e8db195d434c722c731cc0b`
-- **输入：** [E003](../experiments/E003-requests-dependency-validation.md) 的运行事实，以及随后对
+- **输入：** [E003](../../experiments/E003-requests-dependency-validation.md) 的运行事实，以及随后对
   test-group 自引用、required extras、extra 依赖与 `HARNESS_CONFLICT` 的讨论
-- **现行契约所有者：** [D001](../designs/D001-pf.md)、
-  [D003](../designs/D003-pf-search-algorithm.md)、
-  [D005](../designs/D005-pf-failure-and-diagnose.md)、
-  [D012](../designs/D012-pf-harness-relaxation.md)
+- **现行契约所有者：** [D001](../../designs/D001-pf.md)、
+  [D003](../../designs/D003-pf-search-algorithm.md)、
+  [D005](../../designs/D005-pf-failure-and-diagnose.md)、
+  [D012](../../designs/D012-pf-harness-relaxation.md)
 - **与既有文档的关系：** E003 保存三次命令的 journal、snapshot 与 incomplete report；E001 保存
   floor 相对 validation contract 的自举证据。本文接收 E003 的投影缺口，并把讨论收敛成产品判断。
   本文不把 E003 的 incomplete 终态改写成 floor，也不跟踪实施状态。
+
+> **归档说明：** 本评审由 [D028](../designs/D028-pf-validation-contract-surfaces.md) 收敛并实施，
+> 实施与验收见 [P034](../plans/P034-pf-validation-contract-surfaces.md)。Marker 资格、static Rejection
+> 与 satisfaction 以现行 owner 为准；下文保留评审时的判断，不再跟踪实施状态。
 
 ## 1. 最终结论
 

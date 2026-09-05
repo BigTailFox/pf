@@ -57,13 +57,18 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   `pf smoke` / `pf check` / `pf search` 的结果：20 个 Cell 均在 baseline
   `resolve-environment` 因 `resolution-plan-invalid` 终止，未得到 verified floor。
   E003 是已完成的非规范性 dogfood 实验，不跟踪实施状态；产品判断由
-  [R009](reviews/R009-requests-harness-self-reference.md) 接收。
+  [R009](archived/reviews/R009-requests-harness-self-reference.md) 接收。
+
+- [E004](experiments/E004-requests-validation-surfaces.md) 记录 D028 后 requests 的 15 个 required-surface
+  Cells 的 smoke/check/search 实测终态，以及空 extra 修正后的 10 Cells planning；原自引用投影缺口
+  已消失，后续失败按实际 authority 保存。
 
 ## 开放事项与归档
 
-- [R009](reviews/R009-requests-harness-self-reference.md) 接收 E003 的 test-group 自引用投影缺口，
-  并收敛 required extras 为每个可执行 Cell 的 mandatory base、`floor_C(P)`、
-  `HARNESS_CONFLICT → REJECTED`，以及开箱默认值；它是非规范性评审，不授权实施。
+- [D028](archived/designs/D028-pf-validation-contract-surfaces.md) /
+  [P034](archived/plans/P034-pf-validation-contract-surfaces.md) 已完成 required Cell surface、external
+  harness satisfaction/current graph ceiling、默认 any/pytest 与 policy identity 隔离；稳定规则由
+  D001/D002/D005/D012/D014 接管。[R009](archived/reviews/R009-requests-harness-self-reference.md) 已解决并同步归档。
 - [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
   verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化、报告预检与
   xdist failed-set 早停候选；

@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -180,6 +180,15 @@ document/members collection、raw bytes、digest、wire、cache 或 cleanup life
 `ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration、marker/extra
 Cell、逐 dependency source route、完整 `NamedSearchPolicy` binding、member-version attachment 与 recursive test-group planning；
 `ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
+ProjectLoader 对展开的 test group 每条 requirement 只解析一次，先分离 self-reference 与 external
+harness，再按 target/Python 合成 effective Cells 和 active declarations。自动 extra 展开按声明 dependency
+array 是否非空过滤；显式 custom/required surface 保留。自引用 provenance 留在该 owner
+内部；PackagePlan 只暴露最终 cells、external `harness_requirements` 和 source routes，不增加 raw group、
+required-extra wrapper 或 public module。资格规则由 D001 拥有。
+省略 `pythons` 时允许通过现行 Python discovery 运行 `uv python list`，再完成 marker/version 资格；
+资格失败必须早于 snapshot、Attempt 和 resolution/install/verifier。Discovery 自身失败保留基础设施
+错误，不触发 target build-metadata probe 或提前创建环境。
+
 `ProjectPlan.report_path` 是所选 package 报告文件的 root-relative posix，由 `ProjectLoader` 从
 `inventory.target.report_path` 复制；该绝对路径只由 `ProjectDiscovery` 按
 `package_root / "package-floor.json"` 物化。Search/Apply 只用 `request.root / project.report_path`

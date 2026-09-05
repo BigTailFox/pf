@@ -197,5 +197,5 @@ incomplete report 只证明：20 个 Cell 的 baseline environment 投影失败�
 在投影修复之前重跑这三条命令，预期仍是同一 `resolution-plan-invalid`，不增加新的兼容性证据。
 
 本案例作为第三方 dogfood 的 environment-plan 投影边界证据保留。产品判断与推荐投影规则由
-[R009](../reviews/R009-requests-harness-self-reference.md) 接收；R009 不授权实施，也不把本文的
+[R009](../archived/reviews/R009-requests-harness-self-reference.md) 接收；R009 不授权实施，也不把本文的
 incomplete 终态改写成 floor。

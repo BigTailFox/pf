@@ -20,11 +20,11 @@ uv tool install package-floor
 
 ## Quick Start
 
-The target project needs static `project.dependencies` (and optional-dependencies, if used) and a dependency group named `test`. Omit `test-group` to use that name; the group itself may be empty. Today you also need a `[tool.pf]` test command:
+The target project needs static `project.dependencies` (and optional-dependencies, if used) and a dependency group named `test`. Omit `test-group` to use that name; the group itself may be empty. The omitted test command is `pytest`. For example, provide the test tools with:
 
 ```toml
-[tool.pf]
-test-command = ["pytest"]
+[dependency-groups]
+test = ["pytest"]
 ```
 
 Then:
@@ -60,11 +60,11 @@ Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Us
 
 ## Configuration
 
-Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `test-command`, `pythons`, and `platforms`, which have no static default. Omit `test-group` to use the dependency group named `test`.
+Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `pythons` and `platforms`, which are inferred from the project and host. Omit `test-group` to use the dependency group named `test`.
 
 ```toml
 [tool.pf]
-test-command = ["pytest"]          # required argv; not a shell string; must not start with "uv run"
+test-command = ["pytest"]          # default argv; explicit value replaces it; must not start with "uv run"
 # pythons = ["3.10", "3.11", "3.12"]  # CPython minors; omit to infer from requires-python
 # platforms = ["x86_64-unknown-linux-gnu"]  # uv target triples; omit to use the host
 extra-policy = "each"              # none | each | all
@@ -72,7 +72,7 @@ extra-surfaces = []                # extra extra-combinations, e.g. [["docs", "c
 search-space = "all"               # all | current-major | current-minor
 search-step = "minor"              # major | minor | patch
 search-prereleases = false
-resolve-artifact = "wheel"         # wheel | sdist | any
+resolve-artifact = "any"         # wheel | sdist | any
 # managed-deps = ["rich"]          # mutually exclusive with unmanaged-deps
 # unmanaged-deps = ["build"]       # omit both to manage every searchable direct dependency
 test-group = "test"                # omit to use the group named "test"; that group may be empty
@@ -93,6 +93,8 @@ test-timeout = "30m"               # each timeout may be "none"
 ```
 
 `search-space` × `search-step` must be one of `all` × `major|minor|patch`, `current-major` × `minor|patch`, or `current-minor` × `patch`. Per-dependency `[[tool.pf.dep]]` rows replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. Full fields and exit codes are in [D001](docs/designs/D001-pf.md).
+
+A self-reference in the test group selects required project extras. For example, `requests[socks]` includes `socks` in every Cell; extra-policy explores only the remaining extras with nonempty dependency lists, and `none` retains required extras. Empty groups are skipped automatically; explicit `extra-surfaces` and required extras can still include them. Floors are relative to the configured validation contract, so changing the test command or harness can change the result.
 
 ## Pinned tools
 
