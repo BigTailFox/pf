@@ -7,7 +7,7 @@ from typing import Protocol
 from packaging.specifiers import Specifier
 from packaging.version import Version
 
-from pf.errors import ConfigurationError, NoApplicableFloorError
+from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.search_space import SEARCH_SPACE_PROFILE, bind_policy, evaluate
 from pf.schemas.base import canonical_identity_json
 from pf.schemas.project import (
@@ -19,6 +19,7 @@ from pf.schemas.project import (
     Cell,
     NamedSearchPolicy,
     PackagePlan,
+    SelectedCandidate,
     SourceIdentity,
     SourcePlan,
     VersionPin,
@@ -42,7 +43,7 @@ def candidate_policy_identity(
                 "policy": {
                     "name": policy.name,
                     "space": effective_space,
-                    "step": policy.step,
+                    "resolution": policy.resolution,
                     "prereleases": policy.prereleases,
                 },
                 "artifact": artifact,
@@ -150,6 +151,13 @@ class CandidateBuilder:
                 artifact=package.config.resolution.artifact,
                 effective_space=selection.expression,
             )
+            baseline_selection = self._baseline_selection(
+                dependency=dependency,
+                version=baseline_versions[dependency],
+                available=available,
+                cell=cell,
+                artifact_policy=package.config.resolution.artifact,
+            )
             eligible: list[tuple[Version, AvailableArtifact]] = []
             for raw_candidate in available.candidates:
                 version = Version(raw_candidate.version)
@@ -175,7 +183,7 @@ class CandidateBuilder:
                     eligible.append((version, artifact))
             representatives: dict[str, tuple[Version, AvailableArtifact]] = {}
             for version, artifact in eligible:
-                key = candidate_series_key(version, policy.step)
+                key = candidate_series_key(version, policy.resolution)
                 current = representatives.get(key)
                 if current is None or version > current[0]:
                     representatives[key] = (version, artifact)
@@ -200,6 +208,7 @@ class CandidateBuilder:
                 policy_identity=policy_identity,
                 source_plan_identity=plan_identity,
                 source=source,
+                baseline_selection=baseline_selection,
                 candidates=candidates,
                 series_representatives=representatives_record,
                 selection=selection,
@@ -212,6 +221,7 @@ class CandidateBuilder:
                     policy_identity=policy_identity,
                     source_plan_identity=plan_identity,
                     source=source,
+                    baseline_selection=baseline_selection,
                     candidates=candidates,
                     series_representatives=representatives_record,
                     selection=selection,
@@ -220,6 +230,45 @@ class CandidateBuilder:
                 )
             )
         return tuple(snapshots)
+
+    @classmethod
+    def _baseline_selection(
+        cls,
+        *,
+        dependency: str,
+        version: Version,
+        available: RegistryCandidates,
+        cell: Cell,
+        artifact_policy: str,
+    ) -> SelectedCandidate:
+        matches = tuple(
+            candidate
+            for candidate in available.candidates
+            if Version(candidate.version) == version
+        )
+        if len(matches) != 1:
+            raise InfrastructureError(
+                f"registry observation cannot select baseline artifact: {dependency}"
+            )
+        artifact = cls._artifact(
+            matches[0].artifacts,
+            cell=cell,
+            artifact_policy=artifact_policy,
+        )
+        if artifact is None:
+            raise InfrastructureError(
+                f"registry observation cannot select baseline artifact: {dependency}"
+            )
+        try:
+            return SelectedCandidate(
+                dependency=dependency,
+                version=str(version),
+                artifact=artifact,
+            )
+        except ValueError as error:
+            raise InfrastructureError(
+                f"registry observation cannot close baseline artifact: {dependency}"
+            ) from error
 
     @staticmethod
     def _artifact(

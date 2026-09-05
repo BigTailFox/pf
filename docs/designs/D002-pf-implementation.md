@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -218,8 +218,11 @@ anchor、默认分支绑定与系列位置求值。它不依赖 CandidateBuilder
 
 `CandidateProvider.query(dependency, source, cell) -> RegistryCandidates` 一次成功查询同时返回
 过滤前 `release_versions` 和带 artifact facts 的 candidates。UvAdapter 只冻结成功解析的响应；失败不缓存。
-CandidateBuilder 从同份观测选择 scope、过滤再采样；`CandidateSnapshot` 持有 typed `SpaceSelection` 和
-可选 `SeriesInventory`。Wire 是否存储由 D014 独占：selection 不直接序列化，观测 intern 后引用。
+CandidateBuilder 从同份观测选择 scope、过滤再采样，并冻结 highest baseline 的精确 artifact；
+`CandidateSnapshot` 持有 typed `SpaceSelection`、可选 `SeriesInventory`、唯一搜索序列 `candidates` 与
+required `baseline_selection`。其 `select(version)` 是在线 runner 与离线 reader 从
+`C[d] ∪ {B[d]}` 取得精确 artifact 的唯一深 interface；调用方不得维护平行 version-to-artifact map。
+Wire 是否存储由 D014 独占：派生 selection 不直接序列化，观测 intern 后引用。
 `ValidatedReport.search_policy` 和 `search_spaces()` 暴露已验证请求与派生事实，Explain 不重新解析或 join。
 
 核心 interface：
@@ -277,11 +280,24 @@ identity 改变；marker 到 active graph 的唯一投影 owner 为 `adapters.uv
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
 
+`SearchCoordinator` 把真实 `HighestVersionPass` 交给一次 Cell search 的 `_ProposalRunner`；runner 以 baseline
+完整 managed vector 为 key 预置原 highest Attempt、Proposal 与 PassEvaluation，不伪造 exact-vector request。
+`_ProposalRunner` 唯一拥有完整向量的 prepare terminal、prepared lifecycle、static/full result、FailedCaseSet
+与 region point 表；同一完整 Proposal 最多 prepare/static/runtime 一次，完整命中仍按当前 Slice 登记 region，
+但不发出新的执行 activity。首次调用 `promote` 可以从 prepare 开始，static-only 后 promotion 复用未污染的
+prepared environment；完整/终态后立即关闭，退出 Cell 时清理所有保留环境。不同 Proposal、Cell 或 invocation
+不共享可写环境或 evaluator 结果。
+
+`CoordinateSearch` 只保存算法 observation、Slice 直接状态、上一 sweep boundary history、区间和当前向量；
+它不保存第二份执行结果 cache，也不接受 known-pass shortcut。起点、current、predecessor 与 final 都通过
+evaluator 入口取得直接 evidence。领域 `ProbePass` 只允许 exact-vector，或由 CellResult validator 复证为
+当前 Cell roots 的 baseline highest PASS；Rejection、Indeterminate 与 static-only 仍只允许 exact-vector。
+
 Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
 terminal disposition 由 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的
 稳定 operation facts，不能决定搜索 Role。
 
-`CoordinateSearch` 只拥有 invocation-local vector state；其算法由 D003 定义。`SearchCoordinator` 只拥有
+`CoordinateSearch` 只拥有 invocation-local vector 与搜索状态；其算法由 D003 定义。`SearchCoordinator` 只拥有
 一个Cell的baseline→candidates→coordinate-search状态机。`VerificationRunner`拥有Run admission、host
 Cell/matrix、private task/deadline assembly、每个已启动Cell的initial baseline context、跨Cell
 scheduling、typed live completion、Journal timing与journal-side association；它不拥有三个单Cell算法、

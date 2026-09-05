@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 from typing import Literal, Protocol
 
 from pf.baseline import HighestVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateProgressConsumer, CoordinateSearch
-from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
+from pf.errors import InfrastructureError, NoApplicableFloorError
 from pf.environment import EnvironmentFactory, ExactSelection, PreparedEnvironment
 from pf.evaluation import EvaluationCache, RuntimeEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
@@ -27,6 +26,7 @@ from pf.schemas.evaluation import (
     FailureEvaluationRuntimeRun,
     FailureProcessRuntimeRun,
     FailureRuntimeRun,
+    HighestVersionPass,
     CellFailureScope,
     IndeterminateEvaluation,
     PassEvaluation,
@@ -75,6 +75,10 @@ from pf.schemas.report import (
 from pf.snapshot import SourceSnapshot
 
 
+class ProbeSelectionError(RuntimeError):
+    """An exact vector escaped the frozen CandidateSnapshot selection domain."""
+
+
 def select_probe(
     vector: tuple[VersionPin, ...],
     snapshots: tuple[CandidateSnapshot, ...],
@@ -83,41 +87,18 @@ def select_probe(
     vector_by_name = {pin.name: pin.version for pin in vector}
     snapshot_by_name = {snapshot.dependency: snapshot for snapshot in snapshots}
     if len(vector_by_name) != len(vector) or len(snapshot_by_name) != len(snapshots):
-        raise ConfigurationError("probe dependencies must be unique")
+        raise ProbeSelectionError("probe dependencies must be unique")
     if set(vector_by_name) != set(snapshot_by_name):
-        raise ConfigurationError(
+        raise ProbeSelectionError(
             "probe vector and candidate snapshots must cover the same dependencies"
         )
-    selected: list[SelectedCandidate] = []
-    for dependency in sorted(vector_by_name):
-        matches = tuple(
-            candidate
-            for candidate in snapshot_by_name[dependency].candidates
-            if candidate.version == vector_by_name[dependency]
+    try:
+        return tuple(
+            snapshot_by_name[dependency].select(vector_by_name[dependency])
+            for dependency in sorted(vector_by_name)
         )
-        if len(matches) != 1:
-            raise ConfigurationError(
-                f"probe version is not uniquely frozen for dependency: {dependency}"
-            )
-        candidate = matches[0]
-        artifact = candidate.artifact
-        if (
-            not artifact.filename.strip()
-            or artifact.locator is None
-            or not artifact.locator.strip()
-            or re.fullmatch(r"sha256:[0-9a-fA-F]{64}", artifact.content_hash) is None
-        ):
-            raise ConfigurationError(
-                f"probe artifact is incomplete for dependency: {dependency}"
-            )
-        selected.append(
-            SelectedCandidate(
-                dependency=dependency,
-                version=candidate.version,
-                artifact=artifact,
-            )
-        )
-    return tuple(selected)
+    except ValueError as error:
+        raise ProbeSelectionError(str(error)) from error
 
 
 class SearchDiagnosticConsumer(Protocol):
@@ -182,6 +163,7 @@ class _ProposalRunner:
         snapshot: SourceSnapshot,
         static_baseline: StaticBaseline,
         harness_baseline: HarnessBaseline,
+        baseline_capture: HighestVersionPass,
         candidate_snapshots: tuple[CandidateSnapshot, ...],
         source_plan: SourcePlan,
         diagnostics: SearchDiagnosticConsumer | None = None,
@@ -207,7 +189,16 @@ class _ProposalRunner:
         self._cache = EvaluationCache()
         self._prepared: dict[tuple[tuple[str, str], ...], PreparedEnvironment] = {}
         self._prepare_failures: dict[tuple[tuple[str, str], ...], PrepareFailure] = {}
-        self._full_runs: dict[tuple[tuple[str, str], ...], ProbeRun] = {}
+        baseline_evidence = self._pass_evidence(
+            baseline_capture.attempt,
+            baseline_capture.evaluation,
+        )
+        self._full_runs: dict[tuple[tuple[str, str], ...], ProbeRun] = {
+            self._key(baseline_capture.evaluation.proposal.managed_vector): ProbeRun(
+                evidence=baseline_evidence,
+                evaluation=baseline_capture.evaluation,
+            )
+        }
         self._snapshot_by_dependency = {
             item.dependency: item for item in candidate_snapshots
         }
@@ -229,6 +220,8 @@ class _ProposalRunner:
         key = self._key(vector)
         existing = self._full_runs.get(key)
         if existing is not None:
+            if request is not None:
+                self._record_full_region(request, existing)
             return existing
         if request is not None:
             self._emit_probe_context(request)
@@ -239,6 +232,8 @@ class _ProposalRunner:
                 evaluation=None,
             )
             self._full_runs[key] = run
+            if request is not None:
+                self._record_full_region(request, run)
             return run
         try:
             static = self._cache.get_static(
@@ -280,6 +275,8 @@ class _ProposalRunner:
                     runtime=runtime,
                 )
             self._full_runs[key] = run
+            if request is not None:
+                self._record_full_region(request, run)
             return run
         finally:
             prepared.close()
@@ -294,11 +291,17 @@ class _ProposalRunner:
         key = self._key(vector)
         existing = self._full_runs.get(key)
         if existing is not None:
+            self._record_full_region(request, existing)
             return existing.evidence
         self._emit_probe_context(request)
         prepared = self._prepare(vector)
         if isinstance(prepared, PrepareFailure):
-            return self._prepare_evidence(prepared)
+            run = ProbeRun(
+                evidence=self._prepare_evidence(prepared),
+                evaluation=None,
+            )
+            self._full_runs[key] = run
+            return run.evidence
         retain_prepared = False
         try:
             static = self._cache.get_static(
@@ -316,20 +319,30 @@ class _ProposalRunner:
                     baseline_digest=self._static_baseline.digest,
                 )
                 if isinstance(stored, CacheConflict):
-                    return self._indeterminate_evidence(
-                        attempt=prepared.attempt,
-                        proposal_id=prepared.proposal.proposal_id,
-                        stage="static-cache",
-                        detail=FailureDetail(
-                            code="conflicting-static-evaluation",
-                            message=(
-                                "the same proposal produced conflicting static results"
+                    run = ProbeRun(
+                        evidence=self._indeterminate_evidence(
+                            attempt=prepared.attempt,
+                            proposal_id=prepared.proposal.proposal_id,
+                            stage="static-cache",
+                            detail=FailureDetail(
+                                code="conflicting-static-evaluation",
+                                message=(
+                                    "the same proposal produced conflicting static results"
+                                ),
                             ),
                         ),
+                        evaluation=None,
                     )
+                    self._full_runs[key] = run
+                    return run.evidence
                 static = stored
             if isinstance(static, IndeterminateEvaluation):
-                return self._static_evidence(prepared, static)
+                run = ProbeRun(
+                    evidence=self._static_evidence(prepared, static),
+                    evaluation=static,
+                )
+                self._full_runs[key] = run
+                return run.evidence
             region_slice, index, version = self._region_slice(vector, dependency)
             guidance = self._region_guidance(
                 region_slice,
@@ -416,21 +429,30 @@ class _ProposalRunner:
         request: SearchProbeRequest,
     ) -> ProbeEvidence:
         vector = request.vector
-        dependency = request.active_dependency
         run = self.evaluate_full(vector, request=request)
-        region_slice, index, _ = self._region_slice(vector, dependency)
-        point = self._region_points.get(region_slice, {}).get(index)
-        if point is not None and run.evidence.proposal_id is not None:
-            self._record_region_point(
-                region_slice,
-                _RegionPoint(
-                    index=point.index,
-                    version=point.version,
-                    static=point.static,
-                    evidence=run.evidence,
-                ),
-            )
         return run.evidence
+
+    def _record_full_region(
+        self,
+        request: SearchProbeRequest,
+        run: ProbeRun,
+    ) -> None:
+        static = run.evidence.static_evaluation
+        if static is None or run.evidence.proposal_id is None:
+            return
+        region_slice, index, version = self._region_slice(
+            request.vector,
+            request.active_dependency,
+        )
+        self._record_region_point(
+            region_slice,
+            _RegionPoint(
+                index=index,
+                version=version,
+                static=static,
+                evidence=run.evidence,
+            ),
+        )
 
     def _emit_probe_context(self, request: SearchProbeRequest) -> None:
         if self._events is None:
@@ -1010,22 +1032,61 @@ class SearchCoordinator:
             snapshot=snapshot,
             static_baseline=capture.baseline,
             harness_baseline=capture.harness_baseline,
+            baseline_capture=capture,
             candidate_snapshots=candidate_snapshots,
             source_plan=source_plan,
             diagnostics=self._diagnostics,
             events=self._events,
             failures=self._failures,
         ) as runner:
-            search = self._coordinate_search.minimize(
-                start=baseline_evaluation.proposal.managed_vector,
-                candidates=candidate_snapshots,
-                evaluator=_RuntimeBackedVectorEvaluator(runner),
-                start_is_known_pass=True,
-                progress=coordinate_progress,
-            )
+            try:
+                search = self._coordinate_search.minimize(
+                    start=baseline_evaluation.proposal.managed_vector,
+                    candidates=candidate_snapshots,
+                    evaluator=_RuntimeBackedVectorEvaluator(runner),
+                    progress=coordinate_progress,
+                )
+            except ProbeSelectionError as error:
+                failure = self._failures.classify(
+                    scope=CellFailureScope(
+                        package=package.name,
+                        cell=cell,
+                        source_snapshot_digest=snapshot.identity.digest,
+                        evaluation_policy_identity=(
+                            baseline_evaluation.proposal.policy_identity
+                        ),
+                    ),
+                    cause="INTERNAL_INVARIANT",
+                    stage="candidate-selection",
+                    process=None,
+                    detail=FailureDetail(
+                        code="probe-outside-frozen-selection",
+                        message=str(error),
+                    ),
+                )
+                failures = {
+                    item.failure_id: item for item in runner.failure_records
+                }
+                failures[failure.failure_id] = failure
+                return CellIndeterminate(
+                    cell=cell,
+                    phase="runtime-search",
+                    failure_id=failure.failure_id,
+                    failure_records=tuple(failures.values()),
+                    baseline_attempt=capture.attempt,
+                    static_baseline=capture.baseline,
+                    baseline=baseline_evaluation,
+                    candidate_snapshots=candidate_snapshots,
+                    failure_runtime_runs=runner.failure_runtime_runs,
+                )
             if isinstance(search, CoordinateFailure):
-                search = CoordinateFailure.model_validate(
-                    {**search.model_dump(), "regions": runner.regions}
+                search = CoordinateFailure(
+                    status=search.status,
+                    dependency=search.dependency,
+                    observations=search.observations,
+                    regions=runner.regions,
+                    counterexample=search.counterexample,
+                    failure_id=search.failure_id,
                 )
                 return self._coordinate_failure(
                     cell=cell,
@@ -1062,8 +1123,12 @@ class SearchCoordinator:
                         failure_records=runner.failure_records,
                         failure_runtime_runs=runner.failure_runtime_runs,
                     )
-            search = CoordinateSuccess.model_validate(
-                {**search.model_dump(), "regions": runner.regions}
+            search = CoordinateSuccess(
+                vector=search.vector,
+                observations=search.observations,
+                boundaries=search.boundaries,
+                regions=runner.regions,
+                sweeps=search.sweeps,
             )
             return CellSuccess(
                 cell=cell,

@@ -33,7 +33,8 @@ resolve-artifact = "any"
 testserver 测试。未缩小测试路径或删除测试。正常失败可 early-exit；搜索中的 failed-set 子运行只能
 提供拒绝证据，PASS 仍须来自完整 configured verifier。静态诊断计数不等于 verifier 结果。
 
-搜索使用报告冻结的 `registry-series-slice-v1` 策略：`search-step = "minor"`、不含 prerelease、
+搜索使用报告冻结的 `registry-series-slice-v1` 策略：实验当时字段名为 `search-step = "minor"`
+（现行契约为 `search-resolution`）、不含 prerelease、
 `requested_space = null`，条件默认如下：
 
 ```toml

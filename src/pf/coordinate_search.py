@@ -48,12 +48,7 @@ class _SearchStopped(Exception):
     result: CoordinateFailure
 
 
-@dataclass(frozen=True)
-class _KnownPass:
-    status: Literal["PASS"] = "PASS"
-
-
-SearchEvidence = ProbeEvidence | StaticOnlyEvidence | _KnownPass
+SearchEvidence = ProbeEvidence | StaticOnlyEvidence
 
 
 CoordinateProgressConsumer = Callable[
@@ -77,14 +72,11 @@ class CoordinateSearch:
         candidates: tuple[CandidateSnapshot, ...],
         evaluator: VectorEvaluator,
         hints: tuple[VersionPin, ...] = (),
-        start_is_known_pass: bool = False,
         progress: CoordinateProgressConsumer | None = None,
     ) -> CoordinateOutcome:
         return _CoordinateRun(
             small_threshold=self.small_threshold,
             evaluator=evaluator,
-            start_is_known_pass=start_is_known_pass,
-            start=start,
             progress=progress,
         ).minimize(start=start, candidates=candidates, hints=hints)
 
@@ -97,16 +89,10 @@ class _CoordinateRun:
         *,
         small_threshold: int,
         evaluator: VectorEvaluator,
-        start_is_known_pass: bool,
-        start: tuple[VersionPin, ...],
         progress: CoordinateProgressConsumer | None,
     ) -> None:
         self._small_threshold = small_threshold
         self._evaluator = evaluator
-        self._evidence_cache: dict[
-            tuple[str | None, tuple[tuple[str, str], ...]],
-            ProbeEvidence | StaticOnlyEvidence,
-        ] = {}
         self._observations: list[ProbeObservation] = []
         self._observation_keys: set[
             tuple[str | None, tuple[tuple[str, str], ...], str]
@@ -114,11 +100,6 @@ class _CoordinateRun:
         self._slice_observations: dict[
             tuple[str, tuple[tuple[str, str], ...]], dict[Version, str]
         ] = {}
-        self._known_pass_keys = (
-            {tuple((pin.name, pin.version) for pin in self._vector_from_pins(start))}
-            if start_is_known_pass
-            else set()
-        )
         self._progress = progress
 
     def minimize(
@@ -154,6 +135,7 @@ class _CoordinateRun:
                         current=current,
                         snapshot=snapshots[dependency],
                         hint=hint_by_name.get(dependency),
+                        history=boundaries.get(dependency),
                     )
                     current_boundaries[dependency] = boundary
                     if Version(floor) < Version(current[dependency]):
@@ -188,6 +170,7 @@ class _CoordinateRun:
         current: dict[str, str],
         snapshot: CandidateSnapshot,
         hint: str | None,
+        history: CoordinateBoundary | None,
     ) -> tuple[str, CoordinateBoundary]:
         dependency = snapshot.dependency
         current_version = Version(current[dependency])
@@ -198,14 +181,50 @@ class _CoordinateRun:
         ]
         if not versions:
             self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
-        if versions[0] == current_version:
-            return str(current_version), CoordinateBoundary(
-                dependency=dependency, floor=str(current_version)
+        search_current = current
+        if current_version in versions:
+            current_index = versions.index(current_version)
+            current_evidence = self._promote_version(
+                current,
+                dependency,
+                current_version,
+                window=[current_version],
             )
+            if self._status(current_evidence) != "PASS":
+                self._stop("NONDETERMINISTIC", dependency=dependency)
+            if current_index == 0:
+                return str(current_version), CoordinateBoundary(
+                    dependency=dependency,
+                    floor=str(current_version),
+                )
+            expected_predecessor = versions[current_index - 1]
+            if (
+                history is not None
+                and history.floor == str(current_version)
+                and history.predecessor == str(expected_predecessor)
+            ):
+                predecessor_evidence = self._promote_version(
+                    current,
+                    dependency,
+                    expected_predecessor,
+                    window=[expected_predecessor, current_version],
+                )
+                if isinstance(predecessor_evidence, ProbeRejection):
+                    return str(current_version), CoordinateBoundary(
+                        dependency=dependency,
+                        floor=str(current_version),
+                        predecessor=str(expected_predecessor),
+                        predecessor_failure_id=predecessor_evidence.failure_id,
+                    )
+                if self._status(predecessor_evidence) != "PASS":
+                    self._stop("NONDETERMINISTIC", dependency=dependency)
+                versions = versions[:current_index]
+                search_current = dict(current)
+                search_current[dependency] = str(expected_predecessor)
 
         for _ in range(len(versions) * 2 + 1):
             floor = self._guided_floor(
-                current=current,
+                current=search_current,
                 dependency=dependency,
                 versions=versions,
                 hint=hint,
@@ -215,7 +234,7 @@ class _CoordinateRun:
             index = versions.index(floor)
             promotion_window = versions[max(0, index - 1) : index + 1]
             floor_evidence = self._promote_version(
-                current,
+                search_current,
                 dependency,
                 floor,
                 window=promotion_window,
@@ -229,7 +248,7 @@ class _CoordinateRun:
                 )
             predecessor = versions[index - 1]
             evidence = self._promote_version(
-                current,
+                search_current,
                 dependency,
                 predecessor,
                 window=promotion_window,
@@ -298,15 +317,18 @@ class _CoordinateRun:
                 if current_version in points
                 else [*points, current_version]
             )
-            if (
-                self._status(
-                    self._probe_version(
-                        current,
-                        dependency,
-                        current_version,
-                        window=current_window,
-                    )
+            current_evidence = (
+                self._promote_version(
+                    current,
+                    dependency,
+                    current_version,
+                    window=current_window,
                 )
+                if current_version in points
+                else self._probe(current, dependency=None)
+            )
+            if (
+                self._status(current_evidence)
                 != "PASS"
             ):
                 self._stop("NONDETERMINISTIC", dependency=dependency)
@@ -391,24 +413,18 @@ class _CoordinateRun:
     ) -> SearchEvidence:
         vector = self._vector(versions)
         key = tuple((pin.name, pin.version) for pin in vector)
-        if key in self._known_pass_keys:
-            return _KnownPass()
-        cache_key = (dependency, key)
-        evidence = self._evidence_cache.get(cache_key)
-        if evidence is None:
-            if dependency is not None and isinstance(
-                self._evaluator, RuntimeBackedVectorEvaluator
-            ):
-                evidence = self._evaluator.evaluate_in_slice(
-                    self._probe_request(
-                        vector,
-                        dependency=dependency,
-                        window=window,
-                    )
+        if dependency is not None and isinstance(
+            self._evaluator, RuntimeBackedVectorEvaluator
+        ):
+            evidence = self._evaluator.evaluate_in_slice(
+                self._probe_request(
+                    vector,
+                    dependency=dependency,
+                    window=window,
                 )
-            else:
-                evidence = self._evaluator.evaluate(vector)
-            self._evidence_cache[cache_key] = evidence
+            )
+        else:
+            evidence = self._evaluator.evaluate(vector)
         self._record_observation(
             versions=versions,
             dependency=dependency,
@@ -437,18 +453,12 @@ class _CoordinateRun:
         versions[dependency] = str(version)
         vector = self._vector(versions)
         key = tuple((pin.name, pin.version) for pin in vector)
-        if key in self._known_pass_keys:
-            return _KnownPass()
-        cache_key = (dependency, key)
-        existing = self._evidence_cache.get(cache_key)
-        if existing is not None and not isinstance(existing, StaticOnlyEvidence):
-            return self._probe(versions, dependency=dependency, window=window)
-        if not isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
-            self._stop("NONDETERMINISTIC", dependency=dependency)
-        evidence = self._evaluator.promote(
-            self._probe_request(vector, dependency=dependency, window=window)
-        )
-        self._evidence_cache[cache_key] = evidence
+        if isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
+            evidence = self._evaluator.promote(
+                self._probe_request(vector, dependency=dependency, window=window)
+            )
+        else:
+            evidence = self._evaluator.evaluate(vector)
         self._record_observation(
             versions=versions,
             dependency=dependency,
@@ -537,6 +547,9 @@ class _CoordinateRun:
                 tuple((name, value) for name, value in key if name != dependency),
             )
             points = self._slice_observations.setdefault(slice_key, {})
+            previous = points.get(Version(versions[dependency]))
+            if previous is not None and previous != evidence.status:
+                self._stop("NONDETERMINISTIC", dependency=dependency)
             points[Version(versions[dependency])] = evidence.status
             for low, low_status in points.items():
                 for high, high_status in points.items():
@@ -584,9 +597,3 @@ class _CoordinateRun:
         return tuple(
             VersionPin(name=name, version=versions[name]) for name in sorted(versions)
         )
-
-    @staticmethod
-    def _vector_from_pins(
-        vector: tuple[VersionPin, ...],
-    ) -> tuple[VersionPin, ...]:
-        return tuple(sorted(vector, key=lambda pin: pin.name))

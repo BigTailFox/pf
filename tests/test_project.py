@@ -958,7 +958,7 @@ test-command = ["pytest"]
     [tool.pf]
     pythons = ["3.11"]
     platforms = ["x86_64-unknown-linux-gnu"]
-    search-step = "patch"
+    search-resolution = "patch"
     test-command = ["pytest"]
 
     [[tool.pf.dep]]
@@ -978,19 +978,27 @@ test-command = ["pytest"]
             {
                 "name": "numpy",
                 "space": "<2,>=1.20",
-                "step": "patch",
+                "resolution": "patch",
                 "prereleases": True,
             },
             {
                 "name": "requests",
                 "space": None,
-                "step": "patch",
+                "resolution": "patch",
                 "prereleases": False,
             },
         )
         assert package.search_policy_for("numpy") is (
             package.dependency_search_policies[0]
         )
+
+        overridden = ProjectLoader().load(
+            root=tmp_path,
+            search_resolution="major",
+        ).target
+        assert {
+            policy.resolution for policy in overridden.dependency_search_policies
+        } == {"major"}
 
     @pytest.mark.parametrize(
         ("dependencies", "selection", "override", "message"),

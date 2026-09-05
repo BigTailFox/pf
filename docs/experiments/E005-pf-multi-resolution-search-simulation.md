@@ -5,7 +5,7 @@
 - **性质：** 非规范性合成算法实验，不定义产品契约，不授权生产实施
 - **基线：** `85e195c`；Python `3.10.16`；固定 `small_threshold=8`
 - **实验时目标 Design：** 原 D031；拆分后树设想见 [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)，
-  改名、重验与缓存契约见 [D033](../designs/D033-pf-predecessor-revalidate.md)
+  改名、重验与缓存契约见 [D033](../archived/designs/D033-pf-predecessor-revalidate.md)
 - **现行 owner：** [D003](../designs/D003-pf-search-algorithm.md)
 - **关联 Review：** [R008](../reviews/R008-pf-search-performance-review.md)
 - **复现脚本：** [simulate_d031_search.py](../../scripts/simulate_d031_search.py)

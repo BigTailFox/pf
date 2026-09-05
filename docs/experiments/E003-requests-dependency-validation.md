@@ -3,13 +3,13 @@
 - **状态：** 已完成
 - **日期：** 2026-09-05
 - **性质：** 非规范性 dogfood 实验报告；不定义命令、算法、Schema 或 module interface
-- **目标仓库：** [`expirements/requests`](../../expirements/requests)（psf/requests `v2.34.2-28-gdae7ef63`，commit `dae7ef63b4df6eded86637f251fc4e3a06c3b479`）
+- **目标仓库：** [`experiments/requests`](../../experiments/requests)（psf/requests `v2.34.2-28-gdae7ef63`，commit `dae7ef63b4df6eded86637f251fc4e3a06c3b479`）
 - **PF 版本：** `0.1.0`；工作树 `684df373070fab081e8db195d434c722c731cc0b`
 - **宿主：** `x86_64-unknown-linux-gnu`；本机可用 CPython `3.10`–`3.14`
 - **源码快照：** `75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3`
 - **评价策略：** `configured-verifier-terminal-v1`；policy identity `3cc886658c6e4df455f0333142e88cf02aabbc5736065888b08d937137b6d805`
 - **验证契约：** full-repository contract；`test-command = ["pytest"]`；`resolve-artifact = "any"`
-- **搜索产物：** [`expirements/requests/package-floor.json`](../../expirements/requests/package-floor.json)
+- **搜索产物：** [`experiments/requests/package-floor.json`](../../experiments/requests/package-floor.json)
 - **报告实体：** generation `07053f8be671cf542d256b956f16dd3cc0a007d1b7f72413cb47afbce04ca25d`
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D008](../designs/D008-pf-verification-run.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D014](../designs/D014-pf-report-schema.md)
 
@@ -27,7 +27,7 @@ requests 是 PF 仓库外的第一个真实第三方 dogfood 目标。实验要�
 
 ## 2. 目标与配置
 
-`expirements/requests/pyproject.toml` 在实验时包含：
+`experiments/requests/pyproject.toml` 在实验时包含：
 
 ```toml
 [tool.pf]
@@ -35,7 +35,9 @@ test-command = ["pytest"]
 resolve-artifact = "any"
 ```
 
-其余 `[tool.pf]` 字段使用默认值：`extra-policy = "each"`、`search-space = "all"`、`search-step = "minor"`、`test-group = "test"`。`requires-python = ">=3.10"`，本机推断出 CPython `3.10`–`3.14`。
+其余 `[tool.pf]` 字段使用默认值：`extra-policy = "each"`、`search-space = "all"`、实验当时名为
+`search-step = "minor"` 的字段（现行契约为 `search-resolution`）、`test-group = "test"`。
+`requires-python = ">=3.10"`，本机推断出 CPython `3.10`–`3.14`。
 
 受管直接依赖（6 个，0 pinned）：
 
@@ -67,7 +69,7 @@ test = [
 
 项目自身使用 `dynamic = ["version"]`，静态版本写在 `src/requests/__version__.py`（`2.34.2`），不在 `project.version`。
 
-运行方式：在 `expirements/requests` 下执行 `uv run --project /home/llh/pf pf <command>`，使 cwd 成为 PF 的 project root。
+运行方式：在 `experiments/requests` 下执行 `uv run --project /home/llh/pf pf <command>`，使 cwd 成为 PF 的 project root。
 
 ## 3. 三次命令结果
 

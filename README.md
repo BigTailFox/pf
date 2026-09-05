@@ -70,7 +70,7 @@ test-command = ["pytest"]          # default argv; explicit value replaces it; m
 extra-policy = "each"              # none | each | all
 extra-surfaces = []                # extra extra-combinations, e.g. [["docs", "check"]]
 # search-space = "all"             # explicit override; omitted selects conditional defaults below
-search-step = "minor"              # major | minor | patch
+search-resolution = "minor"        # major | minor | patch
 search-prereleases = false
 resolve-artifact = "any"         # wheel | sdist | any
 # managed-deps = ["rich"]          # mutually exclusive with unmanaged-deps
@@ -88,7 +88,7 @@ test-timeout = "30m"               # each timeout may be "none"
 # [[tool.pf.dep]]
 # name = "rich"                    # canonical distribution name
 # search-space = "majors[baseline]" # or minors[...] / a PEP 440 specifier
-# search-step = "minor"
+# search-resolution = "minor"
 # search-prereleases = false
 
 [tool.pf.search-space-defaults]
@@ -96,7 +96,9 @@ with-lower-bound = "majors[declaration-1:]"
 without-lower-bound = "majors[baseline-2:]"
 ```
 
-All spaces accept `major`, `minor`, or `patch` steps. `baseline` anchors the verified highest version; `declaration` anchors the strongest active direct lower bound in each Cell. Offsets move through existing registry series; slices are half-open. For example, `majors[baseline-2:]` includes the baseline major and the two preceding existing majors, subject to the baseline cap and candidate filters. A filtered-out series still occupies its position.
+All spaces accept `major`, `minor`, or `patch` resolution. `baseline` anchors the verified highest version; `declaration` anchors the strongest active direct lower bound in each Cell. Offsets move through existing registry series; slices are half-open. For example, `majors[baseline-2:]` includes the baseline major and the two preceding existing majors, subject to the baseline cap and candidate filters. A filtered-out series still occupies its position.
+
+A narrow space may exclude the verified baseline version. PF freezes that baseline's exact artifact separately so multi-dependency probes remain reproducible, but it never adds the version to the search candidates, windows, boundaries, or floors.
 
 Explicit space wins over conditional defaults; per-dependency space wins over global space. A defaults table requires both entries and replaces the inherited table as a whole; `without-lower-bound` cannot use `declaration`. Per-dependency `[[tool.pf.dep]]` rows also replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. A missing declaration prerequisite exits 3 before search; an unresolvable registry anchor/scope exits 2 and leaves the report untouched. Full rules are in [D001](docs/designs/D001-pf.md).
 

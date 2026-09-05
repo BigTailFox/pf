@@ -380,13 +380,21 @@ class ProductionBridge:
         ]
         direct = {}
         observed = []
+        baseline_pins = tuple(
+            VersionPin(name=chr(97 + d), version=domain.text(baseline[d]))
+            for d, domain in enumerate(domains)
+        )
+        direct[baseline] = fixtures["probe_pass"](baseline_pins, "baseline")
 
         class Adapter:
-            def evaluate(self, pins):
-                vector = tuple(reverse[d][pin.version] for d, pin in enumerate(pins))
-                if vector not in direct:
-                    status = oracle(vector)
-                    observed.append((vector, status))
+            def evaluate(self, vector):
+                pins = vector
+                vector_key = tuple(
+                    reverse[d][pin.version] for d, pin in enumerate(pins)
+                )
+                if vector_key not in direct:
+                    status = oracle(vector_key)
+                    observed.append((vector_key, status))
                     identity = ";".join(f"{pin.name}={pin.version}" for pin in pins)
                     if status == PASS:
                         result = fixtures["probe_pass"](pins, identity)
@@ -398,17 +406,13 @@ class ProductionBridge:
                             failure_id="failure-synthetic",
                             cause="TOOL_FAILURE",
                         )
-                    direct[vector] = result
-                return direct[vector]
+                    direct[vector_key] = result
+                return direct[vector_key]
 
         actual = CoordinateSearch().minimize(
-            start=tuple(
-                VersionPin(name=chr(97 + d), version=domain.text(baseline[d]))
-                for d, domain in enumerate(domains)
-            ),
+            start=baseline_pins,
             candidates=self.snapshots(domains),
             evaluator=Adapter(),
-            start_is_known_pass=True,
         )
         status = "SUCCESS" if isinstance(actual, CoordinateSuccess) else actual.status
         require(
@@ -555,7 +559,7 @@ class Experiment:
             result = sim.run()
             try:
                 validate_result(sim, result, reference)
-                if strategy == "A" and production and not guidance:
+                if strategy == "B" and production and not guidance:
                     self.bridge.check(
                         domains, baseline, oracle, result, sim.evaluator.misses
                     )

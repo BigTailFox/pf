@@ -1,20 +1,22 @@
 # D033 — PF Predecessor Revalidate
 
-- **状态：** 已接受；评审修订已纳入，待建立实施 Plan，未开始实施
+- **状态：** 已完成并归档；稳定规则已由 D001/D002/D003/D006/D014 接管
 - **日期：** 2026-09-05
-- **性质：** 临时性搜索调度、配置命名与 evaluator 缓存契约迁移 Design
-- **核对基线：** `8883a65`；原拆分基线为 `6271752`
-- **来源：** 从原 D031 拆出目标 1、5、6、7；树方案移入 [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)
-- **稳定 owner：** [D001](D001-pf.md)、[D002](D002-pf-implementation.md)、
-  [D003](D003-pf-search-algorithm.md)、[D006](D006-pf-cli-enhancement.md)、
-  [D014](D014-pf-report-schema.md)
-- **关联：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)、
-  [D008](D008-pf-verification-run.md)、[D013](D013-pf-pytest-observer.md)、
-  [E005](../experiments/E005-pf-multi-resolution-search-simulation.md)
+- **性质：** 临时性搜索调度、配置命名、evaluator 缓存与 exact artifact 选择契约迁移 Design
+- **核对基线：** `a7bcc41`；评审修订基线为 `8883a65`，原拆分基线为 `6271752`
+- **来源：** 从原 D031 拆出目标 1、5、6、7；树方案移入 [C001](../../concepts/C001-pf-multi-resolution-coordinate-search.md)；
+  另纳入 `minors[declaration]` × patch 在多坐标 exact probe 中缺少空间外 baseline artifact 的现场缺陷
+- **稳定 owner：** [D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)、
+  [D003](../../designs/D003-pf-search-algorithm.md)、[D006](../../designs/D006-pf-cli-enhancement.md)、
+  [D014](../../designs/D014-pf-report-schema.md)
+- **关联：** [D004](../../designs/D004-pf-ty-enhancement.md)、[D005](../../designs/D005-pf-failure-and-diagnose.md)、
+  [D008](../../designs/D008-pf-verification-run.md)、[D013](../../designs/D013-pf-pytest-observer.md)、
+  [E005](../../experiments/E005-pf-multi-resolution-search-simulation.md)、
+  [E006](../../experiments/E006-requests-complete-search.md)
+- **实施计划：** [P038](../plans/P038-pf-predecessor-revalidate.md)
 
-本文定义已接受的独立目标契约。生产实施前须建立 durable Plan，映射全部验收标准、接口迁移、
-生成物和证据。本轮完善 Design，纳入 baseline 证据准入与首次 promotion 的评审修订，
-不创建 Plan 或修改生产实现。
+本文保存已完成的独立目标契约。[P038](../plans/P038-pf-predecessor-revalidate.md) 在生产修改前建立，
+并已记录全部验收标准、接口迁移、生成物和证据。
 C001 的树搜索延期，不是本文实施或验收的前提。
 
 ## 1. 目标与范围
@@ -33,6 +35,10 @@ C001 的树搜索延期，不是本文实施或验收的前提。
 取每个系列的最高合格精确代表并冻结 `C[d]`；保留现有 Candidate `series_key` 与 snapshot
 `series_representatives`。完整合格 U 冻结、树结构与逐层 refinement 留在 C001 作为待证设想。
 配置改名不会让平面算法隐含执行 `major → minor → patch`。
+
+窄 search-space 可以合法排除 `B[d]`，但其他坐标尚未下降时，实际 probe 的完整向量仍需要
+`B[d]` 的精确 artifact。CandidateBuilder 因此同时冻结搜索序列 `C[d]` 与 §2.1 的
+baseline selection；后者只支持完整向量解析，不扩大候选、窗口、predecessor 或 floor。
 
 结果仍是局部 `REJECTED* PASS*` 假设下相对于 `C[d]` 的 coordinate-minimal passing vector，
 不认证未探测 hole 或笛卡尔积全局最小值。探测顺序变化可能改变非单调空间中观察到的反例或终态。
@@ -75,6 +81,38 @@ CLI 统一改为 `--search-resolution`，内部策略和报告 binding 字段统
 prerelease、artifact 和 baseline cap 沿用 D001/D003/D014。所有 space × resolution 组合合法；
 不根据 `0.x`、发布密度或 SemVer 含义自动改选粒度。
 
+### 2.1 搜索候选域与精确选择域
+
+对每个 managed dependency `d`，继续令 `C[d]` 为 search-space、公共资格与 resolution 共同筛选出的
+有序候选序列，令 `B[d]` 为本 Cell 已直接通过的 highest baseline Proposal 中的精确版本。完整
+exact-vector probe 的可选择域另定义为：
+
+```text
+versions(S[d]) = versions(C[d]) ∪ {B[d]}
+```
+
+搜索产生的任一完整向量 `V` 必须满足 `V[d] ∈ versions(S[d])`：尚未下降或仍在空间外的坐标取
+`B[d]`，已提交的坐标取 `C[d]` 中的直接 PASS。`S[d]` 是 artifact 选择域，不是第二份候选序列；
+CoordinateSearch、Slice candidate order、region 相邻性、窗口、predecessor、floor 与 projection
+只消费 `C[d]`。
+
+每个 CandidateSnapshot 增加 required `baseline_selection: SelectedCandidate`，保存 `B[d]` 在同一次
+成功 registry query、相同 Cell、SEARCH SourcePlan、release cutoff 与 artifact policy 下确定选择的
+精确 artifact。该字段不带 `series_key`，不进入 `candidates` 或 `series_representatives`。即使
+`B[d]` 已属于 `C[d]` 也保留该 required 字段，并要求版本相同的 Candidate 与 baseline selection
+artifact 完全一致；这样调用方只学习一个 CandidateSnapshot interface，不维护平行 lookup map。
+
+baseline selection 的版本资格来自已成功的 highest Proposal，不再用 search-space、resolution、
+search-prereleases、yanked 或代表采样规则把它重新判定为搜索候选，也不把 highest Attempt 改写为
+exact-vector 或声称复用 baseline 实际安装的 artifact。它是后续 exact probe 的新冻结选择证据，
+仍须满足当前 Cell 的 artifact policy、安装 locator 与 SHA-256 闭合。registry 观测不能为 `B[d]`
+提供该闭合证据时，按 candidate-discovery 的 `SOURCE_FAILURE` 形成 Indeterminate；不得扩大 `C[d]`、
+临时重查 source、让 uv 自由选择该坐标或把合法的窄 search-space 报成 ConfigurationError。
+
+`select_probe` 只通过 CandidateSnapshot 的深 interface 从 `S[d]` 为完整向量取得唯一
+`SelectedCandidate`；选择优先级不是 caller 责任，实现须统一处理 baseline 已在/不在 `C[d]` 两种情况。
+搜索若产生 `S[d]` 外的版本是内部不变量违例，必须在 prepare 前失败，不能降级为未固定解析。
+
 ## 3. 统一证据入口与缓存
 
 ### 3.1 生命周期与所有权
@@ -83,6 +121,10 @@ prerelease、artifact 和 baseline cap 沿用 D001/D003/D014。所有 space × r
 evaluation policy、static/harness baseline、resolver profile、release cutoff 与解析上下文。
 在这一固定作用域内，规范化的完整 managed vector 可作为 lookup key；不是跨运行或跨 Cell 的持久 key。
 同一精确解析请求继续消费现行解析缓存，不在命中旧证据时重新建立另一个解析图。
+
+同一 evaluator 实例还固定 CandidateBuilder 返回的 CandidateSnapshots；`_ProposalRunner` 对实际
+prepare 的每个完整向量只从 §2.1 的 `S[d]` 选择 artifact。SearchCoordinator 不展开
+`baseline_selection`，也不建立或同步第二份 version-to-artifact map。
 
 `_ProposalRunner` 拥有实际 prepare/static/runtime 结果表及 prepared environment 生命周期；
 `CoordinateSearch` 只保存算法所需的观测、Slice、区间、边界与历史提示，不再另建一份执行结果缓存。
@@ -153,6 +195,11 @@ baseline 在候选内时，其原 static evaluation 可与原 PASS 一起登记�
 baseline 时直接复用原 Evaluation，但仍须满足所有坐标的候选资格与最终 context 边界；final
 不同于 baseline 时继续要求该精确向量自身的 exact-vector Attempt、Proposal 与 PASS 闭合。
 
+`baseline_selection` 与 baseline PASS seed 是不同事实：前者只为混合向量中值仍等于 `B[d]` 的坐标
+提供 exact artifact，后者才是完整 `B` 的既有直接评价。命中完整 baseline 向量仍必须返回原 highest
+Attempt/Proposal/Evaluation，不创建 selected-candidate digest；只有新 exact-vector Attempt 才把从
+各 `S[d]` 取得的完整 selection 纳入其现有 `selected_candidate_evidence_digest`。
+
 ### 3.5 Evaluator interface 与 Slice 登记
 
 public `minimize` 移除 `start_is_known_pass`，保留普通 `VectorEvaluator.evaluate(vector)` 和
@@ -193,6 +240,10 @@ static/prepared 状态时补齐 runtime，已有完整结果时直接复用；�
 `current[d]` 的候选。history 只保存本次 search 中上一 sweep 的坐标边界；旧 context 的结果
 只能作为选点提示，不能作为当前 Slice 的拒绝事实。
 
+`context` 中的每个非活动坐标可能仍为其空间外 `B[x]`，也可能已是 `C[x]` 中的提交值；两者都由
+`S[x]` 提供冻结 artifact。活动坐标的 probe 值必须来自 `C[d]`。因此 exact selection 闭合不要求
+扩大任何坐标的搜索空间，也不把其他坐标的 baseline 变成当前 Slice 的候选 observation。
+
 1. 没有候选，返回 `NO_PASS_IN_SEARCH_SPACE`。
 2. current 已是首个候选，按 §3.4–§3.5 复用并登记其直接 PASS，建立没有 predecessor 的边界。
 3. 若 history 的 floor 等于 current，且 predecessor 仍是冻结 `C[d]` 中的直接前驱，
@@ -216,7 +267,8 @@ static/prepared 状态时补齐 runtime，已有完整结果时直接复用；�
 优先于 hint。无可用历史边界时沿用现行 hint/最低候选路径，不引入跨运行或跨 Cell hints。
 保持现行确定的小窗口阈值（默认 8）、升序线性与二分规则，不同时调参。
 
-空间外 current 仅提供不可 probe 的虚拟 PASS sentinel，不进入快照、窗口端点或候选计数。
+空间外 current 仅提供不可 probe 的虚拟 PASS sentinel，不进入 CandidateSnapshot 的 `candidates`、
+窗口端点或候选计数；其 required `baseline_selection` 只在它作为其他坐标 context 时提供 artifact。
 最高真实候选不能借用 sentinel 的 PASS；空间内未找到 PASS 时返回 `NO_PASS_IN_SEARCH_SPACE`。
 
 ### 4.3 Promotion、窗口与非单调
@@ -258,11 +310,11 @@ until not changed
 | Owner | 本次迁移 |
 | --- | --- |
 | ConfigLoader / ProjectLoader / CLI | resolution 输入、继承、默认、named policy 与 help |
-| CandidateBuilder | 消费 resolution 命名，保持现行代表候选与系列证明形状 |
+| CandidateBuilder / CandidateSnapshot | 消费 resolution 命名，保持 `C[d]` 的现行代表与系列证明；从同次 registry 观测冻结 required baseline selection，封装 `S[d]` 的唯一 artifact 选择 |
 | CoordinateSearch | 重验调度、history、Slice observation、promotion、窗口与确定 sweep |
-| SearchCoordinator / _ProposalRunner | 真实 highest baseline seed、唯一结果入口、首次 promotion、Slice region 登记、prepare/static/runtime 缓存和资源清理 |
+| SearchCoordinator / _ProposalRunner | 真实 highest baseline seed、通过 CandidateSnapshot 深 interface 选择完整 exact vector、唯一结果入口、首次 promotion、Slice region 登记、prepare/static/runtime 缓存和资源清理 |
 | RuntimeEvaluator / ConfiguredVerifier | 保持直接证据与 FailedCaseSet 拒绝预言的现行职责 |
-| ReportStore / schemas / ApplyAuthorizer | baseline PASS 准入与向量展开、resolution 策略 binding、identity、直接边界验证和授权 |
+| ReportStore / schemas / ApplyAuthorizer | baseline PASS 准入与向量展开、baseline selection wire/digest/reader、exact selection digest、resolution 策略 binding、直接边界验证和授权 |
 | Explain / terminal | resolution 与精确 floor 展示，消费现有候选窗口与实际执行活动 |
 
 Plan 须明确移除搜索私有 known-pass/cache 与 `start_is_known_pass` shortcut 的接口迁移，
@@ -288,7 +340,28 @@ build/reintern、read、merge、region runtime references 与 final authority �
 继续引用原 final Proposal，空间外 sentinel 不因读写或 apply 获得 floor authority。该准入变更不
 改变 baseline 的 Attempt/Proposal identity preimage、解析事实或 verifier authority。
 
-### 5.2 Resolution 策略迁移
+### 5.2 Exact-vector artifact 报告闭合
+
+Schema 1 的 CandidateSnapshot record 增加 required `baseline_selection`，snapshot digest 将其完整
+`SelectedCandidate` payload 纳入 preimage；按 pre-release 规则直接替换生成 Schema、examples、fixtures
+与 reader，不提供缺字段 reader、默认推断或 dual shape。candidate policy identity 仍只表示请求策略，
+不吸收某次 Cell 的 baseline version/artifact。
+
+builder 与 reader 都以当前 Cell 的 CandidateSnapshot 构造同一个选择函数：exact-vector 中每个 pin
+可以命中 `candidates` 的唯一版本，或命中版本等于本 Cell baseline Proposal 对应坐标的
+`baseline_selection`。两处同时命中时 artifact 必须完全相同；零处命中、不同 artifact、错误
+dependency/version、跨 Cell/source/policy selection 都 fail closed。reader 从该完整 selection 重算
+Attempt 的 `selected_candidate_evidence_digest`，不能仅按 active dependency 验证，也不能从 resolved
+graph、旧报告或 highest Attempt 猜测 artifact。
+
+CandidateSnapshot 的搜索语义验证仍只对 `candidates` 执行 space、resolution、series key、代表顺序与
+唯一性检查；`baseline_selection` 单独验证其版本等于 Cell baseline managed vector、source/artifact
+闭合及与同版本 Candidate 的一致性。final floor、boundary、predecessor、region order 和 projection
+仍必须来自 `candidates`；空间外 baseline selection 不能因 report build/read/reintern/merge 获得 floor
+authority。SUCCESS、SEARCH_FAILED 与带搜索证据的 CELL_INDETERMINATE 都保存足以重建其中 exact
+Attempt selection 的 CandidateSnapshots，并保持 canonical read → write byte stability。
+
+### 5.3 Resolution 策略迁移
 
 `candidate_policy_identity` 的 step 输入替换为 resolution；报告 `inputs.search_policy` binding
 使用 required `resolution`，完整请求策略继续进入 generation。即使候选和 floor 相同，策略字段
@@ -304,7 +377,14 @@ apply 在 force waiver 前验证完整 requested search policy，保持原声明
 
 ## 6. 收益证据与验证边界
 
-[E005](../experiments/E005-pf-multi-resolution-search-simulation.md) 的历史 A/B 对照表明：
+本次现场回归的最小产品形状是两个以上 managed coordinates：`charset-normalizer` 的声明下界为
+`1.3.9`、baseline 为 `3.5.1`，策略为 `minors[declaration]` × patch；首个 canonical coordinate
+下降时，`charset-normalizer==3.5.1` 仍作为非活动 context。目标行为是从其
+`baseline_selection` 闭合完整 exact-vector artifact 后继续搜索，绝不报
+`probe version is not uniquely frozen`，同时 `3.5.1` 不进入 `C[charset-normalizer]`。Plan 必须先以
+public CandidateBuilder + SearchCoordinator 图固定这个回归，再比较 predecessor 调度收益。
+
+[E005](../../experiments/E005-pf-multi-resolution-search-simulation.md) 的历史 A/B 对照表明：
 2,883 个单坐标场景中 B 的 direct oracle miss 比 A 少 36.75%；36 个多坐标场景少 25.00%。
 这些只证明所列合成输入的探针变化，未测真实 evaluator/verifier 成本或产品 wall-clock。
 本文保留原实验及其基线，不把缓存迁移或树的变化混入重验收益。
@@ -326,23 +406,26 @@ Plan 将真实 evaluator A/B 安排为证据入口闭合后的早期验证切片
 | AC | 必须取得的证据 |
 | --- | --- |
 | 1 | global/dep/CLI resolution、minor 默认、继承、raw layer 与非法输入分类；配置/model/wire/help 完整替换 |
-| 2 | 相同观测与粒度下 public CandidateBuilder 返回相同精确代表/artifact；各 space × resolution、特殊版本与资格错误时序保持 |
+| 2 | 相同观测与粒度下 public CandidateBuilder 的 `C[d]` 返回相同精确代表/artifact；另从同次观测冻结 required baseline selection；各 space × resolution、特殊版本与资格错误时序保持 |
 | 3 | public minimize 覆盖后续 sweep predecessor 仍拒绝/转 PASS、context 改变、同 context、无历史、首候选无前驱与 hint 优先级 |
-| 4 | 最低候选快速路径、平面定位、虚拟 sentinel/no-pass、promotion 反证及准确窗口；边界与 final 直接证据闭合 |
+| 4 | 最低候选快速路径、平面定位、虚拟 sentinel/no-pass、promotion 反证及准确窗口；baseline selection 不进入候选/window/boundary/floor，边界与 final 直接证据闭合 |
 | 5 | evaluator 真实 baseline seed；同向量跨定位/sweep 复用；完整 cache hit 不触发 prepare/static/runtime/解析；invocation 和 Proposal 隔离 |
 | 6 | static-only 不成为直接 PASS；跨 active dependency guidance 隔离；直接 cache hit 仍登记 Slice observation/region reference 并触发必要的非单调检查 |
 | 7 | NON_MONOTONIC 立即停止并保存反例；Indeterminate 不裁剪；确定顺序、有限终止及最终 context 下全部边界 |
-| 8 | resolution identity/binding、代表快照 round-trip、reader/build/merge/host-partial/explain、apply policy/force/幂等公共行为 |
+| 8 | resolution identity/binding、含 baseline selection 的代表快照与 exact selected-candidate digest round-trip、reader/build/merge/host-partial/explain、apply policy/force/幂等公共行为 |
 | 9 | A/B 等价缓存的探针对照与真实 evaluator 成本记录；missing、波动、退化与证据边界如实记录，不要求树实验闭合 |
 | 10 | focused/full checks、typing/lint/build、Schema/examples 再生成与链接检查；长期测试只保留当前 public contract |
 | 11 | README 双语、help、配置/model/schema/fixtures/scripts 同步；稳定规则归并 owner，Design 与 Plan 完成逐项审计并同步归档 |
 | 12 | 真实 highest seed 保留原 Attempt/Proposal/Evaluation；候选内 baseline（含首候选）、空间外 sentinel、final=baseline 与 final 不同于 baseline；SUCCESS/SEARCH_FAILED/CELL_INDETERMINATE 的 baseline observation/region refs 经 build/read/reintern/merge 闭合且 round-trip 稳定；拒绝其他 baseline、跨 Cell/context、漂移向量及非 PASS highest observation |
 | 13 | public minimize 的普通 evaluator 支持直接认证且复用结果；真实 evaluator 首次请求即 promotion、新 context predecessor、static-only 后 promotion、跨 active dependency 完整命中均正确登记；prepare 终态不制造 region、完整命中不新增执行活动、promotion 反证保留历史且停用不一致 guidance |
+| 14 | 多坐标窄空间覆盖 `B[d]` 在/不在 `C[d]`、活动候选与空间外 baseline 混合向量、同版本 artifact 一致性及 canonical dependency order；`minors[declaration]` × patch 的 `1.3.9`/`3.5.1` 现场形状继续搜索且不扩大 `C[d]`；registry 无法闭合 baseline artifact 时为 SOURCE_FAILURE/Indeterminate，搜索产生 `S[d]` 外向量时为内部不变量违例，缺失/错误/cross-context wire 被 reader 拒绝，三者都不回退为自由解析；所有 exact Attempt 经 Schema/examples/build/read/reintern/merge 闭合 |
 
-D001 接收 resolution 配置、默认与系列代表语义；D002 接收 evaluator 结果入口、真实 highest seed
-与资源 ownership；D003 接收普通/runtime-backed evaluator 认证、baseline Slice 归属、首次 promotion、
+D001 接收 resolution 配置、默认、系列代表及 `C[d]`/`S[d]` 语义；D002 接收 CandidateBuilder/
+CandidateSnapshot baseline selection interface、evaluator 结果入口、真实 highest seed 与资源 ownership；
+D003 接收完整向量选择不变量、普通/runtime-backed evaluator 认证、baseline Slice 归属、首次 promotion、
 region 登记、predecessor 重验、缓存消费、window 与 sweep；D006 接收命名与活动展示；D014 接收
-baseline PASS 的领域/wire 准入、向量展开与 roots 闭合，以及 resolution wire/identity/授权。
+baseline PASS 的领域/wire 准入、CandidateSnapshot baseline selection、exact selected-candidate digest、
+向量展开与 roots 闭合，以及 resolution wire/identity/授权。
 D004/D005/D008/D013 保持现行证据与执行规则；baseline 捕获及执行事实不变，搜索对其直接 PASS
 的引用由 D002/D003/D014 吸收。
 后续树方案转入独立 Design 并实施时单独吸收树与完整候选规则，不把延期范围加入本文完成条件。

@@ -13,6 +13,7 @@ from pf.schemas.project import (
     CandidateSnapshot,
     Cell,
     Proposal,
+    SelectedCandidate,
     SourceIdentity,
     VersionPin,
     candidate_snapshot_digest,
@@ -44,9 +45,8 @@ from pf.schemas.report import (
     StaticRegionSlice,
 )
 from pf.coordinate_search import CoordinateSearch
-from pf.errors import ConfigurationError
 from pf.schemas.evaluation import SearchProbeRequest
-from pf.search import select_probe
+from pf.search import ProbeSelectionError, select_probe
 
 
 def snapshot(name: str) -> CandidateSnapshot:
@@ -59,7 +59,8 @@ def snapshot(name: str) -> CandidateSnapshot:
     artifact = AvailableArtifact(
         filename=f"{name}.whl",
         kind="wheel",
-        content_hash=f"sha256:{name}",
+        content_hash=f"sha256:{'a' * 64}",
+        locator=f"https://files.example/{name}.whl",
         python_minors=("3.10",),
         targets=("x86_64-unknown-linux-gnu",),
     )
@@ -71,6 +72,11 @@ def snapshot(name: str) -> CandidateSnapshot:
     representatives = tuple(
         (candidate.series_key, candidate.version) for candidate in candidates
     )
+    baseline_selection = SelectedCandidate(
+        dependency=name,
+        version="3",
+        artifact=artifact,
+    )
     return CandidateSnapshot(
             selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency=name,
@@ -78,6 +84,7 @@ def snapshot(name: str) -> CandidateSnapshot:
         policy_identity="policy",
         source_plan_identity="sources",
         source=source,
+        baseline_selection=baseline_selection,
         candidates=candidates,
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
@@ -87,6 +94,7 @@ def snapshot(name: str) -> CandidateSnapshot:
             policy_identity="policy",
             source_plan_identity="sources",
             source=source,
+            baseline_selection=baseline_selection,
             candidates=candidates,
             series_representatives=representatives,
         ),
@@ -107,6 +115,11 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
     representatives = tuple(
         (candidate.series_key, candidate.version) for candidate in candidates
     )
+    baseline_selection = SelectedCandidate(
+        dependency=name,
+        version=versions[-1],
+        artifact=artifact,
+    )
     return CandidateSnapshot(
             selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency=name,
@@ -114,6 +127,7 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
         policy_identity=base.policy_identity,
         source_plan_identity=base.source_plan_identity,
         source=base.source,
+        baseline_selection=baseline_selection,
         candidates=candidates,
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
@@ -123,6 +137,7 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
             policy_identity=base.policy_identity,
             source_plan_identity=base.source_plan_identity,
             source=base.source,
+            baseline_selection=baseline_selection,
             candidates=candidates,
             series_representatives=representatives,
         ),
@@ -140,6 +155,11 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
     )
     candidate = Candidate(version="1", series_key="1", artifact=artifact)
     representatives = (("1", "1"),)
+    baseline_selection = SelectedCandidate(
+        dependency=name,
+        version="1",
+        artifact=artifact,
+    )
     return CandidateSnapshot(
             selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency=name,
@@ -147,6 +167,7 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
         policy_identity=base.policy_identity,
         source_plan_identity=base.source_plan_identity,
         source=base.source,
+        baseline_selection=baseline_selection,
         candidates=(candidate,),
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
@@ -156,6 +177,7 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
             policy_identity=base.policy_identity,
             source_plan_identity=base.source_plan_identity,
             source=base.source,
+            baseline_selection=baseline_selection,
             candidates=(candidate,),
             series_representatives=representatives,
         ),
@@ -174,18 +196,18 @@ class TestProbeSelection:
     def test_select_probe_rejects_duplicate_dependencies(self) -> None:
         pin = VersionPin(name="a", version="1")
 
-        with pytest.raises(ConfigurationError, match="unique"):
+        with pytest.raises(ProbeSelectionError, match="unique"):
             select_probe((pin, pin), (selectable_snapshot(),))
 
     def test_select_probe_rejects_mismatched_dependencies(self) -> None:
-        with pytest.raises(ConfigurationError, match="same dependencies"):
+        with pytest.raises(ProbeSelectionError, match="same dependencies"):
             select_probe(
                 (VersionPin(name="b", version="1"),),
                 (selectable_snapshot(),),
             )
 
     def test_select_probe_rejects_an_unfrozen_version(self) -> None:
-        with pytest.raises(ConfigurationError, match="not uniquely frozen"):
+        with pytest.raises(ProbeSelectionError, match="outside the frozen"):
             select_probe(
                 (VersionPin(name="a", version="2"),),
                 (selectable_snapshot(),),
@@ -215,7 +237,7 @@ class TestProbeSelection:
         )
         tampered = snapshot.model_copy(update={"candidates": (candidate,)})
 
-        with pytest.raises(ConfigurationError, match="artifact is incomplete"):
+        with pytest.raises(ProbeSelectionError):
             select_probe((VersionPin(name="a", version="1"),), (tampered,))
 
 
@@ -318,7 +340,7 @@ class TestCoordinateSearch:
                 return ()
 
             def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-                raise AssertionError("known baseline must not be evaluated")
+                return probe_pass(vector, "baseline")
 
             def evaluate_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence:
                 requests.append(request)
@@ -342,11 +364,18 @@ class TestCoordinateSearch:
             candidates=(snapshot_versions("a", ("1", "2", "3", "4", "5")),),
             evaluator=RuntimeBacked(),
             hints=(VersionPin(name="a", version="3"),),
-            start_is_known_pass=True,
         )
 
         assert isinstance(result, CoordinateSuccess)
         assert requests[0] == SearchProbeRequest(
+            vector=(VersionPin(name="a", version="5"),),
+            active_dependency="a",
+            candidate_version="5",
+            lower_version="5",
+            upper_version="5",
+            candidate_count=1,
+        )
+        assert requests[1] == SearchProbeRequest(
             vector=(VersionPin(name="a", version="3"),),
             active_dependency="a",
             candidate_version="3",
@@ -366,7 +395,7 @@ class TestCoordinateSearch:
                 return ()
 
             def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-                raise AssertionError("known baseline must not be evaluated")
+                return probe_pass(vector, "baseline")
 
             def evaluate_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence:
                 requests.append(request)
@@ -380,7 +409,6 @@ class TestCoordinateSearch:
             start=(VersionPin(name="a", version="10"),),
             candidates=(wide_snapshot("a"),),
             evaluator=RuntimeBacked(),
-            start_is_known_pass=True,
         )
 
         assert isinstance(result, CoordinateSuccess)
@@ -439,7 +467,7 @@ class TestCoordinateSearch:
                 )
 
             def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-                raise AssertionError("known highest must not be evaluated")
+                return probe_pass(vector, "baseline")
 
             def evaluate_in_slice(
                 self,
@@ -448,6 +476,8 @@ class TestCoordinateSearch:
                 assert request.active_dependency == "a"
                 version = request.candidate_version
                 self.evaluated.append(version)
+                if version == "1" and "1" in self.promoted:
+                    return rejected_one
                 return passed_two if version == "2" else cheap_one
 
             def promote(
@@ -456,7 +486,11 @@ class TestCoordinateSearch:
             ) -> ProbeEvidence:
                 assert request.active_dependency == "a"
                 self.promoted.append(request.candidate_version)
-                return rejected_one
+                if request.candidate_version == "1":
+                    return rejected_one
+                if request.candidate_version == "2":
+                    return passed_two
+                return probe_pass(request.vector, "a=5")
 
         evaluator = RuntimeBacked()
         result = CoordinateSearch(small_threshold=2).minimize(
@@ -464,13 +498,12 @@ class TestCoordinateSearch:
             candidates=(candidates,),
             evaluator=evaluator,
             hints=(VersionPin(name="a", version="2"),),
-            start_is_known_pass=True,
         )
 
         assert isinstance(result, CoordinateSuccess)
         assert result.vector == vector_two
-        assert evaluator.evaluated == ["2", "1"]
-        assert evaluator.promoted == ["1"]
+        assert evaluator.evaluated[:2] == ["2", "1"]
+        assert evaluator.promoted == ["5", "1", "2", "1", "2", "1"]
         assert any(
             isinstance(observation.evidence, StaticOnlyEvidence)
             for observation in result.observations
@@ -530,6 +563,157 @@ class TestCoordinateSearch:
             ((("a", "1"), ("b", "1")), ("a", "b")),
         ]
 
+    def test_unchanged_sweep_revalidates_predecessor_before_search_hints(
+        self,
+    ) -> None:
+        trace: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+
+        class Threshold:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                key = tuple((pin.name, pin.version) for pin in vector)
+                trace.append(("evaluate", key))
+                if int(vector[0].version) >= 3:
+                    return probe_pass(vector, vector[0].version)
+                return probe_rejection(vector, vector[0].version)
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="5"),),
+            candidates=(snapshot_versions("a", ("1", "2", "3", "4", "5")),),
+            evaluator=Threshold(),
+            hints=(VersionPin(name="a", version="4"),),
+            progress=lambda packages, completed: (
+                trace.append(
+                    (
+                        "sweep",
+                        tuple((pin.name, pin.version) for pin in packages),
+                    )
+                )
+                if not completed
+                else None
+            ),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector == (VersionPin(name="a", version="3"),)
+        second_sweep = trace.index(("sweep", (("a", "3"),)))
+        assert trace[second_sweep + 1 : second_sweep + 3] == [
+            ("evaluate", (("a", "3"),)),
+            ("evaluate", (("a", "2"),)),
+        ]
+
+    def test_changed_context_revalidates_a_passing_predecessor_before_descent(
+        self,
+    ) -> None:
+        trace: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+
+        class RecordingInteraction(InteractionEvaluator):
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                trace.append(
+                    ("evaluate", tuple((pin.name, pin.version) for pin in vector))
+                )
+                return super().evaluate(vector)
+
+        result = CoordinateSearch().minimize(
+            start=(
+                VersionPin(name="a", version="3"),
+                VersionPin(name="b", version="3"),
+            ),
+            candidates=(snapshot("a"), snapshot("b")),
+            evaluator=RecordingInteraction(),
+            progress=lambda packages, completed: (
+                trace.append(
+                    (
+                        "sweep",
+                        tuple((pin.name, pin.version) for pin in packages),
+                    )
+                )
+                if not completed
+                else None
+            ),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        changed_context = trace.index(
+            ("sweep", (("a", "2"), ("b", "1")))
+        )
+        assert trace[changed_context + 1 : changed_context + 3] == [
+            ("evaluate", (("a", "2"), ("b", "1"))),
+            ("evaluate", (("a", "1"), ("b", "1"))),
+        ]
+        assert result.vector == (
+            VersionPin(name="a", version="1"),
+            VersionPin(name="b", version="1"),
+        )
+
+    def test_passing_predecessor_becomes_the_new_search_upper(self) -> None:
+        trace: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+
+        class ContextThreshold:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                key = tuple((pin.name, pin.version) for pin in vector)
+                trace.append(("evaluate", key))
+                versions = {pin.name: int(pin.version) for pin in vector}
+                alpha_floor = 15 if versions["b"] >= 9 else 14
+                if versions["a"] >= alpha_floor and versions["b"] >= 8:
+                    return probe_pass(vector, str(key))
+                return probe_rejection(vector, str(key))
+
+        candidate_versions = tuple(str(version) for version in range(1, 18))
+        result = CoordinateSearch().minimize(
+            start=(
+                VersionPin(name="a", version="17"),
+                VersionPin(name="b", version="17"),
+            ),
+            candidates=(
+                snapshot_versions("a", candidate_versions),
+                snapshot_versions("b", candidate_versions),
+            ),
+            evaluator=ContextThreshold(),
+            progress=lambda packages, completed: (
+                trace.append(
+                    (
+                        "sweep",
+                        tuple((pin.name, pin.version) for pin in packages),
+                    )
+                )
+                if not completed
+                else None
+            ),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        changed_context = trace.index(
+            ("sweep", (("a", "15"), ("b", "8")))
+        )
+        assert trace[changed_context + 1 : changed_context + 6] == [
+            ("evaluate", (("a", "15"), ("b", "8"))),
+            ("evaluate", (("a", "14"), ("b", "8"))),
+            ("evaluate", (("a", "1"), ("b", "8"))),
+            ("evaluate", (("a", "14"), ("b", "8"))),
+            ("evaluate", (("a", "7"), ("b", "8"))),
+        ]
+        assert result.vector == (
+            VersionPin(name="a", version="14"),
+            VersionPin(name="b", version="8"),
+        )
+
+    def test_first_candidate_current_pass_is_registered_in_its_slice(self) -> None:
+        class AlwaysPasses:
+            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
+                return probe_pass(vector, vector[0].version)
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="1"),),
+            candidates=(snapshot_versions("a", ("1",)),),
+            evaluator=AlwaysPasses(),
+        )
+
+        assert isinstance(result, CoordinateSuccess)
+        assert [observation.dependency for observation in result.observations] == [
+            None,
+            "a",
+        ]
+
     def test_coordinate_search_uses_hint_then_lower_bound_binary_search(self) -> None:
         class ThresholdEvaluator:
             def __init__(self) -> None:
@@ -559,7 +743,7 @@ class TestCoordinateSearch:
         assert result.vector[0].version == "4"
         assert result.boundaries[0].predecessor == "3"
         assert result.boundaries[0].predecessor_failure_id == "failure-3"
-        assert evaluator.probed[:5] == ["9", "5", "1", "3", "4"]
+        assert evaluator.probed[:6] == ["9", "9", "5", "1", "3", "4"]
 
     def test_coordinate_search_does_not_use_an_out_of_space_baseline_as_floor(
         self,
@@ -731,7 +915,7 @@ class TestCoordinateSearch:
         assert isinstance(result, CoordinateSuccess)
         assert result.vector == (VersionPin(name="a", version=floor),)
 
-    def test_coordinate_search_known_start_is_not_evaluated(self) -> None:
+    def test_coordinate_search_records_the_start_through_the_evaluator(self) -> None:
         calls: list[str] = []
 
         class AlwaysPasses:
@@ -743,11 +927,15 @@ class TestCoordinateSearch:
             start=(VersionPin(name="a", version="3"),),
             candidates=(snapshot("a"),),
             evaluator=AlwaysPasses(),
-            start_is_known_pass=True,
         )
 
         assert isinstance(result, CoordinateSuccess)
-        assert "3" not in calls
+        assert calls[0] == "3"
+        assert any(
+            observation.dependency is None
+            and observation.vector == (VersionPin(name="a", version="3"),)
+            for observation in result.observations
+        )
 
     def test_coordinate_search_same_instance_supports_nested_minimize(self) -> None:
         search = CoordinateSearch()

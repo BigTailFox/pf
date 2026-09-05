@@ -89,18 +89,31 @@ def evaluation_project(
     root: Path,
     *,
     dependency: str | None = "demo-dep",
+    dependencies: tuple[str, ...] | None = None,
     source: str = "",
     search_space: str | None = None,
+    search_configuration: str = "",
 ) -> EvaluationProject:
     root.mkdir(parents=True, exist_ok=True)
     search_config = f'search-space = "{search_space}"\n' if search_space is not None else ""
-    dependencies = f'dependencies = ["{dependency}"]\n' if dependency else ""
+    selected_dependencies = (
+        dependencies
+        if dependencies is not None
+        else ((dependency,) if dependency else ())
+    )
+    dependency_text = (
+        "dependencies = ["
+        + ", ".join(f'"{item}"' for item in selected_dependencies)
+        + "]\n"
+        if selected_dependencies
+        else ""
+    )
     (root / "pyproject.toml").write_text(
         f"""
 [project]
 name = "demo"
 version = "0.1.0"
-{dependencies}
+{dependency_text}
 [dependency-groups]
 test = []
 
@@ -108,6 +121,7 @@ test = []
 {search_config}pythons = ["3.10"]
 platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["python", "-c", "pass"]
+{search_configuration}
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -452,9 +466,13 @@ class ScriptedCandidates:
         self,
         versions: tuple[str, ...] = ("1", "2", "3"),
         error: Exception | None = None,
+        baseline: tuple[VersionPin, ...] = (),
+        versions_by_dependency: dict[str, tuple[str, ...]] | None = None,
     ) -> None:
         self.versions = versions
         self.error = error
+        self.baseline = {pin.name: pin.version for pin in baseline}
+        self.versions_by_dependency = versions_by_dependency or {}
         self.queries: list[tuple[str, SourceIdentity, Cell]] = []
 
     def query(self, **kwargs: object) -> RegistryCandidates:
@@ -464,13 +482,27 @@ class ScriptedCandidates:
         source = cast(SourceIdentity, kwargs["source"])
         cell = cast(Cell, kwargs["cell"])
         self.queries.append((dependency, source, cell))
-        return registry_candidates(tuple(
+        versions = self.versions_by_dependency.get(dependency, self.versions)
+        candidates = tuple(
             AvailableCandidate(
                 version=version,
                 artifacts=(available_artifact(dependency, version),),
             )
-            for version in self.versions
-        ))
+            for version in versions
+        )
+        baseline_version = self.baseline.get(dependency)
+        if baseline_version is not None and baseline_version not in versions:
+            candidates = (
+                *candidates,
+                AvailableCandidate(
+                    version=baseline_version,
+                    yanked=True,
+                    artifacts=(
+                        available_artifact(dependency, baseline_version),
+                    ),
+                ),
+            )
+        return registry_candidates(candidates)
 
 
 @dataclass(frozen=True)
@@ -497,6 +529,7 @@ def evaluation_assembly(
     lowest: tuple[VersionPin, ...] | None = None,
     candidate_versions: tuple[str, ...] = ("1", "2", "3"),
     candidate_error: Exception | None = None,
+    candidate_versions_by_dependency: dict[str, tuple[str, ...]] | None = None,
     ty_handler: TyHandler | None = None,
     verifier_handler: VerifierHandler | None = None,
     witness_handler: WitnessHandler | None = None,
@@ -512,7 +545,12 @@ def evaluation_assembly(
     ty = ScriptedTy(uv, ty_handler)
     verifier = ScriptedVerifier(uv, verifier_handler)
     witnesses = ScriptedWitnesses(uv, witness_handler)
-    candidates = ScriptedCandidates(candidate_versions, candidate_error)
+    candidates = ScriptedCandidates(
+        candidate_versions,
+        candidate_error,
+        highest,
+        candidate_versions_by_dependency,
+    )
     environments = EnvironmentFactory(uv, events=events)
     static = StaticEvaluator(ty, events=events)
     runtime = RuntimeEvaluator(

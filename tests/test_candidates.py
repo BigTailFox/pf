@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from candidate_fixtures import registry_candidates
 from pf.schemas.project import RegistryCandidates
 
@@ -8,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pf.candidates import CandidateBuilder
-from pf.errors import ConfigurationError, NoApplicableFloorError
+from pf.errors import ConfigurationError, InfrastructureError, NoApplicableFloorError
 from pf.project import ProjectLoader
 from pf.schemas.project import (
     AvailableArtifact,
@@ -27,14 +29,16 @@ class CandidateIndex:
         wheel = lambda filename: AvailableArtifact(
             filename=filename,
             kind="wheel",
-            content_hash=f"sha256:{filename}",
+            content_hash=f"sha256:{hashlib.sha256(filename.encode()).hexdigest()}",
+            locator=f"https://files.example/{filename}",
             python_minors=("3.10",),
             targets=("x86_64-unknown-linux-gnu",),
         )
         sdist = lambda filename: AvailableArtifact(
             filename=filename,
             kind="sdist",
-            content_hash=f"sha256:{filename}",
+            content_hash=f"sha256:{hashlib.sha256(filename.encode()).hexdigest()}",
+            locator=f"https://files.example/{filename}",
         )
         return registry_candidates((
             AvailableCandidate(version="0.9.9", artifacts=(wheel("dep-0.9.9.whl"),)),
@@ -49,6 +53,11 @@ class CandidateIndex:
             ),
             AvailableCandidate(version="1.1.0", artifacts=(sdist("dep-1.1.0.tar.gz"),)),
             AvailableCandidate(version="1.1.1", artifacts=(wheel("dep-1.1.1.whl"),)),
+            AvailableCandidate(
+                version="1.1.2",
+                yanked=True,
+                artifacts=(wheel("dep-1.1.2.whl"),),
+            ),
             AvailableCandidate(version="2.0.0", artifacts=(wheel("dep-2.0.0.whl"),)),
         ))
 
@@ -75,23 +84,36 @@ test-command = ["pytest"]
 
 
 class TestCandidateBuilder:
-    @pytest.mark.parametrize("step", ["major", "minor", "patch"])
-    def test_filtered_series_still_occupy_offset_positions(self, tmp_path: Path, step: str) -> None:
+    @pytest.mark.parametrize("resolution", ["major", "minor", "patch"])
+    def test_filtered_series_still_occupy_offset_positions(
+        self, tmp_path: Path, resolution: str
+    ) -> None:
         class Index:
             def query(self, **kwargs):
                 def candidate(version, *, yanked=False):
+                    filename = f"dep-{version}.tar.gz"
                     return AvailableCandidate(version=version, yanked=yanked, artifacts=(AvailableArtifact(
-                        filename=f"dep-{version}.tar.gz", kind="sdist", content_hash=f"sha256:{version}"),))
+                        filename=filename,
+                        kind="sdist",
+                        content_hash=f"sha256:{hashlib.sha256(filename.encode()).hexdigest()}",
+                        locator=f"https://files.example/{filename}",
+                    ),))
                 return RegistryCandidates(
                     release_versions=("1", "3", "5rc1", "7", "9", "9.1", "9.2"),
                     candidates=(candidate("1"), candidate("3", yanked=True), candidate("5rc1"),
                                 candidate("9"), candidate("9.1"), candidate("9.2", yanked=True)),
                 )
-        package = configured_package(tmp_path, f'search-space = "majors[baseline-3:]"\nsearch-step = "{step}"')
+        package = configured_package(
+            tmp_path,
+            f'search-space = "majors[baseline-3:]"\nsearch-resolution = "{resolution}"',
+        )
         result = CandidateBuilder(Index()).build(package=package, cell=package.cells[0],
             baseline=(VersionPin(name="demo-dep", version="9.2"),), source_plan=SourcePlan.for_package(package, "SEARCH"))[0]
         assert result.selection.selected_keys == ((0, 3), (0, 5), (0, 7), (0, 9))
-        assert [c.version for c in result.candidates] == (["9.1"] if step == "major" else ["9", "9.1"])
+        assert [c.version for c in result.candidates] == (
+            ["9.1"] if resolution == "major" else ["9", "9.1"]
+        )
+        assert result.baseline_selection.version == "9.2"
 
     def test_used_anchor_version_changes_snapshot_even_with_identical_representatives(self, tmp_path: Path) -> None:
         package = configured_package(tmp_path, 'search-space = "majors[baseline]"')
@@ -122,7 +144,11 @@ class TestCandidateBuilder:
                             AvailableArtifact(
                                 filename="idna-3.10-py3-none-any.whl",
                                 kind="wheel",
-                                content_hash="sha256:idna",
+                                content_hash=f"sha256:{'a' * 64}",
+                                locator=(
+                                    "https://files.example/"
+                                    "idna-3.10-py3-none-any.whl"
+                                ),
                                 python_minors=("3.10",),
                                 targets=("x86_64-unknown-linux-gnu",),
                             ),
@@ -183,7 +209,7 @@ test-command = ["pytest"]
     [tool.pf]
     pythons = ["3.10"]
     platforms = ["x86_64-unknown-linux-gnu"]
-    search-step = "minor"
+    search-resolution = "minor"
     resolve-artifact = "wheel"
     test-command = ["pytest"]
     """.strip()
@@ -205,6 +231,7 @@ test-command = ["pytest"]
             "1.0.1",
             "1.1.1",
         ]
+        assert snapshots[0].baseline_selection.version == "1.1.1"
         assert snapshots[0].series_representatives == (
             ("0.9", "0.9.9"),
             ("1.0", "1.0.1"),
@@ -218,7 +245,22 @@ test-command = ["pytest"]
     ) -> None:
         class EmptyIndex:
             def query(self, **kwargs: object) -> RegistryCandidates:
-                return registry_candidates(())
+                return registry_candidates((
+                    AvailableCandidate(
+                        version="1.0",
+                        yanked=True,
+                        artifacts=(
+                            AvailableArtifact(
+                                filename="demo_dep-1.0.tar.gz",
+                                kind="sdist",
+                                content_hash=f"sha256:{'a' * 64}",
+                                locator=(
+                                    "https://files.example/demo_dep-1.0.tar.gz"
+                                ),
+                            ),
+                        ),
+                    ),
+                ))
 
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -251,18 +293,18 @@ test-command = ["pytest"]
         (
             ('search-space = "majors[baseline]"', "2.0.0", ["2.0.0"]),
             (
-                'search-space = "minors[baseline]"\nsearch-step = "patch"',
+                'search-space = "minors[baseline]"\nsearch-resolution = "patch"',
                 "1.1.1",
                 ["1.1.0", "1.1.1"],
             ),
             (
-                'search-step = "patch"\n[[tool.pf.dep]]\nname = "demo-dep"\nsearch-space = ">=1.0,<1.1"',
+                'search-resolution = "patch"\n[[tool.pf.dep]]\nname = "demo-dep"\nsearch-space = ">=1.0,<1.1"',
                 "1.1.1",
                 ["1.0.1"],
             ),
-            ('resolve-artifact = "sdist"', "1.1.1", ["1.1.0"]),
+            ('resolve-artifact = "sdist"', "1.1.0", ["1.1.0"]),
             (
-                'resolve-artifact = "any"\nsearch-prereleases = true\nsearch-step = "patch"',
+                'resolve-artifact = "any"\nsearch-prereleases = true\nsearch-resolution = "patch"',
                 "1.1.1",
                 ["0.9.9", "1.0.1", "1.1.0", "1.1.1"],
             ),
@@ -285,6 +327,7 @@ test-command = ["pytest"]
         )
 
         assert [candidate.version for candidate in snapshots[0].candidates] == expected
+        assert snapshots[0].baseline_selection.version == baseline
 
     @pytest.mark.parametrize(
         ("prereleases", "expected"),
@@ -305,7 +348,11 @@ test-command = ["pytest"]
                             AvailableArtifact(
                                 filename=f"demo_dep-{version}-py3-none-any.whl",
                                 kind="wheel",
-                                content_hash=f"sha256:{version}",
+                                content_hash=f"sha256:{hashlib.sha256(version.encode()).hexdigest()}",
+                                locator=(
+                                    f"https://files.example/"
+                                    f"demo_dep-{version}-py3-none-any.whl"
+                                ),
                                 python_minors=("3.10",),
                                 targets=("x86_64-unknown-linux-gnu",),
                             ),
@@ -344,7 +391,9 @@ test-command = ["pytest"]
             tmp_path / "unrelated",
             'test-timeout = "1m"\nmax-cells = 1',
         )
-        changed = configured_package(tmp_path / "changed", 'search-step = "patch"')
+        changed = configured_package(
+            tmp_path / "changed", 'search-resolution = "patch"'
+        )
 
         def identity(package: PackagePlan) -> str:
             return CandidateBuilder(CandidateIndex()).build(
@@ -360,7 +409,7 @@ test-command = ["pytest"]
 
         expected = hashlib.sha256(b"pf:candidate-policy:v1\0" + canonical_identity_json({
             "profile": SEARCH_SPACE_PROFILE,
-            "policy": {"name": "demo-dep", "space": "majors[baseline-2:]", "step": "minor", "prereleases": False},
+            "policy": {"name": "demo-dep", "space": "majors[baseline-2:]", "resolution": "minor", "prereleases": False},
             "artifact": "any", "artifact_admission": "cell-eligibility-before-sha256",
         })).hexdigest()
         assert identity(first) == expected
@@ -404,7 +453,7 @@ test-command = ["pytest"]
                 source_plan=SourcePlan.for_package(local_only, "SEARCH"),
             )
 
-    def test_candidate_builder_rejects_candidates_without_the_requested_artifact(
+    def test_candidate_builder_requires_a_closed_baseline_artifact(
         self,
         tmp_path: Path,
     ) -> None:
@@ -427,7 +476,7 @@ test-command = ["pytest"]
 
         package = configured_package(tmp_path, 'resolve-artifact = "any"')
 
-        with pytest.raises(NoApplicableFloorError):
+        with pytest.raises(InfrastructureError, match="baseline artifact"):
             CandidateBuilder(WrongWheelIndex()).build(
                 package=package,
                 cell=package.cells[0],

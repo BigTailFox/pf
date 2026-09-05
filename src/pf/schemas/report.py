@@ -57,6 +57,7 @@ from pf.schemas.project import (
     cell_identity,
     is_canonical_distribution_name,
     public_relative_path,
+    selected_candidate_evidence_digest,
 )
 
 
@@ -140,6 +141,18 @@ def _require_search_evidence(
     snapshots = {
         snapshot.dependency: snapshot for snapshot in result.candidate_snapshots
     }
+    baseline_vector = {
+        pin.name: pin.version for pin in baseline.proposal.managed_vector
+    }
+    for dependency, snapshot in snapshots.items():
+        if (
+            snapshot.cell != result.cell
+            or baseline_vector.get(dependency)
+            != snapshot.baseline_selection.version
+        ):
+            raise ValueError(
+                "candidate baseline selection must match its Cell baseline"
+            )
     for search in _searches_for_cell(result):
         if isinstance(search, CoordinateSuccess):
             for boundary in search.boundaries:
@@ -180,10 +193,47 @@ def _require_search_evidence(
                 )
         for observation in search.observations:
             evidence = observation.evidence
-            _require_shared_evaluation_context(
-                evidence.attempt,
-                baseline_attempt=baseline_attempt,
-            )
+            if (
+                isinstance(evidence, ProbePass)
+                and evidence.attempt.identity.requested_resolution == "highest"
+            ):
+                if (
+                    evidence.attempt != baseline_attempt
+                    or evidence.evaluation != result.baseline
+                    or observation.vector
+                    != evidence.evaluation.proposal.managed_vector
+                ):
+                    raise ValueError(
+                        "highest probe PASS must be the Cell's verified baseline"
+                    )
+            else:
+                _require_shared_evaluation_context(
+                    evidence.attempt,
+                    baseline_attempt=baseline_attempt,
+                )
+            identity = evidence.attempt.identity
+            if identity.requested_resolution == "exact-vector":
+                try:
+                    vector = {pin.name: pin.version for pin in observation.vector}
+                    if set(vector) != set(snapshots):
+                        raise ValueError(
+                            "probe vector and CandidateSnapshots must cover one domain"
+                        )
+                    selected = tuple(
+                        snapshots[name].select(vector[name])
+                        for name in sorted(snapshots)
+                    )
+                except (KeyError, ValueError) as error:
+                    raise ValueError(
+                        "probe Attempt vector must use frozen candidate selections"
+                    ) from error
+                if (
+                    identity.selected_candidate_evidence_digest
+                    != selected_candidate_evidence_digest(selected)
+                ):
+                    raise ValueError(
+                        "probe Attempt selected candidate evidence must match its vector"
+                    )
             static = evidence.static_evaluation
             if isinstance(evidence, ProbePass) and not isinstance(
                 evidence.evaluation, PassEvaluation
@@ -238,8 +288,13 @@ def _require_attempt_proposal(
     identity = attempt.identity
     if proposal.attempt_id != attempt.attempt_id:
         raise ValueError("probe evaluation proposal must reference its Attempt")
-    if proposal.managed_vector != identity.requested_managed_vector:
+    if (
+        identity.requested_resolution == "exact-vector"
+        and proposal.managed_vector != identity.requested_managed_vector
+    ):
         raise ValueError("probe Proposal must match its requested exact vector")
+    if identity.requested_resolution not in {"exact-vector", "highest"}:
+        raise ValueError("probe Proposal requires a direct evaluation request")
     if (
         proposal.snapshot_digest != identity.source_snapshot_digest
         or proposal.cell != identity.cell
@@ -256,8 +311,13 @@ class ProbePass(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_evaluation(self) -> "ProbePass":
-        if self.attempt.identity.requested_resolution != "exact-vector":
-            raise ValueError("probe pass requires an exact-vector Attempt")
+        if self.attempt.identity.requested_resolution not in {
+            "exact-vector",
+            "highest",
+        }:
+            raise ValueError(
+                "probe pass requires an exact-vector or highest Attempt"
+            )
         if self.proposal_id != self.evaluation.proposal.proposal_id:
             raise ValueError("probe pass must match its evaluation proposal")
         _require_attempt_proposal(self.attempt, self.evaluation)
@@ -685,6 +745,13 @@ class ProbeObservation(FrozenSchema):
             identity.requested_managed_vector != self.vector
         ):
             raise ValueError("probe observation vector must match its exact attempt")
+        if identity.requested_resolution == "highest" and (
+            not isinstance(self.evidence, ProbePass)
+            or self.evidence.evaluation.proposal.managed_vector != self.vector
+        ):
+            raise ValueError(
+                "highest probe observation vector must match its PASS Proposal"
+            )
         if (self.dependency is None) != (self.candidate_version is None):
             raise ValueError(
                 "probe observation dependency and candidate version must be paired"
@@ -916,6 +983,13 @@ class CellSuccess(FrozenSchema):
             raise ValueError("final vector must equal the terminal search vector")
         if self.final_vector != self.final_evaluation.proposal.managed_vector:
             raise ValueError("final vector must equal the PASS Proposal managed vector")
+        if (
+            self.final_vector == self.baseline.proposal.managed_vector
+            and self.final_evaluation != self.baseline
+        ):
+            raise ValueError(
+                "a baseline final vector must reuse its highest PASS evaluation"
+            )
         if self.final_evaluation != self.baseline:
             final_pass = next(
                 (
@@ -1275,6 +1349,7 @@ class CandidateSnapshotV1(FrozenSchema):
     policy_identity: str
     source_plan_identity: str
     source: SourceIdentity
+    baseline_selection: SelectedCandidate
     candidates: tuple[Candidate, ...]
     series_representatives: tuple[tuple[str, str], ...]
     series_inventory_ref: str | None = Field(

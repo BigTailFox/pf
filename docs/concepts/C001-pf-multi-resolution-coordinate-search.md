@@ -4,7 +4,7 @@
 - **日期：** 2026-09-05
 - **性质：** 非规范性 Concept，保存开发设想、待证假设与实验方向，不授权实施
 - **来源：** 原 D031 多分辨率坐标搜索草案中的树搜索部分；原编号 D031 不复用
-- **相关 Design：** [D033](../designs/D033-pf-predecessor-revalidate.md) 独立承接改名、重验、缓存与非单调终止
+- **相关 Design：** [D033](../archived/designs/D033-pf-predecessor-revalidate.md) 已独立完成改名、重验、缓存与非单调终止
 - **现行 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
   [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)、
   [D014](../designs/D014-pf-report-schema.md)
@@ -30,7 +30,7 @@ E005 中树本身的收益不稳定，组合策略也劣于仅重验；目前没
 
 ## 2. 分辨率与结果设想
 
-配置名称、默认值、继承与系列代表规则由 [D033 §2](../designs/D033-pf-predecessor-revalidate.md#2-resolution-改名与候选语义)
+配置名称、默认值、继承与系列代表规则由 [D033 §2](../archived/designs/D033-pf-predecessor-revalidate.md#2-resolution-改名与候选语义)
 提出。树不新增另一套配置；它只尝试以分层选点实现相同 resolution 的精确代表搜索。
 
 | Resolution | 设想的搜索层级 | 允许提交的精确版本 |
@@ -207,7 +207,7 @@ until not changed
 
 实验固定明确源码版本的平面搜索作为基线。在完全相同 U、space、resolution、目标序列、baseline 与
 规范坐标顺序下比较四组；E005 的历史基线以对应 step 接收相同目标代表，仅作实验对照。
-后续若基线已实施 D033，则 B 对应该基线，A 保留为显式关闭重验的实验对照，不形成产品兼容路径。
+当前基线已实施 D033，因此 B 对应该基线，A 保留为显式关闭重验的实验对照，不形成产品兼容路径。
 
 | 组 | 一维策略 | 后续 sweep |
 | --- | --- | --- |
@@ -283,7 +283,7 @@ prepare、static guidance、promotion、FailedCaseSet 和资源隔离，不能�
 D 比 B 多 20.22%。多坐标矩阵同样是 B 更优。数字只代表所列合成输入的探针计数，不代表真实耗时。
 
 该结果支持先验证 predecessor 重验的真实成本，尚不支持将树作为默认性能优化。
-树方案因此转入本文，保留待证设想，暂不进入实施；resolution 改名与重验由 D033 独立推进。
+树方案因此转入本文，保留待证设想，暂不进入实施；resolution 改名与重验已由 D033 独立完成。
 第一阶段通过不表示原 D031 AC10 的真实收益验收完成，也不授权树方案转为默认实现。
 
 ## 9. 转入 Design 前的门槛与候选验收项

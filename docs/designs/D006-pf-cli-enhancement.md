@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -67,16 +67,20 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
     Stop scheduling after DURATION and save an incomplete report.
     Accepts a positive integer followed by s, m, or h; use none for no limit.
 
+--search-resolution major|minor|patch
+    Series representative granularity. Omit to use project configuration;
+    accepts major, minor, or patch.
+
 --force
     Accept source-layer drift after structural authorization.
 ```
 
-三个 scheduling flags 同时属于 smoke/check/search/minimize；parser/request 必须保留省略为 `None` 与显式 `auto` 的区别。`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose`的Usage固定为`pf diagnose FAILURE_ID [OPTIONS]`；Failure ID是必填位置参数，可传`failure-<16 hex>`或省略前缀的`<16 hex>`。
+三个 scheduling flags 同时属于 smoke/check/search/minimize；parser/request 必须保留省略为 `None` 与显式 `auto` 的区别。`--search-resolution` 同时属于 search/apply/minimize，省略为 `None`，显式值覆盖全局与逐依赖配置；apply 只用它复核报告请求策略。`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose`的Usage固定为`pf diagnose FAILURE_ID [OPTIONS]`；Failure ID是必填位置参数，可传`failure-<16 hex>`或省略前缀的`<16 hex>`。
 
 ## 3. 调用错误
 
 Search/minimize help 指向 `tool.pf.search-space` 与条件默认表，说明有下界使用
-`majors[declaration-1:]`、无下界使用 `majors[baseline-2:]`，所有 space/step 组合合法；不新增 CLI space flag。
+`majors[declaration-1:]`、无下界使用 `majors[baseline-2:]`，所有 space/resolution 组合合法；不新增 CLI space flag。
 Declaration anchor 前提缺失是退出 3 的 configuration error。成功 registry 观测无法定位 anchor 或跨 scope
 是退出 2 的 `search-space-resolution`，展示 dependency、Cell、canonical expression、失败原因、实际 anchors、
 观察到的系列与 public source；它没有 Failure ID/diagnose 入口，也不声称写入了新报告。
@@ -171,8 +175,10 @@ token 与 identity 保持在同一逻辑行，其内容使用默认前景色且�
 精简为 `[testing]`，其中 `testing` 使用 cyan，并与 progress bar/count/ETA 保持同行。
 count 与 ETA 使用 dim 默认前景色，count 只显示 `completed/total`，不追加
 `tests`。没有 identity 时只显示第三个 stage token。候选窗口使用 `~`。Identity 切换清空旧 stage；同一 probe 的
-static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Cache/known-PASS
-未执行真实 probe 时不制造 detail。
+evaluator lookup/cache hit 不制造新的 `CellContextEvent`、Attempt、验证进度或耗时；只有实际首次执行才切换
+probe identity 并展示 activity。同一完整结果被另一 active dependency 使用时，算法仍登记该 Slice 的证据。
+static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Evaluator cache/baseline-seed
+lookup 未执行真实 probe 时不制造 detail。
 
 只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
@@ -312,7 +318,7 @@ Search/incomplete reason 的主导映射：
 它不读取当前项目树，不能断言当前 apply 已授权、force 可用或当前 identity 匹配；不转储 Proposal/process output。
 
 Search spaces 部分从 `ValidatedReport` 读取 report artifact、规范策略分组、requested space（含省略）、完整
-默认表、step/prereleases，以及逐 dependency/Cell 派生的原因、effective expression、实际 anchor versions、
+默认表、resolution/prereleases，以及逐 dependency/Cell 派生的原因、effective expression、实际 anchor versions、
 选中系列和精确代表。无 CandidateSnapshot 的 Cell 显示 selection evidence unavailable，不猜测系列；
 即使有 baseline 也不能伪造未取得的 registry 事实。Explain 不解析 DSL、不 join refs、不读取 registry。
 系列范围不被描述为完整兼容区间，all 仍受公共资格过滤。

@@ -3,6 +3,7 @@ from __future__ import annotations
 from packaging.version import Version
 
 from pf.schemas.project import (
+    AvailableArtifact,
     AvailableCandidate,
     RegistryCandidates,
     Candidate,
@@ -46,12 +47,33 @@ def frozen_candidate_snapshot(
     versions = {Version("3.11"), *(Version(item.version) for item in candidates)}
     if lower is not None:
         versions.add(lower)
+    available_candidates = tuple(
+        AvailableCandidate(version=item.version, artifacts=(item.artifact,))
+        for item in candidates
+    )
+    if all(Version(item.version) != Version("3.11") for item in candidates):
+        available_candidates = (
+            *available_candidates,
+            AvailableCandidate(
+                version="3.11",
+                yanked=True,
+                artifacts=(
+                    AvailableArtifact(
+                        filename=f"{name}-3.11-py3-none-any.whl",
+                        kind="wheel",
+                        content_hash=f"sha256:{'b' * 64}",
+                        locator=(
+                            f"https://files.example/{name}-3.11-py3-none-any.whl"
+                        ),
+                        python_minors=(cell.python_minor,),
+                        targets=(cell.target,),
+                    ),
+                ),
+            ),
+        )
     inventory = RegistryCandidates(
         release_versions=tuple(str(version) for version in sorted(versions)),
-        candidates=tuple(
-            AvailableCandidate(version=item.version, artifacts=(item.artifact,))
-            for item in candidates
-        ),
+        candidates=available_candidates,
     )
 
     class FixtureRegistry:

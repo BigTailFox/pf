@@ -272,6 +272,7 @@ class SearchCommandWorkflow:
         project = self._projects.load(
             root=root,
             selector=request.selector,
+            search_resolution=request.search_resolution,
         )
         package = project.target
         report_path = root / project.report_path
@@ -633,6 +634,7 @@ class ApplyCommandWorkflow:
         project = self._projects.load(
             root=root,
             selector=request.selector,
+            search_resolution=request.search_resolution,
         )
         if self._events is not None:
             self._events.consume(

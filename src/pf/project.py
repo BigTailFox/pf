@@ -147,13 +147,18 @@ class ProjectLoader:
         *,
         root: Path,
         selector: TargetSelector = RootPackage(),
+        search_resolution: Literal["major", "minor", "patch"] | None = None,
     ) -> ProjectPlan:
         inventory = self._discovery.inventory(
             root=root,
             selector=selector,
         )
         canonical_root = inventory.root_observation.path.parent
-        package = self._load_package(root=canonical_root, inventory=inventory)
+        package = self._load_package(
+            root=canonical_root,
+            inventory=inventory,
+            search_resolution=search_resolution,
+        )
         return ProjectPlan(
             target=package,
             report_path=inventory.target.report_path.relative_to(
@@ -167,6 +172,7 @@ class ProjectLoader:
         *,
         root: Path,
         inventory: WorkspaceInventory,
+        search_resolution: Literal["major", "minor", "patch"] | None,
     ) -> PackagePlan:
         location = inventory.target
         package_path = location.package_root
@@ -184,6 +190,7 @@ class ProjectLoader:
         config = self._config_loader.load(
             root_observation=inventory.root_observation,
             target_observation=inventory.target_observation,
+            search_resolution=search_resolution,
         )
         pyproject_path = location.pyproject_path.relative_to(root).as_posix()
         root_document = inventory.root_observation.document
@@ -911,7 +918,7 @@ class ProjectLoader:
                     name=name,
                     space=source.space,
                     space_defaults=source.space_defaults,
-                    step=source.step,
+                    resolution=source.resolution,
                     prereleases=source.prereleases,
                 )
             )

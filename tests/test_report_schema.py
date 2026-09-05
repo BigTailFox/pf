@@ -758,7 +758,7 @@ class _CompleteReportCase:
                 NamedSearchPolicy(
                     name=dependency,
                     space="all",
-                    step="minor",
+                    resolution="minor",
                     prereleases=False,
                 ),
             ),
@@ -784,6 +784,19 @@ class _CompleteReportCase:
                 artifact=artifact,
             ),
         )
+        baseline_artifact = artifact.model_copy(
+            update={
+                "filename": "demo_dep-2.0-py3-none-any.whl",
+                "locator": (
+                    "https://files.example/demo_dep-2.0-py3-none-any.whl"
+                ),
+            }
+        )
+        baseline_selection = SelectedCandidate(
+            dependency=dependency,
+            version="2.0",
+            artifact=baseline_artifact,
+        )
         plan_identity = SourcePlan.for_package(package, "SEARCH").identity
         candidate_snapshot = CandidateSnapshot(
             selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
@@ -792,6 +805,7 @@ class _CompleteReportCase:
             policy_identity=candidate_policy,
             source_plan_identity=plan_identity,
             source=source,
+            baseline_selection=baseline_selection,
             candidates=candidates,
             series_representatives=(("1.0", "1.0"),),
             digest=candidate_snapshot_digest(
@@ -801,6 +815,7 @@ class _CompleteReportCase:
                 policy_identity=candidate_policy,
                 source_plan_identity=plan_identity,
                 source=source,
+                baseline_selection=baseline_selection,
                 candidates=candidates,
                 series_representatives=(("1.0", "1.0"),),
             ),
@@ -940,6 +955,16 @@ class _CompleteReportCase:
                         evaluation=final,
                     ),
                 ),
+                ProbeObservation(
+                    dependency=None,
+                    candidate_version=None,
+                    vector=baseline_proposal.managed_vector,
+                    evidence=ProbePass(
+                        attempt=baseline_attempt,
+                        proposal_id=baseline_proposal.proposal_id,
+                        evaluation=baseline,
+                    ),
+                ),
             ),
             boundaries=(CoordinateBoundary(dependency=dependency, floor="1.0"),),
             sweeps=1,
@@ -954,7 +979,7 @@ class _CompleteReportCase:
             ),
             baseline=baseline,
             candidate_snapshots=(candidate_snapshot,),
-            search=CoordinateSuccess.model_validate(search.model_dump()),
+            search=search,
             final_vector=final_vector,
             final_evaluation=final,
         )
@@ -990,6 +1015,7 @@ class _CompleteReportCase:
             policy_identity=candidate_policy,
             source_plan_identity=plan_identity,
             source=source,
+            baseline_selection=baseline_selection,
             candidates=expanded_candidates,
             series_representatives=expanded_representatives,
             digest=candidate_snapshot_digest(
@@ -999,6 +1025,7 @@ class _CompleteReportCase:
                 policy_identity=candidate_policy,
                 source_plan_identity=plan_identity,
                 source=source,
+                baseline_selection=baseline_selection,
                 candidates=expanded_candidates,
                 series_representatives=expanded_representatives,
             ),
@@ -1273,6 +1300,16 @@ class _CompleteReportCase:
             dependency=dependency,
             observations=(
                 ProbeObservation(
+                    dependency=None,
+                    candidate_version=None,
+                    vector=baseline_proposal.managed_vector,
+                    evidence=ProbePass(
+                        attempt=baseline_attempt,
+                        proposal_id=baseline_proposal.proposal_id,
+                        evaluation=baseline,
+                    ),
+                ),
+                ProbeObservation(
                     dependency=dependency,
                     candidate_version="0.9",
                     vector=rejected_attempt.identity.requested_managed_vector or (),
@@ -1331,6 +1368,7 @@ class _CompleteReportCase:
             policy_identity=candidate_policy,
             source_plan_identity=plan_identity,
             source=source,
+            baseline_selection=baseline_selection,
             candidates=region_candidates,
             series_representatives=(
                 ("0.8", "0.8"),
@@ -1344,6 +1382,7 @@ class _CompleteReportCase:
                 policy_identity=candidate_policy,
                 source_plan_identity=plan_identity,
                 source=source,
+                baseline_selection=baseline_selection,
                 candidates=region_candidates,
                 series_representatives=(
                     ("0.8", "0.8"),
@@ -1518,6 +1557,16 @@ class _CompleteReportCase:
             dependency=dependency,
             observations=(
                 ProbeObservation(
+                    dependency=None,
+                    candidate_version=None,
+                    vector=baseline_proposal.managed_vector,
+                    evidence=ProbePass(
+                        attempt=baseline_attempt,
+                        proposal_id=baseline_proposal.proposal_id,
+                        evaluation=baseline,
+                    ),
+                ),
+                ProbeObservation(
                     dependency=dependency,
                     candidate_version="0.8",
                     vector=cheap_proposal.managed_vector,
@@ -1567,6 +1616,7 @@ class _CompleteReportCase:
         search_failure_loaded = ReportStore().read(search_failure_path)
 
         return SimpleNamespace(
+            baseline_attempt=baseline_attempt,
             baseline_proposal=baseline_proposal,
             baseline_rejection_document=baseline_rejection_document,
             baseline_rejection_loaded=baseline_rejection_loaded,
@@ -1632,6 +1682,16 @@ class TestCompleteReportEvidence(_CompleteReportCase):
             },
         }
         assert "vector" not in observation
+        baseline_observation = case.document["cell_results"][0]["search"][
+            "observations"
+        ][1]
+        assert baseline_observation == {
+            "evidence": {
+                "kind": "DIRECT",
+                "attempt_ref": case.baseline_attempt.attempt_id,
+                "status": "PASS",
+            },
+        }
         assert case.document["cell_results"][0]["final_proposal_ref"] == (
             case.final_proposal.proposal_id
         )
@@ -1643,6 +1703,9 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                 "policy_identity": case.candidate_policy,
                 "source_plan_identity": case.candidate_snapshot.source_plan_identity,
                 "source": case.source.model_dump(mode="json", exclude_none=True),
+                "baseline_selection": case.candidate_snapshot.baseline_selection.model_dump(
+                    mode="json", exclude_none=True
+                ),
                 "candidates": [
                     case.candidates[0].model_dump(mode="json", exclude_none=True)
                 ],
@@ -2599,6 +2662,54 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
+    def test_read_requires_baseline_selection_in_every_candidate_snapshot(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        document = copy.deepcopy(self.case.regional_document)
+        document["inputs"]["candidate_snapshots"][0].pop(
+            "baseline_selection"
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
+    def test_read_rejects_baseline_selection_for_another_version(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        case = self.case
+        document = copy.deepcopy(case.regional_document)
+        snapshot = document["inputs"]["candidate_snapshots"][0]
+        old_snapshot_id = snapshot["candidate_snapshot_id"]
+        snapshot["baseline_selection"] = {
+            "dependency": snapshot["dependency"],
+            "version": snapshot["candidates"][-1]["version"],
+            "artifact": snapshot["candidates"][-1]["artifact"],
+        }
+        new_snapshot_id = candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()),
+            series_inventory=None,
+            dependency=snapshot["dependency"],
+            cell=case.cell,
+            policy_identity=snapshot["policy_identity"],
+            source_plan_identity=snapshot["source_plan_identity"],
+            source=SourceIdentity.model_validate(snapshot["source"]),
+            baseline_selection=SelectedCandidate.model_validate(
+                snapshot["baseline_selection"]
+            ),
+            candidates=tuple(
+                Candidate.model_validate(item) for item in snapshot["candidates"]
+            ),
+            series_representatives=tuple(
+                tuple(item) for item in snapshot["series_representatives"]
+            ),
+        )
+        document = json.loads(
+            json.dumps(document).replace(old_snapshot_id, new_snapshot_id)
+        )
+
+        self._assert_read_rejects(tmp_path, document)
+
     def test_read_rejects_candidate_artifact_drift_from_exact_attempt(
         self,
         tmp_path: Path,
@@ -2617,6 +2728,9 @@ class TestCompleteReportStore(_CompleteReportCase):
             policy_identity=snapshot["policy_identity"],
             source_plan_identity=snapshot["source_plan_identity"],
             source=SourceIdentity.model_validate(snapshot["source"]),
+            baseline_selection=SelectedCandidate.model_validate(
+                snapshot["baseline_selection"]
+            ),
             candidates=tuple(
                 Candidate.model_validate(item) for item in snapshot["candidates"]
             ),
@@ -2652,6 +2766,9 @@ class TestCompleteReportStore(_CompleteReportCase):
             policy_identity=snapshot["policy_identity"],
             source_plan_identity=snapshot["source_plan_identity"],
             source=SourceIdentity.model_validate(snapshot["source"]),
+            baseline_selection=SelectedCandidate.model_validate(
+                snapshot["baseline_selection"]
+            ),
             candidates=tuple(
                 Candidate.model_validate(item) for item in snapshot["candidates"]
             ),

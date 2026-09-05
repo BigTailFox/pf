@@ -65,7 +65,7 @@ class SpaceDefaults(FrozenSchema):
 class SearchPolicy(FrozenSchema):
     space: str | None = None
     space_defaults: SpaceDefaults = SpaceDefaults()
-    step: Literal["major", "minor", "patch"] = "minor"
+    resolution: Literal["major", "minor", "patch"] = "minor"
     prereleases: StrictBool = False
 
     @field_validator("space")
@@ -243,6 +243,7 @@ class SearchRequest(FrozenSchema):
     ty_jobs: OptionalSchedulingLimit = None
     test_jobs: OptionalSchedulingLimit = None
     max_duration_seconds: float | None = None
+    search_resolution: Literal["major", "minor", "patch"] | None = None
 
     @model_validator(mode="after")
     def validate_scheduling(self) -> "SearchRequest":
@@ -284,6 +285,7 @@ class DiagnoseRequest(FrozenSchema):
 class ApplyRequest(FrozenSchema):
     root: str
     selector: TargetSelector = RootPackage()
+    search_resolution: Literal["major", "minor", "patch"] | None = None
     force: StrictBool = False
 
 

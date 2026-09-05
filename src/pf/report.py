@@ -6,7 +6,7 @@ import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import tempfile
-from typing import Literal
+from typing import cast, Literal
 from urllib.parse import urlsplit
 
 from packaging.requirements import Requirement
@@ -61,8 +61,8 @@ from pf.schemas.project import (
     PackagePlan,
     Proposal,
     RequirementDeclaration,
-    SelectedCandidate,
     SourcePlan,
+    VersionPin,
     selected_candidate_evidence_digest,
     SourceIdentity,
     SourceSnapshotIdentity,
@@ -925,6 +925,7 @@ class PackageReportBuilder:
                         policy_identity=snapshot.policy_identity,
                         source_plan_identity=snapshot.source_plan_identity,
                         source=snapshot.source,
+                        baseline_selection=snapshot.baseline_selection,
                         candidates=snapshot.candidates,
                         series_representatives=snapshot.series_representatives,
                         series_inventory_ref=(snapshot.series_inventory.inventory_id if snapshot.series_inventory else None),
@@ -2093,11 +2094,6 @@ class ReportStore:
                 "invalid v1 report: CandidateSnapshots must be sorted and unique"
             )
         report_source_plan_identity = source_plan.identity
-        candidate_artifacts = {
-            (record.cell_ref, record.dependency, candidate.version): candidate.artifact
-            for record in wire.inputs.candidate_snapshots
-            for candidate in record.candidates
-        }
         graph_ids = tuple(
             item.resolution_graph_id for item in wire.evidence.resolution_graphs
         )
@@ -2163,31 +2159,6 @@ class ReportStore:
                     "invalid v1 report: Attempt source plan mismatch: "
                     f"{_safe_report_id(record.attempt_id)}"
                 )
-            if attempt.identity.requested_resolution == "exact-vector":
-                assert attempt.identity.requested_managed_vector is not None
-                try:
-                    selected = tuple(
-                        SelectedCandidate(
-                            dependency=pin.name,
-                            version=pin.version,
-                            artifact=candidate_artifacts[(cell_id(cell), pin.name, pin.version)],
-                        )
-                        for pin in attempt.identity.requested_managed_vector
-                    )
-                    selected_digest = selected_candidate_evidence_digest(selected)
-                except (KeyError, StopIteration, ValidationError, ValueError) as error:
-                    raise ConfigurationError(
-                        "invalid v1 report: Attempt selected candidate mismatch: "
-                        f"{_safe_report_id(record.attempt_id)}"
-                    ) from error
-                if (
-                    attempt.identity.selected_candidate_evidence_digest
-                    != selected_digest
-                ):
-                    raise ConfigurationError(
-                        "invalid v1 report: Attempt selected candidate mismatch: "
-                        f"{_safe_report_id(record.attempt_id)}"
-                    )
             attempt_by_id[record.attempt_id] = attempt
         proposal_ids = tuple(item.proposal_id for item in wire.evidence.proposals)
         if proposal_ids != tuple(sorted(set(proposal_ids))):
@@ -2651,9 +2622,13 @@ class ReportStore:
                     "invalid v1 report: unknown Cell ref in CandidateSnapshot "
                     f"{_safe_report_id(record.candidate_snapshot_id)}"
                 )
-            if not _is_public_source(record.source) or any(
-                not _is_public_artifact(candidate.artifact)
-                for candidate in record.candidates
+            if (
+                not _is_public_source(record.source)
+                or not _is_public_artifact(record.baseline_selection.artifact)
+                or any(
+                    not _is_public_artifact(candidate.artifact)
+                    for candidate in record.candidates
+                )
             ):
                 raise ConfigurationError(
                     "invalid v1 report: CandidateSnapshot has a non-public locator"
@@ -2678,6 +2653,28 @@ class ReportStore:
                     for pin in baseline.proposal.managed_vector
                     if pin.name == record.dependency
                 )
+                if record.baseline_selection.version != baseline_version:
+                    raise ValueError(
+                        "candidate baseline selection does not match Cell baseline"
+                    )
+                baseline_artifact = record.baseline_selection.artifact
+                if (
+                    baseline_artifact.kind not in {"wheel", "sdist"}
+                    or (
+                        search_policy.artifact != "any"
+                        and baseline_artifact.kind != search_policy.artifact
+                    )
+                    or (
+                        baseline_artifact.kind == "wheel"
+                        and (
+                            cell.python_minor not in baseline_artifact.python_minors
+                            or cell.target not in baseline_artifact.targets
+                        )
+                    )
+                ):
+                    raise ValueError(
+                        "candidate baseline artifact does not satisfy Cell policy"
+                    )
                 bound = bind_policy(policy, declarations=declarations, cell=cell)
                 inventory = (
                     inventories.get(record.series_inventory_ref)
@@ -2740,7 +2737,7 @@ class ReportStore:
                             for clause in restrictions
                         )
                         or candidate.series_key
-                        != candidate_series_key(version, policy.step)
+                        != candidate_series_key(version, policy.resolution)
                         or candidate.artifact.kind not in {"wheel", "sdist"}
                         or (
                             search_policy.artifact != "any"
@@ -2761,6 +2758,7 @@ class ReportStore:
                     policy_identity=record.policy_identity,
                     source_plan_identity=record.source_plan_identity,
                     source=record.source,
+                    baseline_selection=record.baseline_selection,
                     candidates=record.candidates,
                     series_representatives=record.series_representatives,
                     selection=selection,
@@ -2801,6 +2799,35 @@ class ReportStore:
                 )
             candidate_by_id[record.candidate_snapshot_id] = snapshot
             candidate_key_ids.add(record.candidate_snapshot_id)
+        snapshots_by_cell_dependency = {
+            (cell_id(snapshot.cell), snapshot.dependency): snapshot
+            for snapshot in candidate_by_id.values()
+        }
+        for attempt in attempt_by_id.values():
+            if attempt.identity.requested_resolution != "exact-vector":
+                continue
+            assert attempt.identity.requested_managed_vector is not None
+            try:
+                selected = tuple(
+                    snapshots_by_cell_dependency[
+                        (cell_id(attempt.identity.cell), pin.name)
+                    ].select(pin.version)
+                    for pin in attempt.identity.requested_managed_vector
+                )
+                selected_digest = selected_candidate_evidence_digest(selected)
+            except (KeyError, ValueError) as error:
+                raise ConfigurationError(
+                    "invalid v1 report: Attempt selected candidate mismatch: "
+                    f"{_safe_report_id(attempt.attempt_id)}"
+                ) from error
+            if (
+                attempt.identity.selected_candidate_evidence_digest
+                != selected_digest
+            ):
+                raise ConfigurationError(
+                    "invalid v1 report: Attempt selected candidate mismatch: "
+                    f"{_safe_report_id(attempt.attempt_id)}"
+                )
         if {record.series_inventory_ref for record in wire.inputs.candidate_snapshots if record.series_inventory_ref is not None} != set(inventories):
             raise ConfigurationError("invalid v1 report: unreachable series inventory")
         resolved_results: list[CellResult] = []
@@ -2833,7 +2860,6 @@ class ReportStore:
                 if (
                     attempt is None
                     or attempt.identity.cell != cell
-                    or attempt.identity.requested_managed_vector is None
                 ):
                     raise ConfigurationError(
                         "invalid v1 report: incomplete direct evidence: "
@@ -2856,6 +2882,11 @@ class ReportStore:
                         evaluation=evaluation,
                     )
                 elif isinstance(evidence_record, DirectRejectionV1):
+                    if attempt.identity.requested_managed_vector is None:
+                        raise ConfigurationError(
+                            "invalid v1 report: incomplete Rejection evidence: "
+                            f"{_safe_report_id(evidence_record.attempt_ref)}"
+                        )
                     failure = failure_by_id.get(evidence_record.failure_ref)
                     evaluation = (
                         evaluation_by_proposal.get(proposal.proposal_id)
@@ -2897,6 +2928,11 @@ class ReportStore:
                         evaluation=rejection_evaluation,
                     )
                 else:
+                    if attempt.identity.requested_managed_vector is None:
+                        raise ConfigurationError(
+                            "invalid v1 report: incomplete INDETERMINATE evidence: "
+                            f"{_safe_report_id(evidence_record.attempt_ref)}"
+                        )
                     failure = failure_by_id.get(evidence_record.failure_ref)
                     evaluation = (
                         evaluation_by_proposal.get(proposal.proposal_id)
@@ -2930,7 +2966,15 @@ class ReportStore:
                 resolved_observations[index] = ProbeObservation(
                     dependency=observation_record.dependency,
                     candidate_version=observation_record.candidate_version,
-                    vector=attempt.identity.requested_managed_vector,
+                    vector=(
+                        proposal.managed_vector
+                        if attempt.identity.requested_resolution == "highest"
+                        and proposal is not None
+                        else cast(
+                            tuple[VersionPin, ...],
+                            attempt.identity.requested_managed_vector,
+                        )
+                    ),
                     evidence=evidence,
                 )
                 referenced_attempt_ids.add(attempt.attempt_id)

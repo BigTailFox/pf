@@ -371,11 +371,19 @@ _DURATION_HELP = (
     "Stop scheduling after DURATION and save an incomplete report. "
     "Accepts a positive integer followed by s, m, or h; use none for no limit."
 )
+_SEARCH_RESOLUTION_HELP = (
+    "Series representative granularity. Omit to use project configuration; "
+    "accepts major, minor, or patch."
+)
 _PACKAGE = Annotated[str | None, Parameter(help=_PACKAGE_HELP)]
 _MAX_CELLS = Annotated[str | None, Parameter(help=_MAX_CELLS_HELP)]
 _TY_JOBS = Annotated[str | None, Parameter(help=_TY_JOBS_HELP)]
 _TEST_JOBS = Annotated[str | None, Parameter(help=_TEST_JOBS_HELP)]
 _DURATION = Annotated[str | None, Parameter(help=_DURATION_HELP)]
+_SEARCH_RESOLUTION = Annotated[
+    Literal["major", "minor", "patch"] | None,
+    Parameter(help=_SEARCH_RESOLUTION_HELP),
+]
 _FAILURE_ID = Annotated[
     str,
     Parameter(
@@ -512,12 +520,13 @@ def create_app(context: CliContext) -> App:
         ty_jobs: _TY_JOBS = None,
         test_jobs: _TEST_JOBS = None,
         max_duration: _DURATION = None,
+        search_resolution: _SEARCH_RESOLUTION = None,
     ) -> int:
         """Find verified floors and write package-floor.json.
 
         Configure search-space and search-space-defaults in tool.pf. Omitted
         space selects majors[declaration-1:] with a lower bound, otherwise
-        majors[baseline-2:]. All spaces accept major, minor, or patch steps.
+        majors[baseline-2:]. Resolution selects major, minor, or patch series.
         """
         context.presenter.bind_command("search")
         request = SearchRequest(
@@ -527,6 +536,7 @@ def create_app(context: CliContext) -> App:
             ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
             test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
             max_duration_seconds=_cli_duration(max_duration),
+            search_resolution=search_resolution,
         )
         return context.presenter.render_search(context.search_workflow.run(request))
 
@@ -543,6 +553,7 @@ def create_app(context: CliContext) -> App:
     def apply(
         *,
         package: _PACKAGE = None,
+        search_resolution: _SEARCH_RESOLUTION = None,
         force: Annotated[
             bool,
             Parameter(
@@ -556,6 +567,7 @@ def create_app(context: CliContext) -> App:
         request = ApplyRequest(
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
+            search_resolution=search_resolution,
             force=force,
         )
         return context.presenter.render_apply(context.apply_workflow.run(request))
@@ -568,6 +580,7 @@ def create_app(context: CliContext) -> App:
         ty_jobs: _TY_JOBS = None,
         test_jobs: _TEST_JOBS = None,
         max_duration: _DURATION = None,
+        search_resolution: _SEARCH_RESOLUTION = None,
     ) -> int:
         """Search for floors, then apply the authorized result.
 
@@ -583,10 +596,15 @@ def create_app(context: CliContext) -> App:
                 ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
                 test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
                 max_duration_seconds=_cli_duration(max_duration),
+                search_resolution=search_resolution,
             )
         )
         result = context.apply_workflow.run(
-            ApplyRequest(root=root, selector=_cli_selector(package))
+            ApplyRequest(
+                root=root,
+                selector=_cli_selector(package),
+                search_resolution=search_resolution,
+            )
         )
         return context.presenter.render_minimize(search.report, result)
 

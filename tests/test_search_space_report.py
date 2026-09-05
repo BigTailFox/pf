@@ -106,6 +106,7 @@ class TestSearchSpaceReport:
             policy_identity=forged_policy,
             source_plan_identity=snapshot.source_plan_identity,
             source=snapshot.source,
+            baseline_selection=snapshot.baseline_selection,
             candidates=snapshot.candidates,
             series_representatives=snapshot.series_representatives,
             selection=snapshot.selection,

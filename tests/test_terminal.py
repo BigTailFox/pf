@@ -81,13 +81,20 @@ from pf.schemas.evaluation import (
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
+    AvailableArtifact,
+    Candidate,
+    CandidateSnapshot,
     Cell,
     PackagePlan,
     Proposal,
     RequirementDeclaration,
+    SelectedCandidate,
+    SourceIdentity,
     SourcePlan,
     SourceSnapshotIdentity,
     VersionPin,
+    candidate_snapshot_digest,
+    selected_candidate_evidence_digest,
     source_snapshot_digest,
 )
 from pf.schemas.config import EffectiveConfig
@@ -106,6 +113,7 @@ from pf.schemas.report import (
     failure_records_for_result,
 )
 from pf.terminal import PF_THEME, TerminalPresenter
+from pf.search_space import SpaceSelection
 from pf.static_transition import static_fingerprint
 from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
 
@@ -339,6 +347,7 @@ def attempt_for(
     *,
     resolution: Literal["highest", "lowest-direct", "exact-vector"] = "highest",
     vector: tuple[VersionPin, ...] | None = None,
+    selected_digest: str | None = None,
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
@@ -359,10 +368,75 @@ def attempt_for(
                 None if resolution == "highest" else "baseline"
             ),
             selected_candidate_evidence_digest=(
-                "selection" if resolution == "exact-vector" else None
+                selected_digest or "selection"
+                if resolution == "exact-vector"
+                else None
             ),
         )
     )
+
+
+def candidate_snapshot_for(
+    cell: Cell,
+    *,
+    dependency: str,
+    baseline_version: str,
+    candidate_version: str,
+) -> tuple[CandidateSnapshot, str]:
+    def artifact(version: str) -> AvailableArtifact:
+        return AvailableArtifact(
+            filename=f"{dependency}-{version}-py3-none-any.whl",
+            kind="wheel",
+            content_hash=f"sha256:{version[-1] * 64}",
+            locator=(
+                f"https://files.example/{dependency}-{version}-py3-none-any.whl"
+            ),
+        )
+
+    baseline_selection = SelectedCandidate(
+        dependency=dependency,
+        version=baseline_version,
+        artifact=artifact(baseline_version),
+    )
+    selected = SelectedCandidate(
+        dependency=dependency,
+        version=candidate_version,
+        artifact=artifact(candidate_version),
+    )
+    candidate = Candidate(
+        version=candidate_version,
+        series_key=candidate_version,
+        artifact=selected.artifact,
+    )
+    candidates = (candidate,)
+    representatives = ((candidate.series_key, candidate.version),)
+    selection = SpaceSelection("all", "explicit", ())
+    source = SourceIdentity(kind="registry")
+    snapshot = CandidateSnapshot(
+        dependency=dependency,
+        cell=cell,
+        policy_identity="candidate-policy",
+        source_plan_identity="sources",
+        source=source,
+        baseline_selection=baseline_selection,
+        candidates=candidates,
+        series_representatives=representatives,
+        selection=selection,
+        series_inventory=None,
+        digest=candidate_snapshot_digest(
+            dependency=dependency,
+            cell=cell,
+            policy_identity="candidate-policy",
+            source_plan_identity="sources",
+            source=source,
+            baseline_selection=baseline_selection,
+            candidates=candidates,
+            series_representatives=representatives,
+            selection=selection,
+            series_inventory=None,
+        ),
+    )
+    return snapshot, selected_candidate_evidence_digest((selected,))
 
 
 def verifier_failure(attempt: Attempt, *, exit_code: int = 1) -> FailureRecord:
@@ -4734,22 +4808,30 @@ class TestExplainRendering:
             python_minor="3.10",
             extra_surface=(),
         )
+        baseline_vector = (VersionPin(name="demo-dep", version="2"),)
+        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
+        candidate_snapshot, selected_digest = candidate_snapshot_for(
+            cell,
+            dependency="demo-dep",
+            baseline_version="2",
+            candidate_version="1",
+        )
         baseline_attempt = attempt_for(cell)
         baseline_proposal = Proposal(
             proposal_id="highest",
             attempt_id=baseline_attempt.attempt_id,
             snapshot_digest="snapshot",
             cell=cell,
-            managed_vector=(),
+            managed_vector=baseline_vector,
             fixed_declaration_ids=(),
             resolved_graph=(),
             policy_identity="policy",
         )
-        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
         candidate_attempt = attempt_for(
             cell,
             resolution="exact-vector",
             vector=candidate_vector,
+            selected_digest=selected_digest,
         )
         proposal = Proposal(
             proposal_id="candidate",
@@ -4817,6 +4899,7 @@ class TestExplainRendering:
                 static=baseline_static,
                 verifier=verifier_pass(process.model_copy(update={"exit_code": 0})),
             ),
+            candidate_snapshots=(candidate_snapshot,),
             failure_records=(rejection,),
             coordinate_failure=CoordinateFailure(
                 status="NO_PASS_IN_SEARCH_SPACE",
@@ -4865,22 +4948,30 @@ class TestExplainRendering:
             python_minor="3.10",
             extra_surface=(),
         )
+        baseline_vector = (VersionPin(name="demo-dep", version="2"),)
+        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
+        candidate_snapshot, selected_digest = candidate_snapshot_for(
+            cell,
+            dependency="demo-dep",
+            baseline_version="2",
+            candidate_version="1",
+        )
         baseline_attempt = attempt_for(cell)
         baseline_proposal = Proposal(
             proposal_id="highest",
             attempt_id=baseline_attempt.attempt_id,
             snapshot_digest="snapshot",
             cell=cell,
-            managed_vector=(),
+            managed_vector=baseline_vector,
             fixed_declaration_ids=(),
             resolved_graph=(),
             policy_identity="policy",
         )
-        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
         candidate_attempt = attempt_for(
             cell,
             resolution="exact-vector",
             vector=candidate_vector,
+            selected_digest=selected_digest,
         )
         proposal = Proposal(
             proposal_id="candidate",
@@ -4972,6 +5063,7 @@ class TestExplainRendering:
                 static=baseline_static,
                 verifier=verifier_pass(process.model_copy(update={"exit_code": 0})),
             ),
+            candidate_snapshots=(candidate_snapshot,),
             failure_records=(rejection,),
             coordinate_failure=CoordinateFailure(
                 status="NO_PASS_IN_SEARCH_SPACE",

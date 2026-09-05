@@ -185,7 +185,8 @@ def _render_report(
         for binding in report.search_policy.bindings:
             requested = binding.requested_space or "conditional default"
             rows.append((None, Text(
-                f"{', '.join(binding.dependencies)}: requested {requested}; step {binding.step}; "
+                f"{', '.join(binding.dependencies)}: requested {requested}; "
+                f"resolution {binding.resolution}; "
                 f"prereleases {'included' if binding.prereleases else 'excluded'}"
             )))
             rows.append((None, Text(

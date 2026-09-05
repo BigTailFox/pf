@@ -81,6 +81,7 @@ from pf.schemas.project import (
     candidate_snapshot_digest,
     cell_identity,
     public_locator,
+    selected_candidate_evidence_digest,
 )
 from pf.schemas.report import (
     CellIndeterminate,
@@ -131,6 +132,7 @@ def _attempt(
     resolution: Literal["highest", "exact-vector"] = "highest",
     vector: tuple[VersionPin, ...] | None = None,
     cell: Cell | None = None,
+    selected_digest: str | None = None,
 ) -> Attempt:
     attempt_cell = cell or Cell(
         package="demo",
@@ -138,6 +140,25 @@ def _attempt(
         python_minor="3.10",
         extra_surface=(),
     )
+    if resolution == "exact-vector" and selected_digest is None:
+        selected_digest = selected_candidate_evidence_digest(
+            tuple(
+                SelectedCandidate(
+                    dependency=pin.name,
+                    version=pin.version,
+                    artifact=AvailableArtifact(
+                        filename=f"{pin.name}-{pin.version}-py3-none-any.whl",
+                        kind="wheel",
+                        content_hash=f"sha256:{'a' * 64}",
+                        locator=(
+                            f"https://files.example/"
+                            f"{pin.name}-{pin.version}-py3-none-any.whl"
+                        ),
+                    ),
+                )
+                for pin in (vector or ())
+            )
+        )
     return Attempt.from_identity(
         AttemptIdentity(
             source_snapshot_digest="snapshot",
@@ -157,7 +178,7 @@ def _attempt(
                 None if resolution == "highest" else "baseline"
             ),
             selected_candidate_evidence_digest=(
-                "selection" if resolution == "exact-vector" else None
+                selected_digest if resolution == "exact-vector" else None
             ),
         )
     )
@@ -208,9 +229,17 @@ def _general_classifications(
     )
 
 
-def _baseline_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
-    attempt = _attempt()
-    proposal = _proposal("baseline", attempt=attempt)
+def _baseline_evidence(
+    *,
+    version: str = "1",
+    cell: Cell | None = None,
+) -> tuple[Attempt, StaticBaseline, PassEvaluation]:
+    attempt = _attempt(cell=cell)
+    proposal = _proposal(
+        "baseline",
+        attempt=attempt,
+        vector=(VersionPin(name="demo", version=version),),
+    )
     check = TyCheck(process=_successful_process(), diagnostics=())
     baseline = StaticBaseline(
         proposal=proposal,
@@ -250,9 +279,38 @@ def _indeterminate_evaluation(attempt: Attempt) -> IndeterminateEvaluation:
 
 
 def _cell_success() -> CellSuccess:
-    baseline_attempt, baseline, passed = _baseline_evidence()
+    baseline_attempt, baseline, passed = _baseline_evidence(version="2")
     vector = (VersionPin(name="demo", version="1"),)
-    attempt = _attempt(resolution="exact-vector", vector=vector)
+    artifact = AvailableArtifact(
+        filename="demo-1-py3-none-any.whl",
+        kind="wheel",
+        content_hash=f"sha256:{'a' * 64}",
+        locator="https://files.example/demo-1-py3-none-any.whl",
+    )
+    baseline_selection = SelectedCandidate(
+        dependency="demo",
+        version="2",
+        artifact=artifact.model_copy(
+            update={
+                "filename": "demo-2-py3-none-any.whl",
+                "content_hash": f"sha256:{'b' * 64}",
+                "locator": "https://files.example/demo-2-py3-none-any.whl",
+            }
+        ),
+    )
+    attempt = _attempt(
+        resolution="exact-vector",
+        vector=vector,
+        selected_digest=selected_candidate_evidence_digest(
+            (
+                SelectedCandidate(
+                    dependency="demo",
+                    version="1",
+                    artifact=artifact,
+                ),
+            )
+        ),
+    )
     proposal = _proposal("floor", attempt=attempt, vector=vector)
     evaluation = PassEvaluation(
         proposal=proposal,
@@ -276,6 +334,16 @@ def _cell_success() -> CellSuccess:
                     evaluation=evaluation,
                 ),
             ),
+            ProbeObservation(
+                dependency=None,
+                candidate_version=None,
+                vector=baseline.proposal.managed_vector,
+                evidence=ProbePass(
+                    attempt=baseline_attempt,
+                    proposal_id=baseline.proposal.proposal_id,
+                    evaluation=passed,
+                ),
+            ),
         ),
         boundaries=(CoordinateBoundary(dependency="demo", floor="1"),),
         sweeps=1,
@@ -285,12 +353,7 @@ def _cell_success() -> CellSuccess:
         Candidate(
             version="1",
             series_key="1",
-            artifact=AvailableArtifact(
-                filename="demo-1-py3-none-any.whl",
-                kind="wheel",
-                content_hash=f"sha256:{'a' * 64}",
-                locator="https://files.example/demo-1-py3-none-any.whl",
-            ),
+            artifact=artifact,
         ),
     )
     representatives = (("1", "1"),)
@@ -301,6 +364,7 @@ def _cell_success() -> CellSuccess:
         policy_identity="candidate-policy",
         source_plan_identity="sources",
         source=source,
+        baseline_selection=baseline_selection,
         candidates=candidates,
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
@@ -310,6 +374,7 @@ def _cell_success() -> CellSuccess:
             policy_identity="candidate-policy",
             source_plan_identity="sources",
             source=source,
+            baseline_selection=baseline_selection,
             candidates=candidates,
             series_representatives=representatives,
         ),
@@ -542,7 +607,8 @@ class TestPlanningSchemas:
         artifact = AvailableArtifact(
             filename="demo.whl",
             kind="wheel",
-            content_hash="sha256:abc",
+            content_hash=f"sha256:{'a' * 64}",
+            locator="https://files.example/demo.whl",
         )
         base = {
             "dependency": "demo",
@@ -550,6 +616,11 @@ class TestPlanningSchemas:
             "policy_identity": "policy",
             "source_plan_identity": "sources",
             "source": SourceIdentity(kind="registry"),
+            "baseline_selection": SelectedCandidate(
+                dependency="demo",
+                version="1.0",
+                artifact=artifact,
+            ),
             "series_representatives": (),
             "digest": "digest",
         }
@@ -577,11 +648,17 @@ class TestPlanningSchemas:
                 artifact=AvailableArtifact(
                     filename="demo.whl",
                     kind="wheel",
-                    content_hash="sha256:abc",
+                    content_hash=f"sha256:{'a' * 64}",
+                    locator="https://files.example/demo.whl",
                 ),
             ),
         )
         representatives = (("1", "1.0"),)
+        baseline_selection = SelectedCandidate(
+            dependency="demo",
+            version="1.0",
+            artifact=candidates[0].artifact,
+        )
         snapshot = CandidateSnapshot(
             selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency="demo",
@@ -589,6 +666,7 @@ class TestPlanningSchemas:
             policy_identity="policy",
             source_plan_identity="sources",
             source=source,
+            baseline_selection=baseline_selection,
             candidates=candidates,
             series_representatives=representatives,
             digest=candidate_snapshot_digest(
@@ -598,6 +676,7 @@ class TestPlanningSchemas:
                 policy_identity="policy",
                 source_plan_identity="sources",
                 source=source,
+                baseline_selection=baseline_selection,
                 candidates=candidates,
                 series_representatives=representatives,
             ),
@@ -605,7 +684,7 @@ class TestPlanningSchemas:
         dumped = snapshot.model_dump(mode="python")
         dumped["candidates"][0]["artifact"]["filename"] = "tampered.whl"
 
-        with pytest.raises(ValidationError, match="digest"):
+        with pytest.raises(ValidationError, match="artifact|digest"):
             CandidateSnapshot.model_validate(dumped)
 
     def test_structured_probe_rejections_require_their_evaluation(self) -> None:
@@ -799,7 +878,10 @@ class TestSearchSchemas:
             )
 
     def test_probe_rejection_requires_its_failure_record(self) -> None:
-        baseline_attempt, baseline, passed = _baseline_evidence()
+        success = _cell_success()
+        baseline_attempt = success.baseline_attempt
+        baseline = success.static_baseline
+        passed = success.baseline
         vector = (VersionPin(name="demo", version="1"),)
         attempt = _attempt(resolution="exact-vector", vector=vector)
         with pytest.raises(ValidationError, match="FailureRecord"):
@@ -810,6 +892,7 @@ class TestSearchSchemas:
                 baseline_attempt=baseline_attempt,
                 static_baseline=baseline,
                 baseline=passed,
+                candidate_snapshots=success.candidate_snapshots,
                 coordinate_failure=CoordinateFailure(
                     status="NO_PASS_IN_SEARCH_SPACE",
                     observations=(
@@ -948,17 +1031,17 @@ class TestSearchSchemas:
                 ),
             )
 
-    def test_probe_evidence_requires_an_exact_vector_attempt_and_static_pass(
+    def test_probe_pass_accepts_exact_vector_or_the_real_highest_attempt(
         self,
     ) -> None:
         baseline_attempt, baseline, passed = _baseline_evidence()
 
-        with pytest.raises(ValidationError, match="exact-vector"):
-            ProbePass(
-                attempt=baseline_attempt,
-                proposal_id=passed.proposal.proposal_id,
-                evaluation=passed,
-            )
+        highest = ProbePass(
+            attempt=baseline_attempt,
+            proposal_id=passed.proposal.proposal_id,
+            evaluation=passed,
+        )
+        assert highest.evaluation is passed
         exact_attempt = _attempt(resolution="exact-vector", vector=())
         with pytest.raises(ValidationError, match="evaluation"):
             ProbePass.model_validate(
@@ -966,6 +1049,23 @@ class TestSearchSchemas:
                     "attempt": exact_attempt,
                     "proposal_id": "candidate",
                 }
+            )
+
+    def test_probe_rejection_rejects_a_highest_attempt(self) -> None:
+        baseline_attempt, _, passed = _baseline_evidence()
+        rejected = VerifierRejectedEvaluation(
+            proposal=passed.proposal,
+            static=passed.static,
+            verifier=verifier_rejected(_successful_process(exit_code=1)),
+        )
+
+        with pytest.raises(ValidationError, match="exact-vector Attempt"):
+            ProbeRejection(
+                attempt=baseline_attempt,
+                proposal_id=passed.proposal.proposal_id,
+                failure_id="failure",
+                cause="VERIFIER_EXITED_NONZERO",
+                evaluation=rejected,
             )
 
     def test_probe_evaluation_must_match_the_attempt_requested_vector(self) -> None:
@@ -2159,6 +2259,119 @@ class TestReportSchemas:
         with pytest.raises(ValidationError, match="identify V_hi"):
             CellSuccess(**values)
 
+    def test_cell_success_rejects_another_highest_pass_observation(self) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        baseline_observation = success.search.observations[1]
+        other_proposal = success.baseline.proposal.model_copy(
+            update={"proposal_id": "other-baseline"}
+        )
+        other_evaluation = success.baseline.model_copy(
+            update={
+                "proposal": other_proposal,
+                "static": success.baseline.static.model_copy(
+                    update={"proposal": other_proposal}
+                ),
+            }
+        )
+        values["search"] = success.search.model_copy(
+            update={
+                "observations": (
+                    success.search.observations[0],
+                    baseline_observation.model_copy(
+                        update={
+                            "evidence": ProbePass(
+                                attempt=success.baseline_attempt,
+                                proposal_id=other_proposal.proposal_id,
+                                evaluation=other_evaluation,
+                            )
+                        }
+                    ),
+                )
+            }
+        )
+
+        with pytest.raises(ValidationError, match="verified baseline"):
+            CellSuccess(**values)
+
+    def test_cell_success_requires_a_baseline_final_to_reuse_highest_pass(
+        self,
+    ) -> None:
+        success = _cell_success()
+        values = _model_values(success)
+        baseline_proposal = success.baseline.proposal.model_copy(
+            update={"managed_vector": success.final_vector}
+        )
+        static_baseline = success.static_baseline.model_copy(
+            update={"proposal": baseline_proposal}
+        )
+        baseline_evaluation = success.baseline.model_copy(
+            update={
+                "proposal": baseline_proposal,
+                "static": success.baseline.static.model_copy(
+                    update={"proposal": baseline_proposal}
+                ),
+            }
+        )
+        candidate_snapshot = success.candidate_snapshots[0]
+        baseline_selection = SelectedCandidate(
+            dependency="demo",
+            version="1",
+            artifact=candidate_snapshot.candidates[0].artifact,
+        )
+        baseline_observation = ProbeObservation(
+            dependency=None,
+            candidate_version=None,
+            vector=success.final_vector,
+            evidence=ProbePass(
+                attempt=success.baseline_attempt,
+                proposal_id=baseline_proposal.proposal_id,
+                evaluation=baseline_evaluation,
+            ),
+        )
+        values.update(
+            {
+                "static_baseline": static_baseline,
+                "baseline": baseline_evaluation,
+                "candidate_snapshots": (
+                    candidate_snapshot.model_copy(
+                        update={
+                            "baseline_selection": baseline_selection,
+                            "digest": candidate_snapshot_digest(
+                                dependency=candidate_snapshot.dependency,
+                                cell=candidate_snapshot.cell,
+                                policy_identity=candidate_snapshot.policy_identity,
+                                source_plan_identity=(
+                                    candidate_snapshot.source_plan_identity
+                                ),
+                                source=candidate_snapshot.source,
+                                baseline_selection=baseline_selection,
+                                candidates=candidate_snapshot.candidates,
+                                series_representatives=(
+                                    candidate_snapshot.series_representatives
+                                ),
+                                selection=candidate_snapshot.selection,
+                                series_inventory=(
+                                    candidate_snapshot.series_inventory
+                                ),
+                            ),
+                        }
+                    ),
+                ),
+                "search": success.search.model_copy(
+                    update={
+                        "observations": (
+                            success.search.observations[0],
+                            baseline_observation,
+                        )
+                    }
+                ),
+            }
+        )
+
+        with pytest.raises(ValidationError, match="reuse its highest PASS"):
+            CellSuccess(**values)
+
     def test_cell_success_requires_the_captured_ty_check(self) -> None:
         success = _cell_success()
         values = _model_values(success)
@@ -2395,7 +2608,10 @@ class TestReportSchemas:
     def test_cell_failure_rejects_probe_evidence_from_another_static_baseline(
         self,
     ) -> None:
-        baseline_attempt, baseline, passed = _baseline_evidence()
+        success = _cell_success()
+        baseline_attempt = success.baseline_attempt
+        baseline = success.static_baseline
+        passed = success.baseline
         increment = _diagnostic()
         vector = (VersionPin(name="demo", version="1"),)
         attempt = _attempt(resolution="exact-vector", vector=vector)
@@ -2426,6 +2642,7 @@ class TestReportSchemas:
                 baseline_attempt=baseline_attempt,
                 static_baseline=baseline,
                 baseline=passed,
+                candidate_snapshots=success.candidate_snapshots,
                 failure_records=(rejection,),
                 coordinate_failure=CoordinateFailure(
                     status="NO_PASS_IN_SEARCH_SPACE",
@@ -2691,7 +2908,7 @@ class TestReportSchemas:
         dumped["candidate_snapshots"][0]["candidates"][0]["artifact"]["filename"] = (
             "tampered.whl"
         )
-        with pytest.raises(ValidationError, match="digest"):
+        with pytest.raises(ValidationError, match="artifact|digest"):
             CellSuccess.model_validate(dumped)
 
         dumped = success.model_dump(mode="python")

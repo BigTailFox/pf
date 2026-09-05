@@ -309,6 +309,9 @@
     "CandidateSnapshotV1": {
       "additionalProperties": false,
       "properties": {
+        "baseline_selection": {
+          "$ref": "#/$defs/SelectedCandidate"
+        },
         "candidate_snapshot_id": {
           "title": "Candidate Snapshot Id",
           "type": "string"
@@ -369,6 +372,7 @@
         }
       },
       "required": [
+        "baseline_selection",
         "candidate_snapshot_id",
         "candidates",
         "cell_ref",
@@ -2102,25 +2106,25 @@
           ],
           "title": "Requested Space"
         },
-        "space_defaults": {
-          "$ref": "#/$defs/SpaceDefaults"
-        },
-        "step": {
+        "resolution": {
           "enum": [
             "major",
             "minor",
             "patch"
           ],
-          "title": "Step",
+          "title": "Resolution",
           "type": "string"
+        },
+        "space_defaults": {
+          "$ref": "#/$defs/SpaceDefaults"
         }
       },
       "required": [
         "dependencies",
         "prereleases",
         "requested_space",
-        "space_defaults",
-        "step"
+        "resolution",
+        "space_defaults"
       ],
       "title": "SearchPolicyBinding",
       "type": "object"
@@ -2156,6 +2160,29 @@
         "profile"
       ],
       "title": "SearchPolicyInputs",
+      "type": "object"
+    },
+    "SelectedCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/AvailableArtifact"
+        },
+        "dependency": {
+          "title": "Dependency",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "dependency",
+        "version"
+      ],
+      "title": "SelectedCandidate",
       "type": "object"
     },
     "SeriesInventoryV1": {

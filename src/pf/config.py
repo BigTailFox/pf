@@ -42,7 +42,7 @@ _FIELDS = frozenset(
         "max-cells",
         "search-space",
         "search-space-defaults",
-        "search-step",
+        "search-resolution",
         "search-prereleases",
         "resolve-artifact",
         "resolve-timeout",
@@ -58,9 +58,9 @@ _FIELDS = frozenset(
     }
 )
 _DEP_FIELDS = frozenset(
-    {"name", "search-space", "search-space-defaults", "search-step", "search-prereleases"}
+    {"name", "search-space", "search-space-defaults", "search-resolution", "search-prereleases"}
 )
-_SEARCH_STEPS = frozenset({"major", "minor", "patch"})
+_SEARCH_RESOLUTIONS = frozenset({"major", "minor", "patch"})
 
 
 def parse_scheduling_limit(
@@ -123,6 +123,7 @@ class ConfigLoader:
         *,
         root_observation: PyprojectObservation,
         target_observation: PyprojectObservation,
+        search_resolution: Literal["major", "minor", "patch"] | None = None,
     ) -> EffectiveConfig:
         root = self._config_layer(
             root_observation.document,
@@ -145,11 +146,11 @@ class ConfigLoader:
             merged.update(layer)
 
         default_space = merged.get("search-space")
-        default_step = merged.get("search-step", "minor")
+        default_resolution = search_resolution or merged.get("search-resolution", "minor")
         default_policy = SearchPolicy(
             space=default_space,
             space_defaults=merged.get("search-space-defaults", SpaceDefaults()),
-            step=default_step,
+            resolution=default_resolution,
             prereleases=merged.get("search-prereleases", False),
         )
 
@@ -160,13 +161,15 @@ class ConfigLoader:
                 if "search-space" in raw
                 else default_policy.space
             )
-            step = raw.get("search-step", default_policy.step)
+            resolution = search_resolution or raw.get(
+                "search-resolution", default_policy.resolution
+            )
             overrides.append(
                 DependencySearchPolicy(
                     name=self._canonical_name(raw["name"], field="dep name"),
                     space=space,
                     space_defaults=raw.get("search-space-defaults", default_policy.space_defaults),
-                    step=step,
+                    resolution=resolution,
                     prereleases=raw.get(
                         "search-prereleases",
                         default_policy.prereleases,
@@ -291,11 +294,11 @@ class ConfigLoader:
             normalized["search-space"] = parse(layer["search-space"]).canonical
         if "search-space-defaults" in layer:
             normalized["search-space-defaults"] = self._space_defaults(layer["search-space-defaults"])
-        if "search-step" in layer:
+        if "search-resolution" in layer:
             self._literal(
-                layer["search-step"],
-                field="search-step",
-                allowed=_SEARCH_STEPS,
+                layer["search-resolution"],
+                field="search-resolution",
+                allowed=_SEARCH_RESOLUTIONS,
             )
         if "search-prereleases" in layer:
             self._boolean(layer["search-prereleases"], field="search-prereleases")
@@ -367,11 +370,11 @@ class ConfigLoader:
                 entry["search-space"] = cls._dependency_space(raw["search-space"])
             if "search-space-defaults" in raw:
                 entry["search-space-defaults"] = cls._space_defaults(raw["search-space-defaults"])
-            if "search-step" in raw:
+            if "search-resolution" in raw:
                 cls._literal(
-                    raw["search-step"],
-                    field="dep search-step",
-                    allowed=_SEARCH_STEPS,
+                    raw["search-resolution"],
+                    field="dep search-resolution",
+                    allowed=_SEARCH_RESOLUTIONS,
                 )
             if "search-prereleases" in raw:
                 cls._boolean(

@@ -703,6 +703,7 @@ def candidate_snapshot_digest(
     policy_identity: str,
     source_plan_identity: str,
     source: SourceIdentity,
+    baseline_selection: SelectedCandidate,
     candidates: tuple[Candidate, ...],
     series_representatives: tuple[tuple[str, str], ...],
     selection: SpaceSelection,
@@ -714,6 +715,7 @@ def candidate_snapshot_digest(
         "policy_identity": policy_identity,
         "source_plan_identity": source_plan_identity,
         "source": source.model_dump(mode="json"),
+        "baseline_selection": baseline_selection.model_dump(mode="json"),
         "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
         "series_representatives": series_representatives,
         "space_selection": {
@@ -742,7 +744,11 @@ class SelectedCandidate(FrozenSchema):
     def validate_installable_artifact(self) -> "SelectedCandidate":
         if not self.dependency.strip() or not self.version.strip():
             raise ValueError("selected candidate identity cannot be empty")
-        if not self.artifact.filename.strip() or self.artifact.locator is None:
+        if (
+            not self.artifact.filename.strip()
+            or self.artifact.locator is None
+            or not self.artifact.locator.strip()
+        ):
             raise ValueError("selected candidate requires an artifact locator")
         if re.fullmatch(r"sha256:[0-9a-fA-F]{64}", self.artifact.content_hash) is None:
             raise ValueError("selected candidate requires a complete SHA-256 hash")
@@ -773,6 +779,7 @@ class CandidateSnapshot(FrozenSchema):
     policy_identity: str
     source_plan_identity: str
     source: SourceIdentity
+    baseline_selection: SelectedCandidate
     candidates: tuple[Candidate, ...]
     series_representatives: tuple[tuple[str, str], ...]
     selection: SpaceSelection
@@ -798,6 +805,28 @@ class CandidateSnapshot(FrozenSchema):
             raise ValueError("candidate snapshot versions must be normalized")
         if versions != tuple(sorted(set(versions))):
             raise ValueError("candidate snapshot versions must be sorted and unique")
+        baseline = self.baseline_selection
+        if baseline.dependency != self.dependency:
+            raise ValueError(
+                "candidate snapshot baseline dependency must match its coordinate"
+            )
+        try:
+            baseline_version = Version(baseline.version)
+        except InvalidVersion as error:
+            raise ValueError(
+                "candidate snapshot baseline version must be normalized"
+            ) from error
+        if str(baseline_version) != baseline.version:
+            raise ValueError("candidate snapshot baseline version must be normalized")
+        matching = tuple(
+            candidate
+            for candidate in self.candidates
+            if candidate.version == baseline.version
+        )
+        if matching and matching[0].artifact != baseline.artifact:
+            raise ValueError(
+                "candidate snapshot baseline artifact must match its candidate"
+            )
         representatives = tuple(
             (candidate.series_key, candidate.version) for candidate in self.candidates
         )
@@ -813,6 +842,7 @@ class CandidateSnapshot(FrozenSchema):
             policy_identity=self.policy_identity,
             source_plan_identity=self.source_plan_identity,
             source=self.source,
+            baseline_selection=self.baseline_selection,
             candidates=self.candidates,
             series_representatives=self.series_representatives,
             selection=self.selection,
@@ -821,6 +851,31 @@ class CandidateSnapshot(FrozenSchema):
         if self.digest != expected_digest:
             raise ValueError("candidate snapshot digest does not match its evidence")
         return self
+
+    def select(self, version: str) -> SelectedCandidate:
+        """Select one frozen artifact from C[d] union the baseline B[d]."""
+        candidate = next(
+            (item for item in self.candidates if item.version == version),
+            None,
+        )
+        if candidate is not None:
+            if (
+                self.baseline_selection.version == version
+                and self.baseline_selection.artifact != candidate.artifact
+            ):
+                raise ValueError(
+                    "candidate and baseline selection artifacts do not match"
+                )
+            return SelectedCandidate(
+                dependency=self.dependency,
+                version=version,
+                artifact=candidate.artifact,
+            )
+        if self.baseline_selection.version == version:
+            return self.baseline_selection
+        raise ValueError(
+            f"version is outside the frozen selection domain: {self.dependency}"
+        )
 
 
 class NamedSearchPolicy(SearchPolicy):
@@ -838,7 +893,7 @@ class SearchPolicyBinding(FrozenSchema):
     dependencies: tuple[str, ...]
     requested_space: str | None = Field(json_schema_extra={"x-pf-preserve-null": True})
     space_defaults: SpaceDefaults
-    step: Literal["major", "minor", "patch"]
+    resolution: Literal["major", "minor", "patch"]
     prereleases: StrictBool
 
     @model_validator(mode="after")
@@ -854,7 +909,7 @@ class SearchPolicyBinding(FrozenSchema):
                 name=name,
                 space=self.requested_space,
                 space_defaults=self.space_defaults,
-                step=self.step,
+                resolution=self.resolution,
                 prereleases=self.prereleases,
             )
             if policy.space != self.requested_space:
@@ -882,7 +937,7 @@ class SearchPolicyInputs(FrozenSchema):
         if first_names != tuple(sorted(first_names)) or len(names) != len(set(names)):
             raise ValueError("search policy bindings must be sorted and disjoint")
         policies = tuple(
-            (b.requested_space, b.space_defaults, b.step, b.prereleases)
+            (b.requested_space, b.space_defaults, b.resolution, b.prereleases)
             for b in self.bindings
         )
         if len(policies) != len(set(policies)):
@@ -896,7 +951,7 @@ class SearchPolicyInputs(FrozenSchema):
             policy = SearchPolicy(
                 space=named.space,
                 space_defaults=named.space_defaults,
-                step=named.step,
+                resolution=named.resolution,
                 prereleases=named.prereleases,
             )
             groups.setdefault(policy, []).append(named.name)
@@ -905,7 +960,7 @@ class SearchPolicyInputs(FrozenSchema):
                 dependencies=tuple(sorted(names)),
                 requested_space=policy.space,
                 space_defaults=policy.space_defaults,
-                step=policy.step,
+                resolution=policy.resolution,
                 prereleases=policy.prereleases,
             )
             for policy, names in groups.items()
@@ -926,7 +981,7 @@ class SearchPolicyInputs(FrozenSchema):
                         name=name,
                         space=b.requested_space,
                         space_defaults=b.space_defaults,
-                        step=b.step,
+                        resolution=b.resolution,
                         prereleases=b.prereleases,
                     )
                     for b in self.bindings

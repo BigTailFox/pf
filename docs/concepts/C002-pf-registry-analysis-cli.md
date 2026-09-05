@@ -8,7 +8,7 @@
 - **相关 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
   [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)
 - **相关构想与草案：** [C001](C001-pf-multi-resolution-coordinate-search.md)、
-  [D033](../designs/D033-pf-predecessor-revalidate.md)
+  [D033](../archived/designs/D033-pf-predecessor-revalidate.md)
 
 ## 1. 构想
 
@@ -17,7 +17,7 @@
 命令名称、参数和输出形式尚未确定。
 
 现行 search 为 DSL 位置切片采集系列事实；这个构想是在这些事实之上提供独立的解释与比较用途。
-文中“粒度”对应现行 `search-step`，D033 提议改名为 `search-resolution`，后续 Design 应采用届时
+文中“粒度”对应现行 `search-resolution`，后续 Design 应采用届时
 已接受的唯一配置契约。该命令的价值不依赖 C001 的树搜索是否实现。
 
 ## 2. 范围与证据边界

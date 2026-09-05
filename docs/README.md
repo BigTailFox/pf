@@ -61,7 +61,7 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 - [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 保存从原 D031 拆出的 multi-resolution
   树搜索设想。E005 尚不支持树本身的默认性能收益；完整候选冻结、树 refinement 与报告迁移延期，
-  待取得明确依据后另建 Design。改名、predecessor 重验与统一缓存由 D033 独立推进。
+  待取得明确依据后另建 Design。改名、predecessor 重验与统一缓存已由归档 D033 独立完成。
 - [C002](concepts/C002-pf-registry-analysis-cli.md) 接收 D030 §12 的独立 registry 发布分布分析 CLI
   构想；探索空间/粒度比较与有依据的配置建议，命令和数据契约待确定。
 
@@ -100,12 +100,11 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   pytest summary 可选化、不适用 artifact 的 locator/哈希检查后置、ty 项目展示默认值覆盖。
   稳定规则已归并 D003/D004/D013/D014；逐项验收与工作区独立限制见 P037。
 
-- 原 D031 已拆分：树搜索降为 [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 开放想法，
-  原编号不复用；[D033](designs/D033-pf-predecessor-revalidate.md) 为已接受的 predecessor revalidate Design，
-  保留原目标 1 的 `search-resolution` 改名、目标 5 的最低候选快路和后续 sweep 直接前驱重验，
-  以及目标 6 的 evaluator 统一缓存、目标 7 的直接非单调终止。继续使用平面搜索和代表候选快照，
-  独立于树搜索推进。已补齐真实 highest baseline PASS 准入、首次 promotion 与 Slice/region 登记契约，
-  尚未创建 Plan 或实施。
+- 原 D031 已拆分：树搜索保留为 [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 开放想法，
+  原编号不复用；[D033](archived/designs/D033-pf-predecessor-revalidate.md) /
+  [P038](archived/plans/P038-pf-predecessor-revalidate.md) 已完成 `search-resolution` 改名、最低候选快路、
+  后续 sweep 直接 predecessor 重验、evaluator 统一缓存和直接非单调终止，并闭合 highest baseline PASS、
+  Slice/region 登记与窄搜索空间 baseline artifact；稳定规则由 D001/D002/D003/D006/D014 接管。
 - [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
   条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
   接管，实施与验收记录同步归档。

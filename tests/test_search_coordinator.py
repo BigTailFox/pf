@@ -10,6 +10,7 @@ from evaluation_fixtures import (
     successful_process,
 )
 
+from pf.coordinate_search import CoordinateSearch
 from pf.errors import InfrastructureError
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
@@ -21,6 +22,7 @@ from pf.schemas.evaluation import (
     NormalExit,
     ProcessResult,
     SearchFailureEvent,
+    SearchProbeDetailIdentity,
     TimedOut,
     ToolFailure,
     VerifierDiagnostics,
@@ -37,8 +39,8 @@ from pf.schemas.report import (
     ProbeIndeterminate,
     ProbePass,
     ProbeRejection,
-    StaticOnlyEvidence,
 )
+from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
 
 
@@ -159,6 +161,53 @@ class TestSearchCoordinator:
         assert result.failure_records[0].authority.kind == "structured"
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
+    def test_search_classifies_an_unclosed_baseline_artifact_as_source_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project", search_space="all")
+        assembly = evaluation_assembly(candidate_versions=("1", "2"))
+        assembly.candidates.baseline.clear()
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellIndeterminate)
+        assert result.phase == "candidate-discovery"
+        assert result.failure_records[0].cause == "SOURCE_FAILURE"
+
+    def test_search_reuses_an_in_candidate_baseline_as_the_final_pass(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project", search_space="all")
+        assembly = evaluation_assembly(candidate_versions=("3",))
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellSuccess)
+        assert result.final_vector == result.baseline.proposal.managed_vector
+        assert result.final_evaluation == result.baseline
+        assert {
+            observation.dependency for observation in result.search.observations
+        } == {None, "demo-dep"}
+        assert all(
+            isinstance(observation.evidence, ProbePass)
+            and observation.evidence.attempt == result.baseline_attempt
+            for observation in result.search.observations
+        )
+        assert not assembly.uv.exact_selections
+        assert result.search.regions[0].runtime_references
+
     @pytest.mark.parametrize("runtime_diagnostics", (False, True))
     def test_search_returns_a_runtime_backed_floor_with_closed_public_evidence(
         self,
@@ -198,6 +247,14 @@ class TestSearchCoordinator:
                 (ProbePass, ProbeRejection, ProbeIndeterminate),
             )
         )
+        baseline_observations = tuple(
+            observation
+            for observation in observations
+            if isinstance(observation.evidence, ProbePass)
+            and observation.evidence.attempt == result.baseline_attempt
+        )
+        assert baseline_observations
+        assert baseline_observations[0].vector == result.baseline.proposal.managed_vector
         assert any(
             isinstance(evidence, ProbePass)
             and evidence.evaluation == result.final_evaluation
@@ -216,10 +273,6 @@ class TestSearchCoordinator:
         assert all(
             region.slice.cell == result.cell for region in result.search.regions
         )
-        assert any(
-            isinstance(observation.evidence, StaticOnlyEvidence)
-            for observation in observations
-        )
         assert len(diagnostics.events) == 1
         assert diagnostics.events[0].failure == failure
         assert bool(result.failure_runtime_runs) is runtime_diagnostics
@@ -232,6 +285,185 @@ class TestSearchCoordinator:
             isinstance(event, CellSearchProgressEvent) for event in activity.events
         )
         assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_search_uses_baseline_selection_for_a_narrow_inactive_coordinate(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(
+            tmp_path / "project",
+            dependencies=("alpha>=1", "charset-normalizer>=1.3.9"),
+            search_space="all",
+            search_configuration="""
+search-resolution = "patch"
+[[tool.pf.dep]]
+name = "charset-normalizer"
+search-space = "minors[declaration]"
+search-resolution = "patch"
+""",
+        )
+        highest = (
+            VersionPin(name="alpha", version="3"),
+            VersionPin(name="charset-normalizer", version="3.5.1"),
+        )
+
+        def verifier(
+            vector: tuple[VersionPin, ...],
+            call: int,
+        ) -> VerifierRun:
+            del call
+            versions = {pin.name: pin.version for pin in vector}
+            return VerifierRun(
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0))
+                    if int(versions["alpha"]) >= 2
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                )
+            )
+
+        assembly = evaluation_assembly(
+            highest=highest,
+            candidate_versions_by_dependency={
+                "alpha": ("1", "2", "3"),
+                "charset-normalizer": ("1.3.9", "1.3.10", "3.5.1"),
+            },
+            verifier_handler=verifier,
+        )
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellSuccess)
+        charset = next(
+            snapshot
+            for snapshot in result.candidate_snapshots
+            if snapshot.dependency == "charset-normalizer"
+        )
+        assert charset.baseline_selection.version == "3.5.1"
+        assert "3.5.1" not in {
+            candidate.version for candidate in charset.candidates
+        }
+        assert any(
+            {
+                candidate.dependency: candidate.version for candidate in selection
+            }
+            == {"alpha": "2", "charset-normalizer": "3.5.1"}
+            for selection in assembly.uv.exact_selections
+        )
+
+    def test_full_result_cache_hit_is_registered_in_another_slice_without_activity(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(
+            tmp_path / "project",
+            dependencies=("alpha", "beta"),
+            search_space="all",
+        )
+        highest = (
+            VersionPin(name="alpha", version="3"),
+            VersionPin(name="beta", version="3"),
+        )
+        activity = RecordingActivity()
+
+        def verifier(
+            vector: tuple[VersionPin, ...],
+            call: int,
+        ) -> VerifierRun:
+            del call
+            versions = {pin.name: int(pin.version) for pin in vector}
+            return VerifierRun(
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0))
+                    if versions["alpha"] >= 2 and versions["beta"] >= 2
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                )
+            )
+
+        assembly = evaluation_assembly(
+            highest=highest,
+            candidate_versions_by_dependency={
+                "alpha": ("1", "2", "3"),
+                "beta": ("1", "2", "3"),
+            },
+            verifier_handler=verifier,
+            events=activity,
+        )
+
+        result = assembly.coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellSuccess)
+        mixed = {"alpha": "2", "beta": "3"}
+        assert sum(
+            {
+                candidate.dependency: candidate.version for candidate in selection
+            }
+            == mixed
+            for selection in assembly.uv.exact_selections
+        ) == 1
+        beta_region = next(
+            region
+            for region in result.search.regions
+            if region.slice.active_dependency == "beta"
+            and dict(
+                (pin.name, pin.version) for pin in region.slice.other_coordinates
+            )
+            == {"alpha": "2"}
+            and "3" in region.observed_versions
+        )
+        assert beta_region.runtime_references
+        assert not any(
+            isinstance(event, CellContextEvent)
+            and isinstance(event.detail, SearchProbeDetailIdentity)
+            and event.detail.dependency == "beta"
+            and event.detail.version == "3"
+            for event in activity.events
+        )
+
+    def test_search_maps_a_vector_outside_frozen_selection_to_cell_invariant(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project")
+        assembly = evaluation_assembly(verifier_handler=threshold_verifier)
+
+        class OutsideSelection(CoordinateSearch):
+            def minimize(self, **kwargs):
+                evaluator = kwargs["evaluator"]
+                evaluator.evaluate(
+                    (VersionPin(name="demo-dep", version="999"),)
+                )
+                raise AssertionError("selection must fail before evaluation")
+
+        coordinator = SearchCoordinator(
+            environments=assembly.environments,
+            candidates=assembly.candidate_builder,
+            static=assembly.static,
+            full=assembly.runtime,
+            highest=assembly.highest,
+            coordinate_search=OutsideSelection(),
+        )
+
+        result = coordinator.search(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, CellIndeterminate)
+        assert result.failure_records[-1].scope.kind == "cell"
+        assert result.failure_records[-1].cause == "INTERNAL_INVARIANT"
+        assert result.failure_records[-1].stage == "candidate-selection"
 
     def test_search_reuses_a_full_probe_for_final_evaluation(
         self,

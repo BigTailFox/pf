@@ -228,7 +228,7 @@ nodeid 与 pruning context 都不进入 evaluation policy identity。E002 没有
 - 把 static-only evidence、跨 Cell 结果或旧报告结果直接当作 floor、predecessor 或 final authority；
 - 跨运行 Evaluation cache，或不同 Proposal 共用已经运行 verifier 的可写环境；
 - 为获取 sibling hint 而等待另一个 Cell，或在单 Cell 内并行、乱序执行状态相关探针；
-- 以缩小 `search-space`、改变 `search-step` 或减少目标 Cell 冒充同一搜索契约下的性能提升；
+- 以缩小 `search-space`、改变 `search-resolution` 或减少目标 Cell 冒充同一搜索契约下的性能提升；
 - 在没有 materialize 分段数据前直接引入复杂 overlay filesystem；
 - 建立通用 cache、hint manager 或 environment service，把本来属于 `CoordinateSearch`、
   `EnvironmentFactory`、candidate adapter 与 workflow 的知识搬到新的浅 module。

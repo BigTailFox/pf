@@ -112,7 +112,7 @@ class TestConfiguration:
 
     [[tool.pf.dep]]
     name = "numpy"
-    search-step = "patch"
+    search-resolution = "patch"
     """.strip()
             + "\n",
             encoding="utf-8",
@@ -169,7 +169,7 @@ class TestConfiguration:
                 "project": {"name": "root"},
                 "tool": {
                     "pf": {
-                        "search-step": "patch",
+                        "search-resolution": "patch",
                         "dep": [{"name": "NumPy", "search-prereleases": True}],
                     }
                 },
@@ -189,7 +189,7 @@ class TestConfiguration:
             {
                 "name": "numpy",
                 "space": None,
-                "step": "patch",
+                "resolution": "patch",
                 "prereleases": True,
             },
         )
@@ -236,7 +236,7 @@ class TestConfiguration:
         assert config.target.extras.custom_surfaces == ()
         assert config.search.default.model_dump(exclude={"space_defaults"}) == {
             "space": None,
-            "step": "minor",
+            "resolution": "minor",
             "prereleases": False,
         }
         assert config.search.overrides == ()
@@ -269,7 +269,7 @@ class TestConfiguration:
     extra-policy = "all"
     extra-surfaces = [["gpu", "fast"], ["fast", "gpu"], []]
     search-space = "minors[baseline]"
-    search-step = "patch"
+    search-resolution = "patch"
     search-prereleases = true
     resolve-artifact = "any"
     test-command = ["pytest", "tests"]
@@ -283,7 +283,7 @@ class TestConfiguration:
     [[tool.pf.dep]]
     name = "NumPy"
     search-space = ">=1.0,<2"
-    search-step = "patch"
+    search-resolution = "patch"
     search-prereleases = false
     """.strip()
             + "\n",
@@ -298,13 +298,13 @@ class TestConfiguration:
         assert config.target.extras.custom_surfaces == ((), ("fast", "gpu"))
         assert config.search.default.model_dump(exclude={"space_defaults"}) == {
             "space": "minors[baseline]",
-            "step": "patch",
+            "resolution": "patch",
             "prereleases": True,
         }
         assert config.search.overrides[0].model_dump(exclude={"space_defaults"}) == {
             "name": "numpy",
             "space": "<2,>=1.0",
-            "step": "patch",
+            "resolution": "patch",
             "prereleases": False,
         }
         assert config.resolution.artifact == "any"
@@ -418,12 +418,17 @@ class TestCliConfigParsers:
 
 class TestSearchSpaceConfiguration:
     @pytest.mark.parametrize("space", ["all", "majors[baseline]", "minors[declaration:]"])
-    @pytest.mark.parametrize("step", ["major", "minor", "patch"])
-    def test_all_space_step_combinations(self, tmp_path: Path, space: str, step: str) -> None:
-        root = observation(tmp_path, {"tool": {"pf": {"search-space": space, "search-step": step}}})
+    @pytest.mark.parametrize("resolution", ["major", "minor", "patch"])
+    def test_all_space_resolution_combinations(
+        self, tmp_path: Path, space: str, resolution: str
+    ) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {
+            "search-space": space,
+            "search-resolution": resolution,
+        }}})
         config = ConfigLoader().load(root_observation=root, target_observation=root)
         assert config.search.default.space == space
-        assert config.search.default.step == step
+        assert config.search.default.resolution == resolution
 
     def test_default_tables_replace_whole_objects_and_explicit_space_wins(self, tmp_path: Path) -> None:
         root = observation(tmp_path, {"tool": {"pf": {
@@ -433,7 +438,7 @@ class TestSearchSpaceConfiguration:
         }}})
         member = observation(tmp_path / "member", {"tool": {"pf": {
             "search-space-defaults": {"with-lower-bound": "minors[declaration:]", "without-lower-bound": "minors[baseline-1:]"},
-            "dep": [{"name": "dep", "search-step": "patch", "search-space-defaults": {
+            "dep": [{"name": "dep", "search-resolution": "patch", "search-space-defaults": {
                 "with-lower-bound": "majors[declaration]", "without-lower-bound": "majors[baseline]",
             }}],
         }}})
@@ -442,13 +447,13 @@ class TestSearchSpaceConfiguration:
         assert config.search.default.space_defaults.with_lower_bound == "minors[declaration:]"
         override = config.search.overrides[0]
         assert override.space == "all"
-        assert override.step == "patch"
+        assert override.resolution == "patch"
         assert override.space_defaults.with_lower_bound == "majors[declaration]"
 
-    def test_step_only_preserves_omission_and_empty_dep_keeps_global_defaults(self, tmp_path: Path) -> None:
+    def test_resolution_only_preserves_omission_and_empty_dep_keeps_global_defaults(self, tmp_path: Path) -> None:
         root = observation(tmp_path, {"tool": {"pf": {
             "search-space-defaults": {"with-lower-bound": "all", "without-lower-bound": "majors[baseline]"},
-            "dep": [{"name": "dep", "search-step": "major"}],
+            "dep": [{"name": "dep", "search-resolution": "major"}],
         }}})
         config = ConfigLoader().load(root_observation=root, target_observation=root)
         assert config.search.overrides[0].space is None
@@ -457,6 +462,23 @@ class TestSearchSpaceConfiguration:
         cleared = ConfigLoader().load(root_observation=root, target_observation=member)
         assert cleared.search.overrides == ()
         assert cleared.search.default.space_defaults == config.search.default.space_defaults
+
+    def test_invocation_resolution_overrides_global_and_dependency_values(
+        self, tmp_path: Path
+    ) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {
+            "search-resolution": "major",
+            "dep": [{"name": "dep", "search-resolution": "patch"}],
+        }}})
+
+        config = ConfigLoader().load(
+            root_observation=root,
+            target_observation=root,
+            search_resolution="minor",
+        )
+
+        assert config.search.default.resolution == "minor"
+        assert config.search.overrides[0].resolution == "minor"
 
     @pytest.mark.parametrize("table", [
         {}, {"with-lower-bound": "all"},

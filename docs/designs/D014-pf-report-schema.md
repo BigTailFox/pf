@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -121,7 +121,8 @@ baseline/Attempt digest 的变化不能代替上述 generation/apply 检查。
 
 - `requirement_declarations` 以 `declaration_id` 唯一、排序；
 - `target_cells` 以内容寻址 `cell_id` 唯一、排序，并只引用本表声明；
-- `candidate_snapshots` 以 `candidate_snapshot_id` 唯一、排序，每个 `(cell_ref, dependency)` 最多一条。
+- `candidate_snapshots` 以 `candidate_snapshot_id` 唯一、排序，每个 `(cell_ref, dependency)` 最多一条；每条保存
+  required `baseline_selection` 与非空 `candidates`。
 - required `search_policy` 保存规范请求分组，见 §1.2.1；required `series_inventories` 保存可达必要观测，见 §1.2.2。
 - `source_plan`是required generation input，保存`source_mode = SEARCH`与按dependency排序、唯一的
   `DependencySourceRoute`；每条route绑定development/search source及可选workspace member version
@@ -144,7 +145,7 @@ bindings[]
   dependencies[]        非空 canonical names
   requested_space       canonical explicit string 或 null（省略）
   space_defaults        {with_lower_bound, without_lower_bound}，完整 canonical DSL
-  step                  major | minor | patch
+  resolution            major | minor | patch
   prereleases           bool
 ```
 
@@ -175,19 +176,26 @@ Wire 不保存 selection、effective expression、默认分支/原因、anchor v
 anchors、scope 和选中 keys；不用当前项目下界重解释。无 snapshot 的 Cell 按其终态要求验证，不强求 PASS。
 
 `pf:candidate-policy:v1` preimage 为
-`{profile, policy:{name,space,step,prereleases}, artifact, artifact_admission}`，其中
+`{profile, policy:{name,space,resolution,prereleases}, artifact, artifact_admission}`，其中
 `artifact_admission = "cell-eligibility-before-sha256"` 表示先判断 Cell 适用性，再要求安装 locator
 与 SHA-256 的当前准入语义；space 是该 Cell 的 effective canonical expression。前缀仍为
 `pf:candidate-policy:v1\0`，追加上述对象的 canonical JSON UTF-8 后作 SHA-256。
 Reader 使用生产共享 `candidate_policy_identity` 构造完整 preimage 复算并核对，包括固定准入事实；
-不接受 opaque identity、自报策略事实或第二套兼容复算实现。Snapshot digest 在既有 Cell/source/
-SourcePlan/candidates/representatives 上另绑定派生的 effective expression、原因、实际使用 anchor versions
+不接受 opaque identity、自报策略事实或第二套兼容复算实现。Snapshot digest 在 Cell/source/SourcePlan、
+完整 `baseline_selection` payload、candidates/representatives 上另绑定派生的 effective expression、原因、实际使用 anchor versions
 与 series inventory ref；即使代表相同，使用的 anchor 或观测变化仍改变 identity。
 
-Reader 检查 anchor membership/scope、切片结果，所有候选的 space、保留声明限制、baseline cap、prerelease、
-artifact 与 wheel compatibility，并按 step 复算 series key、版本排序和每系列唯一性。它未保存完整候选观测，
+Reader 检查 `baseline_selection` 的 dependency、版本与当前 Cell baseline Proposal、public locator/hash、artifact
+policy/Cell compatibility，以及与同版本 Candidate 的完全一致性；再检查 anchor membership/scope、切片结果，所有候选的 space、保留声明限制、baseline cap、prerelease、
+artifact 与 wheel compatibility，并按 resolution 复算 series key、版本排序和每系列唯一性。它未保存完整候选观测，
 因此不证明 registry 完备性、没有未保存 release 或代表为 registry 最高合格版本；最高代表由 CandidateBuilder
-对同次完整观测过滤后采样保证。既有精确 artifact、PASS/predecessor/final 证据要求保持。
+对同次完整观测过滤后采样保证。baseline selection 不进入上述候选资格、顺序或系列证明。
+
+每个 exact-vector Attempt 的完整 requested vector 必须逐 dependency 通过对应 CandidateSnapshot 的
+`select(version)` 从 `candidates ∪ {baseline_selection}` 唯一重建，并以 canonical dependency order 重算
+`pf:selected-candidates:v1` digest；任何缺 snapshot、空间外非 baseline 版本、artifact 不一致或 digest 漂移都
+fail closed。SUCCESS、SEARCH_FAILED 与带搜索证据的 CELL_INDETERMINATE 都须保存重建其全部 exact Attempt
+所需的 snapshots；不得从 resolved graph、active dependency 或 baseline Attempt 猜测 selection。
 
 保持 Schema 1、generator algorithm v1 和既有 v1 前缀；缺上述 required 输入或引用的 wire fail closed，
 不提供兼容 reader、默认推断或 aliases。
@@ -234,7 +242,14 @@ SEARCH_FAILED
 
 每个结果只通过 ref 连接 baseline、candidate snapshots、observations、regions、boundaries、FailureRecords 和 final Proposal。`SUCCESS.final_proposal_ref` 是 final vector 与 final PASS Evaluation 的唯一 authority；wire 不保存第二份 `final_vector` 或 `observed_upper`。
 
-Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Evaluation/Failure。Static-only observation 只能引用同 Cell、baseline、Slice 和 fingerprint 的 region 与 runtime representative；它不能成为 boundary 或 final authority。Boundary predecessor failure、failure disposition、region runtime reference、non-monotonic counterexample 和 coordinate outcome 必须与 D003–D005 的展开语义一致。
+Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Evaluation/Failure。Rejection/Indeterminate
+要求 exact-vector Attempt；PASS 可以引用 exact-vector，或引用当前 CellResult 的真实 baseline highest Attempt、
+Proposal 与 PassEvaluation。后一种 observation 的 vector 只从 baseline Proposal managed vector 展开，且必须与
+CellResult 的 `baseline_attempt`、static baseline 和 baseline evaluation roots 完全一致；其他 highest、跨 Cell/
+context、漂移向量与非 PASS highest observation 均无效。Static-only observation 只能引用同 Cell、baseline、
+Slice 和 fingerprint 的 region 与 runtime representative；它不能成为 boundary 或 final authority。Boundary
+predecessor failure、failure disposition、region runtime reference、non-monotonic counterexample 和 coordinate
+outcome 必须与 D003–D005 的展开语义一致。
 
 `projections`只保存declaration ref、Cell ref、exact floor、生成requirements与`representable`。Reader展开后复证D001的完整TargetCell→floor映射和complete authority。`result.status = complete`当且仅当全部target Cells有成功root且全部full-matrix projection可表示；否则为`incomplete`并保存规范reason集合。Incomplete的空/不可表示full-matrix projection本身不授权apply；`ApplyAuthorizer`只从final `CellSuccess` roots请求一次apply-time group projection，scope/waiver/history不写回wire。
 

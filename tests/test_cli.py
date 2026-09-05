@@ -537,11 +537,21 @@ class TestCommandDispatch:
             ("check", ("--max-cells", "--ty-jobs", "--test-jobs", "auto")),
             (
                 "search",
-                ("--max-cells", "--ty-jobs", "--test-jobs", "--max-duration", "none"),
+                (
+                    "--max-cells",
+                    "--ty-jobs",
+                    "--test-jobs",
+                    "--max-duration",
+                    "--search-resolution",
+                    "none",
+                ),
             ),
             ("explain", ()),
-            ("apply", ("--force",)),
-            ("minimize", ("--max-cells", "--ty-jobs", "--test-jobs")),
+            ("apply", ("--force", "--search-resolution")),
+            (
+                "minimize",
+                ("--max-cells", "--ty-jobs", "--test-jobs", "--search-resolution"),
+            ),
             (
                 "diagnose",
                 (
@@ -586,12 +596,13 @@ class TestCommandDispatch:
             assert "failed-case" not in text
             assert "maxfail" not in text
 
-    def test_apply_exposes_only_the_defined_force_option(self) -> None:
+    def test_apply_exposes_defined_force_and_resolution_options(self) -> None:
         help_result = invoke_app("apply", "--help")
         invocation_result = invoke_app("apply", "--no-force")
 
         assert help_result.returncode == 0
         assert "--force" in help_result.stdout
+        assert "--search-resolution" in help_result.stdout
         assert "--no-force" not in help_result.stdout
         assert invocation_result.returncode == 1
         assert invocation_result.stdout == ""
@@ -790,6 +801,8 @@ class TestCommandDispatch:
                 "2",
                 "--max-duration",
                 "1m",
+                "--search-resolution",
+                "patch",
             ],
             exit_on_error=False,
             result_action="return_value",
@@ -801,6 +814,7 @@ class TestCommandDispatch:
             selector=WorkspacePackage(canonical_name="demo"),
             max_cells=2,
             max_duration_seconds=60,
+            search_resolution="patch",
         )
         assert "Search complete · package-floor.json" in stdout.getvalue()
         assert stderr.getvalue() == ""
@@ -1082,7 +1096,14 @@ class TestCommandDispatch:
         )
 
         exit_code = create_app(context)(
-            ["apply", "--package", "demo", "--force"],
+            [
+                "apply",
+                "--package",
+                "demo",
+                "--search-resolution",
+                "major",
+                "--force",
+            ],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -1091,6 +1112,7 @@ class TestCommandDispatch:
         assert workflow.request == ApplyRequest(
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
+            search_resolution="major",
             force=True,
         )
         assert stdout.getvalue() == ""
@@ -1423,7 +1445,13 @@ class TestMinimizeCommandCompleteReport:
         )
 
         exit_code = create_app(context)(
-            ["minimize", "--package", "demo"],
+            [
+                "minimize",
+                "--package",
+                "demo",
+                "--search-resolution",
+                "patch",
+            ],
             exit_on_error=False,
             result_action="return_value",
         )
@@ -1431,8 +1459,16 @@ class TestMinimizeCommandCompleteReport:
         expected_root = tmp_path.as_posix()
         assert exit_code == 0
         selector = WorkspacePackage(canonical_name="demo")
-        assert search.request == SearchRequest(root=expected_root, selector=selector)
-        assert apply.request == ApplyRequest(root=expected_root, selector=selector)
+        assert search.request == SearchRequest(
+            root=expected_root,
+            selector=selector,
+            search_resolution="patch",
+        )
+        assert apply.request == ApplyRequest(
+            root=expected_root,
+            selector=selector,
+            search_resolution="patch",
+        )
         rendered = " ".join(stdout.getvalue().split())
         assert "demo · minimized verified floors" in rendered
         assert rendered.endswith("✓ Minimized floors · no metadata changes")

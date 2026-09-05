@@ -70,7 +70,7 @@ test-command = ["pytest"]          # 默认 argv；显式值整体替换，不�
 extra-policy = "each"              # none | each | all
 extra-surfaces = []                # 额外 extra 组合，例如 [["docs", "check"]]
 # search-space = "all"             # 显式覆盖；省略时使用下方条件默认表
-search-step = "minor"              # major | minor | patch
+search-resolution = "minor"        # major | minor | patch
 search-prereleases = false
 resolve-artifact = "any"         # wheel | sdist | any
 # managed-deps = ["rich"]          # 与 unmanaged-deps 互斥
@@ -88,7 +88,7 @@ test-timeout = "30m"               # 三个 timeout 都可设 "none"
 # [[tool.pf.dep]]
 # name = "rich"                    # 规范 distribution name
 # search-space = "majors[baseline]" # 或 minors[...] / 一段 PEP 440 specifier
-# search-step = "minor"
+# search-resolution = "minor"
 # search-prereleases = false
 
 [tool.pf.search-space-defaults]
@@ -96,7 +96,9 @@ with-lower-bound = "majors[declaration-1:]"
 without-lower-bound = "majors[baseline-2:]"
 ```
 
-所有 space 都可搭配 `major`、`minor` 或 `patch` step。`baseline` 锚定已验证的最高版本，`declaration` 锚定各 Cell 活跃直接声明的最强下界。偏移沿 registry 已存在系列移动，切片左闭右开；例如 `majors[baseline-2:]` 在 baseline cap 与候选过滤约束下，包含 baseline major 及前两个已有 major。被过滤的系列仍占位置。
+所有 space 都可搭配 `major`、`minor` 或 `patch` resolution。`baseline` 锚定已验证的最高版本，`declaration` 锚定各 Cell 活跃直接声明的最强下界。偏移沿 registry 已存在系列移动，切片左闭右开；例如 `majors[baseline-2:]` 在 baseline cap 与候选过滤约束下，包含 baseline major 及前两个已有 major。被过滤的系列仍占位置。
+
+窄 space 可以排除已验证的 baseline 版本。PF 会另外冻结该 baseline 的精确 artifact，使多依赖 probe 仍可复现，但不会把该版本加入搜索候选、窗口、边界或 floor。
 
 显式 space 优先于条件默认，逐依赖 space 优先于全局 space。默认表两项必填，按完整对象替换继承；`without-lower-bound` 不得引用 declaration。`[[tool.pf.dep]]` 也整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。缺声明下界前提在搜索前退出 3；registry anchor/scope 无法求值退出 2，报告保持原状。完整规则见 [D001](docs/designs/D001-pf.md)。
 
