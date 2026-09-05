@@ -335,7 +335,7 @@ test-command = ["pytest"]
 
         assert [candidate.version for candidate in snapshot.candidates] == expected
 
-    def test_candidate_policy_identity_contains_only_named_policy_and_artifact(
+    def test_candidate_policy_identity_binds_selection_and_admission_policy(
         self,
         tmp_path: Path,
     ) -> None:
@@ -354,6 +354,16 @@ test-command = ["pytest"]
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
             )[0].policy_identity
 
+        import hashlib
+        from pf.schemas.base import canonical_identity_json
+        from pf.search_space import SEARCH_SPACE_PROFILE
+
+        expected = hashlib.sha256(b"pf:candidate-policy:v1\0" + canonical_identity_json({
+            "profile": SEARCH_SPACE_PROFILE,
+            "policy": {"name": "demo-dep", "space": "majors[baseline-2:]", "step": "minor", "prereleases": False},
+            "artifact": "any", "artifact_admission": "cell-eligibility-before-sha256",
+        })).hexdigest()
+        assert identity(first) == expected
         assert identity(first) == identity(unrelated)
         assert identity(first) != identity(changed)
 
@@ -424,3 +434,29 @@ test-command = ["pytest"]
                 baseline=(VersionPin(name="demo-dep", version="1.0"),),
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
             )
+
+
+@pytest.mark.parametrize("defect", ("empty-hashes", "locator"))
+def test_registry_inapplicable_series_occupies_search_space_offset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defect: str) -> None:
+    from io import BytesIO
+    import json
+    from pf.adapters.uv import UvAdapter
+    from pf.adapters.process import SubprocessRunner
+
+    package = configured_package(tmp_path, 'search-space = "majors[baseline-1:]"')
+    files = [
+        {"filename": f"demo_dep-{version}-py3-none-any.whl", "url": f"demo-{version}.whl", "hashes": {"sha256": "a" * 64}}
+        for version in ("1.0", "3.0")
+    ]
+    files.append({"filename": "demo_dep-2.0-cp310-cp310-win_amd64.whl",
+                  "url": "file:///demo.whl" if defect == "locator" else "demo.whl",
+                  "hashes": {"sha256": "b" * 64} if defect == "locator" else {}})
+    class Response(BytesIO):
+        headers = {}
+    monkeypatch.setattr("pf.adapters.uv.urlopen", lambda request, timeout: Response(json.dumps({"files": files}).encode()))
+    result = CandidateBuilder(UvAdapter(SubprocessRunner())).build(package=package, cell=package.cells[0],
+        baseline=(VersionPin(name="demo-dep", version="3.0"),), source_plan=SourcePlan.for_package(package, "SEARCH"))[0]
+    assert result.series_inventory is not None
+    assert result.series_inventory.series_keys == ((0, 1), (0, 2), (0, 3))
+    assert result.selection.selected_keys == ((0, 2), (0, 3))
+    assert [candidate.version for candidate in result.candidates] == ["3.0"]

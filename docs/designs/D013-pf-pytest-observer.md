@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Observer 协议：** `pf-pytest-observer-v1`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **Verifier authority：** [D002](D002-pf-implementation.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行时投影：** [D008](D008-pf-verification-run.md)
@@ -58,10 +58,16 @@ pytest_runtest_logreport(failed, setup|call|teardown) -> TEST_FAILED / phase
 pytest_internalerror                                 -> INTERNAL_ERROR / pytest
 ```
 
-normal exit 后，`ConfiguredVerifier` 要求恰有合法 finalized summary；缺失、损坏、非规范、
-冲突或超限 artifact 是 PF implementation/protocol failure，命令级抛出
-`InfrastructureError`，不产生 Evaluation，也不重跑未注入的原命令。timeout、signal、start
-failure 或 typed terminal unavailable 已有完整 authority，不要求 final summary。
+normal exit 后，`ConfiguredVerifier` 尝试读取可选 finalized summary。缺失、不可读、损坏、
+非 canonical、nonce 不符、identity 冲突或资源超限时严格丢弃整份投影，不抛命令级
+InfrastructureError、不修改已取得的 terminal，也不重跑未注入的原命令。正常 exit 0/非零仍
+分别授权 PASS/REJECTED；timeout、signal、start failure 或 typed terminal unavailable 的
+Indeterminate 映射保持。进程启动前 observer/pruning 准备、非法进程终态及必需资源 cleanup
+失败仍按 D002 的基础设施失败处理，不静默取消注入。
+
+summary 不可用时 diagnostics 保留 process，pytest version/minor/mode 留空、facts 为空；
+这不表示观测到“没有失败”，也不计算 terminal/summary metadata-conflict。独立合法的
+progress/detail/cases 继续消费。
 
 ## 3. Summary protocol
 
@@ -84,7 +90,7 @@ identity 是 `pf-pytest-observer-v1`，record 至少包含：
 Reader 一次有界枚举并逐文件有界读取；只接受 regular file、`summary-<32 hex>.json`、当前
 nonce、CPython identity、规范 fact 集合以及一致的 runtime identity。多个合法 worker
 summary 可以合并，facts 作 set union；未知文件、重复冲突 identity、临时文件或过量文件均
-使 mandatory protocol 失败。
+使整份 summary 投影丢弃，不能部分采用坏文件中的 facts。
 
 `execution_mode = serial | xdist | unknown` 只是诊断事实。PF 不维护 pytest 版本/执行模式的
 Rejection 白名单。
@@ -127,8 +133,11 @@ item 则回退。`failed` 对多个 worker 作 set union 后按 nodeid 排序，
 资源越界或无法证明本次 invocation 时丢弃整个可选 projection，不得截断。
 
 该 artifact 只供 `ConfiguredVerifier` 决定 failed-set normal terminal 能否采用；不进入
-`VerifierRun.authoritative`、Failure authority 或任何 schema。UI detail 与 mandatory
-summary 语义不变。pruning plugin 与 argv overlay 不属于本文。
+`VerifierRun.authoritative`、Failure authority 或任何 schema。summary 与 cases 资格独立：
+只有合法 collected 证明才可采用 failed-set 正常非零 terminal；不能证明时即使 summary 合法
+也须回退原命令。证明有效但 summary 不可用时仍可采用非零结果。failed-set exit 0 仍须运行
+完整原命令，不定终态仍不回退。failed additions 只来自独立通过资格检查的 failed projection，
+不能从 summary 推导。pruning plugin 与 argv overlay 不属于本文。
 
 ## 5. 透明性资格与发布资源
 

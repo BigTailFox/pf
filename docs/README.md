@@ -65,6 +65,20 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
+- [D032](archived/designs/D032-pf-runtime-witness-stderr.md) /
+  [P037](archived/plans/P037-pf-adapter-evidence-admission.md) 已完成并归档：witness stderr 诊断化、
+  pytest summary 可选化、不适用 artifact 的 locator/哈希检查后置、ty 项目展示默认值覆盖。
+  稳定规则已归并 D003/D004/D013/D014；逐项验收与工作区独立限制见 P037。
+
+<a id="uv-resolution-output-completeness"></a>
+
+- **独立开放项：uv 成功解析的日志完整性门槛（开放、待验证）。** 来源：
+  [D032 §9](archived/designs/D032-pf-runtime-witness-stderr.md#9-待验证uv-成功解析的日志完整性门槛)。
+  当前只确认 exit 0 后 stdout/stderr 不完整会在读取 pylock 前停止；后续独立验证完整可信 lock
+  是否足以授权成功解析，并核对 D012/D007 的权威与完整性边界。该研究及其实施不属于 D032/P037，
+  不阻塞它们开始实施、验收完成或归档。若后续形成变更，单独建立 Design/Plan；不放宽非零退出
+  UNSAT classifier 所需的完整诊断。D032/P037 已归档，本项仍开放。
+
 - [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
   条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
   接管，实施与验收记录同步归档。

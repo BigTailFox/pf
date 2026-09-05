@@ -7,9 +7,14 @@
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
-| [designs](designs/) | D009–D011、D015–D030 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P036 | 实施与验证已完成 |
+| [designs](designs/) | D009–D011、D015–D030、D032 | 已实施并由现行 Design 接管 |
+| [plans](plans/) | P001–P037 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001 | 结论已纳入 D013 |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
+
+[D032](designs/D032-pf-runtime-witness-stderr.md) /
+[P037](plans/P037-pf-adapter-evidence-admission.md)：adapter 证据准入与诊断边界迁移已完成，
+稳定规则由 D003/D004/D013/D014 接管；§9 的 uv 日志完整性候选继续由
+[现行 README 独立开放项](../README.md#uv-resolution-output-completeness) 跟踪。

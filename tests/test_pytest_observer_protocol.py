@@ -11,7 +11,6 @@ from pf.adapters import pytest_observer as pytest_observer_module
 from pf.adapters.process import ProcessRunner
 from pf.adapters.pytest_observer import read_pytest_observer_detail
 from pf.adapters.test_command import ConfiguredVerifier
-from pf.errors import InfrastructureError
 from pf.schemas.evaluation import (
     EnvironmentVariable,
     ProcessResult,
@@ -109,6 +108,18 @@ def _run_with(
 
 def _run(tmp_path: Path, writer: ArtifactWriter) -> VerifierRun:
     return _run_with(EvidenceRunner(writer), tmp_path)
+
+
+def _assert_summary_omitted(run: VerifierRun) -> None:
+    assert isinstance(run.authoritative, VerifierRejected)
+    assert run.diagnostics is not None
+    assert isinstance(run.diagnostics.process, ProcessResult)
+    assert run.diagnostics.process.exit_code == 1
+    assert run.diagnostics.pytest_facts == ()
+    assert run.diagnostics.pytest_version is None
+    assert run.diagnostics.python_minor is None
+    assert run.diagnostics.pytest_execution_mode is None
+    assert run.diagnostics.summary_code is None
 
 
 class TestPytestObserverArtifactProtocol:
@@ -514,8 +525,7 @@ class TestPytestObserverArtifactProtocol:
         tmp_path: Path,
         writer: ArtifactWriter,
     ) -> None:
-        with pytest.raises(InfrastructureError, match="observer protocol"):
-            _run(tmp_path, writer)
+        _assert_summary_omitted(_run(tmp_path, writer))
 
     @pytest.mark.parametrize(
         "writer",
@@ -546,8 +556,7 @@ class TestPytestObserverArtifactProtocol:
         tmp_path: Path,
         writer: ArtifactWriter,
     ) -> None:
-        with pytest.raises(InfrastructureError, match="observer protocol"):
-            _run(tmp_path, writer)
+        _assert_summary_omitted(_run(tmp_path, writer))
 
     @staticmethod
     def _run_with_final_summaries(
@@ -573,8 +582,7 @@ class TestPytestObserverArtifactProtocol:
         self,
         tmp_path: Path,
     ) -> None:
-        with pytest.raises(InfrastructureError, match="observer protocol"):
-            self._run_with_final_summaries(tmp_path, 1025)
+        _assert_summary_omitted(self._run_with_final_summaries(tmp_path, 1025))
 
     def test_protocol_stops_enumerating_at_the_summary_limit(
         self,
@@ -598,8 +606,7 @@ class TestPytestObserverArtifactProtocol:
 
         monkeypatch.setattr(Path, "iterdir", bounded_artifacts)
 
-        with pytest.raises(InfrastructureError, match="observer protocol"):
-            _run(tmp_path, remember_directory)
+        _assert_summary_omitted(_run(tmp_path, remember_directory))
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -625,8 +632,7 @@ class TestPytestObserverArtifactProtocol:
                 token="e" * 32,
             )
 
-        with pytest.raises(InfrastructureError, match="observer protocol"):
-            _run(tmp_path, write_conflict)
+        _assert_summary_omitted(_run(tmp_path, write_conflict))
 
     def test_protocol_unions_equivalent_multiprocess_summaries(
         self, tmp_path: Path

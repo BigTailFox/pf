@@ -873,3 +873,30 @@ test-command = ["pytest"]
         environment = {item.name: item.value for item in runner.specs[0].environment}
         assert "PF_PYTEST_PRUNE_REQUEST" not in environment
 
+
+
+@pytest.mark.parametrize("summary_valid", (False, True))
+@pytest.mark.parametrize("collection_valid", (False, True))
+@pytest.mark.parametrize("passes", (False, True))
+def test_real_pruning_collection_proof_is_independent_of_summary(tmp_path: Path, summary_valid: bool, collection_valid: bool, passes: bool) -> None:
+    _write(tmp_path, "test_example.py", "def test_bad():\n    assert " + str(passes) + "\n")
+
+    class ArtifactRunner(_CountingRunner):
+        def run(self, spec: ProcessSpec):
+            result = super().run(spec)
+            env = {item.name: item.value for item in spec.environment}
+            if not summary_valid:
+                for artifact in Path(env["PF_PYTEST_OBSERVER_DIR"]).iterdir():
+                    artifact.unlink()
+            if not collection_valid and env["PF_PYTEST_OBSERVER_CASES_PROJECTION"] == "collected":
+                for artifact in Path(env["PF_PYTEST_OBSERVER_CASES_DIR"]).iterdir():
+                    artifact.unlink()
+            return result
+
+    runner = ArtifactRunner()
+    run = _run_counted(tmp_path, runner, nodeids=("test_example.py::test_bad",))
+    assert run.authoritative.status == ("PASS" if passes else "REJECTED")
+    assert runner.count == (1 if collection_valid and not passes else 2)
+    assert run.diagnostics is not None
+    assert (run.diagnostics.pytest_version is not None) == summary_valid
+    assert run.failed_case_additions == (("test_example.py::test_bad",) if not passes and not collection_valid else ())

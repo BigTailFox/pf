@@ -27,7 +27,6 @@ from pf.adapters.pytest_observer import (
     PRUNE_NONCE_VARIABLE,
     PRUNE_REQUEST_VARIABLE,
     RUN_NONCE_VARIABLE,
-    InvalidPytestObservation,
     PytestCasesObservation,
     read_pytest_observer_cases,
     read_pytest_observer_detail,
@@ -325,13 +324,7 @@ class ConfiguredVerifier:
                     cases=cases,
                 )
             else:
-                try:
-                    observer = read_pytest_observer(evidence_directory, nonce=nonce)
-                except InvalidPytestObservation as error:
-                    raise InfrastructureError(
-                        "pytest observer protocol failed",
-                        detail=str(error),
-                    ) from error
+                observer = read_pytest_observer(evidence_directory, nonce=nonce)
                 detail = (
                     None
                     if active_failure_details_directory is None
@@ -340,10 +333,10 @@ class ConfiguredVerifier:
                         nonce=nonce,
                     )
                 )
-                facts = tuple(sorted(observer.facts))
+                facts = () if observer is None else tuple(sorted(observer.facts))
                 conflict = (
                     "pytest-terminal-metadata-conflict"
-                    if (result.exit_code == 0) == observer.has_failure
+                    if observer is not None and (result.exit_code == 0) == observer.has_failure
                     else None
                 )
                 additions = (
@@ -356,10 +349,10 @@ class ConfiguredVerifier:
                             process=result,
                             detail=detail,
                             summary_code=conflict,
-                            pytest_execution_mode=observer.execution_mode,
+                            pytest_execution_mode=None if observer is None else observer.execution_mode,
                             pytest_facts=facts,
-                            pytest_version=observer.pytest_version,
-                            python_minor=observer.python_minor,
+                            pytest_version=None if observer is None else observer.pytest_version,
+                            python_minor=None if observer is None else observer.python_minor,
                         ),
                         failed_case_additions=additions,
                     ),

@@ -19,6 +19,8 @@ TY_DIAGNOSTIC_POLICY = {
     "strong_classifier": "strong-classifier-v1",
     "witness_planner": "witness-planner-v1",
     "witness_harness": "witness-harness-v1",
+    "witness_stderr": "diagnostic-only",
+    "project_terminal": "adapter-cli-overrides",
     "boundary_rule": "runtime-evidence-only",
     "final_verification": "direct-test-command-pass",
 }

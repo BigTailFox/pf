@@ -46,6 +46,7 @@ def candidate_policy_identity(
                     "prereleases": policy.prereleases,
                 },
                 "artifact": artifact,
+                "artifact_admission": "cell-eligibility-before-sha256",
             }
         )
     ).hexdigest()

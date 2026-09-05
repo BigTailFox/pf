@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `static-transition-v1`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -79,7 +79,10 @@ ty check
 --color never
 ```
 
-用户 `ty-args`、config override 和 `[tool.ty.terminal]` 不得改变 owned options。冲突在进程启动前失败。
+用户 `ty-args`、显式 config override 不得改变 owned options；`--config-file` 仍禁止，冲突在
+进程启动前失败。项目合法 `[tool.ty.terminal]` 展示默认配置允许存在，由 PF 固定 argv 覆盖，
+同值默认配置同样允许；不修改项目文件。固定 ty 支持项目 output-format；不支持的 terminal.color
+等配置仍由 ty 自身校验并产生 ToolFailure。解释器、minor、platform scope 继续由 PF 固定指定。
 
 ### 4.1 工具完成
 
@@ -152,7 +155,7 @@ Adapter 在当前 prepared environment 中执行：
 <interpreter> -I -c <adapter-owned-harness> <canonical-plan-json>
 ```
 
-不使用 shell，也没有用户 witness command。Harness 只输出一行 canonical JSON result；adapter 要求 stdout 精确等于该行加换行且 stderr 为空：
+不使用 shell，也没有用户 witness command。Harness 只输出一行 canonical JSON result；adapter 要求 stdout 精确等于该行加换行；唯一字段 status 必须为 PRESENT、CONFIRMED_MISSING 或 NOT_APPLICABLE 字符串。结果分类：
 
 - `PRESENT`：目标 runtime 名称存在；
 - `CONFIRMED_MISSING`：精确目标 module/symbol/member 缺失；
@@ -161,7 +164,14 @@ Adapter 在当前 prepared environment 中执行：
 
 ModuleNotFoundError 必须指向目标 module 或其前缀；AttributeError 必须携带目标 owner 对象和 member name。`import-symbol` 使用 Python `fromlist` 导入语义后再核对属性，不能把可导入的 package submodule 误判为缺失。Import side-effect exception、任意 traceback 或无关缺失不能解释为 confirmed missing。
 
-Witness result 必须完整正常 exit 0，并保留 plan 与 ProcessResult。Schema 要求 witness attempts 按本 Proposal 保序去重后的 classification plans 形成前缀；PassEvaluation/VerifierRejectedEvaluation 不得保留 confirmed missing 或 tool failure，RuntimeInterfaceMissingEvaluation 必须在首个 confirmed missing 停止，witness IndeterminateEvaluation 必须在对应 ToolFailure 停止。
+Witness result 必须完整正常 exit 0，stdout/stderr 均完整，并保留 plan 与 ProcessResult。
+stderr 内容只作诊断，任何 warning、日志或形似 traceback 的文本均不参与 status/disposition；
+不设置白名单、不抑制导入 warnings，按 D007 脱敏日志/完整输出读取路径保留。
+stdout 非 canonical、多行、额外字段、错误 status 类型（包括数组/对象）均返回 typed ToolFailure，
+不让解析校验异常逃逸；导入 stdout 副作用仍破坏协议。真正 ToolFailure 保持 Indeterminate，
+不回退 verifier；PRESENT/NOT_APPLICABLE 继续 verifier，本身不授权兼容性。
+
+Schema 要求 witness attempts 按本 Proposal 保序去重后的 classification plans 形成前缀；PassEvaluation/VerifierRejectedEvaluation 不得保留 confirmed missing 或 tool failure，RuntimeInterfaceMissingEvaluation 必须在首个 confirmed missing 停止，witness IndeterminateEvaluation 必须在对应 ToolFailure 停止。
 
 ## 8. RuntimeEvaluator 路由
 
@@ -228,13 +238,18 @@ region_scope       = fixed-slice-contiguous
 strong_classifier  = strong-classifier-v1
 witness_planner    = witness-planner-v1
 witness_harness    = witness-harness-v1
+witness_stderr     = diagnostic-only
+project_terminal   = adapter-cli-overrides
 boundary_rule      = runtime-evidence-only
 final_verification = direct-test-command-pass
 ```
 
 `final_verification` 表示原命令阶段 `NormalExit(0)`：pytest 从用户 argv/ini/`PYTEST_ADDOPTS` 解析得到的 `Config.args` 不被 FailedCaseSet 替换。failed-set `NormalExit(0)` 不授权 PASS。
 
-改变 identity、multiset、allowlist、AST attribution、witness protocol、region scope 或 final rule 必须提升相应版本。
+改变 identity、multiset、allowlist、AST attribution、witness protocol、region scope 或 final rule
+必须通过相应版本或显式策略事实改变 identity。pre-release 的 stderr 诊断化与项目 terminal 默认值
+覆盖由上述两个事实隔离身份，保留 witness-harness-v1、pf:policy:v1 与 Schema 1，只有当前目标协议，
+不提供旧规则开关或兼容 reader。pytest summary 不进入 evaluation policy identity。
 
 ## 12. 不变量与非目标
 

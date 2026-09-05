@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
 
 from pf.adapters.ty import TyAdapter
+from pf.adapters.process import SubprocessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     ProcessResult,
@@ -338,79 +341,44 @@ class TestTyAdapter:
 
         assert runner.spec is None
 
-    @pytest.mark.parametrize("key", ("output-format", "output_format"))
-    def test_ty_adapter_rejects_owned_terminal_configuration(
-        self,
-        tmp_path: Path,
-        key: str,
-    ) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            f'[tool.ty.terminal]\n{key} = "concise"\n',
-            encoding="utf-8",
-        )
-        runner = DiagnosticRunner()
-
-        with pytest.raises(ConfigurationError, match="adapter-owned ty configuration"):
-            TyAdapter(runner).check(
-                interpreter=tmp_path / "python",
-                package=tmp_path,
-                python_minor="3.11",
-                target="x86_64-unknown-linux-gnu",
-                args=(),
-                timeout_seconds=600,
-            )
-
-        assert runner.spec is None
-
-    def test_ty_adapter_rejects_owned_terminal_configuration_from_snapshot_root(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.ty.terminal]\noutput-format = "concise"\n',
-            encoding="utf-8",
-        )
-        package = tmp_path / "packages" / "demo"
-        package.mkdir(parents=True)
-        runner = DiagnosticRunner()
-
-        with pytest.raises(ConfigurationError, match="adapter-owned ty configuration"):
-            TyAdapter(runner).check(
-                interpreter=tmp_path / "environment" / "bin" / "python",
-                package=package,
-                python_minor="3.11",
-                target="x86_64-unknown-linux-gnu",
-                args=(),
-                timeout_seconds=600,
-                snapshot_root=tmp_path,
-            )
-
-        assert runner.spec is None
-
-    def test_ty_adapter_leaves_unowned_config_and_non_table_terminal_to_ty(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        package = tmp_path / "source"
-        package.mkdir()
-        (package / "pyproject.toml").write_text(
-            '[tool.ty]\nterminal = "invalid-but-not-an-owned-table"\n',
-            encoding="utf-8",
-        )
-        runner = DiagnosticRunner()
-
+    @pytest.mark.parametrize("location", ("package", "snapshot"))
+    @pytest.mark.parametrize("settings", (
+        'output-format = "gitlab"',
+        'output-format = "concise"',
+    ))
+    def test_real_ty_overrides_project_terminal_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, location: str, settings: str) -> None:
+        monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
+        package = tmp_path if location == "package" else tmp_path / "packages" / "demo"
+        package.mkdir(parents=True, exist_ok=True)
+        pyproject = tmp_path / "pyproject.toml"
+        source = '[tool.ty.terminal]\n' + settings + '\n'
+        pyproject.write_text(source)
+        (package / "demo.py").write_text('answer: int = "wrong"\n')
+        runner = SubprocessRunner()
         result = TyAdapter(runner).check(
-            interpreter=tmp_path / "environment" / "bin" / "python",
-            package=package,
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=("-c",),
-            timeout_seconds=600,
-            snapshot_root=tmp_path,
+            interpreter=Path(sys.executable), package=package, python_minor="3.10",
+            target="x86_64-unknown-linux-gnu", args=(), timeout_seconds=30, snapshot_root=tmp_path,
         )
+        assert isinstance(result, TyCheck), result.process
+        assert result.process.exit_code == 1
+        assert any(item.code == "invalid-assignment" for item in result.diagnostics)
+        output = read_process_output(runner, result.process)
+        assert isinstance(json.loads(output.stdout), list)
+        assert "\x1b" not in output.stdout
+        assert pyproject.read_text() == source
 
-        assert isinstance(result, TyCheck)
-        assert runner.spec is not None
+    @pytest.mark.parametrize("config", ('[tool.ty]\nterminal = "invalid"\n', '[tool.ty.terminal]\ncolor = "always"\n'))
+    def test_real_ty_validates_invalid_project_configuration(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str) -> None:
+        monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
+        (tmp_path / "pyproject.toml").write_text(config)
+        result = TyAdapter(SubprocessRunner()).check(
+            interpreter=Path(sys.executable), package=tmp_path, python_minor="3.10",
+            target="x86_64-unknown-linux-gnu", args=(), timeout_seconds=30,
+        )
+        assert isinstance(result, ToolFailure)
+        assert result.cause == "TOOL_FAILURE"
+        assert isinstance(result.process, ProcessResult)
+        assert result.process.exit_code != 0
 
     @pytest.mark.parametrize(
         ("target", "platform"),

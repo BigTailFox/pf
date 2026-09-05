@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-import tomli
-
 from pf.adapters.process import ProcessRunner, read_process_output
 from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
@@ -65,10 +63,6 @@ class TyAdapter:
         snapshot_root: Path | None = None,
     ) -> TyCheck | ToolFailure:
         self._validate_args(args)
-        self._validate_project_configuration(
-            package,
-            snapshot_root=snapshot_root or package,
-        )
         result = self._runner.run(
             ProcessSpec(
                 argv=(
@@ -145,39 +139,6 @@ class TyAdapter:
             if leaf_key in _OWNED_CONFIGURATION_KEYS:
                 raise ConfigurationError(
                     f"adapter-owned ty option is not allowed in config override: {key}"
-                )
-
-    @staticmethod
-    def _validate_project_configuration(
-        package: Path,
-        *,
-        snapshot_root: Path,
-    ) -> None:
-        current = package.resolve(strict=False)
-        root = snapshot_root.resolve(strict=False)
-        directories = []
-        if current == root or root in current.parents:
-            while True:
-                directories.append(current)
-                if current == root:
-                    break
-                current = current.parent
-        else:
-            directories.append(current)
-        for directory in directories:
-            pyproject = directory / "pyproject.toml"
-            if not pyproject.is_file():
-                continue
-            document = tomli.loads(pyproject.read_text(encoding="utf-8"))
-            terminal = document.get("tool", {}).get("ty", {}).get("terminal", {})
-            if not isinstance(terminal, dict):
-                continue
-            normalized_keys = {key.replace("_", "-") for key in terminal}
-            conflicts = sorted(_OWNED_CONFIGURATION_KEYS.intersection(normalized_keys))
-            if conflicts:
-                raise ConfigurationError(
-                    "adapter-owned ty configuration is not allowed: "
-                    + ", ".join(conflicts)
                 )
 
     @classmethod

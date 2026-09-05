@@ -2,7 +2,7 @@
   "cell_results": [
     {
       "baseline": {
-        "attempt_ref": "20e5468f4fee299c761ba603e2682e80fc490536e813db307de88a6a8fb367d2",
+        "attempt_ref": "7f46df7c00e431efd3f953a008ccc66e135e08b8aa6148c96182f9ecdd02f5c0",
         "proposal_ref": "8f00609a114f0ec517d257abe67eec7d79de3282bfe270458dab63cf83988c64",
         "static_baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f"
       },
@@ -23,7 +23,7 @@
   "evidence": {
     "attempts": [
       {
-        "attempt_id": "20e5468f4fee299c761ba603e2682e80fc490536e813db307de88a6a8fb367d2",
+        "attempt_id": "7f46df7c00e431efd3f953a008ccc66e135e08b8aa6148c96182f9ecdd02f5c0",
         "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
         "harness_declaration_ids": [],
         "harness_policy_identity": "original-harness-v1",
@@ -47,7 +47,7 @@
     "failures": [],
     "proposals": [
       {
-        "attempt_ref": "20e5468f4fee299c761ba603e2682e80fc490536e813db307de88a6a8fb367d2",
+        "attempt_ref": "7f46df7c00e431efd3f953a008ccc66e135e08b8aa6148c96182f9ecdd02f5c0",
         "environment_plan_digest": "environment-plan",
         "fixed_declaration_refs": [],
         "interpreter": {
@@ -98,8 +98,8 @@
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "7842d2e6664acdbd784babdd5f3bb1fa4f69751c2cd4466b2a124bc223714da4",
-    "report_generation_id": "a9c30cabf370efa93b24f7fe9a66a1bb59ba48d4fa1615242559f13d90f03f51",
+    "policy_identity": "aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0",
+    "report_generation_id": "89a945b38812b9232e4c585ae902e9e154b9bdff91294df51d6b98d05da5b42d",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],

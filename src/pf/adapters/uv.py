@@ -1046,12 +1046,6 @@ class UvAdapter:
                 raise TypeError("Simple JSON URL must be a non-empty string")
             if not isinstance(hashes, Mapping):
                 raise TypeError("Simple JSON hashes must be an object")
-            sha256 = hashes.get("sha256")
-            if (
-                not isinstance(sha256, str)
-                or re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None
-            ):
-                raise ValueError("Simple JSON SHA-256 hash is invalid")
             try:
                 _, version, _, tags = parse_wheel_filename(filename)
             except InvalidWheelFilename:
@@ -1061,25 +1055,37 @@ class UvAdapter:
                     continue
                 tags = None
             release_versions.add(version)
+            yanked = file.get("yanked", False)
+            if not isinstance(yanked, (bool, str)):
+                raise TypeError("Simple JSON yanked must be a boolean or string")
             requires_python = file.get("requires-python")
             if requires_python is not None:
                 if not isinstance(requires_python, str):
                     raise TypeError("Simple JSON requires-python must be a string")
                 if target_python not in SpecifierSet(requires_python):
                     continue
-            yanked = file.get("yanked", False)
-            if not isinstance(yanked, (bool, str)):
-                raise TypeError("Simple JSON yanked must be a boolean or string")
-            resolved_locator = urljoin(project_url, locator)
-            parsed_locator = urlsplit(resolved_locator)
+            if tags is not None and not self._wheel_compatible(tags, cell):
+                continue
+            sha256 = hashes.get("sha256")
             if (
-                parsed_locator.scheme not in {"http", "https"}
-                or not parsed_locator.hostname
+                not isinstance(sha256, str)
+                or re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None
             ):
-                raise ValueError("Simple JSON artifact URL is invalid")
+                raise InfrastructureError("registry applicable artifact requires a valid SHA-256 hash")
+            try:
+                resolved_locator = urljoin(project_url, locator)
+                parsed_locator = urlsplit(resolved_locator)
+                if (
+                    parsed_locator.scheme not in {"http", "https"}
+                    or not parsed_locator.hostname
+                ):
+                    raise ValueError("artifact URL must have an HTTP(S) host")
+            except ValueError as error:
+                raise InfrastructureError(
+                    "registry applicable artifact requires a valid installation locator",
+                    detail=self._redactor.redact(str(error)),
+                ) from error
             if tags is not None:
-                if not self._wheel_compatible(tags, cell):
-                    continue
                 artifact = AvailableArtifact(
                     filename=filename, kind="wheel", content_hash=f"sha256:{sha256}",
                     locator=public_locator(resolved_locator),

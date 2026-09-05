@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
 import time
+import json
 from typing import Literal
 
 import pytest
@@ -17,6 +18,8 @@ from evaluation_fixtures import (
     successful_process,
 )
 
+from pf.adapters.runtime_witness import RuntimeWitnessAdapter
+from pf.schemas.evaluation import ProcessResult
 from pf.environment import ExactSelection, HighestResolution, PreparedEnvironment
 from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
 from pf.failure import FailurePolicy
@@ -382,9 +385,11 @@ class TestRuntimeWitnessEvaluator:
         "witness_status",
         ("PRESENT", "NOT_APPLICABLE", "CONFIRMED_MISSING", "TOOL_FAILURE"),
     )
+    @pytest.mark.parametrize("verifier_exit", (0, 4))
     def test_runtime_evaluator_routes_a_static_witness_outcome(
         self,
         tmp_path: Path,
+        verifier_exit: int,
         witness_status: Literal[
             "PRESENT",
             "NOT_APPLICABLE",
@@ -399,14 +404,11 @@ class TestRuntimeWitnessEvaluator:
             source="import requests.missing\n",
         )
 
-        def witness(vector, plan, call):
-            if witness_status == "TOOL_FAILURE":
-                return tool_failure("witness")
-            return RuntimeWitnessResult(
-                status=witness_status,
-                plan=plan,
-                process=successful_process(),
-            )
+        class WitnessRunner:
+            def run(self, spec):
+                return ProcessResult(exit_code=0, duration_seconds=0,
+                    stdout=json.dumps({"status": witness_status}, separators=(",", ":")) + "\n",
+                    stderr="SyntaxWarning: import warning\n")
 
         assembly = evaluation_assembly(
             highest=(VersionPin(name="requests", version="3"),),
@@ -418,7 +420,10 @@ class TestRuntimeWitnessEvaluator:
                     diagnostics=(increment,),
                 )
             ),
-            witness_handler=witness,
+            verifier_handler=lambda vector, call: VerifierRun(authoritative=(
+                VerifierPass(terminal=NormalExit(exit_code=0)) if verifier_exit == 0
+                else VerifierRejected(terminal=NormalExit(exit_code=verifier_exit))
+            )),
         )
         highest = assembly.environments.prepare(
             package=project.package,
@@ -439,15 +444,21 @@ class TestRuntimeWitnessEvaluator:
         )
         assert isinstance(candidate, PreparedEnvironment)
 
-        run = assembly.runtime.evaluate(
+        run = RuntimeEvaluator(static=assembly.static, verifier=assembly.verifier,
+                               witnesses=RuntimeWitnessAdapter(WitnessRunner())).evaluate(
             candidate,
             package=project.package,
             baseline=capture.baseline,
         )
 
-        assert len(assembly.witnesses.calls) == 1
+        assert len(run.evaluation.witnesses) == 1
+        assert run.evaluation.static is not None
+        assert run.evaluation.static.status == "STATIC_REGRESSION"
+        process = run.evaluation.witnesses[0].outcome.process
+        assert isinstance(process, ProcessResult)
+        assert process.stderr == "SyntaxWarning: import warning\n"
         if witness_status in {"PRESENT", "NOT_APPLICABLE"}:
-            assert run.evaluation.status == "PASS"
+            assert run.evaluation.status == ("PASS" if verifier_exit == 0 else "VERIFIER_REJECTED")
             assert len(assembly.verifier.vectors) == 1
         elif witness_status == "CONFIRMED_MISSING":
             assert isinstance(run.evaluation, RuntimeInterfaceMissingEvaluation)

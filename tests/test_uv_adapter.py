@@ -1119,7 +1119,7 @@ class TestCandidateQuery:
             "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
         )
 
-        with pytest.raises(InfrastructureError, match="invalid Simple JSON"):
+        with pytest.raises(InfrastructureError, match="applicable artifact.*locator"):
             UvAdapter(RecordingRunner()).query(
                 dependency="demo",
                 source=SourceIdentity(kind="registry", locator=None),
@@ -1427,24 +1427,6 @@ class TestCandidateQuery:
                     {
                         "filename": "demo-1.0.tar.gz",
                         "url": "demo.tar.gz",
-                        "hashes": {"sha256": 42},
-                    }
-                ]
-            },
-            {
-                "files": [
-                    {
-                        "filename": "demo-1.0.tar.gz",
-                        "url": "demo.tar.gz",
-                        "hashes": {"sha256": "not-a-sha256"},
-                    }
-                ]
-            },
-            {
-                "files": [
-                    {
-                        "filename": "demo-1.0.tar.gz",
-                        "url": "demo.tar.gz",
                         "hashes": {"sha256": "a" * 64},
                         "requires-python": 42,
                     }
@@ -1467,15 +1449,6 @@ class TestCandidateQuery:
                         "url": "demo.tar.gz",
                         "hashes": {"sha256": "a" * 64},
                         "yanked": 42,
-                    }
-                ]
-            },
-            {
-                "files": [
-                    {
-                        "filename": "demo-1.0.tar.gz",
-                        "url": "https://[invalid",
-                        "hashes": {"sha256": "a" * 64},
                     }
                 ]
             },
@@ -1820,3 +1793,59 @@ class TestRegistrySeriesObservation:
         assert observed.candidates == ()
         assert adapter.query(dependency="demo", source=source, cell=cell) == observed
         assert len(calls) == 2
+
+
+@pytest.mark.parametrize("eligibility", ("applicable", "platform", "python", "requires-python"))
+@pytest.mark.parametrize("defect", ("empty-hashes", "sha512", "bad-hash", "hash-type", "locator", "malformed-locator", "url-type", "hashes-type", "requires-type", "yanked-type"))
+def test_query_admits_artifact_evidence_only_for_current_cell(monkeypatch: pytest.MonkeyPatch, eligibility: str, defect: str) -> None:
+    extra = {
+        "filename": "demo-2.0-cp310-cp310-manylinux_2_17_x86_64.whl",
+        "url": "https://index.example/demo.whl", "hashes": {"sha256": "b" * 64},
+        "requires-python": ">=3.10",
+    }
+    if eligibility == "platform":
+        extra["filename"] = "demo-2.0-cp310-cp310-win_amd64.whl"
+    elif eligibility == "python":
+        extra["filename"] = "demo-2.0-cp312-cp312-manylinux_2_17_x86_64.whl"
+    elif eligibility == "requires-python":
+        extra["requires-python"] = ">=3.12"
+    if defect == "empty-hashes":
+        extra["hashes"] = {}
+    elif defect == "sha512":
+        extra["hashes"] = {"sha512": "c" * 128}
+    elif defect == "bad-hash":
+        extra["hashes"] = {"sha256": "not-a-sha256"}
+    elif defect == "hash-type":
+        extra["hashes"] = {"sha256": 42}
+    elif defect == "locator":
+        extra["url"] = "file:///demo.whl"
+    elif defect == "malformed-locator":
+        extra["url"] = "https://[invalid"
+    elif defect == "url-type":
+        extra["url"] = 42
+    elif defect == "hashes-type":
+        extra["hashes"] = []
+    elif defect == "requires-type":
+        extra["requires-python"] = 42
+    elif defect == "yanked-type":
+        extra["yanked"] = 42
+    payload = json.dumps({"files": [
+        {"filename": "demo-1.0-py3-none-any.whl", "url": "demo-1.0.whl", "hashes": {"sha256": "a" * 64}}, extra,
+    ]}).encode()
+    class Response(BytesIO):
+        headers = {}
+    monkeypatch.setattr("pf.adapters.uv.urlopen", lambda request, timeout: Response(payload))
+    def query():
+        return UvAdapter(RecordingRunner()).query(dependency="demo", source=SourceIdentity(kind="registry", locator=None),
+            cell=Cell(package="demo", python_minor="3.10", target="x86_64-unknown-linux-gnu", extra_surface=()))
+    if defect in {"url-type", "hashes-type", "requires-type", "yanked-type"}:
+        with pytest.raises(InfrastructureError, match="invalid Simple JSON"):
+            query()
+    elif eligibility == "applicable":
+        with pytest.raises(InfrastructureError, match="applicable artifact"):
+            query()
+    else:
+        result = query()
+        assert result.release_versions == ("1.0", "2.0")
+        assert [candidate.version for candidate in result.candidates] == ["1.0"]
+        assert result.candidates[0].artifacts[0].content_hash == "sha256:" + "a" * 64

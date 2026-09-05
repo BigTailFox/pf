@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **算法版本：** `runtime-static-v1`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态 transition 与 witness：** [D004](D004-pf-ty-enhancement.md)
@@ -68,13 +68,23 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 `NamedSearchPolicy(name, space?, space_defaults, step, prereleases)`。ProjectLoader 绑定配置层级，省略 space
 保留 None；CandidateBuilder 只按 name 取得 policy，通过纯 `search_space` 按 Cell active declarations 绑定。
 
+Registry query 依次验证必要响应结构、观测可解析 wheel/sdist release、判断当前 Cell 的
+Requires-Python 与 Python/ABI/platform tags 适用性，再验证适用 artifact 的安装 locator 和 SHA-256。
+URL 必须为非空字符串，hashes 必须为对象，Requires-Python/yanked 等必要字段类型仍严格校验；
+明确不适用的 artifact 不要求可安装的 HTTP(S) locator 或 SHA-256，但其 release 仍进入完整观测。
+适用 artifact 缺 SHA-256 或 locator 非法仍使 query 失败，错误区分响应结构与适用 artifact 证据；
+不得静默丢弃它并据此提高 floor。不引入其他哈希安装路径，也不在 adapter 复制 CandidateBuilder
+的 yanked/prerelease/声明/baseline/space 筛选。
+
 一次成功 query 同时冻结全部可解析 release versions 与 artifact 候选；前者必须在 Requires-Python、wheel
 兼容性、yanked、prerelease、artifact、保留的声明限制、baseline 和 space/step 过滤前取得。失败不冻结。
 先由全部 release keys 建立 D001 所需 scope 的系列列表并求值位置切片，再将 space 与公共资格共同过滤
 到可用精确候选，最后按 step 取系列内最高合格代表。不可用系列占位，不使偏移向更旧可用系列补位。
 Major/minor/patch 采样独立于 major/minor 空间，不根据实际发布分布自动改变策略。
 
-`pf:candidate-policy:v1` 绑定固定 profile、name、effective canonical space、step/prereleases 和 artifact；
+`pf:candidate-policy:v1` 绑定固定 profile、name、effective canonical space、step/prereleases、artifact 与
+`artifact_admission = cell-eligibility-before-sha256`（包括 locator 的适用性顺序）；精确 preimage
+和 reader 复算由 [D014 §1.2.3](D014-pf-report-schema.md#123-离线派生与候选-identity) 独占。
 snapshot 另绑定派生原因、实际使用的原始 anchor versions 与系列观测内容引用。即使代表不变，使用的
 anchor 或观测改变也改变 snapshot identity。请求的完整默认表由 D014 generation 与 apply 另行绑定。
 

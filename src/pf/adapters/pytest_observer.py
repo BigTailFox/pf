@@ -225,15 +225,12 @@ def read_pytest_observer(
     directory: Path,
     *,
     nonce: str,
-) -> PytestObservation:
-    """Read the mandatory trusted pytest observer artifact."""
+) -> PytestObservation | None:
+    """Read an optional summary, discarding the whole projection if invalid."""
     try:
-        evidence = _read_evidence(directory, nonce=nonce)
-    except (InvalidPytestObservation, OSError) as error:
-        raise InvalidPytestObservation("pytest observer artifact is invalid") from error
-    if evidence is None:
-        raise InvalidPytestObservation("pytest observer artifact is missing")
-    return evidence
+        return _read_evidence(directory, nonce=nonce)
+    except (InvalidPytestObservation, OSError):
+        return None
 
 
 def read_pytest_observer_detail(

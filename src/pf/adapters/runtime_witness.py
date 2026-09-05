@@ -117,15 +117,14 @@ class RuntimeWitnessAdapter:
         ):
             return ToolFailure(cause="TOOL_FAILURE", stage="witness", process=process)
         output = read_process_output(self._runner, process)
-        if output.stderr:
-            return ToolFailure(cause="TOOL_FAILURE", stage="witness", process=process)
         try:
             document = json.loads(output.stdout)
-        except (json.JSONDecodeError, UnicodeError):
+        except (ValueError, RecursionError):
             return ToolFailure(cause="TOOL_FAILURE", stage="witness", process=process)
         if (
             not isinstance(document, dict)
             or set(document) != {"status"}
+            or not isinstance(document["status"], str)
             or document["status"]
             not in {"PRESENT", "CONFIRMED_MISSING", "NOT_APPLICABLE"}
         ):

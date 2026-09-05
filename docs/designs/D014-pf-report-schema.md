@@ -174,8 +174,13 @@ Wire 不保存 selection、effective expression、默认分支/原因、anchor v
 `search_space` 派生 `explicit/default-declaration/default-unbounded`、effective expression、实际引用的原始
 anchors、scope 和选中 keys；不用当前项目下界重解释。无 snapshot 的 Cell 按其终态要求验证，不强求 PASS。
 
-`pf:candidate-policy:v1` preimage 为 `{profile, policy:{name,space,step,prereleases}, artifact}`，space 是该
-Cell 的 effective canonical expression。Reader 完整复算并核对。Snapshot digest 在既有 Cell/source/
+`pf:candidate-policy:v1` preimage 为
+`{profile, policy:{name,space,step,prereleases}, artifact, artifact_admission}`，其中
+`artifact_admission = "cell-eligibility-before-sha256"` 表示先判断 Cell 适用性，再要求安装 locator
+与 SHA-256 的当前准入语义；space 是该 Cell 的 effective canonical expression。前缀仍为
+`pf:candidate-policy:v1\0`，追加上述对象的 canonical JSON UTF-8 后作 SHA-256。
+Reader 使用生产共享 `candidate_policy_identity` 构造完整 preimage 复算并核对，包括固定准入事实；
+不接受 opaque identity、自报策略事实或第二套兼容复算实现。Snapshot digest 在既有 Cell/source/
 SourcePlan/candidates/representatives 上另绑定派生的 effective expression、原因、实际使用 anchor versions
 与 series inventory ref；即使代表相同，使用的 anchor 或观测变化仍改变 identity。
 
