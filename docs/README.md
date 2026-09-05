@@ -62,6 +62,9 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [E004](experiments/E004-requests-validation-surfaces.md) 记录 D028 后 requests 的 15 个 required-surface
   Cells 的 smoke/check/search 实测终态，以及空 extra 修正后的 10 Cells planning；原自引用投影缺口
   已消失，后续失败按实际 authority 保存。
+- [E005](experiments/E005-pf-multi-resolution-search-simulation.md) 完成 D031 第一阶段纯算法模拟：
+  A/B/C/D 四组、独立穷举与当前算法差分对照表明 predecessor 重验减少合成探针，树本身收益不稳定；
+  保存脚本、逐案结果和 trace，不代表真实 evaluator 耗时或产品实现验收。
 
 ## 开放事项与归档
 
@@ -79,6 +82,10 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   不阻塞它们开始实施、验收完成或归档。若后续形成变更，单独建立 Design/Plan；不放宽非零退出
   UNSAT classifier 所需的完整诊断。D032/P037 已归档，本项仍开放。
 
+- [D031](designs/D031-pf-multi-resolution-coordinate-search.md) 为多分辨率坐标搜索草案：
+  以 `search-resolution` 替换 `search-step`，统一层级 refinement、evaluator 缓存与跨 sweep 边界重验；
+  保留虚拟 PASS sentinel 和非单调终止。第一阶段证据见 E005；真实集成未执行，树策略与实施范围待评审。
+  尚未创建实施 Plan。
 - [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
   条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
   接管，实施与验收记录同步归档。
