@@ -1,14 +1,12 @@
 [project]
 name = "package-floor"
-version = "0.1.0"
+version = "0.2.0"
 description = "PF finds verified lower bounds for your Python package's direct dependencies."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [
-    { name = "Lihao Liu", email = "leoherz.liu@gmail.com" },
-]
+authors = [{ name = "Lihao Liu", email = "leoherz.liu@gmail.com" }]
 keywords = [
     "python",
     "dependencies",
