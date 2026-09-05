@@ -23,3 +23,8 @@
   checks may prove that obsolete behavior disappeared, but remove them before delivery. Retain negative
   tests only for error or safety behavior required by the current contract, not to enumerate obsolete
   syntax or historical contract variants.
+
+## Run Environment
+
+- Accessibility to network and uv cache may be blocked by the agent sandbox. Especially when running pf CLI commands
+  and pf tests. Always run these works under the pf repo root out of the sandbox after checking free of risks.
