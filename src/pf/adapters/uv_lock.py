@@ -15,8 +15,7 @@ import tomli
 import tomlkit
 from tomlkit.exceptions import ParseError
 
-from pf.errors import ConfigurationError
-from pf.project import marker_platform
+from pf.markers import MarkerError, platform_marker_facts
 from pf.resolution import ResolutionArtifact, ResolutionPackage
 from pf.schemas.project import SourceIdentity, public_locator
 
@@ -169,21 +168,19 @@ def _marker_environment(python_version: str, target: str) -> dict[str, str]:
     if len(version.release) != 3:
         raise UvLockError("pylock projection requires an actual Python patch")
     try:
-        platform = marker_platform(target)
-    except ConfigurationError as error:
+        platform = platform_marker_facts(target)
+    except MarkerError as error:
         raise UvLockError("unsupported pylock target") from error
-    system = {"linux": "Linux", "darwin": "Darwin", "win32": "Windows"}[
-        platform["sys_platform"]
-    ]
     return {
-        **platform,
+        "sys_platform": platform.sys_platform,
+        "platform_machine": platform.platform_machine,
         "python_version": ".".join(map(str, version.release[:2])),
         "python_full_version": str(version),
         "implementation_name": "cpython",
         "implementation_version": str(version),
         "platform_python_implementation": "CPython",
-        "platform_system": system,
-        "os_name": "nt" if system == "Windows" else "posix",
+        "platform_system": platform.platform_system,
+        "os_name": platform.os_name,
     }
 
 

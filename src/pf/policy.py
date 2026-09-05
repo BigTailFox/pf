@@ -28,6 +28,7 @@ TY_DIAGNOSTIC_POLICY = {
 CONFIGURED_VERIFIER_OUTCOME_POLICY = "configured-verifier-terminal-v1"
 
 VALIDATION_CONTRACT_POLICY = {
+    "project_marker_projection": "portable-cell-platform-v1",
     "resolution_projection": "actual-interpreter-target-active-pylock",
     "self_reference": "required-effective-cell-surface",
     "extra_exploration": "nonempty-declared-groups-only",

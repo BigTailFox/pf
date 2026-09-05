@@ -248,9 +248,7 @@ root-common = ["Demo_Project[socks]", "demo-project"]
         "marker",
         (
             'python_full_version >= "3.10.0"',
-            'os_name == "posix"',
             'platform_release == "6"',
-            'platform_system == "Linux"',
             'platform_version == "6"',
             'implementation_name == "cpython"',
             'implementation_version >= "3.10"',
@@ -265,7 +263,7 @@ root-common = ["Demo_Project[socks]", "demo-project"]
     ):
         write_project(tmp_path, (f"demo-project[socks]; {marker}",))
         with pytest.raises(
-            ConfigurationError, match="unsupported self-reference marker dimension"
+            ConfigurationError, match="target self-reference.*unsupported marker dimension"
         ) as caught:
             ProjectLoader().load(root=tmp_path)
         assert "pyproject.toml" in str(caught.value)

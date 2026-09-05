@@ -7,7 +7,8 @@ from typing import Any, cast
 import pytest
 
 from pf.errors import ConfigurationError
-from pf.project import ProjectLoader, host_target, marker_platform
+from pf.project import ProjectLoader, host_target
+from pf.markers import MarkerError, platform_marker_facts
 from pf.project_discovery import (
     ProjectDiscovery,
     WorkspaceInventory,
@@ -1075,7 +1076,7 @@ test-command = ["pytest"]
         )
 
         with pytest.raises(
-            ConfigurationError, match="unsupported managed marker dimension"
+            ConfigurationError, match="managed dependency.*unsupported marker dimension"
         ):
             ProjectLoader().load(root=tmp_path)
 
@@ -1275,11 +1276,13 @@ class TestTargetPlatform:
         target: str,
         expected: dict[str, str],
     ) -> None:
-        assert marker_platform(target) == expected
+        facts = platform_marker_facts(target)
+        assert facts.sys_platform == expected["sys_platform"]
+        assert facts.platform_machine == expected["platform_machine"]
 
     def test_marker_platform_rejects_unknown_target_families(self) -> None:
-        with pytest.raises(ConfigurationError, match="unsupported target platform"):
-            marker_platform("wasm32-unknown-unknown")
+        with pytest.raises(MarkerError, match="unsupported target platform"):
+            platform_marker_facts("wasm32-unknown-unknown")
 
     @pytest.mark.parametrize(
         ("sys_platform", "machine", "libc", "expected"),

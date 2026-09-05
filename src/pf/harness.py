@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from packaging.version import Version
 
-from pf.project import marker_applies
+from pf.errors import ConfigurationError
+from pf.markers import MarkerError, evaluate_contextual_marker
 from pf.resolution import ResolutionPlan
 from pf.schemas.project import (
     Cell,
@@ -51,11 +52,19 @@ def active_harness_requirements(
     requirements: tuple[HarnessRequirement, ...],
     cell: Cell,
 ) -> tuple[HarnessRequirement, ...]:
-    return tuple(
-        requirement
-        for requirement in requirements
-        if marker_applies(requirement.marker, cell)
-    )
+    active = []
+    for requirement in requirements:
+        try:
+            if evaluate_contextual_marker(requirement.marker, cell):
+                active.append(requirement)
+        except MarkerError as error:
+            provenance = requirement.provenance
+            raise ConfigurationError(
+                f"external harness {requirement.name}: {provenance.pyproject_path}: "
+                f"{provenance.owner} group {'/'.join(provenance.group_path)} "
+                f"item {provenance.item_path}: {error}"
+            ) from error
+    return tuple(active)
 
 
 def relax_harness(

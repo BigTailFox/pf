@@ -7,9 +7,9 @@ from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
-from pf.errors import ApplyAuthorizationError, NoApplicableFloorError
+from pf.errors import ApplyAuthorizationError, ConfigurationError, NoApplicableFloorError
 from pf.policy import evaluation_policy_identity
-from pf.project import marker_applies, marker_platform
+from pf.markers import MarkerError, PortableMarker, evaluate_contextual_marker, platform_marker_facts
 from pf.report import PackageReportBuilder, ValidatedReport
 from pf.schemas.apply import (
     ApplyPresentationFacts,
@@ -150,11 +150,6 @@ class ApplyAuthorizer:
         group_edits: list[AuthorizedDependencyGroupEdit] = []
         for key in sorted(report_groups):
             declarations = report_groups[key]
-            if not any(declaration.managed for declaration in declarations):
-                intended_requirements[key] = tuple(
-                    declaration.raw for declaration in declarations
-                )
-                continue
             floors = self._group_floors(
                 report=report,
                 declarations=declarations,
@@ -162,13 +157,16 @@ class ApplyAuthorizer:
                     self._selector_tuple(item) for item in selected
                 ),
             )
-            projection = self._projections.project(
-                declarations=declarations,
-                target_cells=report.target_cells,
-                floors=floors,
-                selected_selectors=selected,
-                platform_scoped=scope == "PLATFORM_SCOPED",
-            )
+            try:
+                projection = self._projections.project(
+                    declarations=declarations,
+                    target_cells=report.target_cells,
+                    floors=floors,
+                    selected_selectors=selected,
+                    platform_scoped=scope == "PLATFORM_SCOPED",
+                )
+            except ConfigurationError as error:
+                raise ApplyAuthorizationError(f"dependency projection: {error}") from error
             if not projection.representable:
                 raise ApplyAuthorizationError(
                     "dependency projection is not exactly representable"
@@ -468,9 +466,18 @@ class ApplyAuthorizer:
     ) -> RequirementSemantic:
         requirement = Requirement(raw)
         marker = str(requirement.marker) if requirement.marker is not None else None
-        activation = tuple(
-            (cell_identity(cell), marker_applies(marker, cell)) for cell in target_cells
-        )
+        try:
+            portable = PortableMarker.parse(marker) if managed else None
+            activation = tuple(
+                (
+                    cell_identity(cell),
+                    portable.evaluate(cell) if portable is not None
+                    else evaluate_contextual_marker(marker, cell),
+                )
+                for cell in target_cells
+            )
+        except MarkerError as error:
+            raise ApplyAuthorizationError(f"declaration authorization marker: {error}") from error
         return (
             tuple(sorted(requirement.extras)),
             tuple(
@@ -538,8 +545,11 @@ class ApplyAuthorizer:
 
     @staticmethod
     def _target_selector(target: str) -> tuple[str, str]:
-        values = marker_platform(target)
-        return values["sys_platform"], values["platform_machine"]
+        try:
+            values = platform_marker_facts(target)
+        except MarkerError as error:
+            raise ApplyAuthorizationError(f"apply selector: {error}") from error
+        return values.sys_platform, values.platform_machine
 
     @staticmethod
     def _selector_tuple(selector: ApplySelector) -> tuple[str, str]:

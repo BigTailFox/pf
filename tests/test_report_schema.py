@@ -1922,6 +1922,16 @@ class TestValidatedReport(_CompleteReportCase):
 
 
 class TestCompleteReportStore(_CompleteReportCase):
+    def test_read_rejects_unqualified_managed_marker_even_before_projection(self, tmp_path):
+        document = copy.deepcopy(self.case.document)
+        declaration = document["inputs"]["requirement_declarations"][0]
+        declaration["marker"] = 'python_full_version >= "3.10.0"'
+        declaration["raw"] += '; python_full_version >= "3.10.0"'
+        path = tmp_path / "package-floor.json"
+        path.write_text(json.dumps(document))
+        with pytest.raises(ConfigurationError, match="managed declaration.*unsupported marker dimension: python_full_version"):
+            ReportStore().read(path)
+
     @pytest.mark.parametrize(
         "field_path",
         (

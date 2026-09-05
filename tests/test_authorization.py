@@ -3,6 +3,7 @@ from __future__ import annotations
 from candidate_fixtures import frozen_candidate_snapshot
 
 from dataclasses import replace
+from io import StringIO
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from packaging.requirements import Requirement
 from packaging.version import Version
 import pytest
 import tomli
+from rich.console import Console
 
 from pf.authorization import ApplyAuthorizer
 from pf.errors import (
@@ -21,7 +23,8 @@ from pf.errors import (
 )
 from pf import policy as policy_module
 from pf.policy import evaluation_policy_identity
-from pf.project import ProjectLoader, marker_applies
+from pf.project import ProjectLoader
+from pf.markers import PortableMarker
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
 from pf.resolution import environment_identity_digest
 from pf.schemas.evaluation import (
@@ -66,6 +69,8 @@ from pf.schemas.report import (
     ProbeRejection,
 )
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
+from pf.terminal import TerminalPresenter
+from pf.workflow import ExplainCommandResult
 
 
 def _process() -> ProcessResult:
@@ -390,8 +395,68 @@ def _report(
 
 
 class TestApplyAuthorizer:
+    def test_explain_uses_canonical_selector_for_partial_alias_report(self, tmp_path):
+        linux = "x86_64-unknown-linux-gnu"
+        _write_project(tmp_path, platforms=(linux, "x86_64-apple-darwin"), dependency="idna>=1; os_name == 'posix'")
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            report = _report(project.target, snapshot, {linux: "2.0"})
+            output = StringIO()
+            presenter = TerminalPresenter(stdout=Console(file=output, width=160, color_system=None),
+                stderr=Console(file=StringIO(), width=160, color_system=None))
+            presenter.render_explain(ExplainCommandResult(report=report, report_path="package-floor.json"))
+            assert "platform-scoped apply evidence is available" in " ".join(output.getvalue().split())
+        finally:
+            snapshot.close()
+
+    @pytest.mark.parametrize("force", (False, True))
+    def test_preserved_only_group_context_drift_is_not_waived(self, tmp_path, monkeypatch, force):
+        import packaging.markers
+
+        default = packaging.markers.default_environment()
+        monkeypatch.setattr(packaging.markers, "default_environment", lambda: {**default, "python_full_version": "3.10.18"})
+        linux = "x86_64-unknown-linux-gnu"
+        _write_project(tmp_path, platforms=(linux,), dependency=(
+            "idna>=1; os_name == 'posix'", "certifi==1; python_full_version >= '3.10.5'",
+        ))
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            report = _report(project.target, snapshot, {linux: "2.0"})
+            authorized = ApplyAuthorizer().authorize(report=report, project=project, current_snapshot=snapshot, force=force)
+            assert authorized.package_apply.dependency_state == "WRITABLE"
+            monkeypatch.setattr(packaging.markers, "default_environment", lambda: {**default, "python_full_version": "3.10.0"})
+            current = ProjectLoader().load(root=tmp_path)
+            with pytest.raises(ApplyAuthorizationError, match="projection is not exactly representable"):
+                ApplyAuthorizer().authorize(report=report, project=current, current_snapshot=snapshot, force=force)
+        finally:
+            snapshot.close()
+
+    def test_windows_architecture_floors_preserve_original_marker_through_reader_and_apply(self, tmp_path):
+        targets = ("x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc")
+        _write_project(tmp_path, platforms=targets, dependency="idna>=1; platform_system == 'Windows'")
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            report = _report(project.target, snapshot, {targets[0]: "2.0", targets[1]: "3.0"})
+            report_path = tmp_path / "package-floor.json"
+            ReportStore().write(report_path, report)
+            read = ReportStore().read(report_path)
+            authorized = ApplyAuthorizer().authorize(report=read, project=project, current_snapshot=snapshot, force=False)
+            requirements = authorized.package_apply.authorized_edits[0].group_edits[0].replacement_requirements
+            assert len(requirements) == 2
+            assert all('platform_system == "Windows"' in str(Requirement(raw).marker) for raw in requirements)
+            for cell in project.target.cells:
+                active = [Requirement(raw) for raw in requirements if PortableMarker.parse(str(Requirement(raw).marker)).evaluate(cell)]
+                assert len(active) == 1
+                assert str(active[0].specifier) == (">=2.0" if cell.target == targets[0] else ">=3.0")
+        finally:
+            snapshot.close()
+
+    @pytest.mark.parametrize("policy_fact", ("project_overlap", "project_marker_projection"))
     def test_normalization_policy_isolates_reports_with_explicit_defaults(
-        self, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch, policy_fact
     ):
         linux = "x86_64-unknown-linux-gnu"
         macos = "aarch64-apple-darwin"
@@ -406,7 +471,7 @@ class TestApplyAuthorizer:
             with monkeypatch.context() as other_policy:
                 other_policy.setitem(
                     policy_module.VALIDATION_CONTRACT_POLICY,
-                    "project_overlap",
+                    policy_fact,
                     "different-normalization-contract",
                 )
                 other = _report(project.target, snapshot, {linux: "2.0"})
@@ -1127,7 +1192,7 @@ dynamic = ["version"]
             active = tuple(
                 item
                 for item in declarations
-                if item.name == "idna" and marker_applies(item.marker, cell)
+                if item.name == "idna" and PortableMarker.parse(item.marker).evaluate(cell)
             )
             assert len(active) == 1
             assert (">=", expected_floors[cell.target]) in {

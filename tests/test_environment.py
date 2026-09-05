@@ -17,6 +17,7 @@ from pf.environment import (
     LowestDirectResolution,
     PreparedEnvironment,
 )
+from pf.adapters.uv_lock import parse_uv_pylock
 from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
@@ -872,6 +873,7 @@ test-command = ["python", "-c", "pass"]
             },
             "failure_policy": "failure-runtime-v2",
             "validation_contract_policy": {
+                "project_marker_projection": "portable-cell-platform-v1",
                 "resolution_projection": "actual-interpreter-target-active-pylock",
                 "self_reference": "required-effective-cell-surface",
                 "extra_exploration": "nonempty-declared-groups-only",
@@ -1810,6 +1812,54 @@ test-command = ["python", "-c", "pass"]
 
 
 class TestInterpreterBoundPreparation:
+    @pytest.mark.parametrize("target,system,os_name", (
+        ("x86_64-unknown-linux-gnu", "Linux", "posix"),
+        ("aarch64-apple-darwin", "Darwin", "posix"),
+        ("x86_64-pc-windows-msvc", "Windows", "nt"),
+        ("aarch64-pc-windows-msvc", "Windows", "nt"),
+    ))
+    def test_planning_and_native_graph_agree_on_portable_facts(self, tmp_path, target, system, os_name):
+        marker = f'platform_system == "{system}" and os_name == "{os_name}" and python_version == "3.10"'
+        native = f'''lock-version = "1.0"
+created-by = "uv"
+[[packages]]
+name = "idna"
+version = "3.10"
+marker = '{marker} and implementation_name == "cpython" and python_full_version >= "3.10.0"'
+wheels = [{{url = "https://files.example/idna-3.10-py3-none-any.whl", hashes = {{sha256 = "{'a' * 64}"}}}}]
+[[packages]]
+name = "inactive"
+version = "1"
+marker = 'python_full_version < "3.10.0" or implementation_name != "cpython"'
+'''
+        class NativeUv(SuccessfulUv):
+            def resolve_project(self, **kwargs):
+                context = kwargs["context"]
+                packages = parse_uv_pylock(native, python_version=context.interpreter.version, target=context.cell.target)
+                return self._plan("project", packages=packages, kwargs=kwargs)
+
+        root = _write_demo(tmp_path)
+        path = root / "pyproject.toml"
+        path.write_text(path.read_text().replace('dependencies = ["idna"]',
+            f'dependencies = {json.dumps(["idna; " + marker])}')
+            .replace('x86_64-unknown-linux-gnu', target))
+        package = ProjectLoader().load(root=root).target
+        assert package.cells[0].active_declaration_ids == (package.declarations[0].declaration_id,)
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        try:
+            result = EnvironmentFactory(NativeUv()).prepare(package=package, cell=package.cells[0],
+                snapshot=snapshot, source_plan=SourcePlan.for_package(package, "SEARCH"), resolution=HighestResolution())
+            assert isinstance(result, PreparedEnvironment)
+            try:
+                assert tuple(item.name for item in result.project_plan.packages) == ("idna",)
+                assert tuple(pin.name for pin in result.proposal.managed_vector) == ("idna",)
+                assert result.project_plan.context.interpreter is not None
+                assert result.project_plan.context.interpreter.version.startswith("3.10.")
+            finally:
+                result.close()
+        finally:
+            snapshot.close()
+
     def test_actual_patch_binds_resolutions_attempt_and_cache(self, tmp_path):
         class ObservedUv(SuccessfulUv):
             patch = "3.10.18"

@@ -10,13 +10,18 @@ from typing import Any, Literal, Protocol, cast
 from urllib.parse import parse_qs, urlsplit
 
 from packaging.requirements import InvalidRequirement, Requirement
-from packaging.markers import Marker, default_environment
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 from pf.config import ConfigLoader
 from pf.errors import ConfigurationError
+from pf.markers import (
+    MarkerError,
+    PortableMarker,
+    evaluate_contextual_marker,
+    platform_marker_facts,
+)
 from pf.project_discovery import (
     ProjectDiscovery,
     WorkspaceInventory,
@@ -45,29 +50,6 @@ from pf.schemas.project import (
 )
 
 
-_MARKER_VARIABLES = frozenset(
-    {
-        "python_version",
-        "python_full_version",
-        "os_name",
-        "sys_platform",
-        "platform_release",
-        "platform_system",
-        "platform_version",
-        "platform_machine",
-        "platform_python_implementation",
-        "implementation_name",
-        "implementation_version",
-        "extra",
-        "dependency_groups",
-        "extras",
-    }
-)
-_PROJECTABLE_MARKER_VARIABLES = frozenset(
-    {"python_version", "sys_platform", "platform_machine"}
-)
-
-
 @dataclass(frozen=True)
 class _ExpandedGroupRequirement:
     raw: str
@@ -92,36 +74,6 @@ def host_target() -> str:
     if sys.platform == "win32":
         return f"{machine}-pc-windows-msvc"
     raise ConfigurationError(f"unsupported host platform: {sys.platform}")
-
-
-def marker_platform(target: str) -> dict[str, str]:
-    architecture = target.split("-", 1)[0]
-    if "-linux-" in target:
-        return {"sys_platform": "linux", "platform_machine": architecture}
-    if "-apple-darwin" in target:
-        machine = "arm64" if architecture == "aarch64" else architecture
-        return {"sys_platform": "darwin", "platform_machine": machine}
-    if "-windows-" in target:
-        machine = {
-            "x86_64": "AMD64",
-            "aarch64": "ARM64",
-        }.get(architecture, architecture)
-        return {"sys_platform": "win32", "platform_machine": machine}
-    raise ConfigurationError(f"unsupported target platform: {target}")
-
-
-def marker_applies(marker: str | None, cell: Cell) -> bool:
-    """Evaluate one supported declaration marker for a frozen target cell."""
-    if marker is None:
-        return True
-    environment = default_environment()
-    environment["python_version"] = cell.python_minor
-    platform_values = marker_platform(cell.target)
-    environment["sys_platform"] = platform_values["sys_platform"]
-    environment["platform_machine"] = platform_values["platform_machine"]
-    parsed = Marker(marker)
-    extras = ("", *cell.extra_surface)
-    return any(parsed.evaluate({**environment, "extra": extra}) for extra in extras)
 
 
 class PythonMinorProvider(Protocol):
@@ -253,22 +205,14 @@ class ProjectLoader:
                     f"fixed dependency cannot be managed: {explicitly_fixed[0]}"
                 )
         for declaration in declarations:
-            if not declaration.managed or declaration.marker is None:
+            if not declaration.managed:
                 continue
-            marker_without_strings = re.sub(
-                r"(['\"]).*?\1",
-                "",
-                declaration.marker,
-            )
-            variables = (
-                set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", marker_without_strings))
-                & _MARKER_VARIABLES
-            )
-            unsupported = sorted(variables - _PROJECTABLE_MARKER_VARIABLES)
-            if unsupported:
+            try:
+                PortableMarker.parse(declaration.marker)
+            except MarkerError as error:
                 raise ConfigurationError(
-                    "unsupported managed marker dimension: " + unsupported[0]
-                )
+                    f"managed dependency {self._declaration_provenance(declaration)}: {error}"
+                ) from error
 
         root_groups = root_document.get("dependency-groups", {})
         package_groups = document.get("dependency-groups", {})
@@ -316,17 +260,12 @@ class ProjectLoader:
                         f"self-reference cannot replace target source: {provenance}"
                     )
                 marker = str(requirement.marker) if requirement.marker else None
-                if marker is not None:
-                    unquoted = re.sub(r"(['\"]).*?\1", "", marker)
-                    variables = (
-                        set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", unquoted))
-                        & _MARKER_VARIABLES
-                    )
-                    unsupported = variables - _PROJECTABLE_MARKER_VARIABLES
-                    if unsupported:
-                        raise ConfigurationError(
-                            f"unsupported self-reference marker dimension: {sorted(unsupported)[0]}: {provenance}"
-                        )
+                try:
+                    PortableMarker.parse(marker)
+                except MarkerError as error:
+                    raise ConfigurationError(
+                        f"target self-reference: {provenance}: {error}"
+                    ) from error
                 unknown = sorted(
                     canonicalize_name(extra)
                     for extra in requirement.extras
@@ -380,6 +319,11 @@ class ProjectLoader:
                 ),
             )
         targets = config.target.platforms or (host_target(),)
+        for target in targets:
+            try:
+                platform_marker_facts(target)
+            except MarkerError as error:
+                raise ConfigurationError(f"project target: {error}") from error
         requires_python = project.get("requires-python")
         configured_pythons = config.target.python_minors
         python_minors = (
@@ -934,7 +878,13 @@ class ProjectLoader:
         required: set[str] = set()
         for requirement, extras, provenance in references:
             marker = str(requirement.marker) if requirement.marker else None
-            if not marker_applies(marker, cell):
+            try:
+                active = PortableMarker.parse(marker).evaluate(cell)
+            except MarkerError as error:
+                raise ConfigurationError(
+                    f"target self-reference: {provenance}: {error}"
+                ) from error
+            if not active:
                 continue
             if requirement.specifier:
                 version = project.get("version")
@@ -1020,7 +970,20 @@ class ProjectLoader:
             and declaration.extra not in cell.extra_surface
         ):
             return False
-        return marker_applies(declaration.marker, cell)
+        try:
+            if declaration.managed:
+                return PortableMarker.parse(declaration.marker).evaluate(cell)
+            return evaluate_contextual_marker(declaration.marker, cell)
+        except MarkerError as error:
+            usage = "managed dependency" if declaration.managed else "preserved declaration"
+            raise ConfigurationError(
+                f"{usage} {ProjectLoader._declaration_provenance(declaration)}: {error}"
+            ) from error
+
+    @staticmethod
+    def _declaration_provenance(declaration: RequirementDeclaration) -> str:
+        location = "base" if declaration.location == "base" else f"optional:{declaration.extra}"
+        return f"{declaration.pyproject_path}: {location}: {declaration.name}"
 
     def _python_minors(
         self,

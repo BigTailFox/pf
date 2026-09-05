@@ -49,7 +49,7 @@ from pf.schemas.evaluation import (
     ToolFailure,
 )
 from pf.resolution import environment_identity_digest, resolution_graph_id
-from pf.project import marker_applies, marker_platform
+from pf.markers import MarkerError, PortableMarker, evaluate_contextual_marker, platform_marker_facts
 from pf.policy import CONFIGURED_VERIFIER_OUTCOME_POLICY
 from pf.schemas.project import (
     ApplySelector,
@@ -1681,7 +1681,11 @@ class PackageReportBuilder:
                     and declarations[0].extra not in cell.extra_surface
                 ):
                     continue
-                if marker_applies(marker, cell):
+                preserved = any(
+                    not declaration.managed and declaration.raw == raw
+                    for declaration in declarations
+                )
+                if self._evaluate_marker(marker, cell, managed=not preserved):
                     observed.append(self._effective_requirement(raw))
             if sorted(expected) != sorted(observed):
                 return False
@@ -1704,8 +1708,20 @@ class PackageReportBuilder:
 
     @staticmethod
     def _selector_key(cell: Cell) -> tuple[str, str]:
-        values = marker_platform(cell.target)
-        return values["sys_platform"], values["platform_machine"]
+        try:
+            values = platform_marker_facts(cell.target)
+        except MarkerError as error:
+            raise ConfigurationError(f"report selector: {error}") from error
+        return values.sys_platform, values.platform_machine
+
+    @staticmethod
+    def _evaluate_marker(marker: str | None, cell: Cell, *, managed: bool) -> bool:
+        try:
+            if managed:
+                return PortableMarker.parse(marker).evaluate(cell)
+            return evaluate_contextual_marker(marker, cell)
+        except MarkerError as error:
+            raise ConfigurationError(f"report projection marker: {error}") from error
 
     @staticmethod
     def _selector_complement(
@@ -1801,7 +1817,7 @@ class PackageReportBuilder:
                     and declaration.extra not in cell.extra_surface
                 ):
                     continue
-                if not marker_applies(marker, cell):
+                if not self._evaluate_marker(marker, cell, managed=declaration.managed):
                     continue
                 key = self._cell_key(cell)
                 previous = observed.get(key)
@@ -1837,12 +1853,13 @@ class PackageReportBuilder:
     @staticmethod
     def _marker_attributes(cell: Cell) -> dict[str, str] | None:
         try:
-            platform = marker_platform(cell.target)
-        except ConfigurationError:
+            platform = platform_marker_facts(cell.target)
+        except MarkerError:
             return None
         return {
             "python_version": cell.python_minor,
-            **platform,
+            "sys_platform": platform.sys_platform,
+            "platform_machine": platform.platform_machine,
         }
 
     @staticmethod
@@ -2005,6 +2022,15 @@ class ReportStore:
                 "invalid v1 report: SourcePlan has a non-public locator"
             )
         declarations = wire.inputs.requirement_declarations
+        for declaration in declarations:
+            if declaration.managed:
+                try:
+                    PortableMarker.parse(declaration.marker)
+                except MarkerError as error:
+                    raise ConfigurationError(
+                        f"invalid v1 report: managed declaration marker ({error}): "
+                        f"{_safe_report_id(declaration.declaration_id)}"
+                    ) from error
         route_by_dependency = {route.dependency: route for route in source_plan.routes}
         try:
             source_mismatch = any(
@@ -2058,6 +2084,12 @@ class ReportStore:
         }
         cells: list[Cell] = []
         for record in wire.inputs.target_cells:
+            try:
+                platform_marker_facts(record.target)
+            except MarkerError as error:
+                raise ConfigurationError(
+                    f"invalid v1 report: Cell target ({error}): {_safe_report_id(record.cell_id)}"
+                ) from error
             if not set(record.active_declaration_refs) <= declaration_id_set:
                 raise ConfigurationError(
                     "invalid v1 report: unknown declaration ref in Cell "

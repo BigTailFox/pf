@@ -13,7 +13,7 @@ from rich.text import Text
 from pf.errors import ConfigurationError
 from pf.report import ValidatedReport
 from pf.schemas.evaluation import BaselineIndeterminate, BaselineRejection
-from pf.project import marker_platform
+from pf.markers import platform_marker_facts
 from pf.schemas.project import Cell, cell_identity
 from pf.schemas.report import (
     CellIndeterminate,
@@ -327,10 +327,14 @@ def _apply_status(report: ValidatedReport) -> tuple[str, OutcomeKind, bool]:
         complete_platforms.add(platform)
 
     selectors = {
-        tuple(marker_platform(platform).values()) for platform in targets_by_platform
+        (facts.sys_platform, facts.platform_machine)
+        for platform in targets_by_platform
+        for facts in (platform_marker_facts(platform),)
     }
     complete_selectors = {
-        tuple(marker_platform(platform).values()) for platform in complete_platforms
+        (facts.sys_platform, facts.platform_machine)
+        for platform in complete_platforms
+        for facts in (platform_marker_facts(platform),)
     }
     if len(selectors) > 1 and complete_selectors and selectors - complete_selectors:
         return (
