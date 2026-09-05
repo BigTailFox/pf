@@ -3,7 +3,6 @@
   "window.title": "pf",
   "files.exclude": {
     "**/.venv": true,
-    "**/.github": true,
     "**/.ruff_cache": true,
     "**/__pycache__": true,
     "**/.benchmarks": true
