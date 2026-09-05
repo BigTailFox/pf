@@ -1,0 +1,48 @@
+loaded project
+built snapshot
+selected 10 cells, 6 active packages (0 pinned)
+run-id: 20260905T170534.659642Z-1081079-e82a45d6
+python: 3.10, 3.11, 3.12, 3.13, 3.14
+platform: x86_64-unknown-linux-gnu
+extra surfaces: socks, socks+use_chardet_on_py3
+✓  [py3.13][x86_64-unknown-linux-gnu][socks] 0:12:49
+   [baseline][certifi=2022.5.18.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.12][x86_64-unknown-linux-gnu][socks] 0:12:49
+   [baseline][certifi=2022.5.18.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.14][x86_64-unknown-linux-gnu][socks] 0:12:53
+   [baseline][certifi=2022.5.18.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.11][x86_64-unknown-linux-gnu][socks] 0:13:10
+   [baseline][certifi=2022.5.18.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.10][x86_64-unknown-linux-gnu][socks] 0:13:15
+   [baseline][certifi=2022.5.18.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.12][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:13:55
+   [baseline][certifi=2022.5.18.1][chardet=2.2.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.13][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:14:08
+   [baseline][certifi=2022.5.18.1][chardet=2.2.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.14][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:14:13
+   [baseline][certifi=2022.5.18.1][chardet=2.2.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.11][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:14:24
+   [baseline][certifi=2022.5.18.1][chardet=2.2.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:14:37
+   [baseline][certifi=2022.5.18.1][chardet=2.2.1][charset-normalizer=1.3.1][idna=2.0][pysocks=1.7.0][urllib3=1.26.5]
+   search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]
+   src/requests/__init__.py:50:36 [unresolved-import] unresolved-import: Module `charset_normalizer` has no member `__version__`
+✓  Search complete · package-floor.json

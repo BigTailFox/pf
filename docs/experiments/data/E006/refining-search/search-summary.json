@@ -1,0 +1,255 @@
+{
+  "source_report": "experiments/requests/package-floor.json",
+  "source_report_sha256": "236f8cb19cb2448031c686b00ce9cf80a10d2760b6d019e6736284d9d52efd30",
+  "search_run_id": "20260905T170534.659642Z-1081079-e82a45d6",
+  "pf_head": "4a9238d7ce1535cf74b792fa7a5edaa30b5f0765",
+  "reader_validation": "ReportStore.read passed during this report preparation on PF HEAD 4a9238d",
+  "identity": {
+    "generator": {
+      "algorithm": "v1",
+      "name": "pf",
+      "version": "0.1.0"
+    },
+    "package": {
+      "name": "requests",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.10"
+    },
+    "policy_identity": "aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0",
+    "report_generation_id": "0aff1d79fe9851ce263b4a9bc8ef2fd93ad46810ad723309e28d9b305da6dc85",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "source_snapshot_digest": "0d625d940fbec6c9b68eb8cb650e03308eab43385651fb4dfe6be354300c46ef",
+  "result": {
+    "status": "complete",
+    "cells": 10,
+    "successful_cells": 10,
+    "sweeps_per_cell": 2,
+    "representable_projections": 6
+  },
+  "search_policy": {
+    "artifact": "any",
+    "dependencies": [
+      "certifi",
+      "chardet",
+      "charset-normalizer",
+      "idna",
+      "pysocks",
+      "urllib3"
+    ],
+    "prereleases": false,
+    "profile": "registry-series-slice-v1",
+    "requested_space": "minors[declaration]",
+    "resolution": "patch",
+    "space_defaults": {
+      "with_lower_bound": "majors[declaration-1:]",
+      "without_lower_bound": "majors[baseline-2:]"
+    }
+  },
+  "intermediate_declarations": [
+    "certifi>=2022.5.18.1",
+    "charset_normalizer<4,>=1.3.9",
+    "idna<4,>=2.0",
+    "PySocks!=1.5.7,>=1.7.1",
+    "urllib3<3,>=1.26.20",
+    "chardet<8,>=2.2.1"
+  ],
+  "candidate_inventories": [
+    {
+      "dependency": "certifi",
+      "versions": ["2022.5.18.1"]
+    },
+    {
+      "dependency": "chardet",
+      "versions": ["2.2.1"]
+    },
+    {
+      "dependency": "charset-normalizer",
+      "versions": [
+        "1.3.0",
+        "1.3.1",
+        "1.3.2",
+        "1.3.3",
+        "1.3.4",
+        "1.3.5",
+        "1.3.6",
+        "1.3.7",
+        "1.3.8",
+        "1.3.9"
+      ]
+    },
+    {
+      "dependency": "idna",
+      "versions": ["2.0"]
+    },
+    {
+      "dependency": "pysocks",
+      "versions": ["1.7.0", "1.7.1"]
+    },
+    {
+      "dependency": "urllib3",
+      "versions": [
+        "1.26.0",
+        "1.26.1",
+        "1.26.2",
+        "1.26.3",
+        "1.26.4",
+        "1.26.5",
+        "1.26.6",
+        "1.26.7",
+        "1.26.8",
+        "1.26.9",
+        "1.26.10",
+        "1.26.11",
+        "1.26.12",
+        "1.26.13",
+        "1.26.14",
+        "1.26.15",
+        "1.26.16",
+        "1.26.17",
+        "1.26.18",
+        "1.26.19",
+        "1.26.20"
+      ]
+    }
+  ],
+  "counts": {
+    "attempts": 155,
+    "candidate_snapshots": 55,
+    "evaluations": 145,
+    "failures": 50,
+    "process_logs": 1242,
+    "proposals": 155,
+    "resolution_graphs": 93,
+    "series_inventories": 6,
+    "static_evaluations": 155
+  },
+  "evaluation_status_counts": {
+    "PASS": 95,
+    "RUNTIME_INTERFACE_MISSING": 20,
+    "VERIFIER_REJECTED": 30
+  },
+  "failure_cause_counts": {
+    "RUNTIME_INTERFACE_MISSING": 20,
+    "VERIFIER_EXITED_NONZERO": 30
+  },
+  "refinement": [
+    {
+      "dependency": "certifi",
+      "first_stage_floor": "2022.5.18.1",
+      "refined_floor": "2022.5.18.1",
+      "predecessor": null,
+      "active_cells": 10
+    },
+    {
+      "dependency": "charset-normalizer",
+      "first_stage_floor": "1.3.9",
+      "refined_floor": "1.3.1",
+      "predecessor": "1.3.0",
+      "predecessor_cause": "RUNTIME_INTERFACE_MISSING",
+      "active_cells": 10
+    },
+    {
+      "dependency": "idna",
+      "first_stage_floor": "2.0",
+      "refined_floor": "2.0",
+      "predecessor": null,
+      "active_cells": 10
+    },
+    {
+      "dependency": "pysocks",
+      "first_stage_floor": "1.7.1",
+      "refined_floor": "1.7.0",
+      "predecessor": null,
+      "active_cells": 10
+    },
+    {
+      "dependency": "urllib3",
+      "first_stage_floor": "1.26.20",
+      "refined_floor": "1.26.5",
+      "predecessor": "1.26.4",
+      "predecessor_cause": "VERIFIER_EXITED_NONZERO",
+      "active_cells": 10
+    },
+    {
+      "dependency": "chardet",
+      "first_stage_floor": "2.2.1",
+      "refined_floor": "2.2.1",
+      "predecessor": null,
+      "active_cells": 5
+    }
+  ],
+  "projected_requirements": [
+    "certifi>=2022.5.18.1",
+    "charset_normalizer<4,>=1.3.1",
+    "idna<4,>=2.0",
+    "PySocks!=1.5.7,>=1.7.0",
+    "urllib3<3,>=1.26.5",
+    "chardet<8,>=2.2.1"
+  ],
+  "boundary_failure_refs": {
+    "charset-normalizer==1.3.0": [
+      "failure-b3136bd059fbd3e7",
+      "failure-5a812294f85a0e0c",
+      "failure-e19d79c351282284",
+      "failure-7883bc0a2d1bbd59",
+      "failure-57575bd68a7bea2b",
+      "failure-d821728b8160e0fa",
+      "failure-a3ecb00ca7575907",
+      "failure-7d32225e14340f8b",
+      "failure-4bae98bb800ec60b",
+      "failure-ec261c166d482ec2"
+    ],
+    "urllib3==1.26.4": [
+      "failure-2a4e7afbebbdfe06",
+      "failure-6550b61fa6749a4d",
+      "failure-37f37e12024267ae",
+      "failure-00a257d4c48ecbed",
+      "failure-e438ffcff3776e30",
+      "failure-0b16ca6e031550fc",
+      "failure-ea3cde700b1b8942",
+      "failure-ad0410b9afdb077a",
+      "failure-80837be8258db6eb",
+      "failure-e28ce952ed409fa9"
+    ]
+  },
+  "representative_diagnostics": [
+    {
+      "failure_id": "failure-b3136bd059fbd3e7",
+      "dependency": "charset-normalizer",
+      "floor": "1.3.1",
+      "predecessor": "1.3.0",
+      "cause": "RUNTIME_INTERFACE_MISSING",
+      "stage": "witness",
+      "detail": "charset_normalizer has no member __version__",
+      "process_log": "process-1086.log"
+    },
+    {
+      "failure_id": "failure-2a4e7afbebbdfe06",
+      "dependency": "urllib3",
+      "floor": "1.26.5",
+      "predecessor": "1.26.4",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test",
+      "detail": "tests/test_requests.py::TestRequests::test_https_warnings observed extra DeprecationWarning categories",
+      "process_log": "process-1078.log"
+    }
+  ],
+  "terminal_cell_durations_seconds": {
+    "socks": {
+      "3.10": 795,
+      "3.11": 790,
+      "3.12": 769,
+      "3.13": 769,
+      "3.14": 773
+    },
+    "socks+use_chardet_on_py3": {
+      "3.10": 877,
+      "3.11": 864,
+      "3.12": 835,
+      "3.13": 848,
+      "3.14": 853
+    }
+  },
+  "terminal_duration_source": "User-supplied terminal output; per-cell duration, not total command wall time"
+}

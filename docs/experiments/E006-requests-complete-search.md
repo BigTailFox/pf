@@ -1,19 +1,21 @@
-# E006 — requests 最新 smoke / check / search 实验
+# E006 — requests 双阶段完整搜索实验
 
 - **状态：** 已完成
-- **日期：** 2026-09-05（Asia/Shanghai）
+- **日期：** 2026-09-05–06（Asia/Shanghai）
 - **性质：** 非规范性 dogfood 实验报告；记录运行事实，不定义产品契约
 - **历史对照：** [E003](E003-requests-dependency-validation.md)、[E004](E004-requests-validation-surfaces.md)
 - **目标：** `experiments/requests`，commit `dae7ef63b4df6eded86637f251fc4e3a06c3b479`
-- **PF：** `0.1.0`；本次 smoke/check 重跑时 HEAD 为 `40b34cd6054b24e33905c78b7f69c923b41904e8`
-- **实现口径：** 生产代码与 `325e43d` 相同；后续提交为文档及独立模拟脚本。search 报告自身只记录 generator 版本，不记录 PF Git commit
-- **Source snapshot：** `75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3`
+- **PF：** `0.1.0`；第一阶段 search 的生产代码为 `325e43d`，第二阶段 refine 使用 `4a9238d`
+- **实现口径：** 第一阶段后的 smoke/check 重跑 HEAD 为 `40b34cd`；第二阶段在 D033 修复提交后运行。search 报告自身只记录 generator 版本，不记录 PF Git commit
+- **Source snapshots：** 第一阶段 `75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3`；第二阶段 `0d625d940fbec6c9b68eb8cb650e03308eab43385651fb4dfe6be354300c46ef`
 - **Evaluation policy：** `aa654eb96a8614885202f36d8e4158e077ecfc7ed2e1f5b3dda2485760b851d0`
-- **Search generation：** `8611ccc7f3da74ae11fef4544367e856ea363c4c3258b0f28775e73c0c20b282`
+- **Search generations：** 第一阶段 `8611ccc7f3da74ae11fef4544367e856ea363c4c3258b0f28775e73c0c20b282`；第二阶段 `0aff1d79fe9851ce263b4a9bc8ef2fd93ad46810ad723309e28d9b305da6dc85`
 
-最新完整 smoke 复测 **10/10 PASS**；当前声明下界 check **10/10 REJECTED**；用户完成的 search
-为 **10/10 SUCCESS、报告 complete、六个依赖投影全部可表示**。首次 smoke 重跑出现一次本地 HTTP
-连接重置，完整复测未复现，两次结果均保留。不能把 search 成功解释为当前声明下界已经通过。
+最新完整 smoke 复测 **10/10 PASS**；原始声明下界 check **10/10 REJECTED**；用户完成的 search
+分为 minor 定位与 patch refine 两个阶段，两份报告均为 **10/10 SUCCESS、complete、六个依赖投影
+全部可表示**。refine 后 `charset-normalizer`、`urllib3` 与 `PySocks` 分别落到 `1.3.1`、`1.26.5`
+与 `1.7.0`。首次 smoke 重跑出现一次本地 HTTP 连接重置，完整复测未复现，两次结果均保留。
+不能把 search 成功解释为原始声明下界已经通过。
 
 ## 1. 输入、验证契约与实际时序
 
@@ -33,22 +35,40 @@ resolve-artifact = "any"
 testserver 测试。未缩小测试路径或删除测试。正常失败可 early-exit；搜索中的 failed-set 子运行只能
 提供拒绝证据，PASS 仍须来自完整 configured verifier。静态诊断计数不等于 verifier 结果。
 
-搜索使用报告冻结的 `registry-series-slice-v1` 策略：实验当时字段名为 `search-step = "minor"`
-（现行契约为 `search-resolution`）、不含 prerelease、
-`requested_space = null`，条件默认如下：
+两次 search 都使用报告冻结的 `registry-series-slice-v1` 策略，不含 prerelease。双阶段由两次
+独立 PF invocation 组成，不是一次 invocation 内隐含的 `major → minor → patch` 树搜索：
+
+| 阶段 | declaration 输入 | search space | resolution | 目的 |
+| --- | --- | --- | --- | --- |
+| 第一阶段 | requests 原始依赖声明 | 省略显式 space，命中 `majors[declaration-1:]` 条件默认 | `minor` | 在声明前一个 major 起的范围内定位通过的 minor 系列代表 |
+| 第二阶段 | 第一阶段 projection 写入后的中间声明 | `minors[declaration]` | `patch` | 只在已定位 minor 内进一步确定 patch floor |
+
+第一阶段报告中的字段名仍为当时契约的 `search-step = "minor"`；现行契约已改名为
+`search-resolution`。第一阶段 `requested_space = null`，实际使用的条件默认为：
 
 ```toml
 with-lower-bound = "majors[declaration-1:]"
 without-lower-bound = "majors[baseline-2:]"
 ```
 
-六个依赖均有声明下界，使用第一项。每个 minor 系列取最高合格精确 release 作为代表。
-因此本次 floor 是**冻结范围及代表候选上的结果**，不是全发布历史逐 patch 穷举的绝对最低版本。
+六个依赖均有声明下界，使用第一项。每个 minor 系列取最高合格精确 release 作为代表。用于第二阶段的
+中间工作树包含第一阶段六条 projection，并增加：
 
-本文按 `smoke → check → search` 的工作流解释结果，但实际运行时序为：用户先完成 21:47 开始的
-search，再要求补跑 smoke/check；本次在 22:18、22:19 执行 smoke/check，22:20 再完整复测 smoke。
-各次 Journal 与 search report 的 snapshot、policy 均相同；search 使用自己取得的 baseline，
-不引用后来 smoke 的 PASS。E003/E004 的旧 policy、旧矩阵不混入本轮证据。
+```toml
+search-space = "minors[declaration]"
+search-resolution = "patch"
+```
+
+因此第一阶段 floor 是冻结 major 范围内的 minor 代表结果，第二阶段 floor 是对应 declaration minor
+内的 patch 代表结果；两者都不是全发布历史或全部依赖组合的穷举证明。第二阶段有自己的 SourceSnapshot、
+CandidateSnapshots、Attempts 与 runtime evidence，不把第一份报告当作跨运行 evaluation cache。
+
+本文按 `smoke → check → 第一阶段 search → 第二阶段 refine` 解释结果，但实际运行时序为：用户先完成
+9 月 5 日 21:47 开始的第一阶段 search，再要求补跑 smoke/check；本次在 22:18、22:19 执行
+smoke/check，22:20 再完整复测 smoke。上述四次运行的 snapshot、evaluation policy 相同；search 使用
+自己取得的 baseline，不引用后来 smoke 的 PASS。第一阶段 projection 随后进入中间工作树，9 月 6 日
+01:05 在 D033 修复后开始第二阶段。它保持相同 evaluation policy，但因声明与搜索配置改变而使用新的
+snapshot。E003/E004 的旧 policy、旧矩阵不混入本轮证据。
 
 本次由 PF 仓库根目录启动沙箱外进程，子进程 cwd 为目标仓库；核心调用为：
 
@@ -67,7 +87,7 @@ for command in ("smoke", "check"):
 ```
 
 实际执行同时保存 stdout/stderr、开始结束时间和退出码；第二次 smoke 使用相同环境及参数。
-search 的命令为用户提供的 `pf search`，本次整理未重新执行 search。
+两次 search 的命令与终端输出由用户提供，本次整理未重新执行 search。
 
 ## 2. 运行总表
 
@@ -76,9 +96,10 @@ search 的命令为用户提供的 `pf search`，本次整理未重新执行 sea
 | smoke 首次重跑 | `20260905T141808.653261Z-783898-a1b8d058` | 1 | 9 PASS、1 REJECTED | 实测墙钟 86.53s |
 | check 重跑 | `20260905T141935.195322Z-788444-6d7e586c` | 1 | 10 REJECTED | 实测墙钟 25.03s |
 | smoke 完整复测 | `20260905T142054.067994Z-793128-eb5cfb77` | 0 | 10 PASS | 实测墙钟 85.42s |
-| 用户 search | `20260905T134722.724441Z-686839-efa6c438` | 未独立捕获 shell 退出码 | 10 SUCCESS；`result.status = complete` | 终端最长 Cell 24m11s |
+| 第一阶段 search（minor） | `20260905T134722.724441Z-686839-efa6c438` | 未独立捕获 shell 退出码 | 10 SUCCESS；`result.status = complete` | 终端最长 Cell 24m11s |
+| 第二阶段 refine（patch） | `20260905T170534.659642Z-1081079-e82a45d6` | 未独立捕获 shell 退出码 | 10 SUCCESS；`result.status = complete` | 终端最长 Cell 14m37s |
 
-search 的 `Search complete` 与机器报告相符；按当前命令契约对应成功，但不把推定的退出码冒充
+两次 search 的 `Search complete` 均与各自机器报告相符；按对应命令契约代表成功，但不把推定退出码冒充
 独立捕获结果。Cell 并发耗时不能相加当作命令墙钟，也不能用最长 Cell 替代完整命令计时。
 
 ## 3. smoke：最高版本通过，另有一次未复现的连接重置
@@ -115,12 +136,14 @@ search 的 `Search complete` 与机器报告相符；按当前命令契约对应
 导入问题一致。表中错误文本是本次日志事实；PySocks 旧导入方式的进一步归因见该历史调查。
 四个 SOCKS 失败环境实际已安装 PySocks，不能将错误提示直接理解成 PF 漏装依赖。
 
-check 验证的是当前声明生成的下界组合；search 可以抬高不通过的坐标、降低其他坐标并取得 PASS。
-两者结果因此并不矛盾。本轮未执行 apply，也未改动 requests 的依赖声明。
+check 验证的是当时原始声明生成的下界组合；search 可以抬高不通过的坐标、降低其他坐标并取得 PASS。
+两者结果因此并不矛盾。smoke/check 复测本身未执行 apply，也未改动 requests 的依赖声明；后续为衔接
+第二阶段而写入第一阶段 projection 的中间工作树见 §6。
 
-## 5. search：最终 floor 与拒绝边界
+## 5. 第一阶段 search：minor floor 与拒绝边界
 
-`ReportStore.read` 已完整验证原始 `experiments/requests/package-floor.json`。
+第一阶段完成时，`ReportStore.read` 已完整验证当时的 `experiments/requests/package-floor.json`；其摘要在
+原始文件被第二阶段覆盖前已冻结到 §7。
 10 个 Cell 均为 `SUCCESS`、各完成 2 sweeps；每个 baseline 和 final Proposal 都有 PASS Evaluation。
 六个 projection 全为 `representable = true`；同一依赖在全部活跃 Cell 上的 floor 一致。
 
@@ -144,8 +167,9 @@ urllib3<3,>=1.26.20
 chardet<8,>=2.2.1
 ```
 
-这些是报告投影，不是已应用到源码的修改。certifi 到达搜索范围底部，不证明更早版本不兼容；
-其他前驱指本次 minor 代表候选序列中的前驱，不表示相邻的每个 patch 都测过。
+这些在第一阶段完成时只是报告投影，随后作为第二阶段的中间声明写入目标工作树。certifi 到达搜索
+范围底部，不证明更早版本不兼容；其他前驱指本次 minor 代表候选序列中的前驱，不表示相邻的每个
+patch 都测过。
 
 代表 Failure ID（Python 3.10 / socks；chardet 使用同 Python 的 chardet surface）：
 
@@ -189,7 +213,88 @@ highest baseline 为 `certifi=2026.7.22`、`charset-normalizer=3.5.1`、`idna=3.
 时间来自用户终端输出。Chardet surface 本次约多 6 分钟，但没有配对成本实验，不能把差值全归因于
 某个依赖、阶段或某项优化；本报告也不作为 D033 或 E005 性能方案的实施验收。
 
-## 6. 固定证据与复核
+## 6. 第二阶段 refine：同一 minor 内定位 patch
+
+修复后的 PF HEAD `4a9238d` 对中间声明执行 `minors[declaration]` × `patch`。当前
+`experiments/requests/package-floor.json` 已由 `ReportStore.read` 完整验证：10 个 Cell 全部
+`SUCCESS`、各完成 2 sweeps，六个 projection 全部可表示；同一依赖在全部活跃 Cell 上仍得到一致 floor。
+
+| 依赖 | 第一阶段 minor floor | 第二阶段候选 | refine 后 floor | 第二阶段直接前驱 / 证据 | 活跃 Cells |
+| --- | --- | --- | --- | --- | ---: |
+| certifi | 2022.5.18.1 | `2022.5.18.1`（1） | **2022.5.18.1** | 无；本次空间唯一候选 | 10 |
+| charset-normalizer | 1.3.9 | `1.3.0`–`1.3.9`（10） | **1.3.1** | 1.3.0 / RUNTIME_INTERFACE_MISSING | 10 |
+| idna | 2.0 | `2.0`（1） | **2.0** | 无；本次空间唯一候选 | 10 |
+| PySocks | 1.7.1 | `1.7.0`、`1.7.1`（2） | **1.7.0** | 无；本次空间最低候选 | 10 |
+| urllib3 | 1.26.20 | `1.26.0`–`1.26.20`（21） | **1.26.5** | 1.26.4 / VERIFIER_EXITED_NONZERO | 10 |
+| chardet | 2.2.1 | `2.2.1`（1） | **2.2.1** | 无；本次空间唯一候选 | 5 |
+
+第二阶段报告产生的依赖投影为：
+
+```text
+certifi>=2022.5.18.1
+charset_normalizer<4,>=1.3.1
+idna<4,>=2.0
+PySocks!=1.5.7,>=1.7.0
+urllib3<3,>=1.26.5
+chardet<8,>=2.2.1
+```
+
+这是第二阶段新 snapshot 与完整 runtime evidence 下的结果，不是把两个报告的边界引用拼成一份报告。
+第一阶段负责选择 minor，第二阶段只在该 minor 内 refine；最终仍是所列策略和 configured verifier 下的
+coordinate-minimal passing vector，不证明未执行的组合或选定 minor 之外的版本。
+
+### 6.1 两条 patch 级拒绝边界
+
+`charset-normalizer=1.3.0` 在 10 个 Cell 的最终 context 中都由 runtime witness 确认为缺少
+`charset_normalizer.__version__`；`1.3.1` 则有直接完整 PASS。因此完成卡片中的
+`search completed at [charset-normalizer=1.3.0][1.3.0~1.3.1#2]` 展示的是最后验证的 predecessor
+与两候选窗口，floor 是 **1.3.1**。Python 3.10 / socks 的代表 Failure ID 为
+`failure-b3136bd059fbd3e7`。
+
+`urllib3=1.26.4` 在 10 个 Cell 的最终 context 中都被 configured pytest 拒绝，`1.26.5` 直接完整
+通过。代表失败 `failure-2a4e7afbebbdfe06` 落在
+`tests/test_requests.py::TestRequests::test_https_warnings`：实际 warning categories 比预期的
+`SubjectAltNameWarning` 多出 `DeprecationWarning`，pytest 正常退出 1。这是测试 oracle 建立的行为边界，
+不是 resolver、安装或基础设施失败。
+
+### 6.2 运行规模与时间
+
+| 指标 | 第一阶段 minor | 第二阶段 patch refine |
+| --- | ---: | ---: |
+| Attempts / Proposals | 370 / 370 | 155 / 155 |
+| Runtime evaluations | 330 | 145 |
+| PASS | 130 | 95 |
+| Rejection | 200 | 50 |
+| Resolution graphs | 222 | 93 |
+| Candidate snapshots | 55 | 55 |
+| Process logs | 3308 | 1242 |
+| 最长 Cell | 24m11s | 14m37s |
+
+第二阶段 50 个 Rejection 由 20 个 `RUNTIME_INTERFACE_MISSING` 与 30 个
+`VERIFIER_EXITED_NONZERO` 组成，Journal 也恰有 50 entries，没有 INDETERMINATE。第一、第二阶段的
+源码 snapshot、搜索空间和 PF 实现不同，且这里只捕获了每 Cell elapsed；这些数值说明本次 refine
+工作量较小，但不能单独归因为 predecessor 重验或推导命令墙钟加速比例。
+
+### 6.3 本次 dogfood 的有价值发现
+
+1. 两次平面搜索可以组成实用的 coarse-to-fine 工作流：第一阶段用
+   `majors[declaration-1:]` × minor 定位系列，第二阶段用 `minors[declaration]` × patch 在该系列内
+   收紧精确版本。当前 PF 不自动执行这种层级搜索；中间 projection、配置变化和第二份报告都是显式步骤。
+2. Requests 的真实多坐标 refine 现场暴露了 [D033](../archived/designs/D033-pf-predecessor-revalidate.md)
+   纳入修复的窄空间缺口：正在下降的 coordinate 属于
+   `C[d]`，其他尚未下降 coordinate 的 highest baseline 可能位于各自 `C[d]` 之外，exact probe 仍需其
+   冻结 artifact。`4a9238d` 引入 baseline selection 后，本次 10-Cell 搜索完整结束，为该修复提供了
+   第三方仓库端到端证据。
+3. patch refine 把宽泛的系列代表转成了可解释的接口/行为边界：Requests 在
+   `charset-normalizer=1.3.0` 缺少实际导入的 `__version__`，从 `1.3.1` 起通过；其完整 pytest 在
+   `urllib3=1.26.4` 的 warning 精确断言失败，从 `1.26.5` 起通过；PySocks 的同 minor 最低候选
+   `1.7.0` 也通过全部 10 个 Cell。
+4. 这些结果同时说明“测试可通过的 floor”和“上游声明的支持范围”不是同一件事。refine vector 低于
+   requests 原始 metadata 的多条下界，代表 urllib3 predecessor 的运行日志还出现了
+   `RequestsDependencyWarning`。E006 只记录当前源码、矩阵和 pytest oracle 下的兼容证据，不据此建议
+   requests 上游放宽依赖声明；若 support policy 也要成为门禁，需要在验证契约中明确表达。
+
+## 7. 固定证据与复核
 
 终端文本去除了行尾布局填充空格，其余内容保留。
 
@@ -198,14 +303,19 @@ highest baseline 为 `certifi=2026.7.22`、`charset-normalizer=3.5.1`、`idna=3.
 - [smoke-repeat.txt](data/E006/smoke-repeat.txt)：相同配置完整复测输出。
 - [rerun.json](data/E006/rerun.json)：上述三次进程的 UTC 起止时间和实际退出码。
 - [rerun-evidence.json](data/E006/rerun-evidence.json)：Journal 身份、失败事实与 pytest 日志摘要。
-- [search-summary.json](data/E006/search-summary.json)：从用户此次原始报告提取的身份、计数、投影与逐 Cell 证据。
+- [search-summary.json](data/E006/search-summary.json)：从第一阶段原始报告提取的身份、计数、投影与逐 Cell 证据。
+- [refining-search/search.txt](data/E006/refining-search/search.txt)：第二阶段用户终端输出，去除边框与布局填充。
+- [refining-search/search-summary.json](data/E006/refining-search/search-summary.json)：第二阶段 report 身份、策略、候选 inventory、计数、投影、边界 Failure IDs 与 Cell 耗时摘要。
+- [refining-search/diagnostics.txt](data/E006/refining-search/diagnostics.txt)：两个代表 predecessor 的 `pf diagnose` 与相关 process-log 语义摘录。
 
 原始运行目录为 `experiments/requests/.pf/logs/<run-id>/`。这些目录及原始 `package-floor.json`
 是本地运行产物，后续可能清理或覆盖；本文随仓库保存上述摘要，摘要不替代完整报告的离线授权。
-本次原始 report 的 SHA-256 为：
+第一阶段原始 report 已被第二阶段输出覆盖，其冻结摘要记录 SHA-256
+`040e20a1fa9681502303fae3ee6fdb2f18fcdcf8614f590ce5984d755811a40d`。当前第二阶段原始 report 的
+SHA-256 为：
 
 ```text
-040e20a1fa9681502303fae3ee6fdb2f18fcdcf8614f590ce5984d755811a40d
+236f8cb19cb2448031c686b00ce9cf80a10d2760b6d019e6736284d9d52efd30
 ```
 
 本次执行的完整 reader 复核命令（PF 仓库根目录；只读，无 registry 查询）：
@@ -219,8 +329,10 @@ print(r.report_generation_id, r.result.status, len(r.cell_results))
 PY
 ```
 
-结果为上述 generation、`complete`、`10`。另核对全部 baseline/final 的 PASS、六个投影与逐 Cell
-边界一致、runtime/FailureRecord 计数及三次重跑日志；文档相对链接与 `git diff --check` 通过。
+第二阶段结果为 `0aff1d79fe9851ce263b4a9bc8ef2fd93ad46810ad723309e28d9b305da6dc85`、
+`complete`、`10`。第一阶段 reader 复核结果已冻结在原 [search-summary.json](data/E006/search-summary.json)。
+另核对两份摘要、第二阶段全部 final roots、六个投影与逐 Cell 边界一致、runtime/FailureRecord 计数、
+两条代表诊断及三次 smoke/check 重跑日志；文档相对链接与 `git diff --check` 通过。
 
-本次只证明所列 Linux target、Python minors、两个 required surfaces、源码快照、验证契约及冻结
-候选策略上的结果；不外推其他平台、未测 patch、依赖任意组合或完整区间的普遍兼容性。
+两阶段实验只证明所列 Linux target、Python minors、两个 required surfaces、各自源码快照、验证契约及
+冻结候选策略上的结果；不外推其他平台、未探测 patch、依赖任意组合或完整区间的普遍兼容性。

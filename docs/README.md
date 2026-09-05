@@ -89,9 +89,11 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [E005](experiments/E005-pf-multi-resolution-search-simulation.md) 完成原 D031 第一阶段纯算法模拟：
   A/B/C/D 四组、独立穷举与当前算法差分对照表明 predecessor 重验减少合成探针，树本身收益不稳定；
   保存脚本、逐案结果和 trace，不代表真实 evaluator 耗时或产品实现验收。
-- [E006](experiments/E006-requests-complete-search.md) 保存 requests 最新完整 search：10 Cells 全部
-  SUCCESS、六个依赖取得 floor；补跑 check 仍为 10 REJECTED，smoke 首次出现一次连接重置、
-  相同配置完整复测 10 PASS。保留运行输出与机器摘要，并区分 urllib3 过程值和最终 `1.26.20` floor。
+- [E006](experiments/E006-requests-complete-search.md) 保存 requests 双阶段完整 search：先以
+  `majors[declaration-1:]` × minor 定位系列，再以 `minors[declaration]` × patch refine；两阶段均为
+  10 Cells SUCCESS，最终得到 `charset-normalizer=1.3.1`、`urllib3=1.26.5`、`PySocks=1.7.0` 等
+  六个一致 floor。补跑 check 仍为 10 REJECTED，smoke 首次出现一次连接重置、相同配置完整复测
+  10 PASS；两阶段运行输出、机器摘要和代表诊断均已保存。
 
 ## 开放事项与归档
 

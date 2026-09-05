@@ -1,0 +1,36 @@
+Representative predecessor diagnostics from run
+20260905T170534.659642Z-1081079-e82a45d6.
+
+failure-b3136bd059fbd3e7
+cell: [py3.10][x86_64-unknown-linux-gnu][socks]
+boundary role: predecessor
+disposition: REJECTED
+cause: RUNTIME_INTERFACE_MISSING
+stage: witness
+vector: certifi==2022.5.18.1, charset-normalizer==1.3.0, idna==2.0,
+        pysocks==1.7.0, urllib3==1.26.5
+process: exited 0
+output: {"status":"CONFIRMED_MISSING"}
+log: .pf/logs/20260905T170534.659642Z-1081079-e82a45d6/process-1086.log
+witness plan: import symbol `charset_normalizer.__version__`
+terminal detail: src/requests/__init__.py:50:36 [unresolved-import]
+                 Module `charset_normalizer` has no member `__version__`
+
+failure-2a4e7afbebbdfe06
+cell: [py3.10][x86_64-unknown-linux-gnu][socks]
+boundary role: predecessor
+disposition: REJECTED
+cause: VERIFIER_EXITED_NONZERO
+stage: test
+vector: certifi==2022.5.18.1, charset-normalizer==1.3.1, idna==2.0,
+        pysocks==1.7.0, urllib3==1.26.4
+process: exited 1
+log: .pf/logs/20260905T170534.659642Z-1081079-e82a45d6/process-1078.log
+pytest failure: tests/test_requests.py::TestRequests::test_https_warnings
+assertion: observed warning categories contained DeprecationWarning entries in addition
+           to SubjectAltNameWarning; the test expected only SubjectAltNameWarning
+pytest summary: 1 failed, 1 warning in 0.74s
+
+Both failures were read with `pf diagnose` after `ReportStore.read` accepted the
+complete report. The text above preserves semantic fields and the relevant process-log
+excerpt without copying the full local `.pf` run directory.
