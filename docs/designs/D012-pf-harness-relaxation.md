@@ -98,7 +98,13 @@ ProjectLoader 先按 D001 归一化 test-group 自引用为 required Cell surfac
 - 规范 distribution name、extras 和结构化 specifier clauses；
 - marker、source identity 和原始文本。
 
-只有 project discovery 解析 dependency group；其他 module 不重新解析原始字符串或 source。
+只有 ProjectLoader 解析 dependency group；其他 module 不重新解析原始 group 或 source。
+
+external harness activation 使用 `pf.markers.evaluate_contextual_marker` 完整求值：D001 五字段显式
+来自 Cell，其他字段保留现行 context/default environment 行为，extra 对空字符串与 surface 逐项取 any。
+此入口不收紧既有准入、不扩大 extras/dependency_groups context 支持，不伪造尚未观察的 interpreter
+patch，也不宣称混合表达式可移植。harness module 补充使用语境并映射配置错误；不能因 portable
+资格失败转入该路径。self-reference 则始终属于 Loader 的 portable project planning。
 
 ### 3.1 Baseline evidence
 
@@ -173,6 +179,10 @@ harness satisfaction 或 installed expectation。互斥同名节点可选出一�
 支持 `python_version`、`python_full_version`、`implementation_name`、`implementation_version`、
 `platform_python_implementation`、`sys_platform`、`os_name`、`platform_system`、`platform_machine`。
 这些值只来自实际 CPython identity 与 exact target，不使用 PF host 的默认 marker 值补缺。
+四个 target-derived platform facts 复用 `pf.markers.platform_marker_facts`；native 变量资格、actual
+patch/implementation 求值与图闭合仍只由 uv_lock 拥有。此投影发生于 environment prepare 观察实际
+解释器后，与 project load/report/apply 的 portable Cell profile 分离，不反向改变 Cell/generation
+identity。native 错误继续是 UvLockError，经现行 D005/D012 disposition 分类。
 `platform_release`、`platform_version`、`extra`、`extras`、`dependency_groups` 等不可证明的变量 fail closed，
 即使位于短路分支。非空 multi-use environments/extras/dependency-groups/default-groups 不受支持。
 

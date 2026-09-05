@@ -178,7 +178,7 @@ TOML observation；root target 复用同一 observation。`WorkspaceInventory` �
 root/target observations、排序唯一的 owned paths 和 canonical-name member point query；它不暴露任意
 document/members collection、raw bytes、digest、wire、cache 或 cleanup lifecycle，构造后不访问 filesystem。
 `ConfigLoader` 只在 root/target observations 上独占 root default → member local 两层 PF config merge/validation，不读取 filesystem；root target 只消费 root observation 一次，`tool.pf.package` 没有内部入口。
-`ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration、marker/extra
+`ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration 用途/admission、extra
 Cell、逐 dependency source route、完整 `NamedSearchPolicy` binding、member-version attachment 与 recursive test-group planning；
 `ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
 ProjectLoader 对展开的 test group 每条 requirement 只解析一次，先分离 self-reference 与 external
@@ -189,6 +189,29 @@ required-extra wrapper 或 public module。资格规则由 D001 拥有。
 省略 `pythons` 时允许通过现行 Python discovery 运行 `uv python list`，再完成 marker/version 资格；
 资格失败必须早于 snapshot、Attempt 和 resolution/install/verifier。Discovery 自身失败保留基础设施
 错误，不触发 target build-metadata probe 或提前创建环境。
+
+`pf.markers` 独占 portable 表达式资格、target aliases 与求值，公开 interface 为：
+
+```python
+platform_marker_facts(target) -> PlatformMarkerFacts
+PortableMarker.parse(raw) -> PortableMarker
+marker.evaluate(cell) -> bool
+evaluate_contextual_marker(raw, cell) -> bool
+```
+
+facts 与已资格化 marker 不可变；无 marker 恒真。parse 检查完整表达式、不需要 Cell；evaluate 为
+portable 输入只消费 Cell minor/exact target。底层 packaging AST、有界 cache 与默认环境行为封装在
+module 内，不增加 adapter/Protocol 或 wire AST。`MarkerError.reason` 区分 syntax、unsupported-variable、
+target、comparison、missing-fact，unsupported 错误给出首个排序变量；不泄漏依赖异常文本或 host 值。
+
+Loader 仅按 managed/self-reference/preserved 用途选入口，补充相对文件、group/item/name provenance，
+映射 ConfigurationError；report/authorization/harness 各自补充语境和现行错误分类。report reader 可重建
+portable marker，不能重新分类 ownership。contextual 仅服务 preserved 与 external harness 的既有
+准入，不是 portable fallback；五字段与 portable 等价，剩余 context 行为按 D001/D012 限定。
+
+report/authorization/terminal 消费具名 `sys_platform` / `platform_machine` 组成 canonical selector，
+不依赖 facts iteration order；uv_lock 复用四个 target facts，但独占 actual profile 资格、实际 patch
+与 native active graph，不能把 actual facts 填回 Cell。五字段产品映射与 activation 由 D001 拥有。
 
 `ProjectPlan.report_path` 是所选 package 报告文件的 root-relative posix，由 `ProjectLoader` 从
 `inventory.target.report_path` 复制；该绝对路径只由 `ProjectDiscovery` 按

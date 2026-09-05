@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 
 本页只负责文档治理、契约所有权和导航。每条现行规则只有一个规范性所有者；其他文档只引用，不复述。代码与文档冲突时，同一变更必须修正实现或所有者文档。
 
@@ -96,6 +96,12 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   10 PASS；两阶段运行输出、机器摘要和代表诊断均已保存。
 
 ## 开放事项与归档
+
+- [D034](archived/designs/D034-pf-dependency-marker-projection.md) /
+  [P039](archived/plans/P039-pf-dependency-marker-projection.md) 已完成五字段 portable marker 投影：
+  managed/self-reference admission 与 contextual preserved/harness 求值分离，统一 target-derived facts，
+  保持 canonical ApplySelector、Schema 1 与 actual pylock profile。稳定规则由 D001/D002/D012/D014 接管；
+  MkDocs 独立 test-group 配置限制与验收证据见 P039。
 
 - [D032](archived/designs/D032-pf-runtime-witness-stderr.md) /
   [P037](archived/plans/P037-pf-adapter-evidence-admission.md) 已完成并归档：witness stderr 诊断化、

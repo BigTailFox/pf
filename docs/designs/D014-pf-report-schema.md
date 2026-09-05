@@ -95,6 +95,7 @@ Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` �
 
 ```json
 {
+  "project_marker_projection": "portable-cell-platform-v1",
   "self_reference": "required-effective-cell-surface",
   "extra_exploration": "nonempty-declared-groups-only",
   "resolution_projection": "actual-interpreter-target-active-pylock",
@@ -108,6 +109,10 @@ Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` �
 `policy.py` 统一物化这些语义事实，不是用户配置项；baseline 同时指 declaration-capture，probe 同时指
 check declaration。行为本身由 D001/D012 拥有；具体 surface、declarations 和 observations 仍分别由
 Cell/source snapshot、Attempt/resolution evidence 绑定，不放入此固定 policy 字段。
+`project_marker_projection` 隔离五字段 target-derived project 求值语义；其余 contextual 字段不因此
+获得可移植承诺。RequirementDeclaration/TargetCell/marker 字符串与 active refs 沿用 Schema 1，
+不序列化 marker AST/environment，也不增加 ApplySelector 维度。JSON Schema 与 v1 digest prefix
+不变，examples 随 policy preimage/digest 重生成；不提供旧 policy reader、fallback 或 migrator。
 即使 source、Cells、generator 和显式 any/pytest 配置相同，normalization policy 不同也产生不同
 evaluation policy/generation。merge/update 拒绝跨 generation 混合；update_path 整体替换。Apply 在
 任何 source-drift waiver 前检查当前 evaluation policy，force 不绕过 mismatch。离线 read 内部自洽的
