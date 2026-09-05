@@ -22,3 +22,6 @@ wheels/
 .tmp/
 .temp/
 .pf/
+
+# Local dogfood clones (e.g. expirements/requests). Do not ignore docs/experiments/.
+/expirements/
