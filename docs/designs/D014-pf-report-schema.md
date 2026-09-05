@@ -95,6 +95,8 @@ Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` �
 
 ```json
 {
+  "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
+  "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
   "project_marker_projection": "portable-cell-platform-v1",
   "self_reference": "required-effective-cell-surface",
   "extra_exploration": "nonempty-declared-groups-only",
@@ -213,12 +215,16 @@ fail closed。SUCCESS、SEARCH_FAILED 与带搜索证据的 CELL_INDETERMINATE �
 | --- | --- | --- |
 | `resolution_graphs` | `resolution_graph_id` | canonical nodes |
 | `attempts` | `attempt_id` | Cell、SourcePlan identity、policy、resolution context、harness facts、request |
-| `proposals` | `proposal_id` | Attempt、managed vector、fixed declarations、graph、两个 plan digest、interpreter |
+| `proposals` | `proposal_id` | Attempt、managed vector、fixed declarations、graph、project 与 nullable environment plan digest、interpreter |
 | `static_evaluations` | `proposal_ref` | Proposal、TyCheck、baseline digest、increment/fingerprint/classification |
 | `evaluations` | `proposal_ref` | Proposal、static evaluation、witnesses、verifier terminal/failure ref |
 | `failures` | `failure_id` | Cell/Attempt scope、disposition、cause、stage、FailureAuthority、已取得 plan digests |
 
-Proposal 只有在 prepare 成功并复证实际 graph 后才能存在；prepare failure 可以引用 Attempt，但不能虚构 Proposal。成功 Proposal 的 `project_plan_digest` 与 `environment_plan_digest` 必须非空，interpreter Python minor 必须匹配 Attempt Cell。
+Proposal 只有在 prepare 成功并复证实际 graph 后才能存在；prepare failure 可以引用 Attempt，但不能虚构 Proposal。成功 Proposal 的 `project_plan_digest` 必须非空，`environment_plan_digest` 是 required-nullable：key 必须存在，null 当且仅当引用 Attempt 的 active harness declaration IDs 为空；非 null digest 必须非空。interpreter Python minor 必须匹配 Attempt Cell。
+
+Project-only Proposal 的 graph 来自已安装并复证的 project plan；有 harness 时来自 environment plan。EnvironmentIdentity preimage 显式保留 null，reader 重算 identity 并拒绝分支不一致、缺 key 与 digest 漂移。wire serializer 在 exclude_none=True 下显式保留该 null，Schema generator 保留其 null 分支；generation、write/read、merge/update、examples 共享此契约。其他 optional fields 仍须省略。Schema version 保持 1，无旧形状 fallback。
+
+固定 test-group selection / empty-harness facts 进入 evaluation-policy preimage，具体 group 与原文仍由 SourceSnapshot 绑定。跨 policy generation 不可 merge/apply，update_path 按既有规则整体替换，force 不豁免 evaluation-policy mismatch。
 
 Static Evaluation 只能是 `STATIC_UNCHANGED | STATIC_REGRESSION`。Terminal Evaluation 只能是
 现行领域 union `PASS | VERIFIER_REJECTED | RUNTIME_INTERFACE_MISSING | INDETERMINATE`。
@@ -230,7 +236,7 @@ Failure wire 必须恰有一个判别 `authority`：`process | configured-verifi
 
 Schema 1只接受当前完整 preimage 的`attempt-v1` identity。每个Attempt的`source_plan_identity`必须等于generation
 SourcePlan；exact-vector的`selected_candidate_evidence_digest`继续绑定由registry search route
-取得的CandidateSnapshots。Proposal保存运行期已闭合的两个plan digest与graph ref，不把native
+取得的CandidateSnapshots。Proposal保存运行期已闭合的project/nullable environment plan digest与graph ref，不把native
 pylock或本地workspace provenance复制进公共wire。
 
 ### 1.4 Roots 与 projection

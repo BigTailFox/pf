@@ -21,7 +21,7 @@ PF 因此：
 - 只搜索 project dependency vector `P`，不搜索 harness version；
 - 只放宽 eligible direct harness declaration 的显式下限；
 - 让 uv 独占传递依赖求解；
-- 先确定 project graph，再确定并安装完整 environment plan；
+- 先确定 project graph；有活跃 external harness 时再确定 environment plan，安装唯一 final plan；
 - 只有已认证的逻辑无解可以成为 Rejection。
 
 ## 2. 模型
@@ -31,7 +31,8 @@ P       = 当前 Attempt 的受管 project direct dependency vector
 G(P)    = ResolveProject(P, C_run).graph
 D_H     = 当前 Cell 中活跃的 direct harness declarations
 U_B     = baseline 对可变 direct harness distributions 记录的版本 ceiling
-E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
+E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph  if D_H 非空
+Final(P)= E(P) if D_H 非空 else G(P)
 ```
 
 `ResolutionContext` 固定本次运行的：
@@ -64,7 +65,7 @@ Candidate、harness、project/environment resolution、Attempt 和 report 必须
 | check declaration | `lowest-direct` | relaxed | 是 |
 | search probe | `exact-vector` | relaxed | 由 D003 决定 |
 
-Baseline 和 declaration-capture 不用 relaxed harness 修复用户当前声明的验证锚点。空 testing group 等价于空 harness。
+Baseline 和 declaration-capture 不用 relaxed harness 修复用户当前声明的验证锚点。group 按 D001 显式或 dev/test/空语义选择。self-reference-only 或当前 Cell 的 external declarations 全不活跃时，均为空 external harness。
 
 ### 2.2 Workspace source 投影
 
@@ -108,7 +109,7 @@ patch，也不宣称混合表达式可移植。harness module 补充使用语境
 
 ### 3.1 Baseline evidence
 
-Baseline 先以原始 harness 得到并安装 `E(B)`。`HarnessBaseline` 保存活跃 declaration IDs，以及按 distribution 聚合的 `observations: tuple[HarnessSatisfaction, ...]`。每个 observation 保存 name、version/source/selected_artifact、`satisfied_by: PROJECT_GRAPH | EXTERNAL_HARNESS` 与 `ceiling_eligible`。它引用 environment 中唯一同名节点；PROJECT_GRAPH 必须与 project node exact 相等，EXTERNAL_HARNESS 要求同名节点不在 project graph。此 record 不声称对 harness 独立选择了第二个版本。
+Baseline 有活跃 external harness 时先以原始 harness 得到并安装 `E(B)`；否则安装 `G(B)` 并建立同一 Cell 的 empty HarnessBaseline（IDs 与 observations 均为空）。`HarnessBaseline` 保存活跃 declaration IDs，以及按 distribution 聚合的 `observations: tuple[HarnessSatisfaction, ...]`。每个 observation 保存 name、version/source/selected_artifact、`satisfied_by: PROJECT_GRAPH | EXTERNAL_HARNESS` 与 `ceiling_eligible`。它引用 environment 中唯一同名节点；PROJECT_GRAPH 必须与 project node exact 相等，EXTERNAL_HARNESS 要求同名节点不在 project graph。此 record 不声称对 harness 独立选择了第二个版本。
 
 来自 registry 且仍允许 resolver 选择多个版本的 distribution 进入 `U_B`；是否含可删除下限不影响 ceiling 资格。精确 `==X`、`===X` 和固定 source 不追加 ceiling，但仍保留 baseline satisfaction evidence。
 
@@ -135,9 +136,9 @@ ceiling_eligible  registry 且非 fixed
 
 该变换由 `packaging` 支持的纯函数实现，并有版本化 policy identity；PF 不扩展 `~=` 或 wildcard equality，也不建立第二套 requirement semantics engine。
 
-## 4. Resolve twice, install once
+## 4. Resolve project, optionally augment, install once
 
-每个 Attempt 的环境准备顺序固定为：
+每个 Attempt 先执行 project resolution；以下完整序列适用于 active external harness 非空：
 
 ```text
 Create empty environment -> Inspect/qualify actual interpreter
@@ -149,7 +150,9 @@ Install(EnvironmentResolutionPlan)
 Inspect installed environment
 ```
 
-两次 resolution 前先创建空 venv 并观察真实解释器，此时不安装依赖。两次 compile 显式传同一
+active external harness 为空时，从 project resolution 直接 `Install(ProjectResolutionPlan)`，并复证 installed graph == project plan；不调用 original_harness/relax_harness/resolve_environment，不创建 environment request/cache entry。project-only 使用 `installing project plan` 活动与 `install-project` / `inspect-project-plan` failure stage。即使 external requirement 已由 project graph 满足，active IDs 非空仍须走完整路径，证明 satisfaction/source/exact ownership。
+
+resolution 前先创建空 venv 并观察真实解释器，此时不安装依赖。两次 compile 显式传同一
 `--python` executable 与实际完整 `--python-version`，安装继续使用该 executable。第二次始终用 uv highest strategy；project 的 `lowest-direct` strategy 不传播到 harness。PF 只安装经过校验的最终 native `pylock.toml` plan，不在安装阶段重新开放 resolution。
 
 安装前后必须满足：
@@ -248,16 +251,16 @@ UvOperations.install_resolution(plan, ...) -> InstallOutcome
 EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
 
-`EnvironmentFactory` 在 project plan 成功后把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 evaluation-policy preimage 拥有。
+`EnvironmentFactory` 在 project plan 成功且 active external IDs 非空时把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 evaluation-policy preimage 拥有。
 
-`EnvironmentFactory.prepare` 是上层唯一环境准备入口；harness relaxation、两次 resolution、一次 installation 和 graph 复证都隐藏在其内。
+`EnvironmentFactory.prepare` 是上层唯一环境准备入口；active IDs 分支、harness relaxation、project/optional environment resolution、一次 installation 和 graph 复证都隐藏在其内。
 调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public
 interface。
 
 Request 类型限制非法组合：
 
 - `HighestResolution` 使用原始 harness；
-- `LowestDirectResolution` 和 `ExactSelection` 必须携带同一 Cell 的 `HarnessBaseline` 并使用 relaxed harness。
+- `LowestDirectResolution` 和 `ExactSelection` 必须携带同一 Cell 的 `HarnessBaseline`；分支前复证 Cell 与 active IDs，空 IDs 要求空 observations。非空 harness 使用 relaxed requirements；空 baseline 仍绑定 request/Attempt digest，不增加 optional baseline。
 
 Identity 按取得证据的时点分开：
 
@@ -265,9 +268,9 @@ Identity 按取得证据的时点分开：
 2. 初始 `ResolutionContext.interpreter = None` 仅用于创建/检查解释器以前的准备失败。创建或检查失败不解析；
    观察成功后重建 context 与 Attempt，完整 interpreter 进入 context/request/cache identity，临时路径不进入；
    resolver 拒绝未观察 interpreter 的 context；
-3. `EnvironmentIdentity` 在 prepare 成功后覆盖两个 semantic plan digest 和最终 graph。
+3. `EnvironmentIdentity` 在 prepare 成功后覆盖 project semantic digest、optional environment semantic digest 和最终 graph；canonical payload 显式保留 environment null，不能复制 project digest 填充。
 
-`PreparedEnvironment` 与 `Proposal` 保存两个 plan digest。Evaluation cache 以 `EnvironmentIdentity` 为边界；FailureRecord 只保存失败发生前已经取得的 evidence，不虚构尚未产生的 plan 或 artifact。
+`PreparedEnvironment.environment_plan` 可为空，调用方通过 EnvironmentIdentity/Proposal 消费 nullable digest facts，不重做 group 分支。Schema 1 required-nullable 规则由 D014 拥有。Evaluation cache 以 `EnvironmentIdentity` 为边界；FailureRecord 只保存失败发生前已经取得的 evidence，不虚构尚未产生的 plan 或 artifact。
 
 `CandidateBuilder` 只建立受管 project direct dependencies 的有限搜索空间，并通过 SourcePlan 查询 SEARCH effective source。它不缓存或重建 source facts，不递归构造 project/harness catalog，不枚举 harness version，也不证明 resolution 无解。
 
@@ -286,8 +289,8 @@ PF 不从 requirement 或 `search-prereleases` 推断 uv prerelease mode，也�
 - PF 只搜索 project direct dependency vector。
 - Baseline 使用原始 harness declarations。
 - Relaxation 只删除 eligible 的显式 `>` / `>=`，ceiling 是独立规则。
-- 每个 Attempt resolve 两次、install 最终 plan 一次。
-- `G(P) ⊆exact E(P)`，安装结果与最终 plan 完全一致。
+- active external harness 为空时 resolve project 一次，否则 resolve 两次；install 最终 plan 一次。
+- 有 harness 时 `G(P) ⊆exact E(P)`；两分支安装结果均与最终 plan 完全一致。
 - Harness transitive resolution 归 uv 所有。
 - 只有已认证且 evidence 完整的 resolver conflict 可以拒绝 Attempt。
 - source、artifact、build、tool 和未知失败保持 Indeterminate。

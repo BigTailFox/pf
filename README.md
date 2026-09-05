@@ -20,7 +20,7 @@ uv tool install package-floor
 
 ## Quick Start
 
-The target project needs static `project.dependencies` (and optional-dependencies, if used) and a dependency group named `test`. Omit `test-group` to use that name; the group itself may be empty. The omitted test command is `pytest`. For example, provide the test tools with:
+The target project needs static `project.dependencies` (and optional-dependencies, if used). Test dependency groups are optional: omitting `test-group` selects `dev`, then `test`, from the workspace root or selected member. If neither exists, the group is empty. An explicit name selects only that group; a missing name also means an empty group. The default test command is `pytest`; PF does not install it automatically. For example, provide the test tools with:
 
 ```toml
 [dependency-groups]
@@ -60,7 +60,7 @@ Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Us
 
 ## Configuration
 
-Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `pythons` and `platforms`, which are inferred from the project and host. Omit `test-group` to use the dependency group named `test`.
+Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `pythons` and `platforms`, which are inferred from the project and host, and the optional `test-group` example. Automatic group selection prefers `dev` over `test`, including an empty group, and never merges different names.
 
 ```toml
 [tool.pf]
@@ -75,7 +75,7 @@ search-prereleases = false
 resolve-artifact = "any"         # wheel | sdist | any
 # managed-deps = ["rich"]          # mutually exclusive with unmanaged-deps
 # unmanaged-deps = ["build"]       # omit both to manage every searchable direct dependency
-test-group = "test"                # omit to use the group named "test"; that group may be empty
+# test-group = "test"              # explicit selection; omit for dev, then test, then empty
 test-cwd = "package"               # package | root
 ty-args = []
 max-cells = "auto"                 # auto or a positive integer; cell concurrency
@@ -101,6 +101,8 @@ All spaces accept `major`, `minor`, or `patch` resolution. `baseline` anchors th
 A narrow space may exclude the verified baseline version. PF freezes that baseline's exact artifact separately so multi-dependency probes remain reproducible, but it never adds the version to the search candidates, windows, boundaries, or floors.
 
 Explicit space wins over conditional defaults; per-dependency space wins over global space. A defaults table requires both entries and replaces the inherited table as a whole; `without-lower-bound` cannot use `declaration`. Per-dependency `[[tool.pf.dep]]` rows also replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. A missing declaration prerequisite exits 3 before search; an unresolvable registry anchor/scope exits 2 and leaves the report untouched. Full rules are in [D001](docs/designs/D001-pf.md).
+
+When a Cell has no active external test dependencies, PF resolves and installs the project plan directly, verifies the installed graph, and runs the configured verifier. A command unavailable in that environment produces its actual process failure.
 
 A self-reference in the test group selects required project extras. For example, `requests[socks]` includes `socks` in every Cell; extra-policy explores only the remaining extras with nonempty dependency lists, and `none` retains required extras. Empty groups are skipped automatically; explicit `extra-surfaces` and required extras can still include them. Floors are relative to the configured validation contract, so changing the test command or harness can change the result.
 

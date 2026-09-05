@@ -122,6 +122,8 @@ version/source/artifact不闭合，或environment plan未精确保留project sel
 `managed-source-mismatch`。两者均为Indeterminate，只保存稳定code/message及失败前已取得的plan
 digests，不保存locator或动态stderr。
 
+没有 active external harness 的 Cell 不执行 environment resolution，不能产生 `HARNESS_CONFLICT @ resolve-environment`。其 project plan 安装失败使用 `install-project`，安装 graph 不符使用 `inspect-project-plan`；有 harness 的分支仍为 `install-environment` / `inspect-environment-plan`。缺失 test tool 按 configured verifier 实际 start/exit terminal 分类，不能反推 dependency conflict；只保存失败前实际取得的 plan digest。
+
 `failure_id` 对完整 v2 preimage 做 canonical hash：
 
 ```text

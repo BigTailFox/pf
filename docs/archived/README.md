@@ -7,12 +7,17 @@
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
-| [designs](designs/) | D009–D011、D015–D030、D032–D034 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P039 | 实施与验证已完成 |
+| [designs](designs/) | D009–D011、D015–D030、D032–D035 | 已实施并由现行 Design 接管 |
+| [plans](plans/) | P001–P040 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001 | 结论已纳入 D013 |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
+
+[D035](designs/D035-pf-optional-test-group.md) /
+[P040](plans/P040-pf-optional-test-group.md)：可选 test-group、按 Cell active harness 分支准备、
+project-only 安装、nullable environment evidence 与 policy 隔离已完成；
+稳定规则由 D001/D002/D005/D006/D012/D014 接管，三版本全套各 1971 passed。
 
 [D034](designs/D034-pf-dependency-marker-projection.md) /
 [P039](plans/P039-pf-dependency-marker-projection.md)：portable 五字段 marker、独立资格与 contextual

@@ -20,7 +20,7 @@ uv tool install package-floor
 
 ## 快速开始
 
-目标项目需要静态 `project.dependencies`（以及用到的 optional-dependencies），以及名为 `test` 的 dependency group。省略 `test-group` 即使用该名称；group 本身可为空。省略测试命令即运行 `pytest`。例如，为项目提供测试工具：
+目标项目需要静态 `project.dependencies`（以及用到的 optional-dependencies）。测试 dependency group 可省略：未配置 `test-group` 时，在 workspace root 与所选 member 中依次查找 `dev`、`test`，都不存在时按空 group 执行。显式名称只选择该 group，不存在时同样按空 group 执行。默认测试命令为 `pytest`；PF 不自动安装它。例如，为项目提供测试工具：
 
 ```toml
 [dependency-groups]
@@ -60,7 +60,7 @@ pf apply
 
 ## 配置
 
-持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除 `pythons`、`platforms` 外都是省略时的默认值；这两项按项目与宿主推断。省略 `test-group` 即使用名为 `test` 的 dependency group。
+持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除按项目与宿主推断的 `pythons`、`platforms` 和可选的 `test-group` 示例外，都是省略默认值。自动选择优先 `dev`、其次 `test`，空数组也算存在；不同名称不会自动合并。
 
 ```toml
 [tool.pf]
@@ -75,7 +75,7 @@ search-prereleases = false
 resolve-artifact = "any"         # wheel | sdist | any
 # managed-deps = ["rich"]          # 与 unmanaged-deps 互斥
 # unmanaged-deps = ["build"]       # 两者都省略则管理全部可搜索直接依赖
-test-group = "test"                # 省略即用名为 test 的 group；该 group 可为空
+# test-group = "test"              # 显式选择；省略按 dev、test、空 group 顺序
 test-cwd = "package"               # package | root
 ty-args = []
 max-cells = "auto"                 # auto 或正整数；Cell 并发
@@ -101,6 +101,8 @@ without-lower-bound = "majors[baseline-2:]"
 窄 space 可以排除已验证的 baseline 版本。PF 会另外冻结该 baseline 的精确 artifact，使多依赖 probe 仍可复现，但不会把该版本加入搜索候选、窗口、边界或 floor。
 
 显式 space 优先于条件默认，逐依赖 space 优先于全局 space。默认表两项必填，按完整对象替换继承；`without-lower-bound` 不得引用 declaration。`[[tool.pf.dep]]` 也整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。缺声明下界前提在搜索前退出 3；registry anchor/scope 无法求值退出 2，报告保持原状。完整规则见 [D001](docs/designs/D001-pf.md)。
+
+Cell 没有活跃外部测试依赖时，PF 直接解析并安装 project plan，复证安装图后执行配置的 verifier。环境中没有命令所需工具时，按真实进程失败处理。
 
 test group 中对当前项目的自引用 extras 是每个 Cell 的必需 surface。例如 `requests[socks]` 让所有 Cell 包含 `socks`；extra-policy 只自动探索其余依赖列表非空的 extras，`none` 也保留必需 extras。空组默认跳过，显式 `extra-surfaces` 和自引用要求仍可包含空组。Floor 相对于配置的验证契约成立；更换测试命令或 harness 可能改变结果。
 

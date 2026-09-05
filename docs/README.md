@@ -97,6 +97,11 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
+- [D035](archived/designs/D035-pf-optional-test-group.md) /
+  [P040](archived/plans/P040-pf-optional-test-group.md) 已完成可选 test-group 与空 harness 快路：
+  显式缺失为空，省略按 dev/test/空顺序选择；无 active external harness 时直接安装 project plan。
+  nullable environment evidence、policy 隔离与三版本验收已完成，稳定规则由 D001/D002/D005/D006/D012/D014 接管。
+
 - [D034](archived/designs/D034-pf-dependency-marker-projection.md) /
   [P039](archived/plans/P039-pf-dependency-marker-projection.md) 已完成五字段 portable marker 投影：
   managed/self-reference admission 与 contextual preserved/harness 求值分离，统一 target-derived facts，

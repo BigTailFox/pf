@@ -107,7 +107,7 @@ ConfigDict(
 | `schemas.report` | search evidence、CellResult、projection、private Schema 1 wire | D003、D014 |
 | `schemas.apply` | workspace/package/group授权、presentation facts与command result | `ApplyAuthorizer`、`ProjectEditor` |
 
-Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、两个 semantic plan digest、managed vector、fixed declarations、graph、interpreter 与 policy identity。Prepare failure 只能保存已取得的事实，不能虚构 Proposal。
+Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、project semantic digest 与 nullable environment digest、managed vector、fixed declarations、graph、interpreter 与 policy identity。Prepare failure 只能保存已取得的事实，不能虚构 Proposal。
 
 `ValidatedReport` 是report module暴露给workflow/authorizer/explain/diagnose的immutable resolved facade。Wire records、typed indexes、refs和join规则都是私有implementation；editor不读取report。完整wire契约见D014。
 
@@ -181,6 +181,7 @@ document/members collection、raw bytes、digest、wire、cache 或 cleanup life
 `ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration 用途/admission、extra
 Cell、逐 dependency source route、完整 `NamedSearchPolicy` binding、member-version attachment 与 recursive test-group planning；
 `ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
+ConfigLoader 以 `TestConfig.group: str | None` 保存选择意图，不读取 group inventory。ProjectLoader 独占 D001 的显式或 dev/test/空选择，以 `PackagePlan.selected_test_group: str | None` 暴露结果，空选择不解析 harness 或建立其 source routes。
 ProjectLoader 对展开的 test group 每条 requirement 只解析一次，先分离 self-reference 与 external
 harness，再按 target/Python 合成 effective Cells 和 active declarations。自动 extra 展开按声明 dependency
 array 是否非空过滤；显式 custom/required surface 保留。自引用 provenance 留在该 owner
@@ -288,20 +289,20 @@ bundle、factory、locator 或 service registry隐藏该依赖图。
 `CellSearchOperations`。共同字段只含 package、完整 `source_plan`、borrowed `SourceSnapshot`、operation 与
 一次解析后的 `RunLimits(max_cells, ty_jobs, test_jobs, max_duration_seconds)`；request 不进入 Schema、report、Journal、identity 或 cache。
 
-Workflow 在 project load 后、snapshot build 前验证 full evaluation contract并从 persistent scheduling 与显式 CLI override 只解析一次 RunLimits。Runner 构造时固定 composition root 对 `pf.project.host_target()` 的单次探测结果；它验证 command/mode 与 package/routes，使用 `limits.max_cells` 调度 Cell，并在开始任务前把 `limits.ty_jobs/test_jobs` 配置给 composition root 共享的 `StagePermitPools`。
+有效 command 在 project load 时校验；workflow/runner 不设置 group existence gate。Workflow 在 snapshot build 前从 persistent scheduling 与显式 CLI override 只解析一次 RunLimits。Runner 构造时固定 composition root 对 `pf.project.host_target()` 的单次探测结果；它验证 command/mode 与 package/routes，使用 `limits.max_cells` 调度 Cell，并在开始任务前把 `limits.ty_jobs/test_jobs` 配置给 composition root 共享的 `StagePermitPools`。
 
 Runner 从 `package.cells` 选择唯一完整 host Cell 集，并把同一 package、plan 与
 snapshot对象直接传给每个 operation；workflow不再选择Cell、建立per-Cell closure或保存host target。
-candidate、harness、两次resolution、Attempt与search report共同消费该plan。Workflow仍在`finally`独占
+candidate、harness、project/environment resolution、Attempt与search report共同消费该plan。Workflow仍在`finally`独占
 snapshot close，Search仍在Run后消费snapshot identity做drift/report工作。structured harness、
-two-resolution plan、environment identity和install边界由D012定义。
+分支 plan、environment identity和install边界由D012定义。
 
 `EnvironmentFactory` 物化源码后先创建空 venv、inspect/资格化真实解释器，再建立绑定实际 patch/ABI 的
-ResolutionContext 与 Attempt，随后执行两次 resolution 和一次 installation。准备失败保留初始 Attempt，
+ResolutionContext 与 Attempt，随后 resolve project；仅 active external harness IDs 非空时 normalize/resolve environment，最终安装一次并复证 graph。准备失败保留初始 Attempt，
 不伪造 interpreter 或 plan；所有失败路径清理 temporary resources。实际 interpreter 改变使 request/cache
 identity 改变；marker 到 active graph 的唯一投影 owner 为 `adapters.uv_lock`，细则见 D012。
 
-`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
+`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
 
 `SearchCoordinator` 把真实 `HighestVersionPass` 交给一次 Cell search 的 `_ProposalRunner`；runner 以 baseline
 完整 managed vector 为 key 预置原 highest Attempt、Proposal 与 PassEvaluation，不伪造 exact-vector request。
