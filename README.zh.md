@@ -69,7 +69,7 @@ test-command = ["pytest"]          # 默认 argv；显式值整体替换，不�
 # platforms = ["x86_64-unknown-linux-gnu"]  # uv target triple；省略则用当前宿主
 extra-policy = "each"              # none | each | all
 extra-surfaces = []                # 额外 extra 组合，例如 [["docs", "check"]]
-search-space = "all"               # all | current-major | current-minor
+# search-space = "all"             # 显式覆盖；省略时使用下方条件默认表
 search-step = "minor"              # major | minor | patch
 search-prereleases = false
 resolve-artifact = "any"         # wheel | sdist | any
@@ -87,12 +87,18 @@ test-timeout = "30m"               # 三个 timeout 都可设 "none"
 
 # [[tool.pf.dep]]
 # name = "rich"                    # 规范 distribution name
-# search-space = "current-major"   # 或一段 PEP 440 specifier；省略字段继承全局 search-*
+# search-space = "majors[baseline]" # 或 minors[...] / 一段 PEP 440 specifier
 # search-step = "minor"
 # search-prereleases = false
+
+[tool.pf.search-space-defaults]
+with-lower-bound = "majors[declaration-1:]"
+without-lower-bound = "majors[baseline-2:]"
 ```
 
-`search-space` × `search-step` 只能是 `all` × `major|minor|patch`、`current-major` × `minor|patch`，或 `current-minor` × `patch`。`[[tool.pf.dep]]` 整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。完整字段与退出码见 [D001](docs/designs/D001-pf.md)。
+所有 space 都可搭配 `major`、`minor` 或 `patch` step。`baseline` 锚定已验证的最高版本，`declaration` 锚定各 Cell 活跃直接声明的最强下界。偏移沿 registry 已存在系列移动，切片左闭右开；例如 `majors[baseline-2:]` 在 baseline cap 与候选过滤约束下，包含 baseline major 及前两个已有 major。被过滤的系列仍占位置。
+
+显式 space 优先于条件默认，逐依赖 space 优先于全局 space。默认表两项必填，按完整对象替换继承；`without-lower-bound` 不得引用 declaration。`[[tool.pf.dep]]` 也整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。缺声明下界前提在搜索前退出 3；registry anchor/scope 无法求值退出 2，报告保持原状。完整规则见 [D001](docs/designs/D001-pf.md)。
 
 test group 中对当前项目的自引用 extras 是每个 Cell 的必需 surface。例如 `requests[socks]` 让所有 Cell 包含 `socks`；extra-policy 只自动探索其余依赖列表非空的 extras，`none` 也保留必需 extras。空组默认跳过，显式 `extra-surfaces` 和自引用要求仍可包含空组。Floor 相对于配置的验证契约成立；更换测试命令或 harness 可能改变结果。
 

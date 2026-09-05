@@ -359,3 +359,40 @@ SOURCE_FAILURE；不作兼容性结论。联网验证 run 为 **`20260905T075749
 
 该 PASS 与三组离线回放共同验证条件投影修复。它不覆盖另一 surface、check 或 search，不证明 idna
 构建失败已解决，也不产生新的 verified floor、predecessor 或 apply authority。
+
+## 11. D030 条件默认的离线范围验证（2026-09-05）
+
+只读 `experiments/requests/package-floor.json` 的 §9 历史事实：idna 共 41 个已保存精确代表，覆盖 major
+0/1/2/3；原声明 `<4,>=2.5`，对应 Cell 的 baseline Proposal managed vector 为 idna 3.19。使用现行纯
+`search_space.bind/defaults/evaluate`，将这些已保存版本作为离线系列输入，得到：
+
+```text
+declaration = 2.5
+baseline = 3.19
+effective expression = majors[declaration-1:]
+reason = default-declaration
+observed major keys = [(0,0), (0,1), (0,2), (0,3)]
+selected major keys = [(0,1), (0,2), (0,3)]
+contains(Version("0.2")) = False
+```
+
+执行入口为仓库根目录 `.venv/bin/python -`，从历史 JSON 取 idna CandidateSnapshot、同 cell_ref 的
+CellResult.baseline.proposal_ref 与对应 Proposal；下界由保存的 idna declaration specifier 计算。核心调用：
+
+```python
+selection = evaluate(
+    bind(defaults(DEFAULT_WITH_LOWER_BOUND, DEFAULT_WITHOUT_LOWER_BOUND),
+         declaration=Version("2.5"), dependency="idna", cell=record["cell_ref"]),
+    baseline=Version("3.19"),
+    release_versions=[c["version"] for c in record["candidates"]],
+    dependency="idna", cell=record["cell_ref"], source=record["source"],
+)
+assert selection.selected_keys == ((0, 1), (0, 2), (0, 3))
+assert not selection.contains(Version("0.2"))
+```
+
+输出保存在 `/tmp/pf-d030-idna-range.json`。该历史报告没有新 required search-policy/inventory 字段，此处
+只读冻结原始事实，未通过现行 reader 授予其新 authority，也未迁移或改写历史文件。已有代表能证明这些
+系列存在，不能证明 registry 过滤前 inventory 完备；本次仅证明上述冻结列表上的默认范围排除 major 0。
+没有 registry 查询、构建或完整 requests search，不取得新 PASS/floor/predecessor，不证明其余系列不会
+build failure。空间外 build failure 排除、空间内仍停止由 PF 的 public SearchCoordinator fixture 单独验证。

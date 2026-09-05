@@ -105,9 +105,19 @@ prepare(highest, original harness, DEVELOPMENT)
 
 ### 3.3 Search
 
+Workflow 在 snapshot、Attempt 和 Runner 前对全部 declared Cells（包括非宿主）做 declaration anchor
+准入，缺下界前提为 ConfigurationError（退出 3）。Smoke/check 不消费 search anchor；它们仍验证配置语法。
+
 每个宿主Cell先以SEARCH source运行一次full highest registry baseline；只有`HighestVersionPass`才从相同registry routes冻结candidates并进入D003。每个真实probe是exact-vector Attempt且继续使用同一SourcePlan。Candidate discovery/scheduler deadline可形成Cell-scoped Indeterminate；registry失败或managed coordinate local leakage不得回退到DEVELOPMENT。没有宿主Cell时仍先完成命令级 contract admission；contract 完整才是合法空Run，不启动full-evaluation或operation，report coverage仍记录`MISSING_CELL`。
 
 Search 同时把 FailureRecord 放入 Journal 与 Schema 1 report。Report 是 apply/explain/merge 的唯一公共接口；Journal 只用于本机 diagnose。
+
+成功查询后空间求值失败属于独立 SearchSpaceResolutionError，不形成 FailureRecord 或 Rejection。
+Scheduler 观察到 operation/completion exception 后停止新增派发，等待所有已启动任务结束与清理；已完成
+任务仍进行 completion/日志持久化，保留首个异常。Runner 在异常路径也 finalize Journal，然后上抛原异常；
+若 finalization 同时失败，将其作为原异常的 cause。进程日志继续保留，失败项不伪造 terminal evidence。
+Workflow 的 snapshot finally 仍执行，随后整个 Run 不创建/更新报告，也不替换 report-generation
+associations；其他成功 Cell 的本次结果不单独发布，已有报告逐字节不变。
 
 ## 4. VerificationRunner 与 Scheduler
 

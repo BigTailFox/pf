@@ -69,7 +69,7 @@ test-command = ["pytest"]          # default argv; explicit value replaces it; m
 # platforms = ["x86_64-unknown-linux-gnu"]  # uv target triples; omit to use the host
 extra-policy = "each"              # none | each | all
 extra-surfaces = []                # extra extra-combinations, e.g. [["docs", "check"]]
-search-space = "all"               # all | current-major | current-minor
+# search-space = "all"             # explicit override; omitted selects conditional defaults below
 search-step = "minor"              # major | minor | patch
 search-prereleases = false
 resolve-artifact = "any"         # wheel | sdist | any
@@ -87,12 +87,18 @@ test-timeout = "30m"               # each timeout may be "none"
 
 # [[tool.pf.dep]]
 # name = "rich"                    # canonical distribution name
-# search-space = "current-major"   # or a PEP 440 specifier; omitted fields inherit the globals
+# search-space = "majors[baseline]" # or minors[...] / a PEP 440 specifier
 # search-step = "minor"
 # search-prereleases = false
+
+[tool.pf.search-space-defaults]
+with-lower-bound = "majors[declaration-1:]"
+without-lower-bound = "majors[baseline-2:]"
 ```
 
-`search-space` × `search-step` must be one of `all` × `major|minor|patch`, `current-major` × `minor|patch`, or `current-minor` × `patch`. Per-dependency `[[tool.pf.dep]]` rows replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. Full fields and exit codes are in [D001](docs/designs/D001-pf.md).
+All spaces accept `major`, `minor`, or `patch` steps. `baseline` anchors the verified highest version; `declaration` anchors the strongest active direct lower bound in each Cell. Offsets move through existing registry series; slices are half-open. For example, `majors[baseline-2:]` includes the baseline major and the two preceding existing majors, subject to the baseline cap and candidate filters. A filtered-out series still occupies its position.
+
+Explicit space wins over conditional defaults; per-dependency space wins over global space. A defaults table requires both entries and replaces the inherited table as a whole; `without-lower-bound` cannot use `declaration`. Per-dependency `[[tool.pf.dep]]` rows also replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. A missing declaration prerequisite exits 3 before search; an unresolvable registry anchor/scope exits 2 and leaves the report untouched. Full rules are in [D001](docs/designs/D001-pf.md).
 
 A self-reference in the test group selects required project extras. For example, `requests[socks]` includes `socks` in every Cell; extra-policy explores only the remaining extras with nonempty dependency lists, and `none` retains required extras. Empty groups are skipped automatically; explicit `extra-surfaces` and required extras can still include them. Floors are relative to the configured validation contract, so changing the test command or harness can change the result.
 

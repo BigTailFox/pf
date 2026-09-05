@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -74,6 +74,12 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
 三个 scheduling flags 同时属于 smoke/check/search/minimize；parser/request 必须保留省略为 `None` 与显式 `auto` 的区别。`--force`只属于`apply`，不出现在`minimize`；它不表示partial/platform选择。Duration只停止新增调度，不承诺杀死运行中process。`merge`必须显示`REPORT [REPORT ...] --output PATH`并在parser层要求至少一个REPORT。`diagnose`的Usage固定为`pf diagnose FAILURE_ID [OPTIONS]`；Failure ID是必填位置参数，可传`failure-<16 hex>`或省略前缀的`<16 hex>`。
 
 ## 3. 调用错误
+
+Search/minimize help 指向 `tool.pf.search-space` 与条件默认表，说明有下界使用
+`majors[declaration-1:]`、无下界使用 `majors[baseline-2:]`，所有 space/step 组合合法；不新增 CLI space flag。
+Declaration anchor 前提缺失是退出 3 的 configuration error。成功 registry 观测无法定位 anchor 或跨 scope
+是退出 2 的 `search-space-resolution`，展示 dependency、Cell、canonical expression、失败原因、实际 anchors、
+观察到的系列与 public source；它没有 Failure ID/diagnose 入口，也不声称写入了新报告。
 
 未知 command/option、缺失或多余参数、非法 scheduling limit/duration、非distribution-name形状的`--package`值与request构造错误都形成D001的调用错误结果。结构错误尽早由Cyclopts拒绝；Request Schema只作defense-in-depth。合法形状但未知/重复package、non-package root省略selector、配置字段与project planning失败都是配置错误。不得宽泛捕获深模块ValidationError并伪装成调用错误。
 
@@ -301,7 +307,15 @@ Search/incomplete reason 的主导映射：
 
 ## 8. Explain
 
-`explain`只回答：读取的package/report、report complete状态、report intrinsic apply eligibility/blocker、final success Cell计数、每条declaration的floor/projection、每个目标Cell的最终状态与终止原因，以及可用的精确diagnose入口。它不读取当前项目树，不能断言当前apply已授权、force可用或apply-time dependency/source identity匹配；不转储observation、Proposal、process output或技术Enum。
+`explain`回答：读取的 package/report、complete 状态、intrinsic apply eligibility/blocker、final success Cell
+计数、declaration floor/projection、目标 Cell 终态、搜索策略/系列范围，以及可用的精确 diagnose 入口。
+它不读取当前项目树，不能断言当前 apply 已授权、force 可用或当前 identity 匹配；不转储 Proposal/process output。
+
+Search spaces 部分从 `ValidatedReport` 读取 report artifact、规范策略分组、requested space（含省略）、完整
+默认表、step/prereleases，以及逐 dependency/Cell 派生的原因、effective expression、实际 anchor versions、
+选中系列和精确代表。无 CandidateSnapshot 的 Cell 显示 selection evidence unavailable，不猜测系列；
+即使有 baseline 也不能伪造未取得的 registry 事实。Explain 不解析 DSL、不 join refs、不读取 registry。
+系列范围不被描述为完整兼容区间，all 仍受公共资格过滤。
 
 默认结构是一张overview card、零到多个异常Cell card和一个final；成功Cell只在overview中紧凑出现，不再重复展开：
 

@@ -65,6 +65,11 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
+- [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
+  条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
+  接管，实施与验收记录同步归档。
+- 待办：独立 registry 分析 CLI Design，分析系列分布、稀疏程度与 release 数，比较 space/step 的范围和候选数并提供有依据的配置建议；来源见 [D030 §12](archived/designs/D030-pf-search-space-dsl.md#12-待办独立-registry-分析-cli-design)。不预留编号或创建 Plan；命令/数据/输出契约由后续 Design 确定，不纳入 D030 实施范围。分析不自动改写 pyproject 或搜索策略；发布分布不证明兼容性，候选数不等同 verifier 次数或耗时。
+
 - [D029](archived/designs/D029-pf-conditional-resolution-projection.md) /
   [P035](archived/plans/P035-pf-conditional-resolution-projection.md) 已完成条件 resolution 节点投影修复；
   稳定规则由 D002/D012/D014 接管，E004 §10 保存三组日志回放和 requests py3.11+socks smoke PASS。

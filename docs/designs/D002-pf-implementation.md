@@ -15,7 +15,7 @@
 
 - 深模块以小 interface 隐藏完整行为；调用方和测试都走同一表面。
 - 每条规则只有一个 owner；workflow 不重写 candidate、static、failure、search、report 或 apply 规则。
-- 跨模块领域记录使用 strict/frozen Pydantic Schema；运行时资源句柄使用内部 Python 对象。
+- 持久化领域记录使用 strict/frozen Pydantic Schema，纯表达式 value 使用 frozen dataclass；运行时资源句柄使用内部 Python 对象。
 - 只为真实变化建立 seam：外部进程、uv/ty/test、Evaluator、cell task 与 activity consumer。
 - 类用于状态、生命周期或不变量；一次性转换留在 owner 中。
 - 不建立 `utils.py`、通用 filesystem/repository、DI framework、event bus 或 daemon。
@@ -57,6 +57,7 @@ src/pf/
 ├── project.py                   inventory planning、declarations、Cells、test groups
 ├── snapshot.py                  immutable SourceSnapshot lifecycle
 ├── candidates.py                frozen CandidateSnapshots
+├── search_space.py              纯 DSL、默认绑定、系列切片与 search anchor 准入
 ├── harness.py                   original/relaxed direct harness 纯变换
 ├── resolution.py                resolution protocol、plans、outcomes、identity
 ├── environment.py               prepare 与 PreparedEnvironment lifecycle
@@ -85,7 +86,7 @@ src/pf/
 
 ## 4. Schema boundary
 
-所有跨模块 records 继承 `FrozenSchema`：
+持久化与验证 records 继承 `FrozenSchema`；纯 `search_space` value 使用 frozen dataclass，不承载 I/O：
 
 ```python
 ConfigDict(
@@ -138,7 +139,7 @@ presenter，再关闭 logs，并在嵌套中断下仍完成。`build_context()` 
 | --- | --- |
 | `CheckCommandWorkflow` | planning → snapshot → VerificationRunner → CompatibilityChecker |
 | `SmokeCommandWorkflow` | planning → snapshot → VerificationRunner → HighestVersionVerifier |
-| `SearchCommandWorkflow` | planning → snapshot → VerificationRunner → report update → diagnosis associations → `SearchCommandResult` |
+| `SearchCommandWorkflow` | planning → search anchor admission → snapshot → VerificationRunner → report update → diagnosis associations → `SearchCommandResult` |
 | `ExplainCommandWorkflow` | offline discovery → report read → `ExplainCommandResult` |
 | `DiagnoseCommandWorkflow` | offline discovery → selected report then latest Journal → one `FailureDiagnosis` |
 | `MergeCommandWorkflow` | ordered report read → merge → write → `MergeCommandResult` |
@@ -209,6 +210,17 @@ raw CAS。Git 模式使用注入的 ProcessRunner；`without_processes()` 只允
 产品范围由 D001、wire 编码由 D014 定义。
 
 ## 7. Verification modules
+
+`search_space` 独占 parse/canonicalize、`DefaultSpace` / `AllSpace` / `SpecifierSpace` / `SeriesSpace`、
+anchor、默认分支绑定与系列位置求值。它不依赖 CandidateBuilder、report、配置 loader 或 I/O；ConfigLoader
+验证 syntax，ProjectLoader 绑定完整 named requested policy（省略保留 None），Search workflow 在 snapshot 前
+对全部 declared Cells 调用 `admit`。CandidateBuilder 和 report reader 复用同一 bind/evaluate 规则。
+
+`CandidateProvider.query(dependency, source, cell) -> RegistryCandidates` 一次成功查询同时返回
+过滤前 `release_versions` 和带 artifact facts 的 candidates。UvAdapter 只冻结成功解析的响应；失败不缓存。
+CandidateBuilder 从同份观测选择 scope、过滤再采样；`CandidateSnapshot` 持有 typed `SpaceSelection` 和
+可选 `SeriesInventory`。Wire 是否存储由 D014 独占：selection 不直接序列化，观测 intern 后引用。
+`ValidatedReport.search_policy` 和 `search_spaces()` 暴露已验证请求与派生事实，Explain 不重新解析或 join。
 
 核心 interface：
 

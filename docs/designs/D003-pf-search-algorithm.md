@@ -64,7 +64,24 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 11. `CandidateSnapshot` 只冻结target受管project direct dependency的registry搜索候选；workspace member自身依赖、harness与任意transitive distribution完全属于uv resolution，不建立PF catalog、coordinate或floor。
 12. 一次 Verification Run 固定精确 uv profile、唯一 SEARCH SourcePlan 对象、release cutoff 与共享 cache；baseline、CandidateSnapshot freeze 与全部 exact probe 由 Runner 注入并消费该对象及其 identity。相同 project/environment resolution input 最多解析一次，但 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。
 
-每个 managed searchable coordinate 在 `PackagePlan` 中都有唯一完整 `NamedSearchPolicy(name, space, step, prereleases)`。ProjectLoader 负责把 global `search-*` 与最终 `dep[]` 绑定到 dependency；CandidateBuilder 只按 name 取得该 policy，不读取 EffectiveConfig 的 raw merge 语义。它先按 Cell/Python/platform 与 `resolve-artifact` 选出可安装 artifact，再按 policy space、baseline 上界和 prerelease inclusion 过滤，最后按 `step` 取每个 series 的最新精确代表。`pf:candidate-policy:v1` 的 preimage 精确包含该 named policy 与 resolution artifact policy；任一字段变化都冻结新的 CandidateSnapshot。
+每个 managed searchable coordinate 在 `PackagePlan` 中都有唯一完整
+`NamedSearchPolicy(name, space?, space_defaults, step, prereleases)`。ProjectLoader 绑定配置层级，省略 space
+保留 None；CandidateBuilder 只按 name 取得 policy，通过纯 `search_space` 按 Cell active declarations 绑定。
+
+一次成功 query 同时冻结全部可解析 release versions 与 artifact 候选；前者必须在 Requires-Python、wheel
+兼容性、yanked、prerelease、artifact、保留的声明限制、baseline 和 space/step 过滤前取得。失败不冻结。
+先由全部 release keys 建立 D001 所需 scope 的系列列表并求值位置切片，再将 space 与公共资格共同过滤
+到可用精确候选，最后按 step 取系列内最高合格代表。不可用系列占位，不使偏移向更旧可用系列补位。
+Major/minor/patch 采样独立于 major/minor 空间，不根据实际发布分布自动改变策略。
+
+`pf:candidate-policy:v1` 绑定固定 profile、name、effective canonical space、step/prereleases 和 artifact；
+snapshot 另绑定派生原因、实际使用的原始 anchor versions 与系列观测内容引用。即使代表不变，使用的
+anchor 或观测改变也改变 snapshot identity。请求的完整默认表由 D014 generation 与 apply 另行绑定。
+
+Declaration anchor 前提缺失在 search workflow 准入时报 ConfigurationError（退出 3），早于 snapshot。
+Registry 成功后 anchor 系列缺失或 anchor 跨 scope 抛 SearchSpaceResolutionError（退出 2），不创建失败项
+snapshot、Rejection 或 NO_PASS；D008 负责整个 Run 收尾且不写报告。合法切片为空或资格过滤后为空仍是
+NO_PASS_IN_SEARCH_SPACE，source failure 仍是 Indeterminate。完整 PASS、predecessor 和 final 资格不变。
 
 ## 4. SearchCoordinator 状态机
 
@@ -77,6 +94,7 @@ BASELINE B = V_hi
 FREEZE CANDIDATE SNAPSHOTS
   ├── source/tool failure   -> Cell Indeterminate
   ├── empty search space    -> NO_PASS_IN_SEARCH_SPACE
+  ├── invalid anchor/scope  -> SearchSpaceResolutionError（Run abort，D008）
   └── candidates
         ↓
 ONE RUNTIME-BACKED COORDINATE SEARCH FROM B

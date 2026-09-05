@@ -21,14 +21,16 @@
 ```text
 schema_version = 1
 identity        generation identity 与 source/policy
-inputs          declarations、target Cells、CandidateSnapshots
+inputs          declarations、target Cells、search policy、series inventories、CandidateSnapshots
 evidence        graphs、Attempts、Proposals、static/terminal Evaluations、Failures
 cell_results    每个已观察 Cell 的唯一 root
 projections     apply 所需的声明投影证据
 result          complete | incomplete
 ```
 
-字段、判别值、required/optional 形状以生成的 JSON Schema 为准。可选事实不存在时必须省略；显式 `null`、额外字段、Pydantic coercion 或由默认值补出的 wire facts 都无效。
+字段、判别值、required/optional 形状以生成的 JSON Schema 为准。可选事实不存在时必须省略；只有 required
+`SearchPolicyBinding.requested_space` 与 `CandidateSnapshot.series_inventory_ref` 允许下文规定的 null。
+其他显式 null、额外字段、Pydantic coercion 或由默认值补出的 wire facts 都无效。
 
 ### 1.1 Identity
 
@@ -52,13 +54,16 @@ sha256(
     policy_identity,
     verifier_outcome_policy,
     source_plan,
+    search_policy,
     requirement_declarations sorted by declaration_id,
     target_cells sorted by cell_identity,
   })
 )
 ```
 
-CandidateSnapshot、CellResult、Projection、Failure、Evaluation 和 wire refs 不进入 generation ID。它们仍必须属于该 generation，并由 reader 复证。
+系列观测、CandidateSnapshot、CellResult、Projection、Failure、Evaluation 和 wire refs 不进入 generation ID。
+它们仍必须属于该 generation，并由 reader 复证。完整规范 search_policy 含未选默认分支，即使纯 host-partial
+且无 CandidateSnapshot 也进入 generation；不能从当前内建默认值补历史策略。
 
 SourceSnapshot identity包含普通`entries`和全部owned `pyproject_identities`。owned pyproject在entries中仍保留path/kind/mode与空content digest以维持路径成员集合，同时要求：
 
@@ -117,17 +122,70 @@ baseline/Attempt digest 的变化不能代替上述 generation/apply 检查。
 - `requirement_declarations` 以 `declaration_id` 唯一、排序；
 - `target_cells` 以内容寻址 `cell_id` 唯一、排序，并只引用本表声明；
 - `candidate_snapshots` 以 `candidate_snapshot_id` 唯一、排序，每个 `(cell_ref, dependency)` 最多一条。
+- required `search_policy` 保存规范请求分组，见 §1.2.1；required `series_inventories` 保存可达必要观测，见 §1.2.2。
 - `source_plan`是required generation input，保存`source_mode = SEARCH`与按dependency排序、唯一的
   `DependencySourceRoute`；每条route绑定development/search source及可选workspace member version
   metadata。它是唯一 SourcePlan wire 值；派生 `identity` 与查询不进入 JSON。
 
 CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带
-`policy_identity`。它以`pf:candidate-policy:v1`为前缀，只绑定该dependency已规范化的named search policy
-（name、space、step、prereleases）与共享resolution artifact policy，不绑定整份EffectiveConfig。
-Reader 以 record 自身 policy、完整 Cell、source、候选和 series representatives 重算现行 CandidateSnapshot digest。
+`policy_identity`，但 reader 必须从保存的请求和已验证 evidence 复算，不能信任 opaque digest。
 每条 CandidateSnapshot 还保存`source_plan_identity`；它必须等于完整generation SourcePlan的唯一摘要，
 且 Reader 必须通过 `SourcePlan.source_for` 证明其 dependency/source 精确对应 registry SEARCH effective source。Workspace member当前版本
 不进入candidate records。
+
+### 1.2.1 请求策略
+
+`inputs.search_policy` 的 required 结构为：
+
+```text
+profile = registry-series-slice-v1
+artifact = any | wheel | sdist
+bindings[]
+  dependencies[]        非空 canonical names
+  requested_space       canonical explicit string 或 null（省略）
+  space_defaults        {with_lower_bound, without_lower_bound}，完整 canonical DSL
+  step                  major | minor | patch
+  prereleases           bool
+```
+
+profile/artifact 每报告只保存一次。完整策略相同的 names 合为一组；组内 names 排序唯一，组间不重叠且
+按首 name 排序，恰好覆盖全部 managed searchable names。无 searchable name 时 bindings 为空。Reader
+拒绝相同策略拆组、缺失/多余 name 与非规范输入；展开 typed mapping，不重做配置继承或引入策略 ID/ref。
+即使显式 space 生效，完整 defaults 仍保存并绑定 generation，用于授权比较未选分支变化。
+
+### 1.2.2 必要系列观测
+
+`inputs.series_inventories` 按 `series_inventory_id` 排序唯一，无 series selection 时为空。记录只包含
+canonical dependency、public registry source、family 和必要 scope 的完整非空有序唯一 `series_keys`。
+Major key 为 `(epoch, major)`，minor key 为 `(epoch, major, minor)`；共同前缀派生 scope，不另存 scope。
+ID 是 `sha256("pf:series-inventory:v1\0" + canonical_identity_json({dependency, source, family, series_keys}))`，
+其中 `\0` 是 NUL 字节。只保存必要 scope，不保存全部精确 releases、未选 artifacts 或 HTTP response。
+
+同内容跨 Cell intern 一次；同名/source/family/scope 但 keys 不同保留不同观测，不能覆盖。内容去重只说明
+DSL 所需事实相同，不证明查询时刻或完整 response 相同。CandidateSnapshot 的 required
+`series_inventory_ref` 在 series space 时引用匹配 dependency、SEARCH source、family 与 anchor scope 的记录；
+all/specifier 时必须为 null。Reader 拒绝悬空、错配和 roots 不可达观测。不得截断列表或设置任意条数上限
+来改变偏移语义。重复 Cell 只增加引用，不重复嵌入策略或系列列表。
+
+### 1.2.3 离线派生与候选 identity
+
+Wire 不保存 selection、effective expression、默认分支/原因、anchor versions、索引或选中系列。Reader
+先验证原始 declarations、请求策略和持有 CandidateSnapshot 的 Cell 的真实 full PASS baseline，再经共享
+`search_space` 派生 `explicit/default-declaration/default-unbounded`、effective expression、实际引用的原始
+anchors、scope 和选中 keys；不用当前项目下界重解释。无 snapshot 的 Cell 按其终态要求验证，不强求 PASS。
+
+`pf:candidate-policy:v1` preimage 为 `{profile, policy:{name,space,step,prereleases}, artifact}`，space 是该
+Cell 的 effective canonical expression。Reader 完整复算并核对。Snapshot digest 在既有 Cell/source/
+SourcePlan/candidates/representatives 上另绑定派生的 effective expression、原因、实际使用 anchor versions
+与 series inventory ref；即使代表相同，使用的 anchor 或观测变化仍改变 identity。
+
+Reader 检查 anchor membership/scope、切片结果，所有候选的 space、保留声明限制、baseline cap、prerelease、
+artifact 与 wheel compatibility，并按 step 复算 series key、版本排序和每系列唯一性。它未保存完整候选观测，
+因此不证明 registry 完备性、没有未保存 release 或代表为 registry 最高合格版本；最高代表由 CandidateBuilder
+对同次完整观测过滤后采样保证。既有精确 artifact、PASS/predecessor/final 证据要求保持。
+
+保持 Schema 1、generator algorithm v1 和既有 v1 前缀；缺上述 required 输入或引用的 wire fail closed，
+不提供兼容 reader、默认推断或 aliases。
 
 ### 1.3 Evidence
 
@@ -191,7 +249,7 @@ Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Eval
 
 1. `stat` 预拒绝超过 64 MiB 的输入，读取后再次检查以覆盖竞态；
 2. 只按 UTF-8 解析 JSON，拒绝非法编码、语法、递归深度、非对象根和非版本 1；
-3. 以严格 wire model 验证字段、类型、判别 union、无额外字段和无显式 null；
+3. 以严格 wire model 验证字段、类型、判别 union、无额外字段，仅允许规定的两个 required nullable 字段；
 4. 要求输入与 `model_dump(exclude_none=True)` 完全一致，禁止 coercion/default 补事实；
 5. 建立线性的 typed indexes，拒绝重复、未知或错误种类的 ref；
 6. 要求SourcePlan为SEARCH，通过其 interface 复算唯一摘要与 effective source，并复算generation、
@@ -217,11 +275,23 @@ json.dumps(
 ) + "\n"
 ```
 
-编码为 UTF-8，只有一个末尾换行。实体表按稳定 ID 排序；CellResult 按 Cell identity 排序；projection 按 declaration ID 排序；领域内有序序列保持其所有者定义的 canonical order。一次 read→write 必须 byte-stable。
+两个 required nullable 字段的 wire serializer 在 exclude_none 时仍保留 null；生成 Schema 保留其 nullable
+形状。其余 optional facts 缺失时省略。编码为 UTF-8，只有一个末尾换行。实体表按稳定 ID 排序；CellResult
+按 Cell identity 排序；projection 按 declaration ID 排序。一次 read→write 必须 byte-stable。
 
 写入在目标目录创建临时文件，flush + file `fsync` 后原子 replace，再同步父目录；失败不得留下半写目标。
 
 ## 5. Module interface
+
+Build/reintern/update/merge 保留原始规范 search_policy 与最终 roots 可达的 inventories，替换结果独占的旧
+观测随不可达 evidence 清理；重建 PackagePlan 使用保存的完整 policy/artifact，不以 all/minor 或空 config
+填补新事实。Generation compatibility 包括完整 search_policy，跨 generation 仍不混合。
+
+`ApplyAuthorizer` 在 source-drift waiver 前比较当前合并的完整 search_policy（含 profile、artifact 和未选
+默认分支），保持既有 evaluation policy 检查，force 不绕过 mismatch。它不联网重算系列；报告锚点始终由
+原始声明派生。首次 original、已投影 projected 与重复 no-op apply 沿用既有声明结构授权，不因改写下界
+重解释旧报告。`ValidatedReport.search_spaces()` 提供 typed policy/selection/representatives，Explain 只消费
+已验证投影，不解析 DSL 或 join wire refs。
 
 ```text
 PackageReportBuilder.build(package, source_plan, source_snapshot, cell_results)
