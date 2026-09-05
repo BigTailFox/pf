@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import json
+import sys
 from typing import Literal
 from urllib.error import URLError
 from urllib.request import Request
@@ -35,6 +36,7 @@ from pf.schemas.project import (
     DependencySourceRoute,
     HarnessBaseline,
     HarnessSatisfaction,
+    InterpreterIdentity,
     SourceIdentity,
     SourcePlan,
     StaticWorkspaceMemberVersion,
@@ -143,12 +145,16 @@ class TestUvAdapter:
             cell=cell,
             source_plan_identity="source-plan",
             uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython", version=f"{cell.python_minor}.15", abi="test"
+            ),
         )
         runner = Runner()
 
         UvAdapter(runner).resolve_project(
             package=tmp_path,
             package_name="demo",
+            interpreter=Path(sys.executable),
             cell=cell,
             resolution=HighestResolution(),
             context=context,
@@ -225,7 +231,7 @@ tool = { path = "vendor/tool" }
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
-            python_minor="3.11",
+            python_minor=f"{sys.version_info.major}.{sys.version_info.minor}",
             extra_surface=(),
         )
         context = ResolutionContext.from_inputs(
@@ -236,11 +242,17 @@ tool = { path = "vendor/tool" }
             cell=cell,
             source_plan_identity="source-plan",
             uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython",
+                version=".".join(map(str, sys.version_info[:3])),
+                abi="test",
+            ),
         )
 
         outcome = UvAdapter(SubprocessRunner()).resolve_project(
             package=package,
             package_name="demo",
+            interpreter=Path(sys.executable),
             cell=cell,
             resolution=HighestResolution(),
             context=context,
@@ -268,8 +280,9 @@ tool = { path = "vendor/tool" }
         assert [item.name for item in outcome.packages] == ["tool"]
         assert outcome.packages[0].source.kind == "path"
 
+    @pytest.mark.parametrize("harness_active", (True, False))
     def test_uv_adapter_resolves_two_pylocks_and_syncs_only_the_final_plan(
-        self, tmp_path: Path
+        self, tmp_path: Path, harness_active: bool
     ) -> None:
         project_lock = f"""
 lock-version = "1.0"
@@ -283,8 +296,14 @@ directory = {{ path = "demo", editable = true }}
 [[packages]]
 name = "idna"
 version = "3.10"
+dependencies = [{{ name = "tomli" }}]
 index = "https://pypi.org/simple"
 wheels = [{{ name = "idna-3.10-py3-none-any.whl", url = "https://files.example/idna.whl", hashes = {{ sha256 = "{"a" * 64}" }} }}]
+"""
+        project_lock += """
+[[packages]]
+name = "tomli"
+marker = "python_full_version <= '3.11'"
 """
         environment_lock = (
             project_lock
@@ -297,6 +316,12 @@ index = "https://pypi.org/simple"
 wheels = [{{ name = "pytest-8.4.2-py3-none-any.whl", url = "https://files.example/pytest.whl", hashes = {{ sha256 = "{"b" * 64}" }} }}]
 """
         )
+
+        if not harness_active:
+            environment_lock = environment_lock.replace(
+                'name = "pytest"',
+                'name = "pytest"\nmarker = "python_full_version < \'3.11\'"',
+            )
 
         class ResolutionRunner:
             def __init__(self) -> None:
@@ -349,6 +374,11 @@ test-command = ["pytest"]
             cell=package.cells[0],
             source_plan_identity="source-plan",
             uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython",
+                version=f"{package.cells[0].python_minor}.15",
+                abi="test",
+            ),
         )
         baseline = HarnessBaseline.from_evidence(
             cell=package.cells[0],
@@ -410,6 +440,7 @@ test-command = ["pytest"]
         project = adapter.resolve_project(
             package=package_root,
             package_name=package.name,
+            interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=resolution,
             context=context,
@@ -423,6 +454,7 @@ test-command = ["pytest"]
         environment = adapter.resolve_environment(
             package=package_root,
             package_name=package.name,
+            interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=resolution,
             context=context,
@@ -439,6 +471,11 @@ test-command = ["pytest"]
             timeout_seconds=30,
             source_plan=search_source_plan,
         )
+        if not harness_active:
+            assert isinstance(environment, ResolutionIndeterminate)
+            assert environment.summary_code == "resolution-plan-invalid"
+            assert len(runner.specs) == 3
+            return
         assert isinstance(environment, ResolutionPlan)
         installed = adapter.install_resolution(
             plan=environment,
@@ -448,6 +485,9 @@ test-command = ["pytest"]
             timeout_seconds=30,
         )
 
+        assert "tomli" in environment.native.content
+        assert project.packages[0].dependencies == ()
+        assert "tomli" not in {item.name for item in environment.packages}
         assert installed.status == "INSTALLED"
         assert installed.plan_digest == environment.digest
         assert [item.name for item in project.packages] == ["idna"]
@@ -480,6 +520,8 @@ test-command = ["pytest"]
         assert "--prerelease-package" not in runner.specs[2].argv
         assert not any(spec.argv[1:3] == ("pip", "install") for spec in runner.specs)
         for spec in runner.specs[1:3]:
+            assert spec.argv[spec.argv.index("--python") + 1] == sys.executable
+            assert spec.argv[spec.argv.index("--python-version") + 1] == "3.11.15"
             assert "--no-sources" not in spec.argv
             assert tuple(
                 spec.argv[index + 1]
@@ -495,6 +537,7 @@ test-command = ["pytest"]
         development = adapter.resolve_project(
             package=package_root,
             package_name=package.name,
+            interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=resolution,
             context=context,
@@ -537,10 +580,14 @@ test-command = ["pytest"]
             ),
             source_plan_identity="source-plan",
             uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython", version="3.11.15", abi="test"
+            ),
         )
         outcome = UvAdapter(Runner()).resolve_project(
             package=tmp_path,
             package_name="demo",
+            interpreter=Path(sys.executable),
             cell=context.cell,
             resolution=HighestResolution(),
             context=context,
@@ -623,11 +670,17 @@ packages = [
             cell=package.cells[0],
             source_plan_identity="source-plan",
             uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython",
+                version=f"{package.cells[0].python_minor}.15",
+                abi="test",
+            ),
         )
         adapter = UvAdapter(Runner())
         project = adapter.resolve_project(
             package=source,
             package_name=package.name,
+            interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=HighestResolution(),
             context=context,
@@ -641,6 +694,7 @@ packages = [
         environment = adapter.resolve_environment(
             package=source,
             package_name=package.name,
+            interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=HighestResolution(),
             context=context,
@@ -690,10 +744,14 @@ packages = [
             ),
             source_plan_identity="source-plan",
             uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython", version="3.11.15", abi="test"
+            ),
         )
         outcome = UvAdapter(Runner()).resolve_project(
             package=tmp_path,
             package_name="demo",
+            interpreter=Path(sys.executable),
             cell=context.cell,
             resolution=HighestResolution(),
             context=context,

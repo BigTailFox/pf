@@ -545,7 +545,7 @@ class TestEnvironmentFactory:
 
         assert isinstance(result, PrepareFailure)
         assert result.failure.summary_code == "artifact-policy-mismatch"
-        assert uv.created is False
+        assert uv.created is True
 
     @pytest.mark.parametrize(
         ("resolved_source", "summary_code", "message"),
@@ -870,6 +870,7 @@ test-command = ["python", "-c", "pass"]
             },
             "failure_policy": "failure-runtime-v2",
             "validation_contract_policy": {
+                "resolution_projection": "actual-interpreter-target-active-pylock",
                 "self_reference": "required-effective-cell-surface",
                 "extra_exploration": "nonempty-declared-groups-only",
                 "baseline_harness": "original-external-declarations",
@@ -1514,9 +1515,9 @@ test-command = ["python", "-c", "pass"]
 
         assert isinstance(prepared, PreparedEnvironment)
         assert events.phases == [
+            "preparing environment",
             "resolving project",
             "resolving environment",
-            "preparing environment",
             "installing environment plan",
         ]
         prepared.close()
@@ -1621,8 +1622,12 @@ test-command = ["python", "-c", "pass"]
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure.cause == cause
         assert result.failure.stage == stage
-        assert result.project_plan_digest
-        assert result.environment_plan_digest
+        if method == "inspect_interpreter":
+            assert result.project_plan_digest is None
+            assert result.environment_plan_digest is None
+        else:
+            assert result.project_plan_digest
+            assert result.environment_plan_digest
         snapshot.close()
 
     def test_environment_rejects_an_interpreter_that_does_not_match_the_cell(
@@ -1800,3 +1805,141 @@ test-command = ["python", "-c", "pass"]
                 ),
             )
         snapshot.close()
+
+
+class TestInterpreterBoundPreparation:
+    def test_actual_patch_binds_resolutions_attempt_and_cache(self, tmp_path):
+        class ObservedUv(SuccessfulUv):
+            patch = "3.10.18"
+
+            def __init__(self):
+                self.events = []
+                self.paths = []
+
+            def create_environment(self, **kwargs):
+                self.events.append("create")
+                return super().create_environment(**kwargs)
+
+            def inspect_interpreter(self, **kwargs):
+                self.events.append("inspect")
+                self.paths.append(kwargs["interpreter"])
+                return InterpreterSuccess(
+                    process=successful_process(),
+                    interpreter=InterpreterIdentity(
+                        implementation="cpython",
+                        version=self.patch,
+                        abi="cpython-310-x86_64-linux-gnu",
+                    ),
+                )
+
+            def resolve_project(self, **kwargs):
+                self.events.append("project")
+                self.paths.append(kwargs["interpreter"])
+                assert kwargs["context"].interpreter.version == self.patch
+                return super().resolve_project(**kwargs)
+
+            def resolve_environment(self, **kwargs):
+                self.events.append("environment")
+                self.paths.append(kwargs["interpreter"])
+                assert kwargs["context"].interpreter.version == self.patch
+                return super().resolve_environment(**kwargs)
+
+            def install_resolution(self, **kwargs):
+                self.events.append("install")
+                self.paths.append(kwargs["interpreter"])
+                return super().install_resolution(**kwargs)
+
+        root = _write_demo(tmp_path)
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        uv = ObservedUv()
+        factory = EnvironmentFactory(uv)
+        observed = []
+        try:
+            for patch in ("3.10.18", "3.10.19", "3.10.19"):
+                uv.patch = patch
+                uv.paths.clear()
+                uv.events.clear()
+                result = factory.prepare(
+                    package=package,
+                    cell=package.cells[0],
+                    snapshot=snapshot,
+                    source_plan=SourcePlan.for_package(package, "SEARCH"),
+                    resolution=HighestResolution(),
+                )
+                assert isinstance(result, PreparedEnvironment)
+                try:
+                    assert len(set(uv.paths)) == 1
+                    assert result.proposal.interpreter is not None
+                    assert result.proposal.interpreter.version == patch
+                    assert (
+                        result.project_plan.context == result.environment_plan.context
+                    )
+                    assert (
+                        result.attempt.identity.resolution_context_digest
+                        == result.project_plan.context.digest
+                    )
+                    observed.append(
+                        (
+                            result.project_plan.context.digest,
+                            result.project_plan.request_digest,
+                            result.environment_plan.request_digest,
+                            result.attempt.attempt_id,
+                        )
+                    )
+                    assert uv.events == (
+                        ["create", "inspect", "install"]
+                        if len(observed) == 3
+                        else ["create", "inspect", "project", "environment", "install"]
+                    )
+                finally:
+                    result.close()
+            assert all(a != b for a, b in zip(observed[0], observed[1]))
+            assert observed[1] == observed[2]
+        finally:
+            snapshot.close()
+
+    @pytest.mark.parametrize("stage", ("create-environment", "inspect-interpreter"))
+    def test_prepare_failure_cleans_resources_without_resolving(self, tmp_path, stage):
+        class FailedUv(SuccessfulUv):
+            root = None
+
+            def create_environment(self, **kwargs):
+                self.root = kwargs["environment"].parent
+                if stage == "create-environment":
+                    return ToolFailure(
+                        cause="ENVIRONMENT_FAILURE",
+                        stage=stage,
+                        process=successful_process(),
+                    )
+                return super().create_environment(**kwargs)
+
+            def inspect_interpreter(self, **kwargs):
+                return ToolFailure(
+                    cause="ENVIRONMENT_FAILURE",
+                    stage=stage,
+                    process=successful_process(),
+                )
+
+            def resolve_project(self, **kwargs):
+                pytest.fail("resolution started before interpreter qualification")
+
+        root = _write_demo(tmp_path)
+        package = ProjectLoader().load(root=root).target
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        uv = FailedUv()
+        try:
+            result = EnvironmentFactory(uv).prepare(
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+                resolution=HighestResolution(),
+            )
+            assert isinstance(result, PrepareFailure)
+            assert result.failure.stage == stage
+            assert result.project_plan_digest is None
+            assert result.environment_plan_digest is None
+            assert uv.root is not None and not uv.root.exists()
+        finally:
+            snapshot.close()

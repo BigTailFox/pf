@@ -121,6 +121,7 @@ class TestResolutionIdentity:
                     context.uv_project_configuration_identity
                 ),
                 digest=digest,
+                interpreter=context.interpreter,
             )
 
     @pytest.mark.parametrize(
@@ -350,3 +351,21 @@ class TestResolutionIdentity:
             "format": "pylock.toml",
             "digest": native.digest,
         }
+
+
+class TestResolutionInterpreterIdentity:
+    @pytest.mark.parametrize("version", ("3.11", "3.12.1"))
+    def test_context_requires_actual_patch_matching_the_cell(self, version):
+        from pf.schemas.project import InterpreterIdentity
+
+        context = _context()
+        with pytest.raises(ValueError, match="match the Cell and include a patch"):
+            ResolutionContext.from_inputs(
+                run=context.run,
+                cell=context.cell,
+                source_plan_identity=context.source_plan_identity,
+                uv_project_configuration_identity=context.uv_project_configuration_identity,
+                interpreter=InterpreterIdentity(
+                    implementation="cpython", version=version, abi="test"
+                ),
+            )

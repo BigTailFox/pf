@@ -76,7 +76,7 @@ generation identity；报告不另行序列化raw配置。每次resolution另外
 `pyproject.toml`输入计算
 `sha256("pf:uv-project-configuration:v1\0" + canonical_identity_json(inputs))`：owned pyproject使用完整
 `PyprojectIdentity`，非owned target使用snapshot file entry。该摘要进入`pf:resolution-context:v1`，与exact
-uv version、Cell、SourcePlan和既有resolution/yanked policy facts共同闭合Attempt；PF search、timeout、
+uv version、实际InterpreterIdentity、Cell、SourcePlan和既有resolution/yanked policy facts共同闭合Attempt；PF search、timeout、
 scheduling和prerelease推断不进入resolution context。Apply authorizer从report/current SourceSnapshot中的
 同一root/target inputs重算该摘要并在任何source-drift waiver前比较；target dependency arrays先投影为
 已由apply结构授权的report值，以保留original/projected/no-op语义，不新增wire字段。
@@ -92,6 +92,7 @@ Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` �
 {
   "self_reference": "required-effective-cell-surface",
   "extra_exploration": "nonempty-declared-groups-only",
+  "resolution_projection": "actual-interpreter-target-active-pylock",
   "baseline_harness": "original-external-declarations",
   "probe_harness": "remove-eligible-direct-lower-bounds",
   "project_overlap": "exact-project-node-without-harness-ceiling",

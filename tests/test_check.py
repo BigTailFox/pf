@@ -203,8 +203,8 @@ class TestCompatibilityChecker:
         assert result.status == "PASS"
         assert assembly.uv.resolutions == ["highest", "lowest-direct"]
         assert assembly.uv.resolution_root_states == [
-            ("highest", ()),
-            ("lowest-direct", (False,)),
+            ("highest", (True,)),
+            ("lowest-direct", (False, True)),
         ]
         assert [
             event.detail

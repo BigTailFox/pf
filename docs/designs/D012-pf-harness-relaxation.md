@@ -38,7 +38,7 @@ E(P)    = ResolveEnvironment(Exact(G(P)) + Relax(D_H, U_B), C_run).graph
 
 - 精确 uv 版本、protocol 和 qualification profile；
 - SourcePlan identity、source snapshot 中 uv project-configuration identity、release cutoff 和规范输入顺序；
-- Python、target、marker 与 wheel-tag 环境；
+- 实际 InterpreterIdentity（CPython 完整 patch 与 ABI）、Cell target、marker 与 wheel-tag 环境；
 - release cutoff 与共享 cache policy。
 
 一次 `VerificationRun` 还固定单个 target package 与一个 canonical `SourcePlan`。Loader 为 target
@@ -134,14 +134,17 @@ ceiling_eligible  registry 且非 fixed
 每个 Attempt 的环境准备顺序固定为：
 
 ```text
-ResolveProject(P, attempt strategy) -> ProjectResolutionPlan -> G(P)
+Create empty environment -> Inspect/qualify actual interpreter
+Bind ResolutionContext and Attempt to InterpreterIdentity
+ResolveProject(P, attempt strategy) -> active ProjectResolutionPlan -> G(P)
 ResolveEnvironment(project + Exact(G(P)) + harness, highest)
   -> EnvironmentResolutionPlan -> E(P)
 Install(EnvironmentResolutionPlan)
 Inspect installed environment
 ```
 
-第一次 resolution 不创建环境。第二次始终用 uv highest strategy；project 的 `lowest-direct` strategy 不传播到 harness。PF 只安装经过校验的最终 native `pylock.toml` plan，不在安装阶段重新开放 resolution。
+两次 resolution 前先创建空 venv 并观察真实解释器，此时不安装依赖。两次 compile 显式传同一
+`--python` executable 与实际完整 `--python-version`，安装继续使用该 executable。第二次始终用 uv highest strategy；project 的 `lowest-direct` strategy 不传播到 harness。PF 只安装经过校验的最终 native `pylock.toml` plan，不在安装阶段重新开放 resolution。
 
 安装前后必须满足：
 
@@ -159,6 +162,24 @@ dependency-name graph observation，同名但不同版本或依赖图的观测�
 Harness-only transitive nodes 可以出现、消失或改变版本；它们没有 baseline ceiling，不进入 candidate catalog、search coordinate 或 floor result。direct external harness 即使也属于 `G(P)`，仍保留 PROJECT_GRAPH satisfaction observation；它不成为第二个 search coordinate。
 
 相同 resolution request 在一次运行内只求解一次；static、witness 和 test 复用同一 `PreparedEnvironment`。
+
+### 4.1 Native 条件节点的 active projection
+
+`uv_lock.parse_uv_pylock(content, *, python_version, target, source_root, lock_root)` 是条件图投影唯一 owner。
+`python_version` 必须是已观察的完整 patch；不能用 Cell minor 补 `.0`。先求 package marker，再校验
+active 节点的 requires-python、source/artifact 与 canonical name 唯一性；未生效节点不进入 constraints、
+harness satisfaction 或 installed expectation。互斥同名节点可选出一个，多个 active 同名节点失败。
+
+支持 `python_version`、`python_full_version`、`implementation_name`、`implementation_version`、
+`platform_python_implementation`、`sys_platform`、`os_name`、`platform_system`、`platform_machine`。
+这些值只来自实际 CPython identity 与 exact target，不使用 PF host 的默认 marker 值补缺。
+`platform_release`、`platform_version`、`extra`、`extras`、`dependency_groups` 等不可证明的变量 fail closed，
+即使位于短路分支。非空 multi-use environments/extras/dependency-groups/default-groups 不受支持。
+
+active package 的 dependencies references 按 native 字段匹配原始节点；只命中 inactive 节点的边被移除，
+未知引用或 active 歧义失败。返回图保持闭合。Native content/digest 保留 uv 输出和既有路径归一化，
+不为 active filtering 改写安装输入。安装后的包名/版本 equality 与 exact project inclusion 继续严格复证。
+
 
 ## 5. Resolution outcomes
 
@@ -211,8 +232,8 @@ highest 与 exact-artifact Attempt、每个 Attempt 的 two resolutions/one inst
 ## 6. Interface 与 identity
 
 ```text
-UvOperations.resolve_project(...) -> ResolutionOutcome
-UvOperations.resolve_environment(...) -> ResolutionOutcome
+UvOperations.resolve_project(..., interpreter: Path) -> ResolutionOutcome
+UvOperations.resolve_environment(..., interpreter: Path) -> ResolutionOutcome
 UvOperations.install_resolution(plan, ...) -> InstallOutcome
 EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
@@ -231,7 +252,10 @@ Request 类型限制非法组合：
 Identity 按取得证据的时点分开：
 
 1. `AttemptIdentity` 在外部操作前覆盖 snapshot、Cell、resolution request、selected candidates、source/evaluation/resolution/harness policy 和 baseline identity；
-2. `EnvironmentIdentity` 在 prepare 成功后覆盖两个 semantic plan digest 和最终 graph。
+2. 初始 `ResolutionContext.interpreter = None` 仅用于创建/检查解释器以前的准备失败。创建或检查失败不解析；
+   观察成功后重建 context 与 Attempt，完整 interpreter 进入 context/request/cache identity，临时路径不进入；
+   resolver 拒绝未观察 interpreter 的 context；
+3. `EnvironmentIdentity` 在 prepare 成功后覆盖两个 semantic plan digest 和最终 graph。
 
 `PreparedEnvironment` 与 `Proposal` 保存两个 plan digest。Evaluation cache 以 `EnvironmentIdentity` 为边界；FailureRecord 只保存失败发生前已经取得的 evidence，不虚构尚未产生的 plan 或 artifact。
 

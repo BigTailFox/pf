@@ -14,6 +14,7 @@ from pf.schemas.evaluation import FailureCause, ProcessObservation, ProcessResul
 from pf.schemas.project import (
     Cell,
     HarnessSatisfaction,
+    InterpreterIdentity,
     ResolvedNode,
     SourceIdentity,
 )
@@ -71,6 +72,7 @@ def resolution_context_digest(
     cell: Cell,
     source_plan_identity: str,
     uv_project_configuration_identity: str,
+    interpreter: InterpreterIdentity | None,
 ) -> str:
     return _digest(
         b"pf:resolution-context:v1\0",
@@ -79,6 +81,7 @@ def resolution_context_digest(
             "cell": cell.model_dump(mode="json"),
             "source_plan_identity": source_plan_identity,
             "uv_project_configuration_identity": uv_project_configuration_identity,
+            "interpreter": interpreter.model_dump(mode="json") if interpreter else None,
             "resolution_policy_identity": "uv-highest-normalized-input-v1",
             "yanked_policy_identity": "uv-default-v1",
         },
@@ -90,6 +93,7 @@ class ResolutionContext(FrozenSchema):
     cell: Cell
     source_plan_identity: str
     uv_project_configuration_identity: str
+    interpreter: InterpreterIdentity | None
     resolution_policy_identity: Literal["uv-highest-normalized-input-v1"] = (
         "uv-highest-normalized-input-v1"
     )
@@ -104,22 +108,35 @@ class ResolutionContext(FrozenSchema):
         cell: Cell,
         source_plan_identity: str,
         uv_project_configuration_identity: str,
+        interpreter: InterpreterIdentity | None = None,
     ) -> "ResolutionContext":
         return cls(
             run=run,
             cell=cell,
             source_plan_identity=source_plan_identity,
             uv_project_configuration_identity=uv_project_configuration_identity,
+            interpreter=interpreter,
             digest=resolution_context_digest(
                 run=run,
                 cell=cell,
                 source_plan_identity=source_plan_identity,
                 uv_project_configuration_identity=uv_project_configuration_identity,
+                interpreter=interpreter,
             ),
         )
 
     @model_validator(mode="after")
     def validate_context(self) -> "ResolutionContext":
+        if self.interpreter is not None:
+            release = Version(self.interpreter.version).release
+            if (
+                self.interpreter.implementation != "cpython"
+                or len(release) != 3
+                or ".".join(map(str, release[:2])) != self.cell.python_minor
+            ):
+                raise ValueError(
+                    "resolution interpreter must match the Cell and include a patch"
+                )
         if not self.source_plan_identity:
             raise ValueError("resolution source plan identity cannot be empty")
         if not self.uv_project_configuration_identity:
@@ -129,6 +146,7 @@ class ResolutionContext(FrozenSchema):
             cell=self.cell,
             source_plan_identity=self.source_plan_identity,
             uv_project_configuration_identity=self.uv_project_configuration_identity,
+            interpreter=self.interpreter,
         )
         if self.digest != expected:
             raise ValueError("resolution context digest does not match its inputs")

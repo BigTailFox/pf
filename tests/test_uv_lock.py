@@ -80,7 +80,9 @@ class TestUvPylockParser:
         )
 
         with pytest.raises(UvLockError):
-            parse_uv_pylock(content, python_minor="3.11")
+            parse_uv_pylock(
+                content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+            )
 
     @pytest.mark.parametrize(
         "requires_python",
@@ -98,7 +100,9 @@ class TestUvPylockParser:
         )
 
         with pytest.raises(UvLockError):
-            parse_uv_pylock(content, python_minor="3.11")
+            parse_uv_pylock(
+                content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+            )
 
     def test_parser_rejects_duplicate_package_selections(self) -> None:
         package = (
@@ -115,7 +119,9 @@ class TestUvPylockParser:
         )
 
         with pytest.raises(UvLockError, match="one entry per package"):
-            parse_uv_pylock(content, python_minor="3.11")
+            parse_uv_pylock(
+                content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+            )
 
     def test_parser_projects_vcs_and_local_artifact_sources(self) -> None:
         sha256 = "a" * 64
@@ -128,7 +134,9 @@ packages = [
 ]
 '''
 
-        packages = parse_uv_pylock(content, python_minor="3.11")
+        packages = parse_uv_pylock(
+            content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+        )
 
         assert packages[0].source.locator == "https://example.test/demo.git"
         assert packages[1].available_artifacts[0].locator == "artifacts/tool.whl"
@@ -175,7 +183,9 @@ packages = [
             )
 
     def test_parser_projects_registry_graph_and_secret_free_artifacts(self) -> None:
-        packages = parse_uv_pylock(REGISTRY_LOCK, python_minor="3.11")
+        packages = parse_uv_pylock(
+            REGISTRY_LOCK, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+        )
 
         requests = packages[0]
         assert requests.name == "requests"
@@ -207,7 +217,9 @@ version = "1.0"
 archive = { url = "https://example.test/tool.whl", hashes = { sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }
 """
 
-        packages = parse_uv_pylock(content, python_minor="3.11")
+        packages = parse_uv_pylock(
+            content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+        )
 
         assert packages[0].version is None
         assert packages[0].source.kind == "path"
@@ -233,7 +245,8 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency.as_posix()}" }}
 
         packages = parse_uv_pylock(
             content,
-            python_minor="3.11",
+            python_version="3.11.0",
+            target="x86_64-unknown-linux-gnu",
             source_root=source,
         )
 
@@ -258,7 +271,8 @@ packages = [{ name = "demo", directory = { path = "source", editable = true } }]
 
         packages = parse_uv_pylock(
             content,
-            python_minor="3.11",
+            python_version="3.11.0",
+            target="x86_64-unknown-linux-gnu",
             source_root=source,
             lock_root=tmp_path,
         )
@@ -299,7 +313,9 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency}" }} }}]
             1,
         )
 
-        packages = parse_uv_pylock(content, python_minor="3.10")
+        packages = parse_uv_pylock(
+            content, python_version="3.10.0", target="x86_64-unknown-linux-gnu"
+        )
 
         assert packages[0].marker == 'python_full_version < "3.11"'
 
@@ -337,7 +353,9 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency}" }} }}]
             )
 
         with pytest.raises(UvLockError, match=message):
-            parse_uv_pylock(content, python_minor="3.11")
+            parse_uv_pylock(
+                content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+            )
 
     @pytest.mark.parametrize(
         ("content", "message"),
@@ -366,4 +384,163 @@ packages = [{{ name = "tool", directory = {{ path = "{dependency}" }} }}]
         message: str,
     ) -> None:
         with pytest.raises(UvLockError, match=message):
-            parse_uv_pylock(content, python_minor="3.11")
+            parse_uv_pylock(
+                content, python_version="3.11.0", target="x86_64-unknown-linux-gnu"
+            )
+
+
+class TestActivePylockProjection:
+    @pytest.mark.parametrize(
+        ("python", "names", "dependencies"),
+        (("3.11.0", ("demo", "tomli"), ("tomli",)), ("3.11.15", ("demo",), ())),
+    )
+    def test_actual_patch_selects_nodes_and_dependency_references(
+        self, python, names, dependencies
+    ):
+        content = """
+lock-version = "1.0"
+created-by = "uv"
+[[packages]]
+name = "demo"
+directory = {path = "."}
+dependencies = [{name = "tomli", version = "2.4.1"}]
+[[packages]]
+name = "tomli"
+version = "2.4.1"
+marker = "python_full_version <= '3.11'"
+directory = {path = "tomli"}
+"""
+        packages = parse_uv_pylock(
+            content, python_version=python, target="x86_64-unknown-linux-gnu"
+        )
+        assert tuple(p.name for p in packages) == names
+        assert packages[0].dependencies == dependencies
+
+    @pytest.mark.parametrize(
+        ("target", "marker"),
+        (
+            (
+                "x86_64-unknown-linux-gnu",
+                "sys_platform == 'linux' and platform_machine == 'x86_64' and os_name == 'posix' and platform_system == 'Linux'",
+            ),
+            ("aarch64-unknown-linux-gnu", "platform_machine == 'aarch64'"),
+            (
+                "aarch64-apple-darwin",
+                "sys_platform == 'darwin' and platform_machine == 'arm64' and platform_system == 'Darwin'",
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                "sys_platform == 'win32' and platform_machine == 'AMD64' and os_name == 'nt' and platform_system == 'Windows'",
+            ),
+            ("aarch64-pc-windows-msvc", "platform_machine == 'ARM64'"),
+            (
+                "x86_64-unknown-linux-gnu",
+                "python_version == '3.11' and implementation_name == 'cpython' and implementation_version == '3.11.15' and platform_python_implementation == 'CPython'",
+            ),
+        ),
+    )
+    def test_target_and_interpreter_select_one_mutually_exclusive_entry(
+        self, target, marker
+    ):
+        content = f'''lock-version = "1.0"
+created-by = "uv"
+[[packages]]
+name = "demo"
+version = "1"
+marker = "{marker}"
+directory = {{path = "."}}
+[[packages]]
+name = "demo"
+version = "2"
+marker = "not-a-variable == 'x'"
+'''.replace("not-a-variable == 'x'", "python_full_version < '3.11.1'")
+        packages = parse_uv_pylock(content, python_version="3.11.15", target=target)
+        assert [(p.name, p.version) for p in packages] == [("demo", "1")]
+
+    @pytest.mark.parametrize(
+        "marker",
+        (
+            "python_version < '0' and platform_release == 'host'",
+            "python_version > '0' or platform_version == 'host'",
+            "extra == 'test'",
+            "'test' in extras",
+            "'test' in dependency_groups",
+            "os_name ~= 'posix'",
+        ),
+    )
+    def test_unsupported_dimensions_and_comparisons_fail_closed(self, marker):
+        content = f'''lock-version = "1.0"
+created-by = "uv"
+[[packages]]
+name = "demo"
+marker = "{marker}"
+directory = {{path = "."}}
+'''
+        with pytest.raises(UvLockError):
+            parse_uv_pylock(
+                content, python_version="3.11.15", target="x86_64-unknown-linux-gnu"
+            )
+
+    @pytest.mark.parametrize("version", ("3.11", "invalid"))
+    def test_projection_requires_actual_patch(self, version):
+        with pytest.raises(UvLockError, match="actual Python"):
+            parse_uv_pylock(
+                'lock-version = "1.0"\ncreated-by = "uv"\npackages = []',
+                python_version=version,
+                target="x86_64-unknown-linux-gnu",
+            )
+
+    @pytest.mark.parametrize(
+        "compatibility",
+        (
+            'requires-python = "<3.11.1"',
+            'requires-python = "invalid"',
+            "requires-python = 1",
+        ),
+    )
+    def test_active_package_python_compatibility_is_required(self, compatibility):
+        content = f"""lock-version = "1.0"
+created-by = "uv"
+[[packages]]
+name = "demo"
+{compatibility}
+directory = {{path = "."}}
+"""
+        with pytest.raises(UvLockError, match="Python compatibility|actual Python"):
+            parse_uv_pylock(
+                content, python_version="3.11.15", target="x86_64-unknown-linux-gnu"
+            )
+
+    @pytest.mark.parametrize("key", ("extras", "dependency-groups", "default-groups"))
+    def test_multi_use_groups_are_not_silently_selected(self, key):
+        with pytest.raises(UvLockError, match="selectable groups"):
+            parse_uv_pylock(
+                f'lock-version = "1.0"\ncreated-by = "uv"\n{key} = ["test"]\npackages = []',
+                python_version="3.11.15",
+                target="x86_64-unknown-linux-gnu",
+            )
+
+    @pytest.mark.parametrize(
+        "reference",
+        ('{name = "missing"}', '{name = "tool", version = "3"}', '{name = "tool"}'),
+    )
+    def test_unknown_and_ambiguous_active_references_fail(self, reference):
+        content = f"""lock-version = "1.0"
+created-by = "uv"
+[[packages]]
+name = "demo"
+directory = {{path = "."}}
+dependencies = [{reference}]
+[[packages]]
+name = "tool"
+version = "1"
+directory = {{path = "one"}}
+[[packages]]
+name = "tool"
+version = "2"
+directory = {{path = "two"}}
+"""
+        with pytest.raises(UvLockError, match="incomplete|ambiguous"):
+            parse_uv_pylock(
+                content, python_version="3.11.15", target="x86_64-unknown-linux-gnu"
+            )

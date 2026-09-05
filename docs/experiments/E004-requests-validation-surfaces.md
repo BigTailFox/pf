@@ -287,3 +287,75 @@ search 的三个 py3.11 baseline 另行核对 environment lock / installed metad
 这解释了 §3 的 12 runtime-search Indeterminate 加 3 baseline Indeterminate，以及无 final success roots、
 六个 projection 无 floor 的结果。先前 65 个 PASS evaluations 是过程证据，不能替代完整搜索终态。
 上述 check/search 诊断均未修改目标依赖、PF 实现或搜索策略，也未重新运行完整三命令实验。
+
+## 10. D029 条件投影修复后的针对性验证
+
+2026-09-05，在 `8dce32e` 上的 D029 工作树修复条件节点投影。稳定契约由
+[D012 §4](../designs/D012-pf-harness-relaxation.md#4-resolve-twice-install-once) 接管，实施与验收见
+[D029](../archived/designs/D029-pf-conditional-resolution-projection.md) /
+[P035](../archived/plans/P035-pf-conditional-resolution-projection.md)。§7 的“尚未修复”描述其诊断时点。
+原三命令历史终态保持，不回写为成功。
+
+修复先创建空 venv 并观察实际 interpreter，再将完整版本与 target 用于两次 resolution 和 active graph
+投影。未生效节点不进入 constraints、harness satisfaction 或安装预期；native plan 保留原生条件，安装图
+equality 继续严格检查。实际 interpreter 进入 resolution/context/request identity，固定 policy fact 隔离旧证据。
+
+### 10.1 原日志回放与本地 uv 安装对照
+
+`.venv/bin/python /tmp/pf-d029-replay.py` 回放 §7 三组 lock/metadata，新 parser 使用
+`python_version="3.11.15", target="x86_64-unknown-linux-gnu"`。结果为：
+
+| Lock / metadata | active dependencies | 与实际安装包名/版本 |
+| --- | --- | --- |
+| 0024 / 0053 | 32 | 完全一致，无 tomli |
+| 0044 / 0080 | 32 | 完全一致，无 tomli |
+| 0050 / 0086 | 33 | 完全一致，无 tomli |
+
+`UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/python /tmp/pf-d029-native-fixture.py` 创建临时 Python 3.11.15
+venv 与两个本地 wheel，在同一 native pylock 中分别使用 `python_full_version > '3.11'` 与
+`python_full_version <= '3.11'`。真实 `uv pip sync` 仅安装 active wheel，PF 投影与 metadata 相等，
+native 文件未改写。此对照不需要包源，临时环境自动清理。
+
+### 10.2 requests 单 Cell smoke
+
+只选择当前实际 `ProjectLoader` 结果中的 `3.11 / x86_64-unknown-linux-gnu / [socks]` Cell，调用
+smoke 使用的 public `HighestVersionVerifier.verify`，保留原始完整 configured pytest 与 DEVELOPMENT
+SourcePlan。没有修改目标配置、依赖或测试；没有运行完整 search，也没有取得 CLI 全 Cell 聚合终态。
+
+准确调用命令（PF 根目录）：
+
+```bash
+UV_CACHE_DIR=/tmp/pf-uv-cache .venv/bin/uv run --no-sync --project /home/llh/pf python /tmp/pf-d029-requests-smoke.py
+```
+
+该 qualification script 的关键调用如下；其余为与 CLI 相同的 `SubprocessRunner`、UvAdapter、
+EnvironmentFactory、TyAdapter/StaticEvaluator 与 ConfiguredVerifier/RuntimeEvaluator 装配：
+
+```python
+package = ProjectLoader(pythons=uv).load(root=root).target
+cell = next(c for c in package.cells
+            if c.python_minor == "3.11" and c.extra_surface == ("socks",))
+snapshot = SnapshotBuilder(runner).build(root)
+try:
+    result = verifier.verify(package=package, cell=cell, snapshot=snapshot,
+                             source_plan=SourcePlan.for_package(package, "DEVELOPMENT"))
+    assert isinstance(result, HighestVersionPass)
+finally:
+    snapshot.close()
+```
+
+首次沙箱 run `20260905T075728.831026Z-478-4a06b9a1` 因 setuptools 包源连接权限失败，保留为
+SOURCE_FAILURE；不作兼容性结论。联网验证 run 为 **`20260905T075749.820462Z-276394-e53849a8`**：
+
+- 实际 interpreter：CPython **3.11.15**，ABI `cpython-311-x86_64-linux-gnu`。
+- 当前 source snapshot：`148b836e88cedc96ed3beca8b14671209b43fbf716c9e29ac391ec92b64cc7ea`，与 §1
+  历史 snapshot 不同；本次仅证明当前源码的该 effective Cell。
+- Evaluation policy：`7842d2e6664acdbd784babdd5f3bb1fa4f69751c2cd4466b2a124bc223714da4`。
+- `process-0004/0005` 创建/观察 interpreter；`0006/0007` 两次 compile 显式传同一 executable 和
+  `--python-version 3.11.15`；`0008/0009` 安装与 metadata 复证成功，未安装 tomli。
+- `process-0010` 完成 ty baseline capture；`process-0011` 完整 configured pytest 正常退出 0：
+  **619 passed、15 skipped、1 xpassed**，77.51s。
+- Public smoke operation 返回 **HighestVersionPass**；结果另存 `/tmp/pf-d029-requests-smoke-result.json`。
+
+该 PASS 与三组离线回放共同验证条件投影修复。它不覆盖另一 surface、check 或 search，不证明 idna
+构建失败已解决，也不产生新的 verified floor、predecessor 或 apply authority。

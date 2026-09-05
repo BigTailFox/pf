@@ -65,6 +65,10 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 
 ## 开放事项与归档
 
+- [D029](archived/designs/D029-pf-conditional-resolution-projection.md) /
+  [P035](archived/plans/P035-pf-conditional-resolution-projection.md) 已完成条件 resolution 节点投影修复；
+  稳定规则由 D002/D012/D014 接管，E004 §10 保存三组日志回放和 requests py3.11+socks smoke PASS。
+
 - [D028](archived/designs/D028-pf-validation-contract-surfaces.md) /
   [P034](archived/plans/P034-pf-validation-contract-surfaces.md) 已完成 required Cell surface、external
   harness satisfaction/current graph ceiling、默认 any/pytest 与 policy identity 隔离；稳定规则由

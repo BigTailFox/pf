@@ -114,6 +114,7 @@ class UvOperations(Protocol):
         *,
         package: Path,
         package_name: str,
+        interpreter: Path,
         cell: Cell,
         resolution: ResolutionRequest,
         context: ResolutionContext,
@@ -129,6 +130,7 @@ class UvOperations(Protocol):
         *,
         package: Path,
         package_name: str,
+        interpreter: Path,
         cell: Cell,
         resolution: ResolutionRequest,
         context: ResolutionContext,
@@ -288,6 +290,55 @@ class EnvironmentFactory:
                 package_root=package_root,
                 managed_vector=managed_vector,
             )
+            emit_cell_stage(self._events, cell, "preparing environment")
+            create = self._uv.create_environment(
+                environment=environment_root,
+                python_minor=cell.python_minor,
+                cwd=proposal_root,
+                timeout_seconds=package.config.resolution.timeout_seconds,
+            )
+            if isinstance(create, ToolFailure):
+                temporary_directory.cleanup()
+                return failed(create)
+            interpreter = self._interpreter(environment_root)
+            interpreter_result = self._uv.inspect_interpreter(
+                interpreter=interpreter,
+                cwd=package_root,
+                timeout_seconds=package.config.resolution.timeout_seconds,
+            )
+            if not isinstance(interpreter_result, InterpreterSuccess):
+                temporary_directory.cleanup()
+                return failed(interpreter_result)
+            if (
+                interpreter_result.interpreter.implementation != "cpython"
+                or not interpreter_result.interpreter.version.startswith(
+                    f"{cell.python_minor}."
+                )
+            ):
+                temporary_directory.cleanup()
+                return failed(
+                    ToolFailure(
+                        cause="ENVIRONMENT_FAILURE",
+                        stage="inspect-interpreter",
+                        process=interpreter_result.process,
+                    )
+                )
+            context = ResolutionContext.from_inputs(
+                run=run,
+                cell=cell,
+                source_plan_identity=source_plan.identity,
+                uv_project_configuration_identity=context.uv_project_configuration_identity,
+                interpreter=interpreter_result.interpreter,
+            )
+            attempt = self._attempt(
+                package=package,
+                cell=cell,
+                snapshot=snapshot,
+                resolution=resolution,
+                managed_vector=managed_vector,
+                context=context,
+                source_plan=source_plan,
+            )
             project_request = self._request_digest(
                 kind="project",
                 package=package,
@@ -305,6 +356,7 @@ class EnvironmentFactory:
                 resolve=lambda: self._uv.resolve_project(
                     package=package_root,
                     package_name=package.name,
+                    interpreter=interpreter,
                     cell=cell,
                     resolution=resolution,
                     context=context,
@@ -361,6 +413,7 @@ class EnvironmentFactory:
                 resolve=lambda: self._uv.resolve_environment(
                     package=package_root,
                     package_name=package.name,
+                    interpreter=interpreter,
                     cell=cell,
                     resolution=resolution,
                     context=context,
@@ -402,39 +455,6 @@ class EnvironmentFactory:
                     )
                 )
 
-            emit_cell_stage(self._events, cell, "preparing environment")
-            create = self._uv.create_environment(
-                environment=environment_root,
-                python_minor=cell.python_minor,
-                cwd=proposal_root,
-                timeout_seconds=package.config.resolution.timeout_seconds,
-            )
-            if isinstance(create, ToolFailure):
-                temporary_directory.cleanup()
-                return failed(create)
-            interpreter = self._interpreter(environment_root)
-            interpreter_result = self._uv.inspect_interpreter(
-                interpreter=interpreter,
-                cwd=package_root,
-                timeout_seconds=package.config.resolution.timeout_seconds,
-            )
-            if not isinstance(interpreter_result, InterpreterSuccess):
-                temporary_directory.cleanup()
-                return failed(interpreter_result)
-            if (
-                interpreter_result.interpreter.implementation != "cpython"
-                or not interpreter_result.interpreter.version.startswith(
-                    f"{cell.python_minor}."
-                )
-            ):
-                temporary_directory.cleanup()
-                return failed(
-                    ToolFailure(
-                        cause="ENVIRONMENT_FAILURE",
-                        stage="inspect-interpreter",
-                        process=interpreter_result.process,
-                    )
-                )
             emit_cell_stage(self._events, cell, "installing environment plan")
             install = self._uv.install_resolution(
                 plan=environment_outcome,

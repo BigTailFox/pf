@@ -279,6 +279,7 @@ class UvAdapter:
         *,
         package: Path,
         package_name: str,
+        interpreter: Path,
         cell: Cell,
         resolution: ResolutionRequest,
         context: ResolutionContext,
@@ -292,6 +293,7 @@ class UvAdapter:
             kind="project",
             package=package,
             package_name=package_name,
+            interpreter=interpreter,
             cell=cell,
             resolution=resolution,
             context=context,
@@ -309,6 +311,7 @@ class UvAdapter:
         *,
         package: Path,
         package_name: str,
+        interpreter: Path,
         cell: Cell,
         resolution: ResolutionRequest,
         context: ResolutionContext,
@@ -324,6 +327,7 @@ class UvAdapter:
             kind="environment",
             package=package,
             package_name=package_name,
+            interpreter=interpreter,
             cell=cell,
             resolution=resolution,
             context=context,
@@ -342,6 +346,7 @@ class UvAdapter:
         kind: Literal["project", "environment"],
         package: Path,
         package_name: str,
+        interpreter: Path,
         cell: Cell,
         resolution: ResolutionRequest,
         context: ResolutionContext,
@@ -356,6 +361,8 @@ class UvAdapter:
         stage: Literal["resolve-project", "resolve-environment"] = (
             "resolve-project" if kind == "project" else "resolve-environment"
         )
+        if context.interpreter is None:
+            raise ValueError("resolution requires an observed interpreter")
         request_file = work_directory / f"{kind}-requirements.in"
         output_file = work_directory / f"pylock.pf-{kind}.toml"
         source_root = work_directory / "source"
@@ -383,8 +390,10 @@ class UvAdapter:
             "pylock.toml",
             "--output-file",
             output_file.as_posix(),
+            "--python",
+            interpreter.as_posix(),
             "--python-version",
-            cell.python_minor,
+            context.interpreter.version,
             "--python-platform",
             cell.target,
             "--resolution",
@@ -484,7 +493,8 @@ class UvAdapter:
                 item
                 for item in parse_uv_pylock(
                     native_content,
-                    python_minor=cell.python_minor,
+                    python_version=context.interpreter.version,
+                    target=cell.target,
                     source_root=source_root,
                     lock_root=output_file.parent,
                 )

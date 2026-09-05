@@ -258,6 +258,11 @@ candidate、harness、两次resolution、Attempt与search report共同消费该p
 snapshot close，Search仍在Run后消费snapshot identity做drift/report工作。structured harness、
 two-resolution plan、environment identity和install边界由D012定义。
 
+`EnvironmentFactory` 物化源码后先创建空 venv、inspect/资格化真实解释器，再建立绑定实际 patch/ABI 的
+ResolutionContext 与 Attempt，随后执行两次 resolution 和一次 installation。准备失败保留初始 Attempt，
+不伪造 interpreter 或 plan；所有失败路径清理 temporary resources。实际 interpreter 改变使 request/cache
+identity 改变；marker 到 active graph 的唯一投影 owner 为 `adapters.uv_lock`，细则见 D012。
+
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、两个 validated ResolutionPlan 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
 
 Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
