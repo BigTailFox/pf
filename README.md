@@ -20,7 +20,7 @@ uv tool install package-floor
 
 ## Quick Start
 
-The target project needs static `project.dependencies` (and optional-dependencies, if used), a `test` dependency group (may be empty), and a `[tool.pf]` test command:
+The target project needs static `project.dependencies` (and optional-dependencies, if used) and a dependency group named `test`. Omit `test-group` to use that name; the group itself may be empty. Today you also need a `[tool.pf]` test command:
 
 ```toml
 [tool.pf]
@@ -60,7 +60,7 @@ Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Us
 
 ## Configuration
 
-Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `test-command`, `pythons`, and `platforms`, which have no static default.
+Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `test-command`, `pythons`, and `platforms`, which have no static default. Omit `test-group` to use the dependency group named `test`.
 
 ```toml
 [tool.pf]
@@ -75,7 +75,7 @@ search-prereleases = false
 resolve-artifact = "wheel"         # wheel | sdist | any
 # managed-deps = ["rich"]          # mutually exclusive with unmanaged-deps
 # unmanaged-deps = ["build"]       # omit both to manage every searchable direct dependency
-test-group = "test"                # may be empty
+test-group = "test"                # omit to use the group named "test"; that group may be empty
 test-cwd = "package"               # package | root
 ty-args = []
 max-cells = "auto"                 # auto or a positive integer; cell concurrency

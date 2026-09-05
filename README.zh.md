@@ -20,7 +20,7 @@ uv tool install package-floor
 
 ## 快速开始
 
-目标项目需要静态 `project.dependencies`（以及用到的 optional-dependencies）、一个 `test` dependency group（可为空），以及 `[tool.pf]` 测试命令：
+目标项目需要静态 `project.dependencies`（以及用到的 optional-dependencies），以及名为 `test` 的 dependency group。省略 `test-group` 即使用该名称；group 本身可为空。目前还需要在 `[tool.pf]` 里写测试命令：
 
 ```toml
 [tool.pf]
@@ -60,7 +60,7 @@ pf apply
 
 ## 配置
 
-持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除 `test-command`、`pythons`、`platforms` 外都是省略时的默认值；这三项没有静态默认。
+持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除 `test-command`、`pythons`、`platforms` 外都是省略时的默认值；这三项没有静态默认。省略 `test-group` 即使用名为 `test` 的 dependency group。
 
 ```toml
 [tool.pf]
@@ -75,7 +75,7 @@ search-prereleases = false
 resolve-artifact = "wheel"         # wheel | sdist | any
 # managed-deps = ["rich"]          # 与 unmanaged-deps 互斥
 # unmanaged-deps = ["build"]       # 两者都省略则管理全部可搜索直接依赖
-test-group = "test"                # 可为空
+test-group = "test"                # 省略即用名为 test 的 group；该 group 可为空
 test-cwd = "package"               # package | root
 ty-args = []
 max-cells = "auto"                 # auto 或正整数；Cell 并发
