@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-05
 
 本页只负责文档治理、契约所有权和导航。每条现行规则只有一个规范性所有者；其他文档只引用，不复述。代码与文档冲突时，同一变更必须修正实现或所有者文档。
 
@@ -53,9 +53,17 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [E002](experiments/E002-pf-search-performance.md) 保存 2026-08-28 PF 自搜索的空间裁剪、verifier 成本、
   static region 与异常 source timeout 计数；当前瓶颈判断与优化候选由 R008 汇总。E002 是已完成的
   非规范性性能实验，不跟踪实施状态。
+- [E003](experiments/E003-requests-dependency-validation.md) 记录对 `expirements/requests` 依次执行
+  `pf smoke` / `pf check` / `pf search` 的结果：20 个 Cell 均在 baseline
+  `resolve-environment` 因 `resolution-plan-invalid` 终止，未得到 verified floor。
+  E003 是已完成的非规范性 dogfood 实验，不跟踪实施状态；产品判断由
+  [R009](reviews/R009-requests-harness-self-reference.md) 接收。
 
 ## 开放事项与归档
 
+- [R009](reviews/R009-requests-harness-self-reference.md) 接收 E003 的 test-group 自引用投影缺口，
+  并收敛 required extras 为每个可执行 Cell 的 mandatory base、`floor_C(P)`、
+  `HARNESS_CONFLICT → REJECTED`，以及开箱默认值；它是非规范性评审，不授权实施。
 - [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
   verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化、报告预检与
   xdist failed-set 早停候选；
