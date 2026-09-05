@@ -98,10 +98,11 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   稳定规则已归并 D003/D004/D013/D014；逐项验收与工作区独立限制见 P037。
 
 - 原 D031 已拆分：树搜索降为 [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 开放想法，
-  原编号不复用；[D033](designs/D033-pf-predecessor-revalidate.md) 为 predecessor revalidate 草案，
+  原编号不复用；[D033](designs/D033-pf-predecessor-revalidate.md) 为已接受的 predecessor revalidate Design，
   保留原目标 1 的 `search-resolution` 改名、目标 5 的最低候选快路和后续 sweep 直接前驱重验，
   以及目标 6 的 evaluator 统一缓存、目标 7 的直接非单调终止。继续使用平面搜索和代表候选快照，
-  独立于树搜索推进。完整契约待评审，尚未创建 Plan 或实施。
+  独立于树搜索推进。已补齐真实 highest baseline PASS 准入、首次 promotion 与 Slice/region 登记契约，
+  尚未创建 Plan 或实施。
 - [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
   条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
   接管，实施与验收记录同步归档。
