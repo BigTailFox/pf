@@ -265,16 +265,17 @@ def _remove_null_types(value: object) -> None:
         return
     if not isinstance(value, dict):
         return
+    preserve_null = value.pop("x-pf-preserve-null", False)
     for keyword in ("anyOf", "oneOf"):
         branches = value.get(keyword)
-        if isinstance(branches, list):
+        if isinstance(branches, list) and not preserve_null:
             value[keyword] = [
                 branch
                 for branch in branches
                 if not (isinstance(branch, dict) and branch.get("type") == "null")
             ]
     type_value = value.get("type")
-    if isinstance(type_value, list):
+    if isinstance(type_value, list) and not preserve_null:
         value["type"] = [item for item in type_value if item != "null"]
     for item in value.values():
         _remove_null_types(item)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from candidate_fixtures import registry_candidates
+from pf.schemas.project import RegistryCandidates
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,8 +90,10 @@ def evaluation_project(
     *,
     dependency: str | None = "demo-dep",
     source: str = "",
+    search_space: str | None = None,
 ) -> EvaluationProject:
     root.mkdir(parents=True, exist_ok=True)
+    search_config = f'search-space = "{search_space}"\n' if search_space is not None else ""
     dependencies = f'dependencies = ["{dependency}"]\n' if dependency else ""
     (root / "pyproject.toml").write_text(
         f"""
@@ -100,7 +105,7 @@ version = "0.1.0"
 test = []
 
 [tool.pf]
-pythons = ["3.10"]
+{search_config}pythons = ["3.10"]
 platforms = ["x86_64-unknown-linux-gnu"]
 test-command = ["python", "-c", "pass"]
 """.strip()
@@ -452,20 +457,20 @@ class ScriptedCandidates:
         self.error = error
         self.queries: list[tuple[str, SourceIdentity, Cell]] = []
 
-    def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
+    def query(self, **kwargs: object) -> RegistryCandidates:
         if self.error is not None:
             raise self.error
         dependency = cast(str, kwargs["dependency"])
         source = cast(SourceIdentity, kwargs["source"])
         cell = cast(Cell, kwargs["cell"])
         self.queries.append((dependency, source, cell))
-        return tuple(
+        return registry_candidates(tuple(
             AvailableCandidate(
                 version=version,
                 artifacts=(available_artifact(dependency, version),),
             )
             for version in self.versions
-        )
+        ))
 
 
 @dataclass(frozen=True)

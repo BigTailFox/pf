@@ -193,18 +193,25 @@ class VerificationRunner:
             logs=self._logs,
             request=request,
         )
-        outcomes = self._scheduler.run(
-            tuple(self._task(request, cell) for cell in cells),
-            jobs=request.limits.max_cells,
-            max_duration_seconds=request.limits.max_duration_seconds,
-            on_started=lambda task: self._events.consume(
-                CellContextEvent(
-                    cell=task.cell,
-                    detail=BaselineDetailIdentity(),
-                )
-            ),
-            on_completed=gate.completed,
-        )
+        try:
+            outcomes = self._scheduler.run(
+                tuple(self._task(request, cell) for cell in cells),
+                jobs=request.limits.max_cells,
+                max_duration_seconds=request.limits.max_duration_seconds,
+                on_started=lambda task: self._events.consume(
+                    CellContextEvent(
+                        cell=task.cell,
+                        detail=BaselineDetailIdentity(),
+                    )
+                ),
+                on_completed=gate.completed,
+            )
+        except BaseException as error:
+            try:
+                gate.finalize()
+            except InfrastructureError as final_error:
+                raise error from final_error
+            raise
         gate.finalize()
         return outcomes
 

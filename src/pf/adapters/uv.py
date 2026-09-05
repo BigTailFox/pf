@@ -73,6 +73,7 @@ from pf.resolution import (
 from pf.schemas.project import (
     AvailableArtifact,
     AvailableCandidate,
+    RegistryCandidates,
     Cell,
     HarnessResolutionRequirement,
     HarnessSatisfaction,
@@ -941,7 +942,7 @@ class UvAdapter:
         dependency: str,
         source: SourceIdentity,
         cell: Cell,
-    ) -> tuple[AvailableCandidate, ...]:
+    ) -> RegistryCandidates:
         """Read one frozen view from the source's PEP Simple JSON endpoint."""
         if source.kind != "registry":
             raise InfrastructureError(
@@ -989,7 +990,11 @@ class UvAdapter:
                     ) from error
                 if len(payload) > _JSON_SUMMARY_LIMIT:
                     raise InfrastructureError("registry candidate response is too large")
-                self._candidate_responses[query_key] = payload
+            result = self._parse_candidate_response(payload=payload, project_url=project_url, cell=cell)
+            self._candidate_responses[query_key] = payload
+            return result
+
+    def _parse_candidate_response(self, *, payload: bytes, project_url: str, cell: Cell) -> RegistryCandidates:
         try:
             return self._available_candidates(
                 payload=payload,
@@ -1019,7 +1024,7 @@ class UvAdapter:
         payload: bytes,
         project_url: str,
         cell: Cell,
-    ) -> tuple[AvailableCandidate, ...]:
+    ) -> RegistryCandidates:
         document = json.loads(payload)
         if not isinstance(document, Mapping):
             raise TypeError("Simple JSON root must be an object")
@@ -1027,6 +1032,7 @@ class UvAdapter:
         if not isinstance(files, list):
             raise TypeError("Simple JSON files must be an array")
         grouped: dict[Version, list[tuple[AvailableArtifact, bool]]] = {}
+        release_versions: set[Version] = set()
         target_python = Version(f"{cell.python_minor}.0")
         for file in files:
             if not isinstance(file, Mapping):
@@ -1046,6 +1052,15 @@ class UvAdapter:
                 or re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None
             ):
                 raise ValueError("Simple JSON SHA-256 hash is invalid")
+            try:
+                _, version, _, tags = parse_wheel_filename(filename)
+            except InvalidWheelFilename:
+                try:
+                    _, version = parse_sdist_filename(filename)
+                except InvalidSdistFilename:
+                    continue
+                tags = None
+            release_versions.add(version)
             requires_python = file.get("requires-python")
             if requires_python is not None:
                 if not isinstance(requires_python, str):
@@ -1062,28 +1077,17 @@ class UvAdapter:
                 or not parsed_locator.hostname
             ):
                 raise ValueError("Simple JSON artifact URL is invalid")
-            artifact: AvailableArtifact
-            try:
-                _, version, _, tags = parse_wheel_filename(filename)
+            if tags is not None:
                 if not self._wheel_compatible(tags, cell):
                     continue
                 artifact = AvailableArtifact(
-                    filename=filename,
-                    kind="wheel",
-                    content_hash=f"sha256:{sha256}",
+                    filename=filename, kind="wheel", content_hash=f"sha256:{sha256}",
                     locator=public_locator(resolved_locator),
-                    python_minors=(cell.python_minor,),
-                    targets=(cell.target,),
+                    python_minors=(cell.python_minor,), targets=(cell.target,),
                 )
-            except InvalidWheelFilename:
-                try:
-                    _, version = parse_sdist_filename(filename)
-                except InvalidSdistFilename:
-                    continue
+            else:
                 artifact = AvailableArtifact(
-                    filename=filename,
-                    kind="sdist",
-                    content_hash=f"sha256:{sha256}",
+                    filename=filename, kind="sdist", content_hash=f"sha256:{sha256}",
                     locator=public_locator(resolved_locator),
                 )
             grouped.setdefault(version, []).append((artifact, bool(yanked)))
@@ -1099,7 +1103,10 @@ class UvAdapter:
                     artifacts=active or tuple(artifact for artifact, _ in records),
                 )
             )
-        return tuple(result)
+        return RegistryCandidates(
+            release_versions=tuple(str(version) for version in sorted(release_versions)),
+            candidates=tuple(result),
+        )
 
     @staticmethod
     def _wheel_compatible(tags: frozenset[Tag], cell: Cell) -> bool:

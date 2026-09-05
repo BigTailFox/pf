@@ -48,6 +48,29 @@ class ConfigurationError(PfError):
         self.candidates = candidates
 
 
+class SearchSpaceResolutionError(PfError):
+    category = "search-space-resolution"
+    exit_code = ExitCode.NO_APPLICABLE_FLOOR
+
+    def __init__(
+        self, *, dependency: str, cell: object, expression: str, reason: str,
+        anchors: tuple[tuple[str, str], ...], series_keys: tuple[tuple[int, ...], ...],
+        source: object,
+    ) -> None:
+        self.dependency = dependency
+        self.cell = cell
+        self.expression = expression
+        self.reason = reason
+        self.anchors = anchors
+        self.series_keys = series_keys
+        self.source = source
+        super().__init__(
+            f"cannot resolve search-space for {dependency}: {reason}",
+            detail=f"Cell: {cell}; expression: {expression}; anchors: {anchors}; "
+            f"series: {series_keys}; source: {source}",
+        )
+
+
 class ApplyAuthorizationError(ConfigurationError):
     """A report has evidence, but current apply authorization failed."""
 

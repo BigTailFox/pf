@@ -4,14 +4,16 @@ import hashlib
 import threading
 from typing import Protocol
 
-from packaging.specifiers import Specifier, SpecifierSet
+from packaging.specifiers import Specifier
 from packaging.version import Version
 
 from pf.errors import ConfigurationError, NoApplicableFloorError
+from pf.search_space import SEARCH_SPACE_PROFILE, bind_policy, evaluate
 from pf.schemas.base import canonical_identity_json
 from pf.schemas.project import (
     AvailableArtifact,
-    AvailableCandidate,
+    RegistryCandidates,
+    SeriesInventory,
     Candidate,
     CandidateSnapshot,
     Cell,
@@ -29,13 +31,20 @@ def candidate_policy_identity(
     policy: NamedSearchPolicy,
     *,
     artifact: str,
+    effective_space: str,
 ) -> str:
     """Identify only the facts that select one dependency's candidates."""
     return hashlib.sha256(
         b"pf:candidate-policy:v1\0"
         + canonical_identity_json(
             {
-                "policy": policy.model_dump(mode="json"),
+                "profile": SEARCH_SPACE_PROFILE,
+                "policy": {
+                    "name": policy.name,
+                    "space": effective_space,
+                    "step": policy.step,
+                    "prereleases": policy.prereleases,
+                },
                 "artifact": artifact,
             }
         )
@@ -49,7 +58,7 @@ class CandidateProvider(Protocol):
         dependency: str,
         source: SourceIdentity,
         cell: Cell,
-    ) -> tuple[AvailableCandidate, ...]: ...
+    ) -> RegistryCandidates: ...
 
 
 class CandidateBuilder:
@@ -60,7 +69,7 @@ class CandidateBuilder:
         self._query_lock = threading.Lock()
         self._queries: dict[
             tuple[str, SourceIdentity, tuple[str, str, str, tuple[str, ...]]],
-            tuple[AvailableCandidate, ...],
+            RegistryCandidates,
         ] = {}
 
     def build(
@@ -88,10 +97,7 @@ class CandidateBuilder:
                     f"baseline is missing managed dependency: {dependency}"
                 )
             policy = package.search_policy_for(dependency)
-            policy_identity = candidate_policy_identity(
-                policy,
-                artifact=package.config.resolution.artifact,
-            )
+            bound = bind_policy(policy, declarations=package.declarations, cell=cell)
             declarations = tuple(
                 declaration
                 for declaration in package.declarations
@@ -120,14 +126,31 @@ class CandidateBuilder:
                 for specifier in declaration.specifier.split(",")
                 if specifier and Specifier(specifier).operator in {"<", "<=", "!="}
             )
-            search_specifier = (
-                SpecifierSet(policy.space)
-                if policy.space
-                not in {"all", "current-major", "current-minor"}
+            selection = evaluate(
+                bound,
+                baseline=baseline_versions[dependency],
+                release_versions=available.release_versions,
+                dependency=dependency,
+                cell=cell,
+                source=source,
+            )
+            series_inventory = (
+                SeriesInventory(
+                    dependency=dependency,
+                    source=source,
+                    family=selection.family,
+                    series_keys=selection.series_keys,
+                )
+                if selection.family is not None
                 else None
             )
+            policy_identity = candidate_policy_identity(
+                policy,
+                artifact=package.config.resolution.artifact,
+                effective_space=selection.expression,
+            )
             eligible: list[tuple[Version, AvailableArtifact]] = []
-            for raw_candidate in available:
+            for raw_candidate in available.candidates:
                 version = Version(raw_candidate.version)
                 if raw_candidate.yanked:
                     continue
@@ -140,26 +163,7 @@ class CandidateBuilder:
                     for specifier in restrictions
                 ):
                     continue
-                if (
-                    search_specifier is not None
-                    and not search_specifier.contains(
-                        version,
-                        prereleases=policy.prereleases,
-                    )
-                ):
-                    continue
-                baseline_version = baseline_versions[dependency]
-                if (
-                    policy.space == "current-major"
-                    and self._release(version)[0]
-                    != self._release(baseline_version)[0]
-                ):
-                    continue
-                if (
-                    policy.space == "current-minor"
-                    and self._release(version)[:2]
-                    != self._release(baseline_version)[:2]
-                ):
+                if not selection.contains(version):
                     continue
                 artifact = self._artifact(
                     raw_candidate.artifacts,
@@ -170,7 +174,7 @@ class CandidateBuilder:
                     eligible.append((version, artifact))
             representatives: dict[str, tuple[Version, AvailableArtifact]] = {}
             for version, artifact in eligible:
-                key = self._series_key(version, policy.step)
+                key = candidate_series_key(version, policy.step)
                 current = representatives.get(key)
                 if current is None or version > current[0]:
                     representatives[key] = (version, artifact)
@@ -197,6 +201,8 @@ class CandidateBuilder:
                 source=source,
                 candidates=candidates,
                 series_representatives=representatives_record,
+                selection=selection,
+                series_inventory=series_inventory,
             )
             snapshots.append(
                 CandidateSnapshot(
@@ -207,6 +213,8 @@ class CandidateBuilder:
                     source=source,
                     candidates=candidates,
                     series_representatives=representatives_record,
+                    selection=selection,
+                    series_inventory=series_inventory,
                     digest=digest,
                 )
             )
@@ -241,18 +249,14 @@ class CandidateBuilder:
             return wheels[0]
         return sdists[0] if sdists else None
 
-    @staticmethod
-    def _release(version: Version) -> tuple[int, int, int]:
-        release = (*version.release, 0, 0, 0)
-        return release[0], release[1], release[2]
 
-    @classmethod
-    def _series_key(cls, version: Version, granularity: str) -> str:
-        major, minor, patch = cls._release(version)
-        if granularity == "major":
-            release = f"{major}"
-        elif granularity == "minor":
-            release = f"{major}.{minor}"
-        else:
-            release = f"{major}.{minor}.{patch}"
-        return f"{version.epoch}!{release}" if version.epoch else release
+def candidate_series_key(version: Version, granularity: str) -> str:
+    release_parts = (*version.release, 0, 0, 0)
+    major, minor, patch = release_parts[:3]
+    if granularity == "major":
+        release = f"{major}"
+    elif granularity == "minor":
+        release = f"{major}.{minor}"
+    else:
+        release = f"{major}.{minor}.{patch}"
+    return f"{version.epoch}!{release}" if version.epoch else release

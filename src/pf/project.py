@@ -910,6 +910,7 @@ class ProjectLoader:
                 NamedSearchPolicy(
                     name=name,
                     space=source.space,
+                    space_defaults=source.space_defaults,
                     step=source.step,
                     prereleases=source.prereleases,
                 )

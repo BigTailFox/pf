@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.search_space import SpaceSelection
+
 from typing import Any, Literal
 
 import pytest
@@ -293,6 +295,7 @@ def _cell_success() -> CellSuccess:
     )
     representatives = (("1", "1"),)
     candidate_snapshot = CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency="demo",
         cell=baseline.proposal.cell,
         policy_identity="candidate-policy",
@@ -301,6 +304,7 @@ def _cell_success() -> CellSuccess:
         candidates=candidates,
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency="demo",
             cell=baseline.proposal.cell,
             policy_identity="candidate-policy",
@@ -551,10 +555,12 @@ class TestPlanningSchemas:
         }
 
         with pytest.raises(ValidationError):
-            CandidateSnapshot(candidates=(), **base)
+            CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,candidates=(), **base)
         duplicate = Candidate(version="1.0", series_key="1", artifact=artifact)
         with pytest.raises(ValidationError):
-            CandidateSnapshot(candidates=(duplicate, duplicate), **base)
+            CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,candidates=(duplicate, duplicate), **base)
 
     def test_candidate_snapshot_rejects_a_tampered_artifact(self) -> None:
         cell = Cell(
@@ -577,6 +583,7 @@ class TestPlanningSchemas:
         )
         representatives = (("1", "1.0"),)
         snapshot = CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency="demo",
             cell=cell,
             policy_identity="policy",
@@ -585,6 +592,7 @@ class TestPlanningSchemas:
             candidates=candidates,
             series_representatives=representatives,
             digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
                 dependency="demo",
                 cell=cell,
                 policy_identity="policy",

@@ -14,10 +14,13 @@ from packaging.version import Version
 
 from pydantic import ValidationError
 
-from pf.errors import ConfigurationError
+from pf.errors import ConfigurationError, SearchSpaceResolutionError
+from pf.candidates import candidate_policy_identity, candidate_series_key
+from pf.search_space import bind_policy, evaluate_series, SeriesSpace, SpaceSelection
+from packaging.specifiers import SpecifierSet
 from pf import __version__
 from pf.policy import evaluation_policy_identity
-from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import EffectiveConfig, ResolutionConfig
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
@@ -53,6 +56,7 @@ from pf.schemas.project import (
     AvailableArtifact,
     CandidateSnapshot,
     Cell,
+    SearchPolicyInputs,
     NamedSearchPolicy,
     PackagePlan,
     Proposal,
@@ -130,6 +134,7 @@ from pf.schemas.report import (
     StaticRegressionEvaluationV1,
     VerifierRejectedEvaluationV1,
     CandidateSnapshotV1,
+    SeriesInventoryV1,
     failure_records_for_result,
     report_generation_id,
     static_region_id,
@@ -243,10 +248,20 @@ class FailureContext:
 
 
 @dataclass(frozen=True)
+class SearchSpaceProjection:
+    cell: Cell
+    dependency: str
+    policy: NamedSearchPolicy
+    selection: SpaceSelection | None
+    representatives: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ValidatedReport:
     """Immutable resolved facade for one fully validated Schema 1 report."""
 
     report_generation_id: str
+    search_policy: SearchPolicyInputs
     generator: GeneratorIdentity
     package: PackageIdentity
     source_snapshot: SourceSnapshotIdentity
@@ -260,6 +275,28 @@ class ValidatedReport:
     result: CompleteReportResult | IncompleteReportResult
     failure_records: tuple[FailureRecord, ...]
     _wire: PackageFloorReportV1Wire = field(repr=False, compare=False)
+    _named_policies: tuple[NamedSearchPolicy, ...] = field(repr=False)
+
+    def search_spaces(self) -> tuple[SearchSpaceProjection, ...]:
+        policies = {item.name: item for item in self._named_policies}
+        snapshots = {
+            (cell_identity(result.cell), snapshot.dependency): snapshot
+            for result in self.cell_results
+            if isinstance(result, (CellSuccess, CellIndeterminate, CellSearchFailure))
+            for snapshot in result.candidate_snapshots
+        }
+        projections = []
+        for cell in self.target_cells:
+            names = sorted({d.name for d in self.requirement_declarations
+                            if d.managed and d.declaration_id in cell.active_declaration_ids})
+            for name in names:
+                snapshot = snapshots.get((cell_identity(cell), name))
+                projections.append(SearchSpaceProjection(
+                    cell=cell, dependency=name, policy=policies[name],
+                    selection=snapshot.selection if snapshot else None,
+                    representatives=tuple(c.version for c in snapshot.candidates) if snapshot else (),
+                ))
+        return tuple(projections)
 
     def cell_result(self, reference: str) -> CellResult | None:
         return next(
@@ -417,6 +454,7 @@ class PackageReportBuilder:
         policy_identity = _policy_identity or self._policy_identity(
             package, cell_results
         )
+        search_policy = SearchPolicyInputs.from_package(package)
         declarations = tuple(
             sorted(package.declarations, key=lambda item: item.declaration_id)
         )
@@ -430,6 +468,7 @@ class PackageReportBuilder:
             source_plan=source_plan,
             requirement_declarations=declarations,
             target_cells=target_cells,
+            search_policy=search_policy,
         )
         ordered_results = tuple(result_by_cell[key] for key in sorted(result_by_cell))
         ordered_snapshots = tuple(
@@ -857,6 +896,14 @@ class PackageReportBuilder:
                 verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
             ),
             inputs=ReportInputsV1(
+                search_policy=search_policy,
+                series_inventories=tuple(
+                    SeriesInventoryV1(series_inventory_id=key, **inventory.model_dump())
+                    for key, inventory in sorted({
+                        snapshot.series_inventory.inventory_id: snapshot.series_inventory
+                        for snapshot in ordered_snapshots if snapshot.series_inventory is not None
+                    }.items())
+                ),
                 source_plan=source_plan,
                 requirement_declarations=declarations,
                 target_cells=tuple(
@@ -880,6 +927,7 @@ class PackageReportBuilder:
                         source=snapshot.source,
                         candidates=snapshot.candidates,
                         series_representatives=snapshot.series_representatives,
+                        series_inventory_ref=(snapshot.series_inventory.inventory_id if snapshot.series_inventory else None),
                     )
                     for snapshot in ordered_snapshots
                 ),
@@ -1835,6 +1883,7 @@ class ReportStore:
         ("package", "package"),
         ("source_snapshot", "source snapshot"),
         ("policy_identity", "policy"),
+        ("search_policy", "search policy"),
         ("source_plan", "source plan"),
         ("requirement_declarations", "declarations"),
         ("target_cells", "target cell coverage"),
@@ -1900,13 +1949,18 @@ class ReportStore:
 
     @classmethod
     def _validate_v1(cls, document: dict[str, object]) -> ValidatedReport:
-        def contains_null(value: object) -> bool:
+        required_nullable = {
+            ("inputs", "search_policy", "bindings", "*", "requested_space"),
+            ("inputs", "candidate_snapshots", "*", "series_inventory_ref"),
+        }
+
+        def contains_null(value: object, path: tuple[str, ...] = ()) -> bool:
             if value is None:
-                return True
+                return path not in required_nullable
             if isinstance(value, dict):
-                return any(contains_null(item) for item in value.values())
+                return any(contains_null(item, (*path, key)) for key, item in value.items())
             if isinstance(value, list):
-                return any(contains_null(item) for item in value)
+                return any(contains_null(item, (*path, "*")) for item in value)
             return False
 
         if contains_null(document):
@@ -2038,66 +2092,11 @@ class ReportStore:
             raise ConfigurationError(
                 "invalid v1 report: CandidateSnapshots must be sorted and unique"
             )
-        candidate_by_id: dict[str, CandidateSnapshot] = {}
-        candidate_key_ids: set[str] = set()
         report_source_plan_identity = source_plan.identity
-        for record in wire.inputs.candidate_snapshots:
-            cell = cell_by_id.get(record.cell_ref)
-            if cell is None:
-                raise ConfigurationError(
-                    "invalid v1 report: unknown Cell ref in CandidateSnapshot "
-                    f"{_safe_report_id(record.candidate_snapshot_id)}"
-                )
-            if not _is_public_source(record.source) or any(
-                not _is_public_artifact(candidate.artifact)
-                for candidate in record.candidates
-            ):
-                raise ConfigurationError(
-                    "invalid v1 report: CandidateSnapshot has a non-public locator"
-                )
-            try:
-                snapshot = CandidateSnapshot(
-                    dependency=record.dependency,
-                    cell=cell,
-                    policy_identity=record.policy_identity,
-                    source_plan_identity=record.source_plan_identity,
-                    source=record.source,
-                    candidates=record.candidates,
-                    series_representatives=record.series_representatives,
-                    digest=record.candidate_snapshot_id,
-                )
-            except ValidationError as error:
-                raise ConfigurationError(
-                    "invalid v1 report: CandidateSnapshot identity mismatch: "
-                    f"{_safe_report_id(record.candidate_snapshot_id)}"
-                ) from error
-            if snapshot.source_plan_identity != report_source_plan_identity:
-                raise ConfigurationError(
-                    "invalid v1 report: CandidateSnapshot source plan mismatch: "
-                    f"{_safe_report_id(record.candidate_snapshot_id)}"
-                )
-            try:
-                expected_source = source_plan.source_for(snapshot.dependency)
-            except ValueError as error:
-                raise ConfigurationError(
-                    "invalid v1 report: CandidateSnapshot search source mismatch: "
-                    f"{_safe_report_id(record.candidate_snapshot_id)}"
-                ) from error
-            if expected_source.kind != "registry" or snapshot.source != expected_source:
-                raise ConfigurationError(
-                    "invalid v1 report: CandidateSnapshot search source mismatch: "
-                    f"{_safe_report_id(record.candidate_snapshot_id)}"
-                )
-            if record.candidate_snapshot_id in candidate_key_ids:
-                raise ConfigurationError(
-                    "invalid v1 report: duplicate CandidateSnapshot ID: "
-                    f"{_safe_report_id(record.candidate_snapshot_id)}"
-                )
-            candidate_by_id[record.candidate_snapshot_id] = snapshot
-            candidate_key_ids.add(record.candidate_snapshot_id)
-        candidate_by_cell_dependency = {
-            (cell_identity(snapshot.cell), snapshot.dependency): snapshot
-            for snapshot in candidate_by_id.values()
+        candidate_artifacts = {
+            (record.cell_ref, record.dependency, candidate.version): candidate.artifact
+            for record in wire.inputs.candidate_snapshots
+            for candidate in record.candidates
         }
         graph_ids = tuple(
             item.resolution_graph_id for item in wire.evidence.resolution_graphs
@@ -2171,13 +2170,7 @@ class ReportStore:
                         SelectedCandidate(
                             dependency=pin.name,
                             version=pin.version,
-                            artifact=next(
-                                candidate.artifact
-                                for candidate in candidate_by_cell_dependency[
-                                    (cell_identity(cell), pin.name)
-                                ].candidates
-                                if candidate.version == pin.version
-                            ),
+                            artifact=candidate_artifacts[(cell_id(cell), pin.name, pin.version)],
                         )
                         for pin in attempt.identity.requested_managed_vector
                     )
@@ -2614,6 +2607,202 @@ class ReportStore:
                     "invalid v1 report: Evaluation mismatch: "
                     f"{_safe_report_id(record.proposal_ref)}"
                 ) from error
+        search_policy = wire.inputs.search_policy
+        policies = {policy.name: policy for policy in search_policy.named_policies}
+        expected_names = {
+            d.name for d in declarations if d.managed and d.kind == "searchable"
+        }
+        if set(policies) != expected_names:
+            raise ConfigurationError(
+                "invalid v1 report: search policy coverage mismatch"
+            )
+        inventory_ids = tuple(
+            record.series_inventory_id for record in wire.inputs.series_inventories
+        )
+        if inventory_ids != tuple(sorted(set(inventory_ids))):
+            raise ConfigurationError(
+                "invalid v1 report: series inventories must be sorted and unique"
+            )
+        inventories = {
+            record.series_inventory_id: record.expand()
+            for record in wire.inputs.series_inventories
+        }
+        if any(
+            not _is_public_source(inventory.source)
+            for inventory in inventories.values()
+        ):
+            raise ConfigurationError(
+                "invalid v1 report: series inventory has a non-public source"
+            )
+        baseline_refs = {
+            record.cell_ref: record.baseline
+            for record in wire.cell_results
+            if isinstance(
+                record, (CellSuccessV1, CellSearchFailureV1, CellIndeterminateV1)
+            )
+            and record.baseline is not None
+        }
+        candidate_by_id: dict[str, CandidateSnapshot] = {}
+        candidate_key_ids: set[str] = set()
+        for record in wire.inputs.candidate_snapshots:
+            cell = cell_by_id.get(record.cell_ref)
+            if cell is None:
+                raise ConfigurationError(
+                    "invalid v1 report: unknown Cell ref in CandidateSnapshot "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                )
+            if not _is_public_source(record.source) or any(
+                not _is_public_artifact(candidate.artifact)
+                for candidate in record.candidates
+            ):
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot has a non-public locator"
+                )
+            try:
+                policy = policies.get(record.dependency)
+                if policy is None:
+                    raise ValueError("candidate has no requested search policy")
+                baseline_ref = baseline_refs.get(record.cell_ref)
+                baseline = (
+                    evaluation_by_proposal.get(baseline_ref.proposal_ref)
+                    if baseline_ref
+                    else None
+                )
+                if (
+                    not isinstance(baseline, PassEvaluation)
+                    or baseline.proposal.cell != cell
+                ):
+                    raise ValueError("candidate requires its Cell's full PASS baseline")
+                baseline_version = next(
+                    pin.version
+                    for pin in baseline.proposal.managed_vector
+                    if pin.name == record.dependency
+                )
+                bound = bind_policy(policy, declarations=declarations, cell=cell)
+                inventory = (
+                    inventories.get(record.series_inventory_ref)
+                    if record.series_inventory_ref
+                    else None
+                )
+                if isinstance(bound.space, SeriesSpace):
+                    if (
+                        inventory is None
+                        or inventory.dependency != record.dependency
+                        or inventory.source != record.source
+                        or inventory.family != bound.space.family
+                    ):
+                        raise ValueError(
+                            "candidate series inventory reference mismatch"
+                        )
+                elif record.series_inventory_ref is not None:
+                    raise ValueError(
+                        "anchor-free space cannot reference a series inventory"
+                    )
+                selection = evaluate_series(
+                    bound,
+                    baseline=Version(baseline_version),
+                    series_keys=inventory.series_keys if inventory else (),
+                    dependency=record.dependency,
+                    cell=cell,
+                    source=record.source,
+                )
+                if (
+                    inventory is not None
+                    and selection.series_keys != inventory.series_keys
+                ):
+                    raise ValueError("candidate series scope mismatch")
+                expected_policy = candidate_policy_identity(
+                    policy,
+                    artifact=search_policy.artifact,
+                    effective_space=selection.expression,
+                )
+                if record.policy_identity != expected_policy:
+                    raise ValueError("candidate policy identity mismatch")
+                active = set(cell.active_declaration_ids)
+                restrictions = tuple(
+                    clause
+                    for declaration in declarations
+                    if declaration.managed
+                    and declaration.name == record.dependency
+                    and declaration.declaration_id in active
+                    for clause in SpecifierSet(declaration.specifier)
+                    if clause.operator in {"<", "<=", "!="}
+                )
+                for candidate in record.candidates:
+                    version = Version(candidate.version)
+                    if (
+                        not selection.contains(version)
+                        or version > Version(baseline_version)
+                        or (version.is_prerelease and not policy.prereleases)
+                        or candidate.prerelease != version.is_prerelease
+                        or any(
+                            not clause.contains(version, prereleases=True)
+                            for clause in restrictions
+                        )
+                        or candidate.series_key
+                        != candidate_series_key(version, policy.step)
+                        or candidate.artifact.kind not in {"wheel", "sdist"}
+                        or (
+                            search_policy.artifact != "any"
+                            and candidate.artifact.kind != search_policy.artifact
+                        )
+                    ):
+                        raise ValueError("candidate does not satisfy search policy")
+                    if candidate.artifact.kind == "wheel" and (
+                        cell.python_minor not in candidate.artifact.python_minors
+                        or cell.target not in candidate.artifact.targets
+                    ):
+                        raise ValueError(
+                            "candidate wheel is incompatible with its Cell"
+                        )
+                snapshot = CandidateSnapshot(
+                    dependency=record.dependency,
+                    cell=cell,
+                    policy_identity=record.policy_identity,
+                    source_plan_identity=record.source_plan_identity,
+                    source=record.source,
+                    candidates=record.candidates,
+                    series_representatives=record.series_representatives,
+                    selection=selection,
+                    series_inventory=inventory,
+                    digest=record.candidate_snapshot_id,
+                )
+            except (
+                ValueError,
+                StopIteration,
+                ConfigurationError,
+                SearchSpaceResolutionError,
+            ) as error:
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot policy/selection/identity mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                ) from error
+            if snapshot.source_plan_identity != report_source_plan_identity:
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot source plan mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                )
+            try:
+                expected_source = source_plan.source_for(snapshot.dependency)
+            except ValueError as error:
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot search source mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                ) from error
+            if expected_source.kind != "registry" or snapshot.source != expected_source:
+                raise ConfigurationError(
+                    "invalid v1 report: CandidateSnapshot search source mismatch: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                )
+            if record.candidate_snapshot_id in candidate_key_ids:
+                raise ConfigurationError(
+                    "invalid v1 report: duplicate CandidateSnapshot ID: "
+                    f"{_safe_report_id(record.candidate_snapshot_id)}"
+                )
+            candidate_by_id[record.candidate_snapshot_id] = snapshot
+            candidate_key_ids.add(record.candidate_snapshot_id)
+        if {record.series_inventory_ref for record in wire.inputs.candidate_snapshots if record.series_inventory_ref is not None} != set(inventories):
+            raise ConfigurationError("invalid v1 report: unreachable series inventory")
         resolved_results: list[CellResult] = []
         referenced_failure_ids: list[str] = []
         referenced_attempt_ids: set[str] = set()
@@ -3408,6 +3597,7 @@ class ReportStore:
             source_plan=source_plan,
             requirement_declarations=declarations,
             target_cells=target_cells,
+            search_policy=search_policy,
         )
         if wire.identity.report_generation_id != expected_generation:
             raise ConfigurationError(
@@ -3445,6 +3635,8 @@ class ReportStore:
                 "invalid v1 report: result does not match target Cell coverage"
             )
         return ValidatedReport(
+            _named_policies=tuple(policies[name] for name in sorted(policies)),
+            search_policy=search_policy,
             report_generation_id=wire.identity.report_generation_id,
             generator=wire.identity.generator,
             package=wire.identity.package,
@@ -3573,25 +3765,11 @@ class ReportStore:
             name=generation.package.name,
             pyproject_path=generation.package.pyproject_path,
             requires_python=generation.package.requires_python,
-            config=EffectiveConfig(),
+            config=EffectiveConfig(resolution=ResolutionConfig(artifact=generation.search_policy.artifact)),
             declarations=generation.requirement_declarations,
             cells=generation.target_cells,
             source_routes=generation.source_plan.routes,
-            dependency_search_policies=tuple(
-                NamedSearchPolicy(
-                    name=name,
-                    space="all",
-                    step="minor",
-                    prereleases=False,
-                )
-                for name in sorted(
-                    {
-                        declaration.name
-                        for declaration in generation.requirement_declarations
-                        if declaration.managed and declaration.kind == "searchable"
-                    }
-                )
-            ),
+            dependency_search_policies=generation.search_policy.named_policies,
         )
         rebuilt = PackageReportBuilder().build(
             package=package,

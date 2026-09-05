@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from candidate_fixtures import frozen_candidate_snapshot
+
 import json
 from pathlib import Path
 from typing import Literal
@@ -36,7 +38,6 @@ from pf.schemas.project import (
     SelectedCandidate,
     SourcePlan,
     VersionPin,
-    candidate_snapshot_digest,
     cell_id,
     selected_candidate_evidence_digest,
 )
@@ -68,11 +69,6 @@ def candidate_snapshot(
     vector: tuple[VersionPin, ...],
 ) -> tuple[CandidateSnapshot, ...]:
     pin = vector[0]
-    source = next(
-        route.search_source
-        for route in package.source_routes
-        if route.dependency == pin.name
-    )
     candidates = (
         Candidate(
             version=pin.version,
@@ -80,33 +76,13 @@ def candidate_snapshot(
             artifact=AvailableArtifact(
                 filename=f"{pin.name}-{pin.version}.whl",
                 kind="wheel",
+                python_minors=(cell.python_minor,), targets=(cell.target,),
                 content_hash=f"sha256:{'a' * 64}",
                 locator=f"https://files.example/{pin.name}-{pin.version}.whl",
             ),
         ),
     )
-    representatives = ((pin.version, pin.version),)
-    plan_identity = SourcePlan.for_package(package, "SEARCH").identity
-    return (
-        CandidateSnapshot(
-            dependency=pin.name,
-            cell=cell,
-            policy_identity="policy",
-            source_plan_identity=plan_identity,
-            source=source,
-            candidates=candidates,
-            series_representatives=representatives,
-            digest=candidate_snapshot_digest(
-                dependency=pin.name,
-                cell=cell,
-                policy_identity="policy",
-                source_plan_identity=plan_identity,
-                source=source,
-                candidates=candidates,
-                series_representatives=representatives,
-            ),
-        ),
-    )
+    return (frozen_candidate_snapshot(package, cell, candidates),)
 
 
 def report_attempt(
@@ -144,6 +120,7 @@ def report_attempt(
                             artifact=AvailableArtifact(
                                 filename=f"{pin.name}-{pin.version}.whl",
                                 kind="wheel",
+                python_minors=(cell.python_minor,), targets=(cell.target,),
                                 content_hash=f"sha256:{'a' * 64}",
                                 locator=(
                                     f"https://files.example/"
@@ -658,6 +635,7 @@ class TestReportProjection:
             }
         )
         incomplete_coverage["identity"]["report_generation_id"] = report_generation_id(
+            search_policy=report.search_policy,
             generator=report.generator,
             verifier_outcome_policy=report.verifier_outcome_policy,
             package=report.package,

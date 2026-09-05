@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from threading import Barrier, Lock
 
+import pytest
+
 import pf.scheduling as scheduling
 from pf.scheduling import ScheduledCellTask, Scheduler, cell_schedule_key
 from pf.schemas.project import Cell
@@ -18,6 +20,54 @@ def make_cell(python_minor: str) -> Cell:
 
 
 class TestScheduler:
+    @pytest.mark.parametrize("callback_error", [False, True])
+    def test_error_stops_pending_dispatch(self, callback_error: bool) -> None:
+        started = []
+        completed = []
+        error = RuntimeError("cell space cannot be evaluated")
+
+        def run():
+            if not callback_error:
+                raise error
+            return "done"
+
+        def finish(task, result, count, total):
+            completed.append(result)
+            raise error
+
+        with pytest.raises(RuntimeError) as caught:
+            Scheduler().run(
+                tuple(ScheduledCellTask(cell=make_cell(minor), run=run) for minor in ("3.10", "3.11", "3.12")),
+                jobs=1, max_duration_seconds=None,
+                on_started=lambda task: started.append(task.cell.python_minor), on_completed=finish,
+            )
+        assert caught.value is error
+        assert started == ["3.10"]
+        assert completed == (["done"] if callback_error else [])
+
+    def test_error_drains_every_started_task_without_dispatching_pending(self) -> None:
+        pair = Barrier(2)
+        cleaned = []
+        started = []
+
+        def run(minor):
+            def operation():
+                try:
+                    pair.wait(timeout=5)
+                    raise RuntimeError(minor)
+                finally:
+                    cleaned.append(minor)
+            return operation
+
+        with pytest.raises(RuntimeError):
+            Scheduler().run(
+                tuple(ScheduledCellTask(cell=make_cell(minor), run=run(minor)) for minor in ("3.10", "3.11", "3.12")),
+                jobs=2, max_duration_seconds=None,
+                on_started=lambda task: started.append(task.cell.python_minor), on_completed=lambda *_: None,
+            )
+        assert started == ["3.10", "3.11"]
+        assert sorted(cleaned) == ["3.10", "3.11"]
+
     def test_scheduler_finishes_started_callback_before_operation(self) -> None:
         cell = make_cell("3.10")
         timeline: list[str] = []

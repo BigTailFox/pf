@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pf.search_space import SpaceSelection
+from pf.candidates import candidate_policy_identity
+
 import copy
 from dataclasses import replace
 import hashlib
@@ -308,6 +311,7 @@ class TestPackageReportBuilder:
             "package": report.package.model_dump(mode="json"),
             "source_snapshot": report.source_snapshot.model_dump(mode="json"),
             "policy_identity": report.policy_identity,
+            "search_policy": report.search_policy.model_dump(mode="json"),
             "verifier_outcome_policy": report.verifier_outcome_policy,
             "source_plan": SourcePlan.for_package(package, "SEARCH").model_dump(
                 mode="json"
@@ -765,8 +769,9 @@ class _CompleteReportCase:
             pyproject_identities=(),
         )
         policy = evaluation_policy_identity(package.config)
-        candidate_policy = "candidate-policy-v1"
+        candidate_policy = candidate_policy_identity(package.search_policy_for(dependency), artifact="any", effective_space="all")
         artifact = AvailableArtifact(
+            python_minors=(cell.python_minor,), targets=(cell.target,),
             filename="demo_dep-1.0-py3-none-any.whl",
             kind="wheel",
             content_hash=f"sha256:{'a' * 64}",
@@ -781,6 +786,7 @@ class _CompleteReportCase:
         )
         plan_identity = SourcePlan.for_package(package, "SEARCH").identity
         candidate_snapshot = CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=dependency,
             cell=cell,
             policy_identity=candidate_policy,
@@ -789,6 +795,7 @@ class _CompleteReportCase:
             candidates=candidates,
             series_representatives=(("1.0", "1.0"),),
             digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
                 dependency=dependency,
                 cell=cell,
                 policy_identity=candidate_policy,
@@ -977,6 +984,7 @@ class _CompleteReportCase:
         expanded_candidates = (predecessor, *candidates)
         expanded_representatives = (("0.9", "0.9"), ("1.0", "1.0"))
         expanded_snapshot = CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=dependency,
             cell=cell,
             policy_identity=candidate_policy,
@@ -985,6 +993,7 @@ class _CompleteReportCase:
             candidates=expanded_candidates,
             series_representatives=expanded_representatives,
             digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
                 dependency=dependency,
                 cell=cell,
                 policy_identity=candidate_policy,
@@ -1316,9 +1325,10 @@ class _CompleteReportCase:
         )
         region_candidates = (cheap_candidate, *expanded_candidates)
         region_snapshot = CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=dependency,
             cell=cell,
-            policy_identity=policy,
+            policy_identity=candidate_policy,
             source_plan_identity=plan_identity,
             source=source,
             candidates=region_candidates,
@@ -1328,9 +1338,10 @@ class _CompleteReportCase:
                 ("1.0", "1.0"),
             ),
             digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
                 dependency=dependency,
                 cell=cell,
-                policy_identity=policy,
+                policy_identity=candidate_policy,
                 source_plan_identity=plan_identity,
                 source=source,
                 candidates=region_candidates,
@@ -1636,6 +1647,7 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                     case.candidates[0].model_dump(mode="json", exclude_none=True)
                 ],
                 "series_representatives": [["1.0", "1.0"]],
+                "series_inventory_ref": None,
             }
         ]
         assert case.document["projections"] == [
@@ -2599,6 +2611,7 @@ class TestCompleteReportStore(_CompleteReportCase):
             f"sha256:{'b' * 64}"
         )
         new_snapshot_id = candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=snapshot["dependency"],
             cell=case.cell,
             policy_identity=snapshot["policy_identity"],
@@ -2633,6 +2646,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         snapshot["candidates"].reverse()
         snapshot["series_representatives"].reverse()
         snapshot["candidate_snapshot_id"] = candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=snapshot["dependency"],
             cell=case.cell,
             policy_identity=snapshot["policy_identity"],

@@ -5,12 +5,12 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import InvalidName, canonicalize_name
 from pydantic import ValidationError
 
 from pf.errors import ConfigurationError
 from pf.project_discovery import PyprojectObservation
+from pf.search_space import defaults, parse
 from pf.schemas.config import (
     AllSearchableDependencies,
     DependencySearchPolicy,
@@ -23,6 +23,7 @@ from pf.schemas.config import (
     SchedulingConfig,
     SearchConfig,
     SearchPolicy,
+    SpaceDefaults,
     TargetConfig,
     TestConfig,
     TyConfig,
@@ -40,6 +41,7 @@ _FIELDS = frozenset(
         "extra-surfaces",
         "max-cells",
         "search-space",
+        "search-space-defaults",
         "search-step",
         "search-prereleases",
         "resolve-artifact",
@@ -56,9 +58,8 @@ _FIELDS = frozenset(
     }
 )
 _DEP_FIELDS = frozenset(
-    {"name", "search-space", "search-step", "search-prereleases"}
+    {"name", "search-space", "search-space-defaults", "search-step", "search-prereleases"}
 )
-_GLOBAL_SPACES = frozenset({"all", "current-major", "current-minor"})
 _SEARCH_STEPS = frozenset({"major", "minor", "patch"})
 
 
@@ -143,11 +144,11 @@ class ConfigLoader:
                 merged.pop("unmanaged-deps", None)
             merged.update(layer)
 
-        default_space = merged.get("search-space", "all")
+        default_space = merged.get("search-space")
         default_step = merged.get("search-step", "minor")
-        self._validate_search_combination(default_space, default_step)
         default_policy = SearchPolicy(
             space=default_space,
+            space_defaults=merged.get("search-space-defaults", SpaceDefaults()),
             step=default_step,
             prereleases=merged.get("search-prereleases", False),
         )
@@ -160,11 +161,11 @@ class ConfigLoader:
                 else default_policy.space
             )
             step = raw.get("search-step", default_policy.step)
-            self._validate_search_combination(space, step)
             overrides.append(
                 DependencySearchPolicy(
                     name=self._canonical_name(raw["name"], field="dep name"),
                     space=space,
+                    space_defaults=raw.get("search-space-defaults", default_policy.space_defaults),
                     step=step,
                     prereleases=raw.get(
                         "search-prereleases",
@@ -287,11 +288,9 @@ class ConfigLoader:
         if "extra-surfaces" in layer:
             self._validate_extra_surfaces(layer["extra-surfaces"])
         if "search-space" in layer:
-            self._literal(
-                layer["search-space"],
-                field="search-space",
-                allowed=_GLOBAL_SPACES,
-            )
+            normalized["search-space"] = parse(layer["search-space"]).canonical
+        if "search-space-defaults" in layer:
+            normalized["search-space-defaults"] = self._space_defaults(layer["search-space-defaults"])
         if "search-step" in layer:
             self._literal(
                 layer["search-step"],
@@ -366,6 +365,8 @@ class ConfigLoader:
             entry["name"] = name
             if "search-space" in raw:
                 entry["search-space"] = cls._dependency_space(raw["search-space"])
+            if "search-space-defaults" in raw:
+                entry["search-space-defaults"] = cls._space_defaults(raw["search-space-defaults"])
             if "search-step" in raw:
                 cls._literal(
                     raw["search-step"],
@@ -469,26 +470,17 @@ class ConfigLoader:
 
     @staticmethod
     def _dependency_space(value: Any) -> str:
-        if not isinstance(value, str) or not value:
-            raise ConfigurationError(f"invalid dep search-space: {value}")
-        if value in _GLOBAL_SPACES:
-            return value
         try:
-            parsed = SpecifierSet(value)
-        except InvalidSpecifier as error:
+            return parse(value, allow_specifier=True).canonical
+        except ConfigurationError as error:
             raise ConfigurationError(f"invalid dep search-space: {value}") from error
-        normalized = str(parsed)
-        if not normalized:
-            raise ConfigurationError(f"invalid dep search-space: {value}")
-        return normalized
 
     @staticmethod
-    def _validate_search_combination(space: str, step: str) -> None:
-        if space == "current-major" and step == "major":
-            raise ConfigurationError(
-                "current-major search-space requires minor or patch step"
-            )
-        if space == "current-minor" and step != "patch":
-            raise ConfigurationError(
-                "current-minor search-space requires patch step"
-            )
+    def _space_defaults(value: Any) -> SpaceDefaults:
+        if not isinstance(value, Mapping) or set(value) != {"with-lower-bound", "without-lower-bound"}:
+            raise ConfigurationError("search-space-defaults requires exactly with-lower-bound and without-lower-bound")
+        parsed = defaults(value["with-lower-bound"], value["without-lower-bound"])
+        return SpaceDefaults(
+            with_lower_bound=parsed.with_lower_bound.canonical,
+            without_lower_bound=parsed.without_lower_bound.canonical,
+        )

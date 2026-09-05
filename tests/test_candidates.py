@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from candidate_fixtures import registry_candidates
+from pf.schemas.project import RegistryCandidates
+
 from pathlib import Path
 
 import pytest
@@ -20,7 +23,7 @@ from pf.schemas.project import (
 
 
 class CandidateIndex:
-    def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
+    def query(self, **kwargs: object) -> RegistryCandidates:
         wheel = lambda filename: AvailableArtifact(
             filename=filename,
             kind="wheel",
@@ -33,7 +36,7 @@ class CandidateIndex:
             kind="sdist",
             content_hash=f"sha256:{filename}",
         )
-        return (
+        return registry_candidates((
             AvailableCandidate(version="0.9.9", artifacts=(wheel("dep-0.9.9.whl"),)),
             AvailableCandidate(
                 version="1.0.0",
@@ -47,7 +50,7 @@ class CandidateIndex:
             AvailableCandidate(version="1.1.0", artifacts=(sdist("dep-1.1.0.tar.gz"),)),
             AvailableCandidate(version="1.1.1", artifacts=(wheel("dep-1.1.1.whl"),)),
             AvailableCandidate(version="2.0.0", artifacts=(wheel("dep-2.0.0.whl"),)),
-        )
+        ))
 
 
 def configured_package(tmp_path: Path, policy: str) -> PackagePlan:
@@ -72,6 +75,34 @@ test-command = ["pytest"]
 
 
 class TestCandidateBuilder:
+    @pytest.mark.parametrize("step", ["major", "minor", "patch"])
+    def test_filtered_series_still_occupy_offset_positions(self, tmp_path: Path, step: str) -> None:
+        class Index:
+            def query(self, **kwargs):
+                def candidate(version, *, yanked=False):
+                    return AvailableCandidate(version=version, yanked=yanked, artifacts=(AvailableArtifact(
+                        filename=f"dep-{version}.tar.gz", kind="sdist", content_hash=f"sha256:{version}"),))
+                return RegistryCandidates(
+                    release_versions=("1", "3", "5rc1", "7", "9", "9.1", "9.2"),
+                    candidates=(candidate("1"), candidate("3", yanked=True), candidate("5rc1"),
+                                candidate("9"), candidate("9.1"), candidate("9.2", yanked=True)),
+                )
+        package = configured_package(tmp_path, f'search-space = "majors[baseline-3:]"\nsearch-step = "{step}"')
+        result = CandidateBuilder(Index()).build(package=package, cell=package.cells[0],
+            baseline=(VersionPin(name="demo-dep", version="9.2"),), source_plan=SourcePlan.for_package(package, "SEARCH"))[0]
+        assert result.selection.selected_keys == ((0, 3), (0, 5), (0, 7), (0, 9))
+        assert [c.version for c in result.candidates] == (["9.1"] if step == "major" else ["9", "9.1"])
+
+    def test_used_anchor_version_changes_snapshot_even_with_identical_representatives(self, tmp_path: Path) -> None:
+        package = configured_package(tmp_path, 'search-space = "majors[baseline]"')
+        builder = CandidateBuilder(CandidateIndex())
+        snapshots = [builder.build(package=package, cell=package.cells[0],
+            baseline=(VersionPin(name="demo-dep", version=version),), source_plan=SourcePlan.for_package(package, "SEARCH"))[0]
+            for version in ("1.1.1", "1.1.2")]
+        assert snapshots[0].candidates == snapshots[1].candidates
+        assert snapshots[0].policy_identity == snapshots[1].policy_identity
+        assert snapshots[0].digest != snapshots[1].digest
+
     def test_candidate_builder_queries_only_active_managed_project_dependencies(
         self,
         tmp_path: Path,
@@ -80,11 +111,11 @@ class TestCandidateBuilder:
             def __init__(self) -> None:
                 self.queries: list[str] = []
 
-            def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
+            def query(self, **kwargs: object) -> RegistryCandidates:
                 dependency = kwargs["dependency"]
                 assert isinstance(dependency, str)
                 self.queries.append(dependency)
-                return (
+                return registry_candidates((
                     AvailableCandidate(
                         version="3.10",
                         artifacts=(
@@ -97,7 +128,7 @@ class TestCandidateBuilder:
                             ),
                         ),
                     ),
-                )
+                ))
 
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -186,8 +217,8 @@ test-command = ["pytest"]
         tmp_path: Path,
     ) -> None:
         class EmptyIndex:
-            def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
-                return ()
+            def query(self, **kwargs: object) -> RegistryCandidates:
+                return registry_candidates(())
 
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -197,6 +228,7 @@ test-command = ["pytest"]
     dependencies = ["demo-dep"]
 
     [tool.pf]
+    search-space = "all"
     pythons = ["3.10"]
     platforms = ["x86_64-unknown-linux-gnu"]
     test-command = ["pytest"]
@@ -217,9 +249,9 @@ test-command = ["pytest"]
     @pytest.mark.parametrize(
         ("policy", "baseline", "expected"),
         (
-            ('search-space = "current-major"', "2.0.0", ["2.0.0"]),
+            ('search-space = "majors[baseline]"', "2.0.0", ["2.0.0"]),
             (
-                'search-space = "current-minor"\nsearch-step = "patch"',
+                'search-space = "minors[baseline]"\nsearch-step = "patch"',
                 "1.1.1",
                 ["1.1.0", "1.1.1"],
             ),
@@ -265,7 +297,7 @@ test-command = ["pytest"]
         expected: list[str],
     ) -> None:
         class PrereleaseIndex:
-            def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
+            def query(self, **kwargs: object) -> RegistryCandidates:
                 def candidate(version: str) -> AvailableCandidate:
                     return AvailableCandidate(
                         version=version,
@@ -280,7 +312,7 @@ test-command = ["pytest"]
                         ),
                     )
 
-                return candidate("0.9"), candidate("1.0rc1")
+                return registry_candidates((candidate("0.9"), candidate("1.0rc1")))
 
         package = configured_package(
             tmp_path,
@@ -367,8 +399,8 @@ test-command = ["pytest"]
         tmp_path: Path,
     ) -> None:
         class WrongWheelIndex:
-            def query(self, **kwargs: object) -> tuple[AvailableCandidate, ...]:
-                return (
+            def query(self, **kwargs: object) -> RegistryCandidates:
+                return registry_candidates((
                     AvailableCandidate(
                         version="1.0",
                         artifacts=(
@@ -381,7 +413,7 @@ test-command = ["pytest"]
                             ),
                         ),
                     ),
-                )
+                ))
 
         package = configured_package(tmp_path, 'resolve-artifact = "any"')
 

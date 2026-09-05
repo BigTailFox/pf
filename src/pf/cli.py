@@ -513,7 +513,12 @@ def create_app(context: CliContext) -> App:
         test_jobs: _TEST_JOBS = None,
         max_duration: _DURATION = None,
     ) -> int:
-        """Find verified floors and write package-floor.json."""
+        """Find verified floors and write package-floor.json.
+
+        Configure search-space and search-space-defaults in tool.pf. Omitted
+        space selects majors[declaration-1:] with a lower bound, otherwise
+        majors[baseline-2:]. All spaces accept major, minor, or patch steps.
+        """
         context.presenter.bind_command("search")
         request = SearchRequest(
             root=Path.cwd().as_posix(),
@@ -564,7 +569,10 @@ def create_app(context: CliContext) -> App:
         test_jobs: _TEST_JOBS = None,
         max_duration: _DURATION = None,
     ) -> int:
-        """Search for floors, then apply the authorized result."""
+        """Search for floors, then apply the authorized result.
+
+        Uses the same tool.pf search-space and conditional defaults as search.
+        """
         context.presenter.bind_command("minimize")
         root = Path.cwd().as_posix()
         search = context.search_workflow.run(

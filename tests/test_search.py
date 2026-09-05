@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.search_space import SpaceSelection
+
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -70,6 +72,7 @@ def snapshot(name: str) -> CandidateSnapshot:
         (candidate.series_key, candidate.version) for candidate in candidates
     )
     return CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency=name,
         cell=cell,
         policy_identity="policy",
@@ -78,6 +81,7 @@ def snapshot(name: str) -> CandidateSnapshot:
         candidates=candidates,
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=name,
             cell=cell,
             policy_identity="policy",
@@ -104,6 +108,7 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
         (candidate.series_key, candidate.version) for candidate in candidates
     )
     return CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency=name,
         cell=base.cell,
         policy_identity=base.policy_identity,
@@ -112,6 +117,7 @@ def snapshot_versions(name: str, versions: tuple[str, ...]) -> CandidateSnapshot
         candidates=candidates,
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=name,
             cell=base.cell,
             policy_identity=base.policy_identity,
@@ -135,6 +141,7 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
     candidate = Candidate(version="1", series_key="1", artifact=artifact)
     representatives = (("1", "1"),)
     return CandidateSnapshot(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
         dependency=name,
         cell=base.cell,
         policy_identity=base.policy_identity,
@@ -143,6 +150,7 @@ def selectable_snapshot(name: str = "a") -> CandidateSnapshot:
         candidates=(candidate,),
         series_representatives=representatives,
         digest=candidate_snapshot_digest(
+            selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=name,
             cell=base.cell,
             policy_identity=base.policy_identity,

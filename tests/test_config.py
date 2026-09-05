@@ -185,10 +185,10 @@ class TestConfiguration:
             target_observation=target,
         )
 
-        assert tuple(policy.model_dump() for policy in config.search.overrides) == (
+        assert tuple(policy.model_dump(exclude={"space_defaults"}) for policy in config.search.overrides) == (
             {
                 "name": "numpy",
-                "space": "all",
+                "space": None,
                 "step": "patch",
                 "prereleases": True,
             },
@@ -234,13 +234,15 @@ class TestConfiguration:
         assert config.target.platforms is None
         assert config.target.extras.policy == "each"
         assert config.target.extras.custom_surfaces == ()
-        assert config.search.default.model_dump() == {
-            "space": "all",
+        assert config.search.default.model_dump(exclude={"space_defaults"}) == {
+            "space": None,
             "step": "minor",
             "prereleases": False,
         }
         assert config.search.overrides == ()
         assert config.resolution.artifact == "any"
+        assert config.search.default.space_defaults.with_lower_bound == "majors[declaration-1:]"
+        assert config.search.default.space_defaults.without_lower_bound == "majors[baseline-2:]"
         assert config.resolution.timeout_seconds == 600
         assert config.ty.args == ()
         assert config.ty.timeout_seconds == 600
@@ -266,7 +268,7 @@ class TestConfiguration:
     managed-deps = []
     extra-policy = "all"
     extra-surfaces = [["gpu", "fast"], ["fast", "gpu"], []]
-    search-space = "current-minor"
+    search-space = "minors[baseline]"
     search-step = "patch"
     search-prereleases = true
     resolve-artifact = "any"
@@ -294,12 +296,12 @@ class TestConfiguration:
         assert config.target.dependency_selection == ManagedDependencies(names=())
         assert config.target.extras.policy == "all"
         assert config.target.extras.custom_surfaces == ((), ("fast", "gpu"))
-        assert config.search.default.model_dump() == {
-            "space": "current-minor",
+        assert config.search.default.model_dump(exclude={"space_defaults"}) == {
+            "space": "minors[baseline]",
             "step": "patch",
             "prereleases": True,
         }
-        assert config.search.overrides[0].model_dump() == {
+        assert config.search.overrides[0].model_dump(exclude={"space_defaults"}) == {
             "name": "numpy",
             "space": "<2,>=1.0",
             "step": "patch",
@@ -317,10 +319,6 @@ class TestConfiguration:
     @pytest.mark.parametrize(
         ("body", "message"),
         (
-            (
-                'search-space = "current-minor"\nsearch-step = "minor"',
-                "current-minor search-space requires patch step",
-            ),
             ('test-command = ["uv", "run", "pytest"]', "cannot start with 'uv run'"),
             ("max-cells = true", "valid integer"),
             ("resolve-timeout = 10", "resolve-timeout must be a duration"),
@@ -334,10 +332,6 @@ class TestConfiguration:
             (
                 'managed-deps = ["numpy"]\nunmanaged-deps = ["torch"]',
                 "managed-deps and unmanaged-deps are mutually exclusive",
-            ),
-            (
-                'search-space = "current-major"\nsearch-step = "major"',
-                "current-major search-space requires minor or patch step",
             ),
             (
                 '[[tool.pf.dep]]\nname = "NumPy"\n[[tool.pf.dep]]\nname = "numpy"',
@@ -420,3 +414,71 @@ class TestCliConfigParsers:
         expected: int | None,
     ) -> None:
         assert parse_max_duration(value) == expected
+
+
+class TestSearchSpaceConfiguration:
+    @pytest.mark.parametrize("space", ["all", "majors[baseline]", "minors[declaration:]"])
+    @pytest.mark.parametrize("step", ["major", "minor", "patch"])
+    def test_all_space_step_combinations(self, tmp_path: Path, space: str, step: str) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {"search-space": space, "search-step": step}}})
+        config = ConfigLoader().load(root_observation=root, target_observation=root)
+        assert config.search.default.space == space
+        assert config.search.default.step == step
+
+    def test_default_tables_replace_whole_objects_and_explicit_space_wins(self, tmp_path: Path) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {
+            "search-space": "all",
+            "search-space-defaults": {"with-lower-bound": "all", "without-lower-bound": "all"},
+            "dep": [{"name": "dep", "search-space": "majors[baseline]"}],
+        }}})
+        member = observation(tmp_path / "member", {"tool": {"pf": {
+            "search-space-defaults": {"with-lower-bound": "minors[declaration:]", "without-lower-bound": "minors[baseline-1:]"},
+            "dep": [{"name": "dep", "search-step": "patch", "search-space-defaults": {
+                "with-lower-bound": "majors[declaration]", "without-lower-bound": "majors[baseline]",
+            }}],
+        }}})
+        config = ConfigLoader().load(root_observation=root, target_observation=member)
+        assert config.search.default.space == "all"
+        assert config.search.default.space_defaults.with_lower_bound == "minors[declaration:]"
+        override = config.search.overrides[0]
+        assert override.space == "all"
+        assert override.step == "patch"
+        assert override.space_defaults.with_lower_bound == "majors[declaration]"
+
+    def test_step_only_preserves_omission_and_empty_dep_keeps_global_defaults(self, tmp_path: Path) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {
+            "search-space-defaults": {"with-lower-bound": "all", "without-lower-bound": "majors[baseline]"},
+            "dep": [{"name": "dep", "search-step": "major"}],
+        }}})
+        config = ConfigLoader().load(root_observation=root, target_observation=root)
+        assert config.search.overrides[0].space is None
+        assert config.search.overrides[0].space_defaults == config.search.default.space_defaults
+        member = observation(tmp_path / "member", {"tool": {"pf": {"dep": []}}})
+        cleared = ConfigLoader().load(root_observation=root, target_observation=member)
+        assert cleared.search.overrides == ()
+        assert cleared.search.default.space_defaults == config.search.default.space_defaults
+
+    @pytest.mark.parametrize("table", [
+        {}, {"with-lower-bound": "all"},
+        {"with-lower-bound": "all", "without-lower-bound": "all", "extra": "all"},
+        {"with-lower-bound": True, "without-lower-bound": "all"},
+        {"with-lower-bound": "all", "without-lower-bound": "majors[declaration]"},
+        {"with-lower-bound": ">=1", "without-lower-bound": "all"},
+    ])
+    def test_raw_invalid_defaults_are_rejected_even_when_overridden(self, tmp_path: Path, table: dict) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {"search-space-defaults": table}}})
+        member = observation(tmp_path / "member", {"tool": {"pf": {
+            "search-space": "all", "search-space-defaults": {
+                "with-lower-bound": "all", "without-lower-bound": "all",
+            },
+        }}})
+        with pytest.raises(ConfigurationError):
+            ConfigLoader().load(root_observation=root, target_observation=member)
+
+    def test_invalid_default_in_discarded_dep_table_is_still_rejected(self, tmp_path: Path) -> None:
+        root = observation(tmp_path, {"tool": {"pf": {"dep": [{"name": "dep", "search-space-defaults": {
+            "with-lower-bound": "all", "without-lower-bound": "majors[declaration]",
+        }}]}}})
+        member = observation(tmp_path / "member", {"tool": {"pf": {"dep": []}}})
+        with pytest.raises(ConfigurationError):
+            ConfigLoader().load(root_observation=root, target_observation=member)

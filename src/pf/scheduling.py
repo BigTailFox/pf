@@ -54,6 +54,7 @@ class Scheduler:
         running: dict[Future[T], ScheduledCellTask[T]] = {}
         completed_items: list[tuple[Cell, T]] = []
         completed = 0
+        first_error: Exception | None = None
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             self._fill(
@@ -66,24 +67,36 @@ class Scheduler:
             )
             while running:
                 done, _ = wait(tuple(running), return_when=FIRST_COMPLETED)
-                for future in done:
+                for future in sorted(
+                    done, key=lambda item: cell_schedule_key(running[item].cell)
+                ):
                     task = running.pop(future)
-                    result = future.result()
-                    completed_items.append((task.cell, result))
-                    completed += 1
-                    on_completed(task, result, completed, len(tasks))
-                self._fill(
-                    executor,
-                    running,
-                    pending,
-                    worker_count,
-                    deadline,
-                    on_started,
-                )
+                    try:
+                        result = future.result()
+                        completed_items.append((task.cell, result))
+                        completed += 1
+                        on_completed(task, result, completed, len(tasks))
+                    except Exception as error:
+                        if first_error is None:
+                            first_error = error
+                if first_error is None:
+                    self._fill(
+                        executor,
+                        running,
+                        pending,
+                        worker_count,
+                        deadline,
+                        on_started,
+                    )
+
+        if first_error is not None:
+            raise first_error
 
         for task in pending:
             if task.deadline_result is None:
-                raise ValueError("deadline-limited cell task requires a deadline result")
+                raise ValueError(
+                    "deadline-limited cell task requires a deadline result"
+                )
             result = task.deadline_result()
             completed_items.append((task.cell, result))
             completed += 1

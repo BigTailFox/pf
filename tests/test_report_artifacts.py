@@ -110,7 +110,18 @@ class TestReportArtifacts:
             if definition.get("type") == "object"
         )
         assert not _contains_key(schema, "default")
-        assert not _contains_type(schema, "null")
+        nullable_fields = {
+            (name, field)
+            for name, definition in schema["$defs"].items()
+            for field, field_schema in definition.get("properties", {}).items()
+            if _contains_type(field_schema, "null")
+        }
+        assert nullable_fields == {
+            ("SearchPolicyBinding", "requested_space"),
+            ("CandidateSnapshotV1", "series_inventory_ref"),
+        }
+        for name, field in nullable_fields:
+            assert field in schema["$defs"][name]["required"]
 
     @pytest.mark.parametrize(
         ("path", "result_type"),

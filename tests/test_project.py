@@ -973,7 +973,7 @@ test-command = ["pytest"]
         package = ProjectLoader().load(root=tmp_path).target
 
         assert tuple(
-            policy.model_dump() for policy in package.dependency_search_policies
+            policy.model_dump(exclude={"space_defaults"}) for policy in package.dependency_search_policies
         ) == (
             {
                 "name": "numpy",
@@ -983,7 +983,7 @@ test-command = ["pytest"]
             },
             {
                 "name": "requests",
-                "space": "all",
+                "space": None,
                 "step": "patch",
                 "prereleases": False,
             },

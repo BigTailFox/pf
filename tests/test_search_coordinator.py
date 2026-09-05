@@ -119,7 +119,7 @@ class TestSearchCoordinator:
         self,
         tmp_path: Path,
     ) -> None:
-        project = evaluation_project(tmp_path / "project")
+        project = evaluation_project(tmp_path / "project", search_space="all")
         assembly = evaluation_assembly(candidate_versions=())
 
         result = assembly.coordinator.search(
@@ -504,3 +504,27 @@ test-command = ["python", "-c", "pass"]
         assert assembly.verifier.requests[first_count].failed_case_nodeids == ()
 
 
+class TestSearchSpaceBuildDisposition:
+    @pytest.mark.parametrize("space", ["all", "majors[baseline-1:]"])
+    def test_only_space_exclusion_skips_historical_build_failure(self, tmp_path: Path, space: str) -> None:
+        project = evaluation_project(tmp_path / "project", search_space=space)
+        assembly = evaluation_assembly()
+        failing = (VersionPin(name="demo-dep", version="1"),)
+        assembly.uv.install_failures_by_vector[failing] = ToolFailure(
+            cause="BUILD_FAILURE", stage="install-environment", process=successful_process(exit_code=2),
+        )
+        try:
+            result = assembly.coordinator.search(package=project.package, cell=project.package.cells[0],
+                                                snapshot=project.snapshot, source_plan=project.source_plan)
+            if space == "all":
+                assert isinstance(result, CellIndeterminate)
+                assert result.failure_records[0].cause == "BUILD_FAILURE"
+                assert failing in assembly.uv.install_vectors
+            else:
+                assert isinstance(result, CellSuccess)
+                assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
+                assert failing not in assembly.uv.install_vectors
+                assert result.final_evaluation.proposal.managed_vector == result.final_vector
+                assert result.search.boundaries[0].predecessor is None
+        finally:
+            project.snapshot.close()

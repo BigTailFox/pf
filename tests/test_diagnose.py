@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from candidate_fixtures import frozen_candidate_snapshot
+from pf.schemas.project import Candidate
+
 from pathlib import Path
 from io import StringIO
 import re
@@ -42,16 +45,12 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import (
     AvailableArtifact,
-    Candidate,
-    CandidateSnapshot,
     Cell,
     InterpreterIdentity,
     Proposal,
     SelectedCandidate,
-    SourceIdentity,
     SourcePlan,
     VersionPin,
-    candidate_snapshot_digest,
     selected_candidate_evidence_digest,
 )
 from pf.schemas.report import (
@@ -87,50 +86,6 @@ class RecordingLogLocator:
 
     def read_tail(self, path: Path) -> tuple[str, ...]:
         return ()
-
-
-def candidate_snapshot(
-    cell: Cell,
-    vector: tuple[VersionPin, ...],
-    policy_identity: str,
-    plan_identity: str,
-    source: SourceIdentity,
-) -> tuple[CandidateSnapshot, ...]:
-    pin = vector[0]
-    candidates = tuple(
-        Candidate(
-            version=item.version,
-            series_key=item.version,
-            artifact=AvailableArtifact(
-                filename=f"{item.name}-{item.version}.whl",
-                kind="wheel",
-                content_hash=f"sha256:{'a' * 64}",
-                locator=f"https://files.example/{item.name}-{item.version}.whl",
-            ),
-        )
-        for item in vector
-    )
-    representatives = tuple((item.version, item.version) for item in vector)
-    return (
-        CandidateSnapshot(
-            dependency=pin.name,
-            cell=cell,
-            policy_identity=policy_identity,
-            source_plan_identity=plan_identity,
-            source=source,
-            candidates=candidates,
-            series_representatives=representatives,
-            digest=candidate_snapshot_digest(
-                dependency=pin.name,
-                cell=cell,
-                policy_identity=policy_identity,
-                source_plan_identity=plan_identity,
-                source=source,
-                candidates=candidates,
-                series_representatives=representatives,
-            ),
-        ),
-    )
 
 
 def _write_indeterminate_report(root: Path) -> tuple[str, str]:
@@ -253,6 +208,7 @@ def _attempt(
                             artifact=AvailableArtifact(
                                 filename=f"{pin.name}-{pin.version}.whl",
                                 kind="wheel",
+                                python_minors=(cell.python_minor,), targets=(cell.target,),
                                 content_hash=f"sha256:{'a' * 64}",
                                 locator=(
                                     f"https://files.example/"
@@ -348,11 +304,6 @@ def _write_success_with_predecessor_report(
         cell = package.cells[0]
         policy_identity = evaluation_policy_identity(package.config)
         plan_identity = SourcePlan.for_package(package, "SEARCH").identity
-        source = next(
-            route.search_source
-            for route in package.source_routes
-            if route.dependency == "idna"
-        )
         baseline_vector = (VersionPin(name="idna", version="3.11"),)
         baseline_attempt = _attempt(
             cell=cell,
@@ -462,13 +413,16 @@ def _write_success_with_predecessor_report(
                     baseline_attempt=baseline_attempt,
                     static_baseline=baseline,
                     baseline=baseline_evaluation,
-                    candidate_snapshots=candidate_snapshot(
-                        cell,
-                        (rejected_vector[0], final_vector[0]),
-                        policy_identity,
-                        plan_identity,
-                        source,
-                    ),
+                    candidate_snapshots=(frozen_candidate_snapshot(package, cell, tuple(
+                        Candidate(version=pin.version, series_key=pin.version,
+                                  artifact=AvailableArtifact(
+                                      filename=f"{pin.name}-{pin.version}.whl", kind="wheel",
+                                      content_hash=f"sha256:{'a' * 64}",
+                                      locator=f"https://files.example/{pin.name}-{pin.version}.whl",
+                                      python_minors=(cell.python_minor,), targets=(cell.target,),
+                                  ))
+                        for pin in (rejected_vector[0], final_vector[0])
+                    )),),
                     search=search,
                     final_vector=final_vector,
                     final_evaluation=final_evaluation,

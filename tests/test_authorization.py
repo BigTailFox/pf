@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from candidate_fixtures import frozen_candidate_snapshot
+
 from dataclasses import replace
 import subprocess
 import sys
@@ -41,7 +43,6 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     AvailableArtifact,
     Candidate,
-    CandidateSnapshot,
     Cell,
     InterpreterIdentity,
     PackagePlan,
@@ -50,7 +51,6 @@ from pf.schemas.project import (
     SelectedCandidate,
     SourcePlan,
     VersionPin,
-    candidate_snapshot_digest,
     cell_id,
     selected_candidate_evidence_digest,
 )
@@ -114,6 +114,7 @@ def _attempt(
                             artifact=AvailableArtifact(
                                 filename=f"{pin.name}-{pin.version}.whl",
                                 kind="wheel",
+                python_minors=(cell.python_minor,), targets=(cell.target,),
                                 content_hash=f"sha256:{'a' * 64}",
                                 locator=(
                                     f"https://files.example/"
@@ -203,11 +204,6 @@ def _successful_cell(
         resolution="exact-vector",
         attempt=final_attempt,
     )
-    source = next(
-        route.search_source
-        for route in package.source_routes
-        if route.dependency == "idna"
-    )
     candidate_versions = ("1.0", floor) if historical_rejection else (floor,)
     candidates = tuple(
         Candidate(
@@ -216,31 +212,14 @@ def _successful_cell(
             artifact=AvailableArtifact(
                 filename=f"idna-{version}.whl",
                 kind="wheel",
+                python_minors=(cell.python_minor,), targets=(cell.target,),
                 content_hash=f"sha256:{'a' * 64}",
                 locator=f"https://files.example/idna-{version}.whl",
             ),
         )
         for version in candidate_versions
     )
-    representatives = tuple((version, version) for version in candidate_versions)
-    snapshot = CandidateSnapshot(
-        dependency="idna",
-        cell=cell,
-        policy_identity="candidate-policy",
-        source_plan_identity=plan_identity,
-        source=source,
-        candidates=candidates,
-        series_representatives=representatives,
-        digest=candidate_snapshot_digest(
-            dependency="idna",
-            cell=cell,
-            policy_identity="candidate-policy",
-            source_plan_identity=plan_identity,
-            source=source,
-            candidates=candidates,
-            series_representatives=representatives,
-        ),
-    )
+    snapshot = frozen_candidate_snapshot(package, cell, candidates)
     baseline_vector = (VersionPin(name="idna", version="3.11"),)
     baseline_attempt = _attempt(
         cell=cell,

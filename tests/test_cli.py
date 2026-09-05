@@ -32,6 +32,7 @@ from pf.errors import (
     ConfigurationError,
     NoApplicableFloorError,
     PfError,
+    SearchSpaceResolutionError,
 )
 from pf.report import PackageReportBuilder, ValidatedReport
 from pf.runlog import RunLogStore
@@ -242,6 +243,28 @@ def module_help() -> subprocess.CompletedProcess[str]:
 
 
 class TestCliInterface:
+    def test_search_space_resolution_error_is_exit_two_with_facts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stdout, stderr = StringIO(), StringIO()
+        class Search:
+            def run(self, request: SearchRequest) -> NoReturn:
+                raise SearchSpaceResolutionError(dependency="demo-dep", cell="demo/3.10/base",
+                    expression="majors[baseline]", reason="missing-anchor-series",
+                    anchors=(("baseline", "3"),), series_keys=((0, 1),), source="https://pypi.org/simple")
+        context = make_context(search_workflow=Search(), presenter=TerminalPresenter(
+            stdout=Console(file=stdout), stderr=Console(file=stderr, width=180)))
+        monkeypatch.setattr("pf.cli.build_context", lambda: context)
+        monkeypatch.setattr(sys, "argv", ["pf", "search"])
+        with pytest.warns(UserWarning, match="Cyclopts application invoked without tokens"):
+            with pytest.raises(SystemExit) as caught:
+                main()
+        assert caught.value.code == 2
+        output = stderr.getvalue()
+        assert "search-space-resolution" in output
+        assert "majors[baseline]" in output
+        assert "missing-anchor-series" in output
+        assert "demo-dep" in output
+        assert "Traceback" not in output
+
     def test_module_entrypoint_routes_to_cli_help(
         self,
         monkeypatch: pytest.MonkeyPatch,

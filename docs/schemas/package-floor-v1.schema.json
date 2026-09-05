@@ -332,6 +332,17 @@
           "title": "Policy Identity",
           "type": "string"
         },
+        "series_inventory_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Series Inventory Ref"
+        },
         "series_representatives": {
           "items": {
             "maxItems": 2,
@@ -363,6 +374,7 @@
         "cell_ref",
         "dependency",
         "policy_identity",
+        "series_inventory_ref",
         "series_representatives",
         "source",
         "source_plan_identity"
@@ -1723,6 +1735,16 @@
           "title": "Requirement Declarations",
           "type": "array"
         },
+        "search_policy": {
+          "$ref": "#/$defs/SearchPolicyInputs"
+        },
+        "series_inventories": {
+          "items": {
+            "$ref": "#/$defs/SeriesInventoryV1"
+          },
+          "title": "Series Inventories",
+          "type": "array"
+        },
         "source_plan": {
           "$ref": "#/$defs/SourcePlan"
         },
@@ -1737,6 +1759,8 @@
       "required": [
         "candidate_snapshots",
         "requirement_declarations",
+        "search_policy",
+        "series_inventories",
         "source_plan",
         "target_cells"
       ],
@@ -2053,6 +2077,130 @@
       "title": "RuntimeWitnessTerminalV1",
       "type": "object"
     },
+    "SearchPolicyBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "prereleases": {
+          "title": "Prereleases",
+          "type": "boolean"
+        },
+        "requested_space": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Space"
+        },
+        "space_defaults": {
+          "$ref": "#/$defs/SpaceDefaults"
+        },
+        "step": {
+          "enum": [
+            "major",
+            "minor",
+            "patch"
+          ],
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dependencies",
+        "prereleases",
+        "requested_space",
+        "space_defaults",
+        "step"
+      ],
+      "title": "SearchPolicyBinding",
+      "type": "object"
+    },
+    "SearchPolicyInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "enum": [
+            "wheel",
+            "sdist",
+            "any"
+          ],
+          "title": "Artifact",
+          "type": "string"
+        },
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/SearchPolicyBinding"
+          },
+          "title": "Bindings",
+          "type": "array"
+        },
+        "profile": {
+          "const": "registry-series-slice-v1",
+          "title": "Profile",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "bindings",
+        "profile"
+      ],
+      "title": "SearchPolicyInputs",
+      "type": "object"
+    },
+    "SeriesInventoryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency": {
+          "title": "Dependency",
+          "type": "string"
+        },
+        "family": {
+          "enum": [
+            "majors",
+            "minors"
+          ],
+          "title": "Family",
+          "type": "string"
+        },
+        "series_inventory_id": {
+          "title": "Series Inventory Id",
+          "type": "string"
+        },
+        "series_keys": {
+          "items": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "title": "Series Keys",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceIdentity"
+        }
+      },
+      "required": [
+        "dependency",
+        "family",
+        "series_inventory_id",
+        "series_keys",
+        "source"
+      ],
+      "title": "SeriesInventoryV1",
+      "type": "object"
+    },
     "Signaled": {
       "additionalProperties": false,
       "properties": {
@@ -2226,6 +2374,25 @@
         "pyproject_identities"
       ],
       "title": "SourceSnapshotIdentity",
+      "type": "object"
+    },
+    "SpaceDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "with_lower_bound": {
+          "title": "With Lower Bound",
+          "type": "string"
+        },
+        "without_lower_bound": {
+          "title": "Without Lower Bound",
+          "type": "string"
+        }
+      },
+      "required": [
+        "with_lower_bound",
+        "without_lower_bound"
+      ],
+      "title": "SpaceDefaults",
       "type": "object"
     },
     "StartFailed": {

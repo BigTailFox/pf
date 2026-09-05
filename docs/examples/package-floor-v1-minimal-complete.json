@@ -99,7 +99,7 @@
       "pyproject_path": "pyproject.toml"
     },
     "policy_identity": "7842d2e6664acdbd784babdd5f3bb1fa4f69751c2cd4466b2a124bc223714da4",
-    "report_generation_id": "538434a8d9f4a6519dc77079e6220725a78ac34099da1415058d8e3640313bff",
+    "report_generation_id": "a9c30cabf370efa93b24f7fe9a66a1bb59ba48d4fa1615242559f13d90f03f51",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],
@@ -110,6 +110,12 @@
   "inputs": {
     "candidate_snapshots": [],
     "requirement_declarations": [],
+    "search_policy": {
+      "artifact": "any",
+      "bindings": [],
+      "profile": "registry-series-slice-v1"
+    },
+    "series_inventories": [],
     "source_plan": {
       "routes": [],
       "source_mode": "SEARCH"

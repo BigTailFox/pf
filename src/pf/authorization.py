@@ -29,6 +29,7 @@ from pf.schemas.project import (
     StaticWorkspaceMemberVersion,
     SourcePlan,
     SourceSnapshotIdentity,
+    SearchPolicyInputs,
     cell_identity,
     dependency_group_key,
 )
@@ -207,6 +208,9 @@ class ApplyAuthorizer:
             raise ApplyAuthorizationError(
                 "project dependency declarations have drifted since search"
             )
+
+        if report.search_policy != SearchPolicyInputs.from_package(package):
+            raise ApplyAuthorizationError("report search policy mismatch")
 
         current_pyproject = self._pyproject_identity(
             current_snapshot.identity.pyproject_identities,

@@ -10,10 +10,11 @@ from urllib.parse import urlsplit, urlunsplit
 from packaging.specifiers import InvalidSpecifier, Specifier
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
-from pydantic import field_validator, model_validator
+from pydantic import Field, StrictBool, StrictInt, field_validator, model_validator, model_serializer
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
-from pf.schemas.config import EffectiveConfig
+from pf.schemas.config import EffectiveConfig, SearchPolicy, SpaceDefaults
+from pf.search_space import SpaceSelection
 
 
 _CANONICAL_DISTRIBUTION_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -482,6 +483,64 @@ class AvailableCandidate(FrozenSchema):
     artifacts: tuple[AvailableArtifact, ...]
 
 
+class RegistryCandidates(FrozenSchema):
+    release_versions: tuple[str, ...]
+    candidates: tuple[AvailableCandidate, ...]
+
+    @model_validator(mode="after")
+    def validate_releases(self) -> "RegistryCandidates":
+        versions = tuple(Version(raw) for raw in self.release_versions)
+        if versions != tuple(sorted(set(versions))) or any(
+            str(version) != raw
+            for version, raw in zip(versions, self.release_versions, strict=True)
+        ):
+            raise ValueError(
+                "registry release versions must be normalized, sorted and unique"
+            )
+        if any(Version(item.version) not in versions for item in self.candidates):
+            raise ValueError("registry candidates must belong to release versions")
+        return self
+
+
+class SeriesInventory(FrozenSchema):
+    dependency: str
+    source: SourceIdentity
+    family: Literal["majors", "minors"]
+    series_keys: tuple[tuple[StrictInt, ...], ...]
+
+    @model_validator(mode="after")
+    def validate_series(self) -> "SeriesInventory":
+        if (
+            not is_canonical_distribution_name(self.dependency)
+            or self.source.kind != "registry"
+        ):
+            raise ValueError(
+                "series inventory requires a canonical registry dependency"
+            )
+        length = 2 if self.family == "majors" else 3
+        if not self.series_keys or any(
+            len(key) != length
+            or any(isinstance(part, bool) or part < 0 for part in key)
+            for key in self.series_keys
+        ):
+            raise ValueError("series inventory keys must match their family")
+        if (
+            self.series_keys != tuple(sorted(set(self.series_keys)))
+            or len({key[:-1] for key in self.series_keys}) != 1
+        ):
+            raise ValueError(
+                "series inventory keys must be sorted, unique and share one scope"
+            )
+        return self
+
+    @property
+    def inventory_id(self) -> str:
+        return hashlib.sha256(
+            b"pf:series-inventory:v1\0"
+            + canonical_identity_json(self.model_dump(mode="json"))
+        ).hexdigest()
+
+
 class HarnessSatisfaction(FrozenSchema):
     name: str
     satisfied_by: Literal["PROJECT_GRAPH", "EXTERNAL_HARNESS"]
@@ -646,6 +705,8 @@ def candidate_snapshot_digest(
     source: SourceIdentity,
     candidates: tuple[Candidate, ...],
     series_representatives: tuple[tuple[str, str], ...],
+    selection: SpaceSelection,
+    series_inventory: SeriesInventory | None,
 ) -> str:
     identity = {
         "dependency": dependency,
@@ -655,6 +716,12 @@ def candidate_snapshot_digest(
         "source": source.model_dump(mode="json"),
         "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
         "series_representatives": series_representatives,
+        "space_selection": {
+            "expression": selection.expression,
+            "reason": selection.reason,
+            "anchors": selection.anchors,
+            "series_inventory_ref": series_inventory.inventory_id if series_inventory else None,
+        },
     }
     return hashlib.sha256(
         b"pf:candidate-snapshot:v1\0"
@@ -708,6 +775,8 @@ class CandidateSnapshot(FrozenSchema):
     source: SourceIdentity
     candidates: tuple[Candidate, ...]
     series_representatives: tuple[tuple[str, str], ...]
+    selection: SpaceSelection
+    series_inventory: SeriesInventory | None
     digest: str
 
     @model_validator(mode="after")
@@ -746,17 +815,16 @@ class CandidateSnapshot(FrozenSchema):
             source=self.source,
             candidates=self.candidates,
             series_representatives=self.series_representatives,
+            selection=self.selection,
+            series_inventory=self.series_inventory,
         )
         if self.digest != expected_digest:
             raise ValueError("candidate snapshot digest does not match its evidence")
         return self
 
 
-class NamedSearchPolicy(FrozenSchema):
+class NamedSearchPolicy(SearchPolicy):
     name: str
-    space: str
-    step: Literal["major", "minor", "patch"]
-    prereleases: bool
 
     @field_validator("name")
     @classmethod
@@ -764,6 +832,109 @@ class NamedSearchPolicy(FrozenSchema):
         if not is_canonical_distribution_name(value):
             raise ValueError("search policy name must be canonical")
         return value
+
+
+class SearchPolicyBinding(FrozenSchema):
+    dependencies: tuple[str, ...]
+    requested_space: str | None = Field(json_schema_extra={"x-pf-preserve-null": True})
+    space_defaults: SpaceDefaults
+    step: Literal["major", "minor", "patch"]
+    prereleases: StrictBool
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> "SearchPolicyBinding":
+        if not self.dependencies or self.dependencies != tuple(
+            sorted(set(self.dependencies))
+        ):
+            raise ValueError(
+                "search policy dependencies must be nonempty, sorted and unique"
+            )
+        for name in self.dependencies:
+            policy = NamedSearchPolicy(
+                name=name,
+                space=self.requested_space,
+                space_defaults=self.space_defaults,
+                step=self.step,
+                prereleases=self.prereleases,
+            )
+            if policy.space != self.requested_space:
+                raise ValueError("requested search space must be canonical")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_required_null(self, handler):
+        result = handler(self)
+        result["requested_space"] = self.requested_space
+        return result
+
+
+class SearchPolicyInputs(FrozenSchema):
+    profile: Literal["registry-series-slice-v1"]
+    artifact: Literal["wheel", "sdist", "any"]
+    bindings: tuple[SearchPolicyBinding, ...]
+
+    @model_validator(mode="after")
+    def validate_bindings(self) -> "SearchPolicyInputs":
+        first_names = tuple(binding.dependencies[0] for binding in self.bindings)
+        names = tuple(
+            name for binding in self.bindings for name in binding.dependencies
+        )
+        if first_names != tuple(sorted(first_names)) or len(names) != len(set(names)):
+            raise ValueError("search policy bindings must be sorted and disjoint")
+        policies = tuple(
+            (b.requested_space, b.space_defaults, b.step, b.prereleases)
+            for b in self.bindings
+        )
+        if len(policies) != len(set(policies)):
+            raise ValueError("equal search policies must share one binding")
+        return self
+
+    @classmethod
+    def from_package(cls, package: PackagePlan) -> "SearchPolicyInputs":
+        groups: dict[SearchPolicy, list[str]] = {}
+        for named in package.dependency_search_policies:
+            policy = SearchPolicy(
+                space=named.space,
+                space_defaults=named.space_defaults,
+                step=named.step,
+                prereleases=named.prereleases,
+            )
+            groups.setdefault(policy, []).append(named.name)
+        bindings: list[SearchPolicyBinding] = [
+            SearchPolicyBinding(
+                dependencies=tuple(sorted(names)),
+                requested_space=policy.space,
+                space_defaults=policy.space_defaults,
+                step=policy.step,
+                prereleases=policy.prereleases,
+            )
+            for policy, names in groups.items()
+        ]
+        bindings.sort(key=lambda binding: binding.dependencies[0])
+        return cls(
+            profile="registry-series-slice-v1",
+            artifact=package.config.resolution.artifact,
+            bindings=tuple(bindings),
+        )
+
+    @property
+    def named_policies(self) -> tuple[NamedSearchPolicy, ...]:
+        return tuple(
+            sorted(
+                (
+                    NamedSearchPolicy(
+                        name=name,
+                        space=b.requested_space,
+                        space_defaults=b.space_defaults,
+                        step=b.step,
+                        prereleases=b.prereleases,
+                    )
+                    for b in self.bindings
+                    for name in b.dependencies
+                ),
+                key=lambda policy: policy.name,
+            )
+        )
 
 
 class PackagePlan(FrozenSchema):

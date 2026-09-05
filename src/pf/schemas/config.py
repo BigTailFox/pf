@@ -8,6 +8,8 @@ from packaging.utils import InvalidName, canonicalize_name
 from pydantic import StrictBool, StrictInt, field_validator, model_validator
 
 from pf.schemas.base import FrozenSchema
+from pf.errors import ConfigurationError
+from pf.search_space import DEFAULT_WITH_LOWER_BOUND, DEFAULT_WITHOUT_LOWER_BOUND, defaults, parse
 
 
 class AllSearchableDependencies(FrozenSchema):
@@ -43,10 +45,40 @@ class TargetConfig(FrozenSchema):
     extras: ExtraConfig = ExtraConfig()
 
 
+class SpaceDefaults(FrozenSchema):
+    with_lower_bound: str = DEFAULT_WITH_LOWER_BOUND
+    without_lower_bound: str = DEFAULT_WITHOUT_LOWER_BOUND
+
+    @model_validator(mode="after")
+    def validate_expressions(self) -> "SpaceDefaults":
+        try:
+            parsed = defaults(self.with_lower_bound, self.without_lower_bound)
+        except ConfigurationError as error:
+            raise ValueError("invalid search-space-defaults") from error
+        if (self.with_lower_bound, self.without_lower_bound) != (
+            parsed.with_lower_bound.canonical, parsed.without_lower_bound.canonical,
+        ):
+            raise ValueError("search-space-defaults must be canonical")
+        return self
+
+
 class SearchPolicy(FrozenSchema):
-    space: str = "all"
+    space: str | None = None
+    space_defaults: SpaceDefaults = SpaceDefaults()
     step: Literal["major", "minor", "patch"] = "minor"
     prereleases: StrictBool = False
+
+    @field_validator("space")
+    @classmethod
+    def validate_space(cls, value: str | None) -> str | None:
+        if value is not None:
+            try:
+                canonical = parse(value, allow_specifier=True).canonical
+            except ConfigurationError as error:
+                raise ValueError("invalid search-space") from error
+            if canonical != value:
+                raise ValueError("search-space must be canonical")
+        return value
 
 
 class DependencySearchPolicy(SearchPolicy):

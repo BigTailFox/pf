@@ -4,7 +4,7 @@ import hashlib
 from typing import Annotated, Literal, Union
 
 from packaging.version import Version
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator, model_serializer
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.evaluation import (
@@ -40,6 +40,8 @@ from pf.schemas.evaluation import (
     runtime_process_observation,
 )
 from pf.schemas.project import (
+    SearchPolicyInputs,
+    SeriesInventory,
     DependencyGroupKey,
     CandidateSnapshot,
     Candidate,
@@ -1275,9 +1277,42 @@ class CandidateSnapshotV1(FrozenSchema):
     source: SourceIdentity
     candidates: tuple[Candidate, ...]
     series_representatives: tuple[tuple[str, str], ...]
+    series_inventory_ref: str | None = Field(
+        json_schema_extra={"x-pf-preserve-null": True}
+    )
+
+    @model_serializer(mode="wrap")
+    def serialize_required_null(self, handler):
+        result = handler(self)
+        result["series_inventory_ref"] = self.series_inventory_ref
+        return result
+
+
+class SeriesInventoryV1(FrozenSchema):
+    series_inventory_id: str
+    dependency: str
+    source: SourceIdentity
+    family: Literal["majors", "minors"]
+    series_keys: tuple[tuple[int, ...], ...]
+
+    def expand(self) -> SeriesInventory:
+        return SeriesInventory(
+            dependency=self.dependency,
+            source=self.source,
+            family=self.family,
+            series_keys=self.series_keys,
+        )
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "SeriesInventoryV1":
+        if self.series_inventory_id != self.expand().inventory_id:
+            raise ValueError("series inventory identity mismatch")
+        return self
 
 
 class ReportInputsV1(FrozenSchema):
+    search_policy: SearchPolicyInputs
+    series_inventories: tuple[SeriesInventoryV1, ...]
     source_plan: SourcePlan
     requirement_declarations: tuple[RequirementDeclaration, ...]
     target_cells: tuple[TargetCellV1, ...]
@@ -1672,6 +1707,7 @@ def report_generation_id(
     source_plan: SourcePlan,
     requirement_declarations: tuple[RequirementDeclaration, ...],
     target_cells: tuple[Cell, ...],
+    search_policy: SearchPolicyInputs,
 ) -> str:
     declarations = tuple(
         sorted(
@@ -1691,6 +1727,7 @@ def report_generation_id(
             declaration.model_dump(mode="json") for declaration in declarations
         ],
         "target_cells": [cell.model_dump(mode="json") for cell in cells],
+        "search_policy": search_policy.model_dump(mode="json"),
     }
     return hashlib.sha256(
         b"pf:report-generation:v1\0" + canonical_identity_json(identity)

@@ -1047,7 +1047,7 @@ class TestCandidateQuery:
                 python_minor=python_minor,
                 extra_surface=(),
             ),
-        )
+        ).candidates
 
         assert candidates
 
@@ -1092,7 +1092,7 @@ class TestCandidateQuery:
                 python_minor="3.10",
                 extra_surface=(),
             ),
-        )
+        ).candidates
 
         assert candidates == ()
 
@@ -1197,7 +1197,7 @@ class TestCandidateQuery:
                     python_minor=python_minor,
                     extra_surface=(),
                 ),
-            )
+            ).candidates
             assert [candidate.version for candidate in candidates] == ["1.0"]
 
         assert opens == 1
@@ -1238,7 +1238,7 @@ class TestCandidateQuery:
                 python_minor="3.10",
                 extra_surface=(),
             ),
-        )
+        ).candidates
 
         assert [candidate.version for candidate in candidates] == ["1.0"]
 
@@ -1290,7 +1290,7 @@ class TestCandidateQuery:
                 python_minor="3.10",
                 extra_surface=(),
             ),
-        )
+        ).candidates
 
         assert [candidate.version for candidate in candidates] == ["1.0"]
         assert observed_authorization == ["Basic YWxpY2U6czNjcmV0"]
@@ -1332,7 +1332,7 @@ class TestCandidateQuery:
         monkeypatch.setattr(
             "pf.adapters.uv.urlopen", lambda request, timeout: Response(document)
         )
-        candidates = UvAdapter(RecordingRunner()).query(
+        observed = UvAdapter(RecordingRunner()).query(
             dependency="demo",
             source=SourceIdentity(
                 kind="registry", locator="https://index.example/simple"
@@ -1344,6 +1344,9 @@ class TestCandidateQuery:
                 extra_surface=(),
             ),
         )
+
+        assert observed.release_versions == ("0.3", "1.0", "2.0")
+        candidates = observed.candidates
 
         assert [(candidate.version, candidate.yanked) for candidate in candidates] == [
             ("1.0", True),
@@ -1389,7 +1392,7 @@ class TestCandidateQuery:
                 python_minor="3.10",
                 extra_surface=(),
             ),
-        )
+        ).candidates
 
         assert [candidate.version for candidate in candidates] == ["1.0"]
 
@@ -1650,7 +1653,7 @@ class TestCandidateQuery:
                 python_minor="3.10",
                 extra_surface=(),
             ),
-        )
+        ).candidates
 
         locator = candidates[0].artifacts[0].locator
         assert locator == "https://files.example/demo-1.0.tar.gz"
@@ -1791,3 +1794,29 @@ class TestPythonInventory:
             UvAdapter(Runner()).available_cpython_minors(root=tmp_path)
 
         assert caught.value.detail == "uv: python list failed"
+
+
+class TestRegistrySeriesObservation:
+    def test_unsuccessful_parse_is_not_frozen_and_success_is_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+        valid = json.dumps({"files": [{"filename": "demo-1.0rc1-py3-none-win_amd64.whl",
+                                        "url": "release.whl", "hashes": {"sha256": "a" * 64}}]}).encode()
+
+        class Response(BytesIO):
+            headers = {}
+
+        def query(request, timeout):
+            calls.append(request)
+            return Response(b'{"files": [false]}' if len(calls) == 1 else valid)
+
+        monkeypatch.setattr("pf.adapters.uv.urlopen", query)
+        adapter = UvAdapter(RecordingRunner())
+        cell = Cell(package="demo", target="x86_64-unknown-linux-gnu", python_minor="3.10", extra_surface=())
+        source = SourceIdentity(kind="registry")
+        with pytest.raises(InfrastructureError, match="invalid Simple JSON"):
+            adapter.query(dependency="demo", source=source, cell=cell)
+        observed = adapter.query(dependency="demo", source=source, cell=cell)
+        assert observed.release_versions == ("1.0rc1",)
+        assert observed.candidates == ()
+        assert adapter.query(dependency="demo", source=source, cell=cell) == observed
+        assert len(calls) == 2

@@ -178,6 +178,36 @@ def _render_report(
                 ),
             )
         )
+    spaces = report.search_spaces()
+    if spaces:
+        rows.extend(((None, Text()), (None, Text("Search spaces", style="bold"))))
+        rows.append((None, Text(f"Artifact policy: {report.search_policy.artifact}")))
+        for binding in report.search_policy.bindings:
+            requested = binding.requested_space or "conditional default"
+            rows.append((None, Text(
+                f"{', '.join(binding.dependencies)}: requested {requested}; step {binding.step}; "
+                f"prereleases {'included' if binding.prereleases else 'excluded'}"
+            )))
+            rows.append((None, Text(
+                f"  with lower bound: {binding.space_defaults.with_lower_bound}; "
+                f"without lower bound: {binding.space_defaults.without_lower_bound}", style="dim"
+            )))
+        for projection in spaces:
+            selection = projection.selection
+            surface = ",".join(projection.cell.extra_surface) or "base"
+            label = f"{projection.cell.target} py{projection.cell.python_minor} {surface} · {projection.dependency}"
+            if selection is None:
+                rows.append((None, Text(f"{label}: series selection evidence unavailable", style="dim")))
+                continue
+            rows.append((None, Text(f"{label}: {selection.expression} ({selection.reason})")))
+            if selection.anchors:
+                rows.append((None, Text("  anchors: " + ", ".join(f"{name}={version}" for name, version in selection.anchors))))
+                series = ", ".join(
+                    (f"{key[0]}!" if key[0] else "") + ".".join(str(part) for part in key[1:])
+                    for key in selection.selected_keys
+                )
+                rows.append((None, Text(f"  selected series: {series}")))
+            rows.append((None, Text("  exact representatives: " + ", ".join(projection.representatives))))
     if diagnose_index is None and (complete or scoped_eligible):
         action = Text("-> ", style="hint")
         action.append(
