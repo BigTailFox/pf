@@ -1446,8 +1446,16 @@ class ProposalV1(FrozenSchema):
     fixed_declaration_refs: tuple[str, ...]
     resolution_graph_ref: str
     project_plan_digest: str
-    environment_plan_digest: str
+    environment_plan_digest: str | None = Field(
+        json_schema_extra={"x-pf-preserve-null": True}
+    )
     interpreter: InterpreterIdentity
+
+    @model_serializer(mode="wrap")
+    def serialize_required_null(self, handler):
+        result = handler(self)
+        result["environment_plan_digest"] = self.environment_plan_digest
+        return result
 
 
 class StaticUnchangedEvaluationV1(FrozenSchema):

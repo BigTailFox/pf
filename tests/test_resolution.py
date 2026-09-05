@@ -268,6 +268,7 @@ class TestResolutionIdentity:
         with pytest.raises(ValueError, match="cannot prove"):
             InstallFailure(
                 plan_digest="plan",
+                stage="install-project",
                 cause="HARNESS_CONFLICT",
                 process=_process().model_copy(update={"exit_code": 1}),
             )

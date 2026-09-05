@@ -400,7 +400,7 @@ class ResolutionPlan(FrozenSchema):
 def environment_identity_digest(
     *,
     project_plan_digest: str,
-    environment_plan_digest: str,
+    environment_plan_digest: str | None,
     graph: tuple[ResolvedNode, ...],
 ) -> str:
     return _digest(
@@ -438,7 +438,7 @@ def resolution_graph_id(graph: tuple[ResolvedNode, ...]) -> str:
 
 class EnvironmentIdentity(FrozenSchema):
     project_plan_digest: str
-    environment_plan_digest: str
+    environment_plan_digest: str | None
     graph: tuple[ResolvedNode, ...]
     digest: str
 
@@ -447,16 +447,19 @@ class EnvironmentIdentity(FrozenSchema):
         cls,
         *,
         project_plan: ResolutionPlan,
-        environment_plan: ResolutionPlan,
+        environment_plan: ResolutionPlan | None,
         graph: tuple[ResolvedNode, ...],
     ) -> "EnvironmentIdentity":
+        environment_digest = (
+            environment_plan.semantic_digest if environment_plan is not None else None
+        )
         return cls(
             project_plan_digest=project_plan.semantic_digest,
-            environment_plan_digest=environment_plan.semantic_digest,
+            environment_plan_digest=environment_digest,
             graph=graph,
             digest=environment_identity_digest(
                 project_plan_digest=project_plan.semantic_digest,
-                environment_plan_digest=environment_plan.semantic_digest,
+                environment_plan_digest=environment_digest,
                 graph=graph,
             ),
         )
@@ -542,7 +545,7 @@ class InstallFailure(FrozenSchema):
     status: Literal["INSTALL_FAILURE"] = "INSTALL_FAILURE"
     plan_digest: str
     cause: FailureCause
-    stage: Literal["install-environment"] = "install-environment"
+    stage: Literal["install-project", "install-environment"]
     process: ProcessObservation
     summary_code: str | None = None
 

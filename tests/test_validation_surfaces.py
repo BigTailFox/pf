@@ -91,7 +91,7 @@ class TestRequiredSurfaces:
         )
         assert package.config.resolution.artifact == artifact
         assert package.config.test.command == command
-        assert package.test_group_present
+        assert package.selected_test_group == "test"
 
     @pytest.mark.parametrize(
         ("policy", "custom", "expected"),

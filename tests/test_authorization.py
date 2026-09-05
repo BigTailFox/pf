@@ -148,7 +148,7 @@ def _evaluation(
 ) -> PassEvaluation:
     vector = (VersionPin(name="idna", version=version),)
     project_digest = f"project-{cell_id(cell)}-{version}"
-    environment_digest = f"environment-{cell_id(cell)}-{version}"
+    environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
             project_plan_digest=project_digest,
@@ -454,7 +454,7 @@ class TestApplyAuthorizer:
         finally:
             snapshot.close()
 
-    @pytest.mark.parametrize("policy_fact", ("project_overlap", "project_marker_projection"))
+    @pytest.mark.parametrize("policy_fact", ("project_overlap", "project_marker_projection", "test_group_selection", "empty_harness_prepare"))
     def test_normalization_policy_isolates_reports_with_explicit_defaults(
         self, tmp_path, monkeypatch, policy_fact
     ):

@@ -246,7 +246,7 @@ class TestConfiguration:
         assert config.resolution.timeout_seconds == 600
         assert config.ty.args == ()
         assert config.ty.timeout_seconds == 600
-        assert config.test.group == "test"
+        assert config.test.group is None
         assert config.test.command == ("pytest",)
         assert config.test.cwd == "package"
         assert config.test.timeout_seconds == 1800

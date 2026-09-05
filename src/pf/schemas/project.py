@@ -1002,7 +1002,7 @@ class PackagePlan(FrozenSchema):
     source_routes: tuple[DependencySourceRoute, ...]
     dependency_search_policies: tuple[NamedSearchPolicy, ...] = ()
     harness_requirements: tuple[HarnessRequirement, ...] = ()
-    test_group_present: bool = False
+    selected_test_group: str | None = None
 
     @model_validator(mode="after")
     def validate_source_routes(self) -> "PackagePlan":

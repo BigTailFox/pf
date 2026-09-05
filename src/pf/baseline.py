@@ -91,7 +91,7 @@ class HighestVersionVerifier:
                         process=capture.failure.process,
                         summary_code=capture.failure.summary_code,
                         project_plan_digest=prepared.project_plan.semantic_digest,
-                        environment_plan_digest=prepared.environment_plan.semantic_digest,
+                        environment_plan_digest=prepared.environment_identity.environment_plan_digest,
                     ),
                     evaluation=capture,
                 )
@@ -113,7 +113,7 @@ class HighestVersionVerifier:
                 AttemptFailureScope(attempt=prepared.attempt),
                 evaluation,
                 project_plan_digest=prepared.project_plan.semantic_digest,
-                environment_plan_digest=prepared.environment_plan.semantic_digest,
+                environment_plan_digest=prepared.environment_identity.environment_plan_digest,
             )
             assert failure is not None
             if failure.disposition == "REJECTED":

@@ -9,7 +9,6 @@ from threading import BoundedSemaphore
 from typing import Protocol
 
 from pf.environment import PreparedEnvironment, StageConsumer, emit_cell_stage
-from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     CacheConflict,
     EnvironmentVariable,
@@ -40,13 +39,6 @@ from pf.schemas.evaluation import (
 )
 from pf.schemas.project import PackagePlan
 from pf.static_transition import StaticTransitionClassifier, static_fingerprint
-
-
-def require_full_evaluation_contract(package: PackagePlan) -> None:
-    if not package.test_group_present:
-        raise ConfigurationError(
-            f"test dependency group is required: {package.config.test.group}"
-        )
 
 
 class StagePermitPools:

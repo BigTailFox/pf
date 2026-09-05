@@ -572,11 +572,15 @@ class UvAdapter:
                 environment_removals=_UV_SOURCE_ENVIRONMENT_REMOVALS,
             )
         )
-        outcome = self._classify(process, stage="install-environment")
+        stage: Literal["install-project", "install-environment"] = (
+            "install-project" if plan.kind == "project" else "install-environment"
+        )
+        outcome = self._classify(process, stage=stage)
         if isinstance(outcome, ToolFailure):
             assert outcome.process is not None
             return InstallFailure(
                 plan_digest=plan.digest,
+                stage=stage,
                 cause=outcome.cause,
                 process=outcome.process,
                 summary_code=outcome.summary_code,

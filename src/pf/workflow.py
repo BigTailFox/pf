@@ -13,7 +13,6 @@ from pf.errors import (
     MergeInputError,
     MergeOutputError,
 )
-from pf.evaluation import require_full_evaluation_contract
 from pf.search_space import admit
 from pf.schemas.evaluation import (
     BaselineIndeterminate,
@@ -99,7 +98,6 @@ class CheckCommandWorkflow:
             selector=request.selector,
         )
         package = project.target
-        require_full_evaluation_contract(package)
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,
@@ -190,7 +188,6 @@ class SmokeCommandWorkflow:
             selector=request.selector,
         )
         package = project.target
-        require_full_evaluation_contract(package)
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,
@@ -276,7 +273,6 @@ class SearchCommandWorkflow:
         )
         package = project.target
         report_path = root / project.report_path
-        require_full_evaluation_contract(package)
         admit(package)
         limits = resolve_run_limits(
             package.config.scheduling,

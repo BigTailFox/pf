@@ -561,7 +561,7 @@ class TestPackageReportBuilder:
         )
         graph = ()
         project_plan_digest = "project-plan"
-        environment_plan_digest = "environment-plan"
+        environment_plan_digest = None
         proposal = Proposal(
             proposal_id=environment_identity_digest(
                 project_plan_digest=project_plan_digest,
@@ -894,7 +894,7 @@ class _CompleteReportCase:
             )
             graph = (ResolvedNode(name=dependency, version=version),)
             project_digest = f"project-{suffix}"
-            environment_digest = f"environment-{suffix}"
+            environment_digest = f"environment-{suffix}" if attempt.identity.harness_declaration_ids else None
             proposal = Proposal(
                 proposal_id=environment_identity_digest(
                     project_plan_digest=project_digest,
@@ -2620,6 +2620,18 @@ class TestCompleteReportStore(_CompleteReportCase):
         )
         document["evidence"]["proposals"].sort(key=lambda item: item["proposal_id"])
 
+        self._assert_read_rejects(tmp_path, document)
+
+    @pytest.mark.parametrize("branch", ["project", "environment"])
+    @pytest.mark.parametrize("mutation", ["missing", "inconsistent"])
+    def test_read_rejects_invalid_environment_plan_branch(self, tmp_path, branch, mutation):
+        document = copy.deepcopy(self.case.regional_document)
+        proposal = next(item for item in document["evidence"]["proposals"]
+                        if (item["environment_plan_digest"] is None) == (branch == "project"))
+        if mutation == "missing":
+            del proposal["environment_plan_digest"]
+        else:
+            proposal["environment_plan_digest"] = "invented" if branch == "project" else None
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_duplicate_fixed_declaration_references(

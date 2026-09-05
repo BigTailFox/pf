@@ -251,7 +251,7 @@ class TestCompatibilityChecker:
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure is not None
         assert result.failure.cause == "BUILD_FAILURE"
-        assert result.failure.stage == "install-environment"
+        assert result.failure.stage == "install-project"
         assert assembly.ty.vectors == []
         assert assembly.verifier.vectors == []
         assert all(not root.exists() for root in assembly.uv.environment_roots)
@@ -363,12 +363,7 @@ class TestCheckWorkflow:
     @pytest.mark.parametrize(
         ("test_command", "test_group", "host", "message"),
         (
-            (
-                True,
-                False,
-                "x86_64-unknown-linux-gnu",
-                "test dependency group is required",
-            ),
+            (True, False, "aarch64-apple-darwin", "no configured cell matches"),
             (True, True, "aarch64-apple-darwin", "no configured cell matches"),
         ),
     )

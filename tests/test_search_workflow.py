@@ -755,7 +755,7 @@ class TestSearchWorkflow:
         assert "MISSING_CELL" in reports.report.result.reasons
         assert reports.report_path == "package-floor.json"
 
-    def test_search_empty_host_set_rejects_missing_contract_before_snapshot(
+    def test_search_without_group_records_missing_host(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -776,13 +776,6 @@ class TestSearchWorkflow:
         )
         coordinator = FailedSearch()
         events = Events()
-        monkeypatch.setattr(
-            SnapshotBuilder,
-            "build",
-            lambda *_args, **_kwargs: pytest.fail(
-                "contract admission must precede snapshot construction"
-            ),
-        )
         workflow = SearchCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
@@ -797,11 +790,12 @@ class TestSearchWorkflow:
             events=events,
         )
 
-        with pytest.raises(ConfigurationError, match="test dependency group"):
-            workflow.run(SearchRequest(root=tmp_path.as_posix()))
+        result = workflow.run(SearchRequest(root=tmp_path.as_posix()))
 
         assert coordinator.cells == []
-        assert not (tmp_path / "package-floor.json").exists()
+        assert result.report.result.status == "incomplete"
+        assert "MISSING_CELL" in result.report.result.reasons
+        assert (tmp_path / "package-floor.json").exists()
 
     def test_search_writes_the_selected_package_report_path(
         self,

@@ -88,7 +88,7 @@ def _complete_report() -> PackageFloorReportV1Wire:
         )
     )
     project_digest = "project-plan"
-    environment_digest = "environment-plan"
+    environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
             project_plan_digest=project_digest,

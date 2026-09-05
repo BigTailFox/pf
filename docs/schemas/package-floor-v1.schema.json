@@ -1517,8 +1517,15 @@
           "type": "string"
         },
         "environment_plan_digest": {
-          "title": "Environment Plan Digest",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Environment Plan Digest"
         },
         "fixed_declaration_refs": {
           "items": {

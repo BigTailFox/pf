@@ -154,7 +154,7 @@ def _package(
         declarations=(),
         cells=cells,
         source_routes=(),
-        test_group_present=full_contract,
+        selected_test_group="test" if full_contract else None,
     )
 
 
@@ -555,7 +555,7 @@ class TestVerificationRunnerAdmission:
             ).run(request)
         snapshot.close()
 
-    def test_check_contract_error_precedes_empty_host_error(
+    def test_check_without_group_rejects_empty_host(
         self,
         tmp_path: Path,
     ) -> None:
@@ -575,13 +575,13 @@ class TestVerificationRunnerAdmission:
             limits=_limits(),
         )
 
-        with pytest.raises(ConfigurationError, match="test dependency group"):
+        with pytest.raises(ConfigurationError, match="no configured cell matches"):
             VerificationRunner(events=_Events(), logs=None, host_target=HOST).run(
                 request
             )
         snapshot.close()
 
-    def test_search_empty_host_set_still_requires_full_contract(
+    def test_search_without_group_accepts_empty_host(
         self,
         tmp_path: Path,
     ) -> None:
@@ -591,20 +591,19 @@ class TestVerificationRunnerAdmission:
             full_contract=False,
         )
         events = _Events()
-        with pytest.raises(ConfigurationError, match="test dependency group"):
-            VerificationRunner(
-                events=events,
-                logs=None,
-                host_target=HOST,
-            ).run(
-                _search_request(
-                    package,
-                    snapshot,
-                    _SearchOperation(
-                        lambda *_: pytest.fail("empty Run must not start operation")
-                    ),
-                )
+        VerificationRunner(
+            events=events,
+            logs=None,
+            host_target=HOST,
+        ).run(
+            _search_request(
+                package,
+                snapshot,
+                _SearchOperation(
+                    lambda *_: pytest.fail("empty Run must not start operation")
+                ),
             )
+        )
         matrix = next(item for item in events.items if isinstance(item, CellMatrixEvent))
         assert matrix.cells == ()
         assert not any(isinstance(item, CellCompletedEvent) for item in events.items)

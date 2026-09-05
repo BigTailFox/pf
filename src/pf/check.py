@@ -70,7 +70,7 @@ class CompatibilityChecker:
                 evaluation=capture,
                 static_baseline=None,
                 project_plan_digest=highest.project_plan.semantic_digest,
-                environment_plan_digest=highest.environment_plan.semantic_digest,
+                environment_plan_digest=highest.environment_identity.environment_plan_digest,
             )
         if self._events is not None:
             self._events.consume(
@@ -100,7 +100,7 @@ class CompatibilityChecker:
             runtime=runtime,
             static_baseline=capture.baseline,
             project_plan_digest=prepared.project_plan.semantic_digest,
-            environment_plan_digest=prepared.environment_plan.semantic_digest,
+            environment_plan_digest=prepared.environment_identity.environment_plan_digest,
         )
 
     def _prepare_outcome(
@@ -143,7 +143,7 @@ class CompatibilityChecker:
         runtime: RuntimeEvaluationRun | None = None,
         static_baseline: StaticBaseline | None,
         project_plan_digest: str,
-        environment_plan_digest: str,
+        environment_plan_digest: str | None,
     ) -> CheckCellOutcome:
         if isinstance(evaluation, PassEvaluation):
             return CheckCellOutcome(

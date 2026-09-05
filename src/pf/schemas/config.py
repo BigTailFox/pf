@@ -115,7 +115,7 @@ class TyConfig(FrozenSchema):
 
 
 class TestConfig(FrozenSchema):
-    group: str = "test"
+    group: str | None = None
     command: tuple[str, ...] = ("pytest",)
     cwd: Literal["package", "root"] = "package"
     timeout_seconds: StrictInt | None = 1800

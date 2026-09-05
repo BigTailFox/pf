@@ -236,7 +236,7 @@ def _pass_evaluation(
     policy_identity: str,
 ) -> PassEvaluation:
     project_digest = f"project-{attempt.attempt_id}"
-    environment_digest = f"environment-{attempt.attempt_id}"
+    environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
             project_plan_digest=project_digest,

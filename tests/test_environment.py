@@ -834,9 +834,8 @@ test-command = ["python", "-c", "pass"]
         assert prepared.proposal.project_plan_digest == (
             prepared.project_plan.semantic_digest
         )
-        assert prepared.proposal.environment_plan_digest == (
-            prepared.environment_plan.semantic_digest
-        )
+        assert prepared.environment_plan is None
+        assert prepared.proposal.environment_plan_digest is None
         assert prepared.proposal.proposal_id == environment_identity_digest(
             project_plan_digest=prepared.proposal.project_plan_digest,
             environment_plan_digest=prepared.proposal.environment_plan_digest,
@@ -873,6 +872,8 @@ test-command = ["python", "-c", "pass"]
             },
             "failure_policy": "failure-runtime-v2",
             "validation_contract_policy": {
+                "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
+                "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
                 "project_marker_projection": "portable-cell-platform-v1",
                 "resolution_projection": "actual-interpreter-target-active-pylock",
                 "self_reference": "required-effective-cell-surface",
@@ -1183,7 +1184,7 @@ test-command = ["python", "-c", "pass"]
             VersionPin(name="idna", version="3.1"),
         )
         assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect-environment-plan"
+        assert result.failure.stage == "inspect-project-plan"
         snapshot.close()
 
     def test_environment_prepare_failure_retains_attempt_without_a_proposal(
@@ -1460,6 +1461,8 @@ test-command = ["python", "-c", "pass"]
 
         assert isinstance(relaxed, PreparedEnvironment)
         assert original.project_plan.packages == relaxed.project_plan.packages
+        assert original.environment_plan is not None
+        assert relaxed.environment_plan is not None
         assert {item.name for item in original.environment_plan.packages} == {
             "idna",
             "pluggy",
@@ -1583,7 +1586,7 @@ test-command = ["python", "-c", "pass"]
         ("method", "cause", "stage"),
         (
             ("inspect_interpreter", "ENVIRONMENT_FAILURE", "inspect-interpreter"),
-            ("install_resolution", "BUILD_FAILURE", "install-environment"),
+            ("install_resolution", "BUILD_FAILURE", "install-project"),
             ("inspect_environment", "TOOL_FAILURE", "inspect"),
         ),
     )
@@ -1606,6 +1609,7 @@ test-command = ["python", "-c", "pass"]
                 assert isinstance(plan, ResolutionPlan)
                 return InstallFailure(
                     plan_digest=plan.digest,
+                    stage="install-project",
                     cause=cause,
                     process=_failed_process(cause, stage),
                 )
@@ -1631,7 +1635,7 @@ test-command = ["python", "-c", "pass"]
             assert result.environment_plan_digest is None
         else:
             assert result.project_plan_digest
-            assert result.environment_plan_digest
+            assert result.environment_plan_digest is None
         snapshot.close()
 
     def test_environment_rejects_an_interpreter_that_does_not_match_the_cell(
@@ -1691,7 +1695,7 @@ test-command = ["python", "-c", "pass"]
 
         assert isinstance(result, PrepareFailure)
         assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect-environment-plan"
+        assert result.failure.stage == "inspect-project-plan"
         snapshot.close()
 
     def test_environment_rejects_a_graph_with_packages_outside_the_final_plan(
@@ -1723,7 +1727,7 @@ test-command = ["python", "-c", "pass"]
 
         assert isinstance(result, PrepareFailure)
         assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect-environment-plan"
+        assert result.failure.stage == "inspect-project-plan"
         snapshot.close()
 
     def test_environment_prepare_keeps_attempt_when_harness_resolution_fails(
@@ -1901,7 +1905,7 @@ marker = 'python_full_version < "3.10.0" or implementation_name != "cpython"'
                 self.paths.append(kwargs["interpreter"])
                 return super().install_resolution(**kwargs)
 
-        root = _write_demo(tmp_path)
+        root = _write_demo(tmp_path, harness=True)
         package = ProjectLoader().load(root=root).target
         snapshot = SnapshotBuilder.without_processes().build(root)
         uv = ObservedUv()
@@ -1924,6 +1928,7 @@ marker = 'python_full_version < "3.10.0" or implementation_name != "cpython"'
                     assert len(set(uv.paths)) == 1
                     assert result.proposal.interpreter is not None
                     assert result.proposal.interpreter.version == patch
+                    assert result.environment_plan is not None
                     assert (
                         result.project_plan.context == result.environment_plan.context
                     )

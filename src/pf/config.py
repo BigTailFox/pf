@@ -220,7 +220,7 @@ class ConfigLoader:
                     ),
                 ),
                 test=TestConfig(
-                    group=merged.get("test-group", "test"),
+                    group=merged.get("test-group"),
                     command=test_command,
                     cwd=merged.get("test-cwd", "package"),
                     timeout_seconds=self._duration(

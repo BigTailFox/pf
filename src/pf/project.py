@@ -216,9 +216,14 @@ class ProjectLoader:
 
         root_groups = root_document.get("dependency-groups", {})
         package_groups = document.get("dependency-groups", {})
-        group_name = config.test.group
-        test_group_present = group_name in root_groups or group_name in package_groups
-        expanded_harness = (
+        candidates = (
+            (config.test.group,) if config.test.group is not None else ("dev", "test")
+        )
+        group_name = next(
+            (name for name in candidates if name in root_groups or name in package_groups),
+            None,
+        )
+        expanded_harness = () if group_name is None else (
             *(
                 ("root", root / "pyproject.toml", item)
                 for item in self._expand_group(root_groups, group_name)
@@ -401,7 +406,7 @@ class ProjectLoader:
             source_routes=tuple(source_routes[name] for name in sorted(source_routes)),
             dependency_search_policies=dependency_search_policies,
             harness_requirements=harness_requirements,
-            test_group_present=test_group_present,
+            selected_test_group=group_name,
         )
 
     @staticmethod

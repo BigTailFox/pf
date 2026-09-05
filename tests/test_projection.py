@@ -156,7 +156,7 @@ def passing_evaluation(
         source_plan_identity_value=source_plan_identity_value,
     )
     project_digest = f"project-{cell_id(cell)}-{version}"
-    environment_digest = f"environment-{cell_id(cell)}-{version}"
+    environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
             project_plan_digest=project_digest,

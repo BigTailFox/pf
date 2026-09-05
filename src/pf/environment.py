@@ -192,7 +192,7 @@ class PreparedEnvironment:
         environment_root: Path,
         interpreter: Path,
         project_plan: ResolutionPlan,
-        environment_plan: ResolutionPlan,
+        environment_plan: ResolutionPlan | None,
         environment_identity: EnvironmentIdentity,
         harness_baseline: HarnessBaseline,
         temporary_directory: tempfile.TemporaryDirectory[str],
@@ -389,75 +389,78 @@ class EnvironmentFactory:
                 temporary_directory.cleanup()
                 return failed(source_failure)
 
-            harness = self._harness_for_resolution(
-                package=package,
-                cell=cell,
-                resolution=resolution,
-                source_plan=source_plan,
-                project_plan=project_outcome,
-            )
-            environment_request = self._request_digest(
-                kind="environment",
-                package=package,
-                snapshot=snapshot,
-                cell=cell,
-                resolution=resolution,
-                context=context,
-                project_plan=project_outcome,
-                harness=harness,
-                source_plan=source_plan,
-            )
-            emit_cell_stage(self._events, cell, "resolving environment")
-            environment_outcome = self._resolve_once(
-                key=("environment", environment_request),
-                resolve=lambda: self._uv.resolve_environment(
-                    package=package_root,
-                    package_name=package.name,
-                    interpreter=interpreter,
+            environment_outcome: ResolutionOutcome | None = None
+            if attempt.identity.harness_declaration_ids:
+                harness = self._harness_for_resolution(
+                    package=package,
+                    cell=cell,
+                    resolution=resolution,
+                    source_plan=source_plan,
+                    project_plan=project_outcome,
+                )
+                environment_request = self._request_digest(
+                    kind="environment",
+                    package=package,
+                    snapshot=snapshot,
                     cell=cell,
                     resolution=resolution,
                     context=context,
-                    request_digest=environment_request,
                     project_plan=project_outcome,
                     harness=harness,
-                    work_directory=runtime_root,
-                    artifact_policy=package.config.resolution.artifact,
-                    timeout_seconds=package.config.resolution.timeout_seconds,
                     source_plan=source_plan,
-                ),
-            )
-            if not isinstance(environment_outcome, ResolutionPlan):
-                temporary_directory.cleanup()
-                return failed(self._resolution_failure(environment_outcome))
-            artifact_failure = self._artifact_policy_failure(
-                environment_outcome,
-                policy=package.config.resolution.artifact,
-            )
-            if artifact_failure is not None:
-                temporary_directory.cleanup()
-                return failed(artifact_failure)
-            environment_plan_digest = environment_outcome.semantic_digest
-            if not self._project_graph_is_exact(project_outcome, environment_outcome):
-                temporary_directory.cleanup()
-                return failed(
-                    ToolFailure(
-                        cause="INTERNAL_INVARIANT",
-                        stage="resolve-environment",
-                        process=None,
-                        summary_code="managed-source-mismatch",
-                        detail=FailureDetail(
-                            code="managed-source-mismatch",
-                            message=(
-                                "the environment resolution did not preserve the "
-                                "project source selection"
-                            ),
-                        ),
-                    )
                 )
+                emit_cell_stage(self._events, cell, "resolving environment")
+                environment_outcome = self._resolve_once(
+                    key=("environment", environment_request),
+                    resolve=lambda: self._uv.resolve_environment(
+                        package=package_root,
+                        package_name=package.name,
+                        interpreter=interpreter,
+                        cell=cell,
+                        resolution=resolution,
+                        context=context,
+                        request_digest=environment_request,
+                        project_plan=project_outcome,
+                        harness=harness,
+                        work_directory=runtime_root,
+                        artifact_policy=package.config.resolution.artifact,
+                        timeout_seconds=package.config.resolution.timeout_seconds,
+                        source_plan=source_plan,
+                    ),
+                )
+                if not isinstance(environment_outcome, ResolutionPlan):
+                    temporary_directory.cleanup()
+                    return failed(self._resolution_failure(environment_outcome))
+                artifact_failure = self._artifact_policy_failure(
+                    environment_outcome,
+                    policy=package.config.resolution.artifact,
+                )
+                if artifact_failure is not None:
+                    temporary_directory.cleanup()
+                    return failed(artifact_failure)
+                environment_plan_digest = environment_outcome.semantic_digest
+                if not self._project_graph_is_exact(project_outcome, environment_outcome):
+                    temporary_directory.cleanup()
+                    return failed(
+                        ToolFailure(
+                            cause="INTERNAL_INVARIANT",
+                            stage="resolve-environment",
+                            process=None,
+                            summary_code="managed-source-mismatch",
+                            detail=FailureDetail(
+                                code="managed-source-mismatch",
+                                message=(
+                                    "the environment resolution did not preserve the "
+                                    "project source selection"
+                                ),
+                            ),
+                        )
+                    )
 
-            emit_cell_stage(self._events, cell, "installing environment plan")
+            final_plan = environment_outcome or project_outcome
+            emit_cell_stage(self._events, cell, f"installing {final_plan.kind} plan")
             install = self._uv.install_resolution(
-                plan=environment_outcome,
+                plan=final_plan,
                 interpreter=interpreter,
                 cwd=package_root,
                 work_directory=runtime_root,
@@ -487,7 +490,7 @@ class EnvironmentFactory:
             installed = {node.name: node.version for node in graph.nodes}
             expected = {
                 item.name: item.version
-                for item in environment_outcome.packages
+                for item in final_plan.packages
                 if item.version is not None
             }
             expected_names = set(expected) | {package.name}
@@ -498,7 +501,7 @@ class EnvironmentFactory:
                 return failed(
                     ToolFailure(
                         cause="INTERNAL_INVARIANT",
-                        stage="inspect-environment-plan",
+                        stage=f"inspect-{final_plan.kind}-plan",
                         process=graph.process,
                     )
                 )
@@ -549,14 +552,13 @@ class EnvironmentFactory:
                 environment_plan=environment_outcome,
                 graph=graph.nodes,
             )
-            active_harness_ids = tuple(
-                item.declaration.declaration_id for item in harness
-            )
             harness_baseline = (
                 HarnessBaseline.from_evidence(
                     cell=cell,
-                    declaration_ids=tuple(sorted(active_harness_ids)),
-                    observations=environment_outcome.direct_harness,
+                    declaration_ids=attempt.identity.harness_declaration_ids,
+                    observations=(
+                        environment_outcome.direct_harness if environment_outcome else ()
+                    ),
                 )
                 if isinstance(resolution, HighestResolution)
                 else resolution.harness_baseline
@@ -570,7 +572,7 @@ class EnvironmentFactory:
                 fixed_declaration_ids=fixed_declaration_ids,
                 resolved_graph=graph.nodes,
                 project_plan_digest=project_outcome.semantic_digest,
-                environment_plan_digest=environment_outcome.semantic_digest,
+                environment_plan_digest=environment_plan_digest,
                 policy_identity=policy_identity,
                 interpreter=interpreter_result.interpreter,
             )
@@ -657,8 +659,6 @@ class EnvironmentFactory:
     ) -> tuple[HarnessResolutionRequirement, ...]:
         if isinstance(resolution, HighestResolution):
             return original_harness(package, cell, source_plan=source_plan)
-        if resolution.harness_baseline.cell != cell:
-            raise ConfigurationError("harness baseline must match the requested cell")
         return relax_harness(
             package,
             resolution.harness_baseline,
@@ -889,6 +889,14 @@ class EnvironmentFactory:
                 )
             )
         )
+        if isinstance(resolution, (ExactSelection, LowestDirectResolution)):
+            baseline = resolution.harness_baseline
+            if baseline.cell != cell:
+                raise ConfigurationError("harness baseline must match the requested cell")
+            if baseline.declaration_ids != harness_declaration_ids:
+                raise ConfigurationError("harness baseline must match active declarations")
+            if not harness_declaration_ids and baseline.observations:
+                raise ConfigurationError("empty harness baseline must have no observations")
         baseline_digest = (
             resolution.harness_baseline.digest
             if isinstance(resolution, (ExactSelection, LowestDirectResolution))

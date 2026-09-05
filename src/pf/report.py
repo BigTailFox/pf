@@ -1141,7 +1141,9 @@ class PackageReportBuilder:
             )
         if (
             not proposal.project_plan_digest
-            or not proposal.environment_plan_digest
+            or (proposal.environment_plan_digest is None)
+            != (not attempt.identity.harness_declaration_ids)
+            or proposal.environment_plan_digest == ""
             or proposal.interpreter is None
         ):
             raise ConfigurationError(
@@ -1968,6 +1970,7 @@ class ReportStore:
     @classmethod
     def _validate_v1(cls, document: dict[str, object]) -> ValidatedReport:
         required_nullable = {
+            ("evidence", "proposals", "*", "environment_plan_digest"),
             ("inputs", "search_policy", "bindings", "*", "requested_space"),
             ("inputs", "candidate_snapshots", "*", "series_inventory_ref"),
         }
@@ -2217,7 +2220,12 @@ class ReportStore:
                     "invalid v1 report: Attempt has multiple Proposals: "
                     f"{_safe_report_id(record.attempt_ref)}"
                 )
-            if not record.project_plan_digest or not record.environment_plan_digest:
+            if (
+                not record.project_plan_digest
+                or (record.environment_plan_digest is None)
+                != (not attempt.identity.harness_declaration_ids)
+                or record.environment_plan_digest == ""
+            ):
                 raise ConfigurationError(
                     "invalid v1 report: Proposal is missing plan identity: "
                     f"{_safe_report_id(record.proposal_id)}"

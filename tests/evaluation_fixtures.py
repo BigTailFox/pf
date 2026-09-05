@@ -340,7 +340,7 @@ class ScriptedUv:
             assert failure.process is not None
             return InstallFailure(
                 cause=failure.cause,
-                stage="install-environment",
+                stage="install-project" if plan.kind == "project" else "install-environment",
                 process=failure.process,
                 plan_digest=plan.digest,
                 summary_code=failure.summary_code,

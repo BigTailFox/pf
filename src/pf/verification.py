@@ -8,7 +8,7 @@ import time
 from typing import ClassVar, Literal, Protocol, overload
 
 from pf.errors import ConfigurationError, InfrastructureError
-from pf.evaluation import StagePermitPools, require_full_evaluation_contract
+from pf.evaluation import StagePermitPools
 from pf.failure import FailurePolicy
 from pf.policy import evaluation_policy_identity
 from pf.schemas.evaluation import (
@@ -240,9 +240,7 @@ class VerificationRunner:
         cells: tuple[Cell, ...],
     ) -> None:
         if isinstance(request, SearchVerificationRun):
-            require_full_evaluation_contract(request.package)
             return
-        require_full_evaluation_contract(request.package)
         if not cells:
             raise ConfigurationError(
                 f"no configured cell matches host target: {self._host_target}"

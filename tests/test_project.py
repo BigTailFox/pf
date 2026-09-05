@@ -242,7 +242,7 @@ class TestProjectDiscovery:
             selector=WorkspacePackage(canonical_name="demo"),
         ).target
 
-        assert package.test_group_present is True
+        assert package.selected_test_group == "qa"
         assert tuple(
             (requirement.name, requirement.provenance.owner)
             for requirement in package.harness_requirements

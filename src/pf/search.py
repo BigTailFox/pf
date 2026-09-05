@@ -725,7 +725,7 @@ class _ProposalRunner:
                     process=self._synthetic_process(),
                 ),
                 project_plan_digest=prepared.project_plan.semantic_digest,
-                environment_plan_digest=prepared.environment_plan.semantic_digest,
+                environment_plan_digest=prepared.environment_identity.environment_plan_digest,
             )
         self._prepared[key] = prepared
         return prepared
@@ -753,7 +753,7 @@ class _ProposalRunner:
             AttemptFailureScope(attempt=prepared.attempt),
             result,
             project_plan_digest=prepared.project_plan.semantic_digest,
-            environment_plan_digest=prepared.environment_plan.semantic_digest,
+            environment_plan_digest=prepared.environment_identity.environment_plan_digest,
         )
         assert failure is not None
         assert result.failure is not None
@@ -781,7 +781,7 @@ class _ProposalRunner:
             AttemptFailureScope(attempt=prepared.attempt),
             result,
             project_plan_digest=prepared.project_plan.semantic_digest,
-            environment_plan_digest=prepared.environment_plan.semantic_digest,
+            environment_plan_digest=prepared.environment_identity.environment_plan_digest,
         )
         assert failure is not None
         return self._failure_evidence(
