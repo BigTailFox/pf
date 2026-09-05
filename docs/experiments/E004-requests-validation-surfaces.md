@@ -53,7 +53,8 @@ smoke 的 12 个 PASS 分布于 Python 3.10/3.12/3.13/3.14 的三个 surface，�
 resolution、installation、ty 和完整 configured pytest。Python 3.11 的三个失败具有 project 与 environment
 plan digest，失败发生在最终安装图复证；它们不再是 E003 的 `resolution-plan-invalid`，也不构成 Rejection。
 
-check 的 12 个 Rejection 均来自实际 configured verifier `NormalExit(1)`；不据此推断单个依赖根因。
+check 的 12 个 Rejection 均来自实际 configured verifier 正常非零退出：py3.10 的 3 个为
+`NormalExit(1)`，py3.12–3.14 的 9 个为 `NormalExit(4)`；不据此推断单个依赖根因。
 代表 Failure ID 为 `failure-45c5b98bfbdbd841`（Python 3.10、security+socks）。Python 3.11 未进入 declaration
 验证。check 退出 1 是其现行聚合规则，不表示全部 15 Cells 都已取得负向验证事实。
 
@@ -89,8 +90,8 @@ journal 也有 60 entries，运行留下 932 份 process logs。原 `resolution-
 ## 5. 结论边界
 
 自引用已经成为真实 effective Cell surface，E003 的 target-as-harness 投影缺口已消失。Python 3.11 的
-installed-graph mismatch 是后续独立观察到的未完成测量，不声称已定位根因。12 个搜索期构建失败也不构成
-Rejection。此次没有得到 floor，不能将候选观测追认为完整兼容性结论。
+installed-graph mismatch 在原实验结束时尚未定位；后续离线诊断见 §7，原始 Indeterminate 终态保持。
+12 个搜索期构建失败也不构成 Rejection。此次没有得到 floor，不能将候选观测追认为完整兼容性结论。
 
 
 ## 6. 用户补充：自动跳过空 extra group
@@ -114,3 +115,175 @@ active declarations、无 requests source route 均已核对。最终 evaluation
 
 最终行为的证据是 public planning/configuration/policy tests 与此次 live planning；未再运行完整 search，
 也不声称这 10 个 Cell 已取得新策略下的 smoke/check/search 终态。
+
+## 7. 后续诊断：Python 3.11 的条件节点投影缺口
+
+- **诊断日期：** 2026-09-05
+- **代码基线：** `57888b7`（D028 已提交）
+- **范围：** 回放 §3 smoke 的已有日志，未重新运行 smoke/check/search，未修改生产代码。
+- **结论：** PF 将 pylock 中未生效的条件节点纳入预期安装图，触发安装图复证失败；尚未修复。
+
+### 7.1 原始日志事实
+
+日志均来自 `.pf/logs/20260905T063558.981602Z-132551-456b7f88/`：
+
+1. `process-0024.log` 的 environment lock 包含 `tomli==2.4.1`，package marker 为
+   `python_full_version <= '3.11'`。
+2. `process-0033.log` 记录 `uv pip sync` 使用 Python **3.11.15**，成功安装 33 个包，其中没有 tomli。
+   该实际版本不满足上述 marker。
+3. `process-0053.log` 的安装后 metadata inspection 正常退出 0。归一化 distribution names 后，
+   相比 PF 解析出的预期图，唯一缺项为 tomli；没有额外包或版本漂移。当前 target requests 单独计入。
+4. 其余两个 py3.11 Cell 也有相同差异：
+
+| Environment lock | Installed metadata | 唯一缺项 |
+| --- | --- | --- |
+| `process-0024.log` | `process-0053.log` | tomli |
+| `process-0044.log` | `process-0080.log` | tomli |
+| `process-0050.log` | `process-0086.log` | tomli |
+
+同次 smoke 的 py3.10 lock 也包含这个条件节点，但其解释器满足条件，实际安装了 tomli；py3.12–3.14
+的 environment locks 已不包含 tomli。这解释了该次运行为何只在 py3.11 暴露此差异。
+
+### 7.2 代码路径与离线复证
+
+`parse_uv_pylock` 保存 package marker，但将所有 package entries 返回给调用方。
+[UvAdapter](../../src/pf/adapters/uv.py) 将这些节点投影为 ResolutionPlan；
+[EnvironmentFactory](../../src/pf/environment.py) 在 `inspect-environment-plan` 构造 expected
+name/version map 时也未按 marker 过滤，因而把未生效的 tomli 当成必须安装的包，返回
+`INTERNAL_INVARIANT / INDETERMINATE`。失败发生在 ty/configured pytest 之前。
+
+以下命令在 PF 根目录执行，回放三个实际失败 Cell；不创建验证环境、不访问包源：
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+from packaging.markers import Marker
+from packaging.utils import canonicalize_name
+from pf.adapters.uv_lock import parse_uv_pylock
+
+logs = Path("experiments/requests/.pf/logs/20260905T063558.981602Z-132551-456b7f88")
+def stdout(name):
+    return logs.joinpath(name).read_text().split("\n--- stdout ---\n", 1)[1].split("\n--- stderr ---\n", 1)[0]
+
+environment = dict(python_version="3.11", python_full_version="3.11.15",
+                   implementation_name="cpython", platform_python_implementation="CPython")
+for lock, graph in ((24, 53), (44, 80), (50, 86)):
+    plan = parse_uv_pylock(stdout(f"process-{lock:04d}.log"), python_minor="3.11")
+    expected = {p.name: p.version for p in plan if p.name != "requests"}
+    actual = {canonicalize_name(p["name"]): p["version"]
+              for p in json.loads(stdout(f"process-{graph:04d}.log"))
+              if canonicalize_name(p["name"]) != "requests"}
+    assert set(expected) - set(actual) == {"tomli"}
+    active = {p.name: p.version for p in plan if p.name != "requests"
+              and (p.marker is None or Marker(p.marker).evaluate(environment))}
+    assert active == actual
+    print(f"{lock:04d}/{graph:04d}: missing tomli; active name/version graph matches")
+PY
+```
+
+结果：三组均通过断言。未过滤时重现缺少 tomli；按实际 Python 3.11.15 求值后，active 节点的包名和版本
+与安装观测完全一致。该对照定位了条件节点处理缺口，但不验证 source/artifact 等其余图不变量，也不等于
+产品修复后的 smoke PASS。
+
+后续修复需统一解析计划与安装图复证使用的实际 interpreter/target 条件投影，并保留图一致性约束。
+本节只记录诊断事实与修复方向；不追认原实验成功，不产生新的 floor、predecessor 或 apply authority。
+
+## 8. 后续诊断：check 的声明下界失败
+
+2026-09-05，在同一 `57888b7` 基线上回放 check run
+`20260905T063738.393187Z-142006-4c8e5bf4`。实际安装 metadata 确认 12 个 declaration environments
+均使用 `urllib3==1.26.0`、`PySocks==1.5.6`，对应 requests 声明下界；三类失败如下：
+
+| Python | Cells | 直接失败及证据 |
+| --- | --- | --- |
+| 3.10 | 3 | SOCKS 代理测试失败，pytest 正常退出 1；代表日志 `process-0119.log` |
+| 3.11 | 3 | declaration-capture 安装图复证失败，尚未进入 declaration verifier；见 §7 的条件节点诊断 |
+| 3.12–3.14 | 9 | conftest 导入 urllib3 失败，pytest 正常退出 4；代表日志 `process-0172.log` |
+
+### 8.1 PySocks 已安装但无法导入
+
+py3.10 的首个失败用例为 `tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]`。
+它预期 `ConnectionError`，实际得到 `InvalidSchema: Missing dependencies for SOCKS support.`。
+
+最小导入复现表明，`PySocks==1.5.6` 中的 `from collections import Callable` 抛出 ImportError。
+Python 3.10 已移除这些旧 ABC 别名，见 [Python 3.10 变更](https://docs.python.org/3/whatsnew/3.10.html#removed)。
+requests 的 adapters 模块捕获了 `urllib3.contrib.socks` 的 ImportError，替换为抛出 InvalidSchema 的
+fallback，因而最终文案看似缺少依赖。实际 metadata 已证明 PySocks 安装成功；失败是导入不兼容。
+
+保持 Python 3.10 与 urllib3 1.26.0，仅将 PySocks 换为缓存中的 1.7.1，SOCKSProxyManager 导入成功。
+该对照只验证这一导入缺口，不证明 1.7.1 是 floor，也不证明完整 suite 已通过。
+
+### 8.2 urllib3 内置 six 的旧导入协议
+
+py3.12–3.14 的错误链为 `tests/conftest.py → requests → urllib3.exceptions`，终止于
+`ModuleNotFoundError: No module named 'urllib3.packages.six.moves'`。
+
+urllib3 1.26.0 内置的 six 1.12.0 importer 实现 `find_module()`，没有 `find_spec()`；Python 3.12
+移除了旧协议入口，见 [Python 导入协议](https://docs.python.org/3.12/reference/import.html#the-meta-path)。
+本机 Python 3.12 的 importlib 也直接跳过没有 `find_spec` 的 finder。用缓存中的同一 urllib3 包在
+Python 3.12 最小导入可复现原错误，在 Python 3.10 则能导入 urllib3。
+
+三个最小对照的复核命令如下；缓存目录来自此次实验，不下载或重新安装依赖：
+
+```bash
+.venv/bin/python - <<'PY'
+import subprocess
+root = "/tmp/pf-uv-cache/archive-v0/"
+urllib3 = root + "pJpzpJv1HQEpdp8Z"
+old_socks = root + "Zf5fIGorEyujw_bk"
+new_socks = root + "mBrcrK53PuVOh2xc"
+for python, socks, error in (
+    (".venv/bin/python", old_socks, "cannot import name 'Callable'"),
+    ("/usr/bin/python3.12", old_socks, "No module named 'urllib3.packages.six.moves'"),
+    (".venv/bin/python", new_socks, None),
+):
+    code = f"import sys; sys.path[:0] = {[urllib3, socks]!r}; from urllib3.contrib.socks import SOCKSProxyManager"
+    result = subprocess.run([python, "-I", "-c", code], capture_output=True, text=True)
+    assert (result.returncode == 0) if error is None else (result.returncode != 0 and error in result.stderr)
+    print(python, error or "SOCKS import passed")
+PY
+```
+
+结果：三个对照均满足断言。check 的 12 个 declaration Rejection 是配置验证命令的真实正常非零退出；
+局部复现解释了已观察到的导入链，不把完整 Attempt 的失败归约成已经求出的单个依赖边界。
+
+## 9. 后续诊断：search 为何在 idna 0.2 停止
+
+同日核对 search run `20260905T063827.102454Z-148781-2027f407`，12 个非 py3.11 Cell 的失败日志
+全部指向同一个 `idna-0.2.tar.gz` artifact，SHA-256 为
+`e28fdff4b1d47edd13e053399f642818d2f591cb9c215eb626bde6b14d6f4575`。
+日志为 `process-0639.log`–`process-0646.log`、`process-0861.log`–`process-0863.log` 与
+`process-0931.log`；uv build backend 均正常退出 1，summary code 为 `resolution-build-failure`。
+
+缓存源码的 `setup.py` 在调用 setuptools setup 前明确检查 Python major：等于 3 就抛出
+`SystemExit("Sorry, Python 3 not yet supported")`。直接执行该源码可重现退出 1 和相同错误，无需构建环境
+或访问包源：
+
+```bash
+.venv/bin/python - <<'PY'
+from pathlib import Path
+import sys, runpy
+roots = list(Path('/tmp/pf-uv-cache/archive-v0').glob('*/setuptools/__init__.py'))
+assert roots
+sys.path.insert(0, str(roots[0].parent.parent))
+runpy.run_path('/tmp/pf-uv-cache/sdists-v9/url/dd2670b2f8718bab/dn8Xu7qi8em-z3Md/src/setup.py', run_name='__main__')
+PY
+```
+
+**为何探测 0.2：** 此次冻结的 idna CandidateSnapshot 包含 41 个版本，首个为 0.2，最高为 3.19。
+search 会移除受管依赖的声明下界限制以寻找更低版本，保留 upper bounds/exclusions，因此 `idna>=2.5`
+不会把搜索限制在 2.5 以上。D003 的默认首次 probe 是最早候选；0.2 的 sdist 符合此次 `any` artifact
+策略。该源码的 PKG-INFO 没有 `Requires-Python` 字段，Python 3 拒绝条件位于执行期 setup.py 中。
+
+**为何停止而不继续：** [D005](../designs/D005-pf-failure-and-diagnose.md) 将 build failure 保持为
+Indeterminate；[D003](../designs/D003-pf-search-algorithm.md) 要求 Probe Indeterminate 立即停止。
+人读 setup.py 可以定位本次具体原因，但现行 PF 不把 build stderr 或源码检查转换成 certified Rejection。
+因此不能据此跳过该候选，或把它发布为 predecessor 拒绝证据。
+
+search 的三个 py3.11 baseline 另行核对 environment lock / installed metadata 对：`0028/0059`、
+`0076/0110`、`0090/0115`，同样只有未生效的 tomli 节点差异，与 §7 一致。
+
+这解释了 §3 的 12 runtime-search Indeterminate 加 3 baseline Indeterminate，以及无 final success roots、
+六个 projection 无 floor 的结果。先前 65 个 PASS evaluations 是过程证据，不能替代完整搜索终态。
+上述 check/search 诊断均未修改目标依赖、PF 实现或搜索策略，也未重新运行完整三命令实验。
