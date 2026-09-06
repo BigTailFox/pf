@@ -267,6 +267,10 @@ projector与Run live对共同事实保持D008规定的语义相等，但Terminal
 所有 renderer 复用统一 `0/1/N` 单复数 formatter。只有实际写入/修改的 artifact 能使用 `written | updated | merged`。Package-scoped命令只有一个target artifact与一条命令级summary；`merge`仍可消费多份report。
 Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 
+Check final 若有失败的 declaration-capture outcome，摘要使用
+`Check failed · baseline capture did not pass · N cells`，不能称 declared lower bounds
+不兼容；只有实际 declaration rejection 才使用下界不兼容结论。退出码仍为 1，逐 Cell impact 见 D008。
+
 典型结果：
 
 ```text
@@ -373,6 +377,13 @@ optional Process Log link
 ```
 
 header使用disposition对应的red/yellow事实色；What happened与Next step逐cause复用D005稳定文案，Impact逐Role逐字使用D008映射。Context至少显示package、完整Cell、stage、source `report | journal`及source path。Technical details必须显示disposition、cause，以及适用的attempt/resolution/vector/proposal/boundary/process/detail；不得用`None`占位。
+
+execution authority 的细节从 terminal/attribution 派生：显示 qualified attribution 或 normal
+nonzero fallback，异常终态单独说明；operation-structured 显示 fact.code。普通卡片仍简洁，
+RESOLUTION_FAILED 不说已证明依赖冲突，INSTALLATION_FAILED 只说所选 plan 本次安装未通过。
+后端 build 原因留在日志，不创建独立 build stage、归因某个版本或自动建议提高下界。
+新 authority 没有嵌入 ProcessResult 时，本机日志 fallback 使用与 primary failure ID 匹配的
+运行期 sidecar；不得取另一条 failure 的 process，live 与 final 保持同一关联语义。
 
 输出tail来自D007安全Process Log，stderr非空时优先，否则stdout，只保留最后3条非空行；不能从tail重新分类。Process Log和report/source path在TTY中使用literal OSC 8 file link，non-TTY为无控制序列的路径文本。缺少本地locator时显示`Detailed local log is unavailable.`，不降低portable authority。用户数据使用literal Rich Text，不解释markup。
 

@@ -64,8 +64,23 @@ Region 只保存调度事实：Slice、fingerprint、已观测连续版本和直
 9. 非单调判断只读取相同 Slice 中的直接 runtime observation，不读取 region guidance。
 10. 同一精确 Proposal 的 prepare/static/完整 Evaluation 在一次 search 内最多执行一次；执行结果 cache 只属于 evaluator。
 11. `CandidateSnapshot` 只冻结target受管project direct dependency的registry搜索候选；workspace member自身依赖、harness与任意transitive distribution完全属于uv resolution，不建立PF catalog、coordinate或floor。
-12. 一次 Verification Run 固定精确 uv profile、唯一 SEARCH SourcePlan 对象、release cutoff 与共享 cache；baseline、CandidateSnapshot freeze 与全部 exact probe 由 Runner 注入并消费该对象及其 identity。相同 project/environment resolution input 最多解析一次，但 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。
+12. 一次 Verification Run 固定精确 uv profile、唯一 SEARCH SourcePlan 对象、release cutoff 与共享 cache；baseline、CandidateSnapshot freeze 与全部 exact probe 由 Runner 注入并消费该对象及其 identity。相同 project/environment resolution input 最多解析一次；PF 直接观察的 source 访问失败、registry artifact不闭合或managed coordinate泄漏到local/workspace source仍为Indeterminate，不回退到development route，也不把cache miss解释为候选不存在。后端自由文本不等于这些直接事实，未知正常非零按 D005 拒绝 Attempt。
 13. 搜索产生的每个完整向量都必须属于各坐标 `S[d]`；越界在 prepare/Attempt 前形成 Cell-scope `INTERNAL_INVARIANT`，不能回退为自由解析。
+
+prepare rejection 与 verifier rejection 使用同一 ProbeRejection：可指导当前 Slice、形成直接
+predecessor 边界并参与直接非单调检测。没有 Proposal/静态事实的 prepare failure 不登记 region，
+也不填充 FailedCaseSet。它不证明某个单版本、整个区间或其他 Cell/source/policy/Slice 的失败。
+
+重复观察与冲突承诺仅限实际存在的 seam：
+
+| Seam | 观察/缓存范围 | 冲突含义 |
+| --- | --- | --- |
+| Cell search prepare/full-run cache | 固定 Cell/source/policy/baseline，完整排序向量 key | 命中复用同次观察，不重复 prepare，也不检测 attribution 漂移或证明复现 |
+| EvaluationCache | 相同 Proposal ID/static baseline 的实际写入；static 比 status，full 比 status 与既有 verifier authority | CacheConflict 经 static-cache/full-cache 形成 NONDETERMINISTIC，不扩展到无 Proposal 的 prepare failure |
+| CoordinateSearch | 同 Cell/Slice/candidate 的直接 disposition | 已观察 status 冲突按 NONDETERMINISTIC；两个 Reject 不比较归因 |
+| ReportStore.merge | 同 generation/Cell 结果、同 evidence ID payload | 冲突直接拒绝报告合并，不合成运行期 NONDETERMINISTIC |
+
+不同 failure ID 仅表示事实不同，不自动证明 nondeterminism；本次不增加 prepare 重试或归因漂移探测。
 
 每个 managed searchable coordinate 在 `PackagePlan` 中都有唯一完整
 `NamedSearchPolicy(name, space?, space_defaults, resolution, prereleases)`。ProjectLoader 绑定配置层级，省略 space
@@ -181,7 +196,8 @@ prepared/static 状态时，`promote` 从该状态补齐 runtime。没有结果�
 2. 若是当前 region 的首次直接 observation，按 D004 运行 witness 或 `test-command`，得到 ProbePass/Rejection/Indeterminate；
 3. 若与相邻已观测点形成同 fingerprint region，且该连续 component 已有唯一一致的直接 PASS 或 REJECTED representative，可以只保存 `StaticOnlyEvidence`；
 4. 若 component 内已有不同直接状态，不使用 guidance，直接运行 runtime evaluation；
-5. Ty/witness/test 不完整均为 ProbeIndeterminate。
+5. Ty/witness 必需协议不完整，或 verifier 异常终态，均为 ProbeIndeterminate；verifier 日志截断
+   不改变已有 normal exit 的处置，pytest telemetry 不决定分类。
 
 Static-only evidence 保存本 Proposal 的 Attempt、Proposal、TyCheck、fingerprint、Slice、guidance 和 representative Proposal ID，但没有 `status`。它只影响 lower-bound 探测方向。首次请求就是 `promote` 时仍完成 prepare → static → runtime；不要求先有调度 observation。prepare terminal 不制造 region point；完整结果若含完整 static 事实，则首次 promotion 或跨 dependency 命中都登记当前 region。相同 point 登记幂等，promotion 更新直接 reference 并保留先前 static-only observation。
 

@@ -34,7 +34,7 @@ Attempt；Attempt前的candidate discovery或scheduler deadline只能形成`Cell
 composition root一次探测的host target；它不隐式探测，request与workflow都不携带override。所选集合
 必须等于一次`CellMatrixEvent`、Scheduler tasks、completion total、Search deadline scope与规范返回集合。
 Runner把同一个PackagePlan、SourcePlan与borrowed snapshot对象传给全部operation；operation不从workflow
-closure取得第二份plan。Workflow 在 snapshot/process 前验证 smoke/check/search 的 full-evaluation contract；Runner 保留同一 defense-in-depth admission。三条命令即使 host Cell 为空也要求有效 `test-command` 与存在的 effective `test-group`。合法完整 contract 下的 Search空集仍finalize空Journal并返回`()`，workflow继续形成`MISSING_CELL` incomplete report。
+closure取得第二份plan。Workflow 在 snapshot/process 前验证 smoke/check/search 的 full-evaluation contract；Runner 保留同一 defense-in-depth admission。三条命令即使 host Cell 为空也要求有效 `test-command`；effective test group 按 D001 可为空，不增加 existence gate。合法完整 contract 下的 Search空集仍finalize空Journal并返回`()`，workflow继续形成`MISSING_CELL` incomplete report。
 
 一个 Cell 的链路是：
 
@@ -202,6 +202,14 @@ static issue。它必须绑定 retained failure ID，不进入 Journal、report�
 identity。搜索结果只在内存中按 Failure ID 保留相应 `RuntimeEvaluationRun`，用于 terminal
 completion 与本地 Process Log association；序列化必须排除该映射。
 
+prepare 的 execution/operation-structured authority 同样保留 excluded ProcessObservation sidecar，
+包括无 Proposal 的 BaselineRejection、BaselineIndeterminate、check failure 与 search probe。
+Runner 用 retained Failure ID 绑定 process，并验证其 terminal 与新 authority 相等；Journal、
+Diagnosis Index、report association 和 live/final projection 不因 authority 不含 ProcessResult
+而丢失本机日志，也不能将另一 failure 的 process 接到 primary failure。
+分类仅使用 D005 共享规则：prepare Reject 可继续 probe 搜索，baseline/declaration-capture Reject
+仍终止对应 Cell/阶段，Indeterminate 仍终止；Role、聚合与退出码不因 cause 新增而改变。
+
 ## 6. 命令聚合
 
 `check` 对每个 Cell 使用 declaration 结果；若未启动，则使用 declaration-capture 结果。任一
@@ -235,7 +243,7 @@ entries[]
   Cell
   Role
   Attempt?       CellFailureScope 时省略
-  FailureRecord v2 authority
+  FailureRecord v3 authority
 ```
 
 每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、scope、Attempt、source digest与该policy必须闭合；同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。

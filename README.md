@@ -6,9 +6,11 @@ English | [简体中文](README.zh.md)
 
 ## What it does
 
-PF discovers candidate versions in isolated environments, captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. It returns an explainable, reproducible floor for each managed direct dependency.
+PF discovers candidate versions in isolated environments, captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. It records an explainable, verified exact dependency vector.
 
 The search unit is one installable package and one compatibility cell: exact uv target triple, CPython minor, and extra surface. On a frozen candidate snapshot, PF returns a coordinate-minimal vector that passed full tests. It does not claim a global minimum over the Cartesian product of dependencies, and it does not prove that unprobed versions or other combinations work. The product contract is [D001](docs/designs/D001-pf.md).
+
+For admitted resolution and installation requests, an unattributed normal nonzero exit rejects that attempt, including failures inside a build backend. It does not prove a dependency conflict or a repeatable failure. A backend can report network or permission problems this way, so false rejections may raise the reported floor, miss feasible vectors, or leave no result. Timeouts, abnormal terminals and directly observed external or consistency failures remain indeterminate. Final results still require actual resolution, installation, graph checks and a full verifier PASS; PF does not add retries or promise reproducibility from one observation.
 
 ## Installation
 

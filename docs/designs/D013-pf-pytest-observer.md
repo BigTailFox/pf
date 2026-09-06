@@ -11,6 +11,11 @@
 compatibility disposition；配置 verifier 的唯一 authority 是 D002/D005 定义的 child process
 terminal。
 
+该终态使用 D005 通用 ExecutionTerminal 与共享执行映射，但保留 configured-verifier authority。
+pytest 1/2/3/4/5 不注册外因归因，summary、traceback、phase 或不完整日志不能改变 disposition。
+prepare 的执行失败在本协议以前结束，不构造 pytest telemetry 或 FailedCaseSet；failed-set 仍
+只能提前拒绝，不能替代完整命令 PASS 或成为最终向量成功证据。
+
 ## 1. 边界
 
 `ConfiguredVerifier` 可机械识别以下 direct pytest command shape，仅用于注入 UI telemetry：

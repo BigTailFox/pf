@@ -42,7 +42,7 @@ _Avoid_: Attempt, candidate version
 
 **Rejection**
 
-完整且确定的事实证明一个 Attempt 不满足 PF 验证契约；它只否定该完整 Attempt，不归因到单个 dependency version。
+已采用的事实表明一个 Attempt 没有通过 PF 验证契约；它只否定该完整 Attempt，不证明可重复失败、逻辑无解或单个 dependency version 是根因。
 
 _Avoid_: Error, tool failure, version failure
 
@@ -54,7 +54,7 @@ _Avoid_: Rejection, incompatible
 
 **Cause**
 
-Adapter 根据脱敏机械事实给出的稳定操作原因；它回答发生了什么，但不决定搜索是否继续。
+PF 根据已采用的执行或结构化事实给出的稳定操作原因；它回答发生了什么，不等于 disposition 或依赖根因。
 
 _Avoid_: Disposition, exit code, stderr text
 
@@ -78,16 +78,28 @@ _Avoid_: Test adapter, pytest observer
 
 _Avoid_: last-failed, testmon, 测试缓存, 过滤器
 
-**Verifier Terminal**
+**Execution Terminal**
 
-配置 verifier 的可移植权威终态。具体 union 与 disposition 映射只见
+PF 验证操作采用的可移植进程终态，包括配置 verifier。具体 union 与 disposition 映射只见
 [D005](docs/designs/D005-pf-failure-and-diagnose.md)。
 
 _Avoid_: Test failure evidence, diagnostic summary
 
+**Execution Attribution**
+
+PF 对当前验证操作采用的、已资格化且绑定请求的细分失败依据；没有合格依据时为 Unattributed。
+
+_Avoid_: Root cause, error text, diagnostic hint
+
+**Operation Failure**
+
+验证操作未通过时取得的执行或直接结构化事实；它本身不预先命名为拒绝或不确定。
+
+_Avoid_: Resolution UNSAT, Resolution Indeterminate
+
 **Baseline Rejection**
 
-Baseline Attempt 被确定证明不满足验证契约的终态；它没有可供搜索使用的通过锚点。
+Baseline Attempt 没有通过验证契约的拒绝终态；它没有可供搜索使用的通过锚点。
 
 _Avoid_: Baseline failure, Baseline Indeterminate
 

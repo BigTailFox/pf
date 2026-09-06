@@ -298,9 +298,21 @@ snapshot close，Search仍在Run后消费snapshot identity做drift/report工作�
 分支 plan、environment identity和install边界由D012定义。
 
 `EnvironmentFactory` 物化源码后先创建空 venv、inspect/资格化真实解释器，再建立绑定实际 patch/ABI 的
-ResolutionContext 与 Attempt，随后 resolve project；仅 active external harness IDs 非空时 normalize/resolve environment，最终安装一次并复证 graph。准备失败保留初始 Attempt，
+ResolutionContext 与 Attempt，随后 resolve project；仅 active external harness IDs 非空时 normalize/resolve environment，最终安装一次并复证 graph。准备失败保留实际失败阶段的 Attempt，
 不伪造 interpreter 或 plan；所有失败路径清理 temporary resources。实际 interpreter 改变使 request/cache
 identity 改变；marker 到 active graph 的唯一投影 owner 为 `adapters.uv_lock`，细则见 D012。
+
+工具 version/protocol/profile 准入早于 Attempt，失败是 ConfigurationError；未建模异常或非法内部
+对象是 InfrastructureError。Adapter 返回中性 ResolutionFailure/InstallFailure 或辅助
+OperationFailureResult，内含 D005 的 ExecutionFailure/StructuredOperationFailure，不填
+cause/disposition。Factory 在调用前创建 OperationRequestBinding，校验返回 request/context/plan
+envelope，完成全部 source/artifact 检查后才提交 plan digest；Q 图/向量检查使用 null terminal。
+PrepareFailure 绑定 Attempt、实际 stage、OperationFailure 与 required-nullable plan digests；
+不虚构 Proposal。FailurePolicy.record_prepare 原样采用事实并使用共享分类/身份规则。
+
+ConfiguredVerifier 使用同一通用 terminal 规则，ty/witness 保持独立 decoder。ReportStore 复用
+规则验证 portable authority；运行期 ProcessObservation sidecar 由 baseline/check/search、
+VerificationRunner 与 presentation 按 Failure ID 关联，不进入新 FailureRecord identity。
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
 

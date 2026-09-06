@@ -11,6 +11,10 @@
 
 本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线、增量 transition、diagnostic 分类和 runtime witness 的唯一契约。静态事实不决定 compatibility disposition；边界由 D003/D005 的 runtime evidence 决定。
 
+D005 的 resolve/install 正常非零拒绝兜底不适用于本文件协议：ty 非零仍须解码其合法诊断，
+witness 只有 CONFIRMED_MISSING 可拒绝，其他异常非零不兜底。prepare rejection 没有 Proposal，
+不产生本文件静态事实或 witness；完整 PASS 仍须成功准备、满足本协议并运行完整 verifier。
+
 ## 1. 目标
 
 PF 识别依赖环境变化引入的静态状态变化，而不要求项目 type-clean，也不把 `ty` 的模型结论直接等同于 runtime incompatibility。

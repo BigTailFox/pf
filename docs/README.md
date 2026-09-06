@@ -97,9 +97,15 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
 - [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) 记录 MkDocs 原始 search 的
   13 个基线拒绝与 8 个 Jinja2 构建不确定，Babel 测试前提、pathspec 缩进输入差异及上游 PR/CI
   证据；完成实验配置后 smoke 为 5 Cells PASS。未重跑 search，未得到 verified floor；后续已确认
-  “可靠归因优先、执行契约兜底”的统一方向，尚未形成规范性 Design 或实现。
+  “可靠归因优先、执行契约兜底”的统一方向，目标契约见 D036，实施记录见 P041。
 
 ## 开放事项与归档
+
+- [D036](archived/designs/D036-pf-execution-failure-contract.md) /
+  [P041](archived/plans/P041-pf-execution-failure-contract.md) 已完成统一执行失败契约：合格归因优先，
+  正常非零兜底拒绝当前 Attempt，严格保留成功产物与完整 verifier PASS；FailureRecord v3、
+  报告/策略隔离、三命令诊断及真实旧式 sdist 搜索已验收。稳定规则由 D001–D008/D012–D014 接管，
+  三版本全套各 2244 passed，coverage 90.46%。
 
 - [D035](archived/designs/D035-pf-optional-test-group.md) /
   [P040](archived/plans/P040-pf-optional-test-group.md) 已完成可选 test-group 与空 harness 快路：

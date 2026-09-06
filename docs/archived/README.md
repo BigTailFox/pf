@@ -7,12 +7,17 @@
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
-| [designs](designs/) | D009–D011、D015–D030、D032–D035 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P040 | 实施与验证已完成 |
+| [designs](designs/) | D009–D011、D015–D030、D032–D036 | 已实施并由现行 Design 接管 |
+| [plans](plans/) | P001–P041 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001 | 结论已纳入 D013 |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
+
+[D036](designs/D036-pf-execution-failure-contract.md) /
+[P041](plans/P041-pf-execution-failure-contract.md)：统一 execution/operation-structured authority、
+合格 UNSAT 与普通非零兜底、FailureRecord v3、report/policy/apply 隔离及三命令诊断已完成；
+稳定规则由 D001–D008/D012–D014 接管，真实 sdist resolve/install 搜索通过，三版本各 2244 tests 通过。
 
 [D035](designs/D035-pf-optional-test-group.md) /
 [P040](plans/P040-pf-optional-test-group.md)：可选 test-group、按 Cell active harness 分支准备、

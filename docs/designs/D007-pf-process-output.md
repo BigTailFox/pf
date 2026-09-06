@@ -21,7 +21,8 @@
 
 - Process Log 是脱敏输出正文的来源；Output Cache 是可丢弃派生数据。
 - 报告只保存对应 operation 允许的 portable authority；configured verifier 仅保存 D005 的
-  `VerifierTerminal`。日志、cache 与 locator 不进入 report/Proposal/failure identity。
+  `ExecutionTerminal`；prepare 的 execution/operation-structured authority 只保存 D005 规定的
+  terminal 与被采用的 attribution/fact。日志、cache 与 locator 不进入 report/Proposal/failure identity。
 - Process Log 正文没有产品字节上限；每个 process 的 stdout+stderr cache 合计最多 16 MiB，优先保留尾部。
 - Cache 中的文本必须来自相应日志，不得合成日志不存在的输出。
 - 匿名缓冲可以随运行增长，进程结束后删除；它不是产品日志或配额。
@@ -119,7 +120,11 @@ Production adapter 不设置更小的 `ProcessSpec.summary_limit`；该字段只
 
 - 不解析 stdout/stderr 的 test command 只使用 portable facts，以及 D013 独立的 bounded pytest protocol；cache 不完整不能制造 `TOOL_FAILURE`。
 - 解析 JSON/pylock/git output 的 adapter 必须取得完整 stream；语法/结构错误才是 tool failure。
-- uv diagnostic classifier 只有在完整 output 与 D012 qualification profile 都成立时才能产生 conflict；不完整 stderr 保持 Indeterminate。
+- uv diagnostic classifier 只有在完整 output 与 D012 qualification profile 都成立时才能产生
+  qualified UNSAT；不完整 envelope 或可选日志不可读时不采用归因，已有普通非零仍按父操作兜底。
+  成功 resolve 必需的完整 output/native plan 不放宽：缺失、不可读或无效使用 D005 结构化 fact。
+- 终态先按 timeout、其余异常、normal exit 归一化；超时清理后的 exit 0 不成为成功。
+  日志截断、缺失或 tail 不改变真实 terminal，不从后端 build/source 文字推断独立进程或直接外因。
 - ProcessRunner 不解释 uv、ty、pytest 或 test exit；adapter 不从 tail/summary 推断未观察的 facts。
 
 ## 7. Diagnose tail

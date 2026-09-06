@@ -1,7 +1,7 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 - **适用范围：** smoke/check/search 各角色的环境准备；relaxation 仅适用于 declaration/probe
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -200,8 +200,7 @@ active package 的 dependencies references 按 native 字段匹配原始节点�
 
 ```text
 ResolutionPlan
-ResolutionUnsat
-ResolutionIndeterminate
+ResolutionFailure(failure: OperationFailure)
 ```
 
 `ResolutionPlan` 同时保存：
@@ -209,24 +208,43 @@ ResolutionIndeterminate
 - 规范 semantic projection：package name、version、source、dependencies、direct harness satisfaction，以及可靠可得的 selected artifact；
 - 经校验的 native `pylock.toml` 与 digest，供 installation 使用；
 - request、context、semantic 和 native identities；
-- 完整 `ProcessResult` evidence。
+- NormalExit(0) 与成功协议要求的完整 `ProcessResult` evidence。
 
 Raw artifact alternatives 可以作为 native provenance 保留，但不是 PF coordinate。URL、Git、path、workspace 和 editable source 使用各自的稳定 source identity。
 
-`ResolutionUnsat` 只表示 qualification profile 已认证的完整逻辑 incompatibility。普通非零退出、单个 stderr substring、输出截断或 candidate unavailable 都不足以构造它。
+`ResolutionFailure` 是中性事实，不接收 cause/disposition；保存当前 stage、request_digest 和
+运行期 ResolutionContext envelope，以及 D005 的 ExecutionFailure 或 StructuredOperationFailure。
+ProcessObservation 可作 excluded sidecar，不进入 operation fact wire。InstallFailure 同样携带
+OperationFailure，但 envelope 是被安装的 plan_digest。无兼容 alias 或旧 outcome 分支。
 
-`ResolutionIndeterminate` 表示没有足够事实判断 satisfiability，并保留具体 cause、summary code 和 process evidence。
+只有固定 profile 已认证的完整 direct/transitive contradiction 才构造 UvUnsatAttribution；普通
+非零、单个 substring、candidate unavailable、source/build 排除形状、未知或不完整 diagnostic
+均为 Unattributed。它们在有效 R/I 请求中按 D005 的正常非零兜底，不预先命名为 Indeterminate。
 
 ### 5.1 uv qualification
 
-当前只支持依赖中精确固定的 uv `0.12.5`，protocol 为 `uv-pip-compile-pylock-v1`，profile 为 `uv-diagnostics-0.12.5-v1`。其他版本 fail closed。
+当前只支持依赖中精确固定的 uv `0.12.5`，protocol 为 `uv-pip-compile-pylock-v1`，profile 为
+`uv-diagnostics-0.12.5-v1`。其他版本或无法取得完整 NormalExit(0) version observation 时，在
+Attempt 前以 ConfigurationError fail closed，不生成 prepare failure。
 
-截至 2026-08-25，Linux x86_64 的 13-case manifest 位于 [`tests/uv_qualification/matrix-manifest.json`](../../tests/uv_qualification/matrix-manifest.json)。只有 direct/transitive version contradiction 被认证为 UNSAT；以下情形保持 Indeterminate：
+2026-08-25 Linux x86_64 的 13-case 历史 manifest 位于
+[`tests/uv_qualification/matrix-manifest.json`](../../tests/uv_qualification/matrix-manifest.json)，
+原始 disposition 保留不回写。现行只有 direct/transitive version contradiction 被认证为 UNSAT；
+以下 diagnostic shape 排除 UNSAT，不再从这些文本取得 source/build 等 disposition authority：
 
 - package/version、platform wheel 或 Python candidate unavailable；
 - index 401/403/timeout、metadata failure、hash mismatch 或 offline cache miss；
 - sdist build failure；
-- timeout、signal、启动失败、输出不完整或未知 diagnostic shape。
+- 输出不完整或未知 diagnostic shape。
+
+真实 timeout、signal、启动失败与 terminal unavailable 仍是异常执行终态；仅工具输出中的
+timeout/source/build 文字不等于这些进程事实。首轮不扩展 matcher 识别能力、不注册 build 或
+source 工具归因，也不删除已有 build 排除条件。成功路径 output 不完整或 native plan 不可读/
+无效按 D005 的 resolution-output-incomplete / resolution-plan-invalid；非零残留产物不解析。
+
+[2026-09-06 qualification](../../tests/execution_qualification/README.md) 保存现行真实 sdist
+resolve/install 多候选搜索证据和新捕获的完整 diagnostic envelopes；测试回放两类 typed UNSAT、
+全部排除形状及截断 envelope，且保留 project/environment 分支和实际 install hash-failure stage。
 
 截至 2026-08-29，同一固定 uv 的 workspace source manifest 位于
 [`tests/uv_workspace_qualification/matrix-manifest.json`](../../tests/uv_workspace_qualification/matrix-manifest.json)。
@@ -237,17 +255,20 @@ highest 与 exact-artifact Attempt、每个 Attempt 的 two resolutions/one inst
 固定 uv `0.12.5` 在同一次 compile 中一旦逐包 suppression 任一 workspace source，就不能继续解析
 另一条未被 suppression 的 `{ workspace = true }` source。PF 不增加全局或额外逐包 suppression，
 不把该 source 改写为 path，也不回退 development graph；这种 mixed source class 当前未资格化，
-在 `resolve-project` 以 ToolFailure/Indeterminate fail closed。需要该组合的项目必须把本地固定依赖
+当前 uv 的普通非零在 `resolve-project` 形成 REJECTED/RESOLUTION_FAILED；不据此宣称该 source
+组合逻辑无解或可重复失败。需要该组合的项目必须把本地固定依赖
 声明为显式 in-tree path source，或等待新的 uv profile 完成资格化。
 
-更换 uv 版本必须更新精确 allowlist、profile、qualification manifest 和 classifier tests。退出码只校验完整 outcome，不能独立决定领域结果。
+更换 uv 版本必须更新精确 allowlist、profile、qualification evidence、classifier tests 和固定
+evaluation policy。分类先检查请求与直接结构化事实，再归一化 terminal；合格归因优先，正常
+非零兜底。不得仅因 diagnostic classifier 仍返回内部 indeterminate 标记而改变父操作 disposition。
 
 ## 6. Interface 与 identity
 
 ```text
-UvOperations.resolve_project(..., interpreter: Path) -> ResolutionOutcome
-UvOperations.resolve_environment(..., interpreter: Path) -> ResolutionOutcome
-UvOperations.install_resolution(plan, ...) -> InstallOutcome
+UvOperations.resolve_project(..., interpreter: Path, request_binding: OperationRequestBinding) -> ResolutionOutcome
+UvOperations.resolve_environment(..., interpreter: Path, request_binding: OperationRequestBinding) -> ResolutionOutcome
+UvOperations.install_resolution(plan, request_binding: OperationRequestBinding, ...) -> InstallOutcome
 EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
 
@@ -256,6 +277,12 @@ EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 `EnvironmentFactory.prepare` 是上层唯一环境准备入口；active IDs 分支、harness relaxation、project/optional environment resolution、一次 installation 和 graph 复证都隐藏在其内。
 调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public
 interface。
+
+Factory 在调用前从当前 Attempt、stage 和已通过检查的 plan digests 建立 request binding；Adapter
+不得创造 Attempt，只为 qualified UNSAT 回传该 binding。producer 校验运行期 context 的 uv
+version/protocol/profile 与凭据逐字段相等。Factory 校验 stage/request/context 或 install plan
+envelope，不一致在预期操作下记 request-invariant；非法内部对象为 InfrastructureError。
+普通非零和结构化 failure 不重复保存 binding，身份由 PrepareFailure 的 Attempt/stage/plans 绑定。
 
 Request 类型限制非法组合：
 
@@ -278,7 +305,14 @@ PF 不从 requirement 或 `search-prereleases` 推断 uv prerelease mode，也�
 
 ## 7. Failure projection
 
-`EnvironmentFactory` 只把已认证的 project `ResolutionUnsat` 投影为 `RESOLUTION_CONFLICT @ resolve-project`，把 environment `ResolutionUnsat` 投影为 `HARNESS_CONFLICT @ resolve-environment`。`ResolutionIndeterminate` 保留 adapter 给出的 source、build、tool 或 timeout cause；installation 与 graph inspection 永远不能反推这两个 conflict cause。
+`EnvironmentFactory` 原样传递 OperationFailure 并附当前 Attempt/stage/已提交 plan digests；
+FailurePolicy.record_prepare 使用 D005 共享规则决定 cause/disposition。qualified UNSAT 仅在 R
+的 NormalExit(1) 使用 project/environment 对应 conflict cause；未知正常非零为 RESOLUTION_FAILED
+或 INSTALLATION_FAILED。create/interpreter/graph 辅助执行异常仍 Indeterminate，Q 图/向量检查
+只保存结构化 fact 与 null terminal，不能借用 inspect 进程。installation/inspection 不反推 UNSAT。
+
+project plan 通过全部 artifact/source 检查后才提交 digest；environment plan 还须通过 exact
+project preservation 才提交。PrepareFailure 不虚构 Proposal、安装图或未通过检查的输出 plan。
 
 这些 operation facts 的 disposition、Baseline/Declaration/Probe 影响和用户文案分别只由 D005、D008 和 D006 定义。
 
@@ -292,8 +326,9 @@ PF 不从 requirement 或 `search-prereleases` 推断 uv prerelease mode，也�
 - active external harness 为空时 resolve project 一次，否则 resolve 两次；install 最终 plan 一次。
 - 有 harness 时 `G(P) ⊆exact E(P)`；两分支安装结果均与最终 plan 完全一致。
 - Harness transitive resolution 归 uv 所有。
-- 只有已认证且 evidence 完整的 resolver conflict 可以拒绝 Attempt。
-- source、artifact、build、tool 和未知失败保持 Indeterminate。
+- certified UNSAT 细分冲突 cause；有效 R/I 的未知正常非零也拒绝当前 Attempt，不证明冲突或根因。
+- PF 直接 source/artifact/environment/invariant facts 和异常终态按 D005 为 Indeterminate；后端
+  自由文本诊断不取得这些 authority。
 - 同一 SourcePlan identity 在一次 Attempt 内固定；两次 compile 的逐 package suppression 必须相同。
 - 未资格化的 mixed managed-suppressed/unmanaged-workspace source 不得通过 local fallback 继续。
 

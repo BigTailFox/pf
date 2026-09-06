@@ -29,7 +29,9 @@ result          complete | incomplete
 ```
 
 字段、判别值、required/optional 形状以生成的 JSON Schema 为准。可选事实不存在时必须省略；只有 required
-`SearchPolicyBinding.requested_space` 与 `CandidateSnapshot.series_inventory_ref` 允许下文规定的 null。
+`SearchPolicyBinding.requested_space`、`CandidateSnapshot.series_inventory_ref`、Proposal 的
+`environment_plan_digest`、operation-structured authority 的 `terminal`、UNSAT request_binding
+的两个 plan digest 允许下文规定的 null。
 其他显式 null、额外字段、Pydantic coercion 或由默认值补出的 wire facts 都无效。
 
 ### 1.1 Identity
@@ -41,7 +43,8 @@ result          complete | incomplete
 - canonical package name、项目相对`pyproject.toml`路径与`requires_python`；
 - 完整 SourceSnapshot identity；
 - evaluation policy identity；
-- required `verifier_outcome_policy = configured-verifier-terminal-v1`。
+- required `verifier_outcome_policy = configured-verifier-terminal-v1`；
+- required `failure_policy = failure-execution-v3`。
 
 Generation ID 的唯一算法是：
 
@@ -53,6 +56,7 @@ sha256(
     source_snapshot,
     policy_identity,
     verifier_outcome_policy,
+    failure_policy,
     source_plan,
     search_policy,
     requirement_declarations sorted by declaration_id,
@@ -91,6 +95,26 @@ evaluation policy identity的配置与既有工具preimage是resolution的`artif
 verifier outcome与failure policy facts；前缀仍为`pf:policy:v1`。test group、target/extra、candidate search和
 全部scheduling limits不进入该identity。
 
+Evaluation-policy preimage 还必须包含固定 `execution_outcome_policy` 对象：
+
+```json
+{
+  "rules": "execution-outcome-v1",
+  "structured_facts": "operation-structured-facts-v1",
+  "attribution_profiles": [{
+    "tool": "uv", "tool_version": "0.12.5",
+    "protocol": "uv-pip-compile-pylock-v1",
+    "profile": "uv-diagnostics-0.12.5-v1",
+    "codes": ["direct-version-contradiction", "transitive-version-contradiction"]
+  }]
+}
+```
+
+keys 按 canonical JSON 排序，codes 数组保持上述顺序；structured_facts 版本绑定 D005 的完整
+code/stage/terminal/cause 表。该对象不是用户配置或运行期匹配结果；classifier/profile 语义变化
+须同步变更其版本及 policy preimage。新的 evaluation policy 隔离 Attempt/Proposal、resolution/
+evaluation cache 与 generation，不仅改变 Failure ID。Configured verifier policy 仍为原终态规则。
+
 Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` 字段，其值为：
 
 ```json
@@ -118,7 +142,7 @@ Cell/source snapshot、Attempt/resolution evidence 绑定，不放入此固定 p
 即使 source、Cells、generator 和显式 any/pytest 配置相同，normalization policy 不同也产生不同
 evaluation policy/generation。merge/update 拒绝跨 generation 混合；update_path 整体替换。Apply 在
 任何 source-drift waiver 前检查当前 evaluation policy，force 不绕过 mismatch。离线 read 内部自洽的
-报告不自动授予当前语义的 apply 或与新 generation merge 的权限。Schema 1 字段不扩形，前缀保持 v1；
+报告不自动授予当前语义的 apply 或与新 generation merge 的权限。Schema 版本和 generation 前缀保持 v1；
 baseline/Attempt digest 的变化不能代替上述 generation/apply 检查。
 
 
@@ -228,11 +252,31 @@ Project-only Proposal 的 graph 来自已安装并复证的 project plan；有 h
 
 Static Evaluation 只能是 `STATIC_UNCHANGED | STATIC_REGRESSION`。Terminal Evaluation 只能是
 现行领域 union `PASS | VERIFIER_REJECTED | RUNTIME_INTERFACE_MISSING | INDETERMINATE`。
-Verifier evaluation 保存 `VerifierTerminal`；不保存完整 `ProcessResult` 或 pytest diagnostics。
+Verifier evaluation 保存 `ExecutionTerminal`；不保存完整 `ProcessResult` 或 pytest diagnostics。
 
-Failure wire 必须恰有一个判别 `authority`：`process | configured-verifier | structured`。Reader
+Failure wire 必须恰有一个判别 `authority`：
+`process | configured-verifier | structured | execution | operation-structured`。Reader
 拒绝缺失、混合、额外或与 cause/stage/disposition 不匹配的 authority，并以完整
-`pf:failure:v2` preimage 重算 failure ID。
+`pf:failure:v3` preimage 重算 failure ID。
+
+execution authority 保存 D005 的 terminal 与封闭 attribution；operation-structured 保存封闭
+fact 与 required-nullable terminal；configured-verifier 仅保存通用 terminal。R/I/A/Q 的
+authority、Attempt scope、harness 分支、已提交 plan 时序、cause/disposition 一律由 D005 共享
+规则复证，不能改用旧 process/structured 绕过，test 也不能改用 execution。UNSAT 的固定
+tool/version/protocol/profile、两种 typed code、boolean true completeness、request binding 必须
+合法且等于顶层 Attempt/stage/plans；非零兜底不能伪装 UNSAT。NormalExit(0) 后的坏成功产物
+仍保存该 normal-zero terminal，无进程 Q fact 保留 null。新 authority 不保存日志或 diagnostic
+hash，Report/Journal/Diagnosis Index 共享事实；运行期 process sidecar 不进入 wire/Failure ID。
+
+Prepare failure 可只引用 Attempt 和已取得 plan，不要求 Proposal；失败 R 的未通过检查输出
+不得变成 plan evidence。FailureRecord 顶层 optional plan 空值仍省略，嵌套 binding 的 nullable
+plan 与 structured terminal 即使 exclude_none=True 也必须保留 null。Schema/examples 同步生成，
+没有旧 wire reader、缺省 failure policy、别名或迁移层。
+
+Attempt 的 resolution_context_digest 必须非空并参与 Attempt identity 复算，但其 preimage 不在
+report，仍是 opaque digest。离线 reader 不检查其未保存原文与 credential 的相等性，不加载
+当前 context 或日志；该逐字段校验属于 D012 producer。重新哈希也不能豁免可观察的 stage、
+terminal、cause/disposition、binding、plan timing、identity/refs 约束。
 
 Schema 1只接受当前完整 preimage 的`attempt-v1` identity。每个Attempt的`source_plan_identity`必须等于generation
 SourcePlan；exact-vector的`selected_candidate_evidence_digest`继续绑定由registry search route
@@ -280,11 +324,11 @@ outcome 必须与 D003–D005 的展开语义一致。
 
 1. `stat` 预拒绝超过 64 MiB 的输入，读取后再次检查以覆盖竞态；
 2. 只按 UTF-8 解析 JSON，拒绝非法编码、语法、递归深度、非对象根和非版本 1；
-3. 以严格 wire model 验证字段、类型、判别 union、无额外字段，仅允许规定的两个 required nullable 字段；
+3. 以严格 wire model 验证字段、类型、判别 union、无额外字段，仅允许 §1 规定的 required-nullable 路径；
 4. 要求输入与 `model_dump(exclude_none=True)` 完全一致，禁止 coercion/default 补事实；
 5. 建立线性的 typed indexes，拒绝重复、未知或错误种类的 ref；
 6. 要求SourcePlan为SEARCH，通过其 interface 复算唯一摘要与 effective source，并复算generation、
-   Cell、CandidateSnapshot、ResolutionGraph、当前 Attempt v1、Proposal、region与Failure v2 identity；
+   Cell、CandidateSnapshot、ResolutionGraph、当前 Attempt v1、Proposal、region与Failure v3 identity；
 7. 验证 cross-cell scope、Evaluation/Failure/Proposal 闭环、搜索边界、projection 与 result；
 8. 从 roots 检查全图可达性和规范顺序；
 9. 返回 immutable、resolved `ValidatedReport`，不向调用方泄漏 wire refs 或 join 规则。
@@ -342,7 +386,7 @@ ReportStore.update_path(path, replacement) -> ReportUpdate
 
 `PackageReportBuilder`把领域`CellResult` intern为规范图并计算report projection/result；Search writer 把真实 Run plan 同时用于 generation identity 与 `inputs.source_plan`，merge/update reintern 复用 generation plan，不从 PackagePlan 重建。同一owner的`project`按dependency group重生成Cell→PEP 508 projection并重求值。`ReportStore`独占wire codec、typed index、ref展开、完整验证、merge/update和原子事务；raw routes 只用于严格 codec、public locator 与 cross-ref，effective source/identity 闭合走 SourcePlan interface。Workflow、authorizer、explain与diagnose只消费`ValidatedReport`；editor只消费authorized edits。上述模块不得import wire records、读取`_wire`或自行join refs。
 
-同generation merge/update要求generator、package/requires-python、source snapshot（含dependency-array identity）、policy、verifier policy、SourcePlan、declarations与target Cells完全兼容；先展开final CellResult roots，再重新intern整图，因此旧的不可达evidence被清理，共享graph只保留一次。相同Cell的冲突结果失败。`--force`不参与merge。不同generation的`update_path`整体替换；空replacement不删除existing Cells。`read`/`merge` 对坏报告 fail closed。`update_path` 在 replacement 已是现行 `ValidatedReport` 时，把不存在、不可读或非法 existing 视为缺席并写入 replacement，不与坏文件 merge。合法但 generation 不同的 existing 仍整体替换。合法apply会改变dependency-array/full snapshot identity并开始新generation，apply前后reports不可merge/rebase。
+同generation merge/update要求generator、package/requires-python、source snapshot（含dependency-array identity）、policy、verifier/failure policy、SourcePlan、declarations与target Cells完全兼容；先展开final CellResult roots，再重新intern整图，因此旧的不可达evidence被清理，共享graph只保留一次。相同Cell的冲突结果或相同evidence ID的不同payload直接拒绝，不合成运行期NONDETERMINISTIC，也不跨运行重试Attempt归因。`--force`不参与merge。不同generation的`update_path`整体替换；空replacement不删除existing Cells。`read`/`merge` 对坏报告 fail closed。`update_path` 在 replacement 已是现行 `ValidatedReport` 时，把不存在、不可读或非法 existing 视为缺席并写入 replacement，不与坏文件 merge。合法但 generation 不同的 existing 仍整体替换。合法apply会改变dependency-array/full snapshot identity并开始新generation，apply前后reports不可merge/rebase。
 
 `ReportUpdate` 只向 diagnosis association seam 暴露 `replace_generation` 与已移除 Failure IDs；ReportStore 不依赖 RunLogStore。
 

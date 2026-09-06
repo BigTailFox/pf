@@ -251,8 +251,9 @@ PR 的修复方向和失败说明是作者陈述；本地对缩进输入的复�
 
 后续讨论中，用户认可将 resolve、build、install 与 test 收敛到统一的工程执行契约：严格确认
 PASS，使用可信执行失败拒绝当前 Attempt；只有无法可靠完成或观察执行时，才是 Indeterminate。
-这里记录的是用户已确认的后续设计方向，不是现行 D005 的替代契约；尚未形成规范性 Design、Plan
-或实现。第 2 节历史运行的 disposition 保持不变。
+这里记录的是用户已确认的后续设计方向，不是现行 D005 的替代契约；讨论时尚未形成规范性 Design、
+Plan 或实现。后续目标契约由 [D036](../archived/designs/D036-pf-execution-failure-contract.md) 接收并已实施，
+验收见 [P041](../archived/plans/P041-pf-execution-failure-contract.md)。第 2 节历史运行的 disposition 保持不变。
 
 | 可取得的执行事实 | 确认的方向 |
 | --- | --- |
@@ -286,8 +287,9 @@ PF 尽力降低已验证向量，不承诺全局最优或搜索完备性。误�
 解析策略和验证契约下，返回的精确依赖向量已经通过验证。
 
 最高版本基线失败后是否继续寻找可用锚点，仍是独立的算法问题；统一 Rejection 语义不会自动改变
-Baseline Rejection 的终止规则。下一步需以单独的规范性 Design 闭合阶段事实、dispatch、证据与
-报告身份等细节，获得接受后再创建 Plan；本报告只承载实验事实及上述方向共识。
+Baseline Rejection 的终止规则。后续 [D036](../archived/designs/D036-pf-execution-failure-contract.md)
+接收阶段事实、dispatch、证据与报告身份等细节，实施验收由 P041 记录；本报告只承载实验事实及
+上述方向共识。
 
 ## 7. 固定证据与结论边界
 
