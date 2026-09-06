@@ -94,6 +94,7 @@ Plan 完成、临时 Design 被 owner 吸收、Review 问题解决或明确移�
 | [E005](experiments/E005-pf-multi-resolution-search-simulation.md) | 纯算法模拟；支持 predecessor 重验，不证明真实 evaluator 耗时 |
 | [E006](experiments/E006-requests-complete-search.md) | requests 两阶段完整 search 与 smoke/check 记录 |
 | [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) | MkDocs 基线/build 调查；后续 D036/P041 已完成，不表示重跑了 MkDocs search |
+| [E008](experiments/E008-mkdocs-complete-search.md) | MkDocs 5-Cell smoke/check/search 完整记录、最终 PASS 与 witness 目标错配发现 |
 
 既有 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。
 补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)；

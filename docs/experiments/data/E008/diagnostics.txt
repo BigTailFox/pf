@@ -1,0 +1,891 @@
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0053.log =====
+format: pf-process-log-v2
+process_id: 53
+argv: ["/tmp/pf-proposal-8151h0vo/environment/bin/python", "-I", "-c", "import importlib\nimport json\nimport sys\n\n\ndef emit(status):\n    sys.stdout.write(json.dumps({\"status\": status}, separators=(\",\", \":\")) + \"\\n\")\n\n\ndef missing_module(error, target):\n    name = getattr(error, \"name\", None)\n    return isinstance(name, str) and (name == target or target.startswith(name + \".\"))\n\n\ndef target_attribute(error, owner, name):\n    return getattr(error, \"obj\", None) is owner and getattr(error, \"name\", None) == name\n\n\nplan = json.loads(sys.argv[1])\nmodule_name = plan[\"module\"]\ntry:\n    module = importlib.import_module(module_name)\nexcept ModuleNotFoundError as error:\n    emit(\"CONFIRMED_MISSING\" if missing_module(error, module_name) else \"NOT_APPLICABLE\")\nexcept BaseException:\n    emit(\"NOT_APPLICABLE\")\nelse:\n    operation = plan[\"operation\"]\n    if operation == \"import-module\":\n        emit(\"PRESENT\")\n    else:\n        name = plan[\"symbol_or_member\"]\n        if operation == \"import-symbol\":\n            try:\n                owner = __import__(module_name, fromlist=[name])\n            except ModuleNotFoundError as error:\n                target = module_name + \".\" + name\n                emit(\"CONFIRMED_MISSING\" if missing_module(error, target) else \"NOT_APPLICABLE\")\n                raise SystemExit\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n                raise SystemExit\n        else:\n            owner = module\n        if operation == \"has-member\" and plan[\"owner\"] != module_name:\n            emit(\"NOT_APPLICABLE\")\n        else:\n            try:\n                getattr(owner, name)\n            except AttributeError as error:\n                emit(\"CONFIRMED_MISSING\" if target_attribute(error, owner, name) else \"NOT_APPLICABLE\")\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n            else:\n                emit(\"PRESENT\")", "{\"module\":\"markdown.treeprocessors\",\"operation\":\"has-member\",\"owner\":\"markdown.treeprocessors\",\"symbol_or_member\":\"treeprocessors\"}"]
+cwd: "/tmp/pf-proposal-8151h0vo/source"
+environment_names: []
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.12697261800349224
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 31
+stderr_characters: 0
+
+--- stdout ---
+{"status":"CONFIRMED_MISSING"}
+
+--- stderr ---
+
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0055.log =====
+format: pf-process-log-v2
+process_id: 55
+argv: ["/tmp/pf-proposal-x6gzqfh6/environment/bin/python", "-I", "-c", "import importlib\nimport json\nimport sys\n\n\ndef emit(status):\n    sys.stdout.write(json.dumps({\"status\": status}, separators=(\",\", \":\")) + \"\\n\")\n\n\ndef missing_module(error, target):\n    name = getattr(error, \"name\", None)\n    return isinstance(name, str) and (name == target or target.startswith(name + \".\"))\n\n\ndef target_attribute(error, owner, name):\n    return getattr(error, \"obj\", None) is owner and getattr(error, \"name\", None) == name\n\n\nplan = json.loads(sys.argv[1])\nmodule_name = plan[\"module\"]\ntry:\n    module = importlib.import_module(module_name)\nexcept ModuleNotFoundError as error:\n    emit(\"CONFIRMED_MISSING\" if missing_module(error, module_name) else \"NOT_APPLICABLE\")\nexcept BaseException:\n    emit(\"NOT_APPLICABLE\")\nelse:\n    operation = plan[\"operation\"]\n    if operation == \"import-module\":\n        emit(\"PRESENT\")\n    else:\n        name = plan[\"symbol_or_member\"]\n        if operation == \"import-symbol\":\n            try:\n                owner = __import__(module_name, fromlist=[name])\n            except ModuleNotFoundError as error:\n                target = module_name + \".\" + name\n                emit(\"CONFIRMED_MISSING\" if missing_module(error, target) else \"NOT_APPLICABLE\")\n                raise SystemExit\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n                raise SystemExit\n        else:\n            owner = module\n        if operation == \"has-member\" and plan[\"owner\"] != module_name:\n            emit(\"NOT_APPLICABLE\")\n        else:\n            try:\n                getattr(owner, name)\n            except AttributeError as error:\n                emit(\"CONFIRMED_MISSING\" if target_attribute(error, owner, name) else \"NOT_APPLICABLE\")\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n            else:\n                emit(\"PRESENT\")", "{\"module\":\"markdown.treeprocessors\",\"operation\":\"has-member\",\"owner\":\"markdown.treeprocessors\",\"symbol_or_member\":\"treeprocessors\"}"]
+cwd: "/tmp/pf-proposal-x6gzqfh6/source"
+environment_names: []
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.06985717899806332
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 28
+stderr_characters: 0
+
+--- stdout ---
+{"status":"NOT_APPLICABLE"}
+
+--- stderr ---
+
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0061.log =====
+format: pf-process-log-v2
+process_id: 61
+argv: ["/tmp/pf-proposal-24w1t9qn/environment/bin/python", "-I", "-c", "import importlib\nimport json\nimport sys\n\n\ndef emit(status):\n    sys.stdout.write(json.dumps({\"status\": status}, separators=(\",\", \":\")) + \"\\n\")\n\n\ndef missing_module(error, target):\n    name = getattr(error, \"name\", None)\n    return isinstance(name, str) and (name == target or target.startswith(name + \".\"))\n\n\ndef target_attribute(error, owner, name):\n    return getattr(error, \"obj\", None) is owner and getattr(error, \"name\", None) == name\n\n\nplan = json.loads(sys.argv[1])\nmodule_name = plan[\"module\"]\ntry:\n    module = importlib.import_module(module_name)\nexcept ModuleNotFoundError as error:\n    emit(\"CONFIRMED_MISSING\" if missing_module(error, module_name) else \"NOT_APPLICABLE\")\nexcept BaseException:\n    emit(\"NOT_APPLICABLE\")\nelse:\n    operation = plan[\"operation\"]\n    if operation == \"import-module\":\n        emit(\"PRESENT\")\n    else:\n        name = plan[\"symbol_or_member\"]\n        if operation == \"import-symbol\":\n            try:\n                owner = __import__(module_name, fromlist=[name])\n            except ModuleNotFoundError as error:\n                target = module_name + \".\" + name\n                emit(\"CONFIRMED_MISSING\" if missing_module(error, target) else \"NOT_APPLICABLE\")\n                raise SystemExit\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n                raise SystemExit\n        else:\n            owner = module\n        if operation == \"has-member\" and plan[\"owner\"] != module_name:\n            emit(\"NOT_APPLICABLE\")\n        else:\n            try:\n                getattr(owner, name)\n            except AttributeError as error:\n                emit(\"CONFIRMED_MISSING\" if target_attribute(error, owner, name) else \"NOT_APPLICABLE\")\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n            else:\n                emit(\"PRESENT\")", "{\"module\":\"markdown.treeprocessors\",\"operation\":\"has-member\",\"owner\":\"markdown.treeprocessors\",\"symbol_or_member\":\"treeprocessors\"}"]
+cwd: "/tmp/pf-proposal-24w1t9qn/source"
+environment_names: []
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.09998017799807712
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 28
+stderr_characters: 0
+
+--- stdout ---
+{"status":"NOT_APPLICABLE"}
+
+--- stderr ---
+
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0066.log =====
+format: pf-process-log-v2
+process_id: 66
+argv: ["/tmp/pf-proposal-me4jhr6l/environment/bin/python", "-I", "-c", "import importlib\nimport json\nimport sys\n\n\ndef emit(status):\n    sys.stdout.write(json.dumps({\"status\": status}, separators=(\",\", \":\")) + \"\\n\")\n\n\ndef missing_module(error, target):\n    name = getattr(error, \"name\", None)\n    return isinstance(name, str) and (name == target or target.startswith(name + \".\"))\n\n\ndef target_attribute(error, owner, name):\n    return getattr(error, \"obj\", None) is owner and getattr(error, \"name\", None) == name\n\n\nplan = json.loads(sys.argv[1])\nmodule_name = plan[\"module\"]\ntry:\n    module = importlib.import_module(module_name)\nexcept ModuleNotFoundError as error:\n    emit(\"CONFIRMED_MISSING\" if missing_module(error, module_name) else \"NOT_APPLICABLE\")\nexcept BaseException:\n    emit(\"NOT_APPLICABLE\")\nelse:\n    operation = plan[\"operation\"]\n    if operation == \"import-module\":\n        emit(\"PRESENT\")\n    else:\n        name = plan[\"symbol_or_member\"]\n        if operation == \"import-symbol\":\n            try:\n                owner = __import__(module_name, fromlist=[name])\n            except ModuleNotFoundError as error:\n                target = module_name + \".\" + name\n                emit(\"CONFIRMED_MISSING\" if missing_module(error, target) else \"NOT_APPLICABLE\")\n                raise SystemExit\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n                raise SystemExit\n        else:\n            owner = module\n        if operation == \"has-member\" and plan[\"owner\"] != module_name:\n            emit(\"NOT_APPLICABLE\")\n        else:\n            try:\n                getattr(owner, name)\n            except AttributeError as error:\n                emit(\"CONFIRMED_MISSING\" if target_attribute(error, owner, name) else \"NOT_APPLICABLE\")\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n            else:\n                emit(\"PRESENT\")", "{\"module\":\"markdown.treeprocessors\",\"operation\":\"has-member\",\"owner\":\"markdown.treeprocessors\",\"symbol_or_member\":\"treeprocessors\"}"]
+cwd: "/tmp/pf-proposal-me4jhr6l/source"
+environment_names: []
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.0681493349984521
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 31
+stderr_characters: 0
+
+--- stdout ---
+{"status":"CONFIRMED_MISSING"}
+
+--- stderr ---
+
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0069.log =====
+format: pf-process-log-v2
+process_id: 69
+argv: ["/tmp/pf-proposal-d5n4mvbv/environment/bin/python", "-I", "-c", "import importlib\nimport json\nimport sys\n\n\ndef emit(status):\n    sys.stdout.write(json.dumps({\"status\": status}, separators=(\",\", \":\")) + \"\\n\")\n\n\ndef missing_module(error, target):\n    name = getattr(error, \"name\", None)\n    return isinstance(name, str) and (name == target or target.startswith(name + \".\"))\n\n\ndef target_attribute(error, owner, name):\n    return getattr(error, \"obj\", None) is owner and getattr(error, \"name\", None) == name\n\n\nplan = json.loads(sys.argv[1])\nmodule_name = plan[\"module\"]\ntry:\n    module = importlib.import_module(module_name)\nexcept ModuleNotFoundError as error:\n    emit(\"CONFIRMED_MISSING\" if missing_module(error, module_name) else \"NOT_APPLICABLE\")\nexcept BaseException:\n    emit(\"NOT_APPLICABLE\")\nelse:\n    operation = plan[\"operation\"]\n    if operation == \"import-module\":\n        emit(\"PRESENT\")\n    else:\n        name = plan[\"symbol_or_member\"]\n        if operation == \"import-symbol\":\n            try:\n                owner = __import__(module_name, fromlist=[name])\n            except ModuleNotFoundError as error:\n                target = module_name + \".\" + name\n                emit(\"CONFIRMED_MISSING\" if missing_module(error, target) else \"NOT_APPLICABLE\")\n                raise SystemExit\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n                raise SystemExit\n        else:\n            owner = module\n        if operation == \"has-member\" and plan[\"owner\"] != module_name:\n            emit(\"NOT_APPLICABLE\")\n        else:\n            try:\n                getattr(owner, name)\n            except AttributeError as error:\n                emit(\"CONFIRMED_MISSING\" if target_attribute(error, owner, name) else \"NOT_APPLICABLE\")\n            except BaseException:\n                emit(\"NOT_APPLICABLE\")\n            else:\n                emit(\"PRESENT\")", "{\"module\":\"markdown.treeprocessors\",\"operation\":\"has-member\",\"owner\":\"markdown.treeprocessors\",\"symbol_or_member\":\"treeprocessors\"}"]
+cwd: "/tmp/pf-proposal-d5n4mvbv/source"
+environment_names: []
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.06759460300963838
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 31
+stderr_characters: 0
+
+--- stdout ---
+{"status":"CONFIRMED_MISSING"}
+
+--- stderr ---
+
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0057.log =====
+format: pf-process-log-v2
+process_id: 57
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-x6gzqfh6/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.60395407199394
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+.............................................................................................................................................................s...................................................................................................................................................s......................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 9.251s
+
+OK (skipped=6)
+
+===== check / 20260906T134751.403165Z-1983047-f49c33f2 / process-0063.log =====
+format: pf-process-log-v2
+process_id: 63
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-24w1t9qn/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.488332093998906
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 9.167s
+
+OK (skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1669.log =====
+format: pf-process-log-v2
+process_id: 1669
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-2b69a48z/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.51386878998892
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 9.213s
+
+OK (skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1631.log =====
+format: pf-process-log-v2
+process_id: 1631
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-t2sw5tzg/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.26063716999488
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 8.953s
+
+OK (skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1661.log =====
+format: pf-process-log-v2
+process_id: 1661
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-rqvro6ik/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.402067396003986
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 9.027s
+
+OK (skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1628.log =====
+format: pf-process-log-v2
+process_id: 1628
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-inymkebt/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.556936909997603
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+.............................................................................................................................................................s...................................................................................................................................................s......................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 9.230s
+
+OK (skipped=6)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1677.log =====
+format: pf-process-log-v2
+process_id: 1677
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-n81q082j/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.543812130999868
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 837
+
+--- stdout ---
+
+--- stderr ---
+........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+----------------------------------------------------------------------
+Ran 725 tests in 9.149s
+
+OK (skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1718.log =====
+format: pf-process-log-v2
+process_id: 1718
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-v7j1th0x/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.211012922009104
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 5080
+
+--- stdout ---
+
+--- stderr ---
+.............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................FEFE.......................................s..................................................s................s...............s........................................................................................................................
+======================================================================
+ERROR: test_merge_translations (tests.localization_tests.LocalizationTests.test_merge_translations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/localization_tests.py", line 71, in test_merge_translations
+    with mock.patch('mkdocs.localization.Translations.load', side_effect=side_effet):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1430, in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/pkgutil.py", line 715, in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+AttributeError: module 'mkdocs.localization' has no attribute 'Translations'
+
+======================================================================
+ERROR: test_translations_found (tests.localization_tests.LocalizationTests.test_translations_found)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/localization_tests.py", line 51, in test_translations_found
+    with mock.patch('mkdocs.localization.Translations.load', return_value=translations):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1430, in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/pkgutil.py", line 715, in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+AttributeError: module 'mkdocs.localization' has no attribute 'Translations'
+
+======================================================================
+FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests.test_jinja_extension_installed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/localization_tests.py", line 18, in test_jinja_extension_installed
+    self.env.add_extension.assert_called_once_with('jinja2.ext.i18n')
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 951, in assert_called_once_with
+    return self.assert_called_with(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 939, in assert_called_with
+    raise AssertionError(_error_message()) from cause
+AssertionError: expected call not found.
+Expected: add_extension('jinja2.ext.i18n')
+  Actual: add_extension(<class 'mkdocs.localization.NoBabelExtension'>)
+
+======================================================================
+FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests.test_no_translations_found)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-v7j1th0x/source/mkdocs/tests/localization_tests.py", line 38, in test_no_translations_found
+    with self.assertLogs('mkdocs') as cm:
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/_log.py", line 84, in __exit__
+    self._raiseFailure(
+AssertionError: no logs of level INFO or higher triggered on mkdocs
+
+----------------------------------------------------------------------
+Ran 725 tests in 8.925s
+
+FAILED (failures=2, errors=2, skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1841.log =====
+format: pf-process-log-v2
+process_id: 1841
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-acciy196/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.33752013300545514
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 92221
+
+--- stdout ---
+
+--- stderr ---
+EEEEEEEEEEEEEEEEEEEEEEEEEEE.EEEEEEEEEEEEEEEEEEEEEEEEEE..........EE
+======================================================================
+ERROR: contrib.search (unittest.loader._FailedTest.contrib.search)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: contrib.search
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/loader.py", line 452, in _find_test_path
+    package = self._get_module_from_name(name)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/loader.py", line 362, in _get_module_from_name
+    __import__(name)
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/contrib/search/__init__.py", line 9, in <module>
+    from mkdocs.config import config_options as c
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/config/config_options.py", line 36, in <module>
+    from mkdocs import plugins, theme, utils
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/theme.py", line 8, in <module>
+    import jinja2
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/__init__.py", line 33, in <module>
+    from jinja2.environment import Environment, Template
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/environment.py", line 16, in <module>
+    from jinja2.defaults import BLOCK_START_STRING, \
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/defaults.py", line 32, in <module>
+    from jinja2.tests import TESTS as DEFAULT_TESTS
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/tests.py", line 12, in <module>
+    from collections import Mapping
+ImportError: cannot import name 'Mapping' from 'collections' (/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/collections/__init__.py)
+
+
+======================================================================
+ERROR: tests.build_tests (unittest.loader._FailedTest.tests.build_tests)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: tests.build_tests
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/loader.py", line 419, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/loader.py", line 362, in _get_module_from_name
+    __import__(name)
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/tests/build_tests.py", line 16, in <module>
+    from mkdocs.commands import build
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/commands/build.py", line 10, in <module>
+    import jinja2
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/__init__.py", line 33, in <module>
+    from jinja2.environment import Environment, Template
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/environment.py", line 16, in <module>
+    from jinja2.defaults import BLOCK_START_STRING, \
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/defaults.py", line 32, in <module>
+    from jinja2.tests import TESTS as DEFAULT_TESTS
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/tests.py", line 12, in <module>
+    from collections import Mapping
+ImportError: cannot import name 'Mapping' from 'collections' (/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/collections/__init__.py)
+
+
+======================================================================
+ERROR: test_build_clean (tests.cli_tests.CLITests.test_build_clean)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1375, in patched
+    with self.decoration_helper(patched,
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 137, in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1357, in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 517, in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1430, in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/pkgutil.py", line 715, in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+AttributeError: module 'mkdocs.commands' has no attribute 'build'
+
+======================================================================
+ERROR: test_build_config_file (tests.cli_tests.CLITests.test_build_config_file)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1375, in patched
+    with self.decoration_helper(patched,
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 137, in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1357, in deco
+[EXCERPT: repeated middle traceback output omitted]
+^^^^^^^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/loader.py", line 362, in _get_module_from_name
+    __import__(name)
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/tests/utils/utils_tests.py", line 13, in <module>
+    from mkdocs.tests.base import dedent, tempdir
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/tests/base.py", line 12, in <module>
+    from mkdocs.config.defaults import MkDocsConfig
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/config/defaults.py", line 7, in <module>
+    from mkdocs.config import config_options as c
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/config/config_options.py", line 36, in <module>
+    from mkdocs import plugins, theme, utils
+  File "/tmp/pf-proposal-acciy196/source/mkdocs/theme.py", line 8, in <module>
+    import jinja2
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/__init__.py", line 33, in <module>
+    from jinja2.environment import Environment, Template
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/environment.py", line 16, in <module>
+    from jinja2.defaults import BLOCK_START_STRING, \
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/defaults.py", line 32, in <module>
+    from jinja2.tests import TESTS as DEFAULT_TESTS
+  File "/tmp/pf-proposal-acciy196/environment/lib/python3.11/site-packages/jinja2/tests.py", line 12, in <module>
+    from collections import Mapping
+ImportError: cannot import name 'Mapping' from 'collections' (/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/collections/__init__.py)
+
+
+----------------------------------------------------------------------
+Ran 66 tests in 0.028s
+
+FAILED (errors=55)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1902.log =====
+format: pf-process-log-v2
+process_id: 1902
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-yi4sa30g/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.218460629999754
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 148733
+
+--- stdout ---
+
+--- stderr ---
+EEEEE.FF.F.E..................EE......................................................................................................................................................................................................................................................................................................................................................................................................................................................................E...........................s..................................................s................s...............s........................................................................................................................
+======================================================================
+ERROR: test_anchor_no_warning (tests.build_tests.BuildTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/build_tests.py", line 752, in test_anchor_no_warning
+    build.build(cfg)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/commands/build.py", line 328, in build
+    _build_theme_template(template, env, files, config, nav)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/commands/build.py", line 103, in _build_theme_template
+    output = _build_template(template_name, template, files, config, nav)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/commands/build.py", line 83, in _build_template
+    output = template.render(context)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/themes/mkdocs/base.html", line 53, in <module>
+    gtag('config', {{ config.theme.analytics.gtag|tojson }});
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/environment.py", line 986, in render
+    return concat(self.root_render_func(self.new_context(vars)))
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/themes/mkdocs/404.html", line 1, in <module>
+    {% extends "base.html" %}
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/themes/mkdocs/base.html", line 53, in <module>
+    gtag('config', {{ config.theme.analytics.gtag|tojson }});
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/environment.py", line 515, in _generate
+    return generate(source, self, name, filename, defer_init=defer_init)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 62, in generate
+    generator.visit(node)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/visitor.py", line 38, in visit
+    return f(node, *args, **kwargs)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 849, in visit_Template
+    self.blockvisit(block.body, block_frame)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 492, in blockvisit
+    self.visit(node, frame)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/visitor.py", line 38, in visit
+    return f(node, *args, **kwargs)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 1172, in visit_If
+    self.blockvisit(node.body, if_frame)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 492, in blockvisit
+    self.visit(node, frame)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/visitor.py", line 38, in visit
+    return f(node, *args, **kwargs)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 1353, in visit_Output
+    self.visit(argument, frame)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/visitor.py", line 38, in visit
+    return f(node, *args, **kwargs)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 1565, in visit_Filter
+    self.fail('no filter named %r' % node.name, node.lineno)
+  File "/tmp/pf-proposal-yi4sa30g/environment/lib/python3.9/site-packages/jinja2/compiler.py", line 427, in fail
+    raise TemplateAssertionError(msg, lineno, self.name, self.filename)
+jinja2.exceptions.TemplateAssertionError: no filter named 'tojson'
+
+======================================================================
+ERROR: test_anchor_no_warning_with_html (tests.build_tests.BuildTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/build_tests.py", line 768, in test_anchor_no_warning_with_html
+    build.build(cfg)
+  File "/tm
+[EXCERPT: repeated middle traceback output omitted]
+other exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1336, in patched
+    return func(*newargs, **newkeywargs)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/build_tests.py", line 452, in test_build_page_dirty_not_modified
+    build._build_page(
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/commands/build.py", line 241, in _build_page
+    log.error(message)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/logging/__init__.py", line 1475, in error
+    self._log(ERROR, msg, args, **kwargs)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/logging/__init__.py", line 1589, in _log
+    self.handle(record)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/logging/__init__.py", line 1599, in handle
+    self.callHandlers(record)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/logging/__init__.py", line 1669, in callHandlers
+    lastResort.handle(record)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/logging/__init__.py", line 952, in handle
+    self.emit(record)
+  File "/tmp/pf-proposal-yi4sa30g/source/mkdocs/tests/__init__.py", line 13, in emit
+    raise AssertionError(f'Unexpected log: {self.format(record)!r}')
+AssertionError: Unexpected log: "ERROR:mkdocs.commands.build:Error building page 'testing.md': no filter named 'tojson'"
+
+----------------------------------------------------------------------
+Ran 725 tests in 8.905s
+
+FAILED (failures=3, errors=29, skipped=4)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-1921.log =====
+format: pf-process-log-v2
+process_id: 1921
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-s2211gm9/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.3890783880051458
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 110182
+
+--- stdout ---
+
+--- stderr ---
+EEEEEEEEEEEEEEEEEEEEEEEEEE.EEEEEEEEEEEEEEEEEEEEEEEEEE..........EE
+======================================================================
+ERROR: tests.build_tests (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: tests.build_tests
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/tests/build_tests.py", line 16, in <module>
+    from mkdocs.commands import build
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/commands/build.py", line 17, in <module>
+    from mkdocs.structure.nav import Navigation, get_navigation
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/nav.py", line 10, in <module>
+    from mkdocs.structure.pages import Page, _AbsoluteLinksValidationValue
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/pages.py", line 13, in <module>
+    import markdown.htmlparser  # type: ignore
+ModuleNotFoundError: No module named 'markdown.htmlparser'
+
+
+======================================================================
+ERROR: test_build_clean (tests.cli_tests.CLITests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1226, in _dot_lookup
+    return getattr(thing, comp)
+AttributeError: module 'mkdocs.commands' has no attribute 'build'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1333, in patched
+    with self.decoration_helper(patched,
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/contextlib.py", line 119, in __enter__
+    return next(self.gen)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1315, in decoration_helper
+    arg = exit_stack.enter_context(patching)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/contextlib.py", line 448, in enter_context
+    result = _cm_type.__enter__(cm)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1388, in __enter__
+    self.target = self.getter()
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1563, in <lambda>
+    getter = lambda: _importer(target)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1239, in _importer
+    thing = _dot_lookup(thing, comp, import_path)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1228, in _dot_lookup
+    __import__(import_path)
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/commands/build.py", line 17, in <module>
+    from mkdocs.structure.nav import Navigation, get_navigation
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/nav.py", line 10, in <module>
+    from mkdocs.structure.pages import Page, _AbsoluteLinksValidationValue
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/pages.py", line 13, in <module>
+    import markdown.htmlparser  # type: ignore
+ModuleNotFoundError: No module named 'markdown.htmlparser'
+
+======================================================================
+ERROR: test_build_config_file (tests.cli_tests.CLITests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1226, in _dot_lookup
+    return getattr(thing, comp)
+AttributeError: module 'mkdocs.commands' has no attribute 'build'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1333, in patched
+    with self.decoration_helper(patched,
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/contextlib.py", line 119, in __enter__
+    return next(self.gen)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1315, in decoration_helper
+    arg = exit_stack.enter_context(patching)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/contextlib.py", line 448, in enter_context
+    result = _cm_type.__enter__(cm)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1388, in __enter__
+    self.target = self.getter()
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1563, in <lambda>
+    getter = lambda: _importer(target)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1239, in _importer
+    thing = _dot_lookup(thing, comp, import_path)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/mock.py", line 1228, in _dot_lookup
+    __import__(import_path)
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/commands/build.py", line 17, in <module>
+    from mkdocs.structure.nav import Navigation, get_navigation
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/nav.py", line 10, in <module>
+    from mkdocs.structure.pages import Page, _AbsoluteLinksValidationValue
+  File "/tmp/pf-proposal-s2211gm9/so
+[EXCERPT: repeated middle traceback output omitted]
+g.defaults import MkDocsConfig
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/config/defaults.py", line 8, in <module>
+    from mkdocs.structure.pages import Page, _AbsoluteLinksValidationValue
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/pages.py", line 13, in <module>
+    import markdown.htmlparser  # type: ignore
+ModuleNotFoundError: No module named 'markdown.htmlparser'
+
+
+======================================================================
+ERROR: tests.utils.utils_tests (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: tests.utils.utils_tests
+Traceback (most recent call last):
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/llh/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/lib/python3.9/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/tests/utils/utils_tests.py", line 13, in <module>
+    from mkdocs.tests.base import dedent, tempdir
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/tests/base.py", line 12, in <module>
+    from mkdocs.config.defaults import MkDocsConfig
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/config/defaults.py", line 8, in <module>
+    from mkdocs.structure.pages import Page, _AbsoluteLinksValidationValue
+  File "/tmp/pf-proposal-s2211gm9/source/mkdocs/structure/pages.py", line 13, in <module>
+    import markdown.htmlparser  # type: ignore
+ModuleNotFoundError: No module named 'markdown.htmlparser'
+
+
+----------------------------------------------------------------------
+Ran 65 tests in 0.020s
+
+FAILED (errors=54)
+
+===== search / 20260906T135016.816969Z-1985424-0e216e2c / process-0614.log =====
+format: pf-process-log-v2
+process_id: 614
+argv: ["/home/llh/pf/.venv/bin/uv", "pip", "compile", "pyproject.toml", "/tmp/pf-proposal-hp1a2778/project-requirements.in", "--format", "pylock.toml", "--output-file", "/tmp/pf-proposal-hp1a2778/pylock.pf-project.toml", "--python", "/tmp/pf-proposal-hp1a2778/environment/bin/python", "--python-version", "3.11.15", "--python-platform", "x86_64-unknown-linux-gnu", "--resolution", "highest", "--exclude-newer", "2026-09-06T13:50:16.891134+00:00", "--no-header", "--no-progress", "--color", "never", "--extra", "i18n"]
+cwd: "/tmp/pf-proposal-hp1a2778/source"
+environment_names: ["APPDATA", "XDG_CONFIG_HOME"]
+timeout_seconds: 600
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.24944756500190124
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 1680
+
+--- stdout ---
+
+--- stderr ---
+  × Failed to build `jinja2 @
+  │ https://files.pythonhosted.org/packages/01/82/b2ed16b1cbea5ddbf1462fb65cf67ce7cd780dc1b6a6f0244f1387fa007d/Jinja2-2.0.tar.gz#sha256=15b17b02d6042bbec2511b655b17561633c8cf5dad68c42356f3f82ec24e4c57`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit
+      status: 1)
+
+      [stderr]
+      Traceback (most recent call last):
+        File "<string>", line 14, in <module>
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpodlsSQ/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 333, in get_requires_for_build_wheel
+          return self._get_build_requires(config_settings, requirements=[])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpodlsSQ/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 301, in _get_build_requires
+          self.run_setup()
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpodlsSQ/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 520, in run_setup
+          super().run_setup(setup_script=setup_script)
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpodlsSQ/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 317, in run_setup
+          exec(code, locals())  # noqa: S102 # exec is intentional here
+          ^^^^^^^^^^^^^^^^^^^^
+        File "<string>", line 91
+          except CCompilerError, x:
+                 ^^^^^^^^^^^^^^^^^
+      SyntaxError: multiple exception types must be parenthesized
+
+
+hint: Build failures usually indicate a problem with the package or the build environment
