@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **日志格式：** `pf-process-log-v2`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-06
 - **Failure 消费：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 展示：** [D006](D006-pf-cli-enhancement.md)
 - **Journal 与 Index：** [D008](D008-pf-verification-run.md)
@@ -57,7 +57,7 @@ stdout_complete
 stderr_complete
 ```
 
-`ProcessResult.stdout/stderr` 仅是运行期 excluded cache projection；`model_dump`、FailureRecord 和 Schema 1 不包含它们。`failure_id` 只吸收 portable facts 与 D005 的其他结构化字段。
+`ProcessResult.stdout/stderr` 仅是运行期 excluded cache projection；`model_dump`、FailureRecord 和 Schema 1 不包含它们。哪些 portable facts 进入 `failure_id` 取决于 D005 的 authority family；本文件不定义 failure identity。
 
 `exit_code | signal | start_error` 必须恰有一种。`start_error + timed_out` 无效；timeout 在
 cleanup 后必须仍有 exit 或 signal，且分类时 `TimedOut` 优先于该次级 fact。非法组合属于

@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `static-transition-v1`
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -197,17 +197,9 @@ Witness 是内部负向优化，不产生正向 compatibility。未选择 witnes
 
 ## 9. check、smoke 与 search
 
-- `check`：highest 只 capture `S_hi`；lowest-direct 使用同一 baseline 运行 RuntimeEvaluator。Static regression 不短路。
-- `smoke`：HighestVersionVerifier 复用 capture TyCheck 后只运行一次 test-command；不运行 witness、不发现候选。
-- `search`：baseline 必须直接完整 PASS；每个 candidate 先建立自己的 transition，随后按 D003 的 region/runtime 路由。
-
-完整 PASS 当且仅当当前 Proposal 自身 test-command pass。Static unchanged、witness PRESENT 和 region representative pass 都不能授权另一个 Proposal。
-
-三个产品 module直接消费 `EnvironmentFactory`、`StaticEvaluator` 与 `RuntimeEvaluator` 的 concrete
-interface；测试变化只注入 uv、ty/process、configured verifier、runtime witness、candidate provider或
-consumer sink。`PreparedEnvironment` 成功值即使在 tests中也只由 `EnvironmentFactory.prepare(...)` 取得；
-static classification从 `StaticEvaluator.capture/evaluate` outcome观察，不直接以 classifier或预制
-Evaluation冒充产品路径。
+命令如何组合 capture/full evaluation 只见 [D008 §3](D008-pf-verification-run.md#3-命令序列)；
+搜索的 static/runtime 调度只见 D003。完整 PASS 的资格由 D005 拥有。
+模块依赖与 public-seam 测试边界只见 [D002 §7、§11](D002-pf-implementation.md#7-verification-modules)。
 
 ## 10. Schema、cache 与报告
 
@@ -224,16 +216,14 @@ TestEvaluationKey = (proposal_id, S_hi digest, full policy identity)
 
 Proposal identity 已吸收 static/full policy；EvaluationCache 仍显式接收 baseline digest，并把 static 与 full evidence 分仓。Region 调度 cache 由 D003 拥有，不构造 Proposal-level Evaluation。没有跨运行 Evaluation cache。
 
-旧 `STATIC_PASS` / `STATIC_FAIL`、`StaticPassEvaluation` / `StaticFailEvaluation` 和 `increment-v2` 证据不兼容，不能 merge/apply。
-
 `StaticEvaluator` 只消费 `EffectiveConfig.ty.args/timeout_seconds`，并只在真正调用 `TyOperations.check` 时取得 invocation-wide ty permit。`RuntimeEvaluator` 消费 `test.command/cwd/timeout_seconds`；runtime witness 使用 test timeout，但不占 test permit，只有真正调用 configured verifier 时取得 invocation-wide test permit。两个 pool 由 composition root 共享并在 Verification Run 开始前用 resolved `RunLimits.ty_jobs/test_jobs` 配置；limits 不写入 ty/test argv。`test-group` 只用于 project/harness planning，不进入 configured verifier request。
 
 ## 11. 策略 identity
 
-Evaluation policy 包含实际 `ty` distribution、完整 resolution artifact/timeout、ty args/timeout、test command/cwd/timeout（不含 test-group）及：
+本文件独占 `ty_diagnostic_policy` 的静态/witness 子对象；外层 evaluation-policy preimage 与配置绑定由 [D014 §1.1](D014-pf-report-schema.md#11-identity) 定义。该子对象字段为：
 
 ```text
-static_policy      = static-transition-v1
+policy             = static-transition-v1
 output_format      = gitlab
 comparison         = multiset-subtraction
 fingerprint        = ordered-incremental-identity-multiset

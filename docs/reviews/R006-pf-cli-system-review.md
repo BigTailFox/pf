@@ -15,6 +15,13 @@
 评审使用 `module`、`interface`、`seam`、`adapter`、`depth`、`leverage`、`locality` 与删除测试判断
 架构候选。文件大小、helper 数量或把代码移到新文件都不单独构成深化理由。
 
+## 2026-09-06 状态核对
+
+对照 `30c5d7d`：§5.1 terminal-private result-card 与 §5.2 非 TTY 活动候选仍开放；其余已解决项
+保留原评审证据。原 reason-aware 修复没有消除 `NO_PASS_IN_SEARCH_SPACE` 的“完整评估”过度承诺，
+该具体实现偏移由 [R010 §2.1](R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围)
+独立跟踪，不以本 Review 的既有“已修复”状态关闭。现行展示契约见 D006。
+
 ## 1. 最终结论
 
 当前没有发现新的 P0 安全、证据授权或 fail-closed 缺口；D001/D006 已建立命令、数值退出码、live

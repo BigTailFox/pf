@@ -1,184 +1,106 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-06（源码与文档核对；不表示重新完成运行资格矩阵）
 
-本页只负责文档治理、契约所有权和导航。每条现行规则只有一个规范性所有者；其他文档只引用，不复述。代码与文档冲突时，同一变更必须修正实现或所有者文档。
+本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛由 [AGENTS.md](../AGENTS.md) 拥有。
 
-## 目录
+## 1. 文档规则
 
-```text
-README.md                  英文使用入口
-README.zh.md               中文使用入口
-CONTEXT.md                 领域词汇；不定义行为
-docs/
-├── concepts/              非规范性开发构想、待证假设与探索方向
-├── designs/               现行或临时迁移 Design
-├── plans/                 进行中的实施计划与证据记录
-├── experiments/           非规范性实验事实与 dogfood 结论
-├── reviews/               尚未解决的评审
-├── schemas/               D014 生成的机器可读投影
-├── examples/              D014 生成的最小示例
-└── archived/
-    ├── designs/           已被现行设计覆盖的决策
-    ├── plans/             已完成的实施记录
-    ├── reviews/           问题已解决的评审
-    └── investigations/    结论已被设计吸收的探索
-```
+| 类型 | 用途与权威 | 状态与最小记录 |
+| --- | --- | --- |
+| owner Design（D） | 唯一现行行为契约 | 现行；范围、owner/关联、规则、不变量、验证边界、最后核对日期 |
+| 临时 Design（D） | 已接受时定义唯一目标契约；完成吸收前不冒充已交付行为 | 草案 / 已接受待实施 / 实施中；目标 owner、验收标准、接受状态 |
+| Plan（P） | 实施步骤、决定与验收证据；不另立行为契约 | 进行中 / 已完成；按 AGENTS.md 维护 Design 验收映射 |
+| Review（R） | 问题证据与开放项；不授权实施 | 开放 / 已解决或已移交；基准 commit、owner、影响、证据、状态与去向 |
+| Concept（C） | 待证构想；不授权实施、不要求 Plan | 开放 / 转入 Design / 关闭；来源、证据缺口、进入 Design 的条件 |
+| Experiment（E） / Investigation（I） | 固定环境下的事实、调查与结论；非规范性 | 进行中 / 已完成；日期、源码/工具/配置、命令、结果、局限与固定证据位置 |
+| README / CONTEXT | 使用摘要 / 领域词汇 | 引用 owner，不增加行为或验收义务 |
+| schemas / examples | wire model 的生成投影 | 由 D014 指定脚本生成，不手改、不形成平行契约 |
 
-长期 owner Design 使用“现行”；临时迁移 Design 可以是“草案”或“已接受、待实施/实施中”。已接受
-Design 定义唯一目标契约，但在实现与 owner 归并完成前不冒充现行行为。归档文档不再承担规范性。
-Concept 使用独立 `C` 编号，保存尚未形成明确依据的开发想法、待证假设、候选方案与验证方向；
-它是非规范性文档，不定义当前或已接受的目标契约，不授权生产实施，也不需要配套 Plan。
-建议记录状态、来源、证据缺口及进入 Design 的条件。取得足够依据后，另建规范性 Design 并获得
-接受，再建立 Plan；保留双向来源链接，将 Concept 标为已转入 Design 或已关闭。
-已有 Design 若拆回探索阶段，索引记录原编号去向，原编号不复用；修复引用，保留历史实验证据。
-Investigation 保留 `I` 编号并记录调查过程与结论，Experiment 保留 `E` 编号并保存实验事实。
-未实施不等于 Concept：现行契约的非目标仍留在 owner；已有 Review 的问题证据、优先级、验证和
-停止条件继续由 Review 跟踪，不为同一开放项重复建立构想清单。归档文档中的独立待证构想可抽出，
-新 Concept 引用原记录，索引接入新位置，历史事实与完成状态保持不变。
-Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都是历史证据，不随当前实现回写。
+每条规则只在一个 owner 中完整定义。消费方保留接口关系与链接；必要的用户摘要、示例和生成投影
+须明确来源，不能独立改变规范。表中的“D002 + D008”式关联表示各自拥有不同边界，不表示共同定义同一规则。
 
-## 契约所有权
+临时 Design 要逐项标明替代哪个 owner 的哪条规则；目标被接受不等于实现已验证。接受、Plan、实施、
+验收与 owner 吸收的工程门槛直接遵循 AGENTS.md，本页不再复制一套流程。
+
+文档与代码不一致时先查现行 owner、已接受变更和公开 seam：契约残留/过时则修订 owner；实现偏移则
+记录 Review，保持应有契约，不能把 bug 写成新规范。无法确定意图时记录未决项，不以代码自动胜出。
+纯文档纠错、去重、链接修复与历史归档不另建产品 Design/实施 Plan；改变产品承诺仍走 AGENTS.md。
+纯文档拆分可迁移到新的长期 owner，必须在同一变更中搬走原规范、更新所有现行消费方引用并记录
+规则迁移对照；不把这种内容迁移记为新功能实施。规范性附录属于其主文 owner，不占独立 D 编号。
+
+Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史证据；后续判断追加带日期的状态说明，
+不回写旧运行。实验产物使用固定 commit、不可变路径或保存的 identity；可变根 `package-floor.json` 不作历史证据链接。
+静态检查、fixture 回放、宿主测试与真实资格运行必须分别标注，不能相互替代。
+
+## 2. 归档规则
+
+Plan 完成、临时 Design 被 owner 吸收、Review 问题解决或明确移交、Investigation 结论被吸收后归档。
+开放项不能只因日期旧而关闭；移交须指定接收文档与事项。已完成 Experiment 可继续保留在
+`experiments/` 作为稳定证据库，不在其中跟踪当前整改；完成不等于现行产品资格。
+
+归档文件是历史记录，不再有规范性。归档完成后的文件不修改；新归档时只处理
+状态、交接与路径重定位，不改历史事实。若既有归档引用旧地址，旧地址可保留仅导航的入口，
+不能保留第二套契约或跟踪清单。修复现行入链，原编号永久保留、不复用。
+
+索引只保留现行 owner、开放事项和简短历史入口；迁移过程、验收计数与逐项完成摘要留在归档。
+
+## 3. 契约所有权
 
 | 唯一所有者 | 负责的现行契约 |
 | --- | --- |
-| [D001](designs/D001-pf.md) | 产品边界、命令与配置、报告用途、apply 条件、数值退出码 |
-| [D002](designs/D002-pf-implementation.md) | 模块 interface、seam、依赖方向、composition 与持久化边界 |
-| [D003](designs/D003-pf-search-algorithm.md) | 单 Cell 搜索、probe、static region、边界提交与终止 |
-| [D004](designs/D004-pf-ty-enhancement.md) | `ty` 基线、诊断 identity、static transition 与 runtime witness |
-| [D005](designs/D005-pf-failure-and-diagnose.md) | disposition、Rejection 资格、cause、FailureRecord identity 与诊断语义 |
-| [D006](designs/D006-pf-cli-enhancement.md) | help、通道、live/final Cell、summary、`explain` 与 `diagnose` 展示 |
-| [D007](designs/D007-pf-process-output.md) | ProcessObservation、Process Log、Output Cache、脱敏与安全读取 |
-| [D008](designs/D008-pf-verification-run.md) | Attempt 序列、Role、跨 Cell 调度、命令聚合、Journal 与 Diagnosis Index |
-| [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、resolution/install 与 uv 资格边界 |
-| [D013](designs/D013-pf-pytest-observer.md) | direct pytest observer、progress/detail telemetry 与透明性资格 |
-| [D014](designs/D014-pf-report-schema.md) | `package-floor.json` Schema 1 wire、typed refs、编码与 reader 验证 |
+| [D001](designs/D001-pf.md) | 产品承诺、声明/Cell 准入、命令/通用配置、统一 artifact policy、apply 条件、数值退出码 |
+| [D002](designs/D002-pf-implementation.md) | 模块 interface、依赖方向、composition、资源/持久化 owner 与测试 seam |
+| [D003](designs/D003-pf-search-algorithm.md) | 单 Cell 搜索、probe、static region、执行复用、边界与终止 |
+| [D004](designs/D004-pf-ty-enhancement.md) | ty 基线、诊断 identity、static transition、runtime witness 与静态策略子对象 |
+| [D005](designs/D005-pf-failure-and-diagnose.md) | Attempt/failure scope、disposition/cause、执行事实资格、FailureRecord identity、诊断 title/next step |
+| [D006](designs/D006-pf-cli-enhancement.md) | 通道、live/final Cell、summary、explain/diagnose 展示；[附录](designs/appendices/D006-visual-specification.md) 固定 help 文案与视觉细则 |
+| [D007](designs/D007-pf-process-output.md) | ProcessObservation、Process Log、Output Cache、完整性、脱敏与安全读取 |
+| [D008](designs/D008-pf-verification-run.md) | Verification Run/Role/Attempt 序列、跨 Cell 调度、命令聚合、Journal/Diagnosis Index、impact |
+| [D012](designs/D012-pf-harness-relaxation.md) | structured harness、relaxation、resolution/install、解释器/plan 时序与 uv 资格 |
+| [D013](designs/D013-pf-pytest-observer.md) | direct pytest observer、progress/detail/cases telemetry 与透明性资格 |
+| [D014](designs/D014-pf-report-schema.md) | Schema 1 wire、typed refs、identity/编码/reader、merge/update 与生成投影 |
+| [D037](designs/D037-pf-candidate-search-policy.md) | 候选观测/准入、系列 DSL、anchor、条件默认、采样与 baseline artifact 选择域 |
 
-[JSON Schema](schemas/package-floor-v1.schema.json) 与 [complete](examples/package-floor-v1-minimal-complete.json) / [incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例是 D014 Pydantic wire model 的生成物，不建立第二份契约。
+[JSON Schema](schemas/package-floor-v1.schema.json)、[complete](examples/package-floor-v1-minimal-complete.json) /
+[incomplete](examples/package-floor-v1-minimal-incomplete.json) 示例从 D014 的 wire model 生成。
+[英文 README](../README.md)、[中文 README](../README.zh.md) 是使用入口，[CONTEXT](../CONTEXT.md) 固定领域词汇。
 
-## 开发构想
+## 4. 开放事项
 
-- [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 保存从原 D031 拆出的 multi-resolution
-  树搜索设想。E005 尚不支持树本身的默认性能收益；完整候选冻结、树 refinement 与报告迁移延期，
-  待取得明确依据后另建 Design。改名、predecessor 重验与统一缓存已由归档 D033 独立完成。
-- [C002](concepts/C002-pf-registry-analysis-cli.md) 接收 D030 §12 的独立 registry 发布分布分析 CLI
-  构想；探索空间/粒度比较与有依据的配置建议，命令和数据契约待确定。
+| 文档 | 当前跟踪范围 |
+| --- | --- |
+| [R010](reviews/R010-pf-engineering-document-audit.md) | 文档审计/重构记录、实现偏移与 R007 工程事项交接 |
+| [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
+| [R008](reviews/R008-pf-search-performance-review.md) | region/hints/single-flight/materialize/xdist 与真实性能证据；过期 preflight 候选已撤销 |
+| [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) | 原 D031 的树搜索设想；E005 尚未证明树的默认收益，predecessor 重验已另行完成 |
+| [C002](concepts/C002-pf-registry-analysis-cli.md) | 独立 registry 发布分布分析 CLI，命令与数据契约待探索 |
+| [C003](concepts/C003-pf-resolution-output-completeness.md) | 成功 resolve 的日志完整性是否可与 lock authority 分离，依据待验证 |
 
 <a id="uv-resolution-output-completeness"></a>
 
-- [C003](concepts/C003-pf-resolution-output-completeness.md) 接收 D032 §9 的成功解析日志完整性
-  待证构想；先验证正常 terminal、完整可信 lock 与不完整诊断日志能否分离，再决定是否改变准入。
-  D032/P037 的完成状态不受影响。
+成功解析日志完整性开放项的稳定入口为 [C003](concepts/C003-pf-resolution-output-completeness.md)。
+目前没有进行中的临时 Design 或 Plan。原 D031 拆至 C001，编号不复用。
 
-## 实验报告
+## 5. 历史证据与归档入口
 
-- [E001](experiments/E001-pf-self-bootstrap-validation-contract.md) 记录 PF 自举 full-repository contract 下 `packaging>=22` 的 dogfood 归因，以及当前单测锁定的 pytest、uv、ty 兼容性证据边界；它是非规范性实验证据。
-- [E002](experiments/E002-pf-search-performance.md) 保存 2026-08-28 PF 自搜索的空间裁剪、verifier 成本、
-  static region 与异常 source timeout 计数；当前瓶颈判断与优化候选由 R008 汇总。E002 是已完成的
-  非规范性性能实验，不跟踪实施状态。
-- [E003](experiments/E003-requests-dependency-validation.md) 记录对 `expirements/requests` 依次执行
-  `pf smoke` / `pf check` / `pf search` 的结果：20 个 Cell 均在 baseline
-  `resolve-environment` 因 `resolution-plan-invalid` 终止，未得到 verified floor。
-  E003 是已完成的非规范性 dogfood 实验，不跟踪实施状态；产品判断由
-  [R009](archived/reviews/R009-requests-harness-self-reference.md) 接收。
+| 稳定记录 | 记录范围（均非规范性） |
+| --- | --- |
+| [E001](experiments/E001-pf-self-bootstrap-validation-contract.md) | PF 自举 full-repository validation contract 与固定报告检查点 |
+| [E002](experiments/E002-pf-search-performance.md) | 2026-08-28 搜索性能计数，不能代表当前 HEAD 性能 |
+| [E003](experiments/E003-requests-dependency-validation.md) | requests required-surface 修复前的 baseline 失败 |
+| [E004](experiments/E004-requests-validation-surfaces.md) | required-surface、条件节点与搜索范围修复前后证据 |
+| [E005](experiments/E005-pf-multi-resolution-search-simulation.md) | 纯算法模拟；支持 predecessor 重验，不证明真实 evaluator 耗时 |
+| [E006](experiments/E006-requests-complete-search.md) | requests 两阶段完整 search 与 smoke/check 记录 |
+| [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) | MkDocs 基线/build 调查；后续 D036/P041 已完成，不表示重跑了 MkDocs search |
 
-- [E004](experiments/E004-requests-validation-surfaces.md) 记录 D028 后 requests 的 15 个 required-surface
-  Cells 的 smoke/check/search 实测终态，以及空 extra 修正后的 10 Cells planning；原自引用投影缺口
-  已消失，后续失败按实际 authority 保存。
-- [E005](experiments/E005-pf-multi-resolution-search-simulation.md) 完成原 D031 第一阶段纯算法模拟：
-  A/B/C/D 四组、独立穷举与当前算法差分对照表明 predecessor 重验减少合成探针，树本身收益不稳定；
-  保存脚本、逐案结果和 trace，不代表真实 evaluator 耗时或产品实现验收。
-- [E006](experiments/E006-requests-complete-search.md) 保存 requests 双阶段完整 search：先以
-  `majors[declaration-1:]` × minor 定位系列，再以 `minors[declaration]` × patch refine；两阶段均为
-  10 Cells SUCCESS，最终得到 `charset-normalizer=1.3.1`、`urllib3=1.26.5`、`PySocks=1.7.0` 等
-  六个一致 floor。补跑 check 仍为 10 REJECTED，smoke 首次出现一次连接重置、相同配置完整复测
-  10 PASS；两阶段运行输出、机器摘要和代表诊断均已保存。
-- [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) 记录 MkDocs 原始 search 的
-  13 个基线拒绝与 8 个 Jinja2 构建不确定，Babel 测试前提、pathspec 缩进输入差异及上游 PR/CI
-  证据；完成实验配置后 smoke 为 5 Cells PASS。未重跑 search，未得到 verified floor；后续已确认
-  “可靠归因优先、执行契约兜底”的统一方向，目标契约见 D036，实施记录见 P041。
+既有 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。
+补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)；
+旧地址仅作导航，开放事项已移交 R006/R008/R010。既有归档索引保持原状。
 
-## 开放事项与归档
+## 6. 文档变更验证
 
-- [D036](archived/designs/D036-pf-execution-failure-contract.md) /
-  [P041](archived/plans/P041-pf-execution-failure-contract.md) 已完成统一执行失败契约：合格归因优先，
-  正常非零兜底拒绝当前 Attempt，严格保留成功产物与完整 verifier PASS；FailureRecord v3、
-  报告/策略隔离、三命令诊断及真实旧式 sdist 搜索已验收。稳定规则由 D001–D008/D012–D014 接管，
-  三版本全套各 2244 passed，coverage 90.46%。
-
-- [D035](archived/designs/D035-pf-optional-test-group.md) /
-  [P040](archived/plans/P040-pf-optional-test-group.md) 已完成可选 test-group 与空 harness 快路：
-  显式缺失为空，省略按 dev/test/空顺序选择；无 active external harness 时直接安装 project plan。
-  nullable environment evidence、policy 隔离与三版本验收已完成，稳定规则由 D001/D002/D005/D006/D012/D014 接管。
-
-- [D034](archived/designs/D034-pf-dependency-marker-projection.md) /
-  [P039](archived/plans/P039-pf-dependency-marker-projection.md) 已完成五字段 portable marker 投影：
-  managed/self-reference admission 与 contextual preserved/harness 求值分离，统一 target-derived facts，
-  保持 canonical ApplySelector、Schema 1 与 actual pylock profile。稳定规则由 D001/D002/D012/D014 接管；
-  MkDocs 独立 test-group 配置限制与验收证据见 P039。
-
-- [D032](archived/designs/D032-pf-runtime-witness-stderr.md) /
-  [P037](archived/plans/P037-pf-adapter-evidence-admission.md) 已完成并归档：witness stderr 诊断化、
-  pytest summary 可选化、不适用 artifact 的 locator/哈希检查后置、ty 项目展示默认值覆盖。
-  稳定规则已归并 D003/D004/D013/D014；逐项验收与工作区独立限制见 P037。
-
-- 原 D031 已拆分：树搜索保留为 [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) 开放想法，
-  原编号不复用；[D033](archived/designs/D033-pf-predecessor-revalidate.md) /
-  [P038](archived/plans/P038-pf-predecessor-revalidate.md) 已完成 `search-resolution` 改名、最低候选快路、
-  后续 sweep 直接 predecessor 重验、evaluator 统一缓存和直接非单调终止，并闭合 highest baseline PASS、
-  Slice/region 登记与窄搜索空间 baseline artifact；稳定规则由 D001/D002/D003/D006/D014 接管。
-- [D030](archived/designs/D030-pf-search-space-dsl.md) / [P036](archived/plans/P036-pf-search-space-dsl.md) 已完成系列切片 DSL、
-  条件默认、独立求值错误、报告策略/系列观测去重与离线授权；稳定规则由 D001/D002/D003/D006/D008/D014
-  接管，实施与验收记录同步归档。
-
-- [D029](archived/designs/D029-pf-conditional-resolution-projection.md) /
-  [P035](archived/plans/P035-pf-conditional-resolution-projection.md) 已完成条件 resolution 节点投影修复；
-  稳定规则由 D002/D012/D014 接管，E004 §10 保存三组日志回放和 requests py3.11+socks smoke PASS。
-
-- [D028](archived/designs/D028-pf-validation-contract-surfaces.md) /
-  [P034](archived/plans/P034-pf-validation-contract-surfaces.md) 已完成 required Cell surface、external
-  harness satisfaction/current graph ceiling、默认 any/pytest 与 policy identity 隔离；稳定规则由
-  D001/D002/D005/D012/D014 接管。[R009](archived/reviews/R009-requests-harness-self-reference.md) 已解决并同步归档。
-- [R008](reviews/R008-pf-search-performance-review.md) 汇总当前搜索流程、E002 性能基线的适用边界、
-  verifier 主导瓶颈，以及 region guidance、hints、per-key single-flight、源码物化、报告预检与
-  xdist failed-set 早停候选；
-  E002 保存历史运行证据，R007 继续保存全项目优先级。R008 是非规范性评审，不授权实施。
-  搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 已落地为默认内部策略；稳定规则由
-  D001/D002/D003/D004/D005/D013 接管。历史 Design/Plan 见
-  [D024](archived/designs/D024-pf-failed-case-pruning.md) /
-  [P030](archived/plans/P030-pf-failed-case-pruning.md)。
-- [D027](archived/designs/D027-pf-report-path-ownership.md) / [P033](archived/plans/P033-pf-report-path-ownership.md)
-  已完成包默认 `package-floor.json` 路径规则单一 owner；稳定规则由 D002/D006 接管。
-- [R007](reviews/R007-pf-current-improvement-priorities.md) 汇总当前产品、架构、性能与工程改进优先级，
-  新增报告路径 owner 与自举 artifact 引用漂移等发现，并校准 composition、中断、搜索性能和资格候选的
-  治理边界；CI coverage 门禁、host-partial 协议、command-scoped composition、Ctrl+C 终态与报告路径
-  owner 已实施。
-  E002/R006 继续保存各自详细证据。R007 是非规范性评审，不授权其余开放项。
-- [R006](reviews/R006-pf-cli-system-review.md) 是当前 CLI 问题的单一汇总 Review：help/README 公开表面偏差、
-  reason-aware incomplete 文案、jobs 契约歧义、host-partial 自动化协议、command-scoped composition 与
-  Ctrl+C 终态已解决；它继续跟踪非 TTY 搜索遥测和 terminal-private result-card；它是非规范性评审，
-  不授权实施。
-- [D026](archived/designs/D026-pf-command-composition-and-interrupt.md) / [P032](archived/plans/P032-pf-command-composition-and-interrupt.md)
-  已完成按命令装配 capability graph 与 Ctrl+C 退出 `130`；稳定规则由 D001/D002/D006/D007 接管。
-- [D025](archived/designs/D025-pf-host-partial-protocol.md) / [P031](archived/plans/P031-pf-host-partial-protocol.md)
-  已完成纯 host-partial search 退出 `0` 与 minimize merge 提示；稳定规则由 D001/D006 接管。
-- [D024](archived/designs/D024-pf-failed-case-pruning.md) / [P030](archived/plans/P030-pf-failed-case-pruning.md)
-  已完成搜索期 FailedCaseSet 拒绝预言与 pytest early-exit；稳定规则由 D001/D002/D003/D004/D005/D013
-  接管。FailedCaseSet 第二段 wall-clock 收益未证实，R008 保持开放。
-- [D023](archived/designs/D023-pf-configuration-model.md) / [P029](archived/plans/P029-pf-configuration-model.md)
-  已完成配置模型收敛、uv ownership、分层并发与R006 jobs项修复；稳定规则由D001/D002/D003/D004/D006/
-  D008/D012/D014接管。
-- [D022](archived/designs/D022-pf-evaluation-seam.md) / [P028](archived/plans/P028-pf-evaluation-seam.md) 已完成
-  评价 seam 收敛与 SearchCoordinator 测试替换；稳定规则由 D002/D003/D004 接管。
-- [R005](archived/reviews/R005-pf-module-depth-review.md) 的 SourcePlan、WorkspaceInventory、Verification Run
-  与评价 seam 轨均已解决；terminal-private result-card 轨移交 R006 后，Review 已同步归档。
-- [D021](archived/designs/D021-pf-verification-run-request.md) / [P027](archived/plans/P027-pf-verification-run-request.md) 已完成 R005 轨 B 的实现与验证；稳定 request/Run/展示规则由 D002/D006/D008 接管。
-- [D020](archived/designs/D020-pf-workspace-inventory.md) / [P026](archived/plans/P026-pf-workspace-inventory.md) 的 WorkspaceInventory 深化迁移已完成；稳定 interface 与 ownership 由 D002 接管。
-- [D019](archived/designs/D019-pf-source-plan-depth.md) / [P025](archived/plans/P025-pf-source-plan-depth.md) 的 SourcePlan 深化迁移已完成；设计理由与完整验证证据见归档记录。
-- D018/P024的诊断与结果命令卡片迁移已完成；稳定规则已由D001/D002/D005/D006/D008接管，
-  D014的merge authority保持不变，设计理由和实施证据见归档索引。
-- D017/P023的单target与workspace direct dependency迁移已完成；设计理由和实施证据见归档索引。
-- [归档索引](archived/README.md) 记录已归并设计、已完成计划、已解决评审和已吸收探索。
-
-新增文档先放入对应现行目录；Plan 完成、Design 被替代、Review 解决或 Investigation 被吸收后，在同一变更中移入 `archived/<type>/` 并修复引用。
+核对现行 owner 与代码/公开 tests 的具体 seam，检查状态与开放项去向、相对链接和章节锚点、生成物漂移、
+`git diff --check`，并逐字节确认既有归档未变。行为测试按改动范围运行；只改文档不宣称交付了行为修复。
+审计证据与剩余实现问题见 R010，不在索引复制测试计数。

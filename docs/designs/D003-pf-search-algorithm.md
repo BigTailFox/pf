@@ -9,11 +9,11 @@
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)
 
-本文是单个 package/cell 的坐标搜索、static region、probe 顺序、不变量与终止条件的唯一所有者。候选冻结由 D001 定义；静态事实和 witness 由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 由 D005 定义。跨 cell 并发、报告合并和 apply 不属于本文。
+本文是单个 package/cell 的坐标搜索、static region、probe 顺序、不变量与终止条件的唯一所有者。候选冻结由 [D037](D037-pf-candidate-search-policy.md) 定义；静态事实和 witness 由 D004 定义；`PASS` / `REJECTED` / `INDETERMINATE` 由 D005 定义。跨 cell 并发、报告合并和 apply 不属于本文。
 
 ## 1. 模型
 
-受管依赖按规范化名称排序，每个依赖有一份按 D001 过滤并冻结的升序候选列表：
+受管依赖按规范化名称排序，每个依赖有一份按 D037 过滤并冻结的升序候选列表：
 
 ```text
 D = [d1, ..., dn]
@@ -82,38 +82,10 @@ predecessor 边界并参与直接非单调检测。没有 Proposal/静态事实�
 
 不同 failure ID 仅表示事实不同，不自动证明 nondeterminism；本次不增加 prepare 重试或归因漂移探测。
 
-每个 managed searchable coordinate 在 `PackagePlan` 中都有唯一完整
-`NamedSearchPolicy(name, space?, space_defaults, resolution, prereleases)`。ProjectLoader 绑定配置层级，省略 space
-保留 None；CandidateBuilder 只按 name 取得 policy，通过纯 `search_space` 按 Cell active declarations 绑定。
-
-Registry query 依次验证必要响应结构、观测可解析 wheel/sdist release、判断当前 Cell 的
-Requires-Python 与 Python/ABI/platform tags 适用性，再验证适用 artifact 的安装 locator 和 SHA-256。
-URL 必须为非空字符串，hashes 必须为对象，Requires-Python/yanked 等必要字段类型仍严格校验；
-明确不适用的 artifact 不要求可安装的 HTTP(S) locator 或 SHA-256，但其 release 仍进入完整观测。
-适用 artifact 缺 SHA-256 或 locator 非法仍使 query 失败，错误区分响应结构与适用 artifact 证据；
-不得静默丢弃它并据此提高 floor。不引入其他哈希安装路径，也不在 adapter 复制 CandidateBuilder
-的 yanked/prerelease/声明/baseline/space 筛选。
-
-一次成功 query 同时冻结全部可解析 release versions 与 artifact 候选；前者必须在 Requires-Python、wheel
-兼容性、yanked、prerelease、artifact、保留的声明限制、baseline 和 space/resolution 过滤前取得。失败不冻结。
-先由全部 release keys 建立 D001 所需 scope 的系列列表并求值位置切片，再将 space 与公共资格共同过滤
-到可用精确候选，最后按 resolution 取系列内最高合格代表。不可用系列占位，不使偏移向更旧可用系列补位。
-Major/minor/patch 采样独立于 major/minor 空间，不根据实际发布分布自动改变策略。CandidateBuilder 从同一次
-成功 query 另选出 baseline `B[d]` 的精确 artifact；该选择不重新应用 space/resolution/prerelease/yanked/
-代表采样资格，但必须满足 Cell artifact policy、locator 与 SHA-256。无法闭合为 candidate-discovery
-SOURCE_FAILURE/Indeterminate。CandidateSnapshot 的 `select(version)` 统一处理 `B[d]` 在/不在 `C[d]`；
-同版本两处 artifact 必须一致，调用方不得展开另一份 lookup map。
-
-`pf:candidate-policy:v1` 绑定固定 profile、name、effective canonical space、resolution/prereleases、artifact 与
-`artifact_admission = cell-eligibility-before-sha256`（包括 locator 的适用性顺序）；精确 preimage
-和 reader 复算由 [D014 §1.2.3](D014-pf-report-schema.md#123-离线派生与候选-identity) 独占。
-snapshot 另绑定派生原因、实际使用的原始 anchor versions 与系列观测内容引用。即使代表不变，使用的
-anchor 或观测改变也改变 snapshot identity。请求的完整默认表由 D014 generation 与 apply 另行绑定。
-
-Declaration anchor 前提缺失在 search workflow 准入时报 ConfigurationError（退出 3），早于 snapshot。
-Registry 成功后 anchor 系列缺失或 anchor 跨 scope 抛 SearchSpaceResolutionError（退出 2），不创建失败项
-snapshot、Rejection 或 NO_PASS；D008 负责整个 Run 收尾且不写报告。合法切片为空或资格过滤后为空仍是
-NO_PASS_IN_SEARCH_SPACE，source failure 仍是 Indeterminate。完整 PASS、predecessor 和 final 资格不变。
+候选准入、系列切片、采样与 baseline artifact 选择只见 [D037](D037-pf-candidate-search-policy.md)；
+`CandidateBuilder`/`CandidateSnapshot.select` interface 见 [D002 §7](D002-pf-implementation.md#7-verification-modules)。
+具体 identity/preimage 与离线复算由 [D014 §1.2](D014-pf-report-schema.md#12-inputs) 拥有。
+空间求值错误的 Run 收尾由 [D008 §3.3](D008-pf-verification-run.md#33-search) 拥有。
 
 ## 4. SearchCoordinator 状态机
 
@@ -137,10 +109,7 @@ ONE RUNTIME-BACKED COORDINATE SEARCH FROM B
 
 不再存在 static fixpoint、`V_static`、联合测试 fast path 或第二轮 dynamic search。Baseline capture 的同一次 TyCheck 是 `B` 的空增量静态事实，不重跑；`B` 的完整 PASS 由 HighestVersionVerifier 提供。SearchCoordinator 把完整 `HighestVersionPass` 注入 evaluator，以 baseline vector 为 key 保存原 Attempt、Proposal 与 PassEvaluation；不伪造 exact-vector request、selected-candidate digest 或 relaxed harness。
 
-`SearchCoordinator` 直接依赖 `EnvironmentFactory`、`CandidateBuilder`、`StaticEvaluator`、
-`RuntimeEvaluator`、`HighestVersionVerifier` 与 `CoordinateSearch`，不为这些 in-process module建立
-caller-specific Protocol或 evaluator facade。diagnostic/activity consumer继续是 side-effect seam；uv、candidate
-provider、ty、verifier与 witness仍是 lower adapter seam。
+模块依赖与测试替换点只见 [D002 §7、§11](D002-pf-implementation.md#7-verification-modules)。
 
 ## 5. CoordinateSearch interface
 
@@ -181,11 +150,10 @@ invocation-local。完整 vector 结果可跨 active dependency 复用，但每�
 region reference；相同向量在另一 active dependency 下不能借用 static-only guidance。完整 lookup hit 不创建
 Attempt、环境、验证活动或成功耗时。不同 Proposal、Cell 与 invocation 不共享可写环境或结果。
 
-`SearchCoordinator` tests用 lower adapters装配上述真实 module graph，以最小候选集从 `search(...)` 观察
-baseline/candidate终止、prepare/full reuse、public evidence closure、diagnostics/events与cleanup；不得替换、
-subclass或 patch `CoordinateSearch.minimize`。slice/window/hint/strategy/promotion/predecessor/sweep/
-termination/reentrancy/concurrency矩阵只由 `CoordinateSearch.minimize(...)` 的 public tests拥有，其合法
-`VectorEvaluator` seam不属于产品 evaluator seam。
+Evaluator 在完整结果或 prepare 终态后立即关闭本次环境；static-only 后保留未污染的环境供 promotion，
+退出 Cell 时清理全部保留环境。生命周期由 `_ProposalRunner` 独占，算法不持有资源句柄。
+
+产品测试边界由 [D002 §11](D002-pf-implementation.md#11-验证边界) 定义；算法矩阵从 `CoordinateSearch.minimize(...)` 的公开 evaluator seam 验证。
 
 ## 6. 一个 candidate probe
 

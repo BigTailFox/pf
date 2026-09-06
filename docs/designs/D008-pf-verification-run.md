@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v2`
-- **最后核对：** 2026-09-04
+- **最后核对：** 2026-09-06
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -85,7 +85,8 @@ prepare(highest, original harness, DEVELOPMENT)
 -> close
 ```
 
-使用 `HighestVersionVerifier`，写 Journal，不读写 floor report。
+使用 `HighestVersionVerifier`，复用 capture 的 TyCheck，只运行一次完整 test-command，不运行 witness
+或 candidate discovery；写 Journal，不读写 floor report。
 
 ### 3.2 Check
 
@@ -231,7 +232,7 @@ V2 位置：
 结构：
 
 ```text
-schema_version = verification-journal-v2
+schema = verification-journal-v2
 run_id
 command = smoke | check | search
 source_snapshot_digest
@@ -245,6 +246,8 @@ entries[]
   Attempt?       CellFailureScope 时省略
   FailureRecord v3 authority
 ```
+
+磁盘字段为 `schema`；内存 `VerificationJournal` 字段为 `schema_version`，由 RunLogStore 编解码。
 
 每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、scope、Attempt、source digest与该policy必须闭合；同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。
 

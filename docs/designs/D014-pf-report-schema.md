@@ -91,7 +91,7 @@ scheduling和prerelease推断不进入resolution context。Apply authorizer从re
 已由apply结构授权的report值，以保留original/projected/no-op语义，不新增wire字段。
 
 evaluation policy identity的配置与既有工具preimage是resolution的`artifact/timeout_seconds`、ty的
-`args/timeout_seconds`、test的`command/cwd/timeout_seconds`，以及既有ty tool version、diagnostic、configured
+`args/timeout_seconds`、test的`command/cwd/timeout_seconds`，以及既有ty tool version、D004 §11 独占的 `ty_diagnostic_policy`、configured
 verifier outcome与failure policy facts；前缀仍为`pf:policy:v1`。test group、target/extra、candidate search和
 全部scheduling limits不进入该identity。
 
@@ -166,6 +166,9 @@ CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事�
 不进入candidate records。
 
 ### 1.2.1 请求策略
+
+DSL、anchor、条件默认与候选准入语义只见 [D037](D037-pf-candidate-search-policy.md)；
+本节定义它们的 wire 投影和离线校验，不重新定义配置继承或算法。
 
 `inputs.search_policy` 的 required 结构为：
 
@@ -259,14 +262,10 @@ Failure wire 必须恰有一个判别 `authority`：
 拒绝缺失、混合、额外或与 cause/stage/disposition 不匹配的 authority，并以完整
 `pf:failure:v3` preimage 重算 failure ID。
 
-execution authority 保存 D005 的 terminal 与封闭 attribution；operation-structured 保存封闭
-fact 与 required-nullable terminal；configured-verifier 仅保存通用 terminal。R/I/A/Q 的
-authority、Attempt scope、harness 分支、已提交 plan 时序、cause/disposition 一律由 D005 共享
-规则复证，不能改用旧 process/structured 绕过，test 也不能改用 execution。UNSAT 的固定
-tool/version/protocol/profile、两种 typed code、boolean true completeness、request binding 必须
-合法且等于顶层 Attempt/stage/plans；非零兜底不能伪装 UNSAT。NormalExit(0) 后的坏成功产物
-仍保存该 normal-zero terminal，无进程 Q fact 保留 null。新 authority 不保存日志或 diagnostic
-hash，Report/Journal/Diagnosis Index 共享事实；运行期 process sidecar 不进入 wire/Failure ID。
+execution 保存 terminal/attribution，operation-structured 保存 fact/required-nullable terminal，
+configured-verifier 仅保存 terminal。Reader 复用 [D005 §3–4](D005-pf-failure-and-diagnose.md#3-rejection-资格)
+的 authority family、stage、terminal、cause/disposition、harness/plan 时序与 binding 校验；
+wire 不另建分类表。ProcessObservation sidecar 不进入 wire 或 Failure ID。
 
 Prepare failure 可只引用 Attempt 和已取得 plan，不要求 Proposal；失败 R 的未通过检查输出
 不得变成 plan evidence。FailureRecord 顶层 optional plan 空值仍省略，嵌套 binding 的 nullable
@@ -350,7 +349,7 @@ json.dumps(
 ) + "\n"
 ```
 
-两个 required nullable 字段的 wire serializer 在 exclude_none 时仍保留 null；生成 Schema 保留其 nullable
+§1 列举的全部 required-nullable 路径在 exclude_none 时仍保留 null；生成 Schema 保留其 nullable
 形状。其余 optional facts 缺失时省略。编码为 UTF-8，只有一个末尾换行。实体表按稳定 ID 排序；CellResult
 按 Cell identity 排序；projection 按 declaration ID 排序。一次 read→write 必须 byte-stable。
 

@@ -62,51 +62,28 @@ pf apply
 
 ## 配置
 
-持久配置只合并两层：workspace root 的 `[tool.pf]`，再到所选 member 自己的 `[tool.pf]`。CLI 显式值只覆盖本次运行。未知 key 会失败。下面除按项目与宿主推断的 `pythons`、`platforms` 和可选的 `test-group` 示例外，都是省略默认值。自动选择优先 `dev`、其次 `test`，空数组也算存在；不同名称不会自动合并。
+配置从 workspace root 的 `[tool.pf]` 合并到所选 member 自己的 `[tool.pf]`，CLI 显式值只覆盖本次运行。例如：
 
 ```toml
 [tool.pf]
-test-command = ["pytest"]          # 默认 argv；显式值整体替换，不能以 "uv run" 开头
-# pythons = ["3.10", "3.11", "3.12"]  # CPython minor；省略则按 requires-python 推断
-# platforms = ["x86_64-unknown-linux-gnu"]  # uv target triple；省略则用当前宿主
-extra-policy = "each"              # none | each | all
-extra-surfaces = []                # 额外 extra 组合，例如 [["docs", "check"]]
-# search-space = "all"             # 显式覆盖；省略时使用下方条件默认表
-search-resolution = "minor"        # major | minor | patch
-search-prereleases = false
-resolve-artifact = "any"         # wheel | sdist | any
-# managed-deps = ["rich"]          # 与 unmanaged-deps 互斥
-# unmanaged-deps = ["build"]       # 两者都省略则管理全部可搜索直接依赖
-# test-group = "test"              # 显式选择；省略按 dev、test、空 group 顺序
-test-cwd = "package"               # package | root
-ty-args = []
-max-cells = "auto"                 # auto 或正整数；Cell 并发
-ty-jobs = "auto"                   # ty 进程并发
-test-jobs = "auto"                 # verifier 并发
-resolve-timeout = "10m"
-ty-timeout = "10m"
-test-timeout = "30m"               # 三个 timeout 都可设 "none"
-
-# [[tool.pf.dep]]
-# name = "rich"                    # 规范 distribution name
-# search-space = "majors[baseline]" # 或 minors[...] / 一段 PEP 440 specifier
-# search-resolution = "minor"
-# search-prereleases = false
+test-command = ["pytest"]
+search-resolution = "patch"
+max-cells = 4
 
 [tool.pf.search-space-defaults]
 with-lower-bound = "majors[declaration-1:]"
 without-lower-bound = "majors[baseline-2:]"
 ```
 
-所有 space 都可搭配 `major`、`minor` 或 `patch` resolution。`baseline` 锚定已验证的最高版本，`declaration` 锚定各 Cell 活跃直接声明的最强下界。偏移沿 registry 已存在系列移动，切片左闭右开；例如 `majors[baseline-2:]` 在 baseline cap 与候选过滤约束下，包含 baseline major 及前两个已有 major。被过滤的系列仍占位置。
+这是配置示例，不是完整默认值表。Group、Cell、并发、timeout 与层级合并见
+[D001 配置](docs/designs/D001-pf.md#7-配置)；space、条件默认、逐依赖覆盖和精确 baseline artifact 见
+[D037 候选与搜索策略](docs/designs/D037-pf-candidate-search-policy.md)。
+`search-resolution` 控制所选空间内的采样，最终 floor 仍是精确版本。
 
-窄 space 可以排除已验证的 baseline 版本。PF 会另外冻结该 baseline 的精确 artifact，使多依赖 probe 仍可复现，但不会把该版本加入搜索候选、窗口、边界或 floor。
-
-显式 space 优先于条件默认，逐依赖 space 优先于全局 space。默认表两项必填，按完整对象替换继承；`without-lower-bound` 不得引用 declaration。`[[tool.pf.dep]]` 也整表替换；member 省略 `dep` 才继承 root 表，`dep = []` 则清空。缺声明下界前提在搜索前退出 3；registry anchor/scope 无法求值退出 2，报告保持原状。完整规则见 [D001](docs/designs/D001-pf.md)。
-
-Cell 没有活跃外部测试依赖时，PF 直接解析并安装 project plan，复证安装图后执行配置的 verifier。环境中没有命令所需工具时，按真实进程失败处理。
-
-test group 中对当前项目的自引用 extras 是每个 Cell 的必需 surface。例如 `requests[socks]` 让所有 Cell 包含 `socks`；extra-policy 只自动探索其余依赖列表非空的 extras，`none` 也保留必需 extras。空组默认跳过，显式 `extra-surfaces` 和自引用要求仍可包含空组。Floor 相对于配置的验证契约成立；更换测试命令或 harness 可能改变结果。
+test group 中的 `requests[socks]` 这类自引用，让 `socks` 成为每个 Cell 的必需 surface；
+extra 探索叠加在该必需 surface 上。没有活跃外部测试依赖的 Cell 直接安装 project plan，仍运行配置的 verifier。
+更换测试命令或 harness 会改变验证契约，也可能改变 floor；完整边界见
+[D001 验证契约](docs/designs/D001-pf.md#4-候选与验证边界)。
 
 ## 锁定的工具版本
 

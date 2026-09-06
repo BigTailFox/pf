@@ -23,6 +23,22 @@
   [D024](../archived/designs/D024-pf-failed-case-pruning.md) 与
   [P030](../archived/plans/P030-pf-failed-case-pruning.md)。本文仍不把协议测试描述为已证实的第二段 wall-clock 收益。
 
+## 2026-09-06 状态核对
+
+对照 `30c5d7d`：以下原评审正文是当时快照，不是现行搜索算法说明；现行时序见 D003/D012。
+D033 已增加后续 sweep 的 predecessor 直接重验，D035 已增加 project-only prepare，D036 已改变
+resolve/install 正常非零分类。原文“每个 Slice 从最早候选开始”“总是两次解析/venv sync”不再描述现状。
+E002 的耗时与计数保持历史口径，尚无本轮真实 wall-clock 基线。
+
+- §4.1 region、§4.2 hints、§4.3 single-flight、§4.4 materialize 与 §4.7 xdist 候选继续开放。
+- §4.5 的“坏报告导致搜索结束时整次失败”前提已失效：现行 `ReportStore.update_path` 把非法 existing
+  当作缺席并写 replacement（D014 §5），因此撤销该晚失败优化候选。未来若要增加预警，需要新的产品理由。
+- §4.6 已实现；其第二段 wall-clock 收益仍未证实。原文 `§11 第 2 组` 指归档 D024 §11，
+  不是本 Review 的章节；argv overlay 位置以 D001 §4 的首个字面 `--` 之前为准。
+- R007 已归档，剩余工程事项转入 [R010 §4](R010-pf-engineering-document-audit.md#4-r007-开放项交接)。
+
+以下保留原评审证据与候选理由，不回写历史计数。
+
 ## 1. 最终结论
 
 PF 搜索的主导瓶颈是用户配置的完整 `test-command`，通常是整份 pytest；不是死循环，也不是组合空间

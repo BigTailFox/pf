@@ -62,51 +62,31 @@ Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Us
 
 ## Configuration
 
-Persistent settings merge two layers: workspace-root `[tool.pf]`, then the selected member's own `[tool.pf]`. CLI flags override that run only. Unknown keys fail. The values below are the omitted defaults except `pythons` and `platforms`, which are inferred from the project and host, and the optional `test-group` example. Automatic group selection prefers `dev` over `test`, including an empty group, and never merges different names.
+Settings merge from the workspace root's `[tool.pf]` into the selected member's own `[tool.pf]`;
+explicit CLI flags override that run. For example:
 
 ```toml
 [tool.pf]
-test-command = ["pytest"]          # default argv; explicit value replaces it; must not start with "uv run"
-# pythons = ["3.10", "3.11", "3.12"]  # CPython minors; omit to infer from requires-python
-# platforms = ["x86_64-unknown-linux-gnu"]  # uv target triples; omit to use the host
-extra-policy = "each"              # none | each | all
-extra-surfaces = []                # extra extra-combinations, e.g. [["docs", "check"]]
-# search-space = "all"             # explicit override; omitted selects conditional defaults below
-search-resolution = "minor"        # major | minor | patch
-search-prereleases = false
-resolve-artifact = "any"         # wheel | sdist | any
-# managed-deps = ["rich"]          # mutually exclusive with unmanaged-deps
-# unmanaged-deps = ["build"]       # omit both to manage every searchable direct dependency
-# test-group = "test"              # explicit selection; omit for dev, then test, then empty
-test-cwd = "package"               # package | root
-ty-args = []
-max-cells = "auto"                 # auto or a positive integer; cell concurrency
-ty-jobs = "auto"                   # ty process concurrency
-test-jobs = "auto"                 # verifier concurrency
-resolve-timeout = "10m"
-ty-timeout = "10m"
-test-timeout = "30m"               # each timeout may be "none"
-
-# [[tool.pf.dep]]
-# name = "rich"                    # canonical distribution name
-# search-space = "majors[baseline]" # or minors[...] / a PEP 440 specifier
-# search-resolution = "minor"
-# search-prereleases = false
+test-command = ["pytest"]
+search-resolution = "patch"
+max-cells = 4
 
 [tool.pf.search-space-defaults]
 with-lower-bound = "majors[declaration-1:]"
 without-lower-bound = "majors[baseline-2:]"
 ```
 
-All spaces accept `major`, `minor`, or `patch` resolution. `baseline` anchors the verified highest version; `declaration` anchors the strongest active direct lower bound in each Cell. Offsets move through existing registry series; slices are half-open. For example, `majors[baseline-2:]` includes the baseline major and the two preceding existing majors, subject to the baseline cap and candidate filters. A filtered-out series still occupies its position.
+This is a configuration example, not a complete defaults table. See
+[D001 configuration](docs/designs/D001-pf.md#7-配置) for groups, Cells, concurrency, timeouts and layer merging;
+see [D037 candidate and search policy](docs/designs/D037-pf-candidate-search-policy.md) for spaces,
+conditional defaults, per-dependency overrides and exact baseline artifacts.
+`search-resolution` controls sampling within the chosen space; a verified floor remains an exact version.
 
-A narrow space may exclude the verified baseline version. PF freezes that baseline's exact artifact separately so multi-dependency probes remain reproducible, but it never adds the version to the search candidates, windows, boundaries, or floors.
-
-Explicit space wins over conditional defaults; per-dependency space wins over global space. A defaults table requires both entries and replaces the inherited table as a whole; `without-lower-bound` cannot use `declaration`. Per-dependency `[[tool.pf.dep]]` rows also replace as a whole table; omit `dep` on a member to inherit the root table, or set `dep = []` to clear it. A missing declaration prerequisite exits 3 before search; an unresolvable registry anchor/scope exits 2 and leaves the report untouched. Full rules are in [D001](docs/designs/D001-pf.md).
-
-When a Cell has no active external test dependencies, PF resolves and installs the project plan directly, verifies the installed graph, and runs the configured verifier. A command unavailable in that environment produces its actual process failure.
-
-A self-reference in the test group selects required project extras. For example, `requests[socks]` includes `socks` in every Cell; extra-policy explores only the remaining extras with nonempty dependency lists, and `none` retains required extras. Empty groups are skipped automatically; explicit `extra-surfaces` and required extras can still include them. Floors are relative to the configured validation contract, so changing the test command or harness can change the result.
+A self-reference such as `requests[socks]` in the test group makes `socks` required in every Cell.
+Extra exploration is added to that required surface. A Cell without active external test dependencies
+installs the project plan directly and still runs the configured verifier. Changing the test command or
+harness changes the validation contract and can change the resulting floor; see
+[D001 validation](docs/designs/D001-pf.md#4-候选与验证边界).
 
 ## Pinned tools
 

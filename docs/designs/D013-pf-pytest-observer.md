@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Observer 协议：** `pf-pytest-observer-v1`
-- **最后核对：** 2026-09-05
+- **最后核对：** 2026-09-06
 - **Verifier authority：** [D002](D002-pf-implementation.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行时投影：** [D008](D008-pf-verification-run.md)

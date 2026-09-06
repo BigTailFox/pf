@@ -291,7 +291,7 @@ search 的三个 py3.11 baseline 另行核对 environment lock / installed metad
 ## 10. D029 条件投影修复后的针对性验证
 
 2026-09-05，在 `8dce32e` 上的 D029 工作树修复条件节点投影。稳定契约由
-[D012 §4](../designs/D012-pf-harness-relaxation.md#4-resolve-twice-install-once) 接管，实施与验收见
+[D012 §4](../designs/D012-pf-harness-relaxation.md#4-resolve-project-optionally-augment-install-once) 接管，实施与验收见
 [D029](../archived/designs/D029-pf-conditional-resolution-projection.md) /
 [P035](../archived/plans/P035-pf-conditional-resolution-projection.md)。§7 的“尚未修复”描述其诊断时点。
 原三命令历史终态保持，不回写为成功。

@@ -271,9 +271,7 @@ Rejection classifier。Role 不改变分类或 identity。
 ## 6. Diagnose
 
 报告、latest Journal 和 Diagnosis Index 的读取范围与优先级只由 D008 定义。
-`pf diagnose FAILURE_ID [--package PACKAGE]`每次必须指定并只返回一个FailureRecord；短
-`<16 hex>`在CLI边界规范化为`failure-<16 hex>`，workflow只接受完整canonical ID。合法但未知
-的ID配置失败；不提供批量、空成功、历史遍历、自动归因、重试、环境重建或项目/报告修改。
+命令参数与 Failure ID 准入只见 [D001 §5、§8](D001-pf.md#5-命令)；本节拥有 cause 的稳定用户语义。
 
 单条诊断按 `Failure / Outcome → What happened → Impact → Next step → Context →
 Technical details → optional log tail` 表达。Failure title与Next step保持本节稳定语义；
@@ -299,9 +297,7 @@ Role-aware Impact由D008拥有。Cause 的稳定用户语义：
 - Rejection 必须由 FailureRecord portable authority 单独复证；本地 diagnostics/log 不提升 authority。
 - 一个 failure ID 不能映射到不同 payload；reader 必须复算 v3 preimage。
 - Probe Rejection 不证明单个 version 是根因，也不证明整个区间失败。
-- 相同 Proposal/static baseline 的实际 full-cache 写入若 verifier authority 漂移，按既有 seam
-  为 NONDETERMINISTIC。prepare cache 命中不重复执行，不检测 terminal/attribution 漂移；两个
-  Reject 的不同 ID 不自动产生 NONDETERMINISTIC。CoordinateSearch 与 merge 的边界由 D003/D014 拥有。
+- 重复观察、cache conflict 与 merge 冲突承诺只见 [D003 §3](D003-pf-search-algorithm.md#3-核心不变量)。
 - v1 不做 flaky quorum、自动重放、日志上传或根因推断。
 
 Diagnose 从 authority 展示实际 terminal、qualified attribution 或 normal-nonzero fallback；

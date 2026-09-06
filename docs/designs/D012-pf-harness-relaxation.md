@@ -10,7 +10,7 @@
 - **验证运行：** [D008](D008-pf-verification-run.md)
 - **实施记录：** [P011](../archived/plans/P011-pf-harness-relaxation.md)
 
-本文是 harness requirement relaxation、双阶段 resolution 和 uv 诊断认证的唯一契约。其他 Design 只定义各自消费这些结果的方式。
+本文是 harness requirement relaxation、project/optional environment resolution、一次安装和 uv 诊断资格的唯一契约。操作结果的 cause/disposition 由 D005 定义。
 
 ## 1. 目标与边界
 
@@ -22,7 +22,7 @@ PF 因此：
 - 只放宽 eligible direct harness declaration 的显式下限；
 - 让 uv 独占传递依赖求解；
 - 先确定 project graph；有活跃 external harness 时再确定 environment plan，安装唯一 final plan；
-- 只有已认证的逻辑无解可以成为 Rejection。
+- 只为已资格化的矛盾生成 UNSAT attribution；其余执行事实交由 D005 分类。
 
 ## 2. 模型
 
@@ -57,15 +57,8 @@ Candidate、harness、project/environment resolution、Attempt 和 report 必须
 
 ### 2.1 Attempt 适用规则
 
-| Verification Role | Project strategy | Harness | 运行 `test-command` |
-| --- | --- | --- | --- |
-| search baseline | `highest` | 原始 | 是 |
-| smoke baseline | `highest` | 原始 | 是 |
-| check declaration-capture | `highest` | 原始 | 否 |
-| check declaration | `lowest-direct` | relaxed | 是 |
-| search probe | `exact-vector` | relaxed | 由 D003 决定 |
-
-Baseline 和 declaration-capture 不用 relaxed harness 修复用户当前声明的验证锚点。group 按 D001 显式或 dev/test/空语义选择。self-reference-only 或当前 Cell 的 external declarations 全不活跃时，均为空 external harness。
+命令、Role、request 与 full/static 执行序列只见 [D008 §2–3](D008-pf-verification-run.md#2-attempt-request-与-role)。
+本文件 §3、§6 定义 original/relaxed harness 与 request 的绑定。group 选择与自引用归一化由 D001 拥有；self-reference-only 或当前 Cell 的 external declarations 全不活跃时，均为空 external harness。
 
 ### 2.2 Workspace source 投影
 
@@ -163,7 +156,7 @@ installed graph == EnvironmentResolutionPlan
 ```
 
 安装 metadata 可能重复枚举同一 editable distribution；adapter 归并相同的 canonical name/version/
-dependency-name graph observation，同名但不同版本或依赖图的观测返回 ToolFailure。最终 installed graph
+dependency-name graph observation，同名但不同版本或依赖图的观测返回 `graph-observation-invalid`。最终 installed graph
 仍要求名称排序唯一，不让 metadata 重复在 EnvironmentIdentity 构造时造成未分类异常。
 
 `⊆exact` 要求 project plan 中每个 package 的名称、版本、source 及可靠可得的 selected artifact evidence 在 environment plan 中不变。
@@ -301,7 +294,7 @@ Identity 按取得证据的时点分开：
 
 `CandidateBuilder` 只建立受管 project direct dependencies 的有限搜索空间，并通过 SourcePlan 查询 SEARCH effective source。它不缓存或重建 source facts，不递归构造 project/harness catalog，不枚举 harness version，也不证明 resolution 无解。
 
-PF 不从 requirement 或 `search-prereleases` 推断 uv prerelease mode，也不传 `--prerelease`、package allowlist 或对应环境变量。Highest 与 exact resolution 是否选择 prerelease 完整服从 snapshot 内 uv 项目配置；该配置的 canonical input identity 进入 `pf:resolution-context:v1`，并由apply authorization在任何source-drift waiver前复核；target dependency arrays按apply已授权的original/projected语义独立处理。Search candidate 的 prerelease inclusion 是 D003 的独立 named policy，不改变 resolver ownership。
+PF 不从 requirement 或 `search-prereleases` 推断 uv prerelease mode，也不传 `--prerelease`、package allowlist 或对应环境变量。Highest 与 exact resolution 是否选择 prerelease 完整服从 snapshot 内 uv 项目配置；该配置的 canonical input identity 进入 `pf:resolution-context:v1`，并由apply authorization在任何source-drift waiver前复核；target dependency arrays按apply已授权的original/projected语义独立处理。Search candidate 的 prerelease inclusion 是 [D037](D037-pf-candidate-search-policy.md) 的独立 named policy，不改变 resolver ownership。
 
 ## 7. Failure projection
 
@@ -316,7 +309,7 @@ project preservation 才提交。PrepareFailure 不虚构 Proposal、安装图�
 
 这些 operation facts 的 disposition、Baseline/Declaration/Probe 影响和用户文案分别只由 D005、D008 和 D006 定义。
 
-`HARNESS_CONFLICT` 只证明当前精确 `G(P)`、完整 relaxed direct harness contract、baseline ceilings 和固定 resolver policy 逻辑不兼容；它不证明其他 harness version、source 或 artifact 的性质。
+`HARNESS_CONFLICT` 只证明当前精确 `G(P)`、本次实际使用的 original/relaxed direct harness、适用的 baseline ceilings 与固定 resolver policy 逻辑不兼容；baseline 的原始 harness 同样可以产生该 cause。它不证明其他 harness version、source 或 artifact 的性质。
 
 ## 8. 不变量
 

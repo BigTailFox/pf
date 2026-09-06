@@ -58,6 +58,7 @@ src/pf/
 ├── snapshot.py                  immutable SourceSnapshot lifecycle
 ├── candidates.py                frozen CandidateSnapshots
 ├── search_space.py              纯 DSL、默认绑定、系列切片与 search anchor 准入
+├── markers.py                   portable/contextual marker 资格、target facts 与求值
 ├── harness.py                   original/relaxed direct harness 纯变换
 ├── resolution.py                resolution protocol、plans、outcomes、identity
 ├── environment.py               prepare 与 PreparedEnvironment lifecycle
@@ -181,12 +182,10 @@ document/members collection、raw bytes、digest、wire、cache 或 cleanup life
 `ProjectLoader.load(root, selector)` 每次只构造一个 inventory，并继续独占 PEP 508 declaration 用途/admission、extra
 Cell、逐 dependency source route、完整 `NamedSearchPolicy` binding、member-version attachment 与 recursive test-group planning；
 `ProjectPlan.target` 仍是唯一执行 target，且 `ProjectPlan` 不保存 inventory 或 TOML。
-ConfigLoader 以 `TestConfig.group: str | None` 保存选择意图，不读取 group inventory。ProjectLoader 独占 D001 的显式或 dev/test/空选择，以 `PackagePlan.selected_test_group: str | None` 暴露结果，空选择不解析 harness 或建立其 source routes。
-ProjectLoader 对展开的 test group 每条 requirement 只解析一次，先分离 self-reference 与 external
-harness，再按 target/Python 合成 effective Cells 和 active declarations。自动 extra 展开按声明 dependency
-array 是否非空过滤；显式 custom/required surface 保留。自引用 provenance 留在该 owner
-内部；PackagePlan 只暴露最终 cells、external `harness_requirements` 和 source routes，不增加 raw group、
-required-extra wrapper 或 public module。资格规则由 D001 拥有。
+ConfigLoader 以 `TestConfig.group: str | None` 保存选择意图，不读取 group inventory。
+ProjectLoader 以 `PackagePlan.selected_test_group` 暴露选择结果；展开的每条 requirement 只解析一次，
+独占 self-reference/external harness 分离、provenance 与最终 Cell 构造；只暴露最终 cells、external requirements 和 source routes。
+选择、准入与 surface 行为只见 D001 §2–3、§7。
 省略 `pythons` 时允许通过现行 Python discovery 运行 `uv python list`，再完成 marker/version 资格；
 资格失败必须早于 snapshot、Attempt 和 resolution/install/verifier。Discovery 自身失败保留基础设施
 错误，不触发 target build-metadata probe 或提前创建环境。
@@ -235,6 +234,7 @@ raw CAS。Git 模式使用注入的 ProcessRunner；`without_processes()` 只允
 
 ## 7. Verification modules
 
+候选准入、DSL 与采样行为由 [D037](D037-pf-candidate-search-policy.md) 定义。
 `search_space` 独占 parse/canonicalize、`DefaultSpace` / `AllSpace` / `SpecifierSpace` / `SeriesSpace`、
 anchor、默认分支绑定与系列位置求值。它不依赖 CandidateBuilder、report、配置 loader 或 I/O；ConfigLoader
 验证 syntax，ProjectLoader 绑定完整 named requested policy（省略保留 None），Search workflow 在 snapshot 前
@@ -283,62 +283,32 @@ bundle、factory、locator 或 service registry隐藏该依赖图。
 
 `EffectiveConfig` 是按消费者分组的 frozen interface：`target`、`search`、`resolution`、`ty`、`test`、`scheduling`。ConfigLoader 独占 raw key/default/merge/canonicalization；ProjectLoader 独占 dependency selection 与 `DependencySearchPolicy` 到 managed searchable direct dependency 的资格绑定，并在 `PackagePlan.dependency_search_policies` 中提供排序唯一的完整 named policy。CandidateBuilder 和其他消费者不得重新读取 raw TOML 或实现平行默认逻辑。
 
-`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。跨 Cell request 是
-`CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun` 的 closed union；三个 frozen variant
-以不进入构造器的 `ClassVar` 固定 command，分别携带现有 `CheckCellOperations`、`SmokeCellOperations`、
-`CellSearchOperations`。共同字段只含 package、完整 `source_plan`、borrowed `SourceSnapshot`、operation 与
-一次解析后的 `RunLimits(max_cells, ty_jobs, test_jobs, max_duration_seconds)`；request 不进入 Schema、report、Journal、identity 或 cache。
+`ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。
+跨 Cell request 是 `CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun`；
+其字段、Role、RunLimits、host Cell admission、activity、scheduling 与 Journal 生命周期只见
+[D008](D008-pf-verification-run.md)。Workflow 拥有 project load、一次 RunLimits 解析、snapshot
+build/finally-close 和 SourcePlan 构造；Runner 拥有任务装配，Search workflow 在 Run 后继续拥有
+source drift/report/association。接口间不通过 per-Cell workflow closure 传递隐含上下文。
 
-有效 command 在 project load 时校验；workflow/runner 不设置 group existence gate。Workflow 在 snapshot build 前从 persistent scheduling 与显式 CLI override 只解析一次 RunLimits。Runner 构造时固定 composition root 对 `pf.project.host_target()` 的单次探测结果；它验证 command/mode 与 package/routes，使用 `limits.max_cells` 调度 Cell，并在开始任务前把 `limits.ty_jobs/test_jobs` 配置给 composition root 共享的 `StagePermitPools`。
-
-Runner 从 `package.cells` 选择唯一完整 host Cell 集，并把同一 package、plan 与
-snapshot对象直接传给每个 operation；workflow不再选择Cell、建立per-Cell closure或保存host target。
-candidate、harness、project/environment resolution、Attempt与search report共同消费该plan。Workflow仍在`finally`独占
-snapshot close，Search仍在Run后消费snapshot identity做drift/report工作。structured harness、
-分支 plan、environment identity和install边界由D012定义。
-
-`EnvironmentFactory` 物化源码后先创建空 venv、inspect/资格化真实解释器，再建立绑定实际 patch/ABI 的
-ResolutionContext 与 Attempt，随后 resolve project；仅 active external harness IDs 非空时 normalize/resolve environment，最终安装一次并复证 graph。准备失败保留实际失败阶段的 Attempt，
-不伪造 interpreter 或 plan；所有失败路径清理 temporary resources。实际 interpreter 改变使 request/cache
-identity 改变；marker 到 active graph 的唯一投影 owner 为 `adapters.uv_lock`，细则见 D012。
-
-工具 version/protocol/profile 准入早于 Attempt，失败是 ConfigurationError；未建模异常或非法内部
-对象是 InfrastructureError。Adapter 返回中性 ResolutionFailure/InstallFailure 或辅助
-OperationFailureResult，内含 D005 的 ExecutionFailure/StructuredOperationFailure，不填
-cause/disposition。Factory 在调用前创建 OperationRequestBinding，校验返回 request/context/plan
-envelope，完成全部 source/artifact 检查后才提交 plan digest；Q 图/向量检查使用 null terminal。
-PrepareFailure 绑定 Attempt、实际 stage、OperationFailure 与 required-nullable plan digests；
-不虚构 Proposal。FailurePolicy.record_prepare 原样采用事实并使用共享分类/身份规则。
-
-ConfiguredVerifier 使用同一通用 terminal 规则，ty/witness 保持独立 decoder。ReportStore 复用
-规则验证 portable authority；运行期 ProcessObservation sidecar 由 baseline/check/search、
-VerificationRunner 与 presentation 按 Failure ID 关联，不进入新 FailureRecord identity。
+`EnvironmentFactory` 独占 prepare 生命周期与 request/outcome envelope 校验；完整阶段、
+解释器观察前后的 Attempt、plan digest 提交、harness 分支与清理规则只见
+[D012 §4、§6](D012-pf-harness-relaxation.md#4-resolve-project-optionally-augment-install-once)。
+Adapter 返回中性 OperationFailure，Factory 绑定 Attempt 和已取得 plan，FailurePolicy 分类；
+分类、authority 与 sidecar 约束只见 D005，Run/展示关联只见 D008。
 
 `PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
 
-`SearchCoordinator` 把真实 `HighestVersionPass` 交给一次 Cell search 的 `_ProposalRunner`；runner 以 baseline
-完整 managed vector 为 key 预置原 highest Attempt、Proposal 与 PassEvaluation，不伪造 exact-vector request。
-`_ProposalRunner` 唯一拥有完整向量的 prepare terminal、prepared lifecycle、static/full result、FailedCaseSet
-与 region point 表；同一完整 Proposal 最多 prepare/static/runtime 一次，完整命中仍按当前 Slice 登记 region，
-但不发出新的执行 activity。首次调用 `promote` 可以从 prepare 开始，static-only 后 promotion 复用未污染的
-prepared environment；完整/终态后立即关闭，退出 Cell 时清理所有保留环境。不同 Proposal、Cell 或 invocation
-不共享可写环境或 evaluator 结果。
-
-`CoordinateSearch` 只保存算法 observation、Slice 直接状态、上一 sweep boundary history、区间和当前向量；
-它不保存第二份执行结果 cache，也不接受 known-pass shortcut。起点、current、predecessor 与 final 都通过
-evaluator 入口取得直接 evidence。领域 `ProbePass` 只允许 exact-vector，或由 CellResult validator 复证为
-当前 Cell roots 的 baseline highest PASS；Rejection、Indeterminate 与 static-only 仍只允许 exact-vector。
+`_ProposalRunner` 是一次 Cell search 的唯一执行 cache/lifecycle owner，持有 baseline seed、
+完整向量的 prepare/static/full 结果、保留环境、FailedCaseSet 与 region point 表。
+`CoordinateSearch` 只保存算法 observation、Slice 状态、boundary history 与当前向量。
+两者的 seed/reuse/promotion/region 与 cleanup 行为只见 D003，不建立第二份执行 cache。
 
 Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
 terminal disposition 由 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的
 稳定 operation facts，不能决定搜索 Role。
 
-`CoordinateSearch` 只拥有 invocation-local vector 与搜索状态；其算法由 D003 定义。`SearchCoordinator` 只拥有
-一个Cell的baseline→candidates→coordinate-search状态机。`VerificationRunner`拥有Run admission、host
-Cell/matrix、private task/deadline assembly、每个已启动Cell的initial baseline context、跨Cell
-scheduling、typed live completion、Journal timing与journal-side association；它不拥有三个单Cell算法、
-snapshot lifecycle、命令聚合、report或terminal。generic `Scheduler`只保证started callback在operation
-前完成并处理worker/deadline/规范排序，不导入领域结果。
+`SearchCoordinator` 拥有一个 Cell 的 baseline→candidates→coordinate-search 编排；
+`VerificationRunner` 拥有跨 Cell Run，generic `Scheduler` 不导入领域结果。完整时序由 D008 定义。
 
 ## 8. Adapter 与 process boundary
 
@@ -362,8 +332,8 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
   空 input 只跑原命令阶段。generic command 收到非空 nodeids 是调用方 invariant failure。
 - `_ProposalRunner` 唯一拥有 FailedCaseSet；`RuntimeEvaluator` 只把不可变 nodeid tuple 传给
   verifier，不解释其语义。`CoordinateSearch` 只消费 Probe evidence。
-- direct pytest 原样保留用户 argv，并注入 PF-owned `--maxfail=1`、invocation-local
-  `cache_dir`、observer 与仅 failed-set 使用的 private pruning plugin。pruning plugin 在
+- direct pytest 的 argv overlay 只见 D001 §4。ConfiguredVerifier 管理 observer 与仅 failed-set
+  使用的 private pruning plugin；pruning plugin 在
   `pytest_cmdline_main`（`hookwrapper=True, trylast=True`）pre-yield 替换已解析的
   `Config.args`。D013 只拥有 observer 透明性、诊断协议与分阶段 collected/failed artifact。
 
@@ -396,5 +366,9 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 ## 11. 验证边界
 
 测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。评价与产品 tests 通过 lower uv/candidate/ty/verifier/witness adapters装配真实 Environment/Static/Runtime、Highest、Check 与 Search graph；不直接构造 PreparedEnvironment，不替换 concrete prepare/capture/evaluate/verify/minimize，也不读取 evaluator/search private state。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
+
+Static classification 从 `StaticEvaluator.capture/evaluate` 的 outcome 观察，不以直接调用 classifier
+或预制 Evaluation 冒充产品路径。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
+baseline/candidate 终止、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。
