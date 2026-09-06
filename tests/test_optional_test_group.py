@@ -185,7 +185,7 @@ class TestOptionalGroupPreparation:
             ResolutionPlan,
             ResolutionRunContext,
         )
-        from pf.schemas.evaluation import ProcessResult
+        from pf.schemas.evaluation import ProcessResult, OperationRequestBinding
         from pf.schemas.project import Cell
 
         class Runner:
@@ -220,6 +220,11 @@ class TestOptionalGroupPreparation:
         )
         result = UvAdapter(Runner()).install_resolution(
             plan=plan,
+            request_binding=OperationRequestBinding.model_validate({
+                "attempt_id": "a" * 64, "stage": "install-" + kind,
+                "project_plan_digest": plan.semantic_digest if kind == "project" else "b" * 64,
+                "environment_plan_digest": plan.semantic_digest if kind == "environment" else None,
+            }),
             interpreter=tmp_path / "python",
             cwd=tmp_path,
             work_directory=tmp_path,

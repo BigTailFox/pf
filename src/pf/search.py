@@ -32,8 +32,9 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     ProcessObservation,
-    ProcessTerminalUnavailable,
     PrepareFailure,
+    StructuredOperationFailure,
+    ProposalVectorMismatchFact,
     RuntimeInterfaceMissingEvaluation,
     RuntimeEvaluationRun,
     SearchFailureEvent,
@@ -43,7 +44,6 @@ from pf.schemas.evaluation import (
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
     VerifierRejectedEvaluation,
-    ToolFailure,
     runtime_process_observation,
 )
 from pf.schemas.project import (
@@ -671,7 +671,7 @@ class _ProposalRunner:
                 runtime=runtime,
             )
             self._failure_runtime_runs.setdefault(failure.failure_id, runtime_run)
-        elif isinstance(runtime_process, ProcessTerminalUnavailable):
+        elif runtime_process is not None and failure.process is None:
             self._failure_runtime_runs.setdefault(
                 failure.failure_id,
                 FailureProcessRuntimeRun(
@@ -719,11 +719,8 @@ class _ProposalRunner:
             prepared.close()
             return PrepareFailure(
                 attempt=prepared.attempt,
-                failure=ToolFailure(
-                    cause="INTERNAL_INVARIANT",
-                    stage="proposal-vector",
-                    process=self._synthetic_process(),
-                ),
+                stage="proposal-vector",
+                failure=StructuredOperationFailure(fact=ProposalVectorMismatchFact(), terminal=None),
                 project_plan_digest=prepared.project_plan.semantic_digest,
                 environment_plan_digest=prepared.environment_identity.environment_plan_digest,
             )
@@ -731,14 +728,14 @@ class _ProposalRunner:
         return prepared
 
     def _prepare_evidence(self, prepared: PrepareFailure) -> ProbeEvidence:
+        record = self._failures.record_prepare(prepared)
         return self._failure_evidence(
             attempt=prepared.attempt,
             proposal_id=None,
-            cause=prepared.failure.cause,
-            stage=prepared.failure.stage,
-            process=prepared.failure.process,
-            summary_code=prepared.failure.summary_code,
-            detail=prepared.failure.detail,
+            cause=record.cause,
+            stage=prepared.stage,
+            process=prepared.process,
+            record=record,
             project_plan_digest=prepared.project_plan_digest,
             environment_plan_digest=prepared.environment_plan_digest,
             evaluation=None,

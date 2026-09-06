@@ -24,7 +24,11 @@ from pf.schemas.evaluation import (
     SearchFailureEvent,
     SearchProbeDetailIdentity,
     TimedOut,
-    ToolFailure,
+    OperationFailureResult,
+    ExecutionFailure,
+    Unattributed,
+    StructuredOperationFailure,
+    SourceAccessFailedFact,
     VerifierDiagnostics,
     VerifierIndeterminate,
     VerifierPass,
@@ -532,10 +536,9 @@ search-resolution = "patch"
             diagnostics=diagnostics,
         )
         failed_vector = (VersionPin(name="demo-dep", version="1"),)
-        assembly.uv.install_failures_by_vector[failed_vector] = ToolFailure(
-            cause="BUILD_FAILURE",
-            stage="install-environment",
-            process=successful_process(exit_code=2),
+        assembly.uv.install_failures_by_vector[failed_vector] = OperationFailureResult(
+            failure=StructuredOperationFailure(fact=SourceAccessFailedFact(), terminal=None),
+            stage="install-project",
         )
 
         result = assembly.coordinator.search(
@@ -554,7 +557,7 @@ search-resolution = "patch"
         )
         assert evidence.attempt.identity.requested_managed_vector == failed_vector
         assert evidence.proposal_id is None
-        assert evidence.cause == "BUILD_FAILURE"
+        assert evidence.cause == "SOURCE_FAILURE"
         assert result.failure_id == evidence.failure_id
         assert len(diagnostics.events) == 1
         assert diagnostics.events[0].failure.failure_id == evidence.failure_id
@@ -738,19 +741,22 @@ test-command = ["python", "-c", "pass"]
 
 class TestSearchSpaceBuildDisposition:
     @pytest.mark.parametrize("space", ["all", "majors[baseline-1:]"])
-    def test_only_space_exclusion_skips_historical_build_failure(self, tmp_path: Path, space: str) -> None:
+    def test_prepare_rejection_continues_within_configured_space(self, tmp_path: Path, space: str) -> None:
         project = evaluation_project(tmp_path / "project", search_space=space)
         assembly = evaluation_assembly()
         failing = (VersionPin(name="demo-dep", version="1"),)
-        assembly.uv.install_failures_by_vector[failing] = ToolFailure(
-            cause="BUILD_FAILURE", stage="install-environment", process=successful_process(exit_code=2),
+        assembly.uv.install_failures_by_vector[failing] = OperationFailureResult(
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
+            stage="install-project", process=successful_process(exit_code=2),
         )
         try:
             result = assembly.coordinator.search(package=project.package, cell=project.package.cells[0],
                                                 snapshot=project.snapshot, source_plan=project.source_plan)
             if space == "all":
-                assert isinstance(result, CellIndeterminate)
-                assert result.failure_records[0].cause == "BUILD_FAILURE"
+                assert isinstance(result, CellSuccess)
+                assert result.failure_records[0].cause == "INSTALLATION_FAILED"
+                assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
+                assert result.search.boundaries[0].predecessor == "1"
                 assert failing in assembly.uv.install_vectors
             else:
                 assert isinstance(result, CellSuccess)

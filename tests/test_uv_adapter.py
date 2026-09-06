@@ -4,7 +4,7 @@ from io import BytesIO
 from pathlib import Path
 import json
 import sys
-from typing import Literal
+from typing import Literal, Any
 from urllib.error import URLError
 from urllib.request import Request
 
@@ -18,10 +18,9 @@ from pf.harness import original_harness, relax_harness
 from pf.project import ProjectLoader
 from pf.resolution import (
     ResolutionContext,
-    ResolutionIndeterminate,
+    ResolutionFailure,
     ResolutionPlan,
     ResolutionRunContext,
-    ResolutionUnsat,
 )
 from pf.schemas.evaluation import (
     GraphSuccess,
@@ -29,7 +28,12 @@ from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
     ProcessTerminalUnavailable,
-    ToolFailure,
+    OperationFailureResult,
+    OperationRequestBinding,
+    ExecutionFailure,
+    StructuredOperationFailure,
+    UvUnsatAttribution,
+    classify_operation_failure,
 )
 from pf.schemas.project import (
     Cell,
@@ -41,6 +45,26 @@ from pf.schemas.project import (
     SourcePlan,
     StaticWorkspaceMemberVersion,
 )
+
+
+def resolution_request(
+    context: ResolutionContext, source_plan: SourcePlan, *,
+    stage: Literal["resolve-project", "resolve-environment", "install-project", "install-environment"] = "resolve-project",
+    project: ResolutionPlan | None = None,
+) -> dict[str, Any]:
+    return {
+        "context": ResolutionContext.from_inputs(
+            run=context.run, cell=context.cell, source_plan_identity=source_plan.identity,
+            uv_project_configuration_identity=context.uv_project_configuration_identity,
+            interpreter=context.interpreter,
+        ),
+        "source_plan": source_plan,
+        "request_binding": OperationRequestBinding(
+            attempt_id="a" * 64, stage=stage,
+            project_plan_digest=project.semantic_digest if project else None,
+            environment_plan_digest=None,
+        ),
+    }
 
 
 class RecordingRunner:
@@ -157,12 +181,11 @@ class TestUvAdapter:
             interpreter=Path(sys.executable),
             cell=cell,
             resolution=HighestResolution(),
-            context=context,
             request_digest="request",
             work_directory=tmp_path,
             artifact_policy=policy,
             timeout_seconds=30,
-            source_plan=SourcePlan(source_mode="DEVELOPMENT", routes=()),
+            **resolution_request(context, SourcePlan(source_mode="DEVELOPMENT", routes=())),
         )
 
         argv = runner.specs[0].argv
@@ -255,12 +278,11 @@ tool = { path = "vendor/tool" }
             interpreter=Path(sys.executable),
             cell=cell,
             resolution=HighestResolution(),
-            context=context,
             request_digest="request",
             work_directory=work_directory,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=SourcePlan(
+            **resolution_request(context, SourcePlan(
                 source_mode="DEVELOPMENT",
                 routes=(
                     DependencySourceRoute(
@@ -273,7 +295,7 @@ tool = { path = "vendor/tool" }
                         ),
                     ),
                 ),
-            ),
+            )),
         )
 
         assert isinstance(outcome, ResolutionPlan)
@@ -443,12 +465,11 @@ test-command = ["pytest"]
             interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=resolution,
-            context=context,
             request_digest="project-request",
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=search_source_plan,
+            **resolution_request(context, search_source_plan),
         )
         assert isinstance(project, ResolutionPlan)
         environment = adapter.resolve_environment(
@@ -457,7 +478,6 @@ test-command = ["pytest"]
             interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=resolution,
-            context=context,
             request_digest="environment-request",
             project_plan=project,
             harness=relax_harness(
@@ -469,16 +489,18 @@ test-command = ["pytest"]
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=search_source_plan,
+            **resolution_request(context, search_source_plan, stage="resolve-environment", project=project),
         )
         if not harness_active:
-            assert isinstance(environment, ResolutionIndeterminate)
-            assert environment.summary_code == "resolution-plan-invalid"
+            assert isinstance(environment, ResolutionFailure)
+            assert isinstance(environment.failure, StructuredOperationFailure)
+            assert environment.failure.fact.code == "resolution-plan-invalid"
             assert len(runner.specs) == 3
             return
         assert isinstance(environment, ResolutionPlan)
         installed = adapter.install_resolution(
             plan=environment,
+            request_binding=OperationRequestBinding(attempt_id="a" * 64, stage="install-environment", project_plan_digest=project.semantic_digest, environment_plan_digest=environment.semantic_digest),
             interpreter=tmp_path / "venv" / "bin" / "python",
             cwd=package_root,
             work_directory=tmp_path,
@@ -540,15 +562,14 @@ test-command = ["pytest"]
             interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=resolution,
-            context=context,
             request_digest="development-project-request",
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=SourcePlan(
+            **resolution_request(context, SourcePlan(
                 source_mode="DEVELOPMENT",
                 routes=search_source_plan.routes,
-            ),
+            )),
         )
 
         assert isinstance(development, ResolutionPlan)
@@ -590,16 +611,17 @@ test-command = ["pytest"]
             interpreter=Path(sys.executable),
             cell=context.cell,
             resolution=HighestResolution(),
-            context=context,
             request_digest="request",
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=SourcePlan(source_mode="SEARCH", routes=()),
+            **resolution_request(context, SourcePlan(source_mode="SEARCH", routes=())),
         )
 
-        assert isinstance(outcome, ResolutionUnsat)
-        assert outcome.proof_code == "direct-version-contradiction"
+        assert isinstance(outcome, ResolutionFailure)
+        assert isinstance(outcome.failure, ExecutionFailure)
+        assert isinstance(outcome.failure.attribution, UvUnsatAttribution)
+        assert outcome.failure.attribution.facts.code == "direct-version-contradiction"
 
     def test_environment_resolution_materializes_a_fixed_path_harness_source(
         self,
@@ -683,12 +705,11 @@ packages = [
             interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=HighestResolution(),
-            context=context,
             request_digest="project-request",
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
+            **resolution_request(context, SourcePlan.for_package(package, "SEARCH")),
         )
         assert isinstance(project, ResolutionPlan)
         environment = adapter.resolve_environment(
@@ -697,7 +718,6 @@ packages = [
             interpreter=Path(sys.executable),
             cell=package.cells[0],
             resolution=HighestResolution(),
-            context=context,
             request_digest="environment-request",
             project_plan=project,
             harness=original_harness(
@@ -708,7 +728,7 @@ packages = [
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
+            **resolution_request(context, SourcePlan.for_package(package, "SEARCH"), stage="resolve-environment", project=project),
         )
 
         assert isinstance(environment, ResolutionPlan)
@@ -754,16 +774,16 @@ packages = [
             interpreter=Path(sys.executable),
             cell=context.cell,
             resolution=HighestResolution(),
-            context=context,
             request_digest="request",
             work_directory=tmp_path,
             artifact_policy="wheel",
             timeout_seconds=30,
-            source_plan=SourcePlan(source_mode="SEARCH", routes=()),
+            **resolution_request(context, SourcePlan(source_mode="SEARCH", routes=())),
         )
 
-        assert isinstance(outcome, ResolutionIndeterminate)
-        assert outcome.summary_code == "resolution-plan-invalid"
+        assert isinstance(outcome, ResolutionFailure)
+        assert isinstance(outcome.failure, StructuredOperationFailure)
+        assert outcome.failure.fact.code == "resolution-plan-invalid"
 
     @pytest.mark.parametrize("duplicate", (False, True))
     def test_uv_adapter_inspects_a_canonical_installed_graph(
@@ -810,7 +830,7 @@ packages = [
             (process_result(exit_code=None, timed_out=True), "TIMEOUT"),
             (
                 process_result(exit_code=1, stderr="failed to build wheel"),
-                "BUILD_FAILURE",
+                "TOOL_FAILURE",
             ),
             (
                 process_result(exit_code=1, stderr="No solution found"),
@@ -818,33 +838,33 @@ packages = [
             ),
             (
                 process_result(exit_code=1, stderr="failed to download: DNS error"),
-                "SOURCE_FAILURE",
+                "TOOL_FAILURE",
             ),
             (
                 process_result(
                     exit_code=1, stderr="Failed to read archive: Hash mismatch"
                 ),
-                "SOURCE_FAILURE",
+                "TOOL_FAILURE",
             ),
             (
                 process_result(
                     exit_code=1, stderr="Failed to read archive: file is empty"
                 ),
-                "SOURCE_FAILURE",
+                "TOOL_FAILURE",
             ),
             (
                 process_result(
                     exit_code=1,
                     stderr="Failed to read artifact: No such file or directory",
                 ),
-                "SOURCE_FAILURE",
+                "TOOL_FAILURE",
             ),
             (
                 process_result(
                     exit_code=1,
                     stderr="Failed to read archive: invalid package format",
                 ),
-                "SOURCE_FAILURE",
+                "TOOL_FAILURE",
             ),
             (process_result(exit_code=1, stderr="unexpected"), "TOOL_FAILURE"),
         ),
@@ -866,8 +886,8 @@ packages = [
             timeout_seconds=None,
         )
 
-        assert isinstance(outcome, ToolFailure)
-        assert outcome.cause == expected
+        assert isinstance(outcome, OperationFailureResult)
+        assert classify_operation_failure(outcome.stage, outcome.failure) == ("INDETERMINATE", expected)
 
     def test_uv_adapter_handles_unavailable_process_terminal(
         self,
@@ -884,7 +904,7 @@ packages = [
             timeout_seconds=None,
         )
 
-        assert isinstance(outcome, ToolFailure)
+        assert isinstance(outcome, OperationFailureResult)
         assert isinstance(outcome.process, ProcessTerminalUnavailable)
 
     def test_uv_adapter_inspects_interpreter_identity(self, tmp_path: Path) -> None:
@@ -934,8 +954,8 @@ packages = [
             timeout_seconds=10,
         )
 
-        assert isinstance(outcome, ToolFailure)
-        assert outcome.cause == expected
+        assert isinstance(outcome, OperationFailureResult)
+        assert classify_operation_failure(outcome.stage, outcome.failure) == ("INDETERMINATE", expected)
 
     @pytest.mark.parametrize(
         "result",
@@ -967,8 +987,8 @@ packages = [
             timeout_seconds=10,
         )
 
-        assert isinstance(outcome, ToolFailure)
-        assert outcome.cause == "TOOL_FAILURE"
+        assert isinstance(outcome, OperationFailureResult)
+        assert classify_operation_failure(outcome.stage, outcome.failure) == ("INDETERMINATE", "TOOL_FAILURE")
 
     def test_uv_graph_inspection_ignores_invalid_dependency_metadata(
         self,

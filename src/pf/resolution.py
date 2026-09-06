@@ -10,7 +10,10 @@ from packaging.version import InvalidVersion, Version
 from pydantic import Field, model_validator
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
-from pf.schemas.evaluation import FailureCause, ProcessObservation, ProcessResult
+from pf.schemas.evaluation import (
+    ProcessObservation, ProcessResult, OperationFailure, ExecutionFailure,
+    UvUnsatAttribution, NormalExit, classify_operation_failure, execution_terminal,
+)
 from pf.schemas.project import (
     Cell,
     HarnessSatisfaction,
@@ -338,6 +341,8 @@ class ResolutionPlan(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_plan(self) -> "ResolutionPlan":
+        if execution_terminal(self.process) != NormalExit(exit_code=0):
+            raise ValueError("resolution plan requires a successful process")
         if not self.request_digest:
             raise ValueError("resolution request digest cannot be empty")
         names = tuple(item.name for item in self.packages)
@@ -477,52 +482,32 @@ class EnvironmentIdentity(FrozenSchema):
         return self
 
 
-class ResolutionUnsat(FrozenSchema):
-    status: Literal["UNSAT"] = "UNSAT"
+class ResolutionFailure(FrozenSchema):
+    status: Literal["RESOLUTION_FAILURE"] = "RESOLUTION_FAILURE"
     stage: Literal["resolve-project", "resolve-environment"]
     request_digest: str
     context: ResolutionContext
-    proof_code: Literal[
-        "direct-version-contradiction",
-        "transitive-version-contradiction",
-    ]
-    diagnostic_digest: str
-    process: ProcessResult
+    failure: OperationFailure
+    process: ProcessObservation | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
-    def validate_certified_unsat(self) -> "ResolutionUnsat":
-        if not self.request_digest or not self.diagnostic_digest:
-            raise ValueError("certified resolution conflict requires complete identity")
-        if (
-            self.process.exit_code != 1
-            or self.process.signal is not None
-            or self.process.start_error is not None
-            or self.process.timed_out
-            or not self.process.stdout_complete
-            or not self.process.stderr_complete
-        ):
-            raise ValueError("certified resolution conflict requires a complete exit")
-        return self
-
-
-class ResolutionIndeterminate(FrozenSchema):
-    status: Literal["INDETERMINATE"] = "INDETERMINATE"
-    stage: Literal["resolve-project", "resolve-environment"]
-    request_digest: str
-    context: ResolutionContext
-    cause: FailureCause
-    summary_code: str
-    process: ProcessObservation
-
-    @model_validator(mode="after")
-    def validate_indeterminate(self) -> "ResolutionIndeterminate":
-        if not self.request_digest or not self.summary_code:
-            raise ValueError("indeterminate resolution requires request evidence")
+    def validate_resolution_failure(self) -> "ResolutionFailure":
+        if not self.request_digest:
+            raise ValueError("resolution failure requires request evidence")
+        classify_operation_failure(self.stage, self.failure)
+        if isinstance(self.failure, ExecutionFailure) and isinstance(self.failure.attribution, UvUnsatAttribution):
+            attribution = self.failure.attribution
+            if (
+                attribution.tool_version != self.context.run.uv_version
+                or attribution.protocol != self.context.run.protocol_identity
+                or attribution.profile != self.context.run.qualification_profile
+            ):
+                raise ValueError("UNSAT attribution does not match runtime context")
         return self
 
 
 ResolutionOutcome = Annotated[
-    Union[ResolutionPlan, ResolutionUnsat, ResolutionIndeterminate],
+    Union[ResolutionPlan, ResolutionFailure],
     Field(discriminator="status"),
 ]
 
@@ -536,7 +521,7 @@ class InstalledResolution(FrozenSchema):
     def validate_installed_resolution(self) -> "InstalledResolution":
         if not self.plan_digest:
             raise ValueError("installed resolution requires its plan identity")
-        if self.process.exit_code != 0:
+        if execution_terminal(self.process) != NormalExit(exit_code=0):
             raise ValueError("installed resolution requires a successful process")
         return self
 
@@ -544,17 +529,15 @@ class InstalledResolution(FrozenSchema):
 class InstallFailure(FrozenSchema):
     status: Literal["INSTALL_FAILURE"] = "INSTALL_FAILURE"
     plan_digest: str
-    cause: FailureCause
+    failure: OperationFailure
     stage: Literal["install-project", "install-environment"]
-    process: ProcessObservation
-    summary_code: str | None = None
+    process: ProcessObservation | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def validate_install_failure(self) -> "InstallFailure":
         if not self.plan_digest:
             raise ValueError("install failure requires its plan identity")
-        if self.cause in {"RESOLUTION_CONFLICT", "HARNESS_CONFLICT"}:
-            raise ValueError("installation cannot prove a resolution conflict")
+        classify_operation_failure(self.stage, self.failure)
         return self
 
 

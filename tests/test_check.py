@@ -28,6 +28,9 @@ from pf.schemas.evaluation import (
     ProcessResult,
     StatusEvent,
     ToolFailure,
+    OperationFailureResult,
+    ExecutionFailure,
+    Unattributed,
     TyCheck,
     ty_diagnostic_digest,
 )
@@ -225,9 +228,9 @@ class TestCompatibilityChecker:
         assembly = evaluation_assembly(
             highest=(),
             lowest=(),
-            install_failure=ToolFailure(
-                cause="BUILD_FAILURE",
-                stage="install-environment",
+            install_failure=OperationFailureResult(
+                failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
+                stage="install-project",
                 process=successful_process(exit_code=2),
             ),
             events=events,
@@ -246,11 +249,11 @@ class TestCompatibilityChecker:
         )
 
         assert assembly.uv.resolutions == ["highest"]
-        assert result.status == "INDETERMINATE"
+        assert result.status == "REJECTED"
         assert result.role == "declaration-capture"
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure is not None
-        assert result.failure.cause == "BUILD_FAILURE"
+        assert result.failure.cause == "INSTALLATION_FAILED"
         assert result.failure.stage == "install-project"
         assert assembly.ty.vectors == []
         assert assembly.verifier.vectors == []

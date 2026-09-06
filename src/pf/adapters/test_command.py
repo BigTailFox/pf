@@ -11,7 +11,6 @@ import secrets
 import tempfile
 from typing import Literal
 
-from pydantic import ValidationError
 
 from pf.adapters.process import ProcessRunner
 from pf.adapters.pytest_progress import (
@@ -38,18 +37,15 @@ from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
     ProcessTerminalUnavailable,
-    Signaled,
-    StartFailed,
     StageProgress,
     NormalExit,
-    TimedOut,
-    Unavailable,
     VerifierDiagnostics,
     VerifierIndeterminate,
-    VerifierPass,
     VerifierRejected,
     VerifierRequest,
     VerifierRun,
+    configured_verifier_outcome,
+    execution_terminal,
 )
 
 _PYTEST_PRIVATE_ENVIRONMENT = (
@@ -409,42 +405,14 @@ class ConfiguredVerifier:
         diagnostics: VerifierDiagnostics | None = None,
         failed_case_additions: tuple[str, ...] = (),
     ) -> VerifierRun:
-        if isinstance(result, ProcessTerminalUnavailable):
-            authoritative = VerifierIndeterminate(
-                terminal=Unavailable(),
-                reason="terminal-unavailable",
-            )
-        else:
-            try:
+        try:
+            if isinstance(result, ProcessResult):
                 ProcessResult.model_validate(result.model_dump(mode="python"))
-            except ValidationError as error:
-                raise InfrastructureError(
-                    "invalid verifier process terminal",
-                    detail=str(error),
-                ) from error
-            if result.timed_out:
-                authoritative = VerifierIndeterminate(
-                    terminal=TimedOut(),
-                    reason="process-timed-out",
-                )
-            elif result.signal is not None:
-                authoritative = VerifierIndeterminate(
-                    terminal=Signaled(signal=result.signal),
-                    reason="process-signaled",
-                )
-            elif result.start_error is not None:
-                authoritative = VerifierIndeterminate(
-                    terminal=StartFailed(),
-                    reason="process-start-failed",
-                )
-            else:
-                assert result.exit_code is not None
-                terminal = NormalExit(exit_code=result.exit_code)
-                authoritative = (
-                    VerifierPass(terminal=terminal)
-                    if result.exit_code == 0
-                    else VerifierRejected(terminal=terminal)
-                )
+            authoritative = configured_verifier_outcome(execution_terminal(result))
+        except ValueError as error:
+            raise InfrastructureError(
+                "invalid verifier process terminal", detail=str(error),
+            ) from error
         diagnostics = diagnostics or VerifierDiagnostics(process=result)
         additions = (
             failed_case_additions

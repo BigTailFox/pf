@@ -120,6 +120,9 @@ class TestReportArtifacts:
             ("SearchPolicyBinding", "requested_space"),
             ("CandidateSnapshotV1", "series_inventory_ref"),
             ("ProposalV1", "environment_plan_digest"),
+            ("OperationRequestBinding", "project_plan_digest"),
+            ("OperationRequestBinding", "environment_plan_digest"),
+            ("StructuredOperationFailureAuthority", "terminal"),
         }
         for name, field in nullable_fields:
             assert field in schema["$defs"][name]["required"]

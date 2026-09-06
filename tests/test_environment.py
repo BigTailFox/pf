@@ -33,12 +33,11 @@ from pf.resolution import (
     ResolutionPackage,
     ResolutionPlan,
     ResolutionRunContext,
-    ResolutionUnsat,
+    ResolutionFailure,
     environment_identity_digest,
 )
 from pf.schemas.config import EffectiveConfig, SchedulingConfig, WorkspacePackage
 from pf.schemas.evaluation import (
-    AttemptFailureScope,
     CellStageEvent,
     FailureCause,
     GraphOutcome,
@@ -48,7 +47,15 @@ from pf.schemas.evaluation import (
     PrepareFailure,
     ProcessResult,
     ToolFailure,
-    ToolOutcome,
+    AuxiliaryOutcome,
+    OperationFailureResult,
+    ExecutionFailure,
+    StructuredOperationFailure,
+    NormalExit,
+    Unattributed,
+    UvUnsatAttribution,
+    EnvironmentAccessFailedFact,
+    StructuredOperationFailureAuthority,
     ToolSuccess,
 )
 from pf.schemas.project import (
@@ -250,7 +257,7 @@ class SuccessfulUv:
             process=successful_process(),
         )
 
-    def create_environment(self, **kwargs: object) -> ToolOutcome:
+    def create_environment(self, **kwargs: object) -> AuxiliaryOutcome:
         return ToolSuccess(stage="create-environment", process=successful_process())
 
     def install_resolution(self, **kwargs: object) -> InstallOutcome:
@@ -334,24 +341,29 @@ test-command = {command}
     return project
 
 
-def _failed_tool(cause: FailureCause, stage: str) -> ToolFailure:
-    return ToolFailure(
-        cause=cause,
-        stage=stage,
-        process=ProcessResult(
-            exit_code=1,
-            signal=None,
-            duration_seconds=0.1,
-            stdout="",
-            stderr=f"{stage} failed",
+def _operation_failure(cause: FailureCause, stage: str) -> OperationFailureResult:
+    return OperationFailureResult.model_validate({
+        "stage": stage,
+        "failure": (
+            StructuredOperationFailure(fact=EnvironmentAccessFailedFact(), terminal=None)
+            if cause == "ENVIRONMENT_FAILURE"
+            else ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed())
         ),
-    )
+        "process": None if cause == "ENVIRONMENT_FAILURE" else _failed_process(cause, stage),
+    })
 
 
 def _failed_process(cause: FailureCause, stage: str) -> ProcessResult:
-    process = _failed_tool(cause, stage).process
-    assert isinstance(process, ProcessResult)
-    return process
+    return ProcessResult(exit_code=1, duration_seconds=0.1, stderr=f"{stage} failed")
+
+
+def _unsat_attribution(kwargs, code):
+    return UvUnsatAttribution.model_validate({
+        "tool": "uv", "tool_version": "0.12.5",
+        "protocol": "uv-pip-compile-pylock-v1", "profile": "uv-diagnostics-0.12.5-v1",
+        "request_binding": kwargs["request_binding"],
+        "facts": {"code": code, "stdout_complete": True, "stderr_complete": True},
+    })
 
 
 class TestEvaluationPolicy:
@@ -521,7 +533,7 @@ class TestEnvironmentFactory:
                     kwargs=kwargs,
                 )
 
-            def create_environment(self, **kwargs: object) -> ToolOutcome:
+            def create_environment(self, **kwargs: object) -> AuxiliaryOutcome:
                 self.created = True
                 return super().create_environment(**kwargs)
 
@@ -545,7 +557,8 @@ class TestEnvironmentFactory:
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.summary_code == "artifact-policy-mismatch"
+        assert isinstance(result.failure, StructuredOperationFailure)
+        assert result.failure.fact.code == "artifact-policy-mismatch"
         assert uv.created is True
 
     @pytest.mark.parametrize(
@@ -629,25 +642,16 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.process is None
-        assert result.failure.summary_code == summary_code
-        assert result.failure.detail is not None
-        assert result.failure.detail.code == summary_code
-        assert result.failure.detail.message == message
-        assert result.project_plan_digest is not None
+        assert isinstance(result.failure, StructuredOperationFailure)
+        assert result.failure.terminal == NormalExit(exit_code=0)
+        assert result.failure.fact.code == summary_code
+        assert result.project_plan_digest is None
         assert result.environment_plan_digest is None
-        record = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=result.attempt),
-            cause=result.failure.cause,
-            stage=result.failure.stage,
-            process=result.failure.process,
-            summary_code=result.failure.summary_code,
-            detail=result.failure.detail,
-            project_plan_digest=result.project_plan_digest,
-        )
+        record = FailurePolicy().record_prepare(result)
         assert record.disposition == "INDETERMINATE"
         assert record.process is None
-        assert record.detail == result.failure.detail
+        assert isinstance(record.authority, StructuredOperationFailureAuthority)
+        assert record.authority.fact == result.failure.fact
         snapshot.close()
 
     def test_managed_workspace_registry_and_exact_artifact_close_the_source_plan(
@@ -770,7 +774,7 @@ test-command = ["python", "-c", "pass"]
         monkeypatch.setattr(
             uv,
             "resolution_run_context",
-            lambda **_kwargs: _failed_tool("TOOL_FAILURE", "uv-version"),
+            lambda **_kwargs: ToolFailure(cause="TOOL_FAILURE", stage="uv-version", process=_failed_process("TOOL_FAILURE", "uv-version")),
         )
 
         with pytest.raises(
@@ -870,7 +874,16 @@ test-command = ["python", "-c", "pass"]
                 "boundary_rule": "runtime-evidence-only",
                 "final_verification": "direct-test-command-pass",
             },
-            "failure_policy": "failure-runtime-v2",
+            "failure_policy": "failure-execution-v3",
+            "execution_outcome_policy": {
+                "rules": "execution-outcome-v1",
+                "structured_facts": "operation-structured-facts-v1",
+                "attribution_profiles": [{
+                    "tool": "uv", "tool_version": "0.12.5",
+                    "protocol": "uv-pip-compile-pylock-v1", "profile": "uv-diagnostics-0.12.5-v1",
+                    "codes": ["direct-version-contradiction", "transitive-version-contradiction"],
+                }],
+            },
             "validation_contract_policy": {
                 "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
                 "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
@@ -1183,8 +1196,8 @@ test-command = ["python", "-c", "pass"]
         assert result.attempt.identity.requested_managed_vector == (
             VersionPin(name="idna", version="3.1"),
         )
-        assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect-project-plan"
+        assert FailurePolicy().record_prepare(result).cause == "INTERNAL_INVARIANT"
+        assert result.stage == "inspect-project-plan"
         snapshot.close()
 
     def test_environment_prepare_failure_retains_attempt_without_a_proposal(
@@ -1192,17 +1205,16 @@ test-command = ["python", "-c", "pass"]
         tmp_path: Path,
     ) -> None:
         class ResolutionConflictUv(SuccessfulUv):
-            def resolve_project(self, **kwargs: object) -> ResolutionUnsat:
+            def resolve_project(self, **kwargs: object) -> ResolutionFailure:
                 context = kwargs["context"]
                 request_digest = kwargs["request_digest"]
                 assert isinstance(context, ResolutionContext)
                 assert isinstance(request_digest, str)
-                return ResolutionUnsat(
+                return ResolutionFailure(
                     stage="resolve-project",
                     request_digest=request_digest,
                     context=context,
-                    proof_code="direct-version-contradiction",
-                    diagnostic_digest="diagnostic",
+                    failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=_unsat_attribution(kwargs, "direct-version-contradiction")),
                     process=_failed_process("RESOLUTION_CONFLICT", "resolve-project"),
                 )
 
@@ -1238,7 +1250,7 @@ test-command = ["python", "-c", "pass"]
         assert isinstance(result, PrepareFailure)
         assert result.attempt.identity.requested_resolution == "exact-vector"
         assert result.attempt.identity.requested_managed_vector == requested
-        assert result.failure.cause == "RESOLUTION_CONFLICT"
+        assert FailurePolicy().record_prepare(result).cause == "RESOLUTION_CONFLICT"
         assert result.project_plan_digest is None
         assert result.environment_plan_digest is None
         assert not hasattr(result, "proposal")
@@ -1364,17 +1376,16 @@ test-command = ["python", "-c", "pass"]
         tmp_path: Path,
     ) -> None:
         class HarnessConflictUv(SuccessfulUv):
-            def resolve_environment(self, **kwargs: object) -> ResolutionUnsat:
+            def resolve_environment(self, **kwargs: object) -> ResolutionFailure:
                 context = kwargs["context"]
                 request_digest = kwargs["request_digest"]
                 assert isinstance(context, ResolutionContext)
                 assert isinstance(request_digest, str)
-                return ResolutionUnsat(
+                return ResolutionFailure(
                     stage="resolve-environment",
                     request_digest=request_digest,
                     context=context,
-                    proof_code="transitive-version-contradiction",
-                    diagnostic_digest="diagnostic",
+                    failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=_unsat_attribution(kwargs, "transitive-version-contradiction")),
                     process=_failed_process("HARNESS_CONFLICT", "resolve-environment"),
                 )
 
@@ -1410,8 +1421,8 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.cause == "HARNESS_CONFLICT"
-        assert result.failure.stage == "resolve-environment"
+        assert FailurePolicy().record_prepare(result).cause == "HARNESS_CONFLICT"
+        assert result.stage == "resolve-environment"
 
     def test_environment_allows_harness_only_transitive_graph_to_change(
         self,
@@ -1535,8 +1546,8 @@ test-command = ["python", "-c", "pass"]
         tmp_path: Path,
     ) -> None:
         class CreateFails(SuccessfulUv):
-            def create_environment(self, **kwargs: object) -> ToolFailure:
-                return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
+            def create_environment(self, **kwargs: object) -> OperationFailureResult:
+                return _operation_failure("ENVIRONMENT_FAILURE", "create-environment")
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root).target
@@ -1553,16 +1564,16 @@ test-command = ["python", "-c", "pass"]
         assert isinstance(result, PrepareFailure)
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.attempt.identity.requested_managed_vector is None
-        assert result.failure.cause == "ENVIRONMENT_FAILURE"
-        assert result.failure.stage == "create-environment"
+        assert FailurePolicy().record_prepare(result).cause == "ENVIRONMENT_FAILURE"
+        assert result.stage == "create-environment"
         snapshot.close()
 
     def test_environment_check_prepare_failure_keeps_a_lowest_direct_attempt(
         self, tmp_path: Path
     ) -> None:
         class CreateFails(SuccessfulUv):
-            def create_environment(self, **kwargs: object) -> ToolFailure:
-                return _failed_tool("ENVIRONMENT_FAILURE", "create-environment")
+            def create_environment(self, **kwargs: object) -> OperationFailureResult:
+                return _operation_failure("ENVIRONMENT_FAILURE", "create-environment")
 
         root = _write_demo(tmp_path)
         package = ProjectLoader().load(root=root).target
@@ -1579,14 +1590,14 @@ test-command = ["python", "-c", "pass"]
         assert isinstance(result, PrepareFailure)
         assert result.attempt.identity.requested_resolution == "lowest-direct"
         assert result.attempt.identity.requested_managed_vector is None
-        assert result.failure.cause == "ENVIRONMENT_FAILURE"
+        assert FailurePolicy().record_prepare(result).cause == "ENVIRONMENT_FAILURE"
         snapshot.close()
 
     @pytest.mark.parametrize(
         ("method", "cause", "stage"),
         (
             ("inspect_interpreter", "ENVIRONMENT_FAILURE", "inspect-interpreter"),
-            ("install_resolution", "BUILD_FAILURE", "install-project"),
+            ("install_resolution", "INSTALLATION_FAILED", "install-project"),
             ("inspect_environment", "TOOL_FAILURE", "inspect"),
         ),
     )
@@ -1600,7 +1611,7 @@ test-command = ["python", "-c", "pass"]
         class StageFails(SuccessfulUv):
             def __init__(self) -> None:
                 if method != "install_resolution":
-                    setattr(self, method, lambda **kwargs: _failed_tool(cause, stage))
+                    setattr(self, method, lambda **kwargs: _operation_failure(cause, stage))
 
             def install_resolution(self, **kwargs: object) -> InstallOutcome:
                 if method != "install_resolution":
@@ -1610,7 +1621,7 @@ test-command = ["python", "-c", "pass"]
                 return InstallFailure(
                     plan_digest=plan.digest,
                     stage="install-project",
-                    cause=cause,
+                    failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
                     process=_failed_process(cause, stage),
                 )
 
@@ -1628,8 +1639,8 @@ test-command = ["python", "-c", "pass"]
 
         assert isinstance(result, PrepareFailure)
         assert result.attempt.identity.requested_resolution == "highest"
-        assert result.failure.cause == cause
-        assert result.failure.stage == stage
+        assert FailurePolicy().record_prepare(result).cause == cause
+        assert result.stage == stage
         if method == "inspect_interpreter":
             assert result.project_plan_digest is None
             assert result.environment_plan_digest is None
@@ -1666,8 +1677,8 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.cause == "ENVIRONMENT_FAILURE"
-        assert result.failure.stage == "inspect-interpreter"
+        assert FailurePolicy().record_prepare(result).cause == "ENVIRONMENT_FAILURE"
+        assert result.stage == "inspect-interpreter"
         snapshot.close()
 
     def test_environment_rejects_a_graph_that_omits_managed_dependencies(
@@ -1694,8 +1705,8 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect-project-plan"
+        assert FailurePolicy().record_prepare(result).cause == "INTERNAL_INVARIANT"
+        assert result.stage == "inspect-project-plan"
         snapshot.close()
 
     def test_environment_rejects_a_graph_with_packages_outside_the_final_plan(
@@ -1726,8 +1737,8 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.cause == "INTERNAL_INVARIANT"
-        assert result.failure.stage == "inspect-project-plan"
+        assert FailurePolicy().record_prepare(result).cause == "INTERNAL_INVARIANT"
+        assert result.stage == "inspect-project-plan"
         snapshot.close()
 
     def test_environment_prepare_keeps_attempt_when_harness_resolution_fails(
@@ -1735,17 +1746,16 @@ test-command = ["python", "-c", "pass"]
         tmp_path: Path,
     ) -> None:
         class HarnessFails(SuccessfulUv):
-            def resolve_environment(self, **kwargs: object) -> ResolutionUnsat:
+            def resolve_environment(self, **kwargs: object) -> ResolutionFailure:
                 context = kwargs["context"]
                 request_digest = kwargs["request_digest"]
                 assert isinstance(context, ResolutionContext)
                 assert isinstance(request_digest, str)
-                return ResolutionUnsat(
+                return ResolutionFailure(
                     stage="resolve-environment",
                     request_digest=request_digest,
                     context=context,
-                    proof_code="direct-version-contradiction",
-                    diagnostic_digest="diagnostic",
+                    failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=_unsat_attribution(kwargs, "direct-version-contradiction")),
                     process=_failed_process("HARNESS_CONFLICT", "resolve-environment"),
                 )
 
@@ -1762,8 +1772,8 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.cause == "HARNESS_CONFLICT"
-        assert result.failure.stage == "resolve-environment"
+        assert FailurePolicy().record_prepare(result).cause == "HARNESS_CONFLICT"
+        assert result.stage == "resolve-environment"
         assert result.project_plan_digest
         assert result.environment_plan_digest is None
         snapshot.close()
@@ -1774,7 +1784,7 @@ test-command = ["python", "-c", "pass"]
     ) -> None:
         class HarnessInspectFails(SuccessfulUv):
             def inspect_environment(self, **kwargs: object) -> GraphOutcome:
-                return _failed_tool("TOOL_FAILURE", "inspect")
+                return _operation_failure("TOOL_FAILURE", "inspect")
 
         root = _write_demo(tmp_path, harness=True)
         package = ProjectLoader().load(root=root).target
@@ -1789,8 +1799,8 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(result, PrepareFailure)
-        assert result.failure.cause == "TOOL_FAILURE"
-        assert result.failure.stage == "inspect"
+        assert FailurePolicy().record_prepare(result).cause == "TOOL_FAILURE"
+        assert result.stage == "inspect"
         snapshot.close()
 
     def test_environment_rejects_a_managed_vector_that_does_not_cover_declarations(
@@ -1964,19 +1974,11 @@ marker = 'python_full_version < "3.10.0" or implementation_name != "cpython"'
             def create_environment(self, **kwargs):
                 self.root = kwargs["environment"].parent
                 if stage == "create-environment":
-                    return ToolFailure(
-                        cause="ENVIRONMENT_FAILURE",
-                        stage=stage,
-                        process=successful_process(),
-                    )
+                    return _operation_failure("ENVIRONMENT_FAILURE", stage)
                 return super().create_environment(**kwargs)
 
             def inspect_interpreter(self, **kwargs):
-                return ToolFailure(
-                    cause="ENVIRONMENT_FAILURE",
-                    stage=stage,
-                    process=successful_process(),
-                )
+                return _operation_failure("ENVIRONMENT_FAILURE", stage)
 
             def resolve_project(self, **kwargs):
                 pytest.fail("resolution started before interpreter qualification")
@@ -1994,7 +1996,7 @@ marker = 'python_full_version < "3.10.0" or implementation_name != "cpython"'
                 resolution=HighestResolution(),
             )
             assert isinstance(result, PrepareFailure)
-            assert result.failure.stage == stage
+            assert result.stage == stage
             assert result.project_plan_digest is None
             assert result.environment_plan_digest is None
             assert uv.root is not None and not uv.root.exists()

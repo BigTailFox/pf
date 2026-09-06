@@ -20,7 +20,6 @@ from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
 from pf.schemas.config import RootPackage, WorkspacePackage
 from pf.schemas.evaluation import (
-    AttemptFailureScope,
     PrepareFailure,
     ProcessResult,
     ProcessSpec,
@@ -228,10 +227,10 @@ def qualify_scenario(root: Path, scenario: Scenario) -> QualificationRecord:
             source_plan=source_plan,
         )
         if not isinstance(prepared_result, PreparedEnvironment):
-            failure = prepared_result.failure
+            failure = FailurePolicy().record_prepare(prepared_result)
             diagnostic = (
-                failure.process.diagnostic()
-                if isinstance(failure.process, ProcessResult)
+                prepared_result.process.diagnostic()
+                if isinstance(prepared_result.process, ProcessResult)
                 else "no process diagnostic"
             )
             raise RuntimeError(
@@ -287,10 +286,10 @@ def qualify_scenario(root: Path, scenario: Scenario) -> QualificationRecord:
             source_plan=source_plan,
         )
         if not isinstance(exact_result, PreparedEnvironment):
-            failure = exact_result.failure
+            failure = FailurePolicy().record_prepare(exact_result)
             diagnostic = (
-                failure.process.diagnostic()
-                if isinstance(failure.process, ProcessResult)
+                exact_result.process.diagnostic()
+                if isinstance(exact_result.process, ProcessResult)
                 else "no process diagnostic"
             )
             raise RuntimeError(
@@ -396,17 +395,7 @@ def qualify_unmanaged_workspace_fail_closed(
             raise RuntimeError(
                 "mixed managed and unmanaged workspace sources must fail closed"
             )
-        failure = result.failure
-        record = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=result.attempt),
-            cause=failure.cause,
-            stage=failure.stage,
-            process=failure.process,
-            summary_code=failure.summary_code,
-            detail=failure.detail,
-            project_plan_digest=result.project_plan_digest,
-            environment_plan_digest=result.environment_plan_digest,
-        )
+        record = FailurePolicy().record_prepare(result)
         compiles = tuple(
             spec for spec in runner.specs if spec.argv[1:3] == ("pip", "compile")
         )
@@ -414,9 +403,9 @@ def qualify_unmanaged_workspace_fail_closed(
             raise RuntimeError("fail-closed qualification requires one failed compile")
         return UnmanagedWorkspaceFailClosedRecord(
             disposition=record.disposition,
-            cause=failure.cause,
-            stage=failure.stage,
-            summary_code=failure.summary_code,
+            cause=record.cause,
+            stage=record.stage,
+            summary_code=record.summary_code,
             compile_suppressions=_suppression_names(compiles[0]),
             install_count=sum(
                 spec.argv[1:3] == ("pip", "sync") for spec in runner.specs
@@ -466,10 +455,10 @@ def qualify(selected: frozenset[Scenario]) -> dict[str, object]:
             and record.source_tables_preserved
             for record in records
         )
-        and fail_closed.disposition == "INDETERMINATE"
-        and fail_closed.cause == "TOOL_FAILURE"
+        and fail_closed.disposition == "REJECTED"
+        and fail_closed.cause == "RESOLUTION_FAILED"
         and fail_closed.stage == "resolve-project"
-        and fail_closed.summary_code == "resolution-diagnostic-unknown"
+        and fail_closed.summary_code is None
         and fail_closed.compile_suppressions == ("certifi", "idna")
         and fail_closed.install_count == 0
         and fail_closed.source_tables_preserved,

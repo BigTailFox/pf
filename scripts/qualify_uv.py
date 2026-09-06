@@ -61,6 +61,7 @@ class QualificationRecord(TypedDict):
     pf_classification: dict[str, str | None]
     classifier_confidence: str
     expected: bool
+    stdout: str
     stderr: str
 
 
@@ -189,7 +190,7 @@ CASES = (
         mode="find-links",
         expected=ExpectedClassification(
             kind="indeterminate",
-            cause="BUILD_FAILURE",
+            cause="TOOL_FAILURE",
             summary_code="resolution-build-failure",
         ),
     ),
@@ -509,6 +510,7 @@ def _run_case(
             "certified" if classification.kind == "unsat" else "conservative"
         ),
         "expected": case.expected == actual,
+        "stdout": completed.stdout,
         "stderr": completed.stderr,
     }
 

@@ -468,6 +468,7 @@ class CellPresentation:
                 outcome.process
                 if isinstance(outcome, CellFailed)
                 and isinstance(outcome.process, ProcessResult)
+                and outcome.process_failure_id == primary_failure_id
                 else None
             ),
             stage=primary_failure.stage
@@ -536,11 +537,7 @@ def _run_result_outcome(
             result.evaluation,
             result.failure,
             runtime=result.runtime,
-        ) or (
-            result.failure_process
-            if isinstance(result, BaselineIndeterminate)
-            else None
-        )
+        ) or result.failure_process
         return CellFailed(
             status=result.status,
             phase=result.failure.stage,

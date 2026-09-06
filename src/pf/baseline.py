@@ -12,7 +12,6 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
-    ProcessTerminalUnavailable,
     VerifierRejectedEvaluation,
 )
 from pf.schemas.project import Cell, PackagePlan, SourcePlan
@@ -51,32 +50,17 @@ class HighestVersionVerifier:
             source_plan=source_plan,
         )
         if isinstance(prepared, PrepareFailure):
-            failure = self._failures.classify(
-                scope=AttemptFailureScope(attempt=prepared.attempt),
-                cause=prepared.failure.cause,
-                stage=prepared.failure.stage,
-                process=prepared.failure.process,
-                summary_code=prepared.failure.summary_code,
-                detail=prepared.failure.detail,
-                project_plan_digest=prepared.project_plan_digest,
-                environment_plan_digest=prepared.environment_plan_digest,
-            )
+            failure = self._failures.record_prepare(prepared)
             if failure.disposition == "REJECTED":
                 return BaselineRejection(
                     attempt=prepared.attempt,
                     failure=failure,
+                    failure_process=prepared.process,
                 )
             return BaselineIndeterminate(
                 attempt=prepared.attempt,
                 failure=failure,
-                failure_process=(
-                    prepared.failure.process
-                    if isinstance(
-                        prepared.failure.process,
-                        ProcessTerminalUnavailable,
-                    )
-                    else None
-                ),
+                failure_process=prepared.process,
             )
         try:
             capture = self._static.capture(prepared, package=package)

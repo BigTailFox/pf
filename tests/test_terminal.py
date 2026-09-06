@@ -27,6 +27,16 @@ from pf.errors import (
 from pf.failure import FailurePolicy
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
+    PrepareFailure,
+    StructuredOperationFailure,
+    SourceAccessFailedFact,
+    Signaled,
+    TimedOut,
+    UvUnsatAttribution,
+    ExecutionFailure,
+    Unattributed,
+    execution_terminal,
+    classify_execution_terminal,
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
@@ -112,7 +122,7 @@ from pf.schemas.report import (
     ProbeRejection,
     failure_records_for_result,
 )
-from pf.terminal import PF_THEME, TerminalPresenter
+from pf.terminal import CellPresentation, PF_THEME, TerminalPresenter
 from pf.search_space import SpaceSelection
 from pf.static_transition import static_fingerprint
 from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
@@ -252,6 +262,14 @@ def recorded_failure(
         python_minor="3.10",
         extra_surface=(),
     )
+    if stage == "test":
+        terminal = execution_terminal(process)
+        disposition, terminal_cause = classify_execution_terminal("test", terminal, Unattributed())
+        assert disposition != "PASS" and terminal_cause == cause
+        return FailureRecord.from_verifier(
+            scope=AttemptFailureScope(attempt=attempt_for(cell)),
+            disposition=disposition, cause=cause, stage=stage, terminal=terminal,
+        )
     return FailurePolicy().classify(
         scope=CellFailureScope(
             package=cell.package,
@@ -348,6 +366,7 @@ def attempt_for(
     resolution: Literal["highest", "lowest-direct", "exact-vector"] = "highest",
     vector: tuple[VersionPin, ...] | None = None,
     selected_digest: str | None = None,
+    harness: bool = False,
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
@@ -359,6 +378,7 @@ def attempt_for(
             source_plan_identity="sources",
             evaluation_policy_identity="policy",
             resolution_context_digest="context",
+            harness_declaration_ids=("test-harness",) if harness else (),
             harness_policy_identity=(
                 "original-harness-v1"
                 if resolution == "highest"
@@ -913,11 +933,12 @@ class TestProgressRendering:
             python_minor="3.10",
             extra_surface=(),
         )
-        failure = FailurePolicy().classify(
+        failure = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=attempt_for(cell)),
+            disposition="INDETERMINATE",
             cause="TOOL_FAILURE",
             stage="test",
-            process=process_result(exit_code=1),
+            terminal=Signaled(signal=9),
         )
         stderr = StringIO()
         terminal = TerminalPresenter(
@@ -1156,12 +1177,19 @@ class TestProgressRendering:
             exit_code=1,
             stderr="Failed to build `numpy==1.24.0`\nBecause cmake is missing",
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="BUILD_FAILURE",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
             stage="install-project",
+            failure=ExecutionFailure(terminal=execution_terminal(process), attribution=Unattributed()),
             process=process,
+            project_plan_digest="a" * 64, environment_plan_digest=None,
+        ))
+        presentation = CellPresentation.from_result(
+            BaselineRejection(attempt=attempt, failure=failure, failure_process=process),
+            cell=cell, command="smoke",
         )
+        assert presentation.process == process
+        assert presentation.primary_failure_id == failure.failure_id
         logs = RunLogStore(root=tmp_path, run_id="fallback-run")
         logs.record(
             1,
@@ -1195,7 +1223,7 @@ class TestProgressRendering:
         output = stderr.getvalue()
         assert stdout.getvalue() == ""
         assert "failed at [installing dependencies]" in output
-        assert "This version combination could not be built." in output
+        assert "The selected plan did not pass this installation attempt." in output
         assert "pf diagnose" not in output
         assert failure.failure_id not in output
         assert "Failed to build `numpy==1.24.0`" not in output
@@ -2928,7 +2956,7 @@ class TestProgressRendering:
         stdout = StringIO()
         stderr = StringIO()
         logs = RunLogStore(root=tmp_path, run_id="linked-run")
-        process = process_result(stderr="test process failed")
+        process = ProcessResult(signal=9, duration_seconds=0, stderr="test process failed")
         path = logs.record(
             1,
             ProcessSpec(
@@ -3022,16 +3050,12 @@ class TestVerificationRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="SOURCE_FAILURE",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
             stage="resolve-project",
-            process=None,
-            detail=FailureDetail(
-                code="offline",
-                message="registry unavailable",
-            ),
-        )
+            failure=StructuredOperationFailure(fact=SourceAccessFailedFact(), terminal=None),
+            project_plan_digest=None, environment_plan_digest=None,
+        ))
         outcome = BaselineIndeterminate(attempt=attempt, failure=failure)
         live, _, live_stderr = presenter()
         live.bind_command("smoke")
@@ -3257,6 +3281,7 @@ class TestVerificationRendering:
         stderr = StringIO()
         logs = RunLogStore(root=tmp_path, run_id="test-run")
         process = process_result(
+            timed_out=True,
             stderr=(
                 "No solution found when resolving dependencies:\nbecause tomli==2.0.0"
             ),
@@ -3280,8 +3305,8 @@ class TestVerificationRendering:
         exit_code = terminal.render_check(
             CheckIndeterminate(
                 failure=recorded_failure(
-                    cause="RESOLUTION_CONFLICT",
-                    stage="install-harness",
+                    cause="TIMEOUT",
+                    stage="scheduler-deadline",
                     process=process,
                 )
             )
@@ -3290,8 +3315,7 @@ class TestVerificationRendering:
         assert exit_code == 4
         assert stdout.getvalue() == ""
         assert " ".join(stderr.getvalue().split()) == (
-            "! Check indeterminate · This version combination has conflicting "
-            "dependency requirements and cannot be installed. · 0 cells"
+            "! Check indeterminate · The operation timed out, so compatibility is unknown. · 0 cells"
         )
 
     def test_smoke_test_failure_prints_structured_detail_without_output_tail(
@@ -3397,8 +3421,8 @@ class TestVerificationRendering:
     @pytest.mark.parametrize(
         ("adapter_stage", "failed_at"),
         (
-            ("install", "installing dependencies"),
-            ("install-harness", "installing harness"),
+            ("install-project", "installing dependencies"),
+            ("install-environment", "installing the environment plan"),
             ("ty", "static checking"),
             ("test", "testing"),
         ),
@@ -3415,13 +3439,24 @@ class TestVerificationRendering:
             python_minor="3.10",
             extra_surface=(),
         )
-        attempt = attempt_for(cell)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TOOL_FAILURE",
-            stage=adapter_stage,
-            process=process_result(stderr="tool failed"),
-        )
+        attempt = attempt_for(cell, harness=adapter_stage == "install-environment")
+        if adapter_stage == "test":
+            failure = FailureRecord.from_verifier(
+                scope=AttemptFailureScope(attempt=attempt), disposition="INDETERMINATE",
+                cause="TOOL_FAILURE", stage="test", terminal=Signaled(signal=9),
+            )
+        elif adapter_stage in {"install-project", "install-environment"}:
+            failure = FailurePolicy().record_prepare(PrepareFailure.model_validate({
+                "attempt": attempt, "stage": adapter_stage,
+                "failure": ExecutionFailure(terminal=Signaled(signal=9), attribution=Unattributed()),
+                "project_plan_digest": "a" * 64,
+                "environment_plan_digest": "b" * 64 if adapter_stage == "install-environment" else None,
+            }))
+        else:
+            failure = FailurePolicy().classify(
+                scope=AttemptFailureScope(attempt=attempt), cause="TOOL_FAILURE",
+                stage=adapter_stage, process=ProcessResult(signal=9, duration_seconds=0),
+            )
 
         exit_code = terminal.render_smoke(
             SmokeIndeterminate(
@@ -4067,11 +4102,12 @@ class TestSearchRendering:
         )
         attempt = attempt_for(cell, resolution="exact-vector", vector=())
         rejected = verifier_failure(attempt)
-        unknown = FailurePolicy().classify(
+        unknown = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=attempt),
+            disposition="INDETERMINATE",
             cause="TIMEOUT",
             stage="test",
-            process=process_result(timed_out=True),
+            terminal=TimedOut(),
         )
         identity = SearchProbeDetailIdentity(
             dependency="pydantic",
@@ -4451,14 +4487,17 @@ class TestSearchRendering:
             extra_surface=(),
         )
         attempt = attempt_for(cell)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="HARNESS_CONFLICT",
+        attempt = Attempt.from_identity(attempt.identity.model_copy(update={"harness_declaration_ids": ("test-harness",)}))
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
             stage="resolve-environment",
-            process=process_result(
-                stderr="No solution found when resolving dependencies",
-            ),
-        )
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=UvUnsatAttribution.model_validate({
+                "tool": "uv", "tool_version": "0.12.5", "protocol": "uv-pip-compile-pylock-v1", "profile": "uv-diagnostics-0.12.5-v1",
+                "request_binding": {"attempt_id": attempt.attempt_id, "stage": "resolve-environment", "project_plan_digest": "a" * 64, "environment_plan_digest": None},
+                "facts": {"code": "direct-version-contradiction", "stdout_complete": True, "stderr_complete": True},
+            })),
+            project_plan_digest="a" * 64, environment_plan_digest=None,
+        ))
         report = incomplete_report(
             "BASELINE_REJECTION",
             cell_results=(BaselineRejection(attempt=attempt, failure=failure),),
@@ -4523,11 +4562,12 @@ class TestSearchRendering:
             resolution="exact-vector",
             vector=(VersionPin(name="idna", version="2.0"),),
         )
-        failure = FailurePolicy().classify(
+        failure = FailureRecord.from_verifier(
             scope=AttemptFailureScope(attempt=attempt),
+            disposition="INDETERMINATE",
             cause="TIMEOUT",
             stage="test",
-            process=process_result(timed_out=True),
+            terminal=TimedOut(),
         )
         report = incomplete_report(
             "INDETERMINATE",

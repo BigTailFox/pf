@@ -1,0 +1,299 @@
+"""Replay D036 with real uv, a loopback registry and controlled legacy setup.py.
+
+The in-tree backend has no external build requirements. It executes the unchanged
+Python-2 setup.py in metadata/build hooks. Static Metadata-Version 2.2 in the
+install fixture lets uv resolve it before the same syntax error occurs at install.
+No process outcome, dependency graph, static check or verifier is simulated.
+"""
+from __future__ import annotations
+
+import argparse
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
+import hashlib
+import gzip
+import json
+import os
+from pathlib import Path
+import ssl
+import subprocess
+import sys
+import tarfile
+import tempfile
+from threading import Thread
+from zipfile import ZipFile, ZipInfo
+
+from pf.adapters.process import SubprocessRunner
+from pf.adapters.runtime_witness import RuntimeWitnessAdapter
+from pf.adapters.test_command import ConfiguredVerifier
+from pf.adapters.ty import TyAdapter
+from pf.adapters.uv import UvAdapter
+from pf.baseline import HighestVersionVerifier
+from pf.candidates import CandidateBuilder
+from pf.coordinate_search import CoordinateSearch
+from pf.environment import EnvironmentFactory
+from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.project import ProjectLoader
+from pf.report import PackageReportBuilder, ReportStore
+from pf.resolution import UV_PROTOCOL_IDENTITY
+from pf.schemas.evaluation import ExecutionFailureAuthority, NormalExit, ProcessResult, Unattributed
+from pf.schemas.project import SourcePlan
+from pf.schemas.report import CellSuccess
+from pf.search import SearchCoordinator
+from pf.snapshot import SnapshotBuilder
+
+
+APP_BACKEND = '''from ast import literal_eval
+from pathlib import Path
+import re
+from zipfile import ZipFile
+
+PREFIX = "qualification_app-1.dist-info"
+
+def metadata():
+    project = Path("pyproject.toml").read_text()
+    match = re.search(r"dependencies = (\\[.*\\])", project)
+    assert match is not None
+    dependencies = literal_eval(match.group(1))
+    return "Metadata-Version: 2.2\\nName: qualification-app\\nVersion: 1\\n" + "".join(
+        "Requires-Dist: " + item + "\\n" for item in dependencies
+    ) + "\\n"
+
+def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):
+    directory = Path(metadata_directory) / PREFIX
+    directory.mkdir(exist_ok=True)
+    (directory / "METADATA").write_text(metadata())
+    return PREFIX
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    filename = "qualification_app-1-py3-none-any.whl"
+    with ZipFile(Path(wheel_directory) / filename, "w") as archive:
+        archive.writestr(PREFIX + "/METADATA", metadata())
+        archive.writestr(PREFIX + "/WHEEL", "Wheel-Version: 1.0\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n")
+        archive.writestr(PREFIX + "/RECORD", "")
+    return filename
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    filename = build_wheel(wheel_directory, config_settings, metadata_directory)
+    with ZipFile(Path(wheel_directory) / filename, "a") as archive:
+        archive.writestr("qualification_app.pth", str(Path.cwd()) + "\\n")
+    return filename
+'''
+
+
+def fixtures(name: str, *, static_metadata: bool) -> dict[str, bytes]:
+    normalized = name.replace("-", "_")
+    metadata = f"Metadata-Version: 2.2\nName: {name}\nVersion: 1\n\n"
+    files = {
+        "setup.py": b"print 'controlled legacy Python 2 setup.py'\n",
+        "pyproject.toml": (
+            b"[build-system]\nrequires = []\nbuild-backend = 'legacy_backend'\nbackend-path = ['.']\n"
+        ),
+        "legacy_backend.py": (
+            b"from pathlib import Path\n"
+            b"def run_setup():\n"
+            b"    exec(compile(Path('setup.py').read_text(), 'setup.py', 'exec'), {})\n"
+            b"def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):\n"
+            b"    run_setup()\n"
+            b"def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n"
+            b"    run_setup()\n"
+        ),
+    }
+    if static_metadata:
+        files["PKG-INFO"] = metadata.encode()
+    sdist = BytesIO()
+    with tarfile.open(fileobj=sdist, mode="w") as archive:
+        for path, content in files.items():
+            entry = tarfile.TarInfo(f"{normalized}-1/{path}")
+            entry.size = len(content)
+            archive.addfile(entry, BytesIO(content))
+    compressed = BytesIO()
+    with gzip.GzipFile(fileobj=compressed, mode="wb", mtime=0) as archive:
+        archive.write(sdist.getvalue())
+    artifacts = {f"{normalized}-1.tar.gz": compressed.getvalue()}
+    for version in ("2", "3"):
+        wheel = BytesIO()
+        with ZipFile(wheel, "w") as archive:
+            prefix = f"{normalized}-{version}.dist-info"
+            archive.writestr(ZipInfo(f"{prefix}/METADATA"), metadata.replace("Version: 1", f"Version: {version}"))
+            archive.writestr(ZipInfo(f"{prefix}/WHEEL"), "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+            archive.writestr(ZipInfo(f"{prefix}/RECORD"), "")
+        artifacts[f"{normalized}-{version}-py3-none-any.whl"] = wheel.getvalue()
+    return artifacts
+
+
+@contextmanager
+def registry(name: str, artifacts: dict[str, bytes], tls_root: Path):
+    class Handler(BaseHTTPRequestHandler):
+        def do_HEAD(self):  # noqa: N802
+            self.do_GET()
+
+        def do_GET(self):  # noqa: N802
+            if self.path == f"/simple/{name}/":
+                payload = json.dumps({"meta": {"api-version": "1.0"}, "name": name, "files": [
+                    {"filename": filename, "url": f"/files/{filename}",
+                     "hashes": {"sha256": hashlib.sha256(content).hexdigest()},
+                     "upload-time": "2026-01-01T00:00:00Z", "size": len(content)}
+                    for filename, content in artifacts.items()
+                ]}).encode()
+                content_type = "application/vnd.pypi.simple.v1+json"
+            elif self.path.startswith("/files/") and self.path[7:] in artifacts:
+                payload = artifacts[self.path[7:]]
+                content_type = "application/octet-stream"
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(payload)
+
+        def log_message(self, format, *args):
+            pass
+
+    certificate = tls_root / "registry-cert.pem"
+    private_key = tls_root / "registry-key.pem"
+    # One trust root for this fresh replay process: Python 3.12's urllib opener
+    # retains its SSLContext, so replacing the certificate between cases is invalid.
+    if not certificate.exists():
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+            "-addext", "basicConstraints=critical,CA:FALSE",
+            "-addext", "extendedKeyUsage=serverAuth",
+            "-keyout", str(private_key), "-out", str(certificate),
+        ], check=True, capture_output=True)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certificate, private_key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    previous_certificate = os.environ.get("SSL_CERT_FILE")
+    os.environ["SSL_CERT_FILE"] = str(certificate)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"https://127.0.0.1:{server.server_port}/simple"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+        if previous_certificate is None:
+            os.environ.pop("SSL_CERT_FILE", None)
+        else:
+            os.environ["SSL_CERT_FILE"] = previous_certificate
+
+
+class RecordingRunner(SubprocessRunner):
+    def __init__(self):
+        super().__init__()
+        self.observations = []
+
+    def run(self, spec):
+        result = super().run(spec)
+        self.observations.append((spec, result))
+        return result
+
+
+def qualify_case(root: Path, *, operation: str) -> dict:
+    name = f"pf-execution-{operation}"
+    artifacts = fixtures(name, static_metadata=operation == "install")
+    with registry(name, artifacts, root.parent) as index:
+        root.mkdir()
+        (root / "pyproject.toml").write_text(
+            f'[project]\nname = "qualification-app"\nversion = "1"\ndependencies = ["{name}"]\n'
+            '[build-system]\nrequires = []\nbuild-backend = "qualification_backend"\nbackend-path = ["."]\n'
+            f'[tool.pf]\npythons = ["{sys.version_info.major}.{sys.version_info.minor}"]\n'
+            'platforms = ["x86_64-unknown-linux-gnu"]\nsearch-space = "all"\n'
+            'test-command = ["python", "check.py"]\n'
+            f'[[tool.uv.index]]\nname = "controlled"\nurl = "{index}"\ndefault = true\n'
+        )
+        (root / "qualification_backend.py").write_text(APP_BACKEND)
+        (root / "check.py").write_text(
+            f'from importlib.metadata import version\nassert version("{name}") in {{"2", "3"}}\n'
+        )
+        package = ProjectLoader().load(root=root).target
+        source_plan = SourcePlan.for_package(package, "SEARCH")
+        snapshot = SnapshotBuilder.without_processes().build(root)
+        runner = RecordingRunner()
+        adapter = UvAdapter(runner)
+        environments = EnvironmentFactory(adapter)
+        static = StaticEvaluator(TyAdapter(runner))
+        full = RuntimeEvaluator(static=static, verifier=ConfiguredVerifier(runner), witnesses=RuntimeWitnessAdapter(runner))
+        coordinator = SearchCoordinator(
+            environments=environments, candidates=CandidateBuilder(adapter), static=static,
+            full=full, highest=HighestVersionVerifier(environments=environments, static=static, full=full),
+            coordinate_search=CoordinateSearch(),
+        )
+        try:
+            result = coordinator.search(package=package, cell=package.cells[0], snapshot=snapshot, source_plan=source_plan)
+            if not isinstance(result, CellSuccess):
+                raise RuntimeError(f"{operation} search did not pass: {result!r}")
+            failure = next(item for item in result.failure_records if item.stage == f"{operation}-project")
+            assert failure.disposition == "REJECTED"
+            assert failure.cause == ("RESOLUTION_FAILED" if operation == "resolve" else "INSTALLATION_FAILED")
+            assert isinstance(failure.authority, ExecutionFailureAuthority)
+            assert failure.authority.terminal == NormalExit(exit_code=1)
+            assert failure.authority.attribution == Unattributed()
+            assert (failure.project_plan_digest is not None) == (operation == "install")
+            assert failure.environment_plan_digest is None
+            assert [pin.version for pin in result.baseline.proposal.managed_vector] == ["3"]
+            assert [pin.version for pin in result.final_vector] == ["2"]
+            assert result.final_evaluation.proposal != result.baseline.proposal
+            assert result.search.boundaries[0].predecessor == "1"
+            assert result.search.boundaries[0].predecessor_failure_id == failure.failure_id
+            assert all("1" not in region.observed_versions for region in result.search.regions)
+            report = PackageReportBuilder().build(package=package, source_plan=source_plan, source_snapshot=snapshot.identity, cell_results=(result,))
+            path = root / "package-floor.json"
+            ReportStore().write(path, report)
+            assert ReportStore().read(path) == report
+            failed_processes = [(spec, process) for spec, process in runner.observations if isinstance(process, ProcessResult) and process.exit_code == 1 and spec.argv[1:3] == ("pip", "compile" if operation == "resolve" else "sync")]
+            assert len(failed_processes) == 1
+            spec, process = failed_processes[0]
+            verifier_processes = [(index, observed) for index, (request, observed) in enumerate(runner.observations) if request.argv[-1:] == ("check.py",)]
+            assert len(verifier_processes) == 2
+            assert all(isinstance(observed, ProcessResult) and observed.exit_code == 0 and not observed.timed_out for _, observed in verifier_processes)
+            assert runner.observations.index((spec, process)) < verifier_processes[-1][0]
+            diagnostic = runner.output(process).stderr
+            assert "setup.py" in diagnostic and "SyntaxError" in diagnostic
+            return {
+                "operation": operation, "failure": failure.model_dump(mode="json", exclude_none=True),
+                "final_vector": [pin.model_dump(mode="json") for pin in result.final_vector],
+                "baseline_vector": [pin.model_dump(mode="json") for pin in result.baseline.proposal.managed_vector],
+                "final_evaluation": result.final_evaluation.model_dump(mode="json"),
+                "search": result.search.model_dump(mode="json"),
+                "process_count": len(runner.observations),
+                "full_verifier_count": len(verifier_processes),
+                "new_full_pass_after_rejection": True,
+                "failed_argv": list(spec.argv), "diagnostic": diagnostic,
+                "fixture_kind": "legacy Python-2 setup.py via dependency-free in-tree backend",
+                "sdist_static_metadata": operation == "install", "report_roundtrip": True,
+                "artifact_sha256": {filename: hashlib.sha256(content).hexdigest() for filename, content in artifacts.items()},
+            }
+        finally:
+            snapshot.close()
+
+
+def qualify() -> dict:
+    with tempfile.TemporaryDirectory(prefix="pf-execution-qualification-") as temporary:
+        root = Path(temporary)
+        return {
+            "schema": "pf-execution-failure-qualification-v1",
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "python": sys.version.split()[0], "uv_version": "0.12.5",
+            "protocol": UV_PROTOCOL_IDENTITY, "profile": "uv-diagnostics-0.12.5-v1",
+            "failure_policy": "failure-execution-v3",
+            "cases": [qualify_case(root / operation, operation=operation) for operation in ("resolve", "install")],
+        }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    arguments = parser.parse_args()
+    result = qualify()
+    arguments.output.parent.mkdir(parents=True, exist_ok=True)
+    arguments.output.write_text(json.dumps(result, indent=2) + "\n")

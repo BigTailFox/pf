@@ -9,6 +9,10 @@ from rich.text import Text
 from pf.schemas.evaluation import (
     AttemptFailureScope,
     ConfiguredVerifierFailureAuthority,
+    ExecutionFailureAuthority,
+    StructuredOperationFailureAuthority,
+    UvUnsatAttribution,
+    Unattributed,
     FailureRecord,
     NormalExit,
     ProcessResult,
@@ -16,7 +20,7 @@ from pf.schemas.evaluation import (
     StartFailed,
     TimedOut,
     Unavailable,
-    VerifierTerminal,
+    ExecutionTerminal,
     VerificationRole,
 )
 from pf.terminal import _fact_grid, _path_text, _plain_result_card, _result_card
@@ -129,10 +133,22 @@ def render(
     ]
     if failure.process is not None:
         technical.append(("process", Text(_process_terminal(failure.process))))
-    elif isinstance(failure.authority, ConfiguredVerifierFailureAuthority):
+    elif isinstance(failure.authority, (ConfiguredVerifierFailureAuthority, ExecutionFailureAuthority)):
         technical.append(
             ("process", Text(_verifier_terminal(failure.authority.terminal)))
         )
+        if isinstance(failure.authority, ExecutionFailureAuthority):
+            attribution = failure.authority.attribution
+            if isinstance(attribution, UvUnsatAttribution):
+                technical.append(("basis", Text(f"qualified attribution: {attribution.facts.code}")))
+            elif isinstance(attribution, Unattributed) and isinstance(failure.authority.terminal, NormalExit):
+                technical.append(("basis", Text("normal nonzero fallback")))
+            else:
+                technical.append(("basis", Text("abnormal execution terminal")))
+    elif isinstance(failure.authority, StructuredOperationFailureAuthority):
+        technical.append(("basis", Text(f"structured fact: {failure.authority.fact.code}")))
+        if failure.authority.terminal is not None:
+            technical.append(("process", Text(_verifier_terminal(failure.authority.terminal))))
     if failure.detail is not None:
         technical.extend(
             (
@@ -222,7 +238,7 @@ def _process_terminal(process: ProcessResult) -> str:
     return f"exited {process.exit_code}"
 
 
-def _verifier_terminal(terminal: VerifierTerminal) -> str:
+def _verifier_terminal(terminal: ExecutionTerminal) -> str:
     if isinstance(terminal, NormalExit):
         return f"exited {terminal.exit_code}"
     if isinstance(terminal, TimedOut):

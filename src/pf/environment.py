@@ -15,7 +15,7 @@ from packaging.requirements import Requirement
 import tomlkit
 from tomlkit.items import Array
 
-from pf.errors import ConfigurationError
+from pf.errors import ConfigurationError, InfrastructureError
 from pf.harness import active_harness_requirements, original_harness, relax_harness
 from pf.policy import evaluation_policy_identity
 from pf.resolution import (
@@ -24,11 +24,10 @@ from pf.resolution import (
     InstallFailure,
     InstallOutcome,
     ResolutionContext,
-    ResolutionIndeterminate,
+    ResolutionFailure,
     ResolutionOutcome,
     ResolutionPlan,
     ResolutionRunContext,
-    ResolutionUnsat,
 )
 from pf.schemas.evaluation import (
     Attempt,
@@ -39,9 +38,23 @@ from pf.schemas.evaluation import (
     CellStageEvent,
     PrepareFailure,
     StageProgress,
-    FailureDetail,
     ToolFailure,
-    ToolOutcome,
+    ToolSuccess,
+    AuxiliaryOutcome,
+    OperationFailureResult,
+    OperationRequestBinding,
+    OperationStage,
+    StructuredOperationFailure,
+    ExecutionFailure,
+    UvUnsatAttribution,
+    RequestInvariantFact,
+    InterpreterMismatchFact,
+    ArtifactPolicyMismatchFact,
+    ManagedSourceMismatchFact,
+    ManagedSourceLeakageFact,
+    InstalledGraphMismatchFact,
+    ProposalVectorMismatchFact,
+    execution_terminal,
 )
 from pf.schemas.project import (
     Cell,
@@ -119,6 +132,7 @@ class UvOperations(Protocol):
         resolution: ResolutionRequest,
         context: ResolutionContext,
         request_digest: str,
+        request_binding: OperationRequestBinding,
         work_directory: Path,
         artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
@@ -135,6 +149,7 @@ class UvOperations(Protocol):
         resolution: ResolutionRequest,
         context: ResolutionContext,
         request_digest: str,
+        request_binding: OperationRequestBinding,
         project_plan: ResolutionPlan,
         harness: tuple[HarnessResolutionRequirement, ...],
         work_directory: Path,
@@ -150,12 +165,13 @@ class UvOperations(Protocol):
         python_minor: str,
         cwd: Path,
         timeout_seconds: int | None,
-    ) -> ToolOutcome: ...
+    ) -> AuxiliaryOutcome: ...
 
     def install_resolution(
         self,
         *,
         plan: ResolutionPlan,
+        request_binding: OperationRequestBinding,
         interpreter: Path,
         cwd: Path,
         work_directory: Path,
@@ -269,13 +285,39 @@ class EnvironmentFactory:
         project_plan_digest: str | None = None
         environment_plan_digest: str | None = None
 
-        def failed(failure: ToolFailure) -> PrepareFailure:
+        def failed(failure: OperationFailureResult | ResolutionFailure | InstallFailure) -> PrepareFailure:
             return PrepareFailure(
                 attempt=attempt,
-                failure=failure,
+                stage=failure.stage,
+                failure=failure.failure,
+                process=failure.process,
                 project_plan_digest=project_plan_digest,
                 environment_plan_digest=environment_plan_digest,
             )
+
+        def binding(stage: Literal["resolve-project", "resolve-environment", "install-project", "install-environment"]) -> OperationRequestBinding:
+            return OperationRequestBinding(
+                attempt_id=attempt.attempt_id, stage=stage,
+                project_plan_digest=project_plan_digest,
+                environment_plan_digest=environment_plan_digest,
+            )
+
+        def invariant(stage: OperationStage) -> OperationFailureResult:
+            return OperationFailureResult(
+                stage=stage, failure=StructuredOperationFailure(fact=RequestInvariantFact(), terminal=None),
+            )
+
+        def resolution_envelope_valid(outcome: ResolutionOutcome, expected_request: str, expected_binding: OperationRequestBinding) -> bool:
+            expected_kind = "project" if expected_binding.stage == "resolve-project" else "environment"
+            if outcome.context != context or outcome.request_digest != expected_request:
+                return False
+            if isinstance(outcome, ResolutionPlan):
+                return outcome.kind == expected_kind
+            if outcome.stage != expected_binding.stage:
+                return False
+            if isinstance(outcome.failure, ExecutionFailure) and isinstance(outcome.failure.attribution, UvUnsatAttribution):
+                return outcome.failure.attribution.request_binding == expected_binding
+            return True
 
         temporary_directory = tempfile.TemporaryDirectory(prefix="pf-proposal-")
         runtime_root = Path(temporary_directory.name)
@@ -297,7 +339,12 @@ class EnvironmentFactory:
                 cwd=proposal_root,
                 timeout_seconds=package.config.resolution.timeout_seconds,
             )
-            if isinstance(create, ToolFailure):
+            if not isinstance(create, (ToolSuccess, OperationFailureResult)):
+                raise InfrastructureError("uv create returned an unsupported outcome")
+            if create.stage != "create-environment":
+                temporary_directory.cleanup()
+                return failed(invariant("create-environment"))
+            if isinstance(create, OperationFailureResult):
                 temporary_directory.cleanup()
                 return failed(create)
             interpreter = self._interpreter(environment_root)
@@ -308,6 +355,8 @@ class EnvironmentFactory:
             )
             if not isinstance(interpreter_result, InterpreterSuccess):
                 temporary_directory.cleanup()
+                if interpreter_result.stage != "inspect-interpreter":
+                    return failed(invariant("inspect-interpreter"))
                 return failed(interpreter_result)
             if (
                 interpreter_result.interpreter.implementation != "cpython"
@@ -317,9 +366,9 @@ class EnvironmentFactory:
             ):
                 temporary_directory.cleanup()
                 return failed(
-                    ToolFailure(
-                        cause="ENVIRONMENT_FAILURE",
+                    OperationFailureResult(
                         stage="inspect-interpreter",
+                        failure=StructuredOperationFailure(fact=InterpreterMismatchFact(), terminal=execution_terminal(interpreter_result.process)),
                         process=interpreter_result.process,
                     )
                 )
@@ -361,15 +410,19 @@ class EnvironmentFactory:
                     resolution=resolution,
                     context=context,
                     request_digest=project_request,
+                    request_binding=binding("resolve-project"),
                     work_directory=runtime_root,
                     artifact_policy=package.config.resolution.artifact,
                     timeout_seconds=package.config.resolution.timeout_seconds,
                     source_plan=source_plan,
                 ),
             )
+            if not resolution_envelope_valid(project_outcome, project_request, binding("resolve-project")):
+                temporary_directory.cleanup()
+                return failed(invariant("resolve-project"))
             if not isinstance(project_outcome, ResolutionPlan):
                 temporary_directory.cleanup()
-                return failed(self._resolution_failure(project_outcome))
+                return failed(project_outcome)
             artifact_failure = self._artifact_policy_failure(
                 project_outcome,
                 policy=package.config.resolution.artifact,
@@ -377,7 +430,6 @@ class EnvironmentFactory:
             if artifact_failure is not None:
                 temporary_directory.cleanup()
                 return failed(artifact_failure)
-            project_plan_digest = project_outcome.semantic_digest
             source_failure = self._managed_source_failure(
                 package=package,
                 cell=cell,
@@ -388,6 +440,7 @@ class EnvironmentFactory:
             if source_failure is not None:
                 temporary_directory.cleanup()
                 return failed(source_failure)
+            project_plan_digest = project_outcome.semantic_digest
 
             environment_outcome: ResolutionOutcome | None = None
             if attempt.identity.harness_declaration_ids:
@@ -420,6 +473,7 @@ class EnvironmentFactory:
                         resolution=resolution,
                         context=context,
                         request_digest=environment_request,
+                        request_binding=binding("resolve-environment"),
                         project_plan=project_outcome,
                         harness=harness,
                         work_directory=runtime_root,
@@ -428,9 +482,12 @@ class EnvironmentFactory:
                         source_plan=source_plan,
                     ),
                 )
+                if not resolution_envelope_valid(environment_outcome, environment_request, binding("resolve-environment")):
+                    temporary_directory.cleanup()
+                    return failed(invariant("resolve-environment"))
                 if not isinstance(environment_outcome, ResolutionPlan):
                     temporary_directory.cleanup()
-                    return failed(self._resolution_failure(environment_outcome))
+                    return failed(environment_outcome)
                 artifact_failure = self._artifact_policy_failure(
                     environment_outcome,
                     policy=package.config.resolution.artifact,
@@ -438,44 +495,36 @@ class EnvironmentFactory:
                 if artifact_failure is not None:
                     temporary_directory.cleanup()
                     return failed(artifact_failure)
-                environment_plan_digest = environment_outcome.semantic_digest
                 if not self._project_graph_is_exact(project_outcome, environment_outcome):
                     temporary_directory.cleanup()
                     return failed(
-                        ToolFailure(
-                            cause="INTERNAL_INVARIANT",
+                        OperationFailureResult(
                             stage="resolve-environment",
-                            process=None,
-                            summary_code="managed-source-mismatch",
-                            detail=FailureDetail(
-                                code="managed-source-mismatch",
-                                message=(
-                                    "the environment resolution did not preserve the "
-                                    "project source selection"
-                                ),
+                            process=environment_outcome.process,
+                            failure=StructuredOperationFailure(
+                                fact=ManagedSourceMismatchFact(), terminal=execution_terminal(environment_outcome.process),
                             ),
                         )
                     )
+                environment_plan_digest = environment_outcome.semantic_digest
 
             final_plan = environment_outcome or project_outcome
             emit_cell_stage(self._events, cell, f"installing {final_plan.kind} plan")
             install = self._uv.install_resolution(
                 plan=final_plan,
+                request_binding=binding("install-project" if final_plan.kind == "project" else "install-environment"),
                 interpreter=interpreter,
                 cwd=package_root,
                 work_directory=runtime_root,
                 timeout_seconds=package.config.resolution.timeout_seconds,
             )
+            install_stage = "install-project" if final_plan.kind == "project" else "install-environment"
+            if install.plan_digest != final_plan.digest or (isinstance(install, InstallFailure) and install.stage != install_stage):
+                temporary_directory.cleanup()
+                return failed(invariant(install_stage))
             if isinstance(install, InstallFailure):
                 temporary_directory.cleanup()
-                return failed(
-                    ToolFailure(
-                        cause=install.cause,
-                        stage=install.stage,
-                        process=install.process,
-                        summary_code=install.summary_code,
-                    )
-                )
+                return failed(install)
             if not isinstance(install, InstalledResolution):
                 raise TypeError("uv install returned an unsupported outcome")
             graph = self._uv.inspect_environment(
@@ -483,8 +532,10 @@ class EnvironmentFactory:
                 cwd=package_root,
                 timeout_seconds=package.config.resolution.timeout_seconds,
             )
-            if isinstance(graph, ToolFailure):
+            if isinstance(graph, OperationFailureResult):
                 temporary_directory.cleanup()
+                if graph.stage != "inspect":
+                    return failed(invariant("inspect"))
                 return failed(graph)
 
             installed = {node.name: node.version for node in graph.nodes}
@@ -499,10 +550,9 @@ class EnvironmentFactory:
             ):
                 temporary_directory.cleanup()
                 return failed(
-                    ToolFailure(
-                        cause="INTERNAL_INVARIANT",
-                        stage=f"inspect-{final_plan.kind}-plan",
-                        process=graph.process,
+                    OperationFailureResult(
+                        stage="inspect-project-plan" if final_plan.kind == "project" else "inspect-environment-plan",
+                        failure=StructuredOperationFailure(fact=InstalledGraphMismatchFact(), terminal=None),
                     )
                 )
             active_ids = set(cell.active_declaration_ids)
@@ -520,10 +570,9 @@ class EnvironmentFactory:
             if missing:
                 temporary_directory.cleanup()
                 return failed(
-                    ToolFailure(
-                        cause="INTERNAL_INVARIANT",
-                        stage="inspect",
-                        process=graph.process,
+                    OperationFailureResult(
+                        stage="inspect-project-plan" if final_plan.kind == "project" else "inspect-environment-plan",
+                        failure=StructuredOperationFailure(fact=InstalledGraphMismatchFact(), terminal=None),
                     )
                 )
             actual_vector = tuple(
@@ -532,10 +581,9 @@ class EnvironmentFactory:
             if managed_vector is not None and actual_vector != managed_vector:
                 temporary_directory.cleanup()
                 return failed(
-                    ToolFailure(
-                        cause="INTERNAL_INVARIANT",
+                    OperationFailureResult(
                         stage="proposal-vector",
-                        process=graph.process,
+                        failure=StructuredOperationFailure(fact=ProposalVectorMismatchFact(), terminal=None),
                     )
                 )
             policy_identity = evaluation_policy_identity(package.config)
@@ -589,9 +637,11 @@ class EnvironmentFactory:
                 harness_baseline=harness_baseline,
                 temporary_directory=temporary_directory,
             )
-        except Exception:
+        except Exception as error:
             temporary_directory.cleanup()
-            raise
+            if isinstance(error, (ConfigurationError, InfrastructureError)):
+                raise
+            raise InfrastructureError("environment preparation failed", detail=str(error)) from error
 
     def _resolve_once(
         self,
@@ -667,28 +717,6 @@ class EnvironmentFactory:
         ).requirements
 
     @staticmethod
-    def _resolution_failure(
-        outcome: ResolutionUnsat | ResolutionIndeterminate,
-    ) -> ToolFailure:
-        if isinstance(outcome, ResolutionUnsat):
-            return ToolFailure(
-                cause=(
-                    "RESOLUTION_CONFLICT"
-                    if outcome.stage == "resolve-project"
-                    else "HARNESS_CONFLICT"
-                ),
-                stage=outcome.stage,
-                process=outcome.process,
-                summary_code=outcome.proof_code,
-            )
-        return ToolFailure(
-            cause=outcome.cause,
-            stage=outcome.stage,
-            process=outcome.process,
-            summary_code=outcome.summary_code,
-        )
-
-    @staticmethod
     def _project_graph_is_exact(
         project: ResolutionPlan,
         environment: ResolutionPlan,
@@ -711,7 +739,7 @@ class EnvironmentFactory:
         plan: ResolutionPlan,
         *,
         policy: Literal["wheel", "sdist", "any"],
-    ) -> ToolFailure | None:
+    ) -> OperationFailureResult | None:
         allowed = {"wheel", "sdist"} if policy == "any" else {policy}
         for package in plan.packages:
             if package.source.kind != "registry":
@@ -721,17 +749,11 @@ class EnvironmentFactory:
                 for artifact in package.available_artifacts
             ):
                 continue
-            return ToolFailure(
-                cause="INTERNAL_INVARIANT",
-                stage=f"resolve-{plan.kind}",
+            return OperationFailureResult(
+                stage="resolve-project" if plan.kind == "project" else "resolve-environment",
                 process=plan.process,
-                summary_code="artifact-policy-mismatch",
-                detail=FailureDetail(
-                    code="artifact-policy-mismatch",
-                    message=(
-                        f"registry resolution for {package.name} did not satisfy "
-                        f"the {policy} artifact policy"
-                    ),
+                failure=StructuredOperationFailure(
+                    fact=ArtifactPolicyMismatchFact(), terminal=execution_terminal(plan.process),
                 ),
             )
         return None
@@ -744,7 +766,7 @@ class EnvironmentFactory:
         source_plan: SourcePlan,
         resolution: ResolutionRequest,
         plan: ResolutionPlan,
-    ) -> ToolFailure | None:
+    ) -> OperationFailureResult | None:
         active_ids = set(cell.active_declaration_ids)
         managed_names = {
             declaration.name
@@ -767,17 +789,11 @@ class EnvironmentFactory:
         for name in dual_dependencies:
             item = resolved.get(name)
             if item is None or item.source.kind in {"path", "workspace"}:
-                return ToolFailure(
-                    cause="INTERNAL_INVARIANT",
+                return OperationFailureResult(
                     stage="resolve-project",
-                    process=None,
-                    summary_code="managed-source-leakage",
-                    detail=FailureDetail(
-                        code="managed-source-leakage",
-                        message=(
-                            "a managed workspace dependency resolved from a local "
-                            "source in SEARCH mode"
-                        ),
+                    process=plan.process,
+                    failure=StructuredOperationFailure(
+                        fact=ManagedSourceLeakageFact(), terminal=execution_terminal(plan.process),
                     ),
                 )
             requested = selected.get(name)
@@ -788,17 +804,11 @@ class EnvironmentFactory:
                 )
                 or not item.available_artifacts
             ):
-                return ToolFailure(
-                    cause="INTERNAL_INVARIANT",
+                return OperationFailureResult(
                     stage="resolve-project",
-                    process=None,
-                    summary_code="managed-source-mismatch",
-                    detail=FailureDetail(
-                        code="managed-source-mismatch",
-                        message=(
-                            "a managed workspace dependency did not resolve to the "
-                            "expected registry artifact"
-                        ),
+                    process=plan.process,
+                    failure=StructuredOperationFailure(
+                        fact=ManagedSourceMismatchFact(), terminal=execution_terminal(plan.process),
                     ),
                 )
             if requested is not None and (
@@ -810,17 +820,11 @@ class EnvironmentFactory:
                 or item.selected_artifact.content_hash
                 != requested.artifact.content_hash
             ):
-                return ToolFailure(
-                    cause="INTERNAL_INVARIANT",
+                return OperationFailureResult(
                     stage="resolve-project",
-                    process=None,
-                    summary_code="managed-source-mismatch",
-                    detail=FailureDetail(
-                        code="managed-source-mismatch",
-                        message=(
-                            "a managed workspace dependency did not match the "
-                            "requested registry artifact"
-                        ),
+                    process=plan.process,
+                    failure=StructuredOperationFailure(
+                        fact=ManagedSourceMismatchFact(), terminal=execution_terminal(plan.process),
                     ),
                 )
         return None

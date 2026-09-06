@@ -525,11 +525,7 @@ def _project_smoke(result: HighestVersionOutcome) -> _CellProjection:
             result.evaluation,
             result.failure,
             runtime=result.runtime,
-        ) or (
-            result.failure_process
-            if isinstance(result, BaselineIndeterminate)
-            else None
-        )
+        ) or result.failure_process
         completion = CellFailed(
             status=result.status,
             phase=result.failure.stage,

@@ -894,6 +894,7 @@ class PackageReportBuilder:
                 source_snapshot=source_snapshot,
                 policy_identity=policy_identity,
                 verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
+                failure_policy="failure-execution-v3",
             ),
             inputs=ReportInputsV1(
                 search_policy=search_policy,
@@ -1970,6 +1971,9 @@ class ReportStore:
     @classmethod
     def _validate_v1(cls, document: dict[str, object]) -> ValidatedReport:
         required_nullable = {
+            ("evidence", "failures", "*", "authority", "terminal"),
+            ("evidence", "failures", "*", "authority", "attribution", "request_binding", "project_plan_digest"),
+            ("evidence", "failures", "*", "authority", "attribution", "request_binding", "environment_plan_digest"),
             ("evidence", "proposals", "*", "environment_plan_digest"),
             ("inputs", "search_policy", "bindings", "*", "requested_space"),
             ("inputs", "candidate_snapshots", "*", "series_inventory_ref"),

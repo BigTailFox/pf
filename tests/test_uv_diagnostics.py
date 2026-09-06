@@ -81,7 +81,7 @@ class TestUvDiagnosticProfile:
             ),
             ("Failed to read metadata", "SOURCE_FAILURE", "resolution-source-failure"),
             ("Archive hash mismatch", "SOURCE_FAILURE", "resolution-source-failure"),
-            ("Failed to build wheel", "BUILD_FAILURE", "resolution-build-failure"),
+            ("Failed to build wheel", "TOOL_FAILURE", "resolution-build-failure"),
             ("something new", "TOOL_FAILURE", "resolution-diagnostic-unknown"),
         ),
     )

@@ -454,9 +454,17 @@ class TestApplyAuthorizer:
         finally:
             snapshot.close()
 
-    @pytest.mark.parametrize("policy_fact", ("project_overlap", "project_marker_projection", "test_group_selection", "empty_harness_prepare"))
-    def test_normalization_policy_isolates_reports_with_explicit_defaults(
-        self, tmp_path, monkeypatch, policy_fact
+    @pytest.mark.parametrize(("policy_name", "policy_fact"), (
+        ("VALIDATION_CONTRACT_POLICY", "project_overlap"),
+        ("VALIDATION_CONTRACT_POLICY", "project_marker_projection"),
+        ("VALIDATION_CONTRACT_POLICY", "test_group_selection"),
+        ("VALIDATION_CONTRACT_POLICY", "empty_harness_prepare"),
+        ("EXECUTION_OUTCOME_POLICY", "rules"),
+        ("EXECUTION_OUTCOME_POLICY", "structured_facts"),
+        ("EXECUTION_OUTCOME_POLICY", "attribution_profiles"),
+    ))
+    def test_evaluation_policy_isolates_reports_with_explicit_defaults(
+        self, tmp_path, monkeypatch, policy_name, policy_fact
     ):
         linux = "x86_64-unknown-linux-gnu"
         macos = "aarch64-apple-darwin"
@@ -470,7 +478,7 @@ class TestApplyAuthorizer:
         try:
             with monkeypatch.context() as other_policy:
                 other_policy.setitem(
-                    policy_module.VALIDATION_CONTRACT_POLICY,
+                    getattr(policy_module, policy_name),
                     policy_fact,
                     "different-normalization-contract",
                 )

@@ -126,7 +126,7 @@ def classify_resolution_diagnostic(
         return UvResolutionClassification(
             kind="indeterminate",
             signature="build-failure",
-            cause="BUILD_FAILURE",
+            cause="TOOL_FAILURE",
             summary_code="resolution-build-failure",
         )
     complete_unsat = (

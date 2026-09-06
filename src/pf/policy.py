@@ -27,6 +27,17 @@ TY_DIAGNOSTIC_POLICY = {
 
 CONFIGURED_VERIFIER_OUTCOME_POLICY = "configured-verifier-terminal-v1"
 
+EXECUTION_OUTCOME_POLICY = {
+    "rules": "execution-outcome-v1",
+    "structured_facts": "operation-structured-facts-v1",
+    "attribution_profiles": [{
+        "tool": "uv", "tool_version": "0.12.5",
+        "protocol": "uv-pip-compile-pylock-v1",
+        "profile": "uv-diagnostics-0.12.5-v1",
+        "codes": ["direct-version-contradiction", "transitive-version-contradiction"],
+    }],
+}
+
 VALIDATION_CONTRACT_POLICY = {
     "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
     "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
@@ -57,6 +68,7 @@ def evaluation_policy_identity(config: EffectiveConfig) -> str:
         "verifier_outcome_policy": CONFIGURED_VERIFIER_OUTCOME_POLICY,
         "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,
         "failure_policy": FailurePolicy.identity,
+        "execution_outcome_policy": EXECUTION_OUTCOME_POLICY,
         "validation_contract_policy": VALIDATION_CONTRACT_POLICY,
     }
     canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))

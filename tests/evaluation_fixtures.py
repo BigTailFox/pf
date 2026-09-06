@@ -40,6 +40,7 @@ from pf.schemas.evaluation import (
     RuntimeWitnessResult,
     StageProgress,
     ToolFailure,
+    OperationFailureResult,
     ToolSuccess,
     TyCheck,
     VerifierPass,
@@ -166,13 +167,13 @@ class ScriptedUv:
             VersionPin(name="demo-dep", version="3"),
         ),
         lowest: tuple[VersionPin, ...] | None = None,
-        install_failure: ToolFailure | None = None,
+        install_failure: OperationFailureResult | None = None,
     ) -> None:
         self.highest = highest
         self.lowest = lowest if lowest is not None else highest
         self.install_failure = install_failure
         self.install_failures_by_vector: dict[
-            tuple[VersionPin, ...], ToolFailure
+            tuple[VersionPin, ...], OperationFailureResult
         ] = {}
         self.resolutions: list[str] = []
         self.resolution_root_states: list[tuple[str, tuple[bool, ...]]] = []
@@ -337,13 +338,11 @@ class ScriptedUv:
         self.install_vectors.append(vector)
         failure = self.install_failures_by_vector.get(vector, self.install_failure)
         if failure is not None:
-            assert failure.process is not None
             return InstallFailure(
-                cause=failure.cause,
+                failure=failure.failure,
                 stage="install-project" if plan.kind == "project" else "install-environment",
                 process=failure.process,
                 plan_digest=plan.digest,
-                summary_code=failure.summary_code,
             )
         return InstalledResolution(
             plan_digest=plan.digest,
@@ -533,7 +532,7 @@ def evaluation_assembly(
     ty_handler: TyHandler | None = None,
     verifier_handler: VerifierHandler | None = None,
     witness_handler: WitnessHandler | None = None,
-    install_failure: ToolFailure | None = None,
+    install_failure: OperationFailureResult | None = None,
     diagnostics: SearchDiagnosticConsumer | None = None,
     events: SearchActivityConsumer | None = None,
 ) -> EvaluationAssembly:

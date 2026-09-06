@@ -20,7 +20,7 @@ from pf.resolution import (
     ResolutionRunContext,
     resolution_graph_id,
 )
-from pf.schemas.evaluation import ProcessResult
+from pf.schemas.evaluation import ProcessResult, ExecutionFailure, NormalExit, UvUnsatAttribution
 from pf.schemas.project import Cell, ResolvedNode, SourceIdentity
 
 
@@ -71,6 +71,18 @@ def _plan() -> ResolutionPlan:
 
 
 class TestResolutionIdentity:
+    @pytest.mark.parametrize("process", [
+        ProcessResult(exit_code=0, timed_out=True, duration_seconds=0),
+        ProcessResult(exit_code=1, duration_seconds=0),
+        ProcessResult(signal=9, duration_seconds=0),
+    ])
+    def test_resolution_plan_requires_normal_zero(self, process: ProcessResult) -> None:
+        plan = _plan()
+        values = {field: getattr(plan, field) for field in ResolutionPlan.model_fields}
+        values["process"] = process
+        with pytest.raises(ValueError, match="successful process"):
+            ResolutionPlan.model_validate(values)
+
     def test_resolution_plan_rejects_an_empty_request_identity(self) -> None:
         plan = _plan()
         values: dict[str, Any] = {
@@ -265,11 +277,15 @@ class TestResolutionIdentity:
         )
 
         assert installed.plan_digest == "plan"
-        with pytest.raises(ValueError, match="cannot prove"):
+        with pytest.raises(ValueError, match="UNSAT"):
             InstallFailure(
                 plan_digest="plan",
                 stage="install-project",
-                cause="HARNESS_CONFLICT",
+                failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=UvUnsatAttribution.model_validate({
+                    "tool": "uv", "tool_version": "0.12.5", "protocol": "uv-pip-compile-pylock-v1", "profile": "uv-diagnostics-0.12.5-v1",
+                    "request_binding": {"attempt_id": "a" * 64, "stage": "resolve-project", "project_plan_digest": None, "environment_plan_digest": None},
+                    "facts": {"code": "direct-version-contradiction", "stdout_complete": True, "stderr_complete": True},
+                })),
                 process=_process().model_copy(update={"exit_code": 1}),
             )
 

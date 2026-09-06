@@ -21,6 +21,12 @@ from pf.policy import evaluation_policy_identity
 from pf.schemas.base import canonical_identity_json
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
+    PrepareFailure,
+    ExecutionFailure,
+    Unattributed,
+    TimedOut,
+    Signaled,
+    VerifierIndeterminate,
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
@@ -41,7 +47,7 @@ from pf.schemas.evaluation import (
     StaticBaseline,
     StaticRegressionEvaluation,
     StaticUnchangedEvaluation,
-    ToolFailure,
+    ExecutionFailureAuthority,
     TyCheck,
     TyDiagnostic,
     VerifierPass,
@@ -313,6 +319,7 @@ class TestPackageReportBuilder:
             "policy_identity": report.policy_identity,
             "search_policy": report.search_policy.model_dump(mode="json"),
             "verifier_outcome_policy": report.verifier_outcome_policy,
+            "failure_policy": "failure-execution-v3",
             "source_plan": SourcePlan.for_package(package, "SEARCH").model_dump(
                 mode="json"
             ),
@@ -471,13 +478,12 @@ class TestPackageReportBuilder:
                 harness_policy_identity="original-harness-v1",
             )
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TIMEOUT",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
             stage="resolve-project",
-            process=None,
-            detail=FailureDetail(code="timeout", message="resolver timed out"),
-        )
+            failure=ExecutionFailure(terminal=TimedOut(), attribution=Unattributed()),
+            project_plan_digest=None, environment_plan_digest=None,
+        ))
         result = BaselineIndeterminate(attempt=attempt, failure=failure)
         report = PackageReportBuilder().build(
             package=package,
@@ -1042,12 +1048,13 @@ class _CompleteReportCase:
             stdout="",
             stderr="resolution failed",
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause="RESOLUTION_CONFLICT",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=rejected_attempt,
             stage="resolve-project",
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
             process=rejection_process,
-        )
+            project_plan_digest=None, environment_plan_digest=None,
+        ))
         rejected_result = CellSuccess(
             cell=cell,
             baseline_attempt=baseline_attempt,
@@ -1271,30 +1278,16 @@ class _CompleteReportCase:
         missing_document = json.loads(missing_path.read_text(encoding="utf-8"))
         missing_loaded = ReportStore().read(missing_path)
 
-        tool_process = ProcessResult(
-            exit_code=2,
-            signal=None,
-            duration_seconds=0.2,
-            stdout="",
-            stderr="pytest usage failure",
-        )
-        tool_failure = ToolFailure(
-            cause="TOOL_FAILURE",
-            stage="test",
-            process=tool_process,
-        )
         indeterminate_evaluation = IndeterminateEvaluation(
             proposal=rejected_proposal,
-            cause=tool_failure.cause,
-            failure=tool_failure,
+            cause="TOOL_FAILURE",
+            verifier=VerifierIndeterminate(terminal=Signaled(signal=9), reason="process-signaled"),
             static=regression,
         )
-        indeterminate_failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause=tool_failure.cause,
-            stage=tool_failure.stage,
-            process=tool_process,
+        indeterminate_failure = FailurePolicy().record_evaluation(
+            AttemptFailureScope(attempt=rejected_attempt), indeterminate_evaluation,
         )
+        assert indeterminate_failure is not None
         coordinate_failure = CoordinateFailure(
             status="INDETERMINATE",
             dependency=dependency,
@@ -1756,8 +1749,9 @@ class TestCompleteReportEvidence(_CompleteReportCase):
         assert context.proposal_id is None
         assert context.boundary_role == "predecessor"
         assert portable is not None
-        assert portable.process is not None
-        assert portable.process.stderr == ""
+        assert isinstance(portable.authority, ExecutionFailureAuthority)
+        assert portable.authority.terminal == NormalExit(exit_code=1)
+        assert portable.process is None
 
     def test_build_round_trips_test_failure_evaluation(
         self,
@@ -2059,9 +2053,10 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_attempt_identity_drift(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("context_digest", ("", "different-opaque-context"))
+    def test_read_rejects_attempt_identity_drift(self, tmp_path: Path, context_digest: str) -> None:
         document = copy.deepcopy(self.case.regional_document)
-        document["evidence"]["attempts"][0]["resolution_context_digest"] = ""
+        document["evidence"]["attempts"][0]["resolution_context_digest"] = context_digest
 
         self._assert_read_rejects(tmp_path, document)
 

@@ -36,8 +36,8 @@ class TestUvWorkspaceSourceQualification:
     ) -> None:
         record = _qualify_unmanaged_workspace_fail_closed(tmp_path / "workspace")
 
-        assert getattr(record, "disposition") == "INDETERMINATE"
-        assert getattr(record, "cause") == "TOOL_FAILURE"
+        assert getattr(record, "disposition") == "REJECTED"
+        assert getattr(record, "cause") == "RESOLUTION_FAILED"
         assert getattr(record, "stage") == "resolve-project"
         assert getattr(record, "compile_suppressions") == ("certifi", "idna")
         assert getattr(record, "install_count") == 0

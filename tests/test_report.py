@@ -194,7 +194,7 @@ class TestReportStore:
             "TOOL_FAILURE",
             snapshot=snapshot,
             policy_identity=policy,
-            stage="test",
+            stage="candidate-discovery",
             process=ProcessResult(
                 exit_code=0,
                 signal=None,

@@ -18,10 +18,12 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     CellFailureScope,
+    ExecutionFailure,
     FailureRecord,
     NormalExit,
     PassEvaluation,
     ProcessResult,
+    PrepareFailure,
     PytestFailureCase,
     PytestFailureDetail,
     RuntimeEvaluationRun,
@@ -29,6 +31,8 @@ from pf.schemas.evaluation import (
     StaticUnchangedEvaluation,
     TyCheck,
     TyDiagnostic,
+    Unattributed,
+    Unavailable,
     VerifierDiagnostics,
     VerifierPass,
     VerifierRejected,
@@ -334,7 +338,7 @@ class TestExplainCellCards:
                 evaluation_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
-            stage="test",
+            stage="candidate-discovery",
             process=_process_result(),
         )
         result = CellIndeterminate(
@@ -365,7 +369,8 @@ class TestExplainCellCards:
         normalized = " ".join(rendered.replace("│", "").split())
         assert "╭" in rendered
         assert rendered.count("[py3.10][x86_64-unknown-linux-gnu][no-extra]") == 1
-        assert "search stopped at [testing]" in normalized
+        assert "search stopped at" in normalized
+        assert "[candidate discovery]" in normalized
         assert "Search stopped before the configured search" in normalized
         assert "space was fully evaluated." in normalized
         assert "PF could not complete a verification tool" in normalized
@@ -669,7 +674,7 @@ class TestExplainCellCards:
                 evaluation_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
-            stage="test",
+            stage="candidate-discovery",
             process=_process_result(),
         )
         result = CellIndeterminate(
@@ -756,12 +761,14 @@ class TestExplainCellCards:
             extra_surface=(),
         )
         rejected_attempt = _attempt(rejected_cell, resolution="highest")
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause="HARNESS_CONFLICT",
-            stage="resolve-environment",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=rejected_attempt,
+            stage="resolve-project",
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
+            project_plan_digest=None,
+            environment_plan_digest=None,
             process=_process_result(),
-        )
+        ))
         rejected = BaselineRejection(
             attempt=rejected_attempt,
             failure=failure,
@@ -881,12 +888,13 @@ class TestExplainCellCards:
             extra_surface=(),
         )
         attempt = _attempt(cell, resolution="highest")
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TOOL_FAILURE",
-            stage="install",
-            process=_process_result(),
-        )
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
+            stage="install-project",
+            failure=ExecutionFailure(terminal=Unavailable(), attribution=Unattributed()),
+            project_plan_digest="a" * 64,
+            environment_plan_digest=None,
+        ))
         result = BaselineIndeterminate(
             attempt=attempt,
             failure=failure,
@@ -950,12 +958,14 @@ class TestExplainCellCards:
             extra_surface=(),
         )
         rejected_attempt = _attempt(rejected_cell, resolution="highest")
-        rejection = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause="HARNESS_CONFLICT",
-            stage="resolve-environment",
+        rejection = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=rejected_attempt,
+            stage="resolve-project",
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
+            project_plan_digest=None,
+            environment_plan_digest=None,
             process=_process_result(),
-        )
+        ))
         rejected = BaselineRejection(
             attempt=rejected_attempt,
             failure=rejection,
@@ -974,7 +984,7 @@ class TestExplainCellCards:
                 evaluation_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
-            stage="test",
+            stage="candidate-discovery",
             process=_process_result(),
         )
         indeterminate = CellIndeterminate(

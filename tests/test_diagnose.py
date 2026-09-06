@@ -25,6 +25,7 @@ from pf.schemas.evaluation import (
     AttemptFailureScope,
     AttemptIdentity,
     CellFailureScope,
+    ExecutionFailure,
     FailureCause,
     FailureDetail,
     FailureRecord,
@@ -32,6 +33,9 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     ProcessSpec,
+    PrepareFailure,
+    Signaled,
+    Unattributed,
     StaticBaseline,
     StaticUnchangedEvaluation,
     TyCheck,
@@ -41,6 +45,7 @@ from pf.schemas.evaluation import (
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
+    execution_terminal,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import (
@@ -522,11 +527,12 @@ class TestDiagnoseWorkflow:
                 terminal=NormalExit(exit_code=1),
             )
             if rejected
-            else FailurePolicy().classify(
+            else FailureRecord.from_verifier(
                 scope=AttemptFailureScope(attempt=attempt),
+                disposition="INDETERMINATE",
                 cause="TOOL_FAILURE",
                 stage="test",
-                process=_process(exit_code=1),
+                terminal=Signaled(signal=9),
             )
         )
 
@@ -547,9 +553,14 @@ class TestDiagnoseWorkflow:
                 "Review the conflicting requirements, adjust project constraints if needed, then rerun PF.",
             ),
             (
-                "BUILD_FAILURE",
-                "This version combination could not be built.",
-                "Inspect the build details and log; check build requirements, Python support, and available artifacts.",
+                "RESOLUTION_FAILED",
+                "This resolution attempt did not pass; a dependency conflict has not been proven.",
+                "Inspect the resolution diagnostics and log before changing dependency constraints.",
+            ),
+            (
+                "INSTALLATION_FAILED",
+                "The selected plan did not pass this installation attempt.",
+                "Inspect the installation diagnostics and log for the selected plan.",
             ),
             (
                 "HARNESS_CONFLICT",
@@ -955,7 +966,7 @@ class TestDiagnoseWorkflow:
             python_minor="3.10",
             extra_surface=(),
         )
-        failure = FailurePolicy().classify(
+        failure = FailureRecord.from_verifier(
             scope=AttemptFailureScope(
                 attempt=_attempt(
                     cell=cell,
@@ -965,8 +976,9 @@ class TestDiagnoseWorkflow:
                 )
             ),
             cause="TIMEOUT" if process.timed_out else "TOOL_FAILURE",
+            disposition="INDETERMINATE",
             stage="test",
-            process=process,
+            terminal=execution_terminal(process),
         )
         stdout = StringIO()
         presenter = TerminalPresenter(
@@ -1115,12 +1127,14 @@ class TestDiagnoseWorkflow:
             policy_identity="policy",
             requested_resolution="highest",
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="BUILD_FAILURE",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
             stage="install-project",
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
             process=_process(exit_code=1),
-        )
+            project_plan_digest="a" * 64,
+            environment_plan_digest=None,
+        ))
         logs = RunLogStore(root=tmp_path, run_id="check-capture")
         logs.write_journal(
             VerificationJournal(
@@ -1166,7 +1180,7 @@ class TestDiagnoseWorkflow:
         ).render_diagnose(diagnosis)
         rendered = stdout.getvalue()
         assert (
-            "Whether a static baseline can be captured is unknown" in rendered
+            "A static baseline could not be captured" in rendered
         )
         assert "declared lower bounds" in rendered
         assert "did not start the floor search" not in rendered

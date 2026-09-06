@@ -1,0 +1,1880 @@
+{
+  "schema": "pf-execution-failure-qualification-v1",
+  "recorded_at": "2026-09-06T09:50:28.016974+00:00",
+  "python": "3.10.16",
+  "uv_version": "0.12.5",
+  "protocol": "uv-pip-compile-pylock-v1",
+  "profile": "uv-diagnostics-0.12.5-v1",
+  "failure_policy": "failure-execution-v3",
+  "cases": [
+    {
+      "operation": "resolve",
+      "failure": {
+        "failure_id": "failure-74aa7a6c4502c22f",
+        "scope": {
+          "kind": "attempt",
+          "attempt": {
+            "attempt_id": "d7efa048745ab219c6426b66eeeb40adf541d0fb869f13efb9d7d9ec9a8d079b",
+            "identity": {
+              "identity_version": "attempt-v1",
+              "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+              "cell": {
+                "package": "qualification-app",
+                "target": "x86_64-unknown-linux-gnu",
+                "python_minor": "3.10",
+                "extra_surface": [],
+                "active_declaration_ids": [
+                  "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                ]
+              },
+              "requested_resolution": "exact-vector",
+              "requested_managed_vector": [
+                {
+                  "name": "pf-execution-resolve",
+                  "version": "1"
+                }
+              ],
+              "active_declaration_ids": [
+                "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+              ],
+              "source_plan_identity": "d0bb0eb384cd1e6a74996cffb80d66470b49cb88603478eb4c340dcbed573831",
+              "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+              "resolution_context_digest": "d52a4f04c36e344636b4ea6655a35364a817dbff5096e5961468d3c64423e339",
+              "harness_policy_identity": "harness-relaxation-v1",
+              "harness_declaration_ids": [],
+              "harness_baseline_digest": "2f267ee6751fd6823b7aedd49a9f50ebcff90b239ff703a1319f237ec6ab6a2c",
+              "selected_candidate_evidence_digest": "9dd6d16077fdf0245d1dbca92b88a8fe4c2e71db86f186ad0a6c0e4e06bafbe8"
+            }
+          }
+        },
+        "disposition": "REJECTED",
+        "cause": "RESOLUTION_FAILED",
+        "stage": "resolve-project",
+        "authority": {
+          "kind": "execution",
+          "terminal": {
+            "kind": "normal-exit",
+            "exit_code": 1
+          },
+          "attribution": {
+            "kind": "unattributed"
+          }
+        }
+      },
+      "final_vector": [
+        {
+          "name": "pf-execution-resolve",
+          "version": "2"
+        }
+      ],
+      "baseline_vector": [
+        {
+          "name": "pf-execution-resolve",
+          "version": "3"
+        }
+      ],
+      "final_evaluation": {
+        "status": "PASS",
+        "proposal": {
+          "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+          "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+          "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+          "cell": {
+            "package": "qualification-app",
+            "target": "x86_64-unknown-linux-gnu",
+            "python_minor": "3.10",
+            "extra_surface": [],
+            "active_declaration_ids": [
+              "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+            ]
+          },
+          "managed_vector": [
+            {
+              "name": "pf-execution-resolve",
+              "version": "2"
+            }
+          ],
+          "fixed_declaration_ids": [],
+          "resolved_graph": [
+            {
+              "name": "pf-execution-resolve",
+              "version": "2",
+              "dependencies": []
+            },
+            {
+              "name": "qualification-app",
+              "version": "1",
+              "dependencies": [
+                "pf-execution-resolve"
+              ]
+            }
+          ],
+          "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+          "project_plan_digest": "6732490b63006ef62e19dfbcd6ca3cdb556d1f67068194be5e30990acffc41a5",
+          "environment_plan_digest": null,
+          "interpreter": {
+            "implementation": "cpython",
+            "version": "3.10.16",
+            "abi": "cpython-310-x86_64-linux-gnu"
+          }
+        },
+        "static": {
+          "status": "STATIC_UNCHANGED",
+          "proposal": {
+            "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+            "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+            "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+            "cell": {
+              "package": "qualification-app",
+              "target": "x86_64-unknown-linux-gnu",
+              "python_minor": "3.10",
+              "extra_surface": [],
+              "active_declaration_ids": [
+                "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+              ]
+            },
+            "managed_vector": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "2"
+              }
+            ],
+            "fixed_declaration_ids": [],
+            "resolved_graph": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "2",
+                "dependencies": []
+              },
+              {
+                "name": "qualification-app",
+                "version": "1",
+                "dependencies": [
+                  "pf-execution-resolve"
+                ]
+              }
+            ],
+            "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+            "project_plan_digest": "6732490b63006ef62e19dfbcd6ca3cdb556d1f67068194be5e30990acffc41a5",
+            "environment_plan_digest": null,
+            "interpreter": {
+              "implementation": "cpython",
+              "version": "3.10.16",
+              "abi": "cpython-310-x86_64-linux-gnu"
+            }
+          },
+          "ty": {
+            "status": "SUCCESS",
+            "process": {
+              "exit_code": 0,
+              "signal": null,
+              "duration_seconds": 0.03212633798830211,
+              "stdout_complete": true,
+              "stderr_complete": true,
+              "timed_out": false,
+              "start_error": null
+            },
+            "diagnostics": []
+          },
+          "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+          "incremental": [],
+          "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+        },
+        "witnesses": [],
+        "verifier": {
+          "status": "PASS",
+          "terminal": {
+            "kind": "normal-exit",
+            "exit_code": 0
+          }
+        }
+      },
+      "search": {
+        "status": "SUCCESS",
+        "vector": [
+          {
+            "name": "pf-execution-resolve",
+            "version": "2"
+          }
+        ],
+        "observations": [
+          {
+            "dependency": null,
+            "candidate_version": null,
+            "vector": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "3"
+              }
+            ],
+            "evidence": {
+              "status": "PASS",
+              "attempt": {
+                "attempt_id": "88995bfbaa79afc6a2b14159dcabdc911ec51cc4f419acc61d48750b46870886",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "requested_resolution": "highest",
+                  "requested_managed_vector": null,
+                  "active_declaration_ids": [
+                    "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                  ],
+                  "source_plan_identity": "d0bb0eb384cd1e6a74996cffb80d66470b49cb88603478eb4c340dcbed573831",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "d52a4f04c36e344636b4ea6655a35364a817dbff5096e5961468d3c64423e339",
+                  "harness_policy_identity": "original-harness-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": null,
+                  "selected_candidate_evidence_digest": null
+                }
+              },
+              "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+              "evaluation": {
+                "status": "PASS",
+                "proposal": {
+                  "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+                  "attempt_id": "88995bfbaa79afc6a2b14159dcabdc911ec51cc4f419acc61d48750b46870886",
+                  "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "3"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "3",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-resolve"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "2fe5ac265af9623b9f6aa257096b60eb149e55421a90b83eacca8dbf507a068e",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "static": {
+                  "status": "STATIC_UNCHANGED",
+                  "proposal": {
+                    "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+                    "attempt_id": "88995bfbaa79afc6a2b14159dcabdc911ec51cc4f419acc61d48750b46870886",
+                    "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                    "cell": {
+                      "package": "qualification-app",
+                      "target": "x86_64-unknown-linux-gnu",
+                      "python_minor": "3.10",
+                      "extra_surface": [],
+                      "active_declaration_ids": [
+                        "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                      ]
+                    },
+                    "managed_vector": [
+                      {
+                        "name": "pf-execution-resolve",
+                        "version": "3"
+                      }
+                    ],
+                    "fixed_declaration_ids": [],
+                    "resolved_graph": [
+                      {
+                        "name": "pf-execution-resolve",
+                        "version": "3",
+                        "dependencies": []
+                      },
+                      {
+                        "name": "qualification-app",
+                        "version": "1",
+                        "dependencies": [
+                          "pf-execution-resolve"
+                        ]
+                      }
+                    ],
+                    "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                    "project_plan_digest": "2fe5ac265af9623b9f6aa257096b60eb149e55421a90b83eacca8dbf507a068e",
+                    "environment_plan_digest": null,
+                    "interpreter": {
+                      "implementation": "cpython",
+                      "version": "3.10.16",
+                      "abi": "cpython-310-x86_64-linux-gnu"
+                    }
+                  },
+                  "ty": {
+                    "status": "SUCCESS",
+                    "process": {
+                      "exit_code": 0,
+                      "signal": null,
+                      "duration_seconds": 0.03187762200832367,
+                      "stdout_complete": true,
+                      "stderr_complete": true,
+                      "timed_out": false,
+                      "start_error": null
+                    },
+                    "diagnostics": []
+                  },
+                  "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                  "incremental": [],
+                  "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+                },
+                "witnesses": [],
+                "verifier": {
+                  "status": "PASS",
+                  "terminal": {
+                    "kind": "normal-exit",
+                    "exit_code": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "dependency": "pf-execution-resolve",
+            "candidate_version": "3",
+            "vector": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "3"
+              }
+            ],
+            "evidence": {
+              "status": "PASS",
+              "attempt": {
+                "attempt_id": "88995bfbaa79afc6a2b14159dcabdc911ec51cc4f419acc61d48750b46870886",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "requested_resolution": "highest",
+                  "requested_managed_vector": null,
+                  "active_declaration_ids": [
+                    "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                  ],
+                  "source_plan_identity": "d0bb0eb384cd1e6a74996cffb80d66470b49cb88603478eb4c340dcbed573831",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "d52a4f04c36e344636b4ea6655a35364a817dbff5096e5961468d3c64423e339",
+                  "harness_policy_identity": "original-harness-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": null,
+                  "selected_candidate_evidence_digest": null
+                }
+              },
+              "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+              "evaluation": {
+                "status": "PASS",
+                "proposal": {
+                  "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+                  "attempt_id": "88995bfbaa79afc6a2b14159dcabdc911ec51cc4f419acc61d48750b46870886",
+                  "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "3"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "3",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-resolve"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "2fe5ac265af9623b9f6aa257096b60eb149e55421a90b83eacca8dbf507a068e",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "static": {
+                  "status": "STATIC_UNCHANGED",
+                  "proposal": {
+                    "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+                    "attempt_id": "88995bfbaa79afc6a2b14159dcabdc911ec51cc4f419acc61d48750b46870886",
+                    "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                    "cell": {
+                      "package": "qualification-app",
+                      "target": "x86_64-unknown-linux-gnu",
+                      "python_minor": "3.10",
+                      "extra_surface": [],
+                      "active_declaration_ids": [
+                        "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                      ]
+                    },
+                    "managed_vector": [
+                      {
+                        "name": "pf-execution-resolve",
+                        "version": "3"
+                      }
+                    ],
+                    "fixed_declaration_ids": [],
+                    "resolved_graph": [
+                      {
+                        "name": "pf-execution-resolve",
+                        "version": "3",
+                        "dependencies": []
+                      },
+                      {
+                        "name": "qualification-app",
+                        "version": "1",
+                        "dependencies": [
+                          "pf-execution-resolve"
+                        ]
+                      }
+                    ],
+                    "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                    "project_plan_digest": "2fe5ac265af9623b9f6aa257096b60eb149e55421a90b83eacca8dbf507a068e",
+                    "environment_plan_digest": null,
+                    "interpreter": {
+                      "implementation": "cpython",
+                      "version": "3.10.16",
+                      "abi": "cpython-310-x86_64-linux-gnu"
+                    }
+                  },
+                  "ty": {
+                    "status": "SUCCESS",
+                    "process": {
+                      "exit_code": 0,
+                      "signal": null,
+                      "duration_seconds": 0.03187762200832367,
+                      "stdout_complete": true,
+                      "stderr_complete": true,
+                      "timed_out": false,
+                      "start_error": null
+                    },
+                    "diagnostics": []
+                  },
+                  "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                  "incremental": [],
+                  "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+                },
+                "witnesses": [],
+                "verifier": {
+                  "status": "PASS",
+                  "terminal": {
+                    "kind": "normal-exit",
+                    "exit_code": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "dependency": "pf-execution-resolve",
+            "candidate_version": "1",
+            "vector": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "1"
+              }
+            ],
+            "evidence": {
+              "status": "REJECTED",
+              "attempt": {
+                "attempt_id": "d7efa048745ab219c6426b66eeeb40adf541d0fb869f13efb9d7d9ec9a8d079b",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "requested_resolution": "exact-vector",
+                  "requested_managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "1"
+                    }
+                  ],
+                  "active_declaration_ids": [
+                    "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                  ],
+                  "source_plan_identity": "d0bb0eb384cd1e6a74996cffb80d66470b49cb88603478eb4c340dcbed573831",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "d52a4f04c36e344636b4ea6655a35364a817dbff5096e5961468d3c64423e339",
+                  "harness_policy_identity": "harness-relaxation-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": "2f267ee6751fd6823b7aedd49a9f50ebcff90b239ff703a1319f237ec6ab6a2c",
+                  "selected_candidate_evidence_digest": "9dd6d16077fdf0245d1dbca92b88a8fe4c2e71db86f186ad0a6c0e4e06bafbe8"
+                }
+              },
+              "proposal_id": null,
+              "failure_id": "failure-74aa7a6c4502c22f",
+              "cause": "RESOLUTION_FAILED",
+              "evaluation": null
+            }
+          },
+          {
+            "dependency": "pf-execution-resolve",
+            "candidate_version": "2",
+            "vector": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "2"
+              }
+            ],
+            "evidence": {
+              "kind": "STATIC_ONLY",
+              "attempt": {
+                "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "requested_resolution": "exact-vector",
+                  "requested_managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "2"
+                    }
+                  ],
+                  "active_declaration_ids": [
+                    "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                  ],
+                  "source_plan_identity": "d0bb0eb384cd1e6a74996cffb80d66470b49cb88603478eb4c340dcbed573831",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "d52a4f04c36e344636b4ea6655a35364a817dbff5096e5961468d3c64423e339",
+                  "harness_policy_identity": "harness-relaxation-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": "2f267ee6751fd6823b7aedd49a9f50ebcff90b239ff703a1319f237ec6ab6a2c",
+                  "selected_candidate_evidence_digest": "1d973ad069684d793dc53da25ae7135e614e2342bebe31c0bc043432bc5fb4c6"
+                }
+              },
+              "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+              "static_evaluation": {
+                "status": "STATIC_UNCHANGED",
+                "proposal": {
+                  "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+                  "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+                  "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "2"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "2",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-resolve"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "6732490b63006ef62e19dfbcd6ca3cdb556d1f67068194be5e30990acffc41a5",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "ty": {
+                  "status": "SUCCESS",
+                  "process": {
+                    "exit_code": 0,
+                    "signal": null,
+                    "duration_seconds": 0.03212633798830211,
+                    "stdout_complete": true,
+                    "stderr_complete": true,
+                    "timed_out": false,
+                    "start_error": null
+                  },
+                  "diagnostics": []
+                },
+                "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                "incremental": [],
+                "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+              },
+              "guidance": "PASS",
+              "region_slice": {
+                "cell": {
+                  "package": "qualification-app",
+                  "target": "x86_64-unknown-linux-gnu",
+                  "python_minor": "3.10",
+                  "extra_surface": [],
+                  "active_declaration_ids": [
+                    "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                  ]
+                },
+                "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                "active_dependency": "pf-execution-resolve",
+                "other_coordinates": [],
+                "candidate_order": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "representative_proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0"
+            }
+          },
+          {
+            "dependency": "pf-execution-resolve",
+            "candidate_version": "2",
+            "vector": [
+              {
+                "name": "pf-execution-resolve",
+                "version": "2"
+              }
+            ],
+            "evidence": {
+              "status": "PASS",
+              "attempt": {
+                "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "requested_resolution": "exact-vector",
+                  "requested_managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "2"
+                    }
+                  ],
+                  "active_declaration_ids": [
+                    "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                  ],
+                  "source_plan_identity": "d0bb0eb384cd1e6a74996cffb80d66470b49cb88603478eb4c340dcbed573831",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "d52a4f04c36e344636b4ea6655a35364a817dbff5096e5961468d3c64423e339",
+                  "harness_policy_identity": "harness-relaxation-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": "2f267ee6751fd6823b7aedd49a9f50ebcff90b239ff703a1319f237ec6ab6a2c",
+                  "selected_candidate_evidence_digest": "1d973ad069684d793dc53da25ae7135e614e2342bebe31c0bc043432bc5fb4c6"
+                }
+              },
+              "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+              "evaluation": {
+                "status": "PASS",
+                "proposal": {
+                  "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+                  "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+                  "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "2"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-resolve",
+                      "version": "2",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-resolve"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "6732490b63006ef62e19dfbcd6ca3cdb556d1f67068194be5e30990acffc41a5",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "static": {
+                  "status": "STATIC_UNCHANGED",
+                  "proposal": {
+                    "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+                    "attempt_id": "cab4cd08c9c8ff4fbc561150e632cc731b2854f9cb9946d3d8f0fddbbe1bee6c",
+                    "snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+                    "cell": {
+                      "package": "qualification-app",
+                      "target": "x86_64-unknown-linux-gnu",
+                      "python_minor": "3.10",
+                      "extra_surface": [],
+                      "active_declaration_ids": [
+                        "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                      ]
+                    },
+                    "managed_vector": [
+                      {
+                        "name": "pf-execution-resolve",
+                        "version": "2"
+                      }
+                    ],
+                    "fixed_declaration_ids": [],
+                    "resolved_graph": [
+                      {
+                        "name": "pf-execution-resolve",
+                        "version": "2",
+                        "dependencies": []
+                      },
+                      {
+                        "name": "qualification-app",
+                        "version": "1",
+                        "dependencies": [
+                          "pf-execution-resolve"
+                        ]
+                      }
+                    ],
+                    "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                    "project_plan_digest": "6732490b63006ef62e19dfbcd6ca3cdb556d1f67068194be5e30990acffc41a5",
+                    "environment_plan_digest": null,
+                    "interpreter": {
+                      "implementation": "cpython",
+                      "version": "3.10.16",
+                      "abi": "cpython-310-x86_64-linux-gnu"
+                    }
+                  },
+                  "ty": {
+                    "status": "SUCCESS",
+                    "process": {
+                      "exit_code": 0,
+                      "signal": null,
+                      "duration_seconds": 0.03212633798830211,
+                      "stdout_complete": true,
+                      "stderr_complete": true,
+                      "timed_out": false,
+                      "start_error": null
+                    },
+                    "diagnostics": []
+                  },
+                  "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                  "incremental": [],
+                  "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+                },
+                "witnesses": [],
+                "verifier": {
+                  "status": "PASS",
+                  "terminal": {
+                    "kind": "normal-exit",
+                    "exit_code": 0
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "boundaries": [
+          {
+            "dependency": "pf-execution-resolve",
+            "floor": "2",
+            "predecessor": "1",
+            "predecessor_failure_id": "failure-74aa7a6c4502c22f"
+          }
+        ],
+        "regions": [
+          {
+            "slice": {
+              "cell": {
+                "package": "qualification-app",
+                "target": "x86_64-unknown-linux-gnu",
+                "python_minor": "3.10",
+                "extra_surface": [],
+                "active_declaration_ids": [
+                  "6b447fd9103bdcd64da17e6c286f56b1784f97ae084a9b42e14f87a1dbbb60b8"
+                ]
+              },
+              "source_snapshot_digest": "67fb33a523fc5f8bfc6d557a3e628f1f19ec8c2948736d48aa19db50046e8559",
+              "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+              "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+              "active_dependency": "pf-execution-resolve",
+              "other_coordinates": [],
+              "candidate_order": [
+                "1",
+                "2",
+                "3"
+              ]
+            },
+            "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783",
+            "observed_versions": [
+              "2",
+              "3"
+            ],
+            "runtime_references": [
+              {
+                "proposal_id": "d685de9592b5961c5e4008964fa97f447b42632435b71e44070be4ca1a1f9543",
+                "status": "PASS"
+              },
+              {
+                "proposal_id": "3eff9cb9e4e32db90a97acb94b3718fbb155308707b46901599677e84b0c8be0",
+                "status": "PASS"
+              }
+            ]
+          }
+        ],
+        "sweeps": 2
+      },
+      "process_count": 18,
+      "full_verifier_count": 2,
+      "new_full_pass_after_rejection": true,
+      "failed_argv": [
+        "/home/llh/pf/.venv/bin/uv",
+        "pip",
+        "compile",
+        "pyproject.toml",
+        "/tmp/pf-proposal-6sld3g1t/project-requirements.in",
+        "--format",
+        "pylock.toml",
+        "--output-file",
+        "/tmp/pf-proposal-6sld3g1t/pylock.pf-project.toml",
+        "--python",
+        "/tmp/pf-proposal-6sld3g1t/environment/bin/python",
+        "--python-version",
+        "3.10.16",
+        "--python-platform",
+        "x86_64-unknown-linux-gnu",
+        "--resolution",
+        "highest",
+        "--exclude-newer",
+        "2026-09-06T09:50:28.246728+00:00",
+        "--no-header",
+        "--no-progress",
+        "--color",
+        "never"
+      ],
+      "diagnostic": "  \u00d7 Failed to build `pf-execution-resolve @\n  \u2502 https://127.0.0.1:43523/files/pf_execution_resolve-1.tar.gz#sha256=2c1b117af5b9eb6cd1f94b0cfcb34bbdb4f8f26a5373d827f3b6e80177966676`\n  \u251c\u2500\u25b6 The build backend returned an error\n  \u2570\u2500\u25b6 Call to `legacy_backend.prepare_metadata_for_build_wheel` failed (exit\n      status: 1)\n\n      [stderr]\n      Traceback (most recent call last):\n        File \"<string>\", line 14, in <module>\n        File\n      \"/tmp/pf-uv-cache/sdists-v9/url/f40505d41938e72b/hny9iZnLBtfCohuC/src/./legacy_backend.py\",\n      line 5, in prepare_metadata_for_build_wheel\n          run_setup()\n        File\n      \"/tmp/pf-uv-cache/sdists-v9/url/f40505d41938e72b/hny9iZnLBtfCohuC/src/./legacy_backend.py\",\n      line 3, in run_setup\n          exec(compile(Path('setup.py').read_text(), 'setup.py', 'exec'), {})\n        File \"setup.py\", line 1\n          print 'controlled legacy Python 2 setup.py'\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n      SyntaxError: Missing parentheses in call to 'print'. Did you mean\n      print(...)?\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\n",
+      "fixture_kind": "legacy Python-2 setup.py via dependency-free in-tree backend",
+      "sdist_static_metadata": false,
+      "report_roundtrip": true,
+      "artifact_sha256": {
+        "pf_execution_resolve-1.tar.gz": "2c1b117af5b9eb6cd1f94b0cfcb34bbdb4f8f26a5373d827f3b6e80177966676",
+        "pf_execution_resolve-2-py3-none-any.whl": "d57a20b75d22c08f343724c85f4841c135f820e84feb3dae474fa23cde43fa52",
+        "pf_execution_resolve-3-py3-none-any.whl": "ec5bd17fead79af1adf166b16a5a45eabf5bc5e62ab5a78ed62f2d3ab26485b9"
+      }
+    },
+    {
+      "operation": "install",
+      "failure": {
+        "failure_id": "failure-3d036f6b95912e11",
+        "scope": {
+          "kind": "attempt",
+          "attempt": {
+            "attempt_id": "ad43dade9394d5f356df323c0b4b673d12df689900fa4a5029346898f71a6531",
+            "identity": {
+              "identity_version": "attempt-v1",
+              "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+              "cell": {
+                "package": "qualification-app",
+                "target": "x86_64-unknown-linux-gnu",
+                "python_minor": "3.10",
+                "extra_surface": [],
+                "active_declaration_ids": [
+                  "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                ]
+              },
+              "requested_resolution": "exact-vector",
+              "requested_managed_vector": [
+                {
+                  "name": "pf-execution-install",
+                  "version": "1"
+                }
+              ],
+              "active_declaration_ids": [
+                "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+              ],
+              "source_plan_identity": "56d8de97c260dc425f1e56b9fc973d7e9a7e7ed90b82da2d867b87df70ec6c20",
+              "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+              "resolution_context_digest": "96fcb4ff2bb4d6929db1ed7b9ad806ea9fe36fc1200417fb93080dc06445ade7",
+              "harness_policy_identity": "harness-relaxation-v1",
+              "harness_declaration_ids": [],
+              "harness_baseline_digest": "ea2aba5ff2eb1fb791c7450d10d3ff901a903d4c49bb5ad60b76c2e88fa0ab21",
+              "selected_candidate_evidence_digest": "ae673667ab8bb84768259c3b8b984d1ac06299ab50b19b4324ff126e621ca207"
+            }
+          }
+        },
+        "disposition": "REJECTED",
+        "cause": "INSTALLATION_FAILED",
+        "stage": "install-project",
+        "authority": {
+          "kind": "execution",
+          "terminal": {
+            "kind": "normal-exit",
+            "exit_code": 1
+          },
+          "attribution": {
+            "kind": "unattributed"
+          }
+        },
+        "project_plan_digest": "47ee2e0c95eb112d81c7bbfd618c99429a2600b14c5ee401e45f8699878696c8"
+      },
+      "final_vector": [
+        {
+          "name": "pf-execution-install",
+          "version": "2"
+        }
+      ],
+      "baseline_vector": [
+        {
+          "name": "pf-execution-install",
+          "version": "3"
+        }
+      ],
+      "final_evaluation": {
+        "status": "PASS",
+        "proposal": {
+          "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+          "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+          "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+          "cell": {
+            "package": "qualification-app",
+            "target": "x86_64-unknown-linux-gnu",
+            "python_minor": "3.10",
+            "extra_surface": [],
+            "active_declaration_ids": [
+              "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+            ]
+          },
+          "managed_vector": [
+            {
+              "name": "pf-execution-install",
+              "version": "2"
+            }
+          ],
+          "fixed_declaration_ids": [],
+          "resolved_graph": [
+            {
+              "name": "pf-execution-install",
+              "version": "2",
+              "dependencies": []
+            },
+            {
+              "name": "qualification-app",
+              "version": "1",
+              "dependencies": [
+                "pf-execution-install"
+              ]
+            }
+          ],
+          "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+          "project_plan_digest": "19a17a7d3a529c3ab3f28b028c3c4f2e5a4cff9fa74e16c1f0c7047dba39970e",
+          "environment_plan_digest": null,
+          "interpreter": {
+            "implementation": "cpython",
+            "version": "3.10.16",
+            "abi": "cpython-310-x86_64-linux-gnu"
+          }
+        },
+        "static": {
+          "status": "STATIC_UNCHANGED",
+          "proposal": {
+            "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+            "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+            "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+            "cell": {
+              "package": "qualification-app",
+              "target": "x86_64-unknown-linux-gnu",
+              "python_minor": "3.10",
+              "extra_surface": [],
+              "active_declaration_ids": [
+                "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+              ]
+            },
+            "managed_vector": [
+              {
+                "name": "pf-execution-install",
+                "version": "2"
+              }
+            ],
+            "fixed_declaration_ids": [],
+            "resolved_graph": [
+              {
+                "name": "pf-execution-install",
+                "version": "2",
+                "dependencies": []
+              },
+              {
+                "name": "qualification-app",
+                "version": "1",
+                "dependencies": [
+                  "pf-execution-install"
+                ]
+              }
+            ],
+            "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+            "project_plan_digest": "19a17a7d3a529c3ab3f28b028c3c4f2e5a4cff9fa74e16c1f0c7047dba39970e",
+            "environment_plan_digest": null,
+            "interpreter": {
+              "implementation": "cpython",
+              "version": "3.10.16",
+              "abi": "cpython-310-x86_64-linux-gnu"
+            }
+          },
+          "ty": {
+            "status": "SUCCESS",
+            "process": {
+              "exit_code": 0,
+              "signal": null,
+              "duration_seconds": 0.03208851799718104,
+              "stdout_complete": true,
+              "stderr_complete": true,
+              "timed_out": false,
+              "start_error": null
+            },
+            "diagnostics": []
+          },
+          "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+          "incremental": [],
+          "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+        },
+        "witnesses": [],
+        "verifier": {
+          "status": "PASS",
+          "terminal": {
+            "kind": "normal-exit",
+            "exit_code": 0
+          }
+        }
+      },
+      "search": {
+        "status": "SUCCESS",
+        "vector": [
+          {
+            "name": "pf-execution-install",
+            "version": "2"
+          }
+        ],
+        "observations": [
+          {
+            "dependency": null,
+            "candidate_version": null,
+            "vector": [
+              {
+                "name": "pf-execution-install",
+                "version": "3"
+              }
+            ],
+            "evidence": {
+              "status": "PASS",
+              "attempt": {
+                "attempt_id": "2d75cd3251b312a7de973e7710be84c98ec38b6c7c98d538e107814b49678b11",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "requested_resolution": "highest",
+                  "requested_managed_vector": null,
+                  "active_declaration_ids": [
+                    "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                  ],
+                  "source_plan_identity": "56d8de97c260dc425f1e56b9fc973d7e9a7e7ed90b82da2d867b87df70ec6c20",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "96fcb4ff2bb4d6929db1ed7b9ad806ea9fe36fc1200417fb93080dc06445ade7",
+                  "harness_policy_identity": "original-harness-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": null,
+                  "selected_candidate_evidence_digest": null
+                }
+              },
+              "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+              "evaluation": {
+                "status": "PASS",
+                "proposal": {
+                  "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+                  "attempt_id": "2d75cd3251b312a7de973e7710be84c98ec38b6c7c98d538e107814b49678b11",
+                  "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "3"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "3",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-install"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "efa20d6fd2ab79ce60a87d450708ce6c3cb21bf91acad298c68aab75902e3ab7",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "static": {
+                  "status": "STATIC_UNCHANGED",
+                  "proposal": {
+                    "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+                    "attempt_id": "2d75cd3251b312a7de973e7710be84c98ec38b6c7c98d538e107814b49678b11",
+                    "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                    "cell": {
+                      "package": "qualification-app",
+                      "target": "x86_64-unknown-linux-gnu",
+                      "python_minor": "3.10",
+                      "extra_surface": [],
+                      "active_declaration_ids": [
+                        "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                      ]
+                    },
+                    "managed_vector": [
+                      {
+                        "name": "pf-execution-install",
+                        "version": "3"
+                      }
+                    ],
+                    "fixed_declaration_ids": [],
+                    "resolved_graph": [
+                      {
+                        "name": "pf-execution-install",
+                        "version": "3",
+                        "dependencies": []
+                      },
+                      {
+                        "name": "qualification-app",
+                        "version": "1",
+                        "dependencies": [
+                          "pf-execution-install"
+                        ]
+                      }
+                    ],
+                    "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                    "project_plan_digest": "efa20d6fd2ab79ce60a87d450708ce6c3cb21bf91acad298c68aab75902e3ab7",
+                    "environment_plan_digest": null,
+                    "interpreter": {
+                      "implementation": "cpython",
+                      "version": "3.10.16",
+                      "abi": "cpython-310-x86_64-linux-gnu"
+                    }
+                  },
+                  "ty": {
+                    "status": "SUCCESS",
+                    "process": {
+                      "exit_code": 0,
+                      "signal": null,
+                      "duration_seconds": 0.03192576800938696,
+                      "stdout_complete": true,
+                      "stderr_complete": true,
+                      "timed_out": false,
+                      "start_error": null
+                    },
+                    "diagnostics": []
+                  },
+                  "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                  "incremental": [],
+                  "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+                },
+                "witnesses": [],
+                "verifier": {
+                  "status": "PASS",
+                  "terminal": {
+                    "kind": "normal-exit",
+                    "exit_code": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "dependency": "pf-execution-install",
+            "candidate_version": "3",
+            "vector": [
+              {
+                "name": "pf-execution-install",
+                "version": "3"
+              }
+            ],
+            "evidence": {
+              "status": "PASS",
+              "attempt": {
+                "attempt_id": "2d75cd3251b312a7de973e7710be84c98ec38b6c7c98d538e107814b49678b11",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "requested_resolution": "highest",
+                  "requested_managed_vector": null,
+                  "active_declaration_ids": [
+                    "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                  ],
+                  "source_plan_identity": "56d8de97c260dc425f1e56b9fc973d7e9a7e7ed90b82da2d867b87df70ec6c20",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "96fcb4ff2bb4d6929db1ed7b9ad806ea9fe36fc1200417fb93080dc06445ade7",
+                  "harness_policy_identity": "original-harness-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": null,
+                  "selected_candidate_evidence_digest": null
+                }
+              },
+              "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+              "evaluation": {
+                "status": "PASS",
+                "proposal": {
+                  "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+                  "attempt_id": "2d75cd3251b312a7de973e7710be84c98ec38b6c7c98d538e107814b49678b11",
+                  "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "3"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "3",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-install"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "efa20d6fd2ab79ce60a87d450708ce6c3cb21bf91acad298c68aab75902e3ab7",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "static": {
+                  "status": "STATIC_UNCHANGED",
+                  "proposal": {
+                    "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+                    "attempt_id": "2d75cd3251b312a7de973e7710be84c98ec38b6c7c98d538e107814b49678b11",
+                    "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                    "cell": {
+                      "package": "qualification-app",
+                      "target": "x86_64-unknown-linux-gnu",
+                      "python_minor": "3.10",
+                      "extra_surface": [],
+                      "active_declaration_ids": [
+                        "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                      ]
+                    },
+                    "managed_vector": [
+                      {
+                        "name": "pf-execution-install",
+                        "version": "3"
+                      }
+                    ],
+                    "fixed_declaration_ids": [],
+                    "resolved_graph": [
+                      {
+                        "name": "pf-execution-install",
+                        "version": "3",
+                        "dependencies": []
+                      },
+                      {
+                        "name": "qualification-app",
+                        "version": "1",
+                        "dependencies": [
+                          "pf-execution-install"
+                        ]
+                      }
+                    ],
+                    "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                    "project_plan_digest": "efa20d6fd2ab79ce60a87d450708ce6c3cb21bf91acad298c68aab75902e3ab7",
+                    "environment_plan_digest": null,
+                    "interpreter": {
+                      "implementation": "cpython",
+                      "version": "3.10.16",
+                      "abi": "cpython-310-x86_64-linux-gnu"
+                    }
+                  },
+                  "ty": {
+                    "status": "SUCCESS",
+                    "process": {
+                      "exit_code": 0,
+                      "signal": null,
+                      "duration_seconds": 0.03192576800938696,
+                      "stdout_complete": true,
+                      "stderr_complete": true,
+                      "timed_out": false,
+                      "start_error": null
+                    },
+                    "diagnostics": []
+                  },
+                  "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                  "incremental": [],
+                  "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+                },
+                "witnesses": [],
+                "verifier": {
+                  "status": "PASS",
+                  "terminal": {
+                    "kind": "normal-exit",
+                    "exit_code": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "dependency": "pf-execution-install",
+            "candidate_version": "1",
+            "vector": [
+              {
+                "name": "pf-execution-install",
+                "version": "1"
+              }
+            ],
+            "evidence": {
+              "status": "REJECTED",
+              "attempt": {
+                "attempt_id": "ad43dade9394d5f356df323c0b4b673d12df689900fa4a5029346898f71a6531",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "requested_resolution": "exact-vector",
+                  "requested_managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "1"
+                    }
+                  ],
+                  "active_declaration_ids": [
+                    "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                  ],
+                  "source_plan_identity": "56d8de97c260dc425f1e56b9fc973d7e9a7e7ed90b82da2d867b87df70ec6c20",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "96fcb4ff2bb4d6929db1ed7b9ad806ea9fe36fc1200417fb93080dc06445ade7",
+                  "harness_policy_identity": "harness-relaxation-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": "ea2aba5ff2eb1fb791c7450d10d3ff901a903d4c49bb5ad60b76c2e88fa0ab21",
+                  "selected_candidate_evidence_digest": "ae673667ab8bb84768259c3b8b984d1ac06299ab50b19b4324ff126e621ca207"
+                }
+              },
+              "proposal_id": null,
+              "failure_id": "failure-3d036f6b95912e11",
+              "cause": "INSTALLATION_FAILED",
+              "evaluation": null
+            }
+          },
+          {
+            "dependency": "pf-execution-install",
+            "candidate_version": "2",
+            "vector": [
+              {
+                "name": "pf-execution-install",
+                "version": "2"
+              }
+            ],
+            "evidence": {
+              "kind": "STATIC_ONLY",
+              "attempt": {
+                "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "requested_resolution": "exact-vector",
+                  "requested_managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "2"
+                    }
+                  ],
+                  "active_declaration_ids": [
+                    "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                  ],
+                  "source_plan_identity": "56d8de97c260dc425f1e56b9fc973d7e9a7e7ed90b82da2d867b87df70ec6c20",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "96fcb4ff2bb4d6929db1ed7b9ad806ea9fe36fc1200417fb93080dc06445ade7",
+                  "harness_policy_identity": "harness-relaxation-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": "ea2aba5ff2eb1fb791c7450d10d3ff901a903d4c49bb5ad60b76c2e88fa0ab21",
+                  "selected_candidate_evidence_digest": "57d89344c9feedbf13b8290d4a50853a356d05aea7bc17cd8f23afba0da71ae7"
+                }
+              },
+              "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+              "static_evaluation": {
+                "status": "STATIC_UNCHANGED",
+                "proposal": {
+                  "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+                  "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+                  "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "2"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "2",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-install"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "19a17a7d3a529c3ab3f28b028c3c4f2e5a4cff9fa74e16c1f0c7047dba39970e",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "ty": {
+                  "status": "SUCCESS",
+                  "process": {
+                    "exit_code": 0,
+                    "signal": null,
+                    "duration_seconds": 0.03208851799718104,
+                    "stdout_complete": true,
+                    "stderr_complete": true,
+                    "timed_out": false,
+                    "start_error": null
+                  },
+                  "diagnostics": []
+                },
+                "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                "incremental": [],
+                "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+              },
+              "guidance": "PASS",
+              "region_slice": {
+                "cell": {
+                  "package": "qualification-app",
+                  "target": "x86_64-unknown-linux-gnu",
+                  "python_minor": "3.10",
+                  "extra_surface": [],
+                  "active_declaration_ids": [
+                    "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                  ]
+                },
+                "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                "active_dependency": "pf-execution-install",
+                "other_coordinates": [],
+                "candidate_order": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "representative_proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a"
+            }
+          },
+          {
+            "dependency": "pf-execution-install",
+            "candidate_version": "2",
+            "vector": [
+              {
+                "name": "pf-execution-install",
+                "version": "2"
+              }
+            ],
+            "evidence": {
+              "status": "PASS",
+              "attempt": {
+                "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+                "identity": {
+                  "identity_version": "attempt-v1",
+                  "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "requested_resolution": "exact-vector",
+                  "requested_managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "2"
+                    }
+                  ],
+                  "active_declaration_ids": [
+                    "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                  ],
+                  "source_plan_identity": "56d8de97c260dc425f1e56b9fc973d7e9a7e7ed90b82da2d867b87df70ec6c20",
+                  "evaluation_policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "resolution_context_digest": "96fcb4ff2bb4d6929db1ed7b9ad806ea9fe36fc1200417fb93080dc06445ade7",
+                  "harness_policy_identity": "harness-relaxation-v1",
+                  "harness_declaration_ids": [],
+                  "harness_baseline_digest": "ea2aba5ff2eb1fb791c7450d10d3ff901a903d4c49bb5ad60b76c2e88fa0ab21",
+                  "selected_candidate_evidence_digest": "57d89344c9feedbf13b8290d4a50853a356d05aea7bc17cd8f23afba0da71ae7"
+                }
+              },
+              "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+              "evaluation": {
+                "status": "PASS",
+                "proposal": {
+                  "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+                  "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+                  "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                  "cell": {
+                    "package": "qualification-app",
+                    "target": "x86_64-unknown-linux-gnu",
+                    "python_minor": "3.10",
+                    "extra_surface": [],
+                    "active_declaration_ids": [
+                      "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                    ]
+                  },
+                  "managed_vector": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "2"
+                    }
+                  ],
+                  "fixed_declaration_ids": [],
+                  "resolved_graph": [
+                    {
+                      "name": "pf-execution-install",
+                      "version": "2",
+                      "dependencies": []
+                    },
+                    {
+                      "name": "qualification-app",
+                      "version": "1",
+                      "dependencies": [
+                        "pf-execution-install"
+                      ]
+                    }
+                  ],
+                  "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                  "project_plan_digest": "19a17a7d3a529c3ab3f28b028c3c4f2e5a4cff9fa74e16c1f0c7047dba39970e",
+                  "environment_plan_digest": null,
+                  "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.16",
+                    "abi": "cpython-310-x86_64-linux-gnu"
+                  }
+                },
+                "static": {
+                  "status": "STATIC_UNCHANGED",
+                  "proposal": {
+                    "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+                    "attempt_id": "090d6f83c221f5a68c16fc73d3f3b28ab23e4dac77f837d300bfaea80b8051a8",
+                    "snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+                    "cell": {
+                      "package": "qualification-app",
+                      "target": "x86_64-unknown-linux-gnu",
+                      "python_minor": "3.10",
+                      "extra_surface": [],
+                      "active_declaration_ids": [
+                        "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                      ]
+                    },
+                    "managed_vector": [
+                      {
+                        "name": "pf-execution-install",
+                        "version": "2"
+                      }
+                    ],
+                    "fixed_declaration_ids": [],
+                    "resolved_graph": [
+                      {
+                        "name": "pf-execution-install",
+                        "version": "2",
+                        "dependencies": []
+                      },
+                      {
+                        "name": "qualification-app",
+                        "version": "1",
+                        "dependencies": [
+                          "pf-execution-install"
+                        ]
+                      }
+                    ],
+                    "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+                    "project_plan_digest": "19a17a7d3a529c3ab3f28b028c3c4f2e5a4cff9fa74e16c1f0c7047dba39970e",
+                    "environment_plan_digest": null,
+                    "interpreter": {
+                      "implementation": "cpython",
+                      "version": "3.10.16",
+                      "abi": "cpython-310-x86_64-linux-gnu"
+                    }
+                  },
+                  "ty": {
+                    "status": "SUCCESS",
+                    "process": {
+                      "exit_code": 0,
+                      "signal": null,
+                      "duration_seconds": 0.03208851799718104,
+                      "stdout_complete": true,
+                      "stderr_complete": true,
+                      "timed_out": false,
+                      "start_error": null
+                    },
+                    "diagnostics": []
+                  },
+                  "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+                  "incremental": [],
+                  "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783"
+                },
+                "witnesses": [],
+                "verifier": {
+                  "status": "PASS",
+                  "terminal": {
+                    "kind": "normal-exit",
+                    "exit_code": 0
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "boundaries": [
+          {
+            "dependency": "pf-execution-install",
+            "floor": "2",
+            "predecessor": "1",
+            "predecessor_failure_id": "failure-3d036f6b95912e11"
+          }
+        ],
+        "regions": [
+          {
+            "slice": {
+              "cell": {
+                "package": "qualification-app",
+                "target": "x86_64-unknown-linux-gnu",
+                "python_minor": "3.10",
+                "extra_surface": [],
+                "active_declaration_ids": [
+                  "ee9d61c6a0458bd3a1611159e3692809ab81691ee81beb7f2f1d666ef1769ef1"
+                ]
+              },
+              "source_snapshot_digest": "cd922fb2b7af1f4d0b56de5ac66f1fa716e4295ef77ae075595dc623edb4eb00",
+              "policy_identity": "ce2910ad9d94b3c613cd02339ee70bed1a2c477969eb0c31023edc8c567048f7",
+              "baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f",
+              "active_dependency": "pf-execution-install",
+              "other_coordinates": [],
+              "candidate_order": [
+                "1",
+                "2",
+                "3"
+              ]
+            },
+            "static_fingerprint": "3df732993fa4ae030d4732ae5d4f6cb12d61a713b65c1fd0243f3eb46990f783",
+            "observed_versions": [
+              "2",
+              "3"
+            ],
+            "runtime_references": [
+              {
+                "proposal_id": "9952d6c8b37edd9c1fe6997969eaac1bf791cce19e017bf4409831b48de5a622",
+                "status": "PASS"
+              },
+              {
+                "proposal_id": "a41e94df3d56c441826dc5f665ef3e6a47240722268a2824e2d7105b4ce8d85a",
+                "status": "PASS"
+              }
+            ]
+          }
+        ],
+        "sweeps": 2
+      },
+      "process_count": 19,
+      "full_verifier_count": 2,
+      "new_full_pass_after_rejection": true,
+      "failed_argv": [
+        "/home/llh/pf/.venv/bin/uv",
+        "pip",
+        "sync",
+        "--python",
+        "/tmp/pf-proposal-_un2dngt/environment/bin/python",
+        "--no-progress",
+        "--color",
+        "never",
+        "/tmp/pf-proposal-_un2dngt/pylock.pf-install.toml"
+      ],
+      "diagnostic": "warning: The `--pylock` option is experimental and may change without warning. Pass `--preview-features pylock` to disable this warning.\nUsing Python 3.10.16 environment at: /tmp/pf-proposal-_un2dngt/environment\n   Building qualification-app @ file:///tmp/pf-proposal-_un2dngt/source\n   Building pf-execution-install @ https://127.0.0.1:41983/files/pf_execution_install-1.tar.gz\n      Built qualification-app @ file:///tmp/pf-proposal-_un2dngt/source\n  \u00d7 Failed to build `pf-execution-install @\n  \u2502 https://127.0.0.1:41983/files/pf_execution_install-1.tar.gz`\n  \u251c\u2500\u25b6 The build backend returned an error\n  \u2570\u2500\u25b6 Call to `legacy_backend.build_wheel` failed (exit status: 1)\n\n      [stderr]\n      Traceback (most recent call last):\n        File \"<string>\", line 11, in <module>\n        File\n      \"/tmp/pf-uv-cache/sdists-v9/url/611c2d5b8751ec13/SJ0ykxPIf0tFd36r/src/./legacy_backend.py\",\n      line 7, in build_wheel\n          run_setup()\n        File\n      \"/tmp/pf-uv-cache/sdists-v9/url/611c2d5b8751ec13/SJ0ykxPIf0tFd36r/src/./legacy_backend.py\",\n      line 3, in run_setup\n          exec(compile(Path('setup.py').read_text(), 'setup.py', 'exec'), {})\n        File \"setup.py\", line 1\n          print 'controlled legacy Python 2 setup.py'\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n      SyntaxError: Missing parentheses in call to 'print'. Did you mean\n      print(...)?\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\n",
+      "fixture_kind": "legacy Python-2 setup.py via dependency-free in-tree backend",
+      "sdist_static_metadata": true,
+      "report_roundtrip": true,
+      "artifact_sha256": {
+        "pf_execution_install-1.tar.gz": "22c125e0c75e514ac429609854ae9e2af7fcee366b57cc77a1b9c93d63e5cd6e",
+        "pf_execution_install-2-py3-none-any.whl": "7550baf2d01341c413f2ad6a90ca3b8bb96624fd0867fc3196aba6697ae4d8fe",
+        "pf_execution_install-3-py3-none-any.whl": "b6542315b0282381caa812e67219b587af9f3b8d6007fb9439c2f435b1dbee18"
+      }
+    }
+  ]
+}

@@ -30,7 +30,6 @@ from uv import find_uv_bin
 from pf.adapters.process import ProcessRunner, SecretRedactor, read_process_output
 from pf.adapters.uv_diagnostics import (
     classify_resolution_diagnostic,
-    diagnostic_digest,
 )
 from pf.adapters.uv_lock import (
     UvLockError,
@@ -55,6 +54,22 @@ from pf.schemas.evaluation import (
     ToolFailure,
     ToolOutcome,
     ToolSuccess,
+    OperationRequestBinding,
+    OperationFailureResult,
+    AuxiliaryOutcome,
+    ExecutionFailure,
+    ExecutionAttribution,
+    Unattributed,
+    UvUnsatAttribution,
+    NormalExit,
+    StructuredOperationFailure,
+    ResolutionOutputIncompleteFact,
+    ResolutionPlanInvalidFact,
+    InterpreterObservationInvalidFact,
+    GraphObservationInvalidFact,
+    RequestInvariantFact,
+    EnvironmentAccessFailedFact,
+    execution_terminal,
 )
 from pf.harness import harness_requirement_policy, render_harness_requirement
 from pf.resolution import (
@@ -63,12 +78,11 @@ from pf.resolution import (
     InstallOutcome,
     NativeResolutionPlan,
     ResolutionContext,
-    ResolutionIndeterminate,
+    ResolutionFailure,
     ResolutionOutcome,
     ResolutionPackage,
     ResolutionPlan,
     ResolutionRunContext,
-    ResolutionUnsat,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -245,13 +259,19 @@ class UvAdapter:
                     summary_code="terminal-unavailable",
                 )
                 return self._resolution_run
-            output = read_process_output(self._runner, process)
+            try:
+                output = read_process_output(self._runner, process)
+            except OSError:
+                self._resolution_run = ToolFailure(
+                    cause="TOOL_FAILURE", stage="resolver-context", process=process,
+                )
+                return self._resolution_run
             match = re.fullmatch(
                 r"uv (?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?: \([^\n]+\))?\s*",
                 output.stdout,
             )
             if (
-                process.exit_code != 0
+                execution_terminal(process) != NormalExit(exit_code=0)
                 or not process.stdout_complete
                 or not process.stderr_complete
                 or match is None
@@ -285,6 +305,7 @@ class UvAdapter:
         resolution: ResolutionRequest,
         context: ResolutionContext,
         request_digest: str,
+        request_binding: OperationRequestBinding,
         work_directory: Path,
         artifact_policy: Literal["wheel", "sdist", "any"],
         timeout_seconds: int | None,
@@ -299,6 +320,7 @@ class UvAdapter:
             resolution=resolution,
             context=context,
             request_digest=request_digest,
+            request_binding=request_binding,
             project_plan=None,
             harness=(),
             work_directory=work_directory,
@@ -317,6 +339,7 @@ class UvAdapter:
         resolution: ResolutionRequest,
         context: ResolutionContext,
         request_digest: str,
+        request_binding: OperationRequestBinding,
         project_plan: ResolutionPlan,
         harness: tuple[HarnessResolutionRequirement, ...],
         work_directory: Path,
@@ -333,6 +356,7 @@ class UvAdapter:
             resolution=resolution,
             context=context,
             request_digest=request_digest,
+            request_binding=request_binding,
             project_plan=project_plan,
             harness=harness,
             work_directory=work_directory,
@@ -352,6 +376,7 @@ class UvAdapter:
         resolution: ResolutionRequest,
         context: ResolutionContext,
         request_digest: str,
+        request_binding: OperationRequestBinding,
         project_plan: ResolutionPlan | None,
         harness: tuple[HarnessResolutionRequirement, ...],
         work_directory: Path,
@@ -364,23 +389,35 @@ class UvAdapter:
         )
         if context.interpreter is None:
             raise ValueError("resolution requires an observed interpreter")
+        if (
+            request_binding.stage != stage
+            or request_binding.project_plan_digest != (project_plan.semantic_digest if project_plan else None)
+            or request_binding.environment_plan_digest is not None
+            or context.cell != cell
+            or context.source_plan_identity != source_plan.identity
+        ):
+            return ResolutionFailure(
+                stage=stage, request_digest=request_digest, context=context,
+                failure=StructuredOperationFailure(fact=RequestInvariantFact(), terminal=None),
+            )
         request_file = work_directory / f"{kind}-requirements.in"
         output_file = work_directory / f"pylock.pf-{kind}.toml"
         source_root = work_directory / "source"
         if not source_root.is_dir():
             source_root = package
-        output_file.unlink(missing_ok=True)
-        request_file.write_text(
-            self._resolution_requirements(
-                package=package,
-                cell=cell,
-                resolution=resolution,
-                harness=harness,
-                source_root=source_root,
-                source_plan=source_plan,
-            ),
-            encoding="utf-8",
-        )
+        try:
+            output_file.unlink(missing_ok=True)
+            request_file.write_text(
+                self._resolution_requirements(
+                    package=package, cell=cell, resolution=resolution, harness=harness,
+                    source_root=source_root, source_plan=source_plan,
+                ), encoding="utf-8",
+            )
+        except OSError:
+            return ResolutionFailure(
+                stage=stage, request_digest=request_digest, context=context,
+                failure=StructuredOperationFailure(fact=EnvironmentAccessFailedFact(), terminal=None),
+            )
         argv: list[str] = [
             self._uv_executable,
             "pip",
@@ -421,10 +458,15 @@ class UvAdapter:
             argv.extend(("--no-sources-package", dependency))
         if project_plan is not None:
             constraints = work_directory / "project-constraints.in"
-            constraints.write_text(
-                self._project_constraints(project_plan.packages),
-                encoding="utf-8",
-            )
+            try:
+                constraints.write_text(
+                    self._project_constraints(project_plan.packages), encoding="utf-8",
+                )
+            except OSError:
+                return ResolutionFailure(
+                    stage=stage, request_digest=request_digest, context=context,
+                    failure=StructuredOperationFailure(fact=EnvironmentAccessFailedFact(), terminal=None),
+                )
             argv.extend(("--constraints", constraints.as_posix()))
         process = self._runner.run(
             ProcessSpec(
@@ -435,52 +477,39 @@ class UvAdapter:
                 environment_removals=_UV_SOURCE_ENVIRONMENT_REMOVALS,
             )
         )
-        if isinstance(process, ProcessTerminalUnavailable):
-            return ResolutionIndeterminate(
-                stage=stage,
-                request_digest=request_digest,
-                context=context,
-                cause="TOOL_FAILURE",
-                summary_code="terminal-unavailable",
-                process=process,
+        terminal = execution_terminal(process)
+        if terminal != NormalExit(exit_code=0):
+            attribution: ExecutionAttribution = Unattributed()
+            if isinstance(terminal, NormalExit) and terminal.exit_code == 1:
+                assert not isinstance(process, ProcessTerminalUnavailable)
+                try:
+                    output = read_process_output(self._runner, process)
+                except (OSError, UnicodeError):
+                    classification = None
+                else:
+                    classification = classify_resolution_diagnostic(
+                        uv_version=context.run.uv_version, process=process,
+                        stdout=output.stdout, stderr=output.stderr,
+                    )
+                if classification is not None and classification.kind == "unsat":
+                    attribution = UvUnsatAttribution.model_validate({
+                        "tool": "uv", "tool_version": context.run.uv_version,
+                        "protocol": context.run.protocol_identity,
+                        "profile": context.run.qualification_profile,
+                        "request_binding": request_binding,
+                        "facts": {"code": classification.proof_code, "stdout_complete": True, "stderr_complete": True},
+                    })
+            return ResolutionFailure(
+                stage=stage, request_digest=request_digest, context=context,
+                failure=ExecutionFailure(terminal=terminal, attribution=attribution), process=process,
             )
-        output = read_process_output(self._runner, process)
-        if process.exit_code != 0:
-            classification = classify_resolution_diagnostic(
-                uv_version=context.run.uv_version,
-                process=process,
-                stdout=output.stdout,
-                stderr=output.stderr,
-            )
-            if classification.kind == "unsat":
-                assert classification.proof_code is not None
-                return ResolutionUnsat(
-                    stage=stage,
-                    request_digest=request_digest,
-                    context=context,
-                    proof_code=classification.proof_code,
-                    diagnostic_digest=diagnostic_digest(
-                        output.stdout, output.stderr
-                    ),
-                    process=process,
-                )
-            assert classification.cause is not None
-            assert classification.summary_code is not None
-            return ResolutionIndeterminate(
-                stage=stage,
-                request_digest=request_digest,
-                context=context,
-                cause=classification.cause,
-                summary_code=classification.summary_code,
-                process=process,
-            )
+        assert not isinstance(process, ProcessTerminalUnavailable)
         if not process.stdout_complete or not process.stderr_complete:
-            return ResolutionIndeterminate(
+            return ResolutionFailure(
                 stage=stage,
                 request_digest=request_digest,
                 context=context,
-                cause="TOOL_FAILURE",
-                summary_code="resolution-output-incomplete",
+                failure=StructuredOperationFailure(fact=ResolutionOutputIncompleteFact(), terminal=terminal),
                 process=process,
             )
         try:
@@ -523,12 +552,11 @@ class UvAdapter:
                 lock_root=output_file.parent,
             )
         except (OSError, UnicodeError, UvLockError, ValueError):
-            return ResolutionIndeterminate(
+            return ResolutionFailure(
                 stage=stage,
                 request_digest=request_digest,
                 context=context,
-                cause="TOOL_FAILURE",
-                summary_code="resolution-plan-invalid",
+                failure=StructuredOperationFailure(fact=ResolutionPlanInvalidFact(), terminal=terminal),
                 process=process,
             )
         native = NativeResolutionPlan.from_content(native_content)
@@ -546,13 +574,29 @@ class UvAdapter:
         self,
         *,
         plan: ResolutionPlan,
+        request_binding: OperationRequestBinding,
         interpreter: Path,
         cwd: Path,
         work_directory: Path,
         timeout_seconds: int | None,
     ) -> InstallOutcome:
+        stage: Literal["install-project", "install-environment"] = (
+            "install-project" if plan.kind == "project" else "install-environment"
+        )
+        selected_digest = request_binding.project_plan_digest if plan.kind == "project" else request_binding.environment_plan_digest
+        if request_binding.stage != stage or selected_digest != plan.semantic_digest:
+            return InstallFailure(
+                stage=stage, plan_digest=plan.digest,
+                failure=StructuredOperationFailure(fact=RequestInvariantFact(), terminal=None),
+            )
         lock_file = work_directory / "pylock.pf-install.toml"
-        lock_file.write_text(plan.native.content, encoding="utf-8")
+        try:
+            lock_file.write_text(plan.native.content, encoding="utf-8")
+        except OSError:
+            return InstallFailure(
+                stage=stage, plan_digest=plan.digest,
+                failure=StructuredOperationFailure(fact=EnvironmentAccessFailedFact(), terminal=None),
+            )
         process = self._runner.run(
             ProcessSpec(
                 argv=(
@@ -572,20 +616,16 @@ class UvAdapter:
                 environment_removals=_UV_SOURCE_ENVIRONMENT_REMOVALS,
             )
         )
-        stage: Literal["install-project", "install-environment"] = (
-            "install-project" if plan.kind == "project" else "install-environment"
-        )
-        outcome = self._classify(process, stage=stage)
-        if isinstance(outcome, ToolFailure):
-            assert outcome.process is not None
+        terminal = execution_terminal(process)
+        if terminal != NormalExit(exit_code=0):
             return InstallFailure(
                 plan_digest=plan.digest,
                 stage=stage,
-                cause=outcome.cause,
-                process=outcome.process,
-                summary_code=outcome.summary_code,
+                failure=ExecutionFailure(terminal=terminal, attribution=Unattributed()),
+                process=process,
             )
-        return InstalledResolution(plan_digest=plan.digest, process=outcome.process)
+        assert not isinstance(process, ProcessTerminalUnavailable)
+        return InstalledResolution(plan_digest=plan.digest, process=process)
 
     @staticmethod
     def _resolution_requirements(
@@ -801,34 +841,22 @@ class UvAdapter:
                 timeout_seconds=timeout_seconds,
             )
         )
-        if isinstance(process, ProcessTerminalUnavailable):
-            return ToolFailure(
-                cause="TOOL_FAILURE",
-                stage="inspect-interpreter",
-                process=process,
-                summary_code="terminal-unavailable",
-            )
-        outcome = self._classify(process, stage="inspect-interpreter")
-        if isinstance(outcome, ToolFailure) or not process.stdout_complete:
-            return ToolFailure(
-                cause=(
-                    outcome.cause
-                    if isinstance(outcome, ToolFailure)
-                    else "TOOL_FAILURE"
-                ),
-                stage="inspect-interpreter",
-                process=process,
-            )
+        outcome = self._classify_auxiliary(process, stage="inspect-interpreter")
+        if isinstance(outcome, OperationFailureResult):
+            return outcome
+        assert not isinstance(process, ProcessTerminalUnavailable)
+        invalid = OperationFailureResult(
+            stage="inspect-interpreter", process=process,
+            failure=StructuredOperationFailure(fact=InterpreterObservationInvalidFact(), terminal=execution_terminal(process)),
+        )
+        if not process.stdout_complete:
+            return invalid
         try:
             document = json.loads(read_process_output(self._runner, process).stdout)
             identity = InterpreterIdentity.model_validate(document)
             Version(identity.version)
         except (ValidationError, InvalidVersion, json.JSONDecodeError):
-            return ToolFailure(
-                cause="TOOL_FAILURE",
-                stage="inspect-interpreter",
-                process=process,
-            )
+            return invalid
         return InterpreterSuccess(process=process, interpreter=identity)
 
     @staticmethod
@@ -854,7 +882,7 @@ class UvAdapter:
         python_minor: str,
         cwd: Path,
         timeout_seconds: int | None,
-    ) -> ToolOutcome:
+    ) -> AuxiliaryOutcome:
         result = self._runner.run(
             ProcessSpec(
                 argv=(
@@ -872,7 +900,7 @@ class UvAdapter:
                 timeout_seconds=timeout_seconds,
             )
         )
-        return self._classify(result, stage="create-environment")
+        return self._classify_auxiliary(result, stage="create-environment")
 
     def inspect_environment(
         self,
@@ -893,18 +921,16 @@ class UvAdapter:
                 timeout_seconds=timeout_seconds,
             )
         )
-        if isinstance(process, ProcessTerminalUnavailable):
-            return ToolFailure(
-                cause="TOOL_FAILURE",
-                stage="inspect",
-                process=process,
-                summary_code="terminal-unavailable",
-            )
-        outcome = self._classify(process, stage="inspect")
-        if isinstance(outcome, ToolFailure):
+        outcome = self._classify_auxiliary(process, stage="inspect")
+        if isinstance(outcome, OperationFailureResult):
             return outcome
+        assert not isinstance(process, ProcessTerminalUnavailable)
+        invalid = OperationFailureResult(
+            stage="inspect", process=process,
+            failure=StructuredOperationFailure(fact=GraphObservationInvalidFact(), terminal=execution_terminal(process)),
+        )
         if not process.stdout_complete:
-            return ToolFailure(cause="TOOL_FAILURE", stage="inspect", process=process)
+            return invalid
         try:
             raw_nodes = json.loads(read_process_output(self._runner, process).stdout)
             nodes: list[ResolvedNode] = []
@@ -931,7 +957,7 @@ class UvAdapter:
                     raise ValueError("conflicting installed distribution observations")
                 by_name[node.name] = node
         except (KeyError, TypeError, ValueError, InvalidVersion, json.JSONDecodeError):
-            return ToolFailure(cause="TOOL_FAILURE", stage="inspect", process=process)
+            return invalid
         sorted_nodes: tuple[ResolvedNode, ...] = tuple(
             by_name[name] for name in sorted(by_name)
         )
@@ -1177,6 +1203,19 @@ class UvAdapter:
             return platform_tag == f"win_{windows_arch}"
         return False
 
+    @staticmethod
+    def _classify_auxiliary(
+        result: ProcessObservation,
+        *, stage: Literal["create-environment", "inspect-interpreter", "inspect"],
+    ) -> AuxiliaryOutcome:
+        terminal = execution_terminal(result)
+        if terminal == NormalExit(exit_code=0):
+            assert not isinstance(result, ProcessTerminalUnavailable)
+            return ToolSuccess(stage=stage, process=result)
+        return OperationFailureResult(
+            stage=stage, failure=ExecutionFailure(terminal=terminal, attribution=Unattributed()), process=result,
+        )
+
     def _classify(self, result: ProcessObservation, *, stage: str) -> ToolOutcome:
         if isinstance(result, ProcessTerminalUnavailable):
             return ToolFailure(cause="TOOL_FAILURE", stage=stage, process=result)
@@ -1211,8 +1250,6 @@ class UvAdapter:
         )
         if any(phrase in text for phrase in source_phrases):
             cause = "SOURCE_FAILURE"
-        elif "failed to build" in text or "build backend" in text:
-            cause = "BUILD_FAILURE"
         else:
             cause = "TOOL_FAILURE"
         return ToolFailure(cause=cause, stage=stage, process=result)

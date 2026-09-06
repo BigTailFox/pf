@@ -218,7 +218,8 @@ _FAILED_AT = {
 }
 _FAILURE_TITLES: dict[FailureCause, str] = {
     "RESOLUTION_CONFLICT": "This version combination has conflicting dependency requirements and cannot be installed.",
-    "BUILD_FAILURE": "This version combination could not be built.",
+    "RESOLUTION_FAILED": "This resolution attempt did not pass; a dependency conflict has not been proven.",
+    "INSTALLATION_FAILED": "The selected plan did not pass this installation attempt.",
     "HARNESS_CONFLICT": "The test dependencies cannot be installed without changing the versions being checked.",
     "RUNTIME_INTERFACE_MISSING": "A required runtime interface is missing from this version combination.",
     "VERIFIER_EXITED_NONZERO": "The configured verifier rejected this version combination.",
@@ -232,7 +233,8 @@ _FAILURE_TITLES: dict[FailureCause, str] = {
 
 _FAILURE_NEXT_STEPS: dict[FailureCause, str] = {
     "RESOLUTION_CONFLICT": "Review the conflicting requirements, adjust project constraints if needed, then rerun PF.",
-    "BUILD_FAILURE": "Inspect the build details and log; check build requirements, Python support, and available artifacts.",
+    "RESOLUTION_FAILED": "Inspect the resolution diagnostics and log before changing dependency constraints.",
+    "INSTALLATION_FAILED": "Inspect the installation diagnostics and log for the selected plan.",
     "HARNESS_CONFLICT": "Adjust the configured test dependencies so they preserve the dependency graph under test.",
     "RUNTIME_INTERFACE_MISSING": "Review the confirmed missing module or member before changing dependency constraints.",
     "VERIFIER_EXITED_NONZERO": "Review the verifier diagnostics and log before changing code or dependency constraints.",
@@ -919,10 +921,18 @@ class TerminalPresenter:
             )
             return 0
         if result.status == "COMPATIBILITY_FAILED":
+            conclusion = (
+                "baseline capture did not pass"
+                if any(
+                    outcome.role == "declaration-capture" and outcome.status != "PASS"
+                    for outcome in result.outcomes
+                )
+                else "declared lower bounds are incompatible"
+            )
             self._print_outcome(
                 "failure",
                 (
-                    "Check failed · declared lower bounds are incompatible · "
+                    f"Check failed · {conclusion} · "
                     f"{_counted(cell_count, 'cell')}"
                 ),
             )
@@ -1166,9 +1176,12 @@ class TerminalPresenter:
                     )
                 )
             elif not explain:
+                process = record.process or (
+                    presentation.process if record.failure_id == presentation.primary_failure_id else None
+                )
                 see = (
-                    self._see_details_quote(record.process)
-                    if record.process is not None
+                    self._see_details_quote(process)
+                    if process is not None
                     else None
                 )
                 body.append(

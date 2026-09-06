@@ -9,6 +9,7 @@
     "static_evaluations": []
   },
   "identity": {
+    "failure_policy": "failure-execution-v3",
     "generator": {
       "algorithm": "v1",
       "name": "pf",
@@ -18,8 +19,8 @@
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "fe62e7c4a146ae650810ff05781f8509243f717780ccd9fd1f5038d701506dbd",
-    "report_generation_id": "a176a248ad7777ca2d7df9892d0fdbc7ae002c1bcfcf0f33fb82e36a83a4df48",
+    "policy_identity": "8f59827d0b1ea10b0690ba93d74be96960f4322a54b3ddcfba631c5c4b57b4f2",
+    "report_generation_id": "c2a4ac149790ee2632c83930a33d74596b2227d4e3c57cdfadf2395bd05d5af3",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],

@@ -15,13 +15,32 @@ from pf.schemas.evaluation import (
     RuntimeWitnessResult,
     VerifierRejectedEvaluation,
     rejection_is_supported,
+    PrepareFailure,
+    ExecutionFailure,
+    ExecutionFailureAuthority,
+    StructuredOperationFailureAuthority,
+    classify_operation_failure,
 )
 
 
 class FailurePolicy:
     """Turn scoped operation facts into one conservative search disposition."""
 
-    identity = "failure-runtime-v2"
+    identity = "failure-execution-v3"
+
+    def record_prepare(self, prepared: PrepareFailure) -> FailureRecord:
+        disposition, cause = classify_operation_failure(prepared.stage, prepared.failure)
+        authority = (
+            ExecutionFailureAuthority.model_validate(prepared.failure.model_dump(mode="python"))
+            if isinstance(prepared.failure, ExecutionFailure)
+            else StructuredOperationFailureAuthority.model_validate(prepared.failure.model_dump(mode="python"))
+        )
+        return FailureRecord.from_authority(
+            scope=AttemptFailureScope(attempt=prepared.attempt),
+            stage=prepared.stage, disposition=disposition, cause=cause,
+            authority=authority, project_plan_digest=prepared.project_plan_digest,
+            environment_plan_digest=prepared.environment_plan_digest,
+        )
 
     def classify(
         self,

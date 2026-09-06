@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Literal, Union
 
 from packaging.version import Version
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, model_serializer
 
 from pf.schemas.base import FrozenSchema
 from pf.schemas.project import (
@@ -105,7 +105,7 @@ ProcessObservation = ProcessResult | ProcessTerminalUnavailable
 
 class NormalExit(FrozenSchema):
     kind: Literal["normal-exit"] = "normal-exit"
-    exit_code: int
+    exit_code: int = Field(ge=0, strict=True)
 
 
 class StartFailed(FrozenSchema):
@@ -125,9 +125,211 @@ class Unavailable(FrozenSchema):
     kind: Literal["unavailable"] = "unavailable"
 
 
-VerifierTerminal = Annotated[
+ExecutionTerminal = Annotated[
     Union[NormalExit, StartFailed, TimedOut, Signaled, Unavailable],
     Field(discriminator="kind"),
+]
+
+
+def execution_terminal(process: ProcessObservation) -> ExecutionTerminal:
+    """Extract only process facts; timeout precedes its cleanup terminal."""
+    if isinstance(process, ProcessTerminalUnavailable):
+        return Unavailable()
+    if process.timed_out:
+        return TimedOut()
+    if process.start_error is not None:
+        return StartFailed()
+    if process.signal is not None:
+        return Signaled(signal=process.signal)
+    if process.exit_code is not None:
+        return NormalExit(exit_code=process.exit_code)
+    raise ValueError("process observation has no terminal")
+
+
+ResolutionStage = Literal["resolve-project", "resolve-environment"]
+InstallationStage = Literal["install-project", "install-environment"]
+OperationStage = Literal[
+    "resolve-project", "resolve-environment", "install-project", "install-environment",
+    "create-environment", "inspect-interpreter", "inspect",
+    "inspect-project-plan", "inspect-environment-plan", "proposal-vector",
+]
+RESOLUTION_STAGES = frozenset({"resolve-project", "resolve-environment"})
+INSTALLATION_STAGES = frozenset({"install-project", "install-environment"})
+AUXILIARY_STAGES = frozenset({"create-environment", "inspect-interpreter", "inspect"})
+CHECK_STAGES = frozenset({"inspect-project-plan", "inspect-environment-plan", "proposal-vector"})
+OPERATION_STAGES = RESOLUTION_STAGES | INSTALLATION_STAGES | AUXILIARY_STAGES | CHECK_STAGES
+PlanDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class OperationRequestBinding(FrozenSchema):
+    attempt_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    stage: ResolutionStage | InstallationStage
+    project_plan_digest: PlanDigest | None = Field(json_schema_extra={"x-pf-preserve-null": True})
+    environment_plan_digest: PlanDigest | None = Field(json_schema_extra={"x-pf-preserve-null": True})
+
+    @model_serializer(mode="wrap")
+    def serialize_required_nulls(self, handler):
+        result = handler(self)
+        result["project_plan_digest"] = self.project_plan_digest
+        result["environment_plan_digest"] = self.environment_plan_digest
+        return result
+
+    @model_validator(mode="after")
+    def validate_plan_timing(self) -> "OperationRequestBinding":
+        if (self.project_plan_digest is not None) != (self.stage != "resolve-project"):
+            raise ValueError("operation binding project plan does not match stage")
+        if (self.environment_plan_digest is not None) != (self.stage == "install-environment"):
+            raise ValueError("operation binding environment plan does not match stage")
+        return self
+
+
+class Unattributed(FrozenSchema):
+    kind: Literal["unattributed"] = "unattributed"
+
+
+class _CompleteContradictionFacts(FrozenSchema):
+    stdout_complete: Literal[True]
+    stderr_complete: Literal[True]
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_strict_completeness(cls, value: object) -> object:
+        if isinstance(value, dict) and any(
+            value.get(key) is not True for key in ("stdout_complete", "stderr_complete")
+        ):
+            raise ValueError("UNSAT completeness must be JSON boolean true")
+        return value
+
+
+class DirectContradictionFacts(_CompleteContradictionFacts):
+    code: Literal["direct-version-contradiction"] = "direct-version-contradiction"
+
+
+class TransitiveContradictionFacts(_CompleteContradictionFacts):
+    code: Literal["transitive-version-contradiction"] = "transitive-version-contradiction"
+
+
+class UvUnsatAttribution(FrozenSchema):
+    kind: Literal["uv-unsat"] = "uv-unsat"
+    tool: Literal["uv"]
+    tool_version: Literal["0.12.5"]
+    protocol: Literal["uv-pip-compile-pylock-v1"]
+    profile: Literal["uv-diagnostics-0.12.5-v1"]
+    request_binding: OperationRequestBinding
+    facts: Annotated[
+        Union[DirectContradictionFacts, TransitiveContradictionFacts],
+        Field(discriminator="code"),
+    ]
+
+
+ExecutionAttribution = Annotated[Union[Unattributed, UvUnsatAttribution], Field(discriminator="kind")]
+
+
+class RequestInvariantFact(FrozenSchema):
+    code: Literal["request-invariant"] = "request-invariant"
+
+
+class EvidenceConflictFact(FrozenSchema):
+    code: Literal["evidence-conflict"] = "evidence-conflict"
+
+
+class SourceAccessFailedFact(FrozenSchema):
+    code: Literal["source-access-failed"] = "source-access-failed"
+
+
+class EnvironmentAccessFailedFact(FrozenSchema):
+    code: Literal["environment-access-failed"] = "environment-access-failed"
+
+
+class ArtifactInvalidFact(FrozenSchema):
+    code: Literal["artifact-invalid"] = "artifact-invalid"
+
+
+class ResolutionOutputIncompleteFact(FrozenSchema):
+    code: Literal["resolution-output-incomplete"] = "resolution-output-incomplete"
+
+
+class ResolutionPlanInvalidFact(FrozenSchema):
+    code: Literal["resolution-plan-invalid"] = "resolution-plan-invalid"
+
+
+class ArtifactPolicyMismatchFact(FrozenSchema):
+    code: Literal["artifact-policy-mismatch"] = "artifact-policy-mismatch"
+
+
+class ManagedSourceLeakageFact(FrozenSchema):
+    code: Literal["managed-source-leakage"] = "managed-source-leakage"
+
+
+class ManagedSourceMismatchFact(FrozenSchema):
+    code: Literal["managed-source-mismatch"] = "managed-source-mismatch"
+
+
+class InterpreterObservationInvalidFact(FrozenSchema):
+    code: Literal["interpreter-observation-invalid"] = "interpreter-observation-invalid"
+
+
+class InterpreterMismatchFact(FrozenSchema):
+    code: Literal["interpreter-mismatch"] = "interpreter-mismatch"
+
+
+class GraphObservationInvalidFact(FrozenSchema):
+    code: Literal["graph-observation-invalid"] = "graph-observation-invalid"
+
+
+class InstalledGraphMismatchFact(FrozenSchema):
+    code: Literal["installed-graph-mismatch"] = "installed-graph-mismatch"
+
+
+class ProposalVectorMismatchFact(FrozenSchema):
+    code: Literal["proposal-vector-mismatch"] = "proposal-vector-mismatch"
+
+
+StructuredOperationFact = Annotated[
+    Union[
+        RequestInvariantFact, EvidenceConflictFact, SourceAccessFailedFact,
+        EnvironmentAccessFailedFact, ArtifactInvalidFact, ResolutionOutputIncompleteFact,
+        ResolutionPlanInvalidFact, ArtifactPolicyMismatchFact, ManagedSourceLeakageFact,
+        ManagedSourceMismatchFact, InterpreterObservationInvalidFact, InterpreterMismatchFact,
+        GraphObservationInvalidFact, InstalledGraphMismatchFact, ProposalVectorMismatchFact,
+    ],
+    Field(discriminator="code"),
+]
+
+
+class ExecutionFailure(FrozenSchema):
+    kind: Literal["execution"] = "execution"
+    terminal: ExecutionTerminal
+    attribution: ExecutionAttribution
+
+    @model_validator(mode="after")
+    def validate_terminal_attribution(self) -> "ExecutionFailure":
+        if isinstance(self.terminal, NormalExit) and self.terminal.exit_code == 0:
+            raise ValueError("normal exit zero cannot form an execution failure")
+        if isinstance(self.attribution, UvUnsatAttribution) and (
+            not isinstance(self.terminal, NormalExit)
+            or self.terminal.exit_code != 1
+            or self.attribution.request_binding.stage not in RESOLUTION_STAGES
+        ):
+            raise ValueError("UNSAT requires a resolution normal exit one")
+        return self
+
+
+class StructuredOperationFailure(FrozenSchema):
+    kind: Literal["operation-structured"] = "operation-structured"
+    fact: StructuredOperationFact
+    terminal: ExecutionTerminal | None = Field(json_schema_extra={"x-pf-preserve-null": True})
+
+    @model_serializer(mode="wrap")
+    def serialize_required_null(self, handler):
+        result = handler(self)
+        if self.terminal is None:
+            result["terminal"] = None
+        return result
+
+
+OperationFailure = Annotated[
+    Union[ExecutionFailure, StructuredOperationFailure], Field(discriminator="kind")
 ]
 
 
@@ -226,8 +428,9 @@ def process_facts_match(
 
 
 FailureCause = Literal[
+    "RESOLUTION_FAILED",
+    "INSTALLATION_FAILED",
     "RESOLUTION_CONFLICT",
-    "BUILD_FAILURE",
     "HARNESS_CONFLICT",
     "RUNTIME_INTERFACE_MISSING",
     "VERIFIER_EXITED_NONZERO",
@@ -240,9 +443,109 @@ FailureCause = Literal[
 ]
 
 
+def classify_execution_terminal(
+    stage: str, terminal: ExecutionTerminal, attribution: ExecutionAttribution,
+) -> tuple[Literal["PASS", "REJECTED", "INDETERMINATE"], FailureCause | None]:
+    """Classify an admitted operation terminal, never a diagnostic message.
+
+    PASS means only terminal success. The caller still owes every required
+    success artifact, inspection and complete-verifier check.
+    """
+    if stage not in RESOLUTION_STAGES | INSTALLATION_STAGES | AUXILIARY_STAGES | {"test"}:
+        raise ValueError("stage does not admit execution terminals")
+    if isinstance(attribution, UvUnsatAttribution):
+        if (
+            stage not in RESOLUTION_STAGES
+            or attribution.request_binding.stage != stage
+            or not isinstance(terminal, NormalExit)
+            or terminal.exit_code != 1
+        ):
+            raise ValueError("UNSAT attribution requires its bound resolution exit one")
+        return "REJECTED", (
+            "RESOLUTION_CONFLICT" if stage == "resolve-project" else "HARNESS_CONFLICT"
+        )
+    if isinstance(terminal, TimedOut):
+        return "INDETERMINATE", "TIMEOUT"
+    if not isinstance(terminal, NormalExit):
+        return "INDETERMINATE", "TOOL_FAILURE"
+    if terminal.exit_code == 0:
+        return "PASS", None
+    if stage in RESOLUTION_STAGES:
+        return "REJECTED", "RESOLUTION_FAILED"
+    if stage in INSTALLATION_STAGES:
+        return "REJECTED", "INSTALLATION_FAILED"
+    if stage == "test":
+        return "REJECTED", "VERIFIER_EXITED_NONZERO"
+    return "INDETERMINATE", "TOOL_FAILURE"
+
+
+# The order is the priority for independently observed structured facts.
+# Terminal modes: any = this operation's observation or null, zero = normal 0,
+# absent = no process belonging to this operation.
+STRUCTURED_OPERATION_RULES: dict[
+    str, tuple[frozenset[str], Literal["any", "zero", "absent"], FailureCause]
+] = {
+    "request-invariant": (OPERATION_STAGES, "any", "INTERNAL_INVARIANT"),
+    "evidence-conflict": (OPERATION_STAGES, "any", "INTERNAL_INVARIANT"),
+    "source-access-failed": (RESOLUTION_STAGES | INSTALLATION_STAGES, "any", "SOURCE_FAILURE"),
+    "environment-access-failed": (RESOLUTION_STAGES | INSTALLATION_STAGES | AUXILIARY_STAGES, "any", "ENVIRONMENT_FAILURE"),
+    "artifact-invalid": (RESOLUTION_STAGES | INSTALLATION_STAGES, "any", "SOURCE_FAILURE"),
+    "resolution-output-incomplete": (RESOLUTION_STAGES, "zero", "TOOL_FAILURE"),
+    "resolution-plan-invalid": (RESOLUTION_STAGES, "zero", "TOOL_FAILURE"),
+    "artifact-policy-mismatch": (RESOLUTION_STAGES, "zero", "INTERNAL_INVARIANT"),
+    "managed-source-leakage": (frozenset({"resolve-project"}), "zero", "INTERNAL_INVARIANT"),
+    "managed-source-mismatch": (RESOLUTION_STAGES, "zero", "INTERNAL_INVARIANT"),
+    "interpreter-observation-invalid": (frozenset({"inspect-interpreter"}), "zero", "TOOL_FAILURE"),
+    "interpreter-mismatch": (frozenset({"inspect-interpreter"}), "zero", "ENVIRONMENT_FAILURE"),
+    "graph-observation-invalid": (frozenset({"inspect"}), "zero", "TOOL_FAILURE"),
+    "installed-graph-mismatch": (frozenset({"inspect-project-plan", "inspect-environment-plan"}), "absent", "INTERNAL_INVARIANT"),
+    "proposal-vector-mismatch": (frozenset({"proposal-vector"}), "absent", "INTERNAL_INVARIANT"),
+}
+
+
+def classify_operation_failure(
+    stage: str, failure: OperationFailure,
+) -> tuple[Literal["REJECTED", "INDETERMINATE"], FailureCause]:
+    """The same closed rules serve production projection and offline reading."""
+    if isinstance(failure, ExecutionFailure):
+        disposition, cause = classify_execution_terminal(stage, failure.terminal, failure.attribution)
+        if disposition == "PASS" or cause is None or stage == "test":
+            raise ValueError("operation execution failure requires a failed prepare terminal")
+        return disposition, cause
+    stages, mode, cause = STRUCTURED_OPERATION_RULES[failure.fact.code]
+    if stage not in stages:
+        raise ValueError("structured operation fact is not admitted at this stage")
+    if mode == "absent" and failure.terminal is not None:
+        raise ValueError("structured check cannot borrow another operation's terminal")
+    if mode == "zero" and not (
+        isinstance(failure.terminal, NormalExit) and failure.terminal.exit_code == 0
+    ):
+        raise ValueError("success inspection fact requires normal exit zero")
+    return "INDETERMINATE", cause
+
+
+def configured_verifier_outcome(terminal: ExecutionTerminal) -> VerifierOutcome:
+    disposition, _ = classify_execution_terminal("test", terminal, Unattributed())
+    if isinstance(terminal, NormalExit):
+        return (
+            VerifierPass(terminal=terminal)
+            if disposition == "PASS" else VerifierRejected(terminal=terminal)
+        )
+    reason: Literal[
+        "process-start-failed", "process-timed-out", "process-signaled", "terminal-unavailable"
+    ]
+    if isinstance(terminal, TimedOut):
+        reason = "process-timed-out"
+    elif isinstance(terminal, Signaled):
+        reason = "process-signaled"
+    elif isinstance(terminal, StartFailed):
+        reason = "process-start-failed"
+    else:
+        reason = "terminal-unavailable"
+    return VerifierIndeterminate(terminal=terminal, reason=reason)
+
+
 _REJECTION_STAGES: dict[str, frozenset[str]] = {
-    "RESOLUTION_CONFLICT": frozenset({"resolve-project"}),
-    "HARNESS_CONFLICT": frozenset({"resolve-environment"}),
     "RUNTIME_INTERFACE_MISSING": frozenset({"witness"}),
 }
 
@@ -273,10 +576,7 @@ def rejection_is_supported(
         or not stderr_complete
     ):
         return False
-    return exit_code != 0 or cause in {
-        "HARNESS_CONFLICT",
-        "RUNTIME_INTERFACE_MISSING",
-    }
+    return cause == "RUNTIME_INTERFACE_MISSING"
 
 
 class AttemptIdentity(FrozenSchema):
@@ -368,6 +668,51 @@ class Attempt(FrozenSchema):
         return self
 
 
+def validate_operation_binding(
+    *,
+    attempt: Attempt,
+    stage: str,
+    project_plan_digest: str | None,
+    environment_plan_digest: str | None,
+    attribution: ExecutionAttribution,
+) -> None:
+    """Validate portable operation scope and only fully admitted plan digests.
+
+    ResolutionContext remains opaque offline. Its nonempty digest and the
+    Attempt identity are validated by Attempt; runtime context equality belongs
+    to the adapter/factory, which actually holds the context preimage.
+    """
+    if stage not in OPERATION_STAGES:
+        raise ValueError("unknown prepare operation stage")
+    for digest in (project_plan_digest, environment_plan_digest):
+        if digest is not None and (
+            len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise ValueError("operation plan digest must be canonical SHA-256")
+    harness = bool(attempt.identity.harness_declaration_ids)
+    if stage in {"resolve-environment", "install-environment", "inspect-environment-plan"} and not harness:
+        raise ValueError("environment operation requires active external harness")
+    if stage in {"install-project", "inspect-project-plan"} and harness:
+        raise ValueError("project-only operation requires empty external harness")
+    needs_project = stage not in {"create-environment", "inspect-interpreter", "resolve-project"}
+    needs_environment = stage == "install-environment" or (
+        harness and stage in CHECK_STAGES | {"inspect"}
+    )
+    if (project_plan_digest is not None) != needs_project:
+        raise ValueError("operation project plan timing does not match its stage")
+    if (environment_plan_digest is not None) != needs_environment:
+        raise ValueError("operation environment plan timing does not match its stage")
+    if isinstance(attribution, UvUnsatAttribution):
+        binding = attribution.request_binding
+        if (
+            binding.attempt_id != attempt.attempt_id
+            or binding.stage != stage
+            or binding.project_plan_digest != project_plan_digest
+            or binding.environment_plan_digest != environment_plan_digest
+        ):
+            raise ValueError("operation attribution does not match its Attempt binding")
+
+
 class AttemptFailureScope(FrozenSchema):
     kind: Literal["attempt"] = "attempt"
     attempt: Attempt
@@ -417,7 +762,7 @@ class ProcessFailureAuthority(FrozenSchema):
 
 class ConfiguredVerifierFailureAuthority(FrozenSchema):
     kind: Literal["configured-verifier"] = "configured-verifier"
-    terminal: VerifierTerminal
+    terminal: ExecutionTerminal
 
 
 class StructuredFailureAuthority(FrozenSchema):
@@ -426,11 +771,21 @@ class StructuredFailureAuthority(FrozenSchema):
     summary_code: str | None = None
 
 
+class ExecutionFailureAuthority(ExecutionFailure):
+    """Portable execution facts adopted by FailurePolicy."""
+
+
+class StructuredOperationFailureAuthority(StructuredOperationFailure):
+    """Portable PF-observed operation facts adopted by FailurePolicy."""
+
+
 FailureAuthority = Annotated[
     Union[
         ProcessFailureAuthority,
         ConfiguredVerifierFailureAuthority,
         StructuredFailureAuthority,
+        ExecutionFailureAuthority,
+        StructuredOperationFailureAuthority,
     ],
     Field(discriminator="kind"),
 ]
@@ -530,7 +885,7 @@ class FailureRecord(FrozenSchema):
         disposition: Literal["REJECTED", "INDETERMINATE"],
         cause: FailureCause,
         stage: str,
-        terminal: VerifierTerminal,
+        terminal: ExecutionTerminal,
         project_plan_digest: str | None = None,
         environment_plan_digest: str | None = None,
     ) -> "FailureRecord":
@@ -600,7 +955,7 @@ class FailureRecord(FrozenSchema):
             payload["environment_plan_digest"] = environment_plan_digest
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return (
-            "failure-" + hashlib.sha256(b"pf:failure:v2\0" + canonical).hexdigest()[:16]
+            "failure-" + hashlib.sha256(b"pf:failure:v3\0" + canonical).hexdigest()[:16]
         )
 
     @model_validator(mode="after")
@@ -628,6 +983,22 @@ class FailureRecord(FrozenSchema):
             and self.disposition != "INDETERMINATE"
         ):
             raise ValueError("cell-scoped failure must be indeterminate")
+        if isinstance(self.authority, (ExecutionFailureAuthority, StructuredOperationFailureAuthority)):
+            if not isinstance(self.scope, AttemptFailureScope):
+                raise ValueError("operation authority requires an Attempt")
+            validate_operation_binding(
+                attempt=self.scope.attempt, stage=self.stage,
+                project_plan_digest=self.project_plan_digest,
+                environment_plan_digest=self.environment_plan_digest,
+                attribution=(self.authority.attribution if isinstance(self.authority, ExecutionFailureAuthority) else Unattributed()),
+            )
+            if (self.disposition, self.cause) != classify_operation_failure(self.stage, self.authority):
+                raise ValueError("operation disposition and cause do not match its facts")
+            return self
+        if self.stage in OPERATION_STAGES:
+            raise ValueError("prepare operation requires operation authority")
+        if self.stage == "test" and not isinstance(self.authority, ConfiguredVerifierFailureAuthority):
+            raise ValueError("test failure requires configured-verifier authority")
         if self.disposition == "REJECTED":
             process = self.process
             requested_resolution = (
@@ -659,14 +1030,9 @@ class FailureRecord(FrozenSchema):
                 raise ValueError("REJECTED disposition is not supported by its facts")
         if isinstance(self.authority, ConfiguredVerifierFailureAuthority):
             terminal = self.authority.terminal
-            if isinstance(terminal, NormalExit):
-                if terminal.exit_code == 0:
-                    raise ValueError("passing verifier terminal cannot form a failure")
-                expected = ("REJECTED", "VERIFIER_EXITED_NONZERO")
-            elif isinstance(terminal, TimedOut):
-                expected = ("INDETERMINATE", "TIMEOUT")
-            else:
-                expected = ("INDETERMINATE", "TOOL_FAILURE")
+            if not isinstance(self.scope, AttemptFailureScope):
+                raise ValueError("configured verifier failure requires an Attempt")
+            expected = classify_execution_terminal("test", terminal, Unattributed())
             if self.stage != "test" or (self.disposition, self.cause) != expected:
                 raise ValueError(
                     "configured verifier failure does not match its terminal"
@@ -682,6 +1048,12 @@ class ToolSuccess(FrozenSchema):
     status: Literal["SUCCESS"] = "SUCCESS"
     stage: str
     process: ProcessResult
+
+    @model_validator(mode="after")
+    def validate_success_terminal(self) -> "ToolSuccess":
+        if execution_terminal(self.process) != NormalExit(exit_code=0):
+            raise ValueError("tool success requires a successful process")
+        return self
 
 
 class ToolFailure(FrozenSchema):
@@ -701,18 +1073,39 @@ class ToolFailure(FrozenSchema):
 
 class PrepareFailure(FrozenSchema):
     attempt: Attempt
-    failure: ToolFailure
-    project_plan_digest: str | None = None
-    environment_plan_digest: str | None = None
+    stage: OperationStage
+    failure: OperationFailure
+    project_plan_digest: PlanDigest | None
+    environment_plan_digest: PlanDigest | None
+    process: ProcessObservation | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def validate_plan_evidence(self) -> "PrepareFailure":
-        if (
-            self.environment_plan_digest is not None
-            and self.project_plan_digest is None
-        ):
-            raise ValueError("environment plan evidence requires a project plan")
+        classify_operation_failure(self.stage, self.failure)
+        validate_operation_binding(
+            attempt=self.attempt, stage=self.stage,
+            project_plan_digest=self.project_plan_digest,
+            environment_plan_digest=self.environment_plan_digest,
+            attribution=self.failure.attribution if isinstance(self.failure, ExecutionFailure) else Unattributed(),
+        )
         return self
+
+
+class OperationFailureResult(FrozenSchema):
+    status: Literal["OPERATION_FAILURE"] = "OPERATION_FAILURE"
+    stage: OperationStage
+    failure: OperationFailure
+    process: ProcessObservation | None = Field(default=None, exclude=True, repr=False)
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> "OperationFailureResult":
+        classify_operation_failure(self.stage, self.failure)
+        return self
+
+
+AuxiliaryOutcome = Annotated[
+    Union[ToolSuccess, OperationFailureResult], Field(discriminator="status")
+]
 
 
 ToolOutcome = Annotated[
@@ -805,9 +1198,15 @@ class InterpreterSuccess(FrozenSchema):
     process: ProcessResult
     interpreter: InterpreterIdentity
 
+    @model_validator(mode="after")
+    def validate_success_terminal(self) -> "InterpreterSuccess":
+        if execution_terminal(self.process) != NormalExit(exit_code=0):
+            raise ValueError("interpreter success requires a successful process")
+        return self
+
 
 InterpreterOutcome = Annotated[
-    Union[InterpreterSuccess, ToolFailure],
+    Union[InterpreterSuccess, OperationFailureResult],
     Field(discriminator="status"),
 ]
 
@@ -843,9 +1242,15 @@ class GraphSuccess(FrozenSchema):
     process: ProcessResult
     nodes: tuple[ResolvedNode, ...]
 
+    @model_validator(mode="after")
+    def validate_success_terminal(self) -> "GraphSuccess":
+        if execution_terminal(self.process) != NormalExit(exit_code=0):
+            raise ValueError("graph success requires a successful process")
+        return self
+
 
 GraphOutcome = Annotated[
-    Union[GraphSuccess, ToolFailure],
+    Union[GraphSuccess, OperationFailureResult],
     Field(discriminator="status"),
 ]
 
@@ -1250,10 +1655,10 @@ class FailureEvaluationRuntimeRun(FrozenSchema):
 class FailureProcessRuntimeRun(FrozenSchema):
     kind: Literal["process"] = "process"
     failure_id: str
-    process: ProcessTerminalUnavailable = Field(exclude=True)
+    process: ProcessObservation = Field(exclude=True)
 
     @property
-    def process_observation(self) -> ProcessTerminalUnavailable:
+    def process_observation(self) -> ProcessObservation:
         return self.process
 
 
@@ -1296,6 +1701,17 @@ VerificationRole = Literal[
 ]
 
 
+def failure_process_matches(record: FailureRecord, process: ProcessObservation) -> bool:
+    authority = record.authority
+    if isinstance(authority, (ExecutionFailureAuthority, StructuredOperationFailureAuthority)):
+        return authority.terminal == execution_terminal(process)
+    return (
+        isinstance(process, ProcessTerminalUnavailable)
+        and isinstance(authority, StructuredFailureAuthority)
+        and authority.detail.code == "terminal-unavailable"
+    )
+
+
 class CheckCellOutcome(FrozenSchema):
     status: Literal["PASS", "REJECTED", "INDETERMINATE"]
     role: Literal["declaration-capture", "declaration"]
@@ -1304,7 +1720,7 @@ class CheckCellOutcome(FrozenSchema):
     evaluation: Evaluation | None = None
     static_baseline: StaticBaseline | None = None
     runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
-    failure_process: ProcessTerminalUnavailable | None = Field(
+    failure_process: ProcessObservation | None = Field(
         default=None,
         exclude=True,
     )
@@ -1318,14 +1734,9 @@ class CheckCellOutcome(FrozenSchema):
                 raise ValueError(
                     "check process sidecar requires one non-runtime FailureRecord"
                 )
-            authority = self.failure.authority
-            if not (
-                isinstance(self.failure_process, ProcessTerminalUnavailable)
-                and isinstance(authority, StructuredFailureAuthority)
-                and authority.detail.code == "terminal-unavailable"
-            ):
+            if not failure_process_matches(self.failure, self.failure_process):
                 raise ValueError(
-                    "check process sidecar must match terminal-unavailable authority"
+                    "check process sidecar must match failure authority"
                 )
         if self.status == "PASS":
             if self.failure is not None:
@@ -1458,6 +1869,7 @@ class BaselineRejection(FrozenSchema):
     static_baseline: StaticBaseline | None = None
     evaluation: VerifierRejectedEvaluation | None = None
     runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
+    failure_process: ProcessObservation | None = Field(default=None, exclude=True)
 
     @property
     def cell(self) -> Cell:
@@ -1465,6 +1877,10 @@ class BaselineRejection(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_rejection(self) -> "BaselineRejection":
+        if self.failure_process is not None and (
+            self.runtime is not None or not failure_process_matches(self.failure, self.failure_process)
+        ):
+            raise ValueError("baseline process sidecar must match failure authority")
         if self.attempt.identity.requested_resolution != "highest":
             raise ValueError("baseline rejection requires a highest Attempt")
         if self.failure.disposition != "REJECTED":
@@ -1511,7 +1927,7 @@ class BaselineIndeterminate(FrozenSchema):
     static_baseline: StaticBaseline | None = None
     evaluation: IndeterminateEvaluation | None = None
     runtime: RuntimeEvaluationRun | None = Field(default=None, exclude=True)
-    failure_process: ProcessTerminalUnavailable | None = Field(
+    failure_process: ProcessObservation | None = Field(
         default=None,
         exclude=True,
     )
@@ -1533,15 +1949,12 @@ class BaselineIndeterminate(FrozenSchema):
         if self.failure.scope.attempt != self.attempt:
             raise ValueError("baseline indeterminate failure must match its attempt")
         if self.failure_process is not None:
-            authority = self.failure.authority
             if not (
                 self.runtime is None
-                and isinstance(self.failure_process, ProcessTerminalUnavailable)
-                and isinstance(authority, StructuredFailureAuthority)
-                and authority.detail.code == "terminal-unavailable"
+                and failure_process_matches(self.failure, self.failure_process)
             ):
                 raise ValueError(
-                    "baseline process sidecar must match terminal-unavailable authority"
+                    "baseline process sidecar must match failure authority"
                 )
         if self.evaluation is not None and (
             self.evaluation.proposal.attempt_id != self.attempt.attempt_id

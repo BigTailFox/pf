@@ -117,7 +117,7 @@ from pf.schemas.evaluation import (
     VerifierRejectedEvaluation,
     VerifierRequest,
     VerifierRun,
-    VerifierTerminal,
+    ExecutionTerminal,
 )
 from pf.schemas.project import (
     ApplySelector,
@@ -309,7 +309,7 @@ __all__ = [
     "VerifierRejectedEvaluation",
     "VerifierRequest",
     "VerifierRun",
-    "VerifierTerminal",
+    "ExecutionTerminal",
     "ToolFailure",
     "ToolOutcome",
     "ToolSuccess",

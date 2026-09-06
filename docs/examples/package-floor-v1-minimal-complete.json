@@ -2,7 +2,7 @@
   "cell_results": [
     {
       "baseline": {
-        "attempt_ref": "1a6a319d6e3d607db65201ef9f8a77f6ec1116b16ff52de955b362e82e8ba0df",
+        "attempt_ref": "933f7e8d5239b5b82dc36cb7de9563e995d37832542cd2f9a565c4e3cdaf24c9",
         "proposal_ref": "77b0ea0b5f7bd3a6ffd844fbaddd0b2ac368dad6c7ecb047f268a9a9a547fd33",
         "static_baseline_digest": "ea470e0be47c7881231d6cd2d78c104a1f2797e0c15bb857b4527e3076f4e18f"
       },
@@ -23,7 +23,7 @@
   "evidence": {
     "attempts": [
       {
-        "attempt_id": "1a6a319d6e3d607db65201ef9f8a77f6ec1116b16ff52de955b362e82e8ba0df",
+        "attempt_id": "933f7e8d5239b5b82dc36cb7de9563e995d37832542cd2f9a565c4e3cdaf24c9",
         "cell_ref": "cell-bcb1dacc44426868f495064611d9702c95aba1d80ba19a3dcdaf37bcaff5b93e",
         "harness_declaration_ids": [],
         "harness_policy_identity": "original-harness-v1",
@@ -47,7 +47,7 @@
     "failures": [],
     "proposals": [
       {
-        "attempt_ref": "1a6a319d6e3d607db65201ef9f8a77f6ec1116b16ff52de955b362e82e8ba0df",
+        "attempt_ref": "933f7e8d5239b5b82dc36cb7de9563e995d37832542cd2f9a565c4e3cdaf24c9",
         "environment_plan_digest": null,
         "fixed_declaration_refs": [],
         "interpreter": {
@@ -89,6 +89,7 @@
     ]
   },
   "identity": {
+    "failure_policy": "failure-execution-v3",
     "generator": {
       "algorithm": "v1",
       "name": "pf",
@@ -98,8 +99,8 @@
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "fe62e7c4a146ae650810ff05781f8509243f717780ccd9fd1f5038d701506dbd",
-    "report_generation_id": "a176a248ad7777ca2d7df9892d0fdbc7ae002c1bcfcf0f33fb82e36a83a4df48",
+    "policy_identity": "8f59827d0b1ea10b0690ba93d74be96960f4322a54b3ddcfba631c5c4b57b4f2",
+    "report_generation_id": "c2a4ac149790ee2632c83930a33d74596b2227d4e3c57cdfadf2395bd05d5af3",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],

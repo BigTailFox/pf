@@ -13,6 +13,11 @@ from pf.report import PackageReportBuilder, ReportStore, ReportUpdate, Validated
 from pf.runlog import RunLogStore
 from pf.schemas.config import SearchRequest, WorkspacePackage
 from pf.schemas.evaluation import (
+    PrepareFailure,
+    ExecutionFailure,
+    ExecutionFailureAuthority,
+    Unattributed,
+    Unavailable,
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
@@ -211,12 +216,13 @@ class UnavailableBaselineSearch:
                 harness_policy_identity="original-harness-v1",
             )
         )
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="TOOL_FAILURE",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=attempt,
             stage="resolve-project",
+            failure=ExecutionFailure(terminal=Unavailable(), attribution=Unattributed()),
             process=self.process,
-        )
+            project_plan_digest=None, environment_plan_digest=None,
+        ))
         return BaselineIndeterminate(
             attempt=attempt,
             failure=failure,
@@ -648,8 +654,8 @@ class TestSearchWorkflow:
         expected = Path(".pf/logs/unavailable-baseline/process-0001.log")
 
         assert failure.process is None
-        assert failure.detail is not None
-        assert failure.detail.code == "terminal-unavailable"
+        assert isinstance(failure.authority, ExecutionFailureAuthority)
+        assert failure.authority.terminal == Unavailable()
         assert logs.lookup(report.report_generation_id, failure.failure_id) == expected
         assert logs.lookup_run("unavailable-baseline", failure.failure_id) == expected
 

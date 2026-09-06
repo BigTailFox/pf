@@ -21,6 +21,8 @@ from pf.schemas.config import (
     WorkspacePackage,
 )
 from pf.schemas.evaluation import (
+    ExecutionFailure,
+    Unattributed,
     ActivityEvent,
     Attempt,
     AttemptFailureScope,
@@ -267,7 +269,7 @@ def _indeterminate_evaluation(attempt: Attempt) -> IndeterminateEvaluation:
     )
     failure = ToolFailure(
         cause="TOOL_FAILURE",
-        stage="test",
+        stage="ty",
         process=_successful_process(exit_code=2),
     )
     return IndeterminateEvaluation(
@@ -1375,7 +1377,7 @@ class TestSearchSchemas:
         other_proposal = _proposal("other-baseline", attempt=attempt)
         tool_failure = ToolFailure(
             cause="TOOL_FAILURE",
-            stage="test",
+            stage="ty",
             process=_successful_process(exit_code=2),
         )
         failure = FailurePolicy().classify(
@@ -1796,15 +1798,12 @@ class TestEvaluationSchemas:
             AttemptIdentity.model_validate(values)
 
     def test_prepare_failure_requires_project_evidence_before_environment(self) -> None:
-        with pytest.raises(ValidationError, match="requires a project plan"):
+        attempt = Attempt.from_identity(_attempt().identity.model_copy(update={"harness_declaration_ids": ("harness",)}))
+        with pytest.raises(ValidationError, match="project plan timing"):
             PrepareFailure(
-                attempt=_attempt(),
-                failure=ToolFailure(
-                    cause="TOOL_FAILURE",
-                    stage="resolve-environment",
-                    process=_successful_process(exit_code=1),
-                ),
-                environment_plan_digest="environment",
+                attempt=attempt, stage="install-environment",
+                failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
+                project_plan_digest=None, environment_plan_digest="a" * 64,
             )
 
     @pytest.mark.parametrize(
@@ -1972,7 +1971,7 @@ class TestEvaluationSchemas:
         )
         tool_failure = ToolFailure(
             cause="TOOL_FAILURE",
-            stage="test",
+            stage="ty",
             process=process,
         )
         evaluation = IndeterminateEvaluation(
@@ -2872,7 +2871,7 @@ class TestReportSchemas:
         failure = FailurePolicy().classify(
             scope=AttemptFailureScope(attempt=_attempt(cell=other_cell)),
             cause="TOOL_FAILURE",
-            stage="test",
+            stage="ty",
             process=_successful_process(exit_code=2),
         )
 

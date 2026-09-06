@@ -1,5 +1,35 @@
 {
   "$defs": {
+    "ArtifactInvalidFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "artifact-invalid",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ArtifactInvalidFact",
+      "type": "object"
+    },
+    "ArtifactPolicyMismatchFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "artifact-policy-mismatch",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ArtifactPolicyMismatchFact",
+      "type": "object"
+    },
     "AttemptFailureScopeV1": {
       "additionalProperties": false,
       "properties": {
@@ -863,6 +893,33 @@
       "title": "DiagnosticClassification",
       "type": "object"
     },
+    "DirectContradictionFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "direct-version-contradiction",
+          "title": "Code",
+          "type": "string"
+        },
+        "stderr_complete": {
+          "const": true,
+          "title": "Stderr Complete",
+          "type": "boolean"
+        },
+        "stdout_complete": {
+          "const": true,
+          "title": "Stdout Complete",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stderr_complete",
+        "stdout_complete"
+      ],
+      "title": "DirectContradictionFacts",
+      "type": "object"
+    },
     "DirectIndeterminateV1": {
       "additionalProperties": false,
       "properties": {
@@ -966,6 +1023,102 @@
       "title": "DynamicWorkspaceMemberVersion",
       "type": "object"
     },
+    "EnvironmentAccessFailedFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "environment-access-failed",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "EnvironmentAccessFailedFact",
+      "type": "object"
+    },
+    "EvidenceConflictFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "evidence-conflict",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "EvidenceConflictFact",
+      "type": "object"
+    },
+    "ExecutionFailureAuthority": {
+      "additionalProperties": false,
+      "description": "Portable execution facts adopted by FailurePolicy.",
+      "properties": {
+        "attribution": {
+          "discriminator": {
+            "mapping": {
+              "unattributed": "#/$defs/Unattributed",
+              "uv-unsat": "#/$defs/UvUnsatAttribution"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Unattributed"
+            },
+            {
+              "$ref": "#/$defs/UvUnsatAttribution"
+            }
+          ],
+          "title": "Attribution"
+        },
+        "kind": {
+          "const": "execution",
+          "title": "Kind",
+          "type": "string"
+        },
+        "terminal": {
+          "discriminator": {
+            "mapping": {
+              "normal-exit": "#/$defs/NormalExit",
+              "signaled": "#/$defs/Signaled",
+              "start-failed": "#/$defs/StartFailed",
+              "timed-out": "#/$defs/TimedOut",
+              "unavailable": "#/$defs/Unavailable"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalExit"
+            },
+            {
+              "$ref": "#/$defs/StartFailed"
+            },
+            {
+              "$ref": "#/$defs/TimedOut"
+            },
+            {
+              "$ref": "#/$defs/Signaled"
+            },
+            {
+              "$ref": "#/$defs/Unavailable"
+            }
+          ],
+          "title": "Terminal"
+        }
+      },
+      "required": [
+        "attribution",
+        "kind",
+        "terminal"
+      ],
+      "title": "ExecutionFailureAuthority",
+      "type": "object"
+    },
     "FailureDetail": {
       "additionalProperties": false,
       "properties": {
@@ -992,6 +1145,8 @@
           "discriminator": {
             "mapping": {
               "configured-verifier": "#/$defs/ConfiguredVerifierFailureAuthority",
+              "execution": "#/$defs/ExecutionFailureAuthority",
+              "operation-structured": "#/$defs/StructuredOperationFailureAuthority",
               "process": "#/$defs/ProcessFailureAuthority",
               "structured": "#/$defs/StructuredFailureAuthority"
             },
@@ -1006,14 +1161,21 @@
             },
             {
               "$ref": "#/$defs/StructuredFailureAuthority"
+            },
+            {
+              "$ref": "#/$defs/ExecutionFailureAuthority"
+            },
+            {
+              "$ref": "#/$defs/StructuredOperationFailureAuthority"
             }
           ],
           "title": "Authority"
         },
         "cause": {
           "enum": [
+            "RESOLUTION_FAILED",
+            "INSTALLATION_FAILED",
             "RESOLUTION_CONFLICT",
-            "BUILD_FAILURE",
             "HARNESS_CONFLICT",
             "RUNTIME_INTERFACE_MISSING",
             "VERIFIER_EXITED_NONZERO",
@@ -1132,6 +1294,21 @@
       "title": "GeneratorIdentity",
       "type": "object"
     },
+    "GraphObservationInvalidFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "graph-observation-invalid",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "GraphObservationInvalidFact",
+      "type": "object"
+    },
     "IncompleteReportResult": {
       "additionalProperties": false,
       "properties": {
@@ -1196,6 +1373,21 @@
       "title": "IndeterminateEvaluationV1",
       "type": "object"
     },
+    "InstalledGraphMismatchFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "installed-graph-mismatch",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "InstalledGraphMismatchFact",
+      "type": "object"
+    },
     "InterpreterIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -1221,10 +1413,71 @@
       "title": "InterpreterIdentity",
       "type": "object"
     },
+    "InterpreterMismatchFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "interpreter-mismatch",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "InterpreterMismatchFact",
+      "type": "object"
+    },
+    "InterpreterObservationInvalidFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "interpreter-observation-invalid",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "InterpreterObservationInvalidFact",
+      "type": "object"
+    },
+    "ManagedSourceLeakageFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "managed-source-leakage",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ManagedSourceLeakageFact",
+      "type": "object"
+    },
+    "ManagedSourceMismatchFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "managed-source-mismatch",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ManagedSourceMismatchFact",
+      "type": "object"
+    },
     "NormalExit": {
       "additionalProperties": false,
       "properties": {
         "exit_code": {
+          "minimum": 0,
           "title": "Exit Code",
           "type": "integer"
         },
@@ -1239,6 +1492,67 @@
         "kind"
       ],
       "title": "NormalExit",
+      "type": "object"
+    },
+    "OperationRequestBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "environment_plan_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Environment Plan Digest"
+        },
+        "project_plan_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Plan Digest"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "enum": [
+                "resolve-project",
+                "resolve-environment"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "install-project",
+                "install-environment"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Stage"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "environment_plan_digest",
+        "project_plan_digest",
+        "stage"
+      ],
+      "title": "OperationRequestBinding",
       "type": "object"
     },
     "PackageIdentity": {
@@ -1570,6 +1884,21 @@
       "title": "ProposalV1",
       "type": "object"
     },
+    "ProposalVectorMismatchFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "proposal-vector-mismatch",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ProposalVectorMismatchFact",
+      "type": "object"
+    },
     "PyprojectIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -1695,6 +2024,11 @@
     "ReportIdentityV1": {
       "additionalProperties": false,
       "properties": {
+        "failure_policy": {
+          "const": "failure-execution-v3",
+          "title": "Failure Policy",
+          "type": "string"
+        },
         "generator": {
           "$ref": "#/$defs/GeneratorIdentity"
         },
@@ -1719,6 +2053,7 @@
         }
       },
       "required": [
+        "failure_policy",
         "generator",
         "package",
         "policy_identity",
@@ -1776,6 +2111,21 @@
         "target_cells"
       ],
       "title": "ReportInputsV1",
+      "type": "object"
+    },
+    "RequestInvariantFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "request-invariant",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "RequestInvariantFact",
       "type": "object"
     },
     "RequirementDeclaration": {
@@ -1884,6 +2234,36 @@
         "resolution_graph_id"
       ],
       "title": "ResolutionGraphV1",
+      "type": "object"
+    },
+    "ResolutionOutputIncompleteFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "resolution-output-incomplete",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ResolutionOutputIncompleteFact",
+      "type": "object"
+    },
+    "ResolutionPlanInvalidFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "resolution-plan-invalid",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ResolutionPlanInvalidFact",
       "type": "object"
     },
     "ResolvedNode": {
@@ -2301,6 +2681,21 @@
       "title": "SnapshotEntry",
       "type": "object"
     },
+    "SourceAccessFailedFact": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "source-access-failed",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "SourceAccessFailedFact",
+      "type": "object"
+    },
     "SourceIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -2688,6 +3083,131 @@
       "title": "StructuredFailureAuthority",
       "type": "object"
     },
+    "StructuredOperationFailureAuthority": {
+      "additionalProperties": false,
+      "description": "Portable PF-observed operation facts adopted by FailurePolicy.",
+      "properties": {
+        "fact": {
+          "discriminator": {
+            "mapping": {
+              "artifact-invalid": "#/$defs/ArtifactInvalidFact",
+              "artifact-policy-mismatch": "#/$defs/ArtifactPolicyMismatchFact",
+              "environment-access-failed": "#/$defs/EnvironmentAccessFailedFact",
+              "evidence-conflict": "#/$defs/EvidenceConflictFact",
+              "graph-observation-invalid": "#/$defs/GraphObservationInvalidFact",
+              "installed-graph-mismatch": "#/$defs/InstalledGraphMismatchFact",
+              "interpreter-mismatch": "#/$defs/InterpreterMismatchFact",
+              "interpreter-observation-invalid": "#/$defs/InterpreterObservationInvalidFact",
+              "managed-source-leakage": "#/$defs/ManagedSourceLeakageFact",
+              "managed-source-mismatch": "#/$defs/ManagedSourceMismatchFact",
+              "proposal-vector-mismatch": "#/$defs/ProposalVectorMismatchFact",
+              "request-invariant": "#/$defs/RequestInvariantFact",
+              "resolution-output-incomplete": "#/$defs/ResolutionOutputIncompleteFact",
+              "resolution-plan-invalid": "#/$defs/ResolutionPlanInvalidFact",
+              "source-access-failed": "#/$defs/SourceAccessFailedFact"
+            },
+            "propertyName": "code"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RequestInvariantFact"
+            },
+            {
+              "$ref": "#/$defs/EvidenceConflictFact"
+            },
+            {
+              "$ref": "#/$defs/SourceAccessFailedFact"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentAccessFailedFact"
+            },
+            {
+              "$ref": "#/$defs/ArtifactInvalidFact"
+            },
+            {
+              "$ref": "#/$defs/ResolutionOutputIncompleteFact"
+            },
+            {
+              "$ref": "#/$defs/ResolutionPlanInvalidFact"
+            },
+            {
+              "$ref": "#/$defs/ArtifactPolicyMismatchFact"
+            },
+            {
+              "$ref": "#/$defs/ManagedSourceLeakageFact"
+            },
+            {
+              "$ref": "#/$defs/ManagedSourceMismatchFact"
+            },
+            {
+              "$ref": "#/$defs/InterpreterObservationInvalidFact"
+            },
+            {
+              "$ref": "#/$defs/InterpreterMismatchFact"
+            },
+            {
+              "$ref": "#/$defs/GraphObservationInvalidFact"
+            },
+            {
+              "$ref": "#/$defs/InstalledGraphMismatchFact"
+            },
+            {
+              "$ref": "#/$defs/ProposalVectorMismatchFact"
+            }
+          ],
+          "title": "Fact"
+        },
+        "kind": {
+          "const": "operation-structured",
+          "title": "Kind",
+          "type": "string"
+        },
+        "terminal": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "normal-exit": "#/$defs/NormalExit",
+                  "signaled": "#/$defs/Signaled",
+                  "start-failed": "#/$defs/StartFailed",
+                  "timed-out": "#/$defs/TimedOut",
+                  "unavailable": "#/$defs/Unavailable"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/NormalExit"
+                },
+                {
+                  "$ref": "#/$defs/StartFailed"
+                },
+                {
+                  "$ref": "#/$defs/TimedOut"
+                },
+                {
+                  "$ref": "#/$defs/Signaled"
+                },
+                {
+                  "$ref": "#/$defs/Unavailable"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Terminal"
+        }
+      },
+      "required": [
+        "fact",
+        "kind",
+        "terminal"
+      ],
+      "title": "StructuredOperationFailureAuthority",
+      "type": "object"
+    },
     "TargetCellV1": {
       "additionalProperties": false,
       "properties": {
@@ -2746,6 +3266,33 @@
         "kind"
       ],
       "title": "TimedOut",
+      "type": "object"
+    },
+    "TransitiveContradictionFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "transitive-version-contradiction",
+          "title": "Code",
+          "type": "string"
+        },
+        "stderr_complete": {
+          "const": true,
+          "title": "Stderr Complete",
+          "type": "boolean"
+        },
+        "stdout_complete": {
+          "const": true,
+          "title": "Stdout Complete",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stderr_complete",
+        "stdout_complete"
+      ],
+      "title": "TransitiveContradictionFacts",
       "type": "object"
     },
     "TyCheck": {
@@ -2836,6 +3383,21 @@
       "title": "TyDiagnostic",
       "type": "object"
     },
+    "Unattributed": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "unattributed",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Unattributed",
+      "type": "object"
+    },
     "Unavailable": {
       "additionalProperties": false,
       "properties": {
@@ -2849,6 +3411,68 @@
         "kind"
       ],
       "title": "Unavailable",
+      "type": "object"
+    },
+    "UvUnsatAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "facts": {
+          "discriminator": {
+            "mapping": {
+              "direct-version-contradiction": "#/$defs/DirectContradictionFacts",
+              "transitive-version-contradiction": "#/$defs/TransitiveContradictionFacts"
+            },
+            "propertyName": "code"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DirectContradictionFacts"
+            },
+            {
+              "$ref": "#/$defs/TransitiveContradictionFacts"
+            }
+          ],
+          "title": "Facts"
+        },
+        "kind": {
+          "const": "uv-unsat",
+          "title": "Kind",
+          "type": "string"
+        },
+        "profile": {
+          "const": "uv-diagnostics-0.12.5-v1",
+          "title": "Profile",
+          "type": "string"
+        },
+        "protocol": {
+          "const": "uv-pip-compile-pylock-v1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "request_binding": {
+          "$ref": "#/$defs/OperationRequestBinding"
+        },
+        "tool": {
+          "const": "uv",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "const": "0.12.5",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "facts",
+        "kind",
+        "profile",
+        "protocol",
+        "request_binding",
+        "tool",
+        "tool_version"
+      ],
+      "title": "UvUnsatAttribution",
       "type": "object"
     },
     "VerifierRejectedEvaluationV1": {

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
@@ -18,6 +17,11 @@ from pf.schemas.evaluation import (
     NormalExit,
     TimedOut,
     ToolFailure,
+    OperationFailureResult,
+    ExecutionFailure,
+    StructuredOperationFailure,
+    SourceAccessFailedFact,
+    Unattributed,
     VerifierIndeterminate,
     VerifierPass,
     VerifierRejected,
@@ -49,19 +53,20 @@ class TestHighestVersionVerifier:
         assert assembly.uv.environment_roots
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
-    @pytest.mark.parametrize("cause", ("BUILD_FAILURE", "SOURCE_FAILURE"))
+    @pytest.mark.parametrize("cause", ("INSTALLATION_FAILED", "SOURCE_FAILURE"))
     def test_highest_version_verifier_retains_prepare_failure_and_closes(
         self,
         tmp_path: Path,
-        cause: Literal["BUILD_FAILURE", "SOURCE_FAILURE"],
+        cause: str,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
         assembly = evaluation_assembly(
             highest=(),
-            install_failure=ToolFailure(
-                cause=cause,
-                stage="install-environment",
-                process=successful_process(exit_code=2),
+            install_failure=OperationFailureResult(
+                failure=(ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed())
+                         if cause == "INSTALLATION_FAILED" else StructuredOperationFailure(fact=SourceAccessFailedFact(), terminal=None)),
+                stage="install-project",
+                process=successful_process(exit_code=2) if cause == "INSTALLATION_FAILED" else None,
             ),
         )
 
@@ -72,8 +77,8 @@ class TestHighestVersionVerifier:
             source_plan=project.source_plan,
         )
 
-        assert isinstance(result, BaselineIndeterminate)
-        assert result.failure.disposition == "INDETERMINATE"
+        assert isinstance(result, BaselineRejection if cause == "INSTALLATION_FAILED" else BaselineIndeterminate)
+        assert result.failure.disposition == ("REJECTED" if cause == "INSTALLATION_FAILED" else "INDETERMINATE")
         assert result.failure.cause == cause
         assert result.evaluation is None
         assert assembly.ty.vectors == []

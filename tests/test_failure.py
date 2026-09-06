@@ -25,6 +25,14 @@ from pf.schemas.evaluation import (
     ToolFailure,
     TyCheck,
     VerifierPass,
+    PrepareFailure,
+    ExecutionFailure,
+    ExecutionFailureAuthority,
+    StructuredOperationFailure,
+    SourceAccessFailedFact,
+    Unattributed,
+    TimedOut,
+    execution_terminal,
     ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, Proposal, VersionPin
@@ -50,7 +58,7 @@ def _process() -> ProcessResult:
     )
 
 
-def _probe_attempt() -> Attempt:
+def _probe_attempt(*, harness: bool = False) -> Attempt:
     identity = AttemptIdentity(
         source_snapshot_digest="snapshot",
         cell=_cell(),
@@ -63,6 +71,7 @@ def _probe_attempt() -> Attempt:
         harness_policy_identity="harness-relaxation-v1",
         harness_baseline_digest="baseline",
         selected_candidate_evidence_digest="selection",
+        harness_declaration_ids=("test-harness",) if harness else (),
     )
     return Attempt.from_identity(identity)
 
@@ -137,12 +146,13 @@ class TestFailurePolicy:
             detail="runner returned no terminal status",
         )
 
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause="TOOL_FAILURE",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=_probe_attempt(),
             stage="resolve-project",
+            failure=ExecutionFailure(terminal=execution_terminal(unavailable), attribution=Unattributed()),
             process=unavailable,
-        )
+            project_plan_digest=None, environment_plan_digest=None,
+        ))
 
         assert failure.process is None
         assert failure.disposition == "INDETERMINATE"
@@ -152,17 +162,16 @@ class TestFailurePolicy:
     def test_failure_record_retains_only_acquired_resolution_plan_evidence(
         self,
     ) -> None:
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause="SOURCE_FAILURE",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=_probe_attempt(harness=True),
             stage="install-environment",
-            process=_process(),
-            project_plan_digest="project-plan",
-            environment_plan_digest="environment-plan",
-        )
+            failure=StructuredOperationFailure(fact=SourceAccessFailedFact(), terminal=None),
+            project_plan_digest="a" * 64,
+            environment_plan_digest="b" * 64,
+        ))
 
-        assert failure.project_plan_digest == "project-plan"
-        assert failure.environment_plan_digest == "environment-plan"
+        assert failure.project_plan_digest == "a" * 64
+        assert failure.environment_plan_digest == "b" * 64
         with pytest.raises(ValidationError, match="requires a project plan"):
             FailureRecord.from_facts(
                 scope=AttemptFailureScope(attempt=_probe_attempt()),
@@ -176,12 +185,12 @@ class TestFailurePolicy:
     def test_failure_policy_requires_an_attempt_before_it_can_reject(self) -> None:
         policy = FailurePolicy()
 
-        rejected = policy.classify(
-            scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause="RESOLUTION_CONFLICT",
+        rejected = policy.record_prepare(PrepareFailure(
+            attempt=_probe_attempt(),
             stage="resolve-project",
-            process=_process(),
-        )
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
+            project_plan_digest=None, environment_plan_digest=None,
+        ))
         indeterminate = policy.classify(
             scope=CellFailureScope(
                 package="demo",
@@ -189,7 +198,7 @@ class TestFailurePolicy:
                 source_snapshot_digest="snapshot",
                 evaluation_policy_identity="policy",
             ),
-            cause="RESOLUTION_CONFLICT",
+            cause="TOOL_FAILURE",
             stage="candidate-discovery",
             process=None,
             detail=FailureDetail(
@@ -199,7 +208,7 @@ class TestFailurePolicy:
         )
 
         assert rejected.disposition == "REJECTED"
-        assert rejected.cause == "RESOLUTION_CONFLICT"
+        assert rejected.cause == "RESOLUTION_FAILED"
         assert isinstance(rejected.scope, AttemptFailureScope)
         assert rejected.scope.attempt.identity.requested_managed_vector == (
             VersionPin(name="a", version="1"),
@@ -210,8 +219,6 @@ class TestFailurePolicy:
     @pytest.mark.parametrize(
         ("cause", "stage"),
         (
-            ("RESOLUTION_CONFLICT", "resolve-project"),
-            ("HARNESS_CONFLICT", "resolve-environment"),
             ("RUNTIME_INTERFACE_MISSING", "witness"),
         ),
     )
@@ -231,14 +238,18 @@ class TestFailurePolicy:
         assert failure.cause == cause
 
     def test_install_or_build_failure_does_not_prove_unsat(self) -> None:
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause="BUILD_FAILURE",
-            stage="install-environment",
+        failure = FailurePolicy().record_prepare(PrepareFailure(
+            attempt=_probe_attempt(),
+            stage="install-project",
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=1), attribution=Unattributed()),
             process=_process(),
-        )
+            project_plan_digest="a" * 64, environment_plan_digest=None,
+        ))
 
-        assert failure.disposition == "INDETERMINATE"
+        assert failure.disposition == "REJECTED"
+        assert failure.cause == "INSTALLATION_FAILED"
+        assert isinstance(failure.authority, ExecutionFailureAuthority)
+        assert failure.authority.attribution == Unattributed()
 
     def test_failure_policy_rejects_confirmed_missing_on_witness_exit_zero(
         self,
@@ -253,40 +264,6 @@ class TestFailurePolicy:
         )
 
         assert failure.disposition == "REJECTED"
-
-    @pytest.mark.parametrize(
-        ("attempt", "cause", "stage", "process"),
-        (
-            (_probe_attempt(), "RESOLUTION_CONFLICT", "install", _process()),
-            (
-                _probe_attempt(),
-                "RESOLUTION_CONFLICT",
-                "install-harness",
-                _process(),
-            ),
-            (
-                _probe_attempt(),
-                "RESOLUTION_CONFLICT",
-                "resolve-project",
-                _process().model_copy(update={"stderr_complete": False}),
-            ),
-        ),
-    )
-    def test_failure_policy_does_not_reject_an_invalid_role_stage_or_incomplete_fact(
-        self,
-        attempt: Attempt,
-        cause: FailureCause,
-        stage: str,
-        process: ProcessResult,
-    ) -> None:
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause=cause,
-            stage=stage,
-            process=process,
-        )
-
-        assert failure.disposition == "INDETERMINATE"
 
     @pytest.mark.parametrize("mismatch", ("proposal", "attempt", "ty", "digest"))
     def test_highest_version_pass_rejects_mixed_evidence(self, mismatch: str) -> None:
@@ -374,7 +351,7 @@ class TestFailurePolicy:
             cause="INTERNAL_INVARIANT",
             failure=ToolFailure(
                 cause="INTERNAL_INVARIANT",
-                stage="resolve-project",
+                stage="static-cache",
                 process=None,
                 detail=detail,
             ),
@@ -419,42 +396,40 @@ class TestFailureRecords:
 
     def test_failure_record_identity_ignores_captured_process_output(self) -> None:
         policy = FailurePolicy()
-        scope = AttemptFailureScope(attempt=_probe_attempt())
-        first = policy.classify(
-            scope=scope,
-            cause="SOURCE_FAILURE",
-            stage="install-environment",
-            process=_process().model_copy(update={"stdout": "first run"}),
-        )
-        second = policy.classify(
-            scope=scope,
-            cause="SOURCE_FAILURE",
-            stage="install-environment",
-            process=_process().model_copy(update={"stdout": "second run"}),
-        )
+        records = []
+        for process in (
+            _process().model_copy(update={"stdout": "first run"}),
+            _process().model_copy(update={"stdout": "second run", "duration_seconds": 9, "stderr_complete": False}),
+        ):
+            records.append(policy.record_prepare(PrepareFailure(
+                attempt=_probe_attempt(), stage="install-project",
+                failure=ExecutionFailure(terminal=execution_terminal(process), attribution=Unattributed()),
+                process=process, project_plan_digest="a" * 64, environment_plan_digest=None,
+            )))
+        first, second = records
 
         assert first.failure_id == second.failure_id
         assert "first run" not in first.model_dump_json()
         assert "No solution found" not in first.model_dump_json()
 
     @pytest.mark.parametrize(
-        "process",
+        "terminal",
         (
-            _process().model_copy(update={"timed_out": True}),
-            _process().model_copy(update={"stdout_complete": False}),
+            TimedOut(),
+            NormalExit(exit_code=1),
         ),
     )
     def test_failure_record_rejects_forged_rejection_dispositions(
         self,
-        process: ProcessResult,
+        terminal,
     ) -> None:
-        with pytest.raises(ValidationError, match="REJECTED disposition"):
-            FailureRecord.from_facts(
+        with pytest.raises(ValidationError, match="disposition and cause"):
+            FailureRecord.from_authority(
                 scope=AttemptFailureScope(attempt=_probe_attempt()),
                 disposition="REJECTED",
                 cause="RESOLUTION_CONFLICT",
                 stage="resolve-project",
-                process=process,
+                authority=ExecutionFailureAuthority(terminal=terminal, attribution=Unattributed()),
             )
 
     @pytest.mark.parametrize(

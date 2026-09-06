@@ -15,7 +15,6 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
-    ProcessTerminalUnavailable,
     RuntimeEvaluationRun,
     StaticBaseline,
 )
@@ -109,29 +108,13 @@ class CompatibilityChecker:
         *,
         role: Literal["declaration-capture", "declaration"],
     ) -> CheckCellOutcome:
-        failure = self._failures.classify(
-            scope=AttemptFailureScope(attempt=prepared.attempt),
-            cause=prepared.failure.cause,
-            stage=prepared.failure.stage,
-            process=prepared.failure.process,
-            summary_code=prepared.failure.summary_code,
-            detail=prepared.failure.detail,
-            project_plan_digest=prepared.project_plan_digest,
-            environment_plan_digest=prepared.environment_plan_digest,
-        )
+        failure = self._failures.record_prepare(prepared)
         return CheckCellOutcome(
             status=failure.disposition,
             role=role,
             attempt=prepared.attempt,
             failure=failure,
-            failure_process=(
-                prepared.failure.process
-                if isinstance(
-                    prepared.failure.process,
-                    ProcessTerminalUnavailable,
-                )
-                else None
-            ),
+            failure_process=prepared.process,
         )
 
     def _evaluation_outcome(

@@ -38,6 +38,7 @@ from pf.schemas.evaluation import (
     TyDiagnostic,
     process_facts_match,
     runtime_process_observation,
+    failure_process_matches,
 )
 from pf.schemas.project import (
     SearchPolicyInputs,
@@ -719,6 +720,8 @@ def _validate_failure_runtime_runs(
         if failure is None:
             raise ValueError("cell runtime diagnostics require their FailureRecord")
         if isinstance(item, FailureProcessRuntimeRun):
+            if not failure_process_matches(failure, item.process):
+                raise ValueError("failure process sidecar must match its authority")
             continue
         assert isinstance(item, FailureEvaluationRuntimeRun)
         evaluation = item.runtime.evaluation
@@ -1331,6 +1334,7 @@ class ReportIdentityV1(FrozenSchema):
     source_snapshot: SourceSnapshotIdentity
     policy_identity: str
     verifier_outcome_policy: Literal["configured-verifier-terminal-v1"]
+    failure_policy: Literal["failure-execution-v3"]
 
 
 class TargetCellV1(FrozenSchema):
@@ -1767,10 +1771,7 @@ def failure_runtime_runs_for_result(
                     runtime=result.runtime,
                 ),
             )
-        if (
-            isinstance(result, BaselineIndeterminate)
-            and result.failure_process is not None
-        ):
+        if result.failure_process is not None:
             return (
                 FailureProcessRuntimeRun(
                     failure_id=result.failure.failure_id,
@@ -1805,6 +1806,7 @@ def report_generation_id(
         "source_snapshot": source_snapshot.model_dump(mode="json"),
         "policy_identity": policy_identity,
         "verifier_outcome_policy": verifier_outcome_policy,
+        "failure_policy": "failure-execution-v3",
         "source_plan": source_plan.model_dump(mode="json"),
         "requirement_declarations": [
             declaration.model_dump(mode="json") for declaration in declarations
