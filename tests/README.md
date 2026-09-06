@@ -59,3 +59,17 @@ JUnit 与 coverage JSON 供逐项比较。它与默认收集范围相同。
 展开后的项数略增来自命令循环展开与重复完成通知场景，函数减少并不要求参数项减少。
 基线已覆盖的源码行与分支均保留。耗时是同机单次运行对照，受安装缓存与调度影响；未降低
 覆盖率门槛或跳过慢测。Ruff、ty 与 whitespace 检查通过。
+
+### pruning 插件覆盖补充
+
+同日新增 `TestPytestPruningSelection`，通过 `pytest_cmdline_main` 的 pre-yield 收集边界验证
+参数替换、invocation nonce、不可用请求与不支持的 Config。19 个参数项与已有 pruning 集成测试
+共 62 项通过（5.07 秒）；`src/pf/_pytest_pruning.py` 语句覆盖 29/29，分支覆盖 6/6，均为 100%，
+达到至少 85% 的目标。Ruff、ty 与 whitespace 检查通过。
+
+```sh
+uv run pytest tests/test_pytest_pruning_plugin.py tests/test_pytest_pruning.py --no-testmon -q --cov=pf._pytest_pruning --cov-branch --cov-fail-under=85 --cov-report=term-missing --cov-report=json:/tmp/pf-pruning-coverage.json
+```
+
+85% 仅用于此命令的模块专项门槛；仓库全量覆盖率门槛仍为 90%。分支比例另从 coverage JSON 的
+`covered_branches / num_branches` 核对，避免把语句与分支的综合覆盖率误报为分支覆盖率。
