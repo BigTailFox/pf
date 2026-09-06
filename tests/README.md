@@ -73,3 +73,42 @@ uv run pytest tests/test_pytest_pruning_plugin.py tests/test_pytest_pruning.py -
 
 85% 仅用于此命令的模块专项门槛；仓库全量覆盖率门槛仍为 90%。分支比例另从 coverage JSON 的
 `covered_branches / num_branches` 核对，避免把语句与分支的综合覆盖率误报为分支覆盖率。
+
+### 函数总耗时与并行运行
+
+同日另测完整套件，关闭 testmon、不启用 coverage。按 JUnit 的 `classname` 与去掉参数后缀的
+方法名分组，累加全部参数项的时间；包含 setup/call/teardown，共享 fixture 计入实际承担它的
+参数项一次。以下按优化前总耗时排序，另列出优化后进入前五的报告生命周期测试。
+
+| 测试函数 | 参数项 | 优化前 | 优化后 |
+| --- | --- | --- | --- |
+| `TestInstalledCli.test_cli_verifies_project_only_environment` | 8 | 7.350 秒 | 7.117 秒 |
+| `TestPytestObserverQualificationRunner.test_run_replays_current_profile_with_isolated_nested_progress` | 1 | 4.077 秒 | 1.270 秒 |
+| `TestExecutionFailureQualification.test_replay_searches_to_full_pass_after_execution_rejection` | 2 | 2.671 秒 | 2.020 秒 |
+| `TestPytestObserverSummaryFaults.test_run_preserves_terminal_under_summary_fault` | 16 | 1.871 秒 | 1.872 秒 |
+| `TestPruningCollectionAuthority.test_run_uses_collection_proof_independently_of_summary` | 8 | 1.628 秒 | 1.630 秒 |
+| `TestInstalledCli.test_installed_module_cli_completes_report_lifecycle` | 1 | 1.597 秒 | 1.635 秒 |
+
+- `qualify_pytest_observer.py` 将 12 个隔离场景分到至多 4 个线程执行。每个场景仍运行真实
+  reference/injected 进程对，组内保持串行；`executor.map` 保持结果顺序，既有 manifest 摘要
+  检查仍通过。
+- `qualify_execution_failures.py` 的本地服务器使用 0.01 秒轮询，使 shutdown 不必等待默认
+  轮询周期。当前单次 profile 中两次 shutdown 合计 0.007 秒；37 次 PF 子进程运行合计约
+  1.418 秒，是回放的主要成本。
+- 安装矩阵保留 4 个命令 × 2 种测试组；summary 与 pruning 矩阵保留全部真实进程场景。
+  这些未修改函数的时间差属于本次运行波动。
+- 4 worker 运行暴露 merge 派发测试对长临时路径换行的耦合。派发用例继续精确断言
+  `MergeRequest` 路径和成功输出；完整展示规则由
+  `test_merge_success_preserves_every_input_path_and_one_final` 验证。
+
+串行全量 **42.12 → 38.40 秒**，4 worker 全量 **11.72 秒**；三个 JUnit 的测试项集合完全
+一致，均 2268 项通过。Ruff、ty、whitespace 检查通过。以上是同机、已有缓存的单次对照，
+并行收益依赖可用 CPU 与 I/O；默认 pytest 配置未添加 worker 数。
+
+```sh
+# 串行测量；排名应汇总参数项，不能只看 --durations 的单项排名。
+uv run pytest --no-testmon -q --durations=40 --junitxml=/tmp/pf-runtime.xml
+
+# 本机已验证的并行全量命令。
+uv run pytest --no-testmon -n 4 -q
+```

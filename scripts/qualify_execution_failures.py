@@ -173,7 +173,10 @@ def registry(name: str, artifacts: dict[str, bytes], tls_root: Path):
     server.socket = context.wrap_socket(server.socket, server_side=True)
     previous_certificate = os.environ.get("SSL_CERT_FILE")
     os.environ["SSL_CERT_FILE"] = str(certificate)
-    thread = Thread(target=server.serve_forever, daemon=True)
+    # Shutdown waits for the serve loop to poll; keep fixture teardown prompt.
+    thread = Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield f"https://127.0.0.1:{server.server_port}/simple"

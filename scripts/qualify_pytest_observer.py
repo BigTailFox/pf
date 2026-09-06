@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 import hashlib
@@ -439,16 +440,20 @@ def _inner(
     import pytest
 
     python_minor = f"{sys.version_info.major}.{sys.version_info.minor}"
-    results = [
-        _run_case(
+
+    def run(case: QualificationCase) -> CaseResult:
+        return _run_case(
             case,
             plugin_source=plugin_source,
             autoload=autoload,
             python_minor=python_minor,
             pytest_version=pytest.__version__,
         )
-        for case in cases
-    ]
+
+    # Cases own separate projects, environments and subprocesses. Keep each
+    # reference/injected pair sequential and preserve manifest order with map.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(run, cases))
     return {
         "python_minor": python_minor,
         "pytest_version": pytest.__version__,

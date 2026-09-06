@@ -966,9 +966,6 @@ class TestCommandDispatch:
         rendered = stdout.getvalue()
         normalized = " ".join(rendered.split())
         assert "Merge completed" in normalized
-        assert source.as_posix() in normalized
-        assert f"Merge complete · {output.as_posix()}" in normalized
-        assert "1 report" not in rendered
 
     def test_apply_command_uses_report_only_workflow(
         self,
