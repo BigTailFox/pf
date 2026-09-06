@@ -149,6 +149,57 @@ importlib-metadata 保留 `<3.10`。本轮没有验证其他平台、Python mino
 231 次 Proposal 准备使用 `environment_plan_digest = null`，与该 self-reference group 没有剩余外部
 harness 依赖一致；日志仍有 231 次项目安装，不能把空 external harness 理解成跳过项目安装。
 
+### 3.1 与项目 min-versions GT 对比（2026-09-06 补充）
+
+这里将项目提供的 `min-versions` 作为 GT 对照。它位于 `[project.optional-dependencies]`，是一个
+包含 15 条精确版本声明的 extra；Hatch 的 `test` 环境设置 `type = ["default", "min-req"]`，
+并为 `min-req` 启用该 extra。它表达项目声明并配置测试的最低支持组合，没有提供每个更低版本都失败
+的证明，因此不能把它当作唯一的数学最小向量。
+
+按本篇固定的上游 commit 读取 `pyproject.toml`，确认其 `min-versions` 与 E008 保存的配置副本
+一致。GT 的精确 pin 数值与第 3 节表中原声明下界逐项一致，包括 i18n 的 Babel；pathspec 的实验
+上界不是 GT pin 的组成部分。表中未列出的第 15 项是 `colorama==0.4; platform_system == 'Windows'`，
+本轮 Linux 不适用。逐项 GT、PF floor、比较方向及原始证据 SHA 见
+[gt-comparison.json](data/E008/gt-comparison.json)。
+
+对本矩阵适用的 14 个依赖名称汇总：
+
+| PF floor 相对 GT | 数量 | 依赖与解释 |
+| --- | ---: | --- |
+| 更低 | 8 | Babel、Jinja2、MarkupSafe、watchdog、ghp-import、packaging、pathspec、mkdocs-get-deps；最终完整向量通过单测 |
+| 相同 | 4 | click、pyyaml-env-tag、mergedeep、importlib-metadata；4.4 与 4.4.0 归一化为同版本 |
+| 数值更高 | 2 | Markdown、PyYAML；须区分 minor 代表采样与 witness 缺陷，不能统一解释成 GT 太低 |
+
+3.10–3.12 不含 importlib-metadata，所以各自是 13 项中的 8 降、3 同、2 升；3.8–3.9 各自是
+14 项中的 8 降、4 同、2 升。上述统计按名称/Cell 比较版本，不是 PF 的准确率或召回率。
+
+进一步将 GT pin 按 Linux 与 Python marker 筛选，再与 check 日志中的实际安装版本逐项比较，
+五个 Cell **均无版本差异**。这说明本轮虽未选择 `min-versions` surface，`lowest-direct` 实际安装的
+受管直接依赖组合已经与该 Cell 适用的 GT 相同：
+
+| Python | 适用 GT pin 数 | 与 check 安装版本的差异 | 本轮该组合的结果 |
+| --- | ---: | --- | --- |
+| 3.8 | 14 | 无 | witness NOT_APPLICABLE，完整 725 tests PASS |
+| 3.9 | 14 | 无 | witness NOT_APPLICABLE，完整 725 tests PASS |
+| 3.10 | 13 | 无 | 错误目标的 witness CONFIRMED_MISSING，未运行完整 unittest |
+| 3.11 | 13 | 无 | 错误目标的 witness CONFIRMED_MISSING，未运行完整 unittest |
+| 3.12 | 13 | 无 | 错误目标的 witness CONFIRMED_MISSING，未运行完整 unittest |
+
+比较范围是当前源码下的受管直接依赖 pin；不声称复现了完整 Hatch 环境、coverage 工具或全部传递
+依赖，也不把 CI 配置当作本次上游 CI 已通过的证据。后三个 Cell 的拒绝不能用于推翻 GT，首先需要
+修复第 4 节的 witness 目标与负向证据资格问题；它们在绕过或修复 witness 后是否完整 PASS 尚待实测。
+
+PF 的八项降低有正向执行证据，说明当前源码、平台与单测契约下存在比项目支持下界更低的通过组合。
+这不表示项目 GT 错误，也不构成放宽上游支持政策的充分依据。两个数值提高则需分别解释：
+
+- PyYAML 5.1 → 5.1.2、3.8–3.9 的 Markdown 3.3.6 → 3.3.7 来自 minor 代表采样；对应 GT
+  原版本已在 3.8–3.9 的 check 中通过，不能据此声称原 patch 不兼容。
+- 3.10–3.12 的 Markdown 3.4.4 边界受错误 witness 影响；原访问还有显式 AttributeError 回退，
+  目前不能认为这是必要的兼容下界。
+
+后续优先用修复后的 witness 验证五个 GT 组合，再重跑 search、按需做 patch refine，分别评估
+已知支持组合的接纳、代表采样精度与真实执行边界。本次补充只做固定证据对比，未增加新的实验运行。
+
 ## 4. 主要发现：witness 的目标与拒绝权限
 
 ### 4.1 已确认：成员恢复错误影响了真实判定
@@ -282,6 +333,8 @@ witness 语义缺陷。最终 PASS 组合的正向证据成立，部分“更低
   代表 predecessor 测试失败和 Jinja2 2.0 构建失败日志；冗长重复 traceback 中段明确标为摘录省略。
 - [configuration.toml](data/E008/configuration.toml)、[rendering.py.txt](data/E008/rendering.py.txt)：整理时配置
   与关键源码副本；rendering 文件 SHA 与报告 source snapshot 条目一致。
+- [gt-comparison.json](data/E008/gt-comparison.json)：2026-09-06 补充的上游固定 commit、min-versions 与
+  Hatch test 配置、五个 check 向量的 GT 一致性、逐 Cell search floor 对比及消费的固定附件 SHA。
 
 本地原始报告为 `experiments/mkdocs/package-floor.json`，14,208,342 bytes，SHA-256：
 
