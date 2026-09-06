@@ -1,0 +1,16 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -45 +45,2 @@
+-    "pathspec >=0.11.1",
++    # PF experiment: 1.1.1 breaks indented draft_docs patterns; 0.12.1 is verified.
++    "pathspec >=0.11.1,<=0.12.1",
+@@ -297,0 +299,3 @@
++[dependency-groups]
++pf-unit = ["mkdocs[i18n]"]
++
+@@ -298,0 +303,5 @@
++# Match the upstream CPython unit-test matrix and its required i18n feature.
++pythons = ["3.10", "3.11", "3.12", "3.8", "3.9"]
++test-group = "pf-unit"
++# Keep min-versions as an upstream fixture, outside this search's Cell matrix.
++extra-policy = "none"

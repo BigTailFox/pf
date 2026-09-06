@@ -1,0 +1,200 @@
+{
+  "provenance": "Process results and exit code were observed in the investigation session; journal, interpreter, installed versions and test summaries extracted from retained logs. Empty journal alone is not proof of PASS.",
+  "run_id": "20260906T042427.389320Z-1480180-8df3bb32",
+  "command": [
+    "pf",
+    "smoke"
+  ],
+  "exit_code": 0,
+  "terminal_summary": "Smoke passed · 5 cells",
+  "journal": {
+    "command": "smoke",
+    "entries": [],
+    "package_policies": [
+      {
+        "evaluation_policy_identity": "e2580e7a6a2324e1179f9758dff2c8ccc23d6c73d30d44aa1b3c26d917c1a112",
+        "package": "mkdocs"
+      }
+    ],
+    "run_id": "20260906T042427.389320Z-1480180-8df3bb32",
+    "schema": "verification-journal-v2",
+    "source_snapshot_digest": "4c3be6e0310545f6fb975effced8b7312bad8811e524ab626092915e175644be"
+  },
+  "cells": [
+    {
+      "python_minor": "3.8",
+      "interpreter": {
+        "implementation": "cpython",
+        "version": "3.8.20",
+        "abi": "cpython-38-x86_64-linux-gnu"
+      },
+      "installed_versions": {
+        "mkdocs-get-deps": "0.2.0",
+        "pytz": "2026.3.post1",
+        "watchdog": "4.0.2",
+        "platformdirs": "4.3.6",
+        "python-dateutil": "2.9.0.post0",
+        "click": "8.1.8",
+        "six": "1.17.0",
+        "mergedeep": "1.3.4",
+        "packaging": "26.2",
+        "PyYAML": "6.0.3",
+        "mkdocs": "1.6.1",
+        "Jinja2": "3.1.6",
+        "Markdown": "3.7",
+        "babel": "2.18.0",
+        "pathspec": "0.12.1",
+        "MarkupSafe": "2.1.5",
+        "zipp": "3.20.2",
+        "importlib_metadata": "8.5.0",
+        "pyyaml_env_tag": "0.1",
+        "ghp-import": "2.1.0"
+      },
+      "test_log": "process-0030.log",
+      "test_exit_code": 0,
+      "test_summary": [
+        "Ran 725 tests in 9.091s",
+        "OK (skipped=6)"
+      ],
+      "test_log_sha256": "c1a9473aea07699098a5f7712eb6ccba453ab5055eb51d95a8a05d0955f64a1a"
+    },
+    {
+      "python_minor": "3.9",
+      "interpreter": {
+        "implementation": "cpython",
+        "version": "3.9.25",
+        "abi": "cpython-39-x86_64-linux-gnu"
+      },
+      "installed_versions": {
+        "MarkupSafe": "3.0.3",
+        "python-dateutil": "2.9.0.post0",
+        "click": "8.1.8",
+        "pyyaml_env_tag": "1.1",
+        "watchdog": "6.0.0",
+        "six": "1.17.0",
+        "mkdocs-get-deps": "0.2.2",
+        "platformdirs": "4.4.0",
+        "mergedeep": "1.3.4",
+        "zipp": "3.23.1",
+        "importlib_metadata": "8.7.1",
+        "mkdocs": "1.6.1",
+        "Jinja2": "3.1.6",
+        "packaging": "26.3",
+        "babel": "2.18.0",
+        "pathspec": "0.12.1",
+        "Markdown": "3.9",
+        "PyYAML": "6.0.3",
+        "ghp-import": "2.1.0"
+      },
+      "test_log": "process-0023.log",
+      "test_exit_code": 0,
+      "test_summary": [
+        "Ran 725 tests in 9.089s",
+        "OK (skipped=4)"
+      ],
+      "test_log_sha256": "94ea1ed4cf4567262c4c4735d97e862f0dfd131cc90ba18144e0197028b518e9"
+    },
+    {
+      "python_minor": "3.10",
+      "interpreter": {
+        "implementation": "cpython",
+        "version": "3.10.16",
+        "abi": "cpython-310-x86_64-linux-gnu"
+      },
+      "installed_versions": {
+        "MarkupSafe": "3.0.3",
+        "python-dateutil": "2.9.0.post0",
+        "pyyaml_env_tag": "1.1",
+        "watchdog": "6.0.0",
+        "six": "1.17.0",
+        "mkdocs-get-deps": "0.2.2",
+        "click": "8.5.0",
+        "mergedeep": "1.3.4",
+        "Markdown": "3.10.3",
+        "platformdirs": "4.11.7",
+        "mkdocs": "1.6.1",
+        "Jinja2": "3.1.6",
+        "packaging": "26.3",
+        "babel": "2.18.0",
+        "pathspec": "0.12.1",
+        "PyYAML": "6.0.3",
+        "ghp-import": "2.1.0"
+      },
+      "test_log": "process-0018.log",
+      "test_exit_code": 0,
+      "test_summary": [
+        "Ran 725 tests in 9.095s",
+        "OK (skipped=4)"
+      ],
+      "test_log_sha256": "798ce91a9525a12e2440cba38b7c3f7a21e94c5f1fe2fe77d68f3ff6b37d36d3"
+    },
+    {
+      "python_minor": "3.11",
+      "interpreter": {
+        "implementation": "cpython",
+        "version": "3.11.15",
+        "abi": "cpython-311-x86_64-linux-gnu"
+      },
+      "installed_versions": {
+        "MarkupSafe": "3.0.3",
+        "python-dateutil": "2.9.0.post0",
+        "pyyaml_env_tag": "1.1",
+        "watchdog": "6.0.0",
+        "six": "1.17.0",
+        "mkdocs-get-deps": "0.2.2",
+        "click": "8.5.0",
+        "mergedeep": "1.3.4",
+        "Markdown": "3.10.3",
+        "platformdirs": "4.11.7",
+        "mkdocs": "1.6.1",
+        "Jinja2": "3.1.6",
+        "packaging": "26.3",
+        "babel": "2.18.0",
+        "pathspec": "0.12.1",
+        "PyYAML": "6.0.3",
+        "ghp-import": "2.1.0"
+      },
+      "test_log": "process-0033.log",
+      "test_exit_code": 0,
+      "test_summary": [
+        "Ran 725 tests in 8.870s",
+        "OK (skipped=4)"
+      ],
+      "test_log_sha256": "b18beffc6743bd556daa912c73052be62767a564612bbe2d923bfd62c1bf224d"
+    },
+    {
+      "python_minor": "3.12",
+      "interpreter": {
+        "implementation": "cpython",
+        "version": "3.12.3",
+        "abi": "cpython-312-x86_64-linux-gnu"
+      },
+      "installed_versions": {
+        "MarkupSafe": "3.0.3",
+        "python-dateutil": "2.9.0.post0",
+        "pyyaml_env_tag": "1.1",
+        "watchdog": "6.0.0",
+        "six": "1.17.0",
+        "mkdocs-get-deps": "0.2.2",
+        "click": "8.5.0",
+        "mergedeep": "1.3.4",
+        "Markdown": "3.10.3",
+        "platformdirs": "4.11.7",
+        "mkdocs": "1.6.1",
+        "Jinja2": "3.1.6",
+        "packaging": "26.3",
+        "babel": "2.18.0",
+        "pathspec": "0.12.1",
+        "PyYAML": "6.0.3",
+        "ghp-import": "2.1.0"
+      },
+      "test_log": "process-0037.log",
+      "test_exit_code": 0,
+      "test_summary": [
+        "Ran 725 tests in 8.917s",
+        "OK (skipped=4)"
+      ],
+      "test_log_sha256": "9d6d07ed249c445a945adc2de4c6bd26f15428e1f36565fad66f33607a5923db"
+    }
+  ]
+}

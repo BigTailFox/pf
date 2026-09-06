@@ -94,6 +94,10 @@ Experiment、Plan、Review 和 Investigation 中的命令、计数与结论都�
   10 Cells SUCCESS，最终得到 `charset-normalizer=1.3.1`、`urllib3=1.26.5`、`PySocks=1.7.0` 等
   六个一致 floor。补跑 check 仍为 10 REJECTED，smoke 首次出现一次连接重置、相同配置完整复测
   10 PASS；两阶段运行输出、机器摘要和代表诊断均已保存。
+- [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) 记录 MkDocs 原始 search 的
+  13 个基线拒绝与 8 个 Jinja2 构建不确定，Babel 测试前提、pathspec 缩进输入差异及上游 PR/CI
+  证据；完成实验配置后 smoke 为 5 Cells PASS。未重跑 search，未得到 verified floor；后续已确认
+  “可靠归因优先、执行契约兜底”的统一方向，尚未形成规范性 Design 或实现。
 
 ## 开放事项与归档
 

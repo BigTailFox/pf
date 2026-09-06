@@ -1,0 +1,3102 @@
+{
+  "provenance": "Extracted from original local report and process logs on 2026-09-06; this is not a PF report or apply authority.",
+  "run_id": "20260905T215946.368564Z-1436881-b755d6da",
+  "report_sha256": "aaba4c41dece44cb6c3761e05ee1d2029bbb76a3767e2f827cc1d36a1481dfbf",
+  "generator": {
+    "algorithm": "v1",
+    "name": "pf",
+    "version": "0.2.0"
+  },
+  "report_generation_id": "8b8ffb8b88e4032ae2d48373b0202946b84d12a63c3c714f24d72b48593fc4be",
+  "source_snapshot_digest": "d2801169a14a363512675c227f83ed7246489a74a7d4e05f1679a67e271f7580",
+  "policy_identity": "e2580e7a6a2324e1179f9758dff2c8ccc23d6c73d30d44aa1b3c26d917c1a112",
+  "result": {
+    "reasons": [
+      "BASELINE_REJECTION",
+      "INDETERMINATE",
+      "UNREPRESENTABLE_PROJECTION"
+    ],
+    "status": "incomplete"
+  },
+  "cell_status_counts": {
+    "BASELINE_REJECTION": 13,
+    "CELL_INDETERMINATE": 8
+  },
+  "evidence_counts": {
+    "attempts": 154,
+    "evaluations": 33,
+    "failures": 138,
+    "proposals": 34,
+    "resolution_graphs": 22,
+    "static_evaluations": 34
+  },
+  "cells": [
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-a787584c6fbaf925873fc8290355b220f295f5df8dd6e564e4ac24d570c27c76",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.10",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-310-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.10.16"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-aadd42d62b1a5945",
+        "project_plan_digest": "03ac4ebf3ae49c35a8acb4a7a7662b8e9ed711759c48c91639fcd8c96798b94e",
+        "scope": {
+          "attempt_ref": "2c62904a21914a118c86eca39f11afa20b379f069cc80c4e411f88d061e0a2e9",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "2c62904a21914a118c86eca39f11afa20b379f069cc80c4e411f88d061e0a2e9",
+        "cell_ref": "cell-a787584c6fbaf925873fc8290355b220f295f5df8dd6e564e4ac24d570c27c76",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "42a24521ec6afd1b0383c30ec7dff31197ed738113f03e9237fb88c7a215e266",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0070.log",
+      "test_summary": [
+        "Ran 725 tests in 9.208s",
+        "FAILED (failures=4, errors=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url='http://localhost:123/documentation/')",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-eff9a29438c35740fae59f8960d78f3e420d73decc74c79523bb12e83a9971a0",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.10",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-310-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.10.16"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-0acfd6587b6eb03b",
+        "project_plan_digest": "f335386586f6c71a577070c2367292d5c344953163f63296389bb44c9ecde88b",
+        "scope": {
+          "attempt_ref": "7e7e547fc9c16eae247219f4d3e3578487bc25525c238139819892481d1ecc42",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "7e7e547fc9c16eae247219f4d3e3578487bc25525c238139819892481d1ecc42",
+        "cell_ref": "cell-eff9a29438c35740fae59f8960d78f3e420d73decc74c79523bb12e83a9971a0",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "0fc66a09e32947ad9d9775a23df008033619cdafadbce12e48c310dda7801c19",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0112.log",
+      "test_summary": [
+        "Ran 725 tests in 9.086s",
+        "FAILED (failures=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url='http://localhost:123/documentation/')"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-a4b23011d547ceddeb74d7813e6b3ada749a185267137298ae8bd0bd42b4350d",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.10",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-310-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.10.16"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.2339005050016567,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-b78ba29161241007",
+        "scope": {
+          "attempt_ref": "6838dc9013ec8e1ce94fb37f150added412c32880b1d2e9a0f89433bede2c67d",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "6838dc9013ec8e1ce94fb37f150added412c32880b1d2e9a0f89433bede2c67d",
+        "cell_ref": "cell-a4b23011d547ceddeb74d7813e6b3ada749a185267137298ae8bd0bd42b4350d",
+        "harness_baseline_digest": "4a1d191f4c737289429b37bedf270dfec312f0f591ca93a0ee4efbb8e28a9721",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "11c993343df8691ffbb135702854666429aa9df6a8b26e80e6c3f14b9bf8995a",
+        "selected_candidate_evidence_digest": "ed11fedbe4c13c56a2d7533f1dacffed098706517257957ab396a5cb5da3016c",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0479.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: multiple exception types must be parenthesized"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-b87d97aec6c29878b13cd2ca0f404e3d6e2724aa7118d1ade069e1ede0a85f50",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.11",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-311-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.11.15"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-ae658c88fed55bef",
+        "project_plan_digest": "ba3676b83a7e2cb26d7760d41beda9680b0360c4640fd48614260264e60c7373",
+        "scope": {
+          "attempt_ref": "84d56965e0897af325acbd7a50e90a35017e90c0114d3763336a2f8414266605",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "84d56965e0897af325acbd7a50e90a35017e90c0114d3763336a2f8414266605",
+        "cell_ref": "cell-b87d97aec6c29878b13cd2ca0f404e3d6e2724aa7118d1ade069e1ede0a85f50",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "a50ab0d07d83998de95e6862d702f8417af457b4b55138cfb7a598b504bcc445",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0121.log",
+      "test_summary": [
+        "Ran 725 tests in 8.834s",
+        "FAILED (failures=4, errors=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests.test_merge_translations)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests.test_translations_found)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests.test_jinja_extension_installed)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests.test_no_translations_found)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-89fbec8d0afa7eb12e1706c652d9ce8fef36a7cbb3a01de6e4a99d1056318621",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.11",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-311-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.11.15"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-9afe7a00b0b085a9",
+        "project_plan_digest": "b7549b2dc60deb113e6c179822ef7159b432ac0744d526f6eed5fb128a12a753",
+        "scope": {
+          "attempt_ref": "53f1ad59635c84cad668f30c80973d46734729d2e24ca537cd4bfb4a7091adbb",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "53f1ad59635c84cad668f30c80973d46734729d2e24ca537cd4bfb4a7091adbb",
+        "cell_ref": "cell-89fbec8d0afa7eb12e1706c652d9ce8fef36a7cbb3a01de6e4a99d1056318621",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "fa261d82e1665b687f23a856cabab11a74a79194ed2c6dad915380737ffdf146",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0075.log",
+      "test_summary": [
+        "Ran 725 tests in 8.962s",
+        "FAILED (failures=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-49f356d44da0d621054e93e2ad2374818ae3884dc49212b89e6f52b2bc9e9912",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.11",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-311-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.11.15"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 1.0336981439977535,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-2a0d57da8f366248",
+        "scope": {
+          "attempt_ref": "5f519a5c34e9dc9da21bae87fc73e37c09b027519e3951a5ee01224028c15fc1",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "5f519a5c34e9dc9da21bae87fc73e37c09b027519e3951a5ee01224028c15fc1",
+        "cell_ref": "cell-49f356d44da0d621054e93e2ad2374818ae3884dc49212b89e6f52b2bc9e9912",
+        "harness_baseline_digest": "412238e9311932840f42f9af7a63cd71508c2f81b9a7807ff540d182bd340bb3",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "c06a72ab60b34cbff84f497c4058560ec617166edb1c60f529bca1dd14b5ded5",
+        "selected_candidate_evidence_digest": "6056d7c2973ac2388a785a5adbc4215ec2ae62236da453525a5d446518cde54f",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0460.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: multiple exception types must be parenthesized"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-cc887335c3bc18b57400f72d4b4bc4760f82ba973e91bf8a442bb6c6078f1381",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-312-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.12.3"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-02d7f5655ce84985",
+        "project_plan_digest": "d1b94f3832b08d521fe587646f71d6a892895d4f2089cb887827a40784fd2174",
+        "scope": {
+          "attempt_ref": "e1d48eb9aba54a63228a5d041e1213285f0e697ee59750b6d2a7d9bec94ad824",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "e1d48eb9aba54a63228a5d041e1213285f0e697ee59750b6d2a7d9bec94ad824",
+        "cell_ref": "cell-cc887335c3bc18b57400f72d4b4bc4760f82ba973e91bf8a442bb6c6078f1381",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "a1bafeed54483cef5351f5772724124a049b70893b1f43423042e57c6f677115",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0097.log",
+      "test_summary": [
+        "Ran 725 tests in 9.078s",
+        "FAILED (failures=4, errors=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests.test_merge_translations)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests.test_translations_found)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests.test_jinja_extension_installed)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests.test_no_translations_found)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-dc4b1de2538c88e198b9f7c2e1c48efd4698116f3bfb0ca4571bf42abd47c708",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-312-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.12.3"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-b113e4d2a819fb5a",
+        "project_plan_digest": "b7e51f86cd655c347c7326e2531dfab39d10bda97ee01a761a5d02efb93b15df",
+        "scope": {
+          "attempt_ref": "da6cb251778220a0fece35f31df684cfcfad2d875dc342a8be235d06d432af52",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "da6cb251778220a0fece35f31df684cfcfad2d875dc342a8be235d06d432af52",
+        "cell_ref": "cell-dc4b1de2538c88e198b9f7c2e1c48efd4698116f3bfb0ca4571bf42abd47c708",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "b8896e6cdaac6f66007282ea7a011c762bfca98d586a3ed260fc589310b6aba0",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0090.log",
+      "test_summary": [
+        "Ran 725 tests in 9.125s",
+        "FAILED (failures=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-345611aeb84393e02a6f99a3ab3c6e3c8b16868752bd9d4d9fd4453581790273",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.12",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-312-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.12.3"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.23923113899945747,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-2b493ac96e694bb4",
+        "scope": {
+          "attempt_ref": "0f7e11266eea2682287f5927de3c4e484a8e2aab5627c6be7b42a81a2ab2aae3",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "0f7e11266eea2682287f5927de3c4e484a8e2aab5627c6be7b42a81a2ab2aae3",
+        "cell_ref": "cell-345611aeb84393e02a6f99a3ab3c6e3c8b16868752bd9d4d9fd4453581790273",
+        "harness_baseline_digest": "d2af6ee8a2c70b10d62535571ddccb275acda25780789a3ec51642ccb3b476db",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "acf973371b663d3de392e9cc617bb6ca339f7e55cf68ef512c2aac63f089f05b",
+        "selected_candidate_evidence_digest": "eccc6b812e9c0f399e4df4f403a68057fb8c97a60c17c1ba96b15e873d64fabe",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0481.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: multiple exception types must be parenthesized"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-e30e9692233ed7201e1b621150f7053846e1418e5f2558048ab4810363898d43",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.13",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-313-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.13.15"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-f55dcaf9ae21fc13",
+        "project_plan_digest": "f71ed9c13d19a505b64f11889092c5f6e0c9c717d1abe71de41fc5b81433ba24",
+        "scope": {
+          "attempt_ref": "50c61acc17c465aef3a32e7ac403a45cf217537e4f0b2f718ddaf7ac039b9116",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "50c61acc17c465aef3a32e7ac403a45cf217537e4f0b2f718ddaf7ac039b9116",
+        "cell_ref": "cell-e30e9692233ed7201e1b621150f7053846e1418e5f2558048ab4810363898d43",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "91277abe1484fece6847f315dcc7c8f6ae22411dd4fedf878c619598873c46bb",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0052.log",
+      "test_summary": [
+        "Ran 725 tests in 8.849s",
+        "FAILED (failures=4, errors=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests.test_merge_translations)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests.test_translations_found)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests.test_jinja_extension_installed)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests.test_no_translations_found)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-4070296b34489d5d2e715dcb444630b680b353abc5d2174b86a713e3812a7582",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.13",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-313-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.13.15"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-8e64726f19be8099",
+        "project_plan_digest": "5391aff881d4f44e7af2264f4060cf6f82c84bb6936322406aa1e5cba04ade90",
+        "scope": {
+          "attempt_ref": "0e8c6607a91c3afa3af5e1a7ddce4d6f29ba8360c3089f00806360c4d4e82b75",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "0e8c6607a91c3afa3af5e1a7ddce4d6f29ba8360c3089f00806360c4d4e82b75",
+        "cell_ref": "cell-4070296b34489d5d2e715dcb444630b680b353abc5d2174b86a713e3812a7582",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "c346f8144a3c8aaa7de60b86868acd6c192d849e33308e697793bbfb67dd0fd6",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0120.log",
+      "test_summary": [
+        "Ran 725 tests in 8.829s",
+        "FAILED (failures=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-9708ae94b62fc57cc9e3abd7360459d7fa1d5196b31250f4c6186f28d986a978",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.13",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-313-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.13.15"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.19923161099723075,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-2a64816d659a1f26",
+        "scope": {
+          "attempt_ref": "bfc4db1003f1d14ed364935ef715d0d052dd59736023e228df2c0510ed2568d5",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "bfc4db1003f1d14ed364935ef715d0d052dd59736023e228df2c0510ed2568d5",
+        "cell_ref": "cell-9708ae94b62fc57cc9e3abd7360459d7fa1d5196b31250f4c6186f28d986a978",
+        "harness_baseline_digest": "a335f298226a4c98c0ec227c34d9ea283406251c1fecfa0e53370cfd4d4dfc9a",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "0a9ed3f76f61a4e208bc4437da78d2e26bcc7a685c7acd67fd6920d533aaec03",
+        "selected_candidate_evidence_digest": "4b02a3ac514b50a7429443dc221b7cf77795689b348a608dd14cd99bf1dcc6e1",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0485.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: multiple exception types must be parenthesized"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-97f01ad97c4cf3fd1b317dc3db6eea5710f8080013dcd79f0bcf8ecadc2f4ce1",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.14",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-314-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.14.7"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-c62d7beb9bc17933",
+        "project_plan_digest": "26a8747cd1b7f30dad43b62127dfe6801c0622d74b323ce709f885eeb0a03eca",
+        "scope": {
+          "attempt_ref": "b80222dc401736a9231f22750228d7a11e218c1758b47b20ab56759a86d74b88",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "b80222dc401736a9231f22750228d7a11e218c1758b47b20ab56759a86d74b88",
+        "cell_ref": "cell-97f01ad97c4cf3fd1b317dc3db6eea5710f8080013dcd79f0bcf8ecadc2f4ce1",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "1254c7a3f8608444123740d7ae5268d15dcd746d1f12f5a6f1cee954602bc611",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0049.log",
+      "test_summary": [
+        "Ran 725 tests in 8.820s",
+        "FAILED (failures=4, errors=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests.test_merge_translations)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests.test_translations_found)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests.test_jinja_extension_installed)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests.test_no_translations_found)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-d784434ea84c57fbff577b9078f1f20dfb828fb5394648dc1ad618b0ed378c83",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.14",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-314-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.14.7"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.5.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.10.3"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-579de5ab6a037457",
+        "project_plan_digest": "d0374a351406ec4a1edd4bc92c805a8fabc92b01096b216c4802cdd2f926b6a0",
+        "scope": {
+          "attempt_ref": "e1f678be8963ccb852ace07a74c3d03af3f287335683a74f95a29eb78ef4aeea",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "e1f678be8963ccb852ace07a74c3d03af3f287335683a74f95a29eb78ef4aeea",
+        "cell_ref": "cell-d784434ea84c57fbff577b9078f1f20dfb828fb5394648dc1ad618b0ed378c83",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "0215f44eb59e495d087ec602bc774a1a1f6b402c9a5a9d975661f0f9d46513f1",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0098.log",
+      "test_summary": [
+        "Ran 725 tests in 9.005s",
+        "FAILED (failures=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-e8b2057057d10ac62d3dbda0cfb88876f630b7d0cd566a3601a1bf8410e2a288",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.14",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-314-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.14.7"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.24658641000132775,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-16483d01d7a4c2f4",
+        "scope": {
+          "attempt_ref": "ee93f6bbd7612e88d8847611910cd6e4eef3b32db855217ff8d92edebfeca440",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "ee93f6bbd7612e88d8847611910cd6e4eef3b32db855217ff8d92edebfeca440",
+        "cell_ref": "cell-e8b2057057d10ac62d3dbda0cfb88876f630b7d0cd566a3601a1bf8410e2a288",
+        "harness_baseline_digest": "0664957f1cad49a9409ba0a4ea751e753a9f007b7b62fcd1c2d40f9507f606b0",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "3b14ea822bd4045aac2814b8f08b45552083c2ca2478ebce79a84df8cc02a2bf",
+        "selected_candidate_evidence_digest": "d0fe7cf15d69c5ec3b6d618a2d84837115e2f373d8911da1b33d98377155b823",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0476.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "print '*' * width",
+        "SyntaxError: Missing parentheses in call to 'print'. Did you mean"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "8dd571de5a1c2171d4ed6dacc029eaf3b245c4a2c5b4f9857dbe43297317988b",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-c0807417a1697c64eca7aefdb4efef22df3425c0d6f60bfbb55c76033301cc5e",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.8",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-38-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.8.20"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.1.8"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "8.5.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.1.5"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "26.2"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.12.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "4.0.2"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-3e70e3273e7cb839",
+        "project_plan_digest": "6875523a4036958913fd8d0905b91ee67e1668ba7f3c8be8aa26dcf97d3addd1",
+        "scope": {
+          "attempt_ref": "ec363e1f716014dad969b2ff209ebadc47a140b3c530eefd894461f3167e5686",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "ec363e1f716014dad969b2ff209ebadc47a140b3c530eefd894461f3167e5686",
+        "cell_ref": "cell-c0807417a1697c64eca7aefdb4efef22df3425c0d6f60bfbb55c76033301cc5e",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "a6401d20dedfd9f5796b5a827345667bfccb0150e81a302d119be879cf5a6848",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0128.log",
+      "test_summary": [
+        "Ran 725 tests in 9.098s",
+        "FAILED (failures=2, errors=2, skipped=6)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests)",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "8dd571de5a1c2171d4ed6dacc029eaf3b245c4a2c5b4f9857dbe43297317988b",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-8dc0217f9d9ed3d79ed3d09fea25455ccae68f239857c1f47689abdc1a8c2ba5",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.8",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-38-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.8.20"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.1.8"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "8.5.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.1.5"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "26.2"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.12.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "4.0.2"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.2205461630001082,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-a8ac4a3ea2d9d510",
+        "scope": {
+          "attempt_ref": "7cc6d916e4b9a4f1de41840b03bd7273b1a900f8e2350453f677302e26193280",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "7cc6d916e4b9a4f1de41840b03bd7273b1a900f8e2350453f677302e26193280",
+        "cell_ref": "cell-8dc0217f9d9ed3d79ed3d09fea25455ccae68f239857c1f47689abdc1a8c2ba5",
+        "harness_baseline_digest": "3a2fdd2650a5406bca362da866ec8a5af0579ccd45d3295d92d90f4c8b85d6d4",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "babel",
+            "version": "1.0"
+          },
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "0.6.0"
+          },
+          {
+            "name": "importlib-metadata",
+            "version": "4.4.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.7"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.1.5"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "26.2"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.12.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "6.0.3"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "4.0.2"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "85782669c03c25b31883f5f9204dc789711e005fe6d736da96e4a72546b1675b",
+        "selected_candidate_evidence_digest": "ea2d241763d8e7cf2ef3e36ad2f03580fe21f08295969cabd49d8c81f4e698a9",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0602.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: invalid syntax"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "547ca70ffc4e67c437d54ef09c72a3daa0bba9f82d703f95f73834177b163eec",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "8dd571de5a1c2171d4ed6dacc029eaf3b245c4a2c5b4f9857dbe43297317988b",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-28794156a4437c46a3a5ea7073f74d50f2fadc048b84fdf5a7f81465543e8319",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.8",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-38-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.8.20"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "4.4.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.203740144999756,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-01454d1682266bbf",
+        "scope": {
+          "attempt_ref": "acd0903ddd6f0483eeb1beb8c2baa703787667a4758d5bb253f425b0afb80963",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "acd0903ddd6f0483eeb1beb8c2baa703787667a4758d5bb253f425b0afb80963",
+        "cell_ref": "cell-28794156a4437c46a3a5ea7073f74d50f2fadc048b84fdf5a7f81465543e8319",
+        "harness_baseline_digest": "672bf56bcd788b85d9b06fc34de42169d504ea518c5c5f77fa32a80c664c5130",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "importlib-metadata",
+            "version": "4.4.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "41daa72eaac7525dab13ee27b19aa1461c1ccbafe525f26619d56dc43b764599",
+        "selected_candidate_evidence_digest": "7215310b670d69715faa428d5139ce5227606eaf3e9400945b0294b408fc5f5a",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0513.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: invalid syntax"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "8dd571de5a1c2171d4ed6dacc029eaf3b245c4a2c5b4f9857dbe43297317988b",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-0e8975208941584816601a707bc85a3673d005d89165d4a9d6ea64127cf749ef",
+        "extra_surface": [],
+        "package": "mkdocs",
+        "python_minor": "3.9",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-39-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.9.25"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "8.1.8"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "8.7.1"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.9"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-0a33b7525c550655",
+        "project_plan_digest": "f7bcd5fb99c85d4feaaf00b8482bf5d4dda70249797a031ae61e8af777f5f141",
+        "scope": {
+          "attempt_ref": "64bfd0eff6f54642a02b4d745778fff01eb6333a34c358c415e7a5f57ffb45b2",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "64bfd0eff6f54642a02b4d745778fff01eb6333a34c358c415e7a5f57ffb45b2",
+        "cell_ref": "cell-0e8975208941584816601a707bc85a3673d005d89165d4a9d6ea64127cf749ef",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "95e74458f758c1c1b89ebf03504a0d057e56cc9539bd627b2e77f79073d6ae2c",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0150.log",
+      "test_summary": [
+        "Ran 725 tests in 9.011s",
+        "FAILED (failures=4, errors=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "ERROR: test_merge_translations (tests.localization_tests.LocalizationTests)",
+        "ERROR: test_translations_found (tests.localization_tests.LocalizationTests)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url='http://localhost:123/documentation/')",
+        "FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests)",
+        "FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests)"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "309b16b7557c6794f878e641a33b814d3d590ee569b59173b2b02384e2888c20",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "8dd571de5a1c2171d4ed6dacc029eaf3b245c4a2c5b4f9857dbe43297317988b",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d"
+        ],
+        "cell_id": "cell-796f5fe0ede94d92d853607c4b1672a2a6e027289caf19187b8ec0177f2557b8",
+        "extra_surface": [
+          "i18n"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.9",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "BASELINE_REJECTION",
+      "baseline_interpreter": {
+        "abi": "cpython-39-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.9.25"
+      },
+      "baseline_vector": [
+        {
+          "name": "babel",
+          "version": "2.18.0"
+        },
+        {
+          "name": "click",
+          "version": "8.1.8"
+        },
+        {
+          "name": "ghp-import",
+          "version": "2.1.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "8.7.1"
+        },
+        {
+          "name": "jinja2",
+          "version": "3.1.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.9"
+        },
+        {
+          "name": "markupsafe",
+          "version": "3.0.3"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.2"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3"
+        },
+        {
+          "name": "pathspec",
+          "version": "1.1.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "6.0.3"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "1.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "configured-verifier",
+          "terminal": {
+            "exit_code": 1,
+            "kind": "normal-exit"
+          }
+        },
+        "cause": "VERIFIER_EXITED_NONZERO",
+        "disposition": "REJECTED",
+        "failure_id": "failure-3600c6736ff1bef6",
+        "project_plan_digest": "44a301721c5484542d02d7a55fb9c8fc0778b8ead4cc3089fc1207010e5e9d93",
+        "scope": {
+          "attempt_ref": "dcba96c23cd900c13fcbab7946b6d33c00166ec4c372d889d92b102445b54aea",
+          "kind": "attempt"
+        },
+        "stage": "test"
+      },
+      "terminal_attempt": {
+        "attempt_id": "dcba96c23cd900c13fcbab7946b6d33c00166ec4c372d889d92b102445b54aea",
+        "cell_ref": "cell-796f5fe0ede94d92d853607c4b1672a2a6e027289caf19187b8ec0177f2557b8",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "original-harness-v1",
+        "requested_resolution": "highest",
+        "resolution_context_digest": "6db570e3358f805876c678eddc8e362a4464f56800748dc5624ea2582dc23a6e",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0144.log",
+      "test_summary": [
+        "Ran 725 tests in 9.046s",
+        "FAILED (failures=2, skipped=4)"
+      ],
+      "failed_cases": [
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url=None)",
+        "FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests) (serve_url='http://localhost:123/documentation/')"
+      ]
+    },
+    {
+      "cell": {
+        "active_declaration_refs": [
+          "04a15914a54a61a7fb854c174a70f2a5feaf1f945ca5942716372b00e350d412",
+          "0507ff36029371dbbdac1f1f2a30f304156f0dfd1b4d4cfd8d42aa8acddf0cbf",
+          "080b5b51c75f679c4c1b113dd350fba086b5890ff26b12f178a0bc1abe91054a",
+          "1742a210360990619c64dd201a877d471e467df51f552a0a1c140d7ea23b0ad3",
+          "18a2e4603b3ed532fb1a8769903f2303904fcf3506662fc02c0cf28158dd4dda",
+          "2954de83ec80f04fdab01b4c0fdc9ae9800d58413a371cab7dc30368beb8683b",
+          "363d2d8b1eb45c7abacd8c437f0e5bc986f40f6d2561296a4b1bbff3c6053270",
+          "36a675f3cfc5420e865110d76ff68afa5fda4bff4b937060cba888e6a9539651",
+          "478831f5e4bf094183b16bf647746781ab03ff864a95db7fa790e96497bbee73",
+          "4f6c54b27685e0dd12ee3031a0bb8f836420314794fcced4bbb4b6aaf0df70f4",
+          "547ca70ffc4e67c437d54ef09c72a3daa0bba9f82d703f95f73834177b163eec",
+          "55fef73a0493922799095095b7e26e7f2a08c32597d6ac96f62d2a4a63d3f939",
+          "5a6c7e733a79fa5a860c73e82472065c92a5bbb2fe0d34dcba1e6d9b5aea56fe",
+          "6377141ea90260f00d66e37fe952051020a3098fa3a4d84e9c81d36f8e434342",
+          "65198aecfd4cb1cdc47ac3ec6c5ca2ded7d09cf575b8a5c5b950339abbad7c4e",
+          "6ded2211ccf993de0c754cf6a5dfbf6ff35c94acffe5b1bade80d8b7bb27bcd0",
+          "6f6bfd090c6bedcfa5dc793cd1b678c7ae1ab08d10d1166712f4715c0e79a144",
+          "7239e08f5d1e31a7007c4c0b7bd259f66e8c50f0e7b936fe0e5a7c540a080c5f",
+          "745e20578e3c482769579e8bb72a9e7f1320c8e41ef2aec8370766acad2c5d29",
+          "8dd571de5a1c2171d4ed6dacc029eaf3b245c4a2c5b4f9857dbe43297317988b",
+          "aae07b0d20bbb7bd5af558bb652ed691d762cadeffe5c1f23254d295f72557d1",
+          "bb40a8071cc16f89bb6639b6b81ba49135edc8ad58a0e6a9542148f9befd685f",
+          "cd5c78a18067d204db7cc732debefdbb156db7b4adde2c185cb67f30880bf93b",
+          "d29e2d305eea5f27d88a950d937361ac93174e3ab9a88fc61a3c04e88e52f2bd",
+          "e0700a3f1fb4186454e860498556fc64ac989cf79a0f97baad48b191951257d0",
+          "e637a7a8277a93339a933340eac658a41f558b2f61c3f2f200d8ecac288dad7d",
+          "fe27377d49183fe08ead241bc480025e2563938111bb97afbf1dddff04342999"
+        ],
+        "cell_id": "cell-375938afbd75f0557e9c2577d20e11aeac9f4aae5db11adcca5481fc33547399",
+        "extra_surface": [
+          "min-versions"
+        ],
+        "package": "mkdocs",
+        "python_minor": "3.9",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "status": "CELL_INDETERMINATE",
+      "baseline_interpreter": {
+        "abi": "cpython-39-x86_64-linux-gnu",
+        "implementation": "cpython",
+        "version": "3.9.25"
+      },
+      "baseline_vector": [
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "1.0.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "4.4.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.11.1"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.6"
+        },
+        {
+          "name": "markupsafe",
+          "version": "2.0.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "20.5"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.11.1"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "2.0.0"
+        }
+      ],
+      "terminal_failure": {
+        "authority": {
+          "kind": "process",
+          "process": {
+            "duration_seconds": 0.2267421239957912,
+            "exit_code": 1,
+            "stderr_complete": true,
+            "stdout_complete": true,
+            "timed_out": false
+          },
+          "summary_code": "resolution-build-failure"
+        },
+        "cause": "BUILD_FAILURE",
+        "disposition": "INDETERMINATE",
+        "failure_id": "failure-14a5d6693af7a77a",
+        "scope": {
+          "attempt_ref": "5713e2f6f0cb51959f63c23b8b2e3e34f2f9a076eef1041fc5881cd6765cdeea",
+          "kind": "attempt"
+        },
+        "stage": "resolve-project"
+      },
+      "terminal_attempt": {
+        "attempt_id": "5713e2f6f0cb51959f63c23b8b2e3e34f2f9a076eef1041fc5881cd6765cdeea",
+        "cell_ref": "cell-375938afbd75f0557e9c2577d20e11aeac9f4aae5db11adcca5481fc33547399",
+        "harness_baseline_digest": "d0314c0108eeb69a7feacc951328a3bcd1589467b4e80957ca4c627c3247e9ff",
+        "harness_declaration_ids": [],
+        "harness_policy_identity": "harness-relaxation-v1",
+        "requested_managed_vector": [
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "importlib-metadata",
+            "version": "4.4.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.0"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ],
+        "requested_resolution": "exact-vector",
+        "resolution_context_digest": "65858d431bc8b76477f19cbf8e2dc2146f8a63441150eecce34c135b2a350aba",
+        "selected_candidate_evidence_digest": "ac78c34485139e7e4a10d2c8ed127ef24bea6599d7ecb5a15e3e30e92830fc50",
+        "source_plan_identity": "e135409d22614f6b8ddb4dcf0cbe2575455afa547bc2d1d50ebb0976ab99474a"
+      },
+      "process_log": "20260905T215946.368564Z-1436881-b755d6da/process-0516.log",
+      "test_summary": [],
+      "failed_cases": [],
+      "build_error_excerpt": [
+        "except CCompilerError, x:",
+        "SyntaxError: invalid syntax"
+      ]
+    }
+  ]
+}

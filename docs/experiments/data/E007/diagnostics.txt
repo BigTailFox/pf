@@ -1,0 +1,294 @@
+Historical, already-redacted process logs from the original search. Full bodies copied for four representative failures.
+
+failure-ae658c88fed55bef | 20260905T215946.368564Z-1436881-b755d6da/process-0121.log
+format: pf-process-log-v2
+process_id: 121
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-npgg2pmn/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.160632393002743
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 7229
+
+--- stdout ---
+
+--- stderr ---
+.................................FF...........................................................................................................................................................................................................................................................................................................................................................................................................................................................FEFE.......................................s..................................................s................s...............s........................................................................................................................
+======================================================================
+ERROR: test_merge_translations (tests.localization_tests.LocalizationTests.test_merge_translations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/localization_tests.py", line 71, in test_merge_translations
+    with mock.patch('mkdocs.localization.Translations.load', side_effect=side_effet):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1430, in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/pkgutil.py", line 715, in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+AttributeError: module 'mkdocs.localization' has no attribute 'Translations'
+
+======================================================================
+ERROR: test_translations_found (tests.localization_tests.LocalizationTests.test_translations_found)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/localization_tests.py", line 51, in test_translations_found
+    with mock.patch('mkdocs.localization.Translations.load', return_value=translations):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 1430, in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/pkgutil.py", line 715, in resolve_name
+    result = getattr(result, p)
+             ^^^^^^^^^^^^^^^^^^
+AttributeError: module 'mkdocs.localization' has no attribute 'Translations'
+
+======================================================================
+FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/build_tests.py", line 606, in test_draft_docs_with_comments_from_user_guide
+    self.assertPathNotExists(site_dir, 'other_unpublished.html')
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/base.py", line 117, in assertPathNotExists
+    raise self.failureException(msg)
+AssertionError: The path '/tmp/mkdocs_test-a9nc2niw/other_unpublished.html' does exist
+
+======================================================================
+FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/build_tests.py", line 616, in test_draft_docs_with_comments_from_user_guide
+    with self._assert_build_logs(expected_logs):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/build_tests.py", line 572, in _assert_build_logs
+    self.assertEqual('\n'.join(msgs), textwrap.dedent(expected).strip('\n'))
+AssertionError: '' != 'INFO:The following pages are being built only for the preview but will be excluded from `mkdocs build` per `draft_docs` config:\n  - http://localhost:123/documentation/other_unpublished.html\n  - http://localhost:123/documentation/test/other_unpublished.html'
++ INFO:The following pages are being built only for the preview but will be excluded from `mkdocs build` per `draft_docs` config:
++   - http://localhost:123/documentation/other_unpublished.html
++   - http://localhost:123/documentation/test/other_unpublished.html
+
+======================================================================
+FAIL: test_jinja_extension_installed (tests.localization_tests.LocalizationTests.test_jinja_extension_installed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/localization_tests.py", line 18, in test_jinja_extension_installed
+    self.env.add_extension.assert_called_once_with('jinja2.ext.i18n')
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 951, in assert_called_once_with
+    return self.assert_called_with(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py", line 939, in assert_called_with
+    raise AssertionError(_error_message()) from cause
+AssertionError: expected call not found.
+Expected: add_extension('jinja2.ext.i18n')
+  Actual: add_extension(<class 'mkdocs.localization.NoBabelExtension'>)
+
+======================================================================
+FAIL: test_no_translations_found (tests.localization_tests.LocalizationTests.test_no_translations_found)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/base.py", line 80, in wrapper
+    return fn(self, td, *args)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pf-proposal-npgg2pmn/source/mkdocs/tests/localization_tests.py", line 38, in test_no_translations_found
+    with self.assertLogs('mkdocs') as cm:
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/_log.py", line 84, in __exit__
+    self._raiseFailure(
+AssertionError: no logs of level INFO or higher triggered on mkdocs
+
+----------------------------------------------------------------------
+Ran 725 tests in 8.834s
+
+FAILED (failures=4, errors=2, skipped=4)
+
+failure-9afe7a00b0b085a9 | 20260905T215946.368564Z-1436881-b755d6da/process-0075.log
+format: pf-process-log-v2
+process_id: 75
+argv: ["python", "-m", "unittest", "discover", "-s", "mkdocs", "-p", "*tests.py"]
+cwd: "/tmp/pf-proposal-hz3c75y1/source"
+environment_names: ["PATH"]
+timeout_seconds: 1800
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 9.336437959995237
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 3002
+
+--- stdout ---
+
+--- stderr ---
+.................................FF......................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s..................................................s................s...............s........................................................................................................................
+======================================================================
+FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url=None)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-hz3c75y1/source/mkdocs/tests/build_tests.py", line 606, in test_draft_docs_with_comments_from_user_guide
+    self.assertPathNotExists(site_dir, 'other_unpublished.html')
+  File "/tmp/pf-proposal-hz3c75y1/source/mkdocs/tests/base.py", line 117, in assertPathNotExists
+    raise self.failureException(msg)
+AssertionError: The path '/tmp/mkdocs_test-wfve7jvo/other_unpublished.html' does exist
+
+======================================================================
+FAIL: test_draft_docs_with_comments_from_user_guide (tests.build_tests.BuildTests.test_draft_docs_with_comments_from_user_guide) (serve_url='http://localhost:123/documentation/')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pf-proposal-hz3c75y1/source/mkdocs/tests/build_tests.py", line 616, in test_draft_docs_with_comments_from_user_guide
+    with self._assert_build_logs(expected_logs):
+  File "/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/tmp/pf-proposal-hz3c75y1/source/mkdocs/tests/build_tests.py", line 572, in _assert_build_logs
+    self.assertEqual('\n'.join(msgs), textwrap.dedent(expected).strip('\n'))
+AssertionError: '' != 'INFO:The following pages are being built only for the preview but will be excluded from `mkdocs build` per `draft_docs` config:\n  - http://localhost:123/documentation/other_unpublished.html\n  - http://localhost:123/documentation/test/other_unpublished.html'
++ INFO:The following pages are being built only for the preview but will be excluded from `mkdocs build` per `draft_docs` config:
++   - http://localhost:123/documentation/other_unpublished.html
++   - http://localhost:123/documentation/test/other_unpublished.html
+
+----------------------------------------------------------------------
+Ran 725 tests in 8.962s
+
+FAILED (failures=2, skipped=4)
+
+failure-2a0d57da8f366248 | 20260905T215946.368564Z-1436881-b755d6da/process-0460.log
+format: pf-process-log-v2
+process_id: 460
+argv: ["/home/llh/pf/.venv/bin/uv", "pip", "compile", "pyproject.toml", "/tmp/pf-proposal-lwxtos1u/project-requirements.in", "--format", "pylock.toml", "--output-file", "/tmp/pf-proposal-lwxtos1u/pylock.pf-project.toml", "--python", "/tmp/pf-proposal-lwxtos1u/environment/bin/python", "--python-version", "3.11.15", "--python-platform", "x86_64-unknown-linux-gnu", "--resolution", "highest", "--exclude-newer", "2026-09-05T21:59:46.544513+00:00", "--no-header", "--no-progress", "--color", "never", "--extra", "min-versions"]
+cwd: "/tmp/pf-proposal-lwxtos1u/source"
+environment_names: ["APPDATA", "XDG_CONFIG_HOME"]
+timeout_seconds: 600
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 1.0336981439977535
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 1680
+
+--- stdout ---
+
+--- stderr ---
+  × Failed to build `jinja2 @
+  │ https://files.pythonhosted.org/packages/01/82/b2ed16b1cbea5ddbf1462fb65cf67ce7cd780dc1b6a6f0244f1387fa007d/Jinja2-2.0.tar.gz#sha256=15b17b02d6042bbec2511b655b17561633c8cf5dad68c42356f3f82ec24e4c57`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit
+      status: 1)
+
+      [stderr]
+      Traceback (most recent call last):
+        File "<string>", line 14, in <module>
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpFvBPav/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 333, in get_requires_for_build_wheel
+          return self._get_build_requires(config_settings, requirements=[])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpFvBPav/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 301, in _get_build_requires
+          self.run_setup()
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpFvBPav/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 520, in run_setup
+          super().run_setup(setup_script=setup_script)
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpFvBPav/lib/python3.11/site-packages/setuptools/build_meta.py",
+      line 317, in run_setup
+          exec(code, locals())  # noqa: S102 # exec is intentional here
+          ^^^^^^^^^^^^^^^^^^^^
+        File "<string>", line 91
+          except CCompilerError, x:
+                 ^^^^^^^^^^^^^^^^^
+      SyntaxError: multiple exception types must be parenthesized
+
+
+hint: Build failures usually indicate a problem with the package or the build environment
+
+failure-16483d01d7a4c2f4 | 20260905T215946.368564Z-1436881-b755d6da/process-0476.log
+format: pf-process-log-v2
+process_id: 476
+argv: ["/home/llh/pf/.venv/bin/uv", "pip", "compile", "pyproject.toml", "/tmp/pf-proposal-_0931vkm/project-requirements.in", "--format", "pylock.toml", "--output-file", "/tmp/pf-proposal-_0931vkm/pylock.pf-project.toml", "--python", "/tmp/pf-proposal-_0931vkm/environment/bin/python", "--python-version", "3.14.7", "--python-platform", "x86_64-unknown-linux-gnu", "--resolution", "highest", "--exclude-newer", "2026-09-05T21:59:46.544513+00:00", "--no-header", "--no-progress", "--color", "never", "--extra", "min-versions"]
+cwd: "/tmp/pf-proposal-_0931vkm/source"
+environment_names: ["APPDATA", "XDG_CONFIG_HOME"]
+timeout_seconds: 600
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.24658641000132775
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 1819
+
+--- stdout ---
+
+--- stderr ---
+  × Failed to build `jinja2 @
+  │ https://files.pythonhosted.org/packages/01/82/b2ed16b1cbea5ddbf1462fb65cf67ce7cd780dc1b6a6f0244f1387fa007d/Jinja2-2.0.tar.gz#sha256=15b17b02d6042bbec2511b655b17561633c8cf5dad68c42356f3f82ec24e4c57`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit
+      status: 1)
+
+      [stderr]
+      Traceback (most recent call last):
+        File "<string>", line 14, in <module>
+          requires = get_requires_for_build({})
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpX4zN3O/lib/python3.14/site-packages/setuptools/build_meta.py",
+      line 333, in get_requires_for_build_wheel
+          return self._get_build_requires(config_settings, requirements=[])
+                 ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpX4zN3O/lib/python3.14/site-packages/setuptools/build_meta.py",
+      line 301, in _get_build_requires
+          self.run_setup()
+          ~~~~~~~~~~~~~~^^
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpX4zN3O/lib/python3.14/site-packages/setuptools/build_meta.py",
+      line 520, in run_setup
+          super().run_setup(setup_script=setup_script)
+          ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/llh/.cache/uv/builds-v0/.tmpX4zN3O/lib/python3.14/site-packages/setuptools/build_meta.py",
+      line 317, in run_setup
+          exec(code, locals())  # noqa: S102 # exec is intentional here
+          ~~~~^^^^^^^^^^^^^^^^
+        File "<string>", line 96
+          print '*' * width
+          ^^^^^^^^^^^^^^^^^
+      SyntaxError: Missing parentheses in call to 'print'. Did you mean
+      print(...)?
+
+
+hint: Build failures usually indicate a problem with the package or the build environment
