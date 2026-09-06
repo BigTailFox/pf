@@ -10,6 +10,9 @@ from typing import Callable, cast
 import pytest
 
 from pf.adapters.pytest_observer import PROTOCOL
+from pf.adapters.process import SubprocessRunner
+from pf.adapters.test_command import ConfiguredVerifier
+from pf.schemas.evaluation import StageProgress, VerifierPass, VerifierRequest
 
 
 MANIFEST = Path("tests/pytest_observer_qualification/matrix-manifest.json")
@@ -73,26 +76,42 @@ class TestPytestObserverQualificationRunner:
         assert len(listed_cases) == len(set(listed_cases))
         assert set(listed_cases) == committed_cases
 
-    def test_transparency_runner_replays_the_committed_current_profile(
+    def test_run_replays_current_profile_with_isolated_nested_progress(
         self,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            [
-                "qualify_pytest_observer.py",
-                "--inner",
-                "--autoload",
-                "--plugin-source",
-                "src/pf/_pytest_observer.py",
-            ],
+        root = Path(__file__).resolve().parents[1]
+        output = tmp_path / "qualification.json"
+        # Run the full qualification once inside an observed pytest invocation.
+        # This also checks that nested qualification cannot overwrite outer progress.
+        (tmp_path / "test_qualification.py").write_text(
+            "from contextlib import redirect_stdout\n"
+            "from io import StringIO\n"
+            "from pathlib import Path\n"
+            "from runpy import run_path\n"
+            "import sys\n"
+            "def test_profile():\n"
+            f"    main = run_path({str(root / 'scripts/qualify_pytest_observer.py')!r})['main']\n"
+            f"    sys.argv = ['qualify_pytest_observer.py', '--inner', '--autoload', '--plugin-source', {str(root / 'src/pf/_pytest_observer.py')!r}]\n"
+            "    output = StringIO()\n"
+            "    with redirect_stdout(output):\n"
+            "        assert main() == 0\n"
+            f"    Path({str(output)!r}).write_text(output.getvalue())\n",
+            encoding="utf-8",
         )
-
-        assert _qualification_main() == 0
-
-        result = json.loads(capsys.readouterr().out)
+        observed: list[StageProgress | None] = []
+        run = ConfiguredVerifier(SubprocessRunner()).run(
+            VerifierRequest(
+                command=(sys.executable, "-m", "pytest", "-q"),
+                cwd=tmp_path,
+                timeout_seconds=30,
+            ),
+            progress=observed.append,
+        )
+        assert isinstance(run.authoritative, VerifierPass), run.diagnostics
+        assert None not in observed
+        assert observed[-1] == StageProgress(completed=1, total=1, unit="tests")
+        result = json.loads(output.read_text())
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         profile = next(
             item

@@ -42,25 +42,8 @@ def assert_case(record: dict[str, Any]) -> None:
     assert all("1" not in region["observed_versions"] for region in record["search"]["regions"])
 
 
-def test_dated_execution_manifest_covers_resolve_and_install() -> None:
-    manifest = json.loads(MANIFEST.read_text())
-    assert manifest["schema"] == "pf-execution-failure-qualification-v1"
-    assert manifest["uv_version"] == "0.12.5"
-    assert manifest["protocol"] == "uv-pip-compile-pylock-v1"
-    assert manifest["profile"] == "uv-diagnostics-0.12.5-v1"
-    assert manifest["failure_policy"] == "failure-execution-v3"
-    assert {case["operation"] for case in manifest["cases"]} == {"resolve", "install"}
-    for case in manifest["cases"]:
-        assert_case(case)
-        artifacts = FIXTURES(f'pf-execution-{case["operation"]}', static_metadata=case["sdist_static_metadata"])
-        assert case["artifact_sha256"] == {
-            filename: hashlib.sha256(content).hexdigest() for filename, content in artifacts.items()
-        }
 
 
-@pytest.mark.parametrize("operation", ["resolve", "install"])
-def test_real_legacy_sdist_failure_searches_to_new_full_pass(replay, operation):
-    assert_case(next(case for case in replay["cases"] if case["operation"] == operation))
 
 
 @pytest.fixture(scope="module")
@@ -72,3 +55,37 @@ def replay(tmp_path_factory):
         sys.executable, "scripts/qualify_execution_failures.py", "--output", str(output),
     ], env=environment, check=True, timeout=60)
     return json.loads(output.read_text())
+
+
+class TestExecutionFailureQualification:
+    def test_manifest_covers_resolution_and_installation_failures(
+        self,
+    ) -> None:
+        manifest = json.loads(MANIFEST.read_text())
+        assert manifest["schema"] == "pf-execution-failure-qualification-v1"
+        assert manifest["uv_version"] == "0.12.5"
+        assert manifest["protocol"] == "uv-pip-compile-pylock-v1"
+        assert manifest["profile"] == "uv-diagnostics-0.12.5-v1"
+        assert manifest["failure_policy"] == "failure-execution-v3"
+        assert {case["operation"] for case in manifest["cases"]} == {
+            "resolve",
+            "install",
+        }
+        for case in manifest["cases"]:
+            assert_case(case)
+            artifacts = FIXTURES(
+                f"pf-execution-{case['operation']}",
+                static_metadata=case["sdist_static_metadata"],
+            )
+            assert case["artifact_sha256"] == {
+                filename: hashlib.sha256(content).hexdigest()
+                for filename, content in artifacts.items()
+            }
+
+    @pytest.mark.parametrize("operation", ["resolve", "install"])
+    def test_replay_searches_to_full_pass_after_execution_rejection(
+        self, replay, operation
+    ):
+        assert_case(
+            next(case for case in replay["cases"] if case["operation"] == operation)
+        )

@@ -62,131 +62,160 @@ def _enable_progress(
     monkeypatch.setenv("PF_PYTEST_OBSERVER_NONCE", nonce)
 
 
+@pytest.fixture
+def artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    for variable in (
+        "PF_PYTEST_OBSERVER_DIR",
+        "PF_PYTEST_OBSERVER_DETAILS_DIR",
+    ):
+        monkeypatch.setenv(variable, str(tmp_path))
+    monkeypatch.setenv("PF_PYTEST_OBSERVER_NONCE", "nonce")
+
+    def finish(excinfo: object = None):
+        _finish_command(excinfo)
+        summary = json.loads(next(tmp_path.glob("summary-*.json")).read_text())
+        details = [
+            json.loads(path.read_text()) for path in tmp_path.glob("details-*.json")
+        ]
+        assert summary["protocol"] == "pf-pytest-observer-v1"
+        assert summary["run_nonce"] == "nonce"
+        assert summary["finalized"] is True
+        return summary, details
+
+    return finish
+
+
+def _xdist_session(monkeypatch: pytest.MonkeyPatch, controller: bool, worker: bool):
+    import xdist
+
+    class PluginManager:
+        @staticmethod
+        def hasplugin(name: str) -> bool:
+            return name == "xdist"
+
+    monkeypatch.setattr(xdist, "is_xdist_controller", lambda session: controller)
+    monkeypatch.setattr(xdist, "is_xdist_worker", lambda session: worker)
+    return _session(pluginmanager=PluginManager())
+
+
 class TestPytestFailureWitnessEvents:
-    def test_pytest_collectreport_records_a_collection_failure(self) -> None:
+    def test_pytest_collectreport_records_collection_failure(self, artifacts) -> None:
         observer.pytest_collectreport(
             SimpleNamespace(failed=True, nodeid="tests/test_bad.py")
         )
 
-        assert observer._facts == {("COLLECTION_FAILED", "collect")}
-        assert observer._failure_details == {"tests/test_bad.py": "collect"}
+        summary, details = artifacts()
+        assert summary["facts"] == [{"kind": "COLLECTION_FAILED", "phase": "collect"}]
+        assert details[0]["first"] == {
+            "nodeid": "tests/test_bad.py",
+            "phase": "collect",
+        }
+        assert details[0]["total"] == 1
 
-    def test_pytest_collectreport_ignores_a_success(self) -> None:
+    def test_pytest_collectreport_omits_success(self, artifacts) -> None:
         observer.pytest_collectreport(SimpleNamespace(failed=False))
 
-        assert observer._facts == set()
+        summary, details = artifacts()
+        assert summary["facts"] == []
+        assert details == []
 
     @pytest.mark.parametrize("phase", ("setup", "call", "teardown"))
-    def test_pytest_runtest_logreport_records_a_test_failure(
-        self,
-        phase: str,
+    def test_pytest_runtest_logreport_records_test_failure(
+        self, artifacts, phase: str
+    ) -> None:
+        nodeid = "tests/test_bad.py::test_bad"
+        observer.pytest_runtest_logreport(
+            SimpleNamespace(failed=True, when=phase, nodeid=nodeid)
+        )
+
+        summary, details = artifacts()
+        assert summary["facts"] == [{"kind": "TEST_FAILED", "phase": phase}]
+        assert details[0]["first"] == {"nodeid": nodeid, "phase": phase}
+        assert details[0]["total"] == 1
+
+    @pytest.mark.parametrize(
+        "failed,phase",
+        [(True, "collect"), (False, "call")],
+        ids=["non-test-phase", "success"],
+    )
+    def test_pytest_runtest_logreport_omits_nonfailure(
+        self, artifacts, failed, phase
     ) -> None:
         observer.pytest_runtest_logreport(
-            SimpleNamespace(
-                failed=True, when=phase, nodeid="tests/test_bad.py::test_bad"
-            )
+            SimpleNamespace(failed=failed, when=phase, nodeid="test_ok.py")
         )
 
-        assert observer._facts == {("TEST_FAILED", phase)}
-        assert observer._failure_details == {"tests/test_bad.py::test_bad": phase}
+        summary, details = artifacts()
+        assert summary["facts"] == []
+        assert details == []
 
-    def test_pytest_runtest_logreport_ignores_a_non_test_phase(self) -> None:
-        observer.pytest_runtest_logreport(
-            SimpleNamespace(failed=True, when="collect", nodeid="test_bad.py")
-        )
-
-        assert observer._facts == set()
-
-    def test_pytest_runtest_logreport_ignores_a_success(self) -> None:
-        observer.pytest_runtest_logreport(
-            SimpleNamespace(failed=False, when="call", nodeid="test_ok.py")
-        )
-
-        assert observer._facts == set()
-
-    def test_pytest_internalerror_records_an_internal_error(self) -> None:
+    def test_pytest_internalerror_records_internal_error(self, artifacts) -> None:
         observer.pytest_internalerror()
 
-        assert observer._facts == {("INTERNAL_ERROR", "pytest")}
+        summary, _ = artifacts()
+        assert summary["facts"] == [{"kind": "INTERNAL_ERROR", "phase": "pytest"}]
 
     @pytest.mark.parametrize(
         "nodeid",
-        (
+        [
             None,
             "",
             "x" * 4_097,
             "test_bad.py::test_bad\nvalue",
             "test_bad.py::test_bad\x7fvalue",
             "test_bad.py::test_bad\ud800value",
-        ),
-        ids=(
+        ],
+        ids=[
             "non-string",
             "empty",
             "oversized",
             "control",
-            "c1-control",
+            "delete-control",
             "surrogate",
-        ),
+        ],
     )
-    def test_pytest_runtest_logreport_invalidates_an_unsafe_nodeid(
-        self,
-        nodeid: object,
+    def test_pytest_runtest_logreport_omits_unsafe_details(
+        self, artifacts, nodeid
     ) -> None:
         observer.pytest_runtest_logreport(
             SimpleNamespace(failed=True, when="call", nodeid=nodeid)
         )
-
-        assert observer._failure_details_valid is False
-
-    def test_pytest_runtest_logreport_accepts_a_safe_nodeid(self) -> None:
+        # Later valid reports cannot turn a partial detail set into complete evidence.
         observer.pytest_runtest_logreport(
-            SimpleNamespace(
-                failed=True,
-                when="call",
-                nodeid="test_ok.py::test_ok",
-            )
+            SimpleNamespace(failed=True, when="call", nodeid="test_ok.py::test_ok")
         )
 
-        assert observer._failure_details_valid is True
+        summary, details = artifacts()
+        assert summary["facts"] == [{"kind": "TEST_FAILED", "phase": "call"}]
+        assert details == []
 
-    def test_pytest_runtest_logreport_preserves_the_first_failure_phase(self) -> None:
-        report = SimpleNamespace(
-            failed=True,
-            when="setup",
-            nodeid="tests/test_bad.py::test_bad",
-        )
-        observer.pytest_runtest_logreport(report)
-        report.when = "teardown"
-
-        observer.pytest_runtest_logreport(report)
-
-        assert observer._failure_details == {report.nodeid: "setup"}
-
-    def test_pytest_runtest_logreport_invalidates_excess_failure_details(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_pytest_runtest_logreport_preserves_first_failure_phase(
+        self, artifacts
     ) -> None:
-        monkeypatch.setattr(observer, "_MAX_FAILURE_DETAILS", 1)
-        for nodeid in ("test_one.py::test_bad", "test_two.py::test_bad"):
+        nodeid = "tests/test_bad.py::test_bad"
+        for phase in ("setup", "teardown"):
             observer.pytest_runtest_logreport(
-                SimpleNamespace(failed=True, when="call", nodeid=nodeid)
+                SimpleNamespace(failed=True, when=phase, nodeid=nodeid)
             )
 
-        assert observer._failure_details_valid is False
-        assert observer._failure_details == {}
+        _, details = artifacts()
+        assert details[0]["first"] == {"nodeid": nodeid, "phase": "setup"}
+        assert details[0]["total"] == 1
 
-    def test_pytest_runtest_logreport_ignores_details_after_invalidation(
-        self,
-    ) -> None:
-        observer._failure_details_valid = False
+    def test_pytest_runtest_logreport_omits_excess_details(self, artifacts) -> None:
+        # Exercise the bounded protocol through reports, without replacing its storage.
+        for index in range(10_001):
+            observer.pytest_runtest_logreport(
+                SimpleNamespace(
+                    failed=True, when="call", nodeid=f"test_bad.py::test_bad[{index}]"
+                )
+            )
 
-        observer.pytest_runtest_logreport(
-            SimpleNamespace(failed=True, when="call", nodeid="test_bad.py::test_bad")
-        )
+        summary, details = artifacts()
+        assert summary["facts"] == [{"kind": "TEST_FAILED", "phase": "call"}]
+        assert details == []
 
-        assert observer._failure_details == {}
-
-    def test_pytest_runtest_logreport_invalidates_unreadable_nodeid(self) -> None:
+    def test_pytest_runtest_logreport_omits_unreadable_details(self, artifacts) -> None:
         class Report:
             failed = True
             when = "call"
@@ -197,109 +226,67 @@ class TestPytestFailureWitnessEvents:
 
         observer.pytest_runtest_logreport(Report())
 
-        assert observer._failure_details_valid is False
+        summary, details = artifacts()
+        assert summary["facts"] == [{"kind": "TEST_FAILED", "phase": "call"}]
+        assert details == []
 
 
 class TestPytestFailureWitnessExecutionMode:
-    def test_pytest_sessionstart_selects_serial_without_xdist(self) -> None:
+    def test_pytest_sessionstart_selects_serial_without_xdist(self, artifacts) -> None:
         observer.pytest_sessionstart(_session())
 
-        assert observer._execution_mode == "serial"
-
-    @staticmethod
-    def _patch_xdist(
-        monkeypatch: pytest.MonkeyPatch,
-        *,
-        controller: bool,
-        worker: bool,
-    ) -> object:
-        import xdist
-
-        class PluginManager:
-            @staticmethod
-            def hasplugin(name: str) -> bool:
-                return name == "xdist"
-
-        monkeypatch.setattr(xdist, "is_xdist_controller", lambda session: controller)
-        monkeypatch.setattr(xdist, "is_xdist_worker", lambda session: worker)
-        return _session(pluginmanager=PluginManager())
+        summary, _ = artifacts()
+        assert summary["execution_mode"] == "serial"
 
     @pytest.mark.parametrize(
-        ("controller", "worker"),
-        ((True, False), (False, True)),
-        ids=("controller", "worker"),
+        "controller,worker,expected",
+        [
+            (True, False, "xdist"),
+            (False, True, "xdist"),
+            (True, True, "unknown"),
+            (False, False, "serial"),
+        ],
+        ids=["controller", "worker", "conflicting-roles", "no-role"],
     )
-    def test_pytest_sessionstart_selects_xdist_for_one_role(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        controller: bool,
-        worker: bool,
+    def test_pytest_sessionstart_classifies_xdist_roles(
+        self, artifacts, monkeypatch, controller, worker, expected
     ) -> None:
-        session = self._patch_xdist(
-            monkeypatch,
-            controller=controller,
-            worker=worker,
-        )
+        observer.pytest_sessionstart(_xdist_session(monkeypatch, controller, worker))
 
-        observer.pytest_sessionstart(session)
+        summary, _ = artifacts()
+        assert summary["execution_mode"] == expected
 
-        assert observer._execution_mode == "xdist"
-
-    def test_pytest_sessionstart_fails_closed_for_both_xdist_roles(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        session = self._patch_xdist(monkeypatch, controller=True, worker=True)
-
-        observer.pytest_sessionstart(session)
-
-        assert observer._execution_mode == "unknown"
-
-    def test_pytest_sessionstart_selects_serial_without_an_xdist_role(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        session = self._patch_xdist(monkeypatch, controller=False, worker=False)
-
-        observer.pytest_sessionstart(session)
-
-        assert observer._execution_mode == "serial"
-
-    def test_pytest_sessionstart_fails_closed_when_xdist_probe_fails(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_pytest_sessionstart_reports_unknown_when_probe_fails(
+        self, artifacts, monkeypatch
     ) -> None:
         import xdist
 
-        class PluginManager:
-            @staticmethod
-            def hasplugin(name: str) -> bool:
-                return name == "xdist"
+        session = _xdist_session(monkeypatch, False, False)
 
         def fail(session: object) -> bool:
             raise RuntimeError("unavailable")
 
         monkeypatch.setattr(xdist, "is_xdist_controller", fail)
+        observer.pytest_sessionstart(session)
 
-        observer.pytest_sessionstart(_session(pluginmanager=PluginManager()))
-
-        assert observer._execution_mode == "unknown"
+        summary, _ = artifacts()
+        assert summary["execution_mode"] == "unknown"
 
 
 class TestPytestFailureWitnessProgress:
     def test_pytest_collection_finish_initializes_progress(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+        self, tmp_path, monkeypatch
     ) -> None:
         _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
-        items = [
-            SimpleNamespace(nodeid="test_one.py"),
-            SimpleNamespace(nodeid="test_two.py"),
-        ]
-
-        observer.pytest_collection_finish(_session(items=items))
+        observer.pytest_sessionstart(_session())
+        observer.pytest_collection_finish(
+            _session(
+                items=[
+                    SimpleNamespace(nodeid="test_one.py"),
+                    SimpleNamespace(nodeid="test_two.py"),
+                ]
+            )
+        )
 
         assert json.loads((tmp_path / "progress.json").read_text()) == {
             "completed": 0,
@@ -309,202 +296,119 @@ class TestPytestFailureWitnessProgress:
             "unit": "tests",
         }
 
-    def test_pytest_collection_finish_ignores_xdist_progress(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "xdist",
+            "failed-collection",
+            "collect-only",
+            "non-list",
+            "invalid-nodeid",
+            "duplicate-nodeids",
+            "missing-directory",
+            "blocked-directory",
+        ],
+    )
+    def test_pytest_collection_finish_omits_unavailable_progress(
+        self, tmp_path, monkeypatch, case
     ) -> None:
         _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "xdist"
+        session = _session(items=[])
+        if case == "xdist":
+            session = _xdist_session(monkeypatch, True, False)
+        elif case == "failed-collection":
+            observer.pytest_collectreport(
+                SimpleNamespace(failed=True, nodeid="test_bad.py")
+            )
+        elif case == "collect-only":
+            session = _session(items=[], collectonly=True)
+        elif case == "non-list":
+            session = _session(items=())
+        elif case == "invalid-nodeid":
+            session = _session(items=[SimpleNamespace(nodeid=None)])
+        elif case == "duplicate-nodeids":
+            session = _session(items=[SimpleNamespace(nodeid="duplicate")] * 2)
+        elif case == "missing-directory":
+            monkeypatch.delenv("PF_PYTEST_PROGRESS_DIR")
+        elif case == "blocked-directory":
+            blocked = tmp_path / "blocked"
+            blocked.write_text("not a directory")
+            _enable_progress(monkeypatch, blocked)
+        observer.pytest_sessionstart(session)
 
-        observer.pytest_collection_finish(_session(items=[]))
+        observer.pytest_collection_finish(session)
+        observer.pytest_runtest_logfinish("test_one.py", None)
 
-        assert not (tmp_path / "progress.json").exists()
+        assert not list(tmp_path.rglob("progress.json"))
 
-    def test_pytest_collection_finish_ignores_failed_collection(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    @pytest.mark.parametrize(
+        "finished,completed",
+        [
+            (["test_one.py"], 1),
+            (["test_two.py"], 0),
+            (["test_one.py", "test_one.py"], 1),
+        ],
+        ids=["known", "unknown", "repeated"],
+    )
+    def test_pytest_runtest_logfinish_counts_unique_collected_tests(
+        self, tmp_path, monkeypatch, finished, completed
     ) -> None:
         _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
-        observer._facts.add(("COLLECTION_FAILED", "collect"))
-
-        observer.pytest_collection_finish(_session(items=[]))
-
-        assert not (tmp_path / "progress.json").exists()
-
-    def test_pytest_collection_finish_ignores_collect_only_session(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
-
-        observer.pytest_collection_finish(_session(items=[], collectonly=True))
-
-        assert not (tmp_path / "progress.json").exists()
-
-    def test_pytest_collection_finish_ignores_non_list_items(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
-
-        observer.pytest_collection_finish(_session(items=()))
-
-        assert not (tmp_path / "progress.json").exists()
-
-    def test_pytest_collection_finish_ignores_an_invalid_nodeid(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
-
-        observer.pytest_collection_finish(
-            _session(items=[SimpleNamespace(nodeid=None)])
-        )
-
-        assert not (tmp_path / "progress.json").exists()
-
-    def test_pytest_collection_finish_ignores_duplicate_nodeids(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
-        items = [
-            SimpleNamespace(nodeid="duplicate"),
-            SimpleNamespace(nodeid="duplicate"),
-        ]
-
-        observer.pytest_collection_finish(_session(items=items))
-
-        assert not (tmp_path / "progress.json").exists()
-
-    def test_pytest_collection_finish_requires_a_progress_directory(
-        self,
-    ) -> None:
-        observer._execution_mode = "serial"
-
-        observer.pytest_collection_finish(_session(items=[]))
-
-        assert observer._progress_remaining is None
-
-    def test_pytest_collection_finish_suppresses_progress_commit_errors(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        blocked = tmp_path / "blocked"
-        blocked.write_text("not a directory", encoding="utf-8")
-        _enable_progress(monkeypatch, blocked)
-        observer._execution_mode = "serial"
-
-        observer.pytest_collection_finish(_session(items=[]))
-
-        assert not (blocked / "progress.json").exists()
-
-    def test_pytest_runtest_logfinish_advances_known_test(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        _enable_progress(monkeypatch, tmp_path)
-        observer._execution_mode = "serial"
+        observer.pytest_sessionstart(_session())
         observer.pytest_collection_finish(
             _session(items=[SimpleNamespace(nodeid="test_one.py")])
         )
 
-        observer.pytest_runtest_logfinish("test_one.py", None)
+        for nodeid in finished:
+            observer.pytest_runtest_logfinish(nodeid, None)
 
-        assert json.loads((tmp_path / "progress.json").read_text())["completed"] == 1
-
-    def test_pytest_runtest_logfinish_ignores_unknown_test(self) -> None:
-        observer._progress_remaining = {"test_one.py"}
-
-        observer.pytest_runtest_logfinish("test_two.py", None)
-
-        assert observer._progress_completed == 0
+        progress = json.loads((tmp_path / "progress.json").read_text())
+        assert progress["completed"] == completed
+        assert progress["total"] == 1
 
 
 class TestPytestFailureWitnessFinalization:
     def test_pytest_cmdline_main_commits_protocol_artifacts(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+        self, artifacts, tmp_path, monkeypatch
     ) -> None:
-        for variable in (
-            "PF_PYTEST_OBSERVER_DIR",
-            "PF_PYTEST_PROGRESS_DIR",
-            "PF_PYTEST_OBSERVER_DETAILS_DIR",
-        ):
-            monkeypatch.setenv(variable, str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_NONCE", "nonce")
-        monkeypatch.setenv("PF_PYTEST_PROGRESS_NONCE", "nonce")
-        observer._execution_mode = "serial"
-        observer._facts.add(("TEST_FAILED", "call"))
-        observer._failure_details["tests/test_bad.py::test_bad"] = "call"
-        observer._progress_remaining = set()
-        observer._progress_completed = 1
-        observer._progress_total = 1
+        _enable_progress(monkeypatch, tmp_path)
+        nodeid = "tests/test_bad.py::test_bad"
+        observer.pytest_sessionstart(_session())
+        observer.pytest_collection_finish(
+            _session(items=[SimpleNamespace(nodeid=nodeid)])
+        )
+        observer.pytest_runtest_logreport(
+            SimpleNamespace(failed=True, when="call", nodeid=nodeid)
+        )
+        observer.pytest_runtest_logfinish(nodeid, None)
 
-        _finish_command()
-
-        summary = json.loads(next(tmp_path.glob("summary-*.json")).read_text())
-        details = json.loads(next(tmp_path.glob("details-*.json")).read_text())
+        summary, details = artifacts()
         progress = json.loads((tmp_path / "progress.json").read_text())
         assert summary["facts"] == [{"kind": "TEST_FAILED", "phase": "call"}]
-        assert summary["run_nonce"] == "nonce"
-        assert details["first"] == {
-            "nodeid": "tests/test_bad.py::test_bad",
-            "phase": "call",
-        }
-        assert details["total"] == 1
+        assert details[0]["first"] == {"nodeid": nodeid, "phase": "call"}
+        assert details[0]["total"] == 1
         assert progress["completed"] == progress["total"] == 1
 
-    def test_pytest_cmdline_main_records_a_hookwrapper_error(self) -> None:
-        _finish_command(excinfo=RuntimeError("failed"))
+    def test_pytest_cmdline_main_records_hookwrapper_error(self, artifacts) -> None:
+        summary, _ = artifacts(excinfo=RuntimeError("failed"))
 
-        assert observer._facts == {("INTERNAL_ERROR", "pytest")}
+        assert summary["facts"] == [{"kind": "INTERNAL_ERROR", "phase": "pytest"}]
 
-    def test_pytest_cmdline_main_suppresses_missing_output_configuration(self) -> None:
-        _finish_command()
-
-        assert observer._facts == set()
-
-    def test_pytest_cmdline_main_omits_invalid_failure_details(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_pytest_cmdline_main_completes_without_output_configuration(
+        self, tmp_path
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_DETAILS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_NONCE", "nonce")
-        observer._failure_details_valid = False
-        observer._failure_details = {"test_bad.py": "call"}
-
         _finish_command()
 
-        assert not tuple(tmp_path.glob("details-*.json"))
+        assert list(tmp_path.iterdir()) == []
 
-    def test_pytest_cmdline_main_omits_empty_failure_details(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    @pytest.mark.parametrize("invalid", [False, True], ids=["empty", "invalid"])
+    def test_pytest_cmdline_main_omits_unavailable_details(
+        self, artifacts, invalid
     ) -> None:
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_DETAILS_DIR", str(tmp_path))
-        monkeypatch.setenv("PF_PYTEST_OBSERVER_NONCE", "nonce")
-        observer._failure_details_valid = True
-        observer._failure_details = {}
+        if invalid:
+            observer.pytest_runtest_logreport(
+                SimpleNamespace(failed=True, when="call", nodeid=None)
+            )
 
-        _finish_command()
-
-        assert not tuple(tmp_path.glob("details-*.json"))
+        _, details = artifacts()
+        assert details == []

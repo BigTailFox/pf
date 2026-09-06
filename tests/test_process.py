@@ -489,77 +489,36 @@ class TestSubprocessRunner:
         assert result.stdout == payload
         assert result.stdout_complete is True
 
-    def test_subprocess_runner_passes_the_host_terminal_size(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.delenv("COLUMNS", raising=False)
-        monkeypatch.delenv("LINES", raising=False)
-        monkeypatch.setattr(
-            os,
-            "get_terminal_size",
-            lambda fd=-1: (_ for _ in ()).throw(OSError("not a tty")),
-        )
-        monkeypatch.setattr(
-            "shutil.get_terminal_size",
-            lambda fallback=(80, 24): os.terminal_size((120, 40)),
-        )
-        result = SubprocessRunner().run(
-            ProcessSpec(
-                argv=(
-                    sys.executable,
-                    "-c",
-                    "import os; print(os.environ['COLUMNS'], os.environ['LINES'])",
-                ),
-                cwd=tmp_path.as_posix(),
-                timeout_seconds=5,
-            )
-        )
-
-        assert isinstance(result, ProcessResult)
-        assert result.exit_code == 0
-        assert result.stdout == "120 40\n"
-
-    def test_subprocess_runner_uses_stderr_width_when_stdout_is_not_a_terminal(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    @pytest.mark.parametrize(
+        "source,size,environment",
+        [
+            pytest.param("fallback", (120, 40), (), id="fallback"),
+            pytest.param("stderr", (100, 30), (), id="stderr-only"),
+            pytest.param(
+                "stdout",
+                (120, 40),
+                (EnvironmentVariable(name="COLUMNS", value="17"),),
+                id="host-overrides-spec",
+            ),
+        ],
+    )
+    def test_run_passes_host_terminal_dimensions(
+        self, tmp_path, monkeypatch, source, size, environment
     ) -> None:
         monkeypatch.delenv("COLUMNS", raising=False)
         monkeypatch.delenv("LINES", raising=False)
 
         def terminal_size(fd: int = -1) -> os.terminal_size:
-            if fd == sys.stderr.fileno():
-                return os.terminal_size((100, 30))
+            if source == "stdout" or (source == "stderr" and fd == sys.stderr.fileno()):
+                return os.terminal_size(size)
             raise OSError("not a tty")
 
         monkeypatch.setattr(os, "get_terminal_size", terminal_size)
-        result = SubprocessRunner().run(
-            ProcessSpec(
-                argv=(
-                    sys.executable,
-                    "-c",
-                    "import os; print(os.environ['COLUMNS'], os.environ['LINES'])",
-                ),
-                cwd=tmp_path.as_posix(),
-                timeout_seconds=5,
-            )
-        )
-
-        assert isinstance(result, ProcessResult)
-        assert result.exit_code == 0
-        assert result.stdout == "100 30\n"
-
-    def test_subprocess_runner_host_terminal_size_overrides_spec_columns(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
         monkeypatch.setattr(
-            os,
-            "get_terminal_size",
-            lambda fd=-1: os.terminal_size((120, 40)),
+            "shutil.get_terminal_size",
+            lambda fallback=(80, 24): os.terminal_size(
+                size if source == "fallback" else (79, 23)
+            ),
         )
         result = SubprocessRunner().run(
             ProcessSpec(
@@ -570,13 +529,13 @@ class TestSubprocessRunner:
                 ),
                 cwd=tmp_path.as_posix(),
                 timeout_seconds=5,
-                environment=(EnvironmentVariable(name="COLUMNS", value="40"),),
+                environment=environment,
             )
         )
 
         assert isinstance(result, ProcessResult)
         assert result.exit_code == 0
-        assert result.stdout == "120 ***\n"
+        assert tuple(map(int, result.stdout.split())) == size
 
     def test_subprocess_runner_emits_redacted_process_activity(
         self, tmp_path: Path

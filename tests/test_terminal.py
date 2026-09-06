@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import re
 import sys
-import time
+from threading import Event
 from io import StringIO
 from pathlib import Path
 from typing import Literal
@@ -2320,47 +2320,47 @@ class TestProgressRendering:
         assert "4/8 tests" not in latest_frame
         assert "3/8" not in latest_frame
 
-    def test_tty_live_view_refreshes_spinner_at_a_fixed_cadence(self) -> None:
+    def test_consume_refreshes_live_cell_without_new_events(self) -> None:
+        refreshed = Event()
+
+        class RefreshBuffer(TTYBuffer):
+            initial: str | None = None
+
+            def write(self, text: str) -> int:
+                size = super().write(text)
+                if self.initial is not None:
+                    rows = [
+                        line
+                        for line in visible(text).splitlines()
+                        if "[py3.10]" in line
+                    ]
+                    if rows and rows[-1] != self.initial:
+                        refreshed.set()
+                return size
+
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
             python_minor="3.10",
             extra_surface=(),
         )
-        stderr = TTYBuffer()
+        stderr = RefreshBuffer()
         terminal = TerminalPresenter(
             stdout=Console(file=StringIO(), force_terminal=True, width=80),
-            stderr=Console(
-                file=stderr,
-                force_terminal=True,
-                width=80,
-                theme=PF_THEME,
-            ),
+            stderr=Console(file=stderr, force_terminal=True, width=80, theme=PF_THEME),
         )
+        try:
+            terminal.consume(CellMatrixEvent(cells=(cell,)))
+            terminal.consume(CellStageEvent(cell=cell, stage="resolving project"))
+            stderr.initial = next(
+                line
+                for line in reversed(visible(stderr.getvalue()).splitlines())
+                if "[py3.10]" in line
+            )
 
-        terminal.consume(CellMatrixEvent(cells=(cell,)))
-        terminal.consume(CellStageEvent(cell=cell, stage="resolving project"))
-        time.sleep(0.08)
-        before_tick = stderr.getvalue()
-        time.sleep(0.12)
-        after_tick = stderr.getvalue()
-        terminal.close()
-
-        assert len(after_tick) > len(before_tick)
-        assert visible(after_tick).count("[py3.10]") > visible(before_tick).count(
-            "[py3.10]"
-        )
-        before_frame = next(
-            line
-            for line in reversed(visible(before_tick).splitlines())
-            if "[py3.10]" in line
-        )
-        after_frame = next(
-            line
-            for line in reversed(visible(after_tick).splitlines())
-            if "[py3.10]" in line
-        )
-        assert after_frame != before_frame
+            assert refreshed.wait(timeout=2), "live cell did not refresh without another event"
+        finally:
+            terminal.close()
 
     def test_narrow_tty_keeps_exact_stage_count_when_bar_does_not_fit(self) -> None:
         cell = Cell(

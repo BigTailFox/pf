@@ -1654,56 +1654,47 @@ class TestEvaluationSchemas:
                 classifications=(),
             )
 
-    def test_process_result_diagnostic_reports_a_start_error(self) -> None:
-        process = ProcessResult(
-            exit_code=None,
-            signal=None,
-            start_error="could not start",
-            duration_seconds=0,
-        )
+    @pytest.mark.parametrize(
+        "facts,diagnostic",
+        [
+            pytest.param(
+                {"start_error": "could not start"}, "could not start", id="start-error"
+            ),
+            pytest.param({"exit_code": 1, "stderr": "failed"}, "failed", id="stderr"),
+            pytest.param(
+                {"signal": 9, "timed_out": True}, "process timed out", id="timeout"
+            ),
+            pytest.param({"signal": 9}, "terminated by signal 9", id="signal"),
+            pytest.param({"exit_code": 2}, "exit code 2", id="exit-code"),
+        ],
+    )
+    def test_diagnostic_describes_process_failure(
+        self, facts: dict[str, object], diagnostic: str
+    ) -> None:
+        process = ProcessResult.model_validate({"duration_seconds": 0, **facts})
 
-        assert process.diagnostic() == "could not start"
-
-    def test_process_result_diagnostic_reports_stderr(self) -> None:
-        process = ProcessResult(
-            exit_code=1,
-            signal=None,
-            duration_seconds=0,
-            stderr="failed",
-        )
-
-        assert process.diagnostic() == "failed"
-
-    def test_process_result_diagnostic_reports_a_timeout(self) -> None:
-        process = ProcessResult(
-            exit_code=None,
-            signal=9,
-            duration_seconds=0,
-            timed_out=True,
-        )
-
-        assert process.diagnostic() == "process timed out"
-
-    def test_process_result_diagnostic_reports_a_signal(self) -> None:
-        process = ProcessResult(exit_code=None, signal=9, duration_seconds=0)
-
-        assert process.diagnostic() == "terminated by signal 9"
-
-    def test_process_result_diagnostic_reports_an_exit_code(self) -> None:
-        process = ProcessResult(exit_code=2, signal=None, duration_seconds=0)
-
-        assert process.diagnostic() == "exit code 2"
+        assert process.diagnostic() == diagnostic
 
     @pytest.mark.parametrize(
         "facts",
         (
             {},
+            {"exit_code": None, "signal": None, "start_error": None},
+            {"exit_code": 0, "signal": 9, "start_error": None},
             {"exit_code": 1, "signal": 9},
             {"exit_code": 1, "start_error": "failed"},
             {"signal": 9, "start_error": "failed"},
             {"start_error": "failed", "timed_out": True},
         ),
-        ids=("none", "exit-signal", "exit-start", "signal-start", "start-timeout"),
+        ids=(
+            "none",
+            "explicit-null",
+            "zero-exit-signal",
+            "exit-signal",
+            "exit-start",
+            "signal-start",
+            "start-timeout",
+        ),
     )
     def test_process_result_requires_one_valid_terminal_observation(
         self,
@@ -1921,20 +1912,6 @@ class TestEvaluationSchemas:
                 timeout_seconds=None,
                 summary_limit=0,
             )
-
-    @pytest.mark.parametrize(
-        "facts",
-        (
-            {"exit_code": None, "signal": None, "start_error": None},
-            {"exit_code": 0, "signal": 9, "start_error": None},
-        ),
-    )
-    def test_process_result_requires_exactly_one_terminal_fact(
-        self,
-        facts: dict[str, object],
-    ) -> None:
-        with pytest.raises(ValidationError):
-            ProcessResult.model_validate({"duration_seconds": 0, **facts})
 
     def test_process_result_omits_captured_output_from_portable_facts(self) -> None:
         process = ProcessResult(

@@ -41,26 +41,38 @@ class CandidateIndex:
             content_hash=f"sha256:{hashlib.sha256(filename.encode()).hexdigest()}",
             locator=f"https://files.example/{filename}",
         )
-        return registry_candidates((
-            AvailableCandidate(version="0.9.9", artifacts=(wheel("dep-0.9.9.whl"),)),
-            AvailableCandidate(
-                version="1.0.0",
-                yanked=True,
-                artifacts=(wheel("dep-1.0.0.whl"),),
-            ),
-            AvailableCandidate(version="1.0.1", artifacts=(wheel("dep-1.0.1.whl"),)),
-            AvailableCandidate(
-                version="1.1.0rc1", artifacts=(wheel("dep-1.1.0rc1.whl"),)
-            ),
-            AvailableCandidate(version="1.1.0", artifacts=(sdist("dep-1.1.0.tar.gz"),)),
-            AvailableCandidate(version="1.1.1", artifacts=(wheel("dep-1.1.1.whl"),)),
-            AvailableCandidate(
-                version="1.1.2",
-                yanked=True,
-                artifacts=(wheel("dep-1.1.2.whl"),),
-            ),
-            AvailableCandidate(version="2.0.0", artifacts=(wheel("dep-2.0.0.whl"),)),
-        ))
+        return registry_candidates(
+            (
+                AvailableCandidate(
+                    version="0.9.9", artifacts=(wheel("dep-0.9.9.whl"),)
+                ),
+                AvailableCandidate(
+                    version="1.0.0",
+                    yanked=True,
+                    artifacts=(wheel("dep-1.0.0.whl"),),
+                ),
+                AvailableCandidate(
+                    version="1.0.1", artifacts=(wheel("dep-1.0.1.whl"),)
+                ),
+                AvailableCandidate(
+                    version="1.1.0rc1", artifacts=(wheel("dep-1.1.0rc1.whl"),)
+                ),
+                AvailableCandidate(
+                    version="1.1.0", artifacts=(sdist("dep-1.1.0.tar.gz"),)
+                ),
+                AvailableCandidate(
+                    version="1.1.1", artifacts=(wheel("dep-1.1.1.whl"),)
+                ),
+                AvailableCandidate(
+                    version="1.1.2",
+                    yanked=True,
+                    artifacts=(wheel("dep-1.1.2.whl"),),
+                ),
+                AvailableCandidate(
+                    version="2.0.0", artifacts=(wheel("dep-2.0.0.whl"),)
+                ),
+            )
+        )
 
 
 def configured_package(tmp_path: Path, policy: str) -> PackagePlan:
@@ -115,12 +127,19 @@ class TestCandidateBuilder:
             def query(self, **kwargs):
                 def candidate(version, *, yanked=False):
                     filename = f"dep-{version}.tar.gz"
-                    return AvailableCandidate(version=version, yanked=yanked, artifacts=(AvailableArtifact(
-                        filename=filename,
-                        kind="sdist",
-                        content_hash=f"sha256:{hashlib.sha256(filename.encode()).hexdigest()}",
-                        locator=f"https://files.example/{filename}",
-                    ),))
+                    return AvailableCandidate(
+                        version=version,
+                        yanked=yanked,
+                        artifacts=(
+                            AvailableArtifact(
+                                filename=filename,
+                                kind="sdist",
+                                content_hash=f"sha256:{hashlib.sha256(filename.encode()).hexdigest()}",
+                                locator=f"https://files.example/{filename}",
+                            ),
+                        ),
+                    )
+
                 return RegistryCandidates(
                     release_versions=("1", "3", "5rc1", "7", "9", "9.1", "9.2"),
                     candidates=(candidate("1"), candidate("3", yanked=True), candidate("5rc1"),
@@ -160,24 +179,26 @@ class TestCandidateBuilder:
                 dependency = kwargs["dependency"]
                 assert isinstance(dependency, str)
                 self.queries.append(dependency)
-                return registry_candidates((
-                    AvailableCandidate(
-                        version="3.10",
-                        artifacts=(
-                            AvailableArtifact(
-                                filename="idna-3.10-py3-none-any.whl",
-                                kind="wheel",
-                                content_hash=f"sha256:{'a' * 64}",
-                                locator=(
-                                    "https://files.example/"
-                                    "idna-3.10-py3-none-any.whl"
+                return registry_candidates(
+                    (
+                        AvailableCandidate(
+                            version="3.10",
+                            artifacts=(
+                                AvailableArtifact(
+                                    filename="idna-3.10-py3-none-any.whl",
+                                    kind="wheel",
+                                    content_hash=f"sha256:{'a' * 64}",
+                                    locator=(
+                                        "https://files.example/"
+                                        "idna-3.10-py3-none-any.whl"
+                                    ),
+                                    python_minors=("3.10",),
+                                    targets=("x86_64-unknown-linux-gnu",),
                                 ),
-                                python_minors=("3.10",),
-                                targets=("x86_64-unknown-linux-gnu",),
                             ),
                         ),
-                    ),
-                ))
+                    )
+                )
 
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -268,22 +289,24 @@ test-command = ["pytest"]
     ) -> None:
         class EmptyIndex:
             def query(self, **kwargs: object) -> RegistryCandidates:
-                return registry_candidates((
-                    AvailableCandidate(
-                        version="1.0",
-                        yanked=True,
-                        artifacts=(
-                            AvailableArtifact(
-                                filename="demo_dep-1.0.tar.gz",
-                                kind="sdist",
-                                content_hash=f"sha256:{'a' * 64}",
-                                locator=(
-                                    "https://files.example/demo_dep-1.0.tar.gz"
+                return registry_candidates(
+                    (
+                        AvailableCandidate(
+                            version="1.0",
+                            yanked=True,
+                            artifacts=(
+                                AvailableArtifact(
+                                    filename="demo_dep-1.0.tar.gz",
+                                    kind="sdist",
+                                    content_hash=f"sha256:{'a' * 64}",
+                                    locator=(
+                                        "https://files.example/demo_dep-1.0.tar.gz"
+                                    ),
                                 ),
                             ),
                         ),
-                    ),
-                ))
+                    )
+                )
 
         (tmp_path / "pyproject.toml").write_text(
             """
@@ -508,27 +531,47 @@ test-command = ["pytest"]
             )
 
 
-@pytest.mark.parametrize("defect", ("empty-hashes", "locator"))
-def test_registry_inapplicable_series_occupies_search_space_offset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defect: str) -> None:
-    from io import BytesIO
-    import json
-    from pf.adapters.uv import UvAdapter
-    from pf.adapters.process import SubprocessRunner
+class TestCandidateRegistryAdmission:
+    @pytest.mark.parametrize("defect", ("empty-hashes", "locator"))
+    def test_build_preserves_inapplicable_series_offsets(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defect: str
+    ) -> None:
+        from io import BytesIO
+        import json
+        from pf.adapters.uv import UvAdapter
+        from pf.adapters.process import SubprocessRunner
 
-    package = configured_package(tmp_path, 'search-space = "majors[baseline-1:]"')
-    files = [
-        {"filename": f"demo_dep-{version}-py3-none-any.whl", "url": f"demo-{version}.whl", "hashes": {"sha256": "a" * 64}}
-        for version in ("1.0", "3.0")
-    ]
-    files.append({"filename": "demo_dep-2.0-cp310-cp310-win_amd64.whl",
-                  "url": "file:///demo.whl" if defect == "locator" else "demo.whl",
-                  "hashes": {"sha256": "b" * 64} if defect == "locator" else {}})
-    class Response(BytesIO):
-        headers = {}
-    monkeypatch.setattr("pf.adapters.uv.urlopen", lambda request, timeout: Response(json.dumps({"files": files}).encode()))
-    result = CandidateBuilder(UvAdapter(SubprocessRunner())).build(package=package, cell=package.cells[0],
-        baseline=(VersionPin(name="demo-dep", version="3.0"),), source_plan=SourcePlan.for_package(package, "SEARCH"))[0]
-    assert result.series_inventory is not None
-    assert result.series_inventory.series_keys == ((0, 1), (0, 2), (0, 3))
-    assert result.selection.selected_keys == ((0, 2), (0, 3))
-    assert [candidate.version for candidate in result.candidates] == ["3.0"]
+        package = configured_package(tmp_path, 'search-space = "majors[baseline-1:]"')
+        files = [
+            {
+                "filename": f"demo_dep-{version}-py3-none-any.whl",
+                "url": f"demo-{version}.whl",
+                "hashes": {"sha256": "a" * 64},
+            }
+            for version in ("1.0", "3.0")
+        ]
+        files.append(
+            {
+                "filename": "demo_dep-2.0-cp310-cp310-win_amd64.whl",
+                "url": "file:///demo.whl" if defect == "locator" else "demo.whl",
+                "hashes": {"sha256": "b" * 64} if defect == "locator" else {},
+            }
+        )
+
+        class Response(BytesIO):
+            headers = {}
+
+        monkeypatch.setattr(
+            "pf.adapters.uv.urlopen",
+            lambda request, timeout: Response(json.dumps({"files": files}).encode()),
+        )
+        result = CandidateBuilder(UvAdapter(SubprocessRunner())).build(
+            package=package,
+            cell=package.cells[0],
+            baseline=(VersionPin(name="demo-dep", version="3.0"),),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )[0]
+        assert result.series_inventory is not None
+        assert result.series_inventory.series_keys == ((0, 1), (0, 2), (0, 3))
+        assert result.selection.selected_keys == ((0, 2), (0, 3))
+        assert [candidate.version for candidate in result.candidates] == ["3.0"]

@@ -1,11 +1,12 @@
 import json
-import subprocess
 import sys
 
 import packaging.markers
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 import pytest
 
+from pf.cli import main
 from pf.errors import ConfigurationError
 from pf.markers import PortableMarker, evaluate_contextual_marker, platform_marker_facts
 from pf.project import ProjectLoader
@@ -230,10 +231,13 @@ class TestMarkerPlanning:
         if usage == "self-reference":
             assert "root group test/common item" in message
 
+    @pytest.mark.filterwarnings(
+        "ignore:Cyclopts application invoked without tokens:UserWarning"
+    )
     @pytest.mark.parametrize("command", ["smoke", "check", "search"])
     @pytest.mark.parametrize("usage", ["base", "self-reference", "preserved"])
     def test_cli_undefined_comparison_is_early_configuration_failure(
-        self, tmp_path, command, usage
+        self, tmp_path, monkeypatch, capsys, command, usage
     ):
         write_project(
             tmp_path,
@@ -248,19 +252,16 @@ class TestMarkerPlanning:
             ConfigurationError, match="marker comparison cannot be evaluated"
         ):
             ProjectLoader().load(root=tmp_path)
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", command],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        assert result.returncode == 3, result.stderr
-        assert "marker comparison cannot be evaluated" in " ".join(
-            result.stderr.split()
-        )
-        assert "pyproject.toml" in result.stderr
-        assert "building snapshot" not in result.stderr
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "argv", ["pf", command])
+        with pytest.raises(SystemExit) as caught:
+            main()
+
+        output = capsys.readouterr()
+        assert caught.value.code == 3, output.err
+        assert "marker comparison cannot be evaluated" in " ".join(output.err.split())
+        assert "pyproject.toml" in output.err
+        assert "building snapshot" not in output.err
         assert not (tmp_path / "package-floor.json").exists()
         assert not tuple(tmp_path.glob(".pf/**/process-*.log"))
         assert not tuple(tmp_path.glob(".pf/**/snapshot*"))
@@ -300,8 +301,8 @@ class TestMarkerProjection:
             ]
             assert len(active) == (1 if cell.active_declaration_ids else 0)
             if active:
-                assert str(active[0].specifier) == (
-                    ">=2" if "linux" in cell.target else ">=3"
+                assert active[0].specifier == (
+                    SpecifierSet(">=2" if "linux" in cell.target else ">=3")
                 )
 
     def test_contextual_preserved_declaration_participates_in_group_equivalence(

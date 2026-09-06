@@ -448,9 +448,7 @@ class TestPytestObserverArtifactProtocol:
         "writer",
         (
             lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce),
-                payload=b"{",
+                directory, _document(nonce), payload=b"{"
             ),
             lambda directory, nonce: _write_summary(
                 directory,
@@ -458,52 +456,49 @@ class TestPytestObserverArtifactProtocol:
                 payload=(json.dumps(_document(nonce), indent=2) + "\n").encode(),
             ),
             lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce, unexpected="field"),
+                directory, _document(nonce, unexpected="field")
             ),
             lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce, execution_mode=[]),
+                directory, _document(nonce, execution_mode=[])
             ),
             lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce),
-                payload=b"[" * 1100 + b"]" * 1100,
+                directory, _document(nonce), payload=b"[" * 1100 + b"]" * 1100
+            ),
+            lambda directory, nonce: _write_summary(directory, _document("0" * 32)),
+            lambda directory, nonce: _write_summary(
+                directory, _document(nonce, finalized=False)
             ),
             lambda directory, nonce: _write_summary(
-                directory,
-                _document("0" * 32),
-            ),
-            lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce, finalized=False),
-            ),
-            lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce, facts=(("UNKNOWN", "call"),)),
+                directory, _document(nonce, facts=(("UNKNOWN", "call"),))
             ),
             lambda directory, nonce: _write_summary(
                 directory,
                 _document(
-                    nonce,
-                    facts=(
-                        ("TEST_FAILED", "teardown"),
-                        ("TEST_FAILED", "call"),
-                    ),
+                    nonce, facts=(("TEST_FAILED", "teardown"), ("TEST_FAILED", "call"))
                 ),
             ),
             lambda directory, nonce: _write_summary(
                 directory,
                 _document(
-                    nonce,
-                    facts=(
-                        ("TEST_FAILED", "call"),
-                        ("TEST_FAILED", "call"),
-                    ),
+                    nonce, facts=(("TEST_FAILED", "call"), ("TEST_FAILED", "call"))
                 ),
             ),
             lambda directory, nonce: (directory / "leftover.tmp").write_bytes(
                 _canonical(_document(nonce))
+            ),
+            lambda directory, nonce: _write_summary(
+                directory, _document(nonce), payload=b"\xff"
+            ),
+            lambda directory, nonce: _write_summary(
+                directory, _document(nonce), payload=b"x" * 4097
+            ),
+            lambda directory, nonce: (
+                (directory.parent / "outside.json").write_bytes(
+                    _canonical(_document(nonce))
+                ),
+                (directory / f"summary-{'c' * 32}.json").symlink_to(
+                    directory.parent / "outside.json"
+                ),
             ),
         ),
         ids=(
@@ -518,40 +513,12 @@ class TestPytestObserverArtifactProtocol:
             "unsorted-facts",
             "duplicate-facts",
             "unknown-file",
+            "non-utf8",
+            "oversize",
+            "symlink",
         ),
     )
-    def test_protocol_rejects_noncanonical_document(
-        self,
-        tmp_path: Path,
-        writer: ArtifactWriter,
-    ) -> None:
-        _assert_summary_omitted(_run(tmp_path, writer))
-
-    @pytest.mark.parametrize(
-        "writer",
-        (
-            lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce),
-                payload=b"\xff",
-            ),
-            lambda directory, nonce: _write_summary(
-                directory,
-                _document(nonce),
-                payload=b"x" * 4097,
-            ),
-            lambda directory, nonce: (
-                (directory.parent / "outside.json").write_bytes(
-                    _canonical(_document(nonce))
-                ),
-                (directory / f"summary-{'c' * 32}.json").symlink_to(
-                    directory.parent / "outside.json"
-                ),
-            ),
-        ),
-        ids=("non-utf8", "oversize", "symlink"),
-    )
-    def test_protocol_rejects_unsafe_artifact_file(
+    def test_run_omits_invalid_summary_artifact(
         self,
         tmp_path: Path,
         writer: ArtifactWriter,

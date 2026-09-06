@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 import pytest
 
 from pf.errors import ConfigurationError
@@ -294,7 +295,7 @@ class TestReportProjection:
         assert projection.representable is True
         assert len(projection.projected_requirements) == 1
         requirement = Requirement(projection.projected_requirements[0])
-        assert str(requirement.specifier) == "<4,>=2.0"
+        assert requirement.specifier == SpecifierSet("<4,>=2.0")
         assert requirement.marker is None
 
     def test_group_projection_scopes_selected_selector_and_preserves_complement(
@@ -333,9 +334,8 @@ class TestReportProjection:
         requirements = tuple(
             Requirement(raw) for raw in projection.projected_requirements
         )
-        assert {str(requirement.specifier) for requirement in requirements} == {
-            "<4",
-            "<4,>=2.0",
+        assert {requirement.specifier for requirement in requirements} == {
+            SpecifierSet(value) for value in {"<4", "<4,>=2.0"}
         }
         markers = {str(requirement.marker) for requirement in requirements}
         assert 'sys_platform == "linux" and platform_machine == "x86_64"' in markers
@@ -426,7 +426,7 @@ class TestReportProjection:
 
         assert projection.representable is True
         requirement = Requirement(projection.projected_requirements[0])
-        assert str(requirement.specifier) == "<4,>=2.0"
+        assert requirement.specifier == SpecifierSet("<4,>=2.0")
         assert requirement.marker is None
 
     def test_group_projection_rejects_conflicting_libc_floors(
@@ -519,9 +519,8 @@ class TestReportProjection:
         )
         assert len(selected) == 2
         assert all(requirement.extras == {"socks"} for requirement in selected)
-        assert {str(requirement.specifier) for requirement in selected} == {
-            "!=2.5,<4,>=2.0",
-            "!=2.5,<4,>=3.0",
+        assert {requirement.specifier for requirement in selected} == {
+            SpecifierSet(value) for value in {"!=2.5,<4,>=2.0", "!=2.5,<4,>=3.0"}
         }
         assert all(
             'python_version >= "3.10"' in str(requirement.marker)
@@ -567,7 +566,7 @@ class TestReportProjection:
 
         assert projection.representable is True
         requirement = Requirement(projection.projected_requirements[0])
-        assert str(requirement.specifier) == "<4,>=2.0"
+        assert requirement.specifier == SpecifierSet("<4,>=2.0")
         assert requirement.marker is None
 
     def test_report_builder_projects_exact_floor_and_preserves_constraints(
@@ -610,7 +609,7 @@ class TestReportProjection:
 
         assert report.result.status == "complete"
         projected = Requirement(report.projection_evidence[0].projected_requirements[0])
-        assert str(projected.specifier) == "!=2.5,<4,>=3.0"
+        assert projected.specifier == SpecifierSet("!=2.5,<4,>=3.0")
         assert str(projected.marker) == 'python_version >= "3.10"'
 
         extra_cell = Cell(
@@ -695,9 +694,8 @@ class TestReportProjection:
             Requirement(raw)
             for raw in report.projection_evidence[0].projected_requirements
         )
-        assert {str(requirement.specifier) for requirement in projected} == {
-            "<4,>=2.0",
-            "<4,>=3.0",
+        assert {requirement.specifier for requirement in projected} == {
+            SpecifierSet(value) for value in {"<4,>=2.0", "<4,>=3.0"}
         }
         assert {str(requirement.marker) for requirement in projected} == {
             'python_version == "3.10"',

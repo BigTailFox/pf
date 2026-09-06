@@ -75,6 +75,7 @@ url = "https://pypi.org/simple"
 default = true
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 addopts = ["--testmon"]
 cache_dir = "tests/.cache/pytest"
 required_plugins = ["pytest-cov>=7.1", "pytest-env>=1.0", "pytest-testmon>=2.2"]

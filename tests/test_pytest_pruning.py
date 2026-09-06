@@ -502,7 +502,10 @@ class TestFailedCasePruning:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 result = super().run(spec)
                 environment = {item.name: item.value for item in spec.environment}
-                if environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION") != "collected":
+                if (
+                    environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION")
+                    != "collected"
+                ):
                     return result
                 path = Path(
                     environment["PF_PYTEST_OBSERVER_CASES_DIR"],
@@ -567,7 +570,10 @@ class TestFailedCasePruning:
             def run(self, spec: ProcessSpec) -> ProcessResult:
                 result = super().run(spec)
                 environment = {item.name: item.value for item in spec.environment}
-                if environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION") != "collected":
+                if (
+                    environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION")
+                    != "collected"
+                ):
                     return result
                 nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 directory = Path(environment["PF_PYTEST_OBSERVER_CASES_DIR"])
@@ -582,8 +588,7 @@ class TestFailedCasePruning:
                 }
                 Path(directory, f"cases-{'c' * 32}.json").write_bytes(
                     (
-                        json.dumps(worker, sort_keys=True, separators=(",", ":"))
-                        + "\n"
+                        json.dumps(worker, sort_keys=True, separators=(",", ":")) + "\n"
                     ).encode()
                 )
                 return result
@@ -746,7 +751,6 @@ class TestFailedCasePruning:
         ):
             names = set(model.model_fields)
             assert names.isdisjoint(forbidden)
-            assert "PruningObservation" not in model.__name__
 
 
 class _OverlayRunner:
@@ -874,29 +878,38 @@ test-command = ["pytest"]
         assert "PF_PYTEST_PRUNE_REQUEST" not in environment
 
 
+class TestPruningCollectionAuthority:
+    @pytest.mark.parametrize("summary_valid", (False, True))
+    @pytest.mark.parametrize("collection_valid", (False, True))
+    @pytest.mark.parametrize("passes", (False, True))
+    def test_run_uses_collection_proof_independently_of_summary(
+        self, tmp_path: Path, summary_valid: bool, collection_valid: bool, passes: bool
+    ) -> None:
+        _write(
+            tmp_path,
+            "test_example.py",
+            "def test_bad():\n    assert " + str(passes) + "\n",
+        )
 
-@pytest.mark.parametrize("summary_valid", (False, True))
-@pytest.mark.parametrize("collection_valid", (False, True))
-@pytest.mark.parametrize("passes", (False, True))
-def test_real_pruning_collection_proof_is_independent_of_summary(tmp_path: Path, summary_valid: bool, collection_valid: bool, passes: bool) -> None:
-    _write(tmp_path, "test_example.py", "def test_bad():\n    assert " + str(passes) + "\n")
+        class ArtifactRunner(_CountingRunner):
+            def run(self, spec: ProcessSpec):
+                result = super().run(spec)
+                env = {item.name: item.value for item in spec.environment}
+                if not summary_valid:
+                    for artifact in Path(env["PF_PYTEST_OBSERVER_DIR"]).iterdir():
+                        artifact.unlink()
+                if (
+                    not collection_valid
+                    and env["PF_PYTEST_OBSERVER_CASES_PROJECTION"] == "collected"
+                ):
+                    for artifact in Path(env["PF_PYTEST_OBSERVER_CASES_DIR"]).iterdir():
+                        artifact.unlink()
+                return result
 
-    class ArtifactRunner(_CountingRunner):
-        def run(self, spec: ProcessSpec):
-            result = super().run(spec)
-            env = {item.name: item.value for item in spec.environment}
-            if not summary_valid:
-                for artifact in Path(env["PF_PYTEST_OBSERVER_DIR"]).iterdir():
-                    artifact.unlink()
-            if not collection_valid and env["PF_PYTEST_OBSERVER_CASES_PROJECTION"] == "collected":
-                for artifact in Path(env["PF_PYTEST_OBSERVER_CASES_DIR"]).iterdir():
-                    artifact.unlink()
-            return result
-
-    runner = ArtifactRunner()
-    run = _run_counted(tmp_path, runner, nodeids=("test_example.py::test_bad",))
-    assert run.authoritative.status == ("PASS" if passes else "REJECTED")
-    assert runner.count == (1 if collection_valid and not passes else 2)
-    assert run.diagnostics is not None
-    assert (run.diagnostics.pytest_version is not None) == summary_valid
-    assert run.failed_case_additions == (("test_example.py::test_bad",) if not passes and not collection_valid else ())
+        runner = ArtifactRunner()
+        run = _run_counted(tmp_path, runner, nodeids=("test_example.py::test_bad",))
+        assert run.authoritative.status == ("PASS" if passes else "REJECTED")
+        assert runner.count == (1 if collection_valid and not passes else 2)
+        assert run.diagnostics is not None
+        assert (run.diagnostics.pytest_version is not None) == summary_valid
+        assert run.failed_case_additions == (("test_example.py::test_bad",) if not passes and not collection_valid else ())

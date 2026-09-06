@@ -243,20 +243,36 @@ def module_help() -> subprocess.CompletedProcess[str]:
 
 
 class TestCliInterface:
-    def test_search_space_resolution_error_is_exit_two_with_facts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.filterwarnings(
+        "ignore:Cyclopts application invoked without tokens:UserWarning"
+    )
+    def test_search_space_resolution_error_is_exit_two_with_facts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         stdout, stderr = StringIO(), StringIO()
+
         class Search:
             def run(self, request: SearchRequest) -> NoReturn:
-                raise SearchSpaceResolutionError(dependency="demo-dep", cell="demo/3.10/base",
-                    expression="majors[baseline]", reason="missing-anchor-series",
-                    anchors=(("baseline", "3"),), series_keys=((0, 1),), source="https://pypi.org/simple")
-        context = make_context(search_workflow=Search(), presenter=TerminalPresenter(
-            stdout=Console(file=stdout), stderr=Console(file=stderr, width=180)))
+                raise SearchSpaceResolutionError(
+                    dependency="demo-dep",
+                    cell="demo/3.10/base",
+                    expression="majors[baseline]",
+                    reason="missing-anchor-series",
+                    anchors=(("baseline", "3"),),
+                    series_keys=((0, 1),),
+                    source="https://pypi.org/simple",
+                )
+
+        context = make_context(
+            search_workflow=Search(),
+            presenter=TerminalPresenter(
+                stdout=Console(file=stdout), stderr=Console(file=stderr, width=180)
+            ),
+        )
         monkeypatch.setattr("pf.cli.build_context", lambda: context)
         monkeypatch.setattr(sys, "argv", ["pf", "search"])
-        with pytest.warns(UserWarning, match="Cyclopts application invoked without tokens"):
-            with pytest.raises(SystemExit) as caught:
-                main()
+        with pytest.raises(SystemExit) as caught:
+            main()
         assert caught.value.code == 2
         output = stderr.getvalue()
         assert "search-space-resolution" in output
@@ -1130,20 +1146,31 @@ class TestCommandDispatch:
             "⚠  Applied floors with source-drift override · project updated" in rendered
         )
 
-    def test_cli_context_bootstraps_without_command_workflows(self) -> None:
+    def test_create_app_displays_help_without_loading_project_or_running_processes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def unexpected(*args: object, **kwargs: object) -> NoReturn:
+            pytest.fail("help must not load a project or start a process")
+
+        monkeypatch.setattr("pf.cli.ProjectLoader.load", unexpected)
+        monkeypatch.setattr("pf.cli.SubprocessRunner.run", unexpected)
+        stdout = StringIO()
         presenter = TerminalPresenter(
-            stdout=Console(file=StringIO(), force_terminal=False, color_system=None),
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
             stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
         )
-        context = CliContext(
-            presenter=presenter,
-            run_logs=cast(RunLogStore, NoOpRunLogs()),
-        )
+        with CliContext(
+            presenter=presenter, run_logs=cast(RunLogStore, NoOpRunLogs())
+        ) as context:
+            create_app(context)(
+                ["--help"], exit_on_error=False, result_action="return_value"
+            )
 
-        assert context._check_workflow is None
-        assert context._search_workflow is None
-        assert context._apply_workflow is None
-        context.close()
+        output = stdout.getvalue()
+        assert "Usage:" in output
+        assert "search" in output
+        assert "check" in output
 
     def test_cli_context_closes_presenter_then_logs_once(self) -> None:
         events: list[str] = []

@@ -189,12 +189,12 @@ class TestPytestObserverIntegration:
             "from pf.adapters.test_command import ConfiguredVerifier\n"
             "from pf.schemas.evaluation import (EnvironmentVariable, VerifierPass, VerifierRequest)\n"
             "def test_outer_first():\n"
-            "    time.sleep(0.2)\n"
+            "    pass\n"
             "def test_outer_runs_inner_pytest(tmp_path):\n"
             "    inner = tmp_path / 'inner'\n"
             "    inner.mkdir()\n"
             "    (inner / 'test_inner.py').write_text(\n"
-            "        'import time\\ndef test_inner():\\n    time.sleep(0.2)\\n',\n"
+            "        'def test_inner():\\n    pass\\n',\n"
             "        encoding='utf-8',\n"
             "    )\n"
             "    result = ConfiguredVerifier(SubprocessRunner()).run(\n"
@@ -212,29 +212,6 @@ class TestPytestObserverIntegration:
         observed: list[StageProgress | None] = []
 
         result = _run_pytest(tmp_path, progress=observed.append)
-
-        assert isinstance(result.authoritative, VerifierPass)
-        assert None not in observed
-        assert observed[-1] == StageProgress(completed=2, total=2, unit="tests")
-
-    def test_configured_verifier_progress_reaches_completion_across_qualification_pytest(
-        self,
-    ) -> None:
-        qualification = (
-            "tests/test_pytest_observer_qualification.py::"
-            "TestPytestObserverQualificationRunner::"
-        )
-        observed: list[StageProgress | None] = []
-
-        result = _run_pytest(
-            Path(__file__).resolve().parents[1],
-            qualification
-            + "test_transparency_runner_lists_the_committed_case_contracts",
-            qualification
-            + "test_transparency_runner_replays_the_committed_current_profile",
-            autoload=True,
-            progress=observed.append,
-        )
 
         assert isinstance(result.authoritative, VerifierPass)
         assert None not in observed
@@ -583,65 +560,108 @@ class TestPytestObserverXdistIntegration:
         assert result.authoritative.terminal.exit_code == 1
 
 
-@pytest.mark.parametrize("exit_code", (0, 1))
-@pytest.mark.parametrize("fault", ("valid", "missing", "malformed", "unreadable", "noncanonical", "nonce", "conflict", "oversize"))
-def test_real_pytest_terminal_survives_summary_fault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exit_code: int, fault: str) -> None:
-    _write_test(tmp_path, "def test_example():\n    assert " + str(exit_code == 0) + "\n")
-    original_open = Path.open
+class TestPytestObserverSummaryFaults:
+    @pytest.mark.parametrize("exit_code", (0, 1))
+    @pytest.mark.parametrize(
+        "fault",
+        (
+            "valid",
+            "missing",
+            "malformed",
+            "unreadable",
+            "noncanonical",
+            "nonce",
+            "conflict",
+            "oversize",
+        ),
+    )
+    def test_run_preserves_terminal_under_summary_fault(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        exit_code: int,
+        fault: str,
+    ) -> None:
+        _write_test(
+            tmp_path, "def test_example():\n    assert " + str(exit_code == 0) + "\n"
+        )
+        original_open = Path.open
 
-    class FaultRunner:
-        count = 0
-        process: ProcessResult | None = None
+        class FaultRunner:
+            count = 0
+            process: ProcessResult | None = None
 
-        def run(self, spec: ProcessSpec):
-            self.count += 1
-            result = SubprocessRunner().run(spec)
-            assert isinstance(result, ProcessResult)
-            assert result.exit_code == exit_code
-            self.process = result
-            env = {item.name: item.value for item in spec.environment}
-            directory = Path(env["PF_PYTEST_OBSERVER_DIR"])
-            artifact = next(directory.glob("summary-*.json"))
-            document = json.loads(artifact.read_text())
-            if fault == "missing":
-                for summary in directory.iterdir():
-                    summary.unlink()
-            elif fault == "malformed":
-                artifact.write_text("{")
-            elif fault == "unreadable":
-                def failing_open(path, *args, **kwargs):
-                    if path == artifact:
-                        raise PermissionError("injected summary read failure")
-                    return original_open(path, *args, **kwargs)
-                monkeypatch.setattr(Path, "open", failing_open)
-            elif fault == "noncanonical":
-                artifact.write_text(json.dumps(document, indent=2))
-            elif fault in {"nonce", "conflict"}:
-                document["run_nonce" if fault == "nonce" else "pytest_version"] = "different"
-                target = artifact if fault == "nonce" else directory / ("summary-" + "f" * 32 + ".json")
-                target.write_text(json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n")
-            elif fault == "oversize":
-                artifact.write_bytes(b"x" * 4097)
-            return result
+            def run(self, spec: ProcessSpec):
+                self.count += 1
+                result = SubprocessRunner().run(spec)
+                assert isinstance(result, ProcessResult)
+                assert result.exit_code == exit_code
+                self.process = result
+                env = {item.name: item.value for item in spec.environment}
+                directory = Path(env["PF_PYTEST_OBSERVER_DIR"])
+                artifact = next(directory.glob("summary-*.json"))
+                document = json.loads(artifact.read_text())
+                if fault == "missing":
+                    for summary in directory.iterdir():
+                        summary.unlink()
+                elif fault == "malformed":
+                    artifact.write_text("{")
+                elif fault == "unreadable":
 
-    runner = FaultRunner()
-    result = ConfiguredVerifier(runner).run(VerifierRequest(
-        command=(sys.executable, "-m", "pytest", "-q"), cwd=tmp_path, timeout_seconds=30,
-        environment=(EnvironmentVariable(name="PYTEST_DISABLE_PLUGIN_AUTOLOAD", value="1"),),
-    ))
-    assert runner.count == 1
-    assert result.authoritative.status == ("PASS" if exit_code == 0 else "REJECTED")
-    assert result.diagnostics is not None
-    assert result.diagnostics.process is runner.process
-    if fault == "valid":
-        assert result.diagnostics.pytest_version is not None
-    else:
-        assert result.diagnostics.pytest_version is None
-        assert result.diagnostics.python_minor is None
-        assert result.diagnostics.pytest_execution_mode is None
-        assert result.diagnostics.pytest_facts == ()
-        assert result.diagnostics.summary_code is None
-    if exit_code == 1:
-        assert result.diagnostics.detail is not None
-        assert result.diagnostics.detail.first.nodeid == "test_example.py::test_example"
-        assert result.failed_case_additions == ("test_example.py::test_example",)
+                    def failing_open(path, *args, **kwargs):
+                        if path == artifact:
+                            raise PermissionError("injected summary read failure")
+                        return original_open(path, *args, **kwargs)
+
+                    monkeypatch.setattr(Path, "open", failing_open)
+                elif fault == "noncanonical":
+                    artifact.write_text(json.dumps(document, indent=2))
+                elif fault in {"nonce", "conflict"}:
+                    document["run_nonce" if fault == "nonce" else "pytest_version"] = (
+                        "different"
+                    )
+                    target = (
+                        artifact
+                        if fault == "nonce"
+                        else directory / ("summary-" + "f" * 32 + ".json")
+                    )
+                    target.write_text(
+                        json.dumps(document, sort_keys=True, separators=(",", ":"))
+                        + "\n"
+                    )
+                elif fault == "oversize":
+                    artifact.write_bytes(b"x" * 4097)
+                return result
+
+        runner = FaultRunner()
+        result = ConfiguredVerifier(runner).run(
+            VerifierRequest(
+                command=(sys.executable, "-m", "pytest", "-q"),
+                cwd=tmp_path,
+                timeout_seconds=30,
+                environment=(
+                    EnvironmentVariable(
+                        name="PYTEST_DISABLE_PLUGIN_AUTOLOAD", value="1"
+                    ),
+                ),
+            )
+        )
+        assert runner.count == 1
+        assert result.authoritative.status == ("PASS" if exit_code == 0 else "REJECTED")
+        assert result.diagnostics is not None
+        assert result.diagnostics.process is runner.process
+        if fault == "valid":
+            assert result.diagnostics.pytest_version is not None
+        else:
+            assert result.diagnostics.pytest_version is None
+            assert result.diagnostics.python_minor is None
+            assert result.diagnostics.pytest_execution_mode is None
+            assert result.diagnostics.pytest_facts == ()
+            assert result.diagnostics.summary_code is None
+        if exit_code == 1:
+            assert result.diagnostics.detail is not None
+            assert (
+                result.diagnostics.detail.first.nodeid
+                == "test_example.py::test_example"
+            )
+            assert result.failed_case_additions == ("test_example.py::test_example",)
