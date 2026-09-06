@@ -1,4 +1,5 @@
-from __future__ import annotations
+# Keep dataclass field annotations concrete: Pydantic at the declared lower
+# bound cannot resolve their local aliases from an embedding schema's module.
 
 from dataclasses import dataclass
 import re
@@ -190,10 +191,10 @@ def bind(
 
 
 def bind_policy(
-    policy: NamedSearchPolicy,
+    policy: "NamedSearchPolicy",
     *,
-    declarations: Iterable[RequirementDeclaration],
-    cell: Cell,
+    declarations: Iterable["RequirementDeclaration"],
+    cell: "Cell",
 ) -> BoundSpace:
     """Bind one requested policy to the original active direct declarations."""
     requested = (
@@ -213,7 +214,7 @@ def bind_policy(
     return bind(requested, declaration=lower, dependency=policy.name, cell=cell)
 
 
-def admit(package: PackagePlan) -> None:
+def admit(package: "PackagePlan") -> None:
     """Check declaration prerequisites for the whole declared matrix without I/O."""
     for cell in package.cells:
         active = set(cell.active_declaration_ids)

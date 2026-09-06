@@ -15,6 +15,7 @@ from pf.project import ProjectLoader
 from pf.schemas.project import (
     AvailableArtifact,
     AvailableCandidate,
+    CandidateSnapshot,
     DependencySourceRoute,
     PackagePlan,
     SourceIdentity,
@@ -84,6 +85,28 @@ test-command = ["pytest"]
 
 
 class TestCandidateBuilder:
+    @pytest.mark.parametrize("space", ("all", "majors[baseline]"))
+    def test_candidate_selection_survives_snapshot_roundtrip(self, tmp_path, space):
+        package = configured_package(tmp_path, f'search-space = "{space}"')
+        snapshot = CandidateBuilder(CandidateIndex()).build(
+            package=package,
+            cell=package.cells[0],
+            baseline=(VersionPin(name="demo-dep", version="1.1.1"),),
+            source_plan=SourcePlan.for_package(package, "SEARCH"),
+        )[0]
+
+        restored = CandidateSnapshot.model_validate_json(snapshot.model_dump_json())
+
+        assert restored == snapshot
+        assert restored.selection.expression == space
+        assert restored.selection.reason == "explicit"
+        assert restored.selection.anchors == (
+            () if space == "all" else (("baseline", "1.1.1"),)
+        )
+        assert restored.selection.selected_keys == (
+            () if space == "all" else ((0, 1),)
+        )
+
     @pytest.mark.parametrize("resolution", ["major", "minor", "patch"])
     def test_filtered_series_still_occupy_offset_positions(
         self, tmp_path: Path, resolution: str
