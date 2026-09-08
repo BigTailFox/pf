@@ -201,7 +201,7 @@ class _RunnerStaticSlice:
         snapshot = next(item for item in self._runner._candidate_snapshots
                         if item.dependency == self._context.dependency)
         hint = result.hint
-        return self._runner._run_cache.record_search(StaticSearchAudit(
+        ref = self._runner._run_cache.record_search(StaticSearchAudit(
             ref="pending", context=self._context, guidance=self._guidance,
             policy=search_derivation_policy(self._runner._package.config, guidance=self._guidance,
                                              small_threshold=self._runner._small_threshold),
@@ -215,6 +215,23 @@ class _RunnerStaticSlice:
                                    clean_is_anchor=hint.clean_is_anchor) if hint is not None else None,
             reason=result.reason,
         ))
+        keep: set[tuple[tuple[str, str], ...]] = set()
+        if hint is not None:
+            for point in (hint.suspect, hint.clean_neighbor):
+                vector = tuple(
+                    sorted(
+                        (
+                            *self._context.fixed_other_coordinates,
+                            VersionPin(
+                                name=self._context.dependency, version=point.version
+                            ),
+                        ),
+                        key=lambda pin: pin.name,
+                    )
+                )
+                keep.add(self._runner._key(vector))
+        self._runner._release_prepared(keep=keep)
+        return ref
 
 
 class _ProposalRunner:
@@ -440,6 +457,7 @@ class _ProposalRunner:
             return StaticProbeUnavailableEvidence(attempt=prepared.attempt, proposal=prepared.proposal,
                                                   unavailable=result, failure=None, process=None)
         assert prepared.static_consumer is not None
+        self._release_prepared(keep=frozenset({self._key(vector)}), retain_recent=1)
         return prepared.static_consumer
 
     def lookup_direct_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence | None:
@@ -450,6 +468,28 @@ class _ProposalRunner:
     def finish_coordinate(self) -> None:
         """Release unconsumed materializations while retaining immutable facts."""
         self.close()
+
+    def _release_prepared(
+        self,
+        *,
+        keep: set[tuple[tuple[str, str], ...]] | frozenset[tuple[tuple[str, str], ...]],
+        retain_recent: int = 0,
+    ) -> None:
+        """Close static-only proposal trees that will not be reused immediately.
+
+        D003 closes unused materializations at coordinate end; a wide static
+        window can otherwise retain every inspect venv until then. Hint
+        endpoints stay available for same-Proposal oracle reuse.
+        """
+        overflow = [
+            key for key in self._prepared if key not in keep
+        ]
+        protected = set(overflow[-retain_recent:]) if retain_recent else set()
+        for key in overflow:
+            if key in protected:
+                continue
+            prepared = self._prepared.pop(key)
+            prepared.close()
 
     def _emit_stage(self, stage: str) -> None:
         if self._events is None:

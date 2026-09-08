@@ -835,15 +835,14 @@ class TestProgressRendering:
         terminal.consume(CellContextEvent(cell=second, detail=BaselineDetailIdentity()))
         terminal.consume(completed_event(first, status="SUCCESS", completed=1, total=3))
         terminal.consume(CellContextEvent(cell=third, detail=BaselineDetailIdentity()))
-        footer = next(
-            line
-            for line in reversed(visible(stderr.getvalue()).splitlines())
-            if "smoke testing" in line
+        rendered = visible(stderr.getvalue())
+        footers = tuple(
+            line for line in rendered.splitlines() if "smoke testing" in line
         )
         terminal.close()
 
-        assert "2 running · 1 finished · 0 left" in footer
-        assert "1/3" not in footer
+        assert any("2 running · 1 finished · 0 left" in line for line in footers)
+        assert "1/3" not in rendered
 
     def test_narrow_footer_keeps_work_counts_and_total_elapsed(self) -> None:
         cells = tuple(

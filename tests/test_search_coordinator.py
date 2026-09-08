@@ -367,6 +367,69 @@ class TestSearchCoordinator:
         finally:
             project.snapshot.close()
 
+    def test_static_slice_does_not_retain_every_inspected_environment(
+        self, tmp_path, run_cache
+    ):
+        from pf.schemas.evaluation import TyDiagnostic
+
+        diagnostic = TyDiagnostic(
+            identity="snapshot|src/demo/__init__.py|1|1|example",
+            origin="snapshot",
+            path="src/demo/__init__.py",
+            line=1,
+            column=1,
+            code="example",
+            severity="error",
+            message="static suspicion",
+        )
+        versions = tuple(str(index) for index in range(1, 17))
+
+        def ty(vector, call):
+            version = int(vector[0].version)
+            return TyCheck(
+                process=successful_process(exit_code=1 if version < 12 else 0),
+                diagnostics=(diagnostic,) if version < 12 else (),
+            )
+
+        def verifier(vector, call):
+            version = int(vector[0].version)
+            return VerifierRun(
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0))
+                    if version >= 10
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                ),
+                diagnostics=VerifierDiagnostics(
+                    process=successful_process(exit_code=0 if version >= 10 else 1)
+                ),
+            )
+
+        project = evaluation_project(tmp_path)
+        assembly = evaluation_assembly(
+            highest=(VersionPin(name="demo-dep", version="16"),),
+            candidate_versions=versions,
+            ty_handler=ty,
+            verifier_handler=verifier,
+        )
+        try:
+            result = assembly.coordinator.search(
+                run_cache=run_cache,
+                package=project.package,
+                cell=project.package.cells[0],
+                snapshot=project.snapshot,
+                source_plan=project.source_plan,
+            )
+            assert isinstance(result, CellSuccess)
+            peak = max(
+                (sum(states) for _, states in assembly.uv.resolution_root_states),
+                default=0,
+            )
+            assert peak <= 4
+            assert result.final_vector[0].name == "demo-dep"
+            assert all(not root.exists() for root in assembly.uv.environment_roots)
+        finally:
+            project.snapshot.close()
+
     def test_oracle_selection_records_clean_neighbor_after_suspect_rejection(self, tmp_path, run_cache):
         from pf.schemas.evaluation import TyDiagnostic
 
