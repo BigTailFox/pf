@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import stat
 import tempfile
+import time as monotonic_time
 from typing import Any
 
 import tomli
@@ -71,7 +72,28 @@ class SourceSnapshot:
         )
 
     def close(self) -> None:
-        self._temporary_directory.cleanup()
+        cleanup_temporary_directory(self._temporary_directory)
+
+
+def cleanup_temporary_directory(
+    temporary_directory: tempfile.TemporaryDirectory[str],
+) -> None:
+    """Release a TemporaryDirectory, retrying Windows sharing violations."""
+    delays = (0.0, 0.2, 0.5, 1.0, 2.0) if os.name == "nt" else (0.0,)
+    last_error: OSError | None = None
+    for delay in delays:
+        if delay:
+            monotonic_time.sleep(delay)
+        try:
+            temporary_directory.cleanup()
+            return
+        except OSError as error:
+            last_error = error
+    if os.name == "nt":
+        shutil.rmtree(temporary_directory.name, ignore_errors=True)
+        return
+    if last_error is not None:
+        raise last_error
 
 
 def uv_project_configuration_identity(
@@ -141,7 +163,7 @@ class SnapshotBuilder:
         entries: list[SnapshotEntry] = []
         pyproject_identities: list[PyprojectIdentity] = []
         if (root / ".git").exists() and self._runner is None:
-            temporary_directory.cleanup()
+            cleanup_temporary_directory(temporary_directory)
             raise ConfigurationError(
                 "Git source snapshots require an explicit process runner"
             )
@@ -180,7 +202,7 @@ class SnapshotBuilder:
                 temporary_directory=temporary_directory,
             )
         except Exception:
-            temporary_directory.cleanup()
+            cleanup_temporary_directory(temporary_directory)
             raise
 
     def _copy_directory(

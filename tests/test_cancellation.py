@@ -106,7 +106,11 @@ class TestProcessCancellation:
                     cancelled.cancel()
                     with pytest.raises(OperationCancelled):
                         first.result(timeout=5)
-                    assert connections["a"].recv(1) == b""
+                    try:
+                        leftover = connections["a"].recv(1)
+                    except ConnectionResetError:
+                        leftover = b""
+                    assert leftover == b""
                     connections["b"].sendall(b"x")
                     result = second.result(timeout=5)
                     assert isinstance(result, ProcessResult)

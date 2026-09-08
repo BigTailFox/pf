@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "search",
+    "--max-cells",
+    "1",
+    "--ty-jobs",
+    "1",
+    "--test-jobs",
+    "1"
+  ],
+  "cwd": "C:\\Users\\llh\\repo\\pf",
+  "started_utc": "2026-09-08T10:05:25.462530Z"
+}

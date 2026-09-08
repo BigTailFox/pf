@@ -4,6 +4,7 @@ from collections.abc import Callable
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -36,6 +37,21 @@ class RecordingListener:
 
     def consume(self, event: ProcessEvent) -> None:
         self.events.append(event)
+
+
+def _pid_is_running(pid: int) -> bool:
+    if os.name == "nt":
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True,
+            check=False,
+        )
+        return str(pid).encode("ascii") in (result.stdout or b"") + (result.stderr or b"")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 class _ChunkLog:
@@ -390,6 +406,99 @@ class TestSubprocessRunner:
         assert isinstance(result, ProcessResult)
         assert result.timed_out is True
         assert result.signal is not None
+
+    def test_subprocess_runner_times_out_default_process_group_without_posix_killpg(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        result = SubprocessRunner(terminate_grace_seconds=0.05).run(
+            ProcessSpec(
+                argv=(sys.executable, "-c", "import time; time.sleep(5)"),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=0.2,
+            )
+        )
+
+        assert isinstance(result, ProcessResult)
+        assert result.timed_out is True
+        assert result.exit_code is not None or result.signal is not None
+
+    def test_subprocess_runner_resolves_unqualified_windows_executables_against_child_path(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        if os.name != "nt":
+            pytest.skip("Windows CreateProcess PATH search")
+        pytest_exe = shutil.which("pytest") or str(
+            Path(sys.executable).with_name("pytest.exe")
+        )
+        if not Path(pytest_exe).exists():
+            pytest_exe = str(Path(sys.executable).parent / "pytest.exe")
+        if not Path(pytest_exe).exists():
+            pytest.skip("pytest.exe is not next to the interpreter")
+        scripts = Path(pytest_exe).parent
+        captured: dict[str, object] = {}
+        real_popen = subprocess.Popen
+
+        def popen(argv, **kwargs):  # type: ignore[no-untyped-def]
+            captured["argv"] = argv
+            return real_popen(argv, **kwargs)
+
+        monkeypatch.setattr(subprocess, "Popen", popen)
+        result = SubprocessRunner().run(
+            ProcessSpec(
+                argv=("pytest", "--version"),
+                cwd=tmp_path.as_posix(),
+                environment=(
+                    EnvironmentVariable(
+                        name="PATH",
+                        value=str(scripts) + os.pathsep + os.environ.get("PATH", ""),
+                    ),
+                ),
+                timeout_seconds=20,
+            )
+        )
+        assert isinstance(result, ProcessResult)
+        assert result.exit_code == 0
+        argv = captured["argv"]
+        assert isinstance(argv, (tuple, list))
+        assert Path(str(argv[0])).is_file()
+        assert Path(str(argv[0])).name.lower().startswith("pytest")
+
+    def test_subprocess_runner_timeout_stops_a_grandchild_process(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        marker = tmp_path / "grandchild.pid"
+        result = SubprocessRunner(terminate_grace_seconds=0.2).run(
+            ProcessSpec(
+                argv=(
+                    sys.executable,
+                    "-c",
+                    (
+                        "import pathlib,subprocess,sys,time;"
+                        f" marker=pathlib.Path({str(marker)!r});"
+                        " child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']);"
+                        " marker.write_text(str(child.pid));"
+                        " time.sleep(30)"
+                    ),
+                ),
+                cwd=tmp_path.as_posix(),
+                timeout_seconds=0.4,
+            )
+        )
+
+        assert isinstance(result, ProcessResult)
+        assert result.timed_out is True
+        assert marker.is_file()
+        grandchild = int(marker.read_text(encoding="utf-8"))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not _pid_is_running(grandchild):
+                break
+            time.sleep(0.05)
+        assert not _pid_is_running(grandchild)
 
     def test_subprocess_runner_interrupt_stops_an_inflight_process_group(
         self,

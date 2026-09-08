@@ -1,0 +1,17 @@
+{
+  "python": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+  "executable": "C:\\Users\\llh\\repo\\pf\\.venv\\Scripts\\python.exe",
+  "platform": "Windows-10-10.0.26100-SP0",
+  "system": "Windows",
+  "release": "10",
+  "machine": "AMD64",
+  "os_name": "nt",
+  "sys_platform": "win32",
+  "wsl_distro": null,
+  "wsl_interop": null,
+  "tempdir": "C:\\Users\\llh\\AppData\\Local\\Temp",
+  "cpu_count": 28,
+  "cwd": "C:\\Users\\llh\\repo\\pf",
+  "has_killpg": false,
+  "git_head": "afbf3a57c6703eca6acd4e9b1a158bd69ae837ed"
+}

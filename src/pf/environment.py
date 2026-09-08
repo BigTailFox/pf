@@ -71,7 +71,7 @@ from pf.schemas.project import (
     VersionPin,
     selected_candidate_evidence_digest,
 )
-from pf.snapshot import SourceSnapshot
+from pf.snapshot import SourceSnapshot, cleanup_temporary_directory
 
 
 if TYPE_CHECKING:
@@ -324,7 +324,7 @@ class PreparedEnvironment:
                 self._closed = True
                 self.static_materialization = None
                 self.static_consumer = None
-                self._temporary_directory.cleanup()
+                cleanup_temporary_directory(self._temporary_directory)
 
 
 class EnvironmentFactory:
@@ -436,10 +436,10 @@ class EnvironmentFactory:
             if not isinstance(create, (ToolSuccess, OperationFailureResult)):
                 raise InfrastructureError("uv create returned an unsupported outcome")
             if create.stage != "create-environment":
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(invariant("create-environment"))
             if isinstance(create, OperationFailureResult):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(create)
             interpreter = self._interpreter(environment_root)
             interpreter_result = self._uv.inspect_interpreter(
@@ -448,7 +448,7 @@ class EnvironmentFactory:
                 timeout_seconds=package.config.resolution.timeout_seconds,
             )
             if not isinstance(interpreter_result, InterpreterSuccess):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 if interpreter_result.stage != "inspect-interpreter":
                     return failed(invariant("inspect-interpreter"))
                 return failed(interpreter_result)
@@ -458,7 +458,7 @@ class EnvironmentFactory:
                     f"{cell.python_minor}."
                 )
             ):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(
                     OperationFailureResult(
                         stage="inspect-interpreter",
@@ -520,17 +520,17 @@ class EnvironmentFactory:
                 ),
             )
             if not resolution_envelope_valid(project_outcome, project_request, binding("resolve-project")):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(invariant("resolve-project"))
             if not isinstance(project_outcome, ResolutionPlan):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(project_outcome)
             artifact_failure = self._artifact_policy_failure(
                 project_outcome,
                 policy=package.config.resolution.artifact,
             )
             if artifact_failure is not None:
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(artifact_failure)
             source_failure = self._managed_source_failure(
                 package=package,
@@ -540,7 +540,7 @@ class EnvironmentFactory:
                 plan=project_outcome,
             )
             if source_failure is not None:
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(source_failure)
             project_plan_digest = project_outcome.semantic_digest
 
@@ -593,20 +593,20 @@ class EnvironmentFactory:
                     ),
                 )
                 if not resolution_envelope_valid(environment_outcome, environment_request, binding("resolve-environment")):
-                    temporary_directory.cleanup()
+                    cleanup_temporary_directory(temporary_directory)
                     return failed(invariant("resolve-environment"))
                 if not isinstance(environment_outcome, ResolutionPlan):
-                    temporary_directory.cleanup()
+                    cleanup_temporary_directory(temporary_directory)
                     return failed(environment_outcome)
                 artifact_failure = self._artifact_policy_failure(
                     environment_outcome,
                     policy=package.config.resolution.artifact,
                 )
                 if artifact_failure is not None:
-                    temporary_directory.cleanup()
+                    cleanup_temporary_directory(temporary_directory)
                     return failed(artifact_failure)
                 if not self._project_graph_is_exact(project_outcome, environment_outcome):
-                    temporary_directory.cleanup()
+                    cleanup_temporary_directory(temporary_directory)
                     return failed(
                         OperationFailureResult(
                             stage="resolve-environment",
@@ -630,10 +630,10 @@ class EnvironmentFactory:
             )
             install_stage = "install-project" if final_plan.kind == "project" else "install-environment"
             if install.plan_digest != final_plan.digest or (isinstance(install, InstallFailure) and install.stage != install_stage):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(invariant(install_stage))
             if isinstance(install, InstallFailure):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(install)
             if not isinstance(install, InstalledResolution):
                 raise TypeError("uv install returned an unsupported outcome")
@@ -643,7 +643,7 @@ class EnvironmentFactory:
                 timeout_seconds=package.config.resolution.timeout_seconds,
             )
             if isinstance(graph, OperationFailureResult):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 if graph.stage != "inspect":
                     return failed(invariant("inspect"))
                 return failed(graph)
@@ -658,7 +658,7 @@ class EnvironmentFactory:
             if set(installed) != expected_names or any(
                 installed.get(name) != version for name, version in expected.items()
             ):
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(
                     OperationFailureResult(
                         stage="inspect-project-plan" if final_plan.kind == "project" else "inspect-environment-plan",
@@ -678,7 +678,7 @@ class EnvironmentFactory:
             )
             missing = tuple(name for name in managed_names if name not in installed)
             if missing:
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(
                     OperationFailureResult(
                         stage="inspect-project-plan" if final_plan.kind == "project" else "inspect-environment-plan",
@@ -689,7 +689,7 @@ class EnvironmentFactory:
                 VersionPin(name=name, version=installed[name]) for name in managed_names
             )
             if managed_vector is not None and actual_vector != managed_vector:
-                temporary_directory.cleanup()
+                cleanup_temporary_directory(temporary_directory)
                 return failed(
                     OperationFailureResult(
                         stage="proposal-vector",
@@ -751,7 +751,7 @@ class EnvironmentFactory:
                 temporary_directory=temporary_directory,
             )
         except Exception as error:
-            temporary_directory.cleanup()
+            cleanup_temporary_directory(temporary_directory)
             if isinstance(error, (ConfigurationError, InfrastructureError)):
                 raise
             raise InfrastructureError("environment preparation failed", detail=str(error)) from error

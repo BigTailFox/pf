@@ -140,6 +140,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 | [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) | MkDocs 基线/build 调查；后续 D036/P041 已完成，不表示重跑了 MkDocs search |
 | [E008](experiments/E008-mkdocs-complete-search.md) | MkDocs 5-Cell smoke/check/search 完整记录、最终 PASS 与 witness 目标错配发现 |
 | [E009](experiments/E009-mkdocs-static-guidance.md) | 静态 guidance 后 MkDocs check/search 资格；check 声明下界进入原 unittest，intern 后 search 经 64 MiB reader 复证 |
+| [E010](experiments/E010-windows-native-search-cleanup.md) | 2026-09-08 非 WSL Windows 自搜索：killpg 崩溃复现与 Cell 结束环境清理墙钟 |
 
 既有 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。
 补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)；

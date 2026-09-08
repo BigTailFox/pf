@@ -832,7 +832,7 @@ class UvAdapter:
             "import json,platform,sys,sysconfig;"
             "print(json.dumps({'implementation':sys.implementation.name,"
             "'version':platform.python_version(),"
-            "'abi':sysconfig.get_config_var('SOABI') or ''}))"
+            "'abi':sysconfig.get_config_var('SOABI') or getattr(sys.implementation,'cache_tag','') or ''}))"
         )
         process = self._runner.run(
             ProcessSpec(

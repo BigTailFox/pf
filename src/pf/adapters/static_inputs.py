@@ -57,7 +57,7 @@ if shared_library and not os.path.isfile(shared_library):
 print(json.dumps({
     'interpreter': {'implementation': sys.implementation.name,
                     'version': platform.python_version(),
-                    'abi': sysconfig.get_config_var('SOABI') or ''},
+                    'abi': sysconfig.get_config_var('SOABI') or getattr(sys.implementation, 'cache_tag', '') or ''},
     'executable': os.path.realpath(sys.executable),
     'stdlib': sysconfig.get_path('stdlib'), 'sites': sites,
     'shared_library': os.path.realpath(shared_library) if shared_library else None,

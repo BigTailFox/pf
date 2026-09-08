@@ -29,6 +29,7 @@ from pf.schemas.evaluation import (
 
 OUTPUT_CACHE_LIMIT = 16 * 1024 * 1024
 _STREAM_CHUNK_SIZE = 65_536
+_Popen = subprocess.Popen
 
 
 @dataclass(frozen=True)
@@ -323,6 +324,7 @@ class SubprocessRunner:
             size = self._terminal_size()
             environment["COLUMNS"] = str(size.columns)
             environment["LINES"] = str(size.lines)
+        launch_argv = _launch_argv(spec.argv, environment)
         with (
             tempfile.TemporaryFile() as stdout_file,
             tempfile.TemporaryFile() as stderr_file,
@@ -334,14 +336,14 @@ class SubprocessRunner:
             )
             try:
                 process = subprocess.Popen(
-                    spec.argv,
+                    launch_argv,
                     cwd=spec.cwd,
                     env=environment,
                     stdin=subprocess.DEVNULL,
                     stdout=stdout_file,
                     stderr=stderr_file,
                     shell=False,
-                    start_new_session=spec.start_new_session,
+                    start_new_session=spec.start_new_session and os.name != "nt",
                 )
             except OSError as error:
                 result = ProcessResult(
@@ -578,6 +580,11 @@ class SubprocessRunner:
         return shutil.get_terminal_size()
 
     def _terminate(self, process: subprocess.Popen[bytes], process_group: bool) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt":
+            self._terminate_windows(process, process_group)
+            return
         try:
             if process_group:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -591,6 +598,59 @@ class SubprocessRunner:
                 process.kill()
         except ProcessLookupError:
             pass
+
+    def _terminate_windows(
+        self, process: subprocess.Popen[bytes], process_group: bool
+    ) -> None:
+        if process_group:
+            self._taskkill(process.pid, force=False)
+            try:
+                process.wait(timeout=self._terminate_grace_seconds)
+            except subprocess.TimeoutExpired:
+                self._taskkill(process.pid, force=True)
+                try:
+                    process.wait(timeout=self._terminate_grace_seconds)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=self._terminate_grace_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+    @staticmethod
+    def _taskkill(pid: int, *, force: bool) -> None:
+        command = ["taskkill", "/PID", str(pid), "/T"]
+        if force:
+            command.append("/F")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        process = _Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+        process.communicate()
+
+
+def _launch_argv(argv: tuple[str, ...], environment: dict[str, str]) -> tuple[str, ...]:
+    """Resolve an unqualified executable against the child PATH on Windows.
+
+    CreateProcess searches the parent PATH, not lpEnvironment. POSIX exec
+    already honors the child PATH, so this is a no-op there.
+    """
+    if os.name != "nt" or not argv:
+        return argv
+    executable = argv[0]
+    if os.path.dirname(executable):
+        return argv
+    path = environment.get("PATH") or environment.get("Path")
+    resolved = shutil.which(executable, path=path)
+    if resolved is None:
+        return argv
+    return (resolved, *argv[1:])
 
 
 def _split_utf8(payload: bytes) -> tuple[bytes, bytes]:

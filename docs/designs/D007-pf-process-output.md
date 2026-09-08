@@ -110,7 +110,7 @@ Header 元数据可有防滥用硬上限；截断不得影响正文、stream com
 
 `SubprocessRunner` 以 `shell=False`、独立 process group 和匿名 tempfile 接收 stdout/stderr。Process 结束后按固定 chunk 读取、跨 chunk 脱敏，并写入 Process Log；不得先把全文变成一个 Python string 再按 cache limit 截断后冒充原文。
 
-Runner 跟踪 in-flight `Popen`。CLI 用户中断时对每个 tracked process 复用 timeout 的停止路径：process group 则 `SIGTERM` → grace → `SIGKILL` 并等待回收。被中断的 child 不向 search/failure owner 提供作为证据的 `ProcessObservation`；已写入的 Process Log 片段保留。中断标志置位后，新的 `run()` 立即再抛 `KeyboardInterrupt`。
+Runner 跟踪 in-flight `Popen`。CLI 用户中断时对每个 tracked process 复用 timeout 的停止路径：独立 process group 先礼貌停止、grace、再强制结束并等待回收。POSIX 为 `setsid` + `SIGTERM` → grace → `SIGKILL`；Windows 上 `start_new_session` 不能调用 `setsid`/`killpg`，停止路径改为进程树 terminate → grace → 强制结束。被中断的 child 不向 search/failure owner 提供作为证据的 `ProcessObservation`；已写入的 Process Log 片段保留。中断标志置位后，新的 `run()` 立即再抛 `KeyboardInterrupt`。
 
 Cache 合计预算 16 MiB。若两流都存在，预算在两流间分配并尽量保留各自尾部；单流可使用全部预算。并行 processes 各有独立预算，不建立跨 process 全局配额。
 
