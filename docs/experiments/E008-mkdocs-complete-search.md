@@ -1,6 +1,6 @@
 # E008 — MkDocs smoke/check/search 完整实验与 witness 证据偏差
 
-- **状态：** 已完成（运行数据整理与证据分析；witness 问题未修复）
+- **状态：** 已完成
 - **日期：** 2026-09-06（Asia/Shanghai；run-id 使用 UTC）
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约
 - **前序：** [E007](E007-mkdocs-baseline-and-build-failures.md) 的实验准备与构建失败调查
@@ -228,11 +228,11 @@ search 最终三个 Markdown predecessor 也保留同一错误 plan：
 | 3.11 | 3.3.7 | `failure-012c874a7ee4cfd1` |
 | 3.12 | 3.3.7 | `failure-90e320ccfe21792b` |
 
-当前 [StaticTransitionClassifier](../../src/pf/static_transition.py) 的 `_member_target` 将无 alias 的
+当时 `src/pf/static_transition.py` 中 `StaticTransitionClassifier._member_target` 将无 alias 的
 `import markdown.treeprocessors` 存成 `markdown → markdown.treeprocessors`，覆盖前面的
 `import markdown` 映射；随后选中内层 `markdown.treeprocessors` AST Attribute，将 `treeprocessors`
 再次作为 member。源码与冻结 plan 相互印证这一错误路径。D004 要求唯一恢复精确目标，复合/多义位置
-应降级 general；本例的强分类没有满足该要求。
+应降级 general；本例的强分类没有满足该要求。2026-09-08：该 classifier 已随 D038 删除，本段保留当时路径事实。
 
 因此，这不是单纯诊断措辞不准确，而是错误目标的负向证据进入了 check disposition 和搜索边界。
 报告 reader 能校验结构、引用和身份一致性，不能替代对 AST 目标语义的正确性验证。

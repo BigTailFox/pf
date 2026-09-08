@@ -6,7 +6,7 @@
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D026](../designs/D026-pf-command-composition-and-interrupt.md)
 - **评审来源：** [R006](../../reviews/R006-pf-cli-system-review.md) §4、§6，
-  [R007](../../reviews/R007-pf-current-improvement-priorities.md) §4、§5
+  [R007](../reviews/R007-pf-current-improvement-priorities.md) §4、§5
 - **实施基线：** 当前工作树对照 D001/D002/D006/D007 与 `src/pf/cli.py`
 - **实现提交：** 工作树未提交；本 Plan 与 D026 在同一完成变更中归档
 

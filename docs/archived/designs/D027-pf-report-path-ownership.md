@@ -4,7 +4,7 @@
 - **日期：** 2026-09-04
 - **最后修订：** 2026-09-04
 - **性质：** 临时迁移 Design；稳定规则已归并到现行 owner，本文不再承担规范性
-- **评审来源：** [R007](../../reviews/R007-pf-current-improvement-priorities.md) §6
+- **评审来源：** [R007](../reviews/R007-pf-current-improvement-priorities.md) §6
 - **实现结构：** [D002](../../designs/D002-pf-implementation.md)
 - **CLI 展示：** [D006](../../designs/D006-pf-cli-enhancement.md)
 - **报告 wire：** [D014](../../designs/D014-pf-report-schema.md)

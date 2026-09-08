@@ -1,6 +1,6 @@
 # E007 — MkDocs 基线失败诊断与实验准备
 
-- **状态：** 已完成（诊断、配置准备与 smoke 复测；未完成下界搜索）
+- **状态：** 已完成
 - **日期：** 2026-09-06（Asia/Shanghai；run-id 使用 UTC）
 - **性质：** 非规范性 dogfood 实验事实；不定义失败分类或搜索算法的新契约
 - **目标：** `experiments/mkdocs`，MkDocs `1.6.1`，上游 commit

@@ -9,7 +9,7 @@
 - **源码快照：** `75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3`
 - **评价策略：** `configured-verifier-terminal-v1`；policy identity `3cc886658c6e4df455f0333142e88cf02aabbc5736065888b08d937137b6d805`
 - **验证契约：** full-repository contract；`test-command = ["pytest"]`；`resolve-artifact = "any"`
-- **搜索产物：** [`experiments/requests/package-floor.json`](../../experiments/requests/package-floor.json)
+- **搜索产物：** 当时写出 incomplete 报告并退出 4。工作区 `experiments/requests/package-floor.json` 会更新，不能用它复证本实验。
 - **报告实体：** generation `07053f8be671cf542d256b956f16dd3cc0a007d1b7f72413cb47afbce04ca25d`
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D008](../designs/D008-pf-verification-run.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D014](../designs/D014-pf-report-schema.md)
 

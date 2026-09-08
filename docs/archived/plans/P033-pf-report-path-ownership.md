@@ -5,7 +5,7 @@
 - **完成日期：** 2026-09-04
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D027](../designs/D027-pf-report-path-ownership.md)
-- **评审来源：** [R007](../../reviews/R007-pf-current-improvement-priorities.md) §6
+- **评审来源：** [R007](../reviews/R007-pf-current-improvement-priorities.md) §6
 - **实施基线：** 当前工作树对照 D002/D006 与 `ProjectDiscovery` / `workflow.py` / `TerminalPresenter`
 
 本文把 D027 验收标准映射到有序切片、测试和证据槽。完成标准只来自 D027 §3。

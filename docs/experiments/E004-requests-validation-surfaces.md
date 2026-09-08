@@ -1,6 +1,6 @@
 # E004 — requests required-surface 修复后验证
 
-- **状态：** 已完成（保存空组策略补充前的运行事实与补充后的 planning 复核）
+- **状态：** 已完成
 - **日期：** 2026-09-05
 - **性质：** 非规范性 dogfood 运行事实；不定义产品或实现契约
 - **实现依据：** [D028](../archived/designs/D028-pf-validation-contract-surfaces.md) / [P034](../archived/plans/P034-pf-validation-contract-surfaces.md)
@@ -9,6 +9,8 @@
 - **PF：** `0.1.0`，基线 `3f79782` 上的 D028 工作树（尚未提交）
 - **Source snapshot：** `75b5d4f7dd959f3f54a5fea2bb46aa8937d81fcdcd4d3f496040ce91bb6329b3`
 - **三命令运行时 Evaluation policy：** `91eb0a1d5088579f747162ce604da5c2e28bbb9ab4968b2c490f851ff9cc6823`
+
+本文保存空组策略补充前的运行事实与补充后的 planning 复核。
 
 ## 1. 输入与口径
 

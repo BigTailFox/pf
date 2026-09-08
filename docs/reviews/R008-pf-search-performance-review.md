@@ -5,7 +5,7 @@
 - **性质：** 非规范性性能与架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
 - **对照：** 当前 `main`
 - **输入：** [E002](../experiments/E002-pf-search-performance.md) 的历史运行证据、
-  [R007 §7.1–7.2](R007-pf-current-improvement-priorities.md#7-既有开放轨继续跟踪不重复新开)、
+  [R007 §7.1–7.2](../archived/reviews/R007-pf-current-improvement-priorities.md#7-既有开放轨继续跟踪不重复新开)、
   当前实现与本轮汇总评审意见
 - **现行契约所有者：** [D001](../designs/D001-pf.md)、
   [D002](../designs/D002-pf-implementation.md)、
@@ -16,12 +16,18 @@
   [D012](../designs/D012-pf-harness-relaxation.md)、
   [D013](../designs/D013-pf-pytest-observer.md)、
   [D014](../designs/D014-pf-report-schema.md)
-- **与既有文档的关系：** E002 保存 2026-08-28 运行的原始计数与当时结论；R007 继续保存
-  全项目优先级。本文只汇总当前搜索流程、瓶颈判断、候选排序与治理边界，不把历史基线改写成当前性能实测。
+- **与既有文档的关系：** E002 保存 2026-08-28 运行的原始计数与当时结论；[R007 归档](../archived/reviews/R007-pf-current-improvement-priorities.md)
+  保存当时全项目优先级。本文只汇总搜索流程、瓶颈判断、候选排序与治理边界，不把历史基线改写成当前性能实测。
   搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 已落地为默认内部策略；完成后的稳定规则由
   D001/D002/D003/D004/D005/D013 拥有。历史见
   [D024](../archived/designs/D024-pf-failed-case-pruning.md) 与
   [P030](../archived/plans/P030-pf-failed-case-pruning.md)。本文仍不把协议测试描述为已证实的第二段 wall-clock 收益。
+
+## 2026-09-08 状态核对
+
+文档治理变更不刷新 wall-clock 基线，也不启动性能实现。§4.1 region、§4.2 hints、§4.3
+single-flight、§4.4 materialize 与 §4.7 xdist 候选仍开放。§2 是 2026-09-04 评审快照，不是现行算法；
+现行时序见 D003/D012，witness 已由 D038 删除。R007 已完全归档，不再保留现行目录跳转页。
 
 ## 2026-09-06 状态核对
 
@@ -61,7 +67,7 @@ nodeid 做拒绝预言，并在首败后提前结束；PASS、current、floor �
 来源。D022/P028 已解决同一 Proposal 从 static-only promotion 到 runtime 时的重复 prepare；不同
 Proposal 的环境隔离仍是现行正确性要求。
 
-## 2. 现行搜索流程
+## 2. 评审当时的搜索流程
 
 ```text
 SearchCommandWorkflow

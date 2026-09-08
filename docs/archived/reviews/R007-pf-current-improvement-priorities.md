@@ -14,6 +14,8 @@
   继续保存 CLI 详细评审，后续 [R008](../../reviews/R008-pf-search-performance-review.md) 汇总当前搜索性能候选。
   本文不以重复摘要替代这些文档。
 
+2026-09-08：现行 `docs/reviews/` 跳转页已删除；原指向该旧地址的入链已改到本文。未改评审结论。
+
 本文使用 `module`、`interface`、`seam`、`adapter`、`depth`、`leverage` 与 `locality` 判断架构候选，
 并对每个候选应用删除测试。文件行数、helper 数量或把实现移动到新文件，不单独构成改进理由。
 
@@ -177,6 +179,8 @@ Presenter 只拿 `ValidatedReport`，Explain 成功结果也没有携带读取�
 
 如果完整修复需要改变 ProjectPlan、Search/Explain command result 或 Presenter interface，它属于 D002 临时
 Design；不能用一个新的 helper 掩盖路径仍由多个调用方重建的事实。
+
+<a id="7-既有开放轨继续跟踪不重复新开"></a>
 
 ## 7. 既有开放轨：继续跟踪，不重复新开
 

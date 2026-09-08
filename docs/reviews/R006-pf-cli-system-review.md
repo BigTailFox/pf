@@ -1,6 +1,6 @@
 # R006 — PF CLI 系统评审
 
-- **状态：** 开放（help/README、reason-aware incomplete 文案、host-partial 自动化协议、command-scoped composition 与 Ctrl+C 终态已修复；其余候选待接受或 Design）
+- **状态：** 开放
 - **日期：** 2026-09-03
 - **性质：** 非规范性产品与架构评审；不定义命令、退出码、展示或 module interface，不授权实施
 - **对照：** 初评基于 `010e048`；源码位置已在 D022/P028 完成后重校，本轮直接修复以 `9e4d1bb` 为起点
@@ -14,6 +14,11 @@
 
 评审使用 `module`、`interface`、`seam`、`adapter`、`depth`、`leverage`、`locality` 与删除测试判断
 架构候选。文件大小、helper 数量或把代码移到新文件都不单独构成深化理由。
+
+## 2026-09-08 状态核对
+
+文档治理变更不启动 CLI 实现。现行开放项只有 §5.1 terminal-private result-card 与 §5.2 非 TTY 活动。
+§1 表中其余项与 §2–4、§6 都是已完成证据，不再当作待办。
 
 ## 2026-09-06 状态核对
 
@@ -32,9 +37,9 @@ help/README三项可直接对照现行契约修复的公开表面偏差也已处
 
 | 优先级 | 分类 | 事项 | 结论 |
 | --- | --- | --- | --- |
-| P1 | 契约歧义与失效配置 | `[tool.pf].jobs` 没有调度消费者 | 已由D023/P029解决：拆分三个有消费者的limit，省略继承配置、显式CLI覆盖 |
-| P1 | 小型契约修复 | `diagnose` help 吞掉 `<id>`；`apply` 暴露 `--no-force`；README 过期 | 已按 D001/D006 修复；公共 CLI 测试覆盖 help 与 parser 拒绝 |
-| P1 | D006 展示契约修复 | incomplete reasons 被统一说成“no applicable floor” | 已恢复 reason-aware 文案；现行退出码不变 |
+| 已完成 | 契约歧义与失效配置 | `[tool.pf].jobs` 没有调度消费者 | 已由D023/P029解决：拆分三个有消费者的limit，省略继承配置、显式CLI覆盖 |
+| 已完成 | 小型契约修复 | `diagnose` help 吞掉 `<id>`；`apply` 暴露 `--no-force`；README 过期 | 已按 D001/D006 修复；公共 CLI 测试覆盖 help 与 parser 拒绝 |
+| 已完成 | D006 展示契约修复 | incomplete reasons 被统一说成“no applicable floor” | 已恢复 reason-aware 文案；现行退出码不变 |
 | 已完成 | 产品协议 | 多宿主 `search` 的纯 host-partial artifact 仍退出 `2` | 已由 D025/P031 解决：host-partial search 退出 `0` 且 minimize 提示 merge |
 | 已完成 | 需要 Design | 所有命令在解析前装配完整验证图，且 composition-time `PfError` 越过统一错误映射 | 已由 D026/P032 解决：唯一 root 内按命令装配；composition-time `PfError` 走 `render_error()` |
 | P2 | R006；原 R005 轨 D | apply/no-floor/普通配置错误仍是 `category: message` | 下一次真实跨命令错误展示变更时启动 terminal-private result-card，不另建错误 module |
@@ -122,7 +127,7 @@ README 只做入口导航与摘要，不复制一套 Cyclopts help；命令和�
 
 ## 3. P1：incomplete 文案与 multi-host search outcome
 
-### 3.1 当前问题
+### 3.1 评审时的问题
 
 D008 明确定义每个进程只运行 `cell.target == host_target` 的 Cell；Search 的 host 集为空也合法，workflow
 继续写出带 `MISSING_CELL` 的 incomplete report（`src/pf/verification.py:243-265`、D008 §1）。公共 workflow

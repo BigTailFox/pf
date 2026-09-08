@@ -5,7 +5,7 @@
 - **最后修订：** 2026-09-04
 - **性质：** 临时迁移 Design；稳定规则已归并到现行 owner，本文不再承担规范性
 - **评审来源：** [R006](../../reviews/R006-pf-cli-system-review.md) §4、§6，
-  [R007](../../reviews/R007-pf-current-improvement-priorities.md) §4、§5
+  [R007](../reviews/R007-pf-current-improvement-priorities.md) §4、§5
 - **产品边界：** [D001](../../designs/D001-pf.md)
 - **实现结构：** [D002](../../designs/D002-pf-implementation.md)
 - **CLI 展示：** [D006](../../designs/D006-pf-cli-enhancement.md)

@@ -1,6 +1,6 @@
 # C002 — PF Registry 发布分布分析 CLI
 
-- **状态：** 开放构想；命令、数据和建议输出契约待探索
+- **状态：** 开放
 - **日期：** 2026-09-05
 - **性质：** 非规范性 Concept，不授权生产实施
 - **来源：** [D030 §12](../archived/designs/D030-pf-search-space-dsl.md#12-待办独立-registry-分析-cli-design)

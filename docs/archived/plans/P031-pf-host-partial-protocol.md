@@ -5,7 +5,7 @@
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D025](../designs/D025-pf-host-partial-protocol.md)
 - **评审来源：** [R006](../../reviews/R006-pf-cli-system-review.md) §3.3、
-  [R007](../../reviews/R007-pf-current-improvement-priorities.md) §2
+  [R007](../reviews/R007-pf-current-improvement-priorities.md) §2
 - **实施基线：** `945f01e`（`docs: update R008`）
 - **实现提交：** 工作树未提交；本 Plan 与 D025 在同一完成变更中归档
 

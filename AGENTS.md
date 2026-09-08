@@ -13,6 +13,12 @@
   criterion and reconcile Design and Plan status. For a temporary migration Design, absorb its stable
   rules into the current owner documents and archive the Design and Plan in the same completed change.
 
+## Engineering docs
+
+- **Owner map** — locating the unique owner of a behavior, or adding, moving, or archiving a
+  Design, Plan, Review, Concept, or Experiment: follow [docs/README.md](docs/README.md).
+- **Vocabulary** — choosing or checking a PF domain term: use [CONTEXT.md](CONTEXT.md).
+
 ## Contract evolution
 
 - PF is pre-release. When implementing an accepted contract change, treat the target contract as the

@@ -1,6 +1,6 @@
 # E009 — MkDocs 静态 guidance 资格（check/search）
 
-- **状态：** 已完成（隔离、check、受控对照、intern 后 search 与 reader 复证均有冻结证据）
+- **状态：** 已完成
 - **日期：** 2026-09-08（Asia/Shanghai；run-id 使用 UTC）
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约
 - **前序：** [E008](E008-mkdocs-complete-search.md)

@@ -197,7 +197,7 @@ ty==0.0.74
 
 `ResolutionRunContext` 还 fail-closed，只接受与 production profile 对应的 uv `0.12.5`。uv 因而同时具有 exact distribution pin 和独立 qualification manifest。
 
-ty 只有 exact distribution pin、当前锁环境中的真实 CLI/E2E 调用，以及基于 synthetic JSON diagnostics 的 adapter/classifier 单测；不存在 `ty version × Python minor × diagnostic case` 的动态资格矩阵。当前 strong classifier 只 allowlist `unresolved-import` 与 `unresolved-attribute`，并要求 AST、snapshot origin 与 managed dependency 都可结构化恢复；`invalid-argument-type`/`invalid-type` 一类只覆盖 adapter 解析或 general evidence 路径，不形成强兼容性证据。相关入口为 [ty adapter tests](../../tests/test_ty_adapter.py)、[static transition tests](../../tests/test_static_transition.py) 和 [classifier](../../src/pf/static_transition.py)。
+ty 只有 exact distribution pin、当前锁环境中的真实 CLI/E2E 调用，以及基于 synthetic JSON diagnostics 的 adapter/classifier 单测；不存在 `ty version × Python minor × diagnostic case` 的动态资格矩阵。当时 strong classifier 只 allowlist `unresolved-import` 与 `unresolved-attribute`，并要求 AST、snapshot origin 与 managed dependency 都可结构化恢复；`invalid-argument-type`/`invalid-type` 一类只覆盖 adapter 解析或 general evidence 路径，不形成强兼容性证据。当时入口为 [ty adapter tests](../../tests/test_ty_adapter.py)、`tests/test_static_transition.py` 和 `src/pf/static_transition.py`。2026-09-08：D038/P042 已删除该 classifier 与专属测试；静态现行 owner 为 [D004](../designs/D004-pf-ty-enhancement.md)。
 
 [`test_installed_module_cli_completes_report_lifecycle`](../../tests/test_end_to_end.py) 会让安装后的 PF 真实执行 uv、ty、search、explain、diagnose 与 apply。它证明当前锁定环境的一条完整 integration path，但仍只有一个 resolved dependency vector，不是跨版本矩阵。
 
