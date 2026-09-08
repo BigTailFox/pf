@@ -8,6 +8,8 @@ import json
 
 import pytest
 
+from visible_text import visible_cli_text
+
 from pf.project import ProjectLoader
 from pf.report import ReportStore
 
@@ -180,11 +182,13 @@ test-command = ["pf-d035-unavailable-verifier"]
         assert any(
             'ty", "check' in path.read_text(encoding="utf-8") for path in process_logs
         )
-        explained = results["explain"].stdout
+        explained = visible_cli_text(results["explain"].stdout)
         assert "complete · report evidence is eligible for apply" in explained
         assert "pf apply --package demo" in explained
         assert repeated_apply.returncode == 0, (
             repeated_apply.stdout,
             repeated_apply.stderr,
         )
-        assert "Applied floors · no metadata changes" in repeated_apply.stdout
+        assert "Applied floors · no metadata changes" in visible_cli_text(
+            repeated_apply.stdout
+        )

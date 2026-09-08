@@ -6,6 +6,8 @@ from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 import pytest
 
+from visible_text import visible_cli_text
+
 from pf.cli import main
 from pf.errors import ConfigurationError
 from pf.markers import PortableMarker, evaluate_contextual_marker, platform_marker_facts
@@ -259,7 +261,7 @@ class TestMarkerPlanning:
 
         output = capsys.readouterr()
         assert caught.value.code == 3, output.err
-        assert "marker comparison cannot be evaluated" in " ".join(output.err.split())
+        assert "marker comparison cannot be evaluated" in visible_cli_text(output.err)
         assert "pyproject.toml" in output.err
         assert "building snapshot" not in output.err
         assert not (tmp_path / "package-floor.json").exists()

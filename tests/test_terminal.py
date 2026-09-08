@@ -15,6 +15,8 @@ from verifier_fixtures import verifier_pass, verifier_rejected
 from conftest import empty_harness_baseline
 from rich.console import Console
 
+from visible_text import compact_cli_text, visible_cli_text
+
 from pf.errors import (
     ConfigurationError,
     DiagnoseNotFoundError,
@@ -917,14 +919,10 @@ class TestProgressRendering:
         )
 
         plain = visible(stderr.getvalue())
-        collapsed = " ".join(
-            "".join(" " if char in "│╭╮╰╯─" else char for char in plain).split()
-        )
+        collapsed = visible_cli_text(plain)
         border = next(line for line in plain.splitlines() if line.startswith("╭"))
         assert len(border) == width
-        compact = "".join(
-            char for char in plain if not char.isspace() and char not in "│╭╮╰╯─"
-        )
+        compact = compact_cli_text(plain)
         assert "tests/test_search_workflow.py::test_candidate_failure" in compact
         assert "... and 1 more" in collapsed
 
@@ -1109,7 +1107,7 @@ class TestProgressRendering:
             )
         )
 
-        output = stderr.getvalue()
+        output = visible_cli_text(stderr.getvalue())
         assert stdout.getvalue() == ""
         assert "failed at [testing]" in output
         assert "The configured verifier rejected this version combination." in output
@@ -1177,7 +1175,7 @@ class TestProgressRendering:
         )
         terminal.consume(event)
 
-        output = stderr.getvalue()
+        output = visible_cli_text(stderr.getvalue())
         assert stdout.getvalue() == ""
         assert "failed at [installing dependencies]" in output
         assert "The selected plan did not pass this installation attempt." in output
@@ -2071,11 +2069,7 @@ class TestProgressRendering:
         vector = "[cyclopts=2.4.0][packaging=24.0][rich=14.0]"
         identity = "[pydantic=1.7.4][oracle1.7.4~2.13.4#18][testing]"
         latest_frame = output[output.rfind("╭") :]
-        compact_frame = "".join(
-            character
-            for character in latest_frame
-            if not character.isspace() and character not in "│╭╮╰╯─"
-        )
+        compact_frame = compact_cli_text(latest_frame)
         content_frame = re.sub(
             r"3/8ETA\d{2}:\d{2}:\d{2}",
             "",
@@ -2450,11 +2444,7 @@ class TestProgressRendering:
         terminal.close()
 
         frame = output[output.rfind("╭") :]
-        compact = "".join(
-            character
-            for character in frame.replace("0:00:00", "")
-            if not character.isspace() and character not in "│╭╮╰╯─"
-        )
+        compact = compact_cli_text(frame.replace("0:00:00", ""))
         assert "[py3.12][x86_64-unknown-linux-gnu][no-extra]" in compact
         assert "[declaration][lowest-direct]" in compact
         assert re.search(r"\S {2}\[py3\.12", frame) is not None
@@ -2587,8 +2577,7 @@ class TestProgressRendering:
 
         output = stderr.getvalue()
         plain = visible(output)
-        stripped = "".join(" " if ch in "│╭╮╰╯─" else ch for ch in plain)
-        collapsed = " ".join(stripped.split())
+        collapsed = visible_cli_text(plain)
         diagnose = f"`pf diagnose {failure.failure_id} --package demo`"
         assert exit_code == 1
         assert "╭" in plain
@@ -3022,10 +3011,12 @@ class TestVerificationRendering:
             "The configured verifier rejected this version combination.",
             f"pf diagnose {failure.failure_id} --package demo",
         )
-        assert all(fragment in live_stderr.getvalue() for fragment in fragments), (
+        visible_live = visible_cli_text(live_stderr.getvalue())
+        visible_final = visible_cli_text(final_stderr.getvalue())
+        assert all(fragment in visible_live for fragment in fragments), (
             live_stderr.getvalue()
         )
-        assert all(fragment in final_stderr.getvalue() for fragment in fragments), (
+        assert all(fragment in visible_final for fragment in fragments), (
             final_stderr.getvalue()
         )
 
@@ -3064,10 +3055,12 @@ class TestVerificationRendering:
             "PF could not reach or read a configured package source.",
             f"pf diagnose {failure.failure_id} --package demo",
         )
-        assert all(fragment in live_stderr.getvalue() for fragment in fragments), (
+        visible_live = visible_cli_text(live_stderr.getvalue())
+        visible_final = visible_cli_text(final_stderr.getvalue())
+        assert all(fragment in visible_live for fragment in fragments), (
             live_stderr.getvalue()
         )
-        assert all(fragment in final_stderr.getvalue() for fragment in fragments), (
+        assert all(fragment in visible_final for fragment in fragments), (
             final_stderr.getvalue()
         )
 
@@ -3109,10 +3102,12 @@ class TestVerificationRendering:
             "could not reach or read a configured package source.",
             f"pf diagnose {failure.failure_id} --package demo",
         )
-        assert all(fragment in live_stderr.getvalue() for fragment in fragments), (
+        visible_live = visible_cli_text(live_stderr.getvalue())
+        visible_final = visible_cli_text(final_stderr.getvalue())
+        assert all(fragment in visible_live for fragment in fragments), (
             live_stderr.getvalue()
         )
-        assert all(fragment in final_stderr.getvalue() for fragment in fragments), (
+        assert all(fragment in visible_final for fragment in fragments), (
             final_stderr.getvalue()
         )
 
@@ -3258,7 +3253,9 @@ class TestVerificationRendering:
 
         assert exit_code == expected_exit
         assert stdout.getvalue() == ""
-        assert all(fragment in stderr.getvalue() for fragment in fragments)
+        assert all(
+            fragment in visible_cli_text(stderr.getvalue()) for fragment in fragments
+        )
 
     def test_check_indeterminate_omits_process_output_and_log_link(
         self,
@@ -3301,7 +3298,7 @@ class TestVerificationRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == (
+        assert visible_cli_text(stderr.getvalue()) == (
             "! Check indeterminate · The operation timed out, so compatibility is unknown. · 0 cells"
         )
 
@@ -3381,7 +3378,7 @@ class TestVerificationRendering:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join(
+        assert visible_cli_text(stderr.getvalue()) == " ".join(
             (
                 "✗  [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   smoke failed at [baseline][highest][testing]\n"
@@ -3435,14 +3432,15 @@ class TestVerificationRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert f"smoke failed at [baseline][highest][{failed_at}]" in stderr.getvalue()
+        rendered = visible_cli_text(stderr.getvalue())
+        assert f"smoke failed at [baseline][highest][{failed_at}]" in rendered
         assert (
             "PF could not complete a verification tool operation reliably."
-            in stderr.getvalue()
+            in rendered
         )
-        assert "this candidate" not in stderr.getvalue()
-        assert "TOOL_FAILURE" not in stderr.getvalue()
-        assert "BASELINE_INDETERMINATE" not in stderr.getvalue()
+        assert "this candidate" not in rendered
+        assert "TOOL_FAILURE" not in rendered
+        assert "BASELINE_INDETERMINATE" not in rendered
 
     def test_smoke_hides_baseline_ty_warnings(
         self,
@@ -3532,7 +3530,7 @@ class TestVerificationRendering:
                 evaluation=evaluation, failure=verifier_failure(attempt),
             ),))
         assert terminal.render_check(result) == (0 if passed else 1)
-        rendered = stdout.getvalue() + stderr.getvalue()
+        rendered = visible_cli_text(stdout.getvalue() + stderr.getvalue())
         assert ("Check passed" if passed else "Check failed") in rendered
         if not passed:
             assert "The configured verifier rejected this version combination." in rendered
@@ -3563,8 +3561,8 @@ class TestVerificationRendering:
             )
         )
 
-        output = stderr.getvalue()
-        lines = output.splitlines()
+        output = visible_cli_text(stderr.getvalue())
+        lines = stderr.getvalue().splitlines()
         assert lines[0] == "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]"
         assert lines[1] == "   smoke failed at [baseline][highest][testing]"
         assert "The highest-version resolution did not pass" not in output
@@ -3944,21 +3942,19 @@ class TestSearchRendering:
             )
         )
 
-        exhausted_output = " ".join(exhausted_stderr.getvalue().split())
+        exhausted_output = visible_cli_text(exhausted_stderr.getvalue())
         assert (
             "The configured search space was fully evaluated, but no compatible "
             "version combination was found." in exhausted_output
         )
-        assert "full test command failed" not in exhausted_stderr.getvalue()
-        indeterminate_output = " ".join(indeterminate_stderr.getvalue().split())
+        assert "full test command failed" not in exhausted_output
+        indeterminate_output = visible_cli_text(indeterminate_stderr.getvalue())
         assert (
             "Search stopped before the configured search space was fully evaluated. "
             "The operation timed out, so compatibility is unknown."
             in indeterminate_output
         )
-        assert (
-            "fully evaluated, but no compatible" not in indeterminate_stderr.getvalue()
-        )
+        assert "fully evaluated, but no compatible" not in indeterminate_output
 
     def test_search_cell_uses_latest_terminal_failure_not_historical_detail(
         self,
@@ -4031,7 +4027,7 @@ class TestSearchRendering:
 
         exit_code = terminal.render_search(search_result(incomplete_report("NO_PASS_IN_SEARCH_SPACE")))
 
-        output = stderr.getvalue()
+        output = visible_cli_text(stderr.getvalue())
         assert exit_code == 2
         assert "demo.py:4:2 [bad-argument-type]" not in output
         assert (
@@ -4087,7 +4083,7 @@ class TestSearchRendering:
             assert stdout.getvalue() == "✓  Search complete · package-floor.json\n"
         else:
             assert stdout.getvalue() == ""
-            assert " ".join(stderr.getvalue().split()) == " ".join(
+            assert visible_cli_text(stderr.getvalue()) == " ".join(
                 expected_stderr[reasons].split()
             )
 
@@ -4128,7 +4124,7 @@ class TestSearchRendering:
 
         exit_code = terminal.render_search(search_result(incomplete_report(reason)))
 
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert exit_code == 2
         assert stdout.getvalue() == ""
         assert expected_conclusion in rendered
@@ -4148,7 +4144,7 @@ class TestSearchRendering:
             incomplete_report("MISSING_CELL", target_cells=(target,))
         ))
 
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert exit_code == 2
         assert stdout.getvalue() == ""
         assert "no configured cells match this host" in rendered
@@ -4178,7 +4174,7 @@ class TestSearchRendering:
             )
         ))
 
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert exit_code == 0
         assert stdout.getvalue() == ""
         assert "Search incomplete" in rendered
@@ -4218,7 +4214,7 @@ class TestSearchRendering:
             )
         ))
 
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert exit_code == 2
         assert stdout.getvalue() == ""
         assert "1 cell has no applicable floor" in rendered
@@ -4255,7 +4251,7 @@ class TestSearchRendering:
             )
         ))
 
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert exit_code == 2
         assert stdout.getvalue() == ""
         assert "1 cell is missing" in rendered
@@ -4292,7 +4288,7 @@ class TestSearchRendering:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join(
+        assert visible_cli_text(stderr.getvalue()) == " ".join(
             (
                 "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [baseline][highest][resolving the test environment]\n"
@@ -4324,7 +4320,7 @@ class TestSearchRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join(
+        assert visible_cli_text(stderr.getvalue()) == " ".join(
             (
                 "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [candidate discovery]\n"
@@ -4370,7 +4366,7 @@ class TestSearchRendering:
 
         assert exit_code == 4
         assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join(
+        assert visible_cli_text(stderr.getvalue()) == " ".join(
             (
                 "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
                 "   search stopped at [testing]\n"
@@ -4425,9 +4421,9 @@ class TestExplainRendering:
             )
         )
 
-        rendered = stdout.getvalue()
+        rendered = visible_cli_text(stdout.getvalue())
         assert "demo · packages/demo/package-floor.json" in rendered
-        assert rendered.count("package-floor.json") == 1
+        assert stdout.getvalue().count("package-floor.json") == 1
 
     def test_explain_renders_the_complete_report_next_action(self) -> None:
         declaration = requirement_declaration(
@@ -4453,7 +4449,7 @@ class TestExplainRendering:
 
         terminal.render_explain(explain_result(report))
 
-        rendered = stdout.getvalue()
+        rendered = visible_cli_text(stdout.getvalue())
         assert "complete · report evidence is eligible for apply" in rendered
         assert "1 managed dependency has a verified floor." in rendered
         assert "-> pf apply --package demo" in rendered
@@ -4520,7 +4516,7 @@ class TestExplainRendering:
         exit_code = terminal.render_explain(explain_result(report))
 
         assert exit_code == 0
-        rendered = stdout.getvalue()
+        rendered = visible_cli_text(stdout.getvalue())
         assert "demo · package-floor.json" in rendered
         assert "incomplete · blocked; no applicable final floor" in rendered
         assert "foo>=1" in rendered
@@ -4580,9 +4576,10 @@ class TestExplainRendering:
         terminal.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
-        assert "demo · package-floor.json" in rendered
-        assert "incomplete · blocked; no applicable final floor" in rendered
-        assert "Report incomplete" in rendered
+        visible = visible_cli_text(rendered)
+        assert "demo · package-floor.json" in visible
+        assert "incomplete · blocked; no applicable final floor" in visible
+        assert "Report incomplete" in visible
         for line in rendered.splitlines():
             assert len(line) <= width
 
@@ -4600,7 +4597,7 @@ class TestDiagnosticResultCards:
                 recovery_command="pf search --package demo",
             )
         ) == 3
-        explain = " ".join(stderr.getvalue().split())
+        explain = visible_cli_text(stderr.getvalue())
         assert stdout.getvalue() == ""
         assert "Explain failed" in explain
         assert "packages/demo/package-floor.json" in explain
@@ -4615,7 +4612,7 @@ class TestDiagnosticResultCards:
                 package="demo",
             )
         ) == 3
-        diagnose = " ".join(stderr.getvalue().split())
+        diagnose = visible_cli_text(stderr.getvalue())
         assert "Diagnosis failed" in diagnose
         assert "failure-aaaaaaaaaaaaaaaa" in diagnose
         assert "latest local Journal" in diagnose
@@ -4637,7 +4634,7 @@ class TestDiagnosticResultCards:
         assert terminal.render_merge(result) == 0
 
         rendered = stdout.getvalue()
-        normalized = " ".join(rendered.split())
+        normalized = visible_cli_text(rendered)
         assert stderr.getvalue() == ""
         assert rendered.count("reports/linux/package-floor.json") == 2
         assert "reports/windows/package-floor.json" in rendered
@@ -4683,7 +4680,7 @@ class TestDiagnosticResultCards:
 
         exit_code = terminal.render_error(error)
 
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert stdout.getvalue() == ""
         assert exit_code == int(error.exit_code)
         assert rendered.count("one.json") == 1

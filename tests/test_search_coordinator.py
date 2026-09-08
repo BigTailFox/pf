@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from visible_text import visible_cli_text
+
 from evaluation_fixtures import (
     evaluation_assembly,
     evaluation_project,
@@ -481,7 +483,7 @@ class TestSearchCoordinator:
                 stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
                 root=tmp_path,
             ).render_diagnose(diagnosis) == 0
-            rendered = " ".join(stdout.getvalue().split())
+            rendered = visible_cli_text(stdout.getvalue())
             assert "Related static evidence" in rendered
             assert "probed as static-suspect" in rendered
             assert "not the compatibility result" in rendered

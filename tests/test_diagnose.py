@@ -12,6 +12,8 @@ from typing import Literal
 import pytest
 from rich.console import Console
 
+from visible_text import visible_cli_text
+
 from pf.errors import DiagnoseNotFoundError
 from pf.failure import FailurePolicy
 from pf.policy import execution_policy_identity
@@ -721,7 +723,7 @@ class TestDiagnoseWorkflow:
         ).render_diagnose(diagnosis)
 
         rendered = stdout.getvalue()
-        normalized = " ".join(rendered.split())
+        normalized = visible_cli_text(rendered)
         assert "output second third fourth [bold]literal[/bold]" in normalized
         assert "\x1b" not in rendered
         assert "first" not in rendered
@@ -844,7 +846,7 @@ class TestDiagnoseWorkflow:
 
         rendered = stdout.getvalue()
         assert exit_code == 0
-        normalized = " ".join(rendered.split())
+        normalized = visible_cli_text(rendered)
         assert f"! {failure_id} · compatibility unknown" in normalized
         assert (
             "What happened PF could not reach or read a configured package source."
@@ -856,7 +858,7 @@ class TestDiagnoseWorkflow:
         assert "vector not applicable" in normalized
         assert "detail code candidate-discovery-failed" in normalized
         assert "detail the configured index was unavailable" in normalized
-        assert "Detailed local log is unavailable." in rendered
+        assert "Detailed local log is unavailable." in normalized
         assert normalized.index("What happened") < normalized.index(
             "cause SOURCE_FAILURE"
         )
@@ -887,7 +889,7 @@ class TestDiagnoseWorkflow:
             root=tmp_path,
         )
         assert presenter.render_diagnose(diagnosis) == 0
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert f"✗ {failure_id} · rejected candidate" in rendered
         assert "resolution exact-vector" in rendered
         assert "vector idna==2.0" in rendered
@@ -980,7 +982,7 @@ class TestDiagnoseWorkflow:
         )
 
         assert presenter.render_diagnose(_diagnosis(failure=failure)) == 0
-        assert f"process {expected}" in " ".join(stdout.getvalue().split())
+        assert f"process {expected}" in visible_cli_text(stdout.getvalue())
 
     def test_diagnose_reads_a_check_journal_without_a_floor_report(
         self, tmp_path: Path
@@ -1042,7 +1044,7 @@ class TestDiagnoseWorkflow:
             stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
             root=tmp_path,
         ).render_diagnose(diagnosis)
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert exit_code == 0
         assert "source latest pf check" in rendered
         assert "The declared lower bounds did not pass the required checks." in rendered
@@ -1173,7 +1175,7 @@ class TestDiagnoseWorkflow:
             stderr=Console(file=StringIO(), force_terminal=False, color_system=None),
             root=tmp_path,
         ).render_diagnose(diagnosis)
-        rendered = stdout.getvalue()
+        rendered = visible_cli_text(stdout.getvalue())
         assert (
             "A static baseline could not be captured" in rendered
         )
@@ -1208,8 +1210,9 @@ class TestDiagnoseWorkflow:
         assert presenter.render_diagnose(diagnosis) == 0
 
         rendered = stdout.getvalue()
-        assert failure_id in rendered
-        assert "Detailed local log is unavailable." in rendered
+        visible = visible_cli_text(rendered)
+        assert failure_id in visible
+        assert "Detailed local log is unavailable." in visible
         plain = re.sub(r"\x1b]8;[^\x1b]*\x1b\\", "", rendered)
         for line in plain.splitlines():
             assert len(line) <= width

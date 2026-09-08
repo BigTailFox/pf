@@ -6,6 +6,7 @@ import pytest
 from rich.console import Console
 
 from evaluation_fixtures import ScriptedUv, evaluation_project
+from visible_text import visible_cli_text
 from pf.environment import EnvironmentFactory, HighestResolution
 from pf.failure import FailurePolicy
 from pf.project_discovery import ProjectDiscovery
@@ -169,7 +170,7 @@ class TestExecutionFailureRun:
             assert logs.lookup_run(
                 logs.run_id, failure.failure_id
             ) == log_path.relative_to(tmp_path)
-            assert failure.failure_id in output.getvalue()
+            assert failure.failure_id in visible_cli_text(output.getvalue())
             if command == "smoke":
                 if isinstance(baseline, BaselineIndeterminate):
                     code = terminal.render_smoke(
@@ -201,8 +202,9 @@ class TestExecutionFailureRun:
                 )
             assert code == (4 if timeout else 1)
             if command == "check" and not timeout:
-                assert "declared lower bounds are incompatible" not in output.getvalue()
-                assert "baseline capture did not pass" in output.getvalue()
+                rendered = visible_cli_text(output.getvalue())
+                assert "declared lower bounds are incompatible" not in rendered
+                assert "baseline capture did not pass" in rendered
 
             class NoProcessLogs:
                 def lookup(self, report_generation_id, failure_id):
@@ -234,8 +236,9 @@ class TestExecutionFailureRun:
                     log_path.relative_to(tmp_path) if locator is logs else None
                 )
                 assert terminal.render_diagnose(diagnosis) == 0
-            assert "controlled backend diagnostic" in output.getvalue()
-            assert "Detailed local log is unavailable." in output.getvalue()
+            rendered = visible_cli_text(output.getvalue())
+            assert "controlled backend diagnostic" in rendered
+            assert "Detailed local log is unavailable." in rendered
         finally:
             logs.close()
             project.snapshot.close()

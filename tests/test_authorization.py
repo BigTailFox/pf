@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 from candidate_fixtures import frozen_candidate_snapshot
+from visible_text import visible_cli_text
 
 from dataclasses import replace
 from io import StringIO
@@ -424,7 +425,9 @@ class TestApplyAuthorizer:
             presenter = TerminalPresenter(stdout=Console(file=output, width=160, color_system=None),
                 stderr=Console(file=StringIO(), width=160, color_system=None))
             presenter.render_explain(ExplainCommandResult(report=report, report_path="package-floor.json"))
-            assert "platform-scoped apply evidence is available" in " ".join(output.getvalue().split())
+            assert "platform-scoped apply evidence is available" in visible_cli_text(
+                output.getvalue()
+            )
         finally:
             snapshot.close()
 
@@ -1056,7 +1059,7 @@ test-command = ["pytest"]
         else:
             assert document["project"]["dependencies"] == ["idna>=1"]
             assert "version 1.5 does not satisfy the intended requirement" in (
-                " ".join(result.stderr.split())
+                visible_cli_text(result.stderr)
             )
 
     @pytest.mark.parametrize("force", (False, True))
@@ -1130,16 +1133,13 @@ dynamic = ["version"]
 
         assert result.returncode == 3
         assert result.stdout == ""
-        assert "Usage:" not in result.stderr
-        assert "Cannot apply idna>=" in result.stderr
-        assert "workspace member idna declares its version dynamically" in (
-            " ".join(result.stderr.split())
-        )
-        assert "PF cannot verify offline" in result.stderr
-        assert "apply the requirement manually and run pf smoke" in (
-            " ".join(result.stderr.split())
-        )
-        assert "--force" not in result.stderr
+        visible = visible_cli_text(result.stderr)
+        assert "Usage:" not in visible
+        assert "Cannot apply idna>=" in visible
+        assert "workspace member idna declares its version dynamically" in visible
+        assert "PF cannot verify offline" in visible
+        assert "apply the requirement manually and run pf smoke" in visible
+        assert "--force" not in visible
         assert pyproject.read_bytes() == before
 
     def test_sequential_scoped_apply_starts_a_new_generation_and_reprojects_group(
@@ -1171,7 +1171,7 @@ dynamic = ["version"]
 
         assert explained.returncode == 0, explained.stderr
         assert "platform-scoped apply evidence is available" in (
-            " ".join(explained.stdout.split())
+            visible_cli_text(explained.stdout)
         )
 
         linux_apply = subprocess.run(
@@ -1183,7 +1183,7 @@ dynamic = ["version"]
         )
 
         assert linux_apply.returncode == 0, linux_apply.stderr
-        assert "Scope linux/x86_64 verified" in " ".join(linux_apply.stdout.split())
+        assert "Scope linux/x86_64 verified" in visible_cli_text(linux_apply.stdout)
         second_project = ProjectLoader().load(root=tmp_path)
         second_snapshot = _snapshot(second_project, tmp_path)
         assert second_snapshot.identity.digest != first_report.source_snapshot.digest
@@ -1205,7 +1205,7 @@ dynamic = ["version"]
         )
 
         assert windows_apply.returncode == 0, windows_apply.stderr
-        rendered = " ".join(windows_apply.stdout.split())
+        rendered = visible_cli_text(windows_apply.stdout)
         assert "Scope windows/x86_64 verified" in rendered
         assert "Preserved linux/x86_64" in rendered
         final_project = ProjectLoader().load(root=tmp_path)
@@ -1259,11 +1259,12 @@ dynamic = ["version"]
 
         assert result.returncode == 0, result.stderr
         assert result.stdout == ""
-        assert "source-drift override" in result.stderr
-        assert "source drift accepted · 1 path" in result.stderr
-        assert "app.py" in result.stderr
+        visible = visible_cli_text(result.stderr)
+        assert "source-drift override" in visible
+        assert "source drift accepted · 1 path" in visible
+        assert "app.py" in visible
         assert result.stderr.count("Applied floors") == 1
-        assert "Applied floors with source-drift override" in result.stderr
+        assert "Applied floors with source-drift override" in visible
 
     @pytest.mark.parametrize("force", (False, True))
     def test_dependency_drift_is_never_waived(

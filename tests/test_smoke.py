@@ -9,6 +9,7 @@ import re
 import pytest
 
 from conftest import empty_harness_baseline
+from visible_text import visible_cli_text
 from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
 from rich.console import Console
 
@@ -404,7 +405,7 @@ class TestSmokeWorkflow:
                 events=terminal,
             ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
 
-        output = stderr.getvalue()
+        output = visible_cli_text(stderr.getvalue())
         assert "smoke failed at [baseline][highest][testing]" in output
         assert "The configured verifier rejected this version combination." in output
         assert "pf diagnose" not in output

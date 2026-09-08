@@ -52,6 +52,8 @@ from pf.schemas.report import (
     ProjectionEvidence,
     failure_records_for_result,
 )
+from visible_text import compact_cli_text, visible_cli_text
+
 from pf.terminal import PF_THEME, TerminalPresenter
 from pf.workflow import ExplainCommandResult
 
@@ -243,7 +245,7 @@ class TestExplainCellCards:
             _report(target_cells=(cell,), cell_results=(result,))
         )) == 0
 
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert bucket in rendered
         assert conclusion in rendered
         assert "pf diagnose" not in rendered
@@ -289,15 +291,16 @@ class TestExplainCellCards:
             )
         ))
 
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert "rich>=14" in rendered
         assert "projection blocked" in rendered
         assert (
             "[py3.11][x86_64-unknown-linux-gnu][no-extra]·14.2.0"
-            in rendered.replace(" ", "")
+            in compact_cli_text(rendered)
         )
         assert "local @ file:///workspace/local" in rendered
         assert "fixed · not managed" in rendered
+
     def test_explain_terminal_cell_renders_only_terminal_status_and_reason(
         self,
     ) -> None:
@@ -350,21 +353,25 @@ class TestExplainCellCards:
         )
 
         rendered = stdout.getvalue()
-        normalized = " ".join(rendered.replace("│", "").split())
+        normalized = visible_cli_text(rendered)
         assert "╭" in rendered
         assert rendered.count("[py3.10][x86_64-unknown-linux-gnu][no-extra]") == 1
         assert "search stopped at" in normalized
         assert "[candidate discovery]" in normalized
-        assert "Search stopped before the configured search" in normalized
-        assert "space was fully evaluated." in normalized
-        assert "PF could not complete a verification tool" in normalized
-        assert "operation reliably." in normalized
+        assert (
+            "Search stopped before the configured search space was fully evaluated."
+            in normalized
+        )
+        assert (
+            "PF could not complete a verification tool operation reliably."
+            in normalized
+        )
         assert terminal.failure_id in normalized
         assert f"pf diagnose {terminal.failure_id} --package demo" in normalized
-        assert historical.failure_id not in rendered
-        assert "The full test command failed" not in rendered
-        assert "What happened:" not in rendered
-        assert "Impact:" not in rendered
+        assert historical.failure_id not in normalized
+        assert "The full test command failed" not in normalized
+        assert "What happened:" not in normalized
+        assert "Impact:" not in normalized
 
     def test_explain_report_summary_and_requirements_share_one_card(self) -> None:
         declaration = RequirementDeclaration(
@@ -601,7 +608,7 @@ class TestExplainCellCards:
             )
         ))
 
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert "foo>=1" in rendered
         assert '-> foo>=2; python_version < "3.12"' in rendered
         assert '-> foo>=3; python_version >= "3.12"' in rendered
@@ -657,7 +664,7 @@ class TestExplainCellCards:
 
         presenter.render_explain(explain_result(_report(target_cells=(cell,), cell_results=(result,))))
 
-        rendered = stdout.getvalue()
+        rendered = visible_cli_text(stdout.getvalue())
         assert "ty baseline" not in rendered
         assert "demo.py" not in rendered
         assert "existing-error" not in rendered
@@ -676,8 +683,8 @@ class TestExplainCellCards:
 
         presenter.render_explain(explain_result(report))
 
-        rendered = stdout.getvalue()
-        assert "⚠  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        rendered = visible_cli_text(stdout.getvalue())
+        assert "⚠ [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
         assert "search stopped" in rendered
         assert "This target cell has no result in this report." in rendered
         assert "pf diagnose" not in rendered
@@ -701,13 +708,14 @@ class TestExplainCellCards:
         presenter.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
+        visible = visible_cli_text(rendered)
         assert rendered.count("╭") == 1
-        assert "✓  [py3.12][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        assert "✓ [py3.12][x86_64-unknown-linux-gnu][no-extra]" in visible
         assert rendered.count("[py3.12][x86_64-unknown-linux-gnu][no-extra]") == 1
-        assert "ty baseline" not in rendered
-        assert "What happened:" not in rendered
-        assert "pf diagnose" not in rendered
-        assert "-> pf apply --package demo" in rendered
+        assert "ty baseline" not in visible
+        assert "What happened:" not in visible
+        assert "pf diagnose" not in visible
+        assert "-> pf apply --package demo" in visible
 
     def test_explain_mixed_report_renders_each_target_once_and_one_next_action(
         self,
@@ -755,16 +763,15 @@ class TestExplainCellCards:
         ))
 
         rendered = stdout.getvalue()
+        visible = visible_cli_text(rendered)
         passed_identity = "[py3.12][x86_64-unknown-linux-gnu][no-extra]"
         rejected_identity = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
         assert rendered.count("╭") == 2
         assert rendered.count(passed_identity) == 1
         assert rendered.count(rejected_identity) == 1
         assert rendered.count("pf diagnose") == 1
-        assert f"pf diagnose {failure.failure_id} --package demo" in " ".join(
-            rendered.split()
-        )
-        assert "pf apply --package demo" not in rendered
+        assert f"pf diagnose {failure.failure_id} --package demo" in visible
+        assert "pf apply --package demo" not in visible
 
     def test_explain_baseline_rejection_hides_pytest_detail(self) -> None:
         cell = Cell(
@@ -825,7 +832,7 @@ class TestExplainCellCards:
 
         presenter.render_explain(explain_result(_report(target_cells=(cell,), cell_results=(result,))))
 
-        rendered = stdout.getvalue()
+        rendered = visible_cli_text(stdout.getvalue())
         assert "The configured verifier rejected this version combination." in rendered
         assert failure.failure_id in rendered
         assert "tests/test_widget.py" not in rendered
@@ -860,8 +867,8 @@ class TestExplainCellCards:
         presenter.render_explain(explain_result(_report(target_cells=(cell,), cell_results=(result,))))
 
         rendered = stdout.getvalue()
-        normalized = " ".join(rendered.split())
-        assert "!  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in rendered
+        normalized = visible_cli_text(rendered)
+        assert "! [py3.10][x86_64-unknown-linux-gnu][no-extra]" in normalized
         assert (
             "search stopped at [baseline][highest][installing dependencies]"
             in normalized
@@ -893,13 +900,14 @@ class TestExplainCellCards:
         presenter.render_explain(explain_result(report))
 
         rendered = stdout.getvalue()
+        visible = visible_cli_text(rendered)
         assert "\x1b[2;33m╭" in rendered
         assert "\x1b[1;36mdemo" in rendered
-        assert "package-floor.json" in rendered
+        assert "package-floor.json" in visible
         assert "\x1b[4;36m" in rendered
         assert "\x1b]8;" in rendered
-        assert "incomplete" in rendered
-        assert "blocked; no applicable final floor" in rendered
+        assert "incomplete" in visible
+        assert "blocked; no applicable final floor" in visible
         assert "\x1b[33m⚠" in rendered
 
     def test_explain_summary_uses_red_when_any_cell_is_red(self) -> None:

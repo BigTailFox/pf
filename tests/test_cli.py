@@ -14,6 +14,8 @@ import pytest
 from cyclopts.exceptions import CycloptsError
 from rich.console import Console
 
+from visible_text import visible_cli_text
+
 from pf.cli import (
     ApplyWorkflow as ApplyWorkflowProtocol,
     CheckWorkflow as CheckWorkflowProtocol,
@@ -197,13 +199,6 @@ def host_partial_report() -> ValidatedReport:
         cell_results=(CellSuccess.model_construct(cell=local),),
         result=IncompleteReportResult(status="incomplete", reasons=("MISSING_CELL",)),
     )
-
-
-def _visible_cli_text(text: str) -> str:
-    cleaned = "".join(
-        " " if 0x2500 <= ord(character) <= 0x257F else character for character in text
-    )
-    return " ".join(cleaned.split())
 
 
 def invoke_app(*args: str) -> subprocess.CompletedProcess[str]:
@@ -513,10 +508,11 @@ class TestCliInterface:
 
         assert caught.value.code == 2
         assert stdout.getvalue() == ""
-        assert "applied floors" not in stderr.getvalue()
+        visible = visible_cli_text(stderr.getvalue())
+        assert "applied floors" not in visible
         assert (
             "no-applicable-floor: cannot apply an incomplete floor report"
-            in stderr.getvalue()
+            in visible
         )
 
     def test_apply_authorization_failure_exits_three_without_success(
@@ -548,8 +544,9 @@ class TestCliInterface:
 
         assert context.presenter.render_error(caught.value) == 3
         assert stdout.getvalue() == ""
-        assert "dependency declarations drifted" in stderr.getvalue()
-        assert "Applied floors" not in stderr.getvalue()
+        visible = visible_cli_text(stderr.getvalue())
+        assert "dependency declarations drifted" in visible
+        assert "Applied floors" not in visible
 
 
 class TestCommandDispatch:
@@ -603,7 +600,7 @@ class TestCommandDispatch:
         assert usage in result.stdout
         assert "[ARGS]" not in result.stdout
         assert "--package" in result.stdout
-        normalized_help = _visible_cli_text(result.stdout)
+        normalized_help = visible_cli_text(result.stdout)
         assert all(fragment in normalized_help for fragment in expected_fragments)
 
     def test_verification_commands_do_not_expose_pruning_options(self) -> None:
@@ -839,7 +836,9 @@ class TestCommandDispatch:
             max_duration_seconds=60,
             search_resolution="patch",
         )
-        assert "Search complete · package-floor.json" in stdout.getvalue()
+        assert "Search complete · package-floor.json" in visible_cli_text(
+            stdout.getvalue()
+        )
         assert stderr.getvalue() == ""
 
     def test_explain_command_only_requests_existing_reports(
@@ -880,7 +879,7 @@ class TestCommandDispatch:
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
         )
-        assert "demo · package-floor.json" in stdout.getvalue()
+        assert "demo · package-floor.json" in visible_cli_text(stdout.getvalue())
 
     def test_diagnose_command_normalizes_one_failure_id_before_the_workflow(
         self,
@@ -971,7 +970,7 @@ class TestCommandDispatch:
             output=output.as_posix(),
         )
         rendered = stdout.getvalue()
-        normalized = " ".join(rendered.split())
+        normalized = visible_cli_text(rendered)
         assert "Merge completed" in normalized
 
     def test_apply_command_uses_report_only_workflow(
@@ -1012,7 +1011,7 @@ class TestCommandDispatch:
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
         )
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert "demo · applied verified floors" in rendered
         assert "Metadata pyproject.toml updated" in rendered
         assert rendered.endswith("✓ Applied floors · project updated")
@@ -1064,7 +1063,7 @@ class TestCommandDispatch:
 
         assert exit_code == 0
         assert stderr.getvalue() == ""
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert "Scope linux/x86_64 verified" in rendered
         assert (
             "Preserved windows/x86_64 · original constraints retained" in rendered
@@ -1137,17 +1136,17 @@ class TestCommandDispatch:
         )
         assert stdout.getvalue() == ""
         rendered = stderr.getvalue()
-        assert "Evidence" in rendered
-        assert "2 observed cells passed" in rendered
-        assert "Override" in rendered
-        assert "source drift accepted · 10 paths" in rendered
-        normalized = " ".join(rendered.split())
-        assert "src/path-7.py" in normalized
-        assert "(+2" in normalized
-        assert "more)" in normalized
+        visible = visible_cli_text(rendered)
+        assert "Evidence" in visible
+        assert "2 observed cells passed" in visible
+        assert "Override" in visible
+        assert "source drift accepted · 10 paths" in visible
+        assert "src/path-7.py" in visible
+        assert "(+2" in visible
+        assert "more)" in visible
         assert rendered.count("Applied floors") == 1
         assert (
-            "⚠  Applied floors with source-drift override · project updated" in rendered
+            "⚠ Applied floors with source-drift override · project updated" in visible
         )
 
     def test_create_app_displays_help_without_loading_project_or_running_processes(
@@ -1244,7 +1243,7 @@ class TestMinimizeCommand:
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
         )
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert "demo · minimized verified floors" in rendered
         assert rendered.endswith("✓ Minimized floors · no metadata changes")
 
@@ -1299,7 +1298,7 @@ class TestMinimizeCommand:
             selector=WorkspacePackage(canonical_name="demo"),
         )
         assert stdout.getvalue() == ""
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert "demo · minimized verified floors" in rendered
         assert "Scope linux/x86_64 verified" in rendered
         assert "Preserved macos/arm64 · original constraints retained" in rendered
@@ -1356,7 +1355,7 @@ class TestMinimizeCommand:
 
         assert exit_code == 0
         assert stdout.getvalue() == ""
-        rendered = " ".join(stderr.getvalue().split())
+        rendered = visible_cli_text(stderr.getvalue())
         assert "source-drift override" in rendered
         assert "original constraints retained" in rendered
         assert "1 cell awaits another host" in rendered
@@ -1396,10 +1395,11 @@ class TestResultCardWidths:
         assert presenter.render_apply(apply_result(changed=False)) == 0
 
         rendered = stdout.getvalue()
+        visible = visible_cli_text(rendered)
         assert stderr.getvalue() == ""
-        assert "demo · applied verified floors" in rendered
-        assert "pyproject.toml" in rendered
-        assert "Applied floors · no metadata changes" in rendered
+        assert "demo · applied verified floors" in visible
+        assert "pyproject.toml" in visible
+        assert "Applied floors · no metadata changes" in visible
         plain = re.sub(r"\x1b]8;[^\x1b]*\x1b\\", "", rendered)
         for line in plain.splitlines():
             assert len(line) <= width
@@ -1432,9 +1432,10 @@ class TestResultCardWidths:
         assert presenter.render_merge(result) == 0
 
         rendered = stdout.getvalue()
-        assert "reports/linux/package-floor.json" in rendered
-        assert "reports/windows/package-floor.json" in rendered
-        assert "reports/merged/package-floor.json" in rendered
+        visible = visible_cli_text(rendered)
+        assert "reports/linux/package-floor.json" in visible
+        assert "reports/windows/package-floor.json" in visible
+        assert "reports/merged/package-floor.json" in visible
         plain = re.sub(r"\x1b]8;[^\x1b]*\x1b\\", "", rendered)
         for line in plain.splitlines():
             assert len(line) <= width
@@ -1503,7 +1504,7 @@ class TestMinimizeCommandCompleteReport:
             selector=selector,
             search_resolution="patch",
         )
-        rendered = " ".join(stdout.getvalue().split())
+        rendered = visible_cli_text(stdout.getvalue())
         assert "demo · minimized verified floors" in rendered
         assert rendered.endswith("✓ Minimized floors · no metadata changes")
 

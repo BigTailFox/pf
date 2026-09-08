@@ -22,6 +22,8 @@ from pf.schemas.project import SourcePlan
 from pf.schemas.project import SeriesInventory, candidate_snapshot_digest
 from pf.schemas.report import CellSuccess
 from pf.snapshot import SnapshotBuilder
+from visible_text import visible_cli_text
+
 from pf.terminal import TerminalPresenter, PF_THEME
 from pf.workflow import ExplainCommandResult
 
@@ -437,7 +439,7 @@ platforms = ["x86_64-unknown-linux-gnu"]
             )
             == 0
         )
-        rendered = output.getvalue()
+        rendered = visible_cli_text(output.getvalue())
         assert "conditional default" in rendered
         assert "majors[declaration-1:]" in rendered
         assert "declaration=2" in rendered
