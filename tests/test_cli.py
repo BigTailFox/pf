@@ -199,6 +199,13 @@ def host_partial_report() -> ValidatedReport:
     )
 
 
+def _visible_cli_text(text: str) -> str:
+    cleaned = "".join(
+        " " if 0x2500 <= ord(character) <= 0x257F else character for character in text
+    )
+    return " ".join(cleaned.split())
+
+
 def invoke_app(*args: str) -> subprocess.CompletedProcess[str]:
     stdout = StringIO()
     stderr = StringIO()
@@ -596,7 +603,7 @@ class TestCommandDispatch:
         assert usage in result.stdout
         assert "[ARGS]" not in result.stdout
         assert "--package" in result.stdout
-        normalized_help = " ".join(result.stdout.split())
+        normalized_help = _visible_cli_text(result.stdout)
         assert all(fragment in normalized_help for fragment in expected_fragments)
 
     def test_verification_commands_do_not_expose_pruning_options(self) -> None:
