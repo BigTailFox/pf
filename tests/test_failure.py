@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import pytest
 
 from conftest import empty_harness_baseline
@@ -11,19 +12,15 @@ from pf.schemas.evaluation import (
     AttemptFailureScope,
     AttemptIdentity,
     CellFailureScope,
-    FailureCause,
     FailureDetail,
     FailureRecord,
     HighestVersionPass,
     IndeterminateEvaluation,
+    VerifierIndeterminate,
     PassEvaluation,
     ProcessResult,
     ProcessTerminalUnavailable,
     NormalExit,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    ToolFailure,
-    TyCheck,
     VerifierPass,
     PrepareFailure,
     ExecutionFailure,
@@ -33,7 +30,6 @@ from pf.schemas.evaluation import (
     Unattributed,
     TimedOut,
     execution_terminal,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import Cell, Proposal, VersionPin
 
@@ -66,7 +62,7 @@ def _probe_attempt(*, harness: bool = False) -> Attempt:
         requested_managed_vector=(VersionPin(name="a", version="1"),),
         active_declaration_ids=("demo:a",),
         source_plan_identity="sources",
-        evaluation_policy_identity="policy",
+        execution_policy_identity="policy",
         resolution_context_digest="context",
         harness_policy_identity="harness-relaxation-v1",
         harness_baseline_digest="baseline",
@@ -85,14 +81,14 @@ def _highest_attempt() -> Attempt:
             requested_managed_vector=None,
             active_declaration_ids=("demo:a",),
             source_plan_identity="sources",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
             resolution_context_digest="context",
             harness_policy_identity="original-harness-v1",
         )
     )
 
 
-def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
+def _highest_evidence() -> tuple[Attempt, PassEvaluation]:
     attempt = Attempt.from_identity(
         AttemptIdentity(
             source_snapshot_digest="snapshot",
@@ -101,7 +97,7 @@ def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
             requested_managed_vector=None,
             active_declaration_ids=("demo:a",),
             source_plan_identity="sources",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
             resolution_context_digest="context",
             harness_policy_identity="original-harness-v1",
         )
@@ -116,25 +112,12 @@ def _highest_evidence() -> tuple[Attempt, StaticBaseline, PassEvaluation]:
         resolved_graph=(),
         policy_identity="policy",
     )
-    check = TyCheck(
-        process=_process().model_copy(update={"exit_code": 0}),
-        diagnostics=(),
-    )
-    baseline = StaticBaseline(
-        proposal=proposal,
-        ty=check,
-        digest=ty_diagnostic_digest(()),
-    )
     passed = PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=check,
-            baseline_digest=baseline.digest,
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
-    return attempt, baseline, passed
+    return attempt, passed
 
 
 class TestFailurePolicy:
@@ -196,7 +179,7 @@ class TestFailurePolicy:
                 package="demo",
                 cell=_cell(),
                 source_snapshot_digest="snapshot",
-                evaluation_policy_identity="policy",
+                execution_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
             stage="candidate-discovery",
@@ -216,26 +199,6 @@ class TestFailurePolicy:
         assert rejected.failure_id.startswith("failure-")
         assert indeterminate.disposition == "INDETERMINATE"
 
-    @pytest.mark.parametrize(
-        ("cause", "stage"),
-        (
-            ("RUNTIME_INTERFACE_MISSING", "witness"),
-        ),
-    )
-    def test_failure_policy_rejects_complete_probe_contract_failures(
-        self,
-        cause: FailureCause,
-        stage: str,
-    ) -> None:
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause=cause,
-            stage=stage,
-            process=_process(),
-        )
-
-        assert failure.disposition == "REJECTED"
-        assert failure.cause == cause
 
     def test_install_or_build_failure_does_not_prove_unsat(self) -> None:
         failure = FailurePolicy().record_prepare(PrepareFailure(
@@ -251,87 +214,37 @@ class TestFailurePolicy:
         assert isinstance(failure.authority, ExecutionFailureAuthority)
         assert failure.authority.attribution == Unattributed()
 
-    def test_failure_policy_rejects_confirmed_missing_on_witness_exit_zero(
-        self,
-    ) -> None:
-        process = _process().model_copy(update={"exit_code": 0, "stderr": ""})
 
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=_probe_attempt()),
-            cause="RUNTIME_INTERFACE_MISSING",
-            stage="witness",
-            process=process,
+    @pytest.mark.parametrize("mismatch", ("cell", "attempt"))
+    def test_highest_version_pass_rejects_mixed_dynamic_evidence(self, mismatch: str) -> None:
+        attempt, passed = _highest_evidence()
+        changes = (
+            {"cell": passed.proposal.cell.model_copy(update={"python_minor": "3.12"})}
+            if mismatch == "cell" else {"attempt_id": _probe_attempt().attempt_id}
         )
-
-        assert failure.disposition == "REJECTED"
-
-    @pytest.mark.parametrize("mismatch", ("proposal", "attempt", "ty", "digest"))
-    def test_highest_version_pass_rejects_mixed_evidence(self, mismatch: str) -> None:
-        attempt, baseline, passed = _highest_evidence()
-        other_attempt = _probe_attempt()
-        other_proposal = passed.proposal.model_copy(
-            update={
-                "proposal_id": "other",
-                "attempt_id": other_attempt.attempt_id,
-            }
-        )
-        if mismatch == "proposal":
-            passed = passed.model_copy(update={"proposal": other_proposal})
-        elif mismatch == "attempt":
-            baseline = baseline.model_copy(update={"proposal": other_proposal})
-            passed = passed.model_copy(
-                update={
-                    "proposal": other_proposal,
-                    "static": passed.static.model_copy(
-                        update={"proposal": other_proposal}
-                    ),
-                }
-            )
-        elif mismatch == "ty":
-            other_check = baseline.ty.model_copy(
-                update={
-                    "process": baseline.ty.process.model_copy(
-                        update={"duration_seconds": 1.0}
-                    )
-                }
-            )
-            passed = passed.model_copy(
-                update={"static": passed.static.model_copy(update={"ty": other_check})}
-            )
-        else:
-            passed = passed.model_copy(
-                update={
-                    "static": passed.static.model_copy(
-                        update={"baseline_digest": "other"}
-                    )
-                }
-            )
+        passed = passed.model_copy(update={"proposal": passed.proposal.model_copy(update=changes)})
 
         with pytest.raises(ValidationError):
             HighestVersionPass(
+
                 attempt=attempt,
-                baseline=baseline,
+
                 harness_baseline=empty_harness_baseline(attempt.identity.cell),
                 evaluation=passed,
             )
 
-    def test_indeterminate_evaluation_retains_the_adapter_cause(self) -> None:
-        _, _, passed = _highest_evidence()
-        failure = ToolFailure(
-            cause="TIMEOUT",
-            stage="test",
-            process=_process(),
-        )
-
-        with pytest.raises(ValidationError, match="retain its tool cause"):
+    def test_indeterminate_evaluation_retains_the_verifier_terminal_cause(self) -> None:
+        _, passed = _highest_evidence()
+        with pytest.raises(ValidationError, match="cause must match its terminal"):
             IndeterminateEvaluation(
                 proposal=passed.proposal,
                 cause="TOOL_FAILURE",
-                failure=failure,
+                verifier=VerifierIndeterminate(terminal=TimedOut(), reason="process-timed-out"),
+
             )
 
     def test_classify_evaluation_returns_none_for_pass(self) -> None:
-        _, _, passed = _highest_evidence()
+        _, passed = _highest_evidence()
         assert (
             FailurePolicy().record_evaluation(
                 AttemptFailureScope(attempt=_highest_attempt()),
@@ -340,30 +253,13 @@ class TestFailurePolicy:
             is None
         )
 
-    def test_indeterminate_evaluation_projects_structured_failure_detail(self) -> None:
-        _, _, passed = _highest_evidence()
-        detail = FailureDetail(
-            code="managed-source-mismatch",
-            message="the selected source did not match the SourcePlan",
-        )
-        evaluation = IndeterminateEvaluation(
-            proposal=passed.proposal,
-            cause="INTERNAL_INVARIANT",
-            failure=ToolFailure(
-                cause="INTERNAL_INVARIANT",
-                stage="static-cache",
-                process=None,
-                detail=detail,
-            ),
-        )
+    def test_static_collection_cannot_be_classified_as_a_dynamic_failure(self) -> None:
+        with pytest.raises(ValidationError, match="static collection"):
+            FailurePolicy().classify(
+                scope=AttemptFailureScope(attempt=_highest_attempt()),
+                cause="TIMEOUT", stage="ty", process=_process(),
+            )
 
-        record = FailurePolicy().record_evaluation(
-            AttemptFailureScope(attempt=_highest_attempt()),
-            evaluation,
-        )
-
-        assert record is not None
-        assert record.detail == detail
 
 
 class TestFailureRecords:
@@ -437,7 +333,7 @@ class TestFailureRecords:
         (
             {"source_snapshot_digest": ""},
             {"source_plan_identity": ""},
-            {"evaluation_policy_identity": ""},
+            {"execution_policy_identity": ""},
             {"active_declaration_ids": ()},
             {
                 "requested_resolution": "highest",
@@ -467,7 +363,7 @@ class TestFailureRecords:
             "requested_managed_vector": None,
             "active_declaration_ids": ("demo:a",),
             "source_plan_identity": "sources",
-            "evaluation_policy_identity": "policy",
+            "execution_policy_identity": "policy",
         }
         payload.update(change)
 
@@ -485,7 +381,7 @@ class TestFailureRecords:
         (
             {"package": "other"},
             {"source_snapshot_digest": ""},
-            {"evaluation_policy_identity": ""},
+            {"execution_policy_identity": ""},
         ),
     )
     def test_cell_failure_scope_requires_complete_matching_identity(
@@ -496,7 +392,7 @@ class TestFailureRecords:
             "package": "demo",
             "cell": _cell(),
             "source_snapshot_digest": "snapshot",
-            "evaluation_policy_identity": "policy",
+            "execution_policy_identity": "policy",
         }
         payload.update(change)
 
@@ -542,7 +438,7 @@ class TestFailureRecords:
                     package="demo",
                     cell=_cell(),
                     source_snapshot_digest="snapshot",
-                    evaluation_policy_identity="policy",
+                    execution_policy_identity="policy",
                 ),
                 disposition="REJECTED",
                 cause="RESOLUTION_CONFLICT",

@@ -836,7 +836,7 @@ class UvAdapter:
         )
         process = self._runner.run(
             ProcessSpec(
-                argv=(interpreter.as_posix(), "-c", script),
+                argv=(interpreter.as_posix(), "-B", "-c", script),
                 cwd=cwd.as_posix(),
                 timeout_seconds=timeout_seconds,
             )
@@ -916,7 +916,7 @@ class UvAdapter:
         )
         process = self._runner.run(
             ProcessSpec(
-                argv=(interpreter.as_posix(), "-c", script),
+                argv=(interpreter.as_posix(), "-B", "-c", script),
                 cwd=cwd.as_posix(),
                 timeout_seconds=timeout_seconds,
             )

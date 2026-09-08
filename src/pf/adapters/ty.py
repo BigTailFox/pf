@@ -2,47 +2,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pf.adapters.process import ProcessRunner, read_process_output
-from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     ProcessTerminalUnavailable,
-    ProcessSpec,
+    ProcessObservation,
     ToolFailure,
     TyCheck,
     TyDiagnostic,
 )
+from pf.schemas.static import StaticContentUnavailable
+from pf.cancellation import Cancellation
 
-
-_OWNED_OPTIONS = frozenset(
-    {
-        "--color",
-        "--no-progress",
-        "--output-format",
-        "--platform",
-        "--progress",
-        "--python",
-        "--python-platform",
-        "--python-version",
-        "--target-version",
-        "--venv",
-    }
-)
-_OWNED_CONFIGURATION_KEYS = frozenset(
-    {
-        "color",
-        "no-progress",
-        "output-format",
-        "platform",
-        "progress",
-        "python",
-        "python-platform",
-        "python-version",
-        "target-version",
-        "venv",
-    }
-)
+if TYPE_CHECKING:
+    from pf.static_request import StaticTyRequest
 
 
 class TyAdapter:
@@ -51,41 +25,45 @@ class TyAdapter:
     def __init__(self, runner: ProcessRunner) -> None:
         self._runner = runner
 
-    def check(
-        self,
-        *,
-        interpreter: Path,
-        package: Path,
-        python_minor: str,
-        target: str,
-        args: tuple[str, ...],
-        timeout_seconds: int | None,
-        snapshot_root: Path | None = None,
-    ) -> TyCheck | ToolFailure:
-        self._validate_args(args)
-        result = self._runner.run(
-            ProcessSpec(
-                argv=(
-                    "ty",
-                    "check",
-                    "--output-format",
-                    "gitlab",
-                    "--python",
-                    interpreter.as_posix(),
-                    "--python-version",
-                    python_minor,
-                    "--python-platform",
-                    self._python_platform(target),
-                    "--no-progress",
-                    "--color",
-                    "never",
-                    *args,
-                    package.as_posix(),
-                ),
-                cwd=package.as_posix(),
-                timeout_seconds=timeout_seconds,
+    def observe(
+        self, request: StaticTyRequest, *, cancellation: Cancellation | None = None
+    ) -> TyCheck | ToolFailure | StaticContentUnavailable:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
+        with request.prepared.static_use(cancellation=cancellation) as available:
+            if not available:
+                return StaticContentUnavailable(detail="content-changed")
+            if cancellation is not None:
+                cancellation.raise_if_cancelled()
+            if not request.revalidate():
+                return StaticContentUnavailable(detail="content-changed")
+            result = self._runner.run(request.spec, cancellation=cancellation)
+            if cancellation is not None:
+                cancellation.raise_if_cancelled()
+            if not request.revalidate():
+                return StaticContentUnavailable(detail="content-changed")
+            return TyOutputDecoder(self._runner).decode(
+                result,
+                diagnostic_root=Path(request.spec.cwd),
+                snapshot_root=request.snapshot_root,
+                environment_root=request.environment_root,
             )
-        )
+
+
+class TyOutputDecoder:
+    """Decode one actual process observation; never execute or infer a request."""
+
+    def __init__(self, runner: ProcessRunner) -> None:
+        self._runner = runner
+
+    def decode(
+        self,
+        result: ProcessObservation,
+        *,
+        diagnostic_root: Path,
+        snapshot_root: Path,
+        environment_root: Path,
+    ) -> TyCheck | ToolFailure:
         if isinstance(result, ProcessTerminalUnavailable):
             return ToolFailure(cause="TOOL_FAILURE", stage="ty", process=result)
         if result.timed_out:
@@ -101,9 +79,9 @@ class TyAdapter:
                     (
                         self._diagnostic(
                             record,
-                            diagnostic_root=package,
-                            snapshot_root=snapshot_root or package,
-                            environment_root=interpreter.parent.parent,
+                            diagnostic_root=diagnostic_root,
+                            snapshot_root=snapshot_root,
+                            environment_root=environment_root,
                         )
                         for record in document
                     ),
@@ -113,33 +91,6 @@ class TyAdapter:
         except (KeyError, TypeError, ValueError):
             return ToolFailure(cause="TOOL_FAILURE", stage="ty", process=result)
         return TyCheck(process=result, diagnostics=diagnostics)
-
-    @staticmethod
-    def _validate_args(args: tuple[str, ...]) -> None:
-        for index, argument in enumerate(args):
-            option = argument.partition("=")[0]
-            if option in _OWNED_OPTIONS:
-                raise ConfigurationError(
-                    f"adapter-owned ty option is not allowed: {option}"
-                )
-            if option == "--config-file":
-                raise ConfigurationError(
-                    "adapter-owned ty option may be changed by --config-file"
-                )
-            if option not in {"-c", "--config"}:
-                continue
-            if "=" in argument and option == "--config":
-                override = argument.partition("=")[2]
-            elif index + 1 < len(args):
-                override = args[index + 1]
-            else:
-                continue
-            key = override.partition("=")[0].strip().replace("_", "-")
-            leaf_key = key.rpartition(".")[2]
-            if leaf_key in _OWNED_CONFIGURATION_KEYS:
-                raise ConfigurationError(
-                    f"adapter-owned ty option is not allowed in config override: {key}"
-                )
 
     @classmethod
     def _diagnostic(
@@ -264,13 +215,3 @@ class TyAdapter:
         if not relative.parts:
             raise ValueError("external interpreter path has no relative file")
         return "external", (Path("interpreter") / relative).as_posix()
-
-    @staticmethod
-    def _python_platform(target: str) -> str:
-        if "-linux-" in target:
-            return "linux"
-        if "-apple-darwin" in target:
-            return "darwin"
-        if "-windows-" in target:
-            return "win32"
-        return "all"

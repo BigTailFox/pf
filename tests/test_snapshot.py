@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 import os
 from pathlib import Path
 import subprocess
@@ -161,7 +163,9 @@ text="1"
         (root / ".git").mkdir()
 
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessTerminalUnavailable:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessTerminalUnavailable:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessTerminalUnavailable()
 
         with pytest.raises(
@@ -200,7 +204,9 @@ text="1"
         (root / ".git").mkdir()
 
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(
                     exit_code=0,
                     signal=None,
@@ -217,7 +223,9 @@ text="1"
         (root / ".git").mkdir()
 
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(
                     exit_code=0,
                     signal=None,
@@ -309,7 +317,9 @@ text="1"
         (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
 
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(
                     exit_code=128,
                     signal=None,

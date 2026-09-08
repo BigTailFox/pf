@@ -31,10 +31,8 @@ from pf.schemas.apply import (
     AuthorizedPackageApply,
     AuthorizedWorkspaceApply,
 )
-from pf.schemas.evaluation import (
-    CellFailureScope,
-    ProcessResult,
-    StatusEvent,
+from pf.schemas.evaluation import (CellFailureScope, ProcessResult, StatusEvent)
+from pf.schemas.journal import (
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
@@ -339,7 +337,7 @@ class TestReportWorkflows:
                 raise AssertionError("policy drift must fail before editing")
 
         with pytest.raises(
-            ConfigurationError, match="report evaluation policy mismatch"
+            ConfigurationError, match="report execution policy mismatch"
         ):
             ApplyCommandWorkflow(
                 projects=ProjectLoader(),
@@ -408,7 +406,7 @@ class TestReportWorkflows:
                 package="demo",
                 cell=cell,
                 source_snapshot_digest="snapshot",
-                evaluation_policy_identity="policy",
+                execution_policy_identity="policy",
             ),
             cause="TIMEOUT",
             stage="scheduler-deadline",
@@ -424,13 +422,14 @@ class TestReportWorkflows:
         logs = RunLogStore(root=tmp_path, run_id="check-run")
         journal_path = logs.write_journal(
             VerificationJournal(
+                static_scopes=(),
                 run_id="check-run",
                 command="check",
                 source_snapshot_digest="snapshot",
                 package_policies=(
                     VerificationPackagePolicy(
                         package="demo",
-                        evaluation_policy_identity="policy",
+                        execution_policy_identity="policy",
                     ),
                 ),
                 entries=(

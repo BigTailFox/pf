@@ -76,6 +76,7 @@ class TestPytestObserverQualificationRunner:
         assert len(listed_cases) == len(set(listed_cases))
         assert set(listed_cases) == committed_cases
 
+    @pytest.mark.qualification
     def test_run_replays_current_profile_with_isolated_nested_progress(
         self,
         tmp_path: Path,

@@ -1,7 +1,7 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **适用范围：** smoke/check/search 各角色的环境准备；relaxation 仅适用于 declaration/probe
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -163,7 +163,7 @@ dependency-name graph observation，同名但不同版本或依赖图的观测�
 
 Harness-only transitive nodes 可以出现、消失或改变版本；它们没有 baseline ceiling，不进入 candidate catalog、search coordinate 或 floor result。direct external harness 即使也属于 `G(P)`，仍保留 PROJECT_GRAPH satisfaction observation；它不成为第二个 search coordinate。
 
-相同 resolution request 在一次运行内只求解一次；static、witness 和 test 复用同一 `PreparedEnvironment`。
+相同 resolution request 在一次运行内只求解一次；static-probe 与 oracle-probe 在坐标内可复用同一合法 `PreparedEnvironment`。
 
 ### 4.1 Native 条件节点的 active projection
 
@@ -252,8 +252,8 @@ highest 与 exact-artifact Attempt、每个 Attempt 的 two resolutions/one inst
 组合逻辑无解或可重复失败。需要该组合的项目必须把本地固定依赖
 声明为显式 in-tree path source，或等待新的 uv profile 完成资格化。
 
-更换 uv 版本必须更新精确 allowlist、profile、qualification evidence、classifier tests 和固定
-evaluation policy。分类先检查请求与直接结构化事实，再归一化 terminal；合格归因优先，正常
+更换 uv 版本必须更新精确 allowlist、profile、qualification evidence、classifier tests 和
+ExecutionPolicy。分类先检查请求与直接结构化事实，再归一化 terminal；合格归因优先，正常
 非零兜底。不得仅因 diagnostic classifier 仍返回内部 indeterminate 标记而改变父操作 disposition。
 
 ## 6. Interface 与 identity
@@ -265,7 +265,7 @@ UvOperations.install_resolution(plan, request_binding: OperationRequestBinding, 
 EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
 ```
 
-`EnvironmentFactory` 在 project plan 成功且 active external IDs 非空时把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 evaluation-policy preimage 拥有。
+`EnvironmentFactory` 在 project plan 成功且 active external IDs 非空时把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 execution / guidance / search 三类 identity 拥有。
 
 `EnvironmentFactory.prepare` 是上层唯一环境准备入口；active IDs 分支、harness relaxation、project/optional environment resolution、一次 installation 和 graph 复证都隐藏在其内。
 调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public
@@ -284,7 +284,7 @@ Request 类型限制非法组合：
 
 Identity 按取得证据的时点分开：
 
-1. `AttemptIdentity` 在外部操作前覆盖 snapshot、Cell、resolution request、selected candidates、source/evaluation/resolution/harness policy 和 baseline identity；
+1. `AttemptIdentity` 在外部操作前覆盖 snapshot、Cell、resolution request、selected candidates、source plan、ExecutionPolicy、resolution context、harness policy 和 baseline identity；
 2. 初始 `ResolutionContext.interpreter = None` 仅用于创建/检查解释器以前的准备失败。创建或检查失败不解析；
    观察成功后重建 context 与 Attempt，完整 interpreter 进入 context/request/cache identity，临时路径不进入；
    resolver 拒绝未观察 interpreter 的 context；

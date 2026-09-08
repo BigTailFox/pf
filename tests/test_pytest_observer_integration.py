@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 from collections.abc import Callable
 from pathlib import Path
 import sys
@@ -591,9 +593,11 @@ class TestPytestObserverSummaryFaults:
             count = 0
             process: ProcessResult | None = None
 
-            def run(self, spec: ProcessSpec):
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None):
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.count += 1
-                result = SubprocessRunner().run(spec)
+                result = SubprocessRunner().run(spec, cancellation=cancellation)
                 assert isinstance(result, ProcessResult)
                 assert result.exit_code == exit_code
                 self.process = result

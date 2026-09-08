@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 from pathlib import Path
 import hashlib
 import json
@@ -54,7 +56,9 @@ class _Runner:
         self.result = result
         self.calls = []
 
-    def run(self, spec):
+    def run(self, spec, *, cancellation: Cancellation | None = None):
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.calls.append(spec)
         return self.result
 
@@ -489,6 +493,6 @@ class TestPrepareExecution:
         assert isinstance(restored_outcome, (BaselineRejection, BaselineIndeterminate))
         assert restored_outcome.failure == failure
         document = json.loads(path.read_text())
-        assert document["identity"]["failure_policy"] == "failure-execution-v3"
+        assert document["identity"]["failure_policy"] == "failure-execution-v4"
         authority = document["evidence"]["failures"][0]["authority"]
         assert authority == failure.authority.model_dump(mode="json")

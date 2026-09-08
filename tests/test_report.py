@@ -7,7 +7,7 @@ import pytest
 
 from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
 from pf.schemas.config import EffectiveConfig, TestConfig as PfTestConfig
 from pf.schemas.evaluation import (
@@ -62,7 +62,7 @@ def cell_failure(
             package=cell.package,
             cell=cell,
             source_snapshot_digest=snapshot.digest,
-            evaluation_policy_identity=policy_identity,
+            execution_policy_identity=policy_identity,
         ),
         cause=cause,
         stage=stage,
@@ -134,8 +134,10 @@ class TestReportStore:
         if content is not None:
             path.write_text(content, encoding="utf-8")
 
-        with pytest.raises(ConfigurationError, match=message):
+        with pytest.raises(ConfigurationError, match=message) as caught:
             ReportStore().read(path)
+        if content is not None:
+            assert caught.value.reason == "unsupported-report-contract"
 
     def test_read_rejects_oversized_report_before_loading_it(
         self,
@@ -188,7 +190,7 @@ class TestReportStore:
             extra_surface=(),
         )
         snapshot = snapshot_for()
-        policy = evaluation_policy_identity(package_for((cell,)).config)
+        policy = execution_policy_identity(package_for((cell,)).config)
         result = cell_failure(
             cell,
             "TOOL_FAILURE",
@@ -250,7 +252,7 @@ class TestReportStore:
             for minor in ("3.10", "3.11")
         )
         snapshot = snapshot_for()
-        policy = evaluation_policy_identity(package_for(cells).config)
+        policy = execution_policy_identity(package_for(cells).config)
         results = tuple(
             cell_failure(
                 cell,
@@ -290,7 +292,7 @@ class TestReportMergeAndUpdate:
             for minor in ("3.10", "3.11")
         )
         snapshot = snapshot_for()
-        policy = evaluation_policy_identity(package_for(cells).config)
+        policy = execution_policy_identity(package_for(cells).config)
 
         def partial(cell: Cell, cause: FailureCause) -> ValidatedReport:
             result = cell_failure(
@@ -331,7 +333,7 @@ class TestReportMergeAndUpdate:
             ),
         )
         snapshot = snapshot_for()
-        policy = evaluation_policy_identity(package_for(cells).config)
+        policy = execution_policy_identity(package_for(cells).config)
         existing_results = tuple(
             cell_failure(
                 cell,

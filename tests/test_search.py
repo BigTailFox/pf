@@ -23,13 +23,9 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     NormalExit,
     PassEvaluation,
-    ProcessResult,
-    StaticUnchangedEvaluation,
-    TyCheck,
     VerifierPass,
     VerifierRejected,
     VerifierRejectedEvaluation,
-    ty_diagnostic_digest,
 )
 from pf.schemas.report import (
     CoordinateFailure,
@@ -39,10 +35,6 @@ from pf.schemas.report import (
     ProbeIndeterminate,
     ProbePass,
     ProbeRejection,
-    StaticOnlyEvidence,
-    StaticRegion,
-    StaticRegionRuntimeReference,
-    StaticRegionSlice,
 )
 from pf.coordinate_search import CoordinateSearch
 from pf.schemas.evaluation import SearchProbeRequest
@@ -250,7 +242,7 @@ def probe_attempt(vector: tuple[VersionPin, ...]) -> Attempt:
             requested_managed_vector=vector,
             active_declaration_ids=(),
             source_plan_identity="sources",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
             resolution_context_digest="context",
             harness_policy_identity="harness-relaxation-v1",
             harness_baseline_digest="baseline",
@@ -271,26 +263,12 @@ def probe_pass(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbePass:
         resolved_graph=(),
         policy_identity="policy",
     )
-    static = StaticUnchangedEvaluation(
-        proposal=proposal,
-        ty=TyCheck(
-            process=ProcessResult(
-                exit_code=0,
-                signal=None,
-                duration_seconds=0,
-                stdout="",
-                stderr="",
-            ),
-            diagnostics=(),
-        ),
-        baseline_digest=ty_diagnostic_digest(()),
-    )
     return ProbePass(
         attempt=attempt,
         proposal_id=proposal_id,
         evaluation=PassEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         ),
     )
@@ -300,7 +278,7 @@ def probe_rejection(vector: tuple[VersionPin, ...], proposal_id: str) -> ProbeRe
     passed = probe_pass(vector, proposal_id)
     evaluation = VerifierRejectedEvaluation(
         proposal=passed.evaluation.proposal,
-        static=passed.evaluation.static,
+
         verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
     )
     return ProbeRejection(
@@ -329,15 +307,257 @@ class InteractionEvaluator:
 
 
 class TestCoordinateSearch:
+    def test_cached_direct_predecessor_finishes_without_oracle_or_history(self):
+        calls = []
+
+        class Cached:
+            def evaluate(self, vector):
+                calls.append("baseline")
+                return probe_pass(vector, "baseline")
+
+            def lookup_direct_in_slice(self, request):
+                calls.append(("lookup", request.candidate_version))
+                return (probe_pass(request.vector, "baseline") if request.candidate_version == "3"
+                        else probe_rejection(request.vector, "predecessor"))
+
+            def evaluate_in_slice(self, request):
+                pytest.fail("cached boundary started an oracle operation")
+
+            def finish_coordinate(self):
+                calls.append("finish")
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"),), candidates=(snapshot("a"),), evaluator=Cached(),
+        )
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector == (VersionPin(name="a", version="3"),)
+        assert result.boundaries[0].predecessor == "2"
+        assert calls[0] == "baseline" and calls[-1] == "finish"
+        assert ("lookup", "2") in calls
+        assert all(call == "baseline" or call == "finish" or call[0] == "lookup" for call in calls)
+
+    def test_cached_pass_chain_reaches_direct_boundary_before_opening_static_slice(self):
+        recorded = []
+
+        class Cached:
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def lookup_direct_in_slice(self, request):
+                return (probe_pass(request.vector, request.candidate_version) if request.candidate_version != "1"
+                        else probe_rejection(request.vector, "1"))
+
+            def evaluate_in_slice(self, request):
+                pytest.fail("directly bounded cache started oracle")
+
+            def open_static_slice(self, vector, *, dependency, versions):
+                pytest.fail("directly bounded cache started static guidance")
+
+            def record_direct_bound(self, vector, *, dependency, versions, predecessor, predecessor_failure_id):
+                recorded.append((
+                    tuple((pin.name, pin.version) for pin in vector),
+                    dependency, versions, predecessor, predecessor_failure_id,
+                ))
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"),), candidates=(snapshot("a"),), evaluator=Cached(),
+        )
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector == (VersionPin(name="a", version="2"),)
+        assert result.boundaries[0].predecessor == "1"
+        bound = ((("a", "2"),), "a", ("1", "2"), "1", "failure-1")
+        assert recorded[0] == bound
+        assert recorded[-1] == bound
+
+    def test_cached_lower_pass_and_higher_rejection_cannot_hide_behind_a_boundary(self):
+        class Cached:
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def lookup_direct_in_slice(self, request):
+                return (probe_rejection(request.vector, "2") if request.candidate_version == "2"
+                        else probe_pass(request.vector, request.candidate_version))
+
+            def evaluate_in_slice(self, request):
+                pytest.fail("known direct contradiction started oracle")
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"),), candidates=(snapshot("a"),), evaluator=Cached(),
+        )
+        assert isinstance(result, CoordinateFailure)
+        assert result.status == "NON_MONOTONIC"
+        assert result.counterexample == ("1", "2")
+
+    def test_coordinate_cleanup_runs_when_oracle_raises(self):
+        completed = []
+
+        class Broken:
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def evaluate_in_slice(self, request):
+                raise RuntimeError("oracle failure")
+
+            def finish_coordinate(self):
+                completed.append("finished")
+
+        with pytest.raises(RuntimeError, match="oracle failure"):
+            CoordinateSearch().minimize(
+                start=(VersionPin(name="a", version="3"),), candidates=(snapshot("a"),), evaluator=Broken(),
+            )
+        assert completed == ["finished"]
+
+    def test_history_miss_revalidates_predecessor_without_reopening_static_guidance(self):
+        calls: list[tuple] = []
+
+        class HistoryMiss:
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def lookup_direct_in_slice(self, request):
+                calls.append(("lookup", request.active_dependency, request.candidate_version))
+                return None
+
+            def evaluate_in_slice(self, request):
+                calls.append((
+                    request.active_dependency, request.candidate_version, request.selection_reason,
+                ))
+                version = int(request.candidate_version)
+                if request.active_dependency == "a" and version < 2:
+                    return probe_rejection(request.vector, f"{request.active_dependency}-{version}")
+                if request.active_dependency == "b" and version < 3:
+                    return probe_rejection(request.vector, f"{request.active_dependency}-{version}")
+                return probe_pass(request.vector, f"{request.active_dependency}-{version}")
+
+            def open_static_slice(self, vector, *, dependency, versions):
+                calls.append(("static", dependency, tuple((pin.name, pin.version) for pin in vector)))
+                return None
+
+            def finish_coordinate(self):
+                calls.append(("finish",))
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"), VersionPin(name="b", version="3")),
+            candidates=(snapshot("a"), snapshot("b")),
+            evaluator=HistoryMiss(),
+        )
+        assert isinstance(result, CoordinateSuccess)
+        assert result.vector == (VersionPin(name="a", version="2"), VersionPin(name="b", version="3"))
+        assert result.sweeps >= 2
+        history = [
+            call for call in calls
+            if isinstance(call, tuple) and len(call) == 3 and call[2] == "history"
+        ]
+        assert ("a", "1", "history") in history
+        assert all(call[0] != "static" or call[1] != "a" or call[2] != (("a", "2"), ("b", "3"))
+                   for call in calls if call[0] == "static")
+
+    def test_later_coordinate_opens_a_new_slice_after_another_floor_commits(self):
+        slices: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+
+        class Slices:
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def lookup_direct_in_slice(self, request):
+                return None
+
+            def evaluate_in_slice(self, request):
+                version = int(request.candidate_version)
+                if request.active_dependency == "a" and version < 2:
+                    return probe_rejection(request.vector, "a-low")
+                return probe_pass(request.vector, request.candidate_version)
+
+            def open_static_slice(self, vector, *, dependency, versions):
+                slices.append((dependency, tuple((pin.name, pin.version) for pin in vector)))
+                return None
+
+            def finish_coordinate(self):
+                return None
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"), VersionPin(name="b", version="3")),
+            candidates=(snapshot("a"), snapshot("b")),
+            evaluator=Slices(),
+        )
+        assert isinstance(result, CoordinateSuccess)
+        assert ("a", (("a", "3"), ("b", "3"))) in slices
+        assert ("b", (("a", "2"), ("b", "3"))) in slices
+        assert ("b", (("a", "3"), ("b", "3"))) not in slices
+
+    def test_committed_floor_invalidates_prior_coordinate_static_hint(self):
+        hints: list[tuple[str, tuple[tuple[str, str], ...], object]] = []
+
+        class StaleHint:
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def lookup_direct_in_slice(self, request):
+                return None
+
+            def evaluate_in_slice(self, request):
+                version = int(request.candidate_version)
+                if request.active_dependency == "a" and version < 2:
+                    return probe_rejection(request.vector, "a-low")
+                if request.active_dependency == "b" and version < 2:
+                    return probe_rejection(request.vector, "b-low")
+                return probe_pass(request.vector, request.candidate_version)
+
+            def open_static_slice(self, vector, *, dependency, versions):
+                identity = (dependency, tuple((pin.name, pin.version) for pin in vector))
+                hint = object()
+                hints.append((*identity, hint))
+                return None
+
+            def finish_coordinate(self):
+                return None
+
+        result = CoordinateSearch().minimize(
+            start=(VersionPin(name="a", version="3"), VersionPin(name="b", version="3")),
+            candidates=(snapshot("a"), snapshot("b")),
+            evaluator=StaleHint(),
+        )
+        assert isinstance(result, CoordinateSuccess)
+        first_a = next(item for item in hints if item[0] == "a" and item[1] == (("a", "3"), ("b", "3")))
+        first_b = next(item for item in hints if item[0] == "b")
+        assert first_b[1] == (("a", "2"), ("b", "3"))
+        assert first_a[2] is not first_b[2]
+        assert all(item[1] != (("a", "3"), ("b", "3")) for item in hints if item[0] == "b")
+
+    @pytest.mark.parametrize("state", ["compared", "uncompared", "unavailable"])
+    def test_oracle_rejects_static_comparison_results(self, state):
+        from pf.schemas.static_comparison import StaticCompared, StaticUncompared, StaticComparisonUnavailable
+
+        guidance = {
+            "compared": StaticCompared(state="STATIC_UNCHANGED", incremental_identities=(), fingerprint="0" * 64),
+            "uncompared": StaticUncompared(reason="reference-missing"),
+            "unavailable": StaticComparisonUnavailable(reason="timeout"),
+        }[state]
+        requests = []
+
+        class InvalidOracle:
+
+            def evaluate(self, vector):
+                return probe_pass(vector, "baseline")
+
+            def evaluate_in_slice(self, request):
+                requests.append(request)
+                return guidance
+
+        with pytest.raises(TypeError, match="oracle requires direct probe evidence"):
+            CoordinateSearch().minimize(
+                start=(VersionPin(name="a", version="3"),),
+                candidates=(snapshot_versions("a", ("1", "2", "3")),),
+                evaluator=InvalidOracle(),
+            )
+        assert len(requests) == 1
+
     def test_runtime_backed_probe_receives_the_current_discrete_search_window(
         self,
     ) -> None:
         requests: list[SearchProbeRequest] = []
 
         class RuntimeBacked:
-            @property
-            def regions(self) -> tuple[StaticRegion, ...]:
-                return ()
 
             def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
                 return probe_pass(vector, "baseline")
@@ -346,9 +566,6 @@ class TestCoordinateSearch:
                 requests.append(request)
                 return self._outcome(request)
 
-            def promote(self, request: SearchProbeRequest) -> ProbeEvidence:
-                requests.append(request)
-                return self._outcome(request)
 
             @staticmethod
             def _outcome(request: SearchProbeRequest) -> ProbeEvidence:
@@ -390,9 +607,6 @@ class TestCoordinateSearch:
         requests: list[SearchProbeRequest] = []
 
         class RuntimeBacked:
-            @property
-            def regions(self) -> tuple[StaticRegion, ...]:
-                return ()
 
             def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
                 return probe_pass(vector, "baseline")
@@ -403,7 +617,6 @@ class TestCoordinateSearch:
                     return probe_pass(request.vector, request.candidate_version)
                 return probe_rejection(request.vector, request.candidate_version)
 
-            promote = evaluate_in_slice
 
         result = CoordinateSearch(small_threshold=2).minimize(
             start=(VersionPin(name="a", version="10"),),
@@ -417,106 +630,6 @@ class TestCoordinateSearch:
         assert all(request.upper_version != "10" for request in requests)
         assert all(request.candidate_count <= 9 for request in requests)
 
-    def test_static_frontier_is_promoted_and_rebounded_on_runtime_rejection(
-        self,
-    ) -> None:
-        candidates = snapshot_versions("a", ("1", "2", "3", "4", "5"))
-        vector_one = (VersionPin(name="a", version="1"),)
-        vector_two = (VersionPin(name="a", version="2"),)
-        passed_two = probe_pass(vector_two, "a=2")
-        rejected_one = probe_rejection(vector_one, "a=1")
-        assert isinstance(rejected_one.evaluation, VerifierRejectedEvaluation)
-        region_slice = StaticRegionSlice(
-            cell=candidates.cell,
-            source_snapshot_digest="snapshot",
-            policy_identity="policy",
-            baseline_digest=ty_diagnostic_digest(()),
-            active_dependency="a",
-            other_coordinates=(),
-            candidate_order=("1", "2", "3", "4", "5"),
-        )
-        cheap_one = StaticOnlyEvidence(
-            attempt=rejected_one.attempt,
-            proposal_id="a=1",
-            static_evaluation=rejected_one.evaluation.static,
-            guidance="PASS",
-            region_slice=region_slice,
-            representative_proposal_id="a=2",
-        )
-
-        class RuntimeBacked:
-            evaluated: list[str] = []
-            promoted: list[str] = []
-
-            @property
-            def regions(self) -> tuple[StaticRegion, ...]:
-                return (
-                    StaticRegion(
-                        slice=region_slice,
-                        static_fingerprint=cheap_one.static_evaluation.static_fingerprint,
-                        observed_versions=("1", "2"),
-                        runtime_references=(
-                            StaticRegionRuntimeReference(
-                                proposal_id="a=1", status="REJECTED"
-                            ),
-                            StaticRegionRuntimeReference(
-                                proposal_id="a=2", status="PASS"
-                            ),
-                        ),
-                    ),
-                )
-
-            def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-                return probe_pass(vector, "baseline")
-
-            def evaluate_in_slice(
-                self,
-                request: SearchProbeRequest,
-            ) -> ProbeEvidence | StaticOnlyEvidence:
-                assert request.active_dependency == "a"
-                version = request.candidate_version
-                self.evaluated.append(version)
-                if version == "1" and "1" in self.promoted:
-                    return rejected_one
-                return passed_two if version == "2" else cheap_one
-
-            def promote(
-                self,
-                request: SearchProbeRequest,
-            ) -> ProbeEvidence:
-                assert request.active_dependency == "a"
-                self.promoted.append(request.candidate_version)
-                if request.candidate_version == "1":
-                    return rejected_one
-                if request.candidate_version == "2":
-                    return passed_two
-                return probe_pass(request.vector, "a=5")
-
-        evaluator = RuntimeBacked()
-        result = CoordinateSearch(small_threshold=2).minimize(
-            start=(VersionPin(name="a", version="5"),),
-            candidates=(candidates,),
-            evaluator=evaluator,
-            hints=(VersionPin(name="a", version="2"),),
-        )
-
-        assert isinstance(result, CoordinateSuccess)
-        assert result.vector == vector_two
-        assert evaluator.evaluated[:2] == ["2", "1"]
-        assert evaluator.promoted == ["5", "1", "2", "1", "2", "1"]
-        assert any(
-            isinstance(observation.evidence, StaticOnlyEvidence)
-            for observation in result.observations
-        )
-        assert isinstance(
-            next(
-                observation.evidence
-                for observation in result.observations
-                if observation.candidate_version == "1"
-                and not isinstance(observation.evidence, StaticOnlyEvidence)
-            ),
-            ProbeRejection,
-        )
 
     def test_coordinate_search_repeats_sweeps_until_the_final_context_is_minimal(
         self,
@@ -576,6 +689,19 @@ class TestCoordinateSearch:
                     return probe_pass(vector, vector[0].version)
                 return probe_rejection(vector, vector[0].version)
 
+            def lookup_direct_in_slice(self, request):
+                return None
+
+            def evaluate_in_slice(self, request):
+                return self.evaluate(request.vector)
+
+            def open_static_slice(self, vector, *, dependency, versions):
+                trace.append(("static", tuple((pin.name, pin.version) for pin in vector)))
+                return None
+
+            def finish_coordinate(self):
+                return None
+
         result = CoordinateSearch().minimize(
             start=(VersionPin(name="a", version="5"),),
             candidates=(snapshot_versions("a", ("1", "2", "3", "4", "5")),),
@@ -600,6 +726,7 @@ class TestCoordinateSearch:
             ("evaluate", (("a", "3"),)),
             ("evaluate", (("a", "2"),)),
         ]
+        assert all(item[0] != "static" for item in trace[second_sweep:])
 
     def test_changed_context_revalidates_a_passing_predecessor_before_descent(
         self,

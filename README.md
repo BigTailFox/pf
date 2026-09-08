@@ -6,7 +6,7 @@ English | [简体中文](README.zh.md)
 
 ## What it does
 
-PF discovers candidate versions in isolated environments, captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. It records an explainable, verified exact dependency vector.
+PF discovers candidate versions in isolated environments, optionally captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. Compatibility conclusions come only from that dynamic evidence; `ty` may choose a later probe but cannot reject a candidate. It records an explainable, verified exact dependency vector.
 
 The search unit is one installable package and one compatibility cell: exact uv target triple, CPython minor, and extra surface. On a frozen candidate snapshot, PF returns a coordinate-minimal vector that passed full tests. It does not claim a global minimum over the Cartesian product of dependencies, and it does not prove that unprobed versions or other combinations work. The product contract is [D001](docs/designs/D001-pf.md).
 
@@ -43,7 +43,7 @@ pf apply
 
 | Command | What it does |
 | --- | --- |
-| `pf smoke` | Fresh-install at newest allowed versions, capture a `ty` baseline, run the full tests. Does not search or write a report. |
+| `pf smoke` | Fresh-install at newest allowed versions, try to capture a `ty` baseline, run the full tests. A missing `ty` baseline still enters the verifier. Does not search or write a report. |
 | `pf check` | Verify the lower bounds the project already declares. Does not search or write a report. |
 | `pf search` | Find verified floors and write `package-floor.json`. Never edits project metadata. |
 | `pf explain` | Read the report and show floors, coverage, and apply blockers. |

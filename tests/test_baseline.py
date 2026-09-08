@@ -10,10 +10,12 @@ from evaluation_fixtures import (
     successful_process,
 )
 
+from pf.report import PackageReportBuilder, ReportStore
 from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     HighestVersionPass,
+    TyCheck,
     NormalExit,
     TimedOut,
     ToolFailure,
@@ -31,13 +33,13 @@ from pf.schemas.evaluation import (
 
 class TestHighestVersionVerifier:
     def test_highest_version_verifier_reuses_capture_for_full_test_and_closes(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
         assembly = evaluation_assembly(highest=())
 
-        result = assembly.highest.verify(
+        result = assembly.highest.verify(run_cache=run_cache,
             package=project.package,
             cell=project.package.cells[0],
             snapshot=project.snapshot,
@@ -46,7 +48,10 @@ class TestHighestVersionVerifier:
 
         assert isinstance(result, HighestVersionPass)
         assert result.evaluation.status == "PASS"
-        assert result.baseline.ty is result.evaluation.static.ty
+        scope = run_cache.snapshot(result.evaluation.proposal.cell)
+        assert scope.highest_reference_ref is not None
+        assert scope.consumer(scope.highest_reference_ref).preparation.proposal == result.evaluation.proposal
+        assert scope.facts[0].observation.fact.kind == "ty-check"
         assert assembly.uv.resolutions == ["highest"]
         assert assembly.ty.vectors == [()]
         assert assembly.verifier.vectors == [()]
@@ -55,7 +60,7 @@ class TestHighestVersionVerifier:
 
     @pytest.mark.parametrize("cause", ("INSTALLATION_FAILED", "SOURCE_FAILURE"))
     def test_highest_version_verifier_retains_prepare_failure_and_closes(
-        self,
+        self, run_cache,
         tmp_path: Path,
         cause: str,
     ) -> None:
@@ -70,7 +75,7 @@ class TestHighestVersionVerifier:
             ),
         )
 
-        result = assembly.highest.verify(
+        result = assembly.highest.verify(run_cache=run_cache,
             package=project.package,
             cell=project.package.cells[0],
             snapshot=project.snapshot,
@@ -86,7 +91,7 @@ class TestHighestVersionVerifier:
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     def test_highest_version_verifier_retains_static_capture_failure_and_closes(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
@@ -99,17 +104,20 @@ class TestHighestVersionVerifier:
             ),
         )
 
-        result = assembly.highest.verify(
+        result = assembly.highest.verify(run_cache=run_cache,
             package=project.package,
             cell=project.package.cells[0],
             snapshot=project.snapshot,
             source_plan=project.source_plan,
         )
 
-        assert isinstance(result, BaselineIndeterminate)
-        assert result.failure.cause == "TOOL_FAILURE"
+        assert isinstance(result, HighestVersionPass)
+        scope = run_cache.snapshot(result.evaluation.proposal.cell)
+        assert scope.highest_reference_ref is not None
+        assert scope.facts[0].observation.fact.kind == "ty-check-unavailable"
         assert result.evaluation is not None
-        assert assembly.verifier.vectors == []
+        assert assembly.verifier.vectors == [()]
+        assert assembly.ty.vectors == [()]
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     @pytest.mark.parametrize(
@@ -130,20 +138,26 @@ class TestHighestVersionVerifier:
             ),
         ),
     )
+    @pytest.mark.parametrize("static_available", (False, True))
     def test_highest_version_verifier_classifies_complete_evaluations(
-        self,
+        self, run_cache,
         tmp_path: Path,
         outcome: VerifierRejected | VerifierIndeterminate,
         expected_type: type[BaselineRejection] | type[BaselineIndeterminate],
         expected_cause: str,
+        static_available: bool,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
         assembly = evaluation_assembly(
             highest=(),
+            ty_handler=lambda vector, call: (
+                TyCheck(process=successful_process(), diagnostics=()) if static_available
+                else ToolFailure(cause="TOOL_FAILURE", stage="ty", process=successful_process(exit_code=2))
+            ),
             verifier_handler=lambda vector, call: VerifierRun(authoritative=outcome),
         )
 
-        result = assembly.highest.verify(
+        result = assembly.highest.verify(run_cache=run_cache,
             package=project.package,
             cell=project.package.cells[0],
             snapshot=project.snapshot,
@@ -153,12 +167,27 @@ class TestHighestVersionVerifier:
         assert isinstance(result, expected_type)
         assert result.failure.cause == expected_cause
         assert result.evaluation is not None
+        if not static_available:
+            scope = run_cache.snapshot(result.cell)
+            assert scope.highest_reference_ref is not None
+            assert scope.facts[0].observation.fact.kind == "ty-check-unavailable"
         assert len(assembly.ty.vectors) == 1
         assert len(assembly.verifier.vectors) == 1
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
+        report = PackageReportBuilder().build(
+            package=project.package,
+            source_plan=project.source_plan,
+            source_snapshot=project.snapshot.identity,
+            cell_results=(result,),
+        )
+        store = ReportStore()
+        path = tmp_path / "package-floor.json"
+        store.write(path, report)
+        assert store.read(path) == report
+
     def test_highest_version_verifier_preserves_a_passing_verifier_authority(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
@@ -169,7 +198,7 @@ class TestHighestVersionVerifier:
             ),
         )
 
-        result = assembly.highest.verify(
+        result = assembly.highest.verify(run_cache=run_cache,
             package=project.package,
             cell=project.package.cells[0],
             snapshot=project.snapshot,

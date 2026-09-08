@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **日志格式：** `pf-process-log-v2`
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **Failure 消费：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 展示：** [D006](D006-pf-cli-enhancement.md)
 - **Journal 与 Index：** [D008](D008-pf-verification-run.md)
@@ -36,8 +36,9 @@ ProcessObservation = ProcessResult | ProcessTerminalUnavailable
 `ProcessTerminalUnavailable` 表示 runner 已安全管理 child，但底层 API 无法提供可信 terminal
 status；它不能伪造 exit code、signal、timeout 或 start error。所有共享 ProcessRunner consumer
 必须显式处理该 variant：configured verifier disposition 只见 D005；需要结构化输出的
-uv/ty/snapshot/runtime-witness adapter 按自己的现行 ToolFailure/InfrastructureError 契约 fail
-closed。RunLogStore 与 Diagnosis Index association 接受完整 union。
+uv/ty/snapshot adapter 按自己的现行 ToolFailure/InfrastructureError 契约 fail
+closed。TyAdapter 消费调用方显式固定的完整进程环境。RunLogStore 与 Diagnosis Index
+association 接受完整 union；静态 producer 使用 typed fact ref 关联原日志，不新造 process。
 
 生产 interface 是：
 
@@ -90,6 +91,11 @@ Header 元数据可有防滥用硬上限；截断不得影响正文、stream com
 - 在 chunk 边界保留可能是 secret/URL 前缀的 suffix，直到能安全判定。
 
 环境只记录变量名，不记录值。argv、cwd、failure detail 和 locator 在各自持久化边界再次验证/脱敏；不能假定上游已经安全。
+
+`EnvironmentVariable.sensitive` 默认 `true`，其值加入该进程的 secret literals。调用方明确
+提供公开控制值时可设为 `false`，避免把 `1` 等普通值替换后破坏结构化输出；这不撤销
+`SecretRedactor` 已知的其他秘密，也不允许在环境 header 中记录值。显式完整环境与继承环境
+共用这条输出规则。
 
 `RunLogStore` 初始化时一次选择私有 `SecureLogDirectory`：
 

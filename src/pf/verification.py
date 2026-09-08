@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+from pf.schemas.static_scope import StaticScopeEvidence
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 import time
-from typing import ClassVar, Literal, Protocol, overload
+from typing import ClassVar, Literal, Protocol, cast, overload
 
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.evaluation import StagePermitPools
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.schemas.evaluation import (
     ActivityEvent,
     AttemptFailureScope,
@@ -22,7 +25,7 @@ from pf.schemas.evaluation import (
     CellFailed,
     CellFailureScope,
     CellMatrixEvent,
-    CellResultDetail,
+    PytestFailureDetail,
     CellSucceeded,
     CheckCellOutcome,
     FailureDetail,
@@ -30,17 +33,16 @@ from pf.schemas.evaluation import (
     FailureRecord,
     HighestVersionOutcome,
     HighestVersionPass,
-    IndeterminateEvaluation,
     PassEvaluation,
     ProcessObservation,
     RuntimeEvaluationRun,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeWitnessResult,
-    StaticIssueDetail,
+    VerificationRole,
+)
+from pf.schemas.journal import (
+    JournalStaticScope,
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
-    VerificationRole,
 )
 from pf.schemas.project import Cell, PackagePlan, SourcePlan, cell_identity
 from pf.schemas.config import RunLimits
@@ -68,6 +70,7 @@ class CheckCellOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
+        run_cache: TyCheckCache,
     ) -> CheckCellOutcome: ...
 
 
@@ -79,6 +82,7 @@ class SmokeCellOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
+        run_cache: TyCheckCache,
     ) -> HighestVersionOutcome: ...
 
 
@@ -90,6 +94,7 @@ class CellSearchOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
+        run_cache: TyCheckCache,
     ) -> CellResult: ...
 
 
@@ -121,6 +126,12 @@ class SearchVerificationRun:
     snapshot: SourceSnapshot
     operation: CellSearchOperations
     limits: RunLimits
+
+
+@dataclass(frozen=True)
+class SearchVerificationResult:
+    cell_results: tuple[CellResult, ...]
+    static_scopes: tuple[StaticScopeEvidence, ...]
 
 
 VerificationRun = CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun
@@ -170,9 +181,9 @@ class VerificationRunner:
     ) -> tuple[HighestVersionOutcome, ...]: ...
 
     @overload
-    def run(self, request: SearchVerificationRun) -> tuple[CellResult, ...]: ...
+    def run(self, request: SearchVerificationRun) -> SearchVerificationResult: ...
 
-    def run(self, request: VerificationRun) -> tuple[VerificationResult, ...]:
+    def run(self, request: VerificationRun) -> tuple[VerificationResult, ...] | SearchVerificationResult:
         if not isinstance(
             request,
             (CheckVerificationRun, SmokeVerificationRun, SearchVerificationRun),
@@ -188,14 +199,17 @@ class VerificationRunner:
                 test_jobs=request.limits.test_jobs,
             )
 
+        run_cache = TyCheckCache()
         gate = _VerificationEvents(
             inner=self._events,
             logs=self._logs,
             request=request,
+            run_cache=run_cache,
+            cells=cells,
         )
         try:
             outcomes = self._scheduler.run(
-                tuple(self._task(request, cell) for cell in cells),
+                tuple(self._task(request, cell, run_cache) for cell in cells),
                 jobs=request.limits.max_cells,
                 max_duration_seconds=request.limits.max_duration_seconds,
                 on_started=lambda task: self._events.consume(
@@ -208,11 +222,29 @@ class VerificationRunner:
             )
         except BaseException as error:
             try:
-                gate.finalize()
-            except InfrastructureError as final_error:
+                try:
+                    run_cache.stop()
+                finally:
+                    gate.finalize()
+            except BaseException as final_error:
                 raise error from final_error
+            finally:
+                run_cache.close()
             raise
-        gate.finalize()
+        scopes: tuple[StaticScopeEvidence, ...] = ()
+        try:
+            run_cache.stop()
+        finally:
+            try:
+                gate.finalize()
+                if isinstance(request, SearchVerificationRun):
+                    scopes = tuple(scope for cell in cells
+                                   if (scope := run_cache.snapshot(cell)).facts
+                                   or scope.highest_uncollected is not None)
+            finally:
+                run_cache.close()
+        if isinstance(request, SearchVerificationRun):
+            return SearchVerificationResult(cast(tuple[CellResult, ...], outcomes), scopes)
         return outcomes
 
     @staticmethod
@@ -250,21 +282,23 @@ class VerificationRunner:
         self,
         request: VerificationRun,
         cell: Cell,
+        run_cache: TyCheckCache,
     ) -> ScheduledCellTask[VerificationResult]:
         return ScheduledCellTask(
             cell=cell,
-            run=lambda: self._run_cell(request, cell),
+            run=lambda: self._run_cell(request, cell, run_cache),
             deadline_result=self._deadline_result(request, cell),
         )
 
     @staticmethod
-    def _run_cell(request: VerificationRun, cell: Cell) -> VerificationResult:
+    def _run_cell(request: VerificationRun, cell: Cell, run_cache: TyCheckCache) -> VerificationResult:
         if isinstance(request, CheckVerificationRun):
             return request.operation.check(
                 package=request.package,
                 cell=cell,
                 snapshot=request.snapshot,
                 source_plan=request.source_plan,
+                run_cache=run_cache,
             )
         if isinstance(request, SmokeVerificationRun):
             return request.operation.verify(
@@ -272,12 +306,14 @@ class VerificationRunner:
                 cell=cell,
                 snapshot=request.snapshot,
                 source_plan=request.source_plan,
+                run_cache=run_cache,
             )
         return request.operation.search(
             package=request.package,
             cell=cell,
             snapshot=request.snapshot,
             source_plan=request.source_plan,
+                run_cache=run_cache,
         )
 
     def _deadline_result(
@@ -296,7 +332,7 @@ class VerificationRunner:
                     package=request.package.name,
                     cell=cell,
                     source_snapshot_digest=request.snapshot.identity.digest,
-                    evaluation_policy_identity=evaluation_policy_identity(
+                    execution_policy_identity=execution_policy_identity(
                         request.package.config
                     ),
                 ),
@@ -332,8 +368,13 @@ class _VerificationEvents:
         inner: ActivityConsumer,
         logs: JournalStore | None,
         request: VerificationRun,
+        run_cache: TyCheckCache,
+        cells: tuple[Cell, ...],
     ) -> None:
         self._inner = inner
+        self._run_cache = run_cache
+        self._cells = cells
+        self._static_scopes: dict[str, JournalStaticScope] = {}
         self._logs = logs
         self._request = request
         self._entries: dict[str, VerificationJournalEntry] = {}
@@ -350,6 +391,7 @@ class _VerificationEvents:
     ) -> None:
         projection = _project_result(self._request, task.cell, result)
         with self._lock:
+            self._capture_static_scope(task.cell)
             self._merge(projection.entries)
             for failure_id, process in projection.processes:
                 self._runtime_processes.setdefault(failure_id, process)
@@ -367,11 +409,20 @@ class _VerificationEvents:
 
     def finalize(self) -> None:
         with self._lock:
+            for cell in self._cells:
+                self._capture_static_scope(cell)
             if self._logs is not None and self._error is None:
                 self._persist()
             error = self._error
         if error is not None:
             raise error
+
+    def _capture_static_scope(self, cell: Cell) -> None:
+        if self._logs is None:
+            return
+        scope = self._run_cache.snapshot(cell)
+        if scope.facts or scope.highest_uncollected is not None:
+            self._static_scopes[cell.model_dump_json()] = JournalStaticScope(run_id=self._logs.run_id, scope=scope)
 
     def _persist(self) -> bool:
         assert self._logs is not None
@@ -403,13 +454,14 @@ class _VerificationEvents:
             )
         )
         return VerificationJournal(
+            static_scopes=tuple(self._static_scopes[key] for key in sorted(self._static_scopes)),
             run_id=self._logs.run_id,
             command=self._request.command,
             source_snapshot_digest=self._request.snapshot.identity.digest,
             package_policies=(
                 VerificationPackagePolicy(
                     package=self._request.package.name,
-                    evaluation_policy_identity=evaluation_policy_identity(
+                    execution_policy_identity=execution_policy_identity(
                         self._request.package.config
                     ),
                 ),
@@ -674,14 +726,6 @@ def _failed_evaluation_process(
     process = _runtime_process(runtime)
     if process is not None:
         return process
-    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        confirmed = evaluation.witnesses[-1].outcome
-        assert isinstance(confirmed, RuntimeWitnessResult)
-        return confirmed.process
-    if isinstance(evaluation, IndeterminateEvaluation):
-        if evaluation.failure is None:
-            return None
-        return evaluation.failure.process
     return None if failure is None else failure.process
 
 
@@ -689,24 +733,12 @@ def _evaluation_detail(
     evaluation: object | None,
     *,
     runtime: RuntimeEvaluationRun | None = None,
-) -> CellResultDetail | None:
+) -> PytestFailureDetail | None:
     if runtime is not None and runtime.diagnostics is not None:
         detail = runtime.diagnostics.detail
         if detail is not None:
             return detail
-    if not isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        return None
-    confirmed = evaluation.witnesses[-1].outcome
-    assert isinstance(confirmed, RuntimeWitnessResult)
-    identities = set(confirmed.plan.diagnostic_identities)
-    relevant = tuple(
-        diagnostic
-        for diagnostic in evaluation.static.incremental
-        if diagnostic.identity in identities
-    )
-    if not relevant:
-        return None
-    return StaticIssueDetail(first=relevant[0], total=len(relevant))
+    return None
 
 
 def _runtime_process(runtime: RuntimeEvaluationRun | None) -> ProcessObservation | None:

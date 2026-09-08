@@ -10,19 +10,21 @@ from pathlib import Path
 import re
 import secrets
 import tempfile
+
+from pydantic import ValidationError
 from threading import RLock
 from typing import TextIO
 
 from pf._secure_runlog import SecureLogDirectory, secure_log_directory
-from pf.errors import ConfigurationError, InfrastructureError
+from pf.errors import ConfigurationError, InfrastructureError, JournalReadError
 from pf.schemas.evaluation import (
     ProcessObservation,
     ProcessSpec,
     ProcessTerminalUnavailable,
-    VerificationJournal,
-    VerificationJournalRecord,
-    VerificationJournalV1,
 )
+from pf.schemas.journal import VerificationJournal
+from pf.schemas.static_scope import StaticScopeEvidence
+from pf.static_association import static_producer_log_associations
 
 
 class RunLogStore:
@@ -30,7 +32,6 @@ class RunLogStore:
 
     _METADATA_LIMIT = 4_096
     _INDEX_LIMIT = 8 * 1024 * 1024
-    _JOURNAL_LIMIT = 8 * 1024 * 1024
     _INDEX_NAME = "diagnosis-index.json"
     _JOURNAL_NAME = "journal.json"
     _LATEST_JOURNAL_KEY = "__latest_journal__"
@@ -144,8 +145,8 @@ class RunLogStore:
     def write_journal(self, journal: VerificationJournal) -> Path:
         """Write this run's Verification Journal and index its failure locators."""
         try:
-            if not isinstance(journal, VerificationJournal):
-                raise ValueError("verification journal writer only accepts v2")
+            if not isinstance(journal, VerificationJournal) or journal.run_id != self.run_id:
+                raise ValueError("verification journal must match this v3 writer Run")
             with self._lock:
                 self._ensure_run()
                 payload = journal.model_dump(mode="json")
@@ -171,6 +172,16 @@ class RunLogStore:
                 located,
                 replace_generation=True,
             )
+            for member in journal.static_scopes:
+                static_logs = tuple(
+                    (ref, process)
+                    for ref, process in static_producer_log_associations(member.scope)
+                    if self.reference_for(process) is not None
+                )
+                self.replace_associations(
+                    f"journal-static:{journal.run_id}:{member.scope.scope_ref}",
+                    static_logs, replace_generation=False,
+                )
             self._write_latest_journal(
                 {package: journal.run_id for package in journal.packages}
             )
@@ -181,7 +192,7 @@ class RunLogStore:
                 detail=str(error),
             ) from error
 
-    def read_latest_journal(self, package: str) -> VerificationJournalRecord | None:
+    def read_latest_journal(self, package: str) -> VerificationJournal | None:
         run_id = self.latest_journal_id(package)
         if run_id is None:
             return None
@@ -197,30 +208,109 @@ class RunLogStore:
         except (OSError, NotImplementedError, ValueError, ConfigurationError):
             return None
 
-    def read_journal(self, run_id: str) -> VerificationJournalRecord | None:
+    def read_journal(self, run_id: str) -> VerificationJournal | None:
         if re.fullmatch(r"[A-Za-z0-9._-]+", run_id) is None:
             return None
         try:
             content = self._directory.read_run_text(
                 run_id,
                 self._JOURNAL_NAME,
-                self._JOURNAL_LIMIT,
+                None,
             )
+        except (OSError, ValueError):
+            return None
+        try:
             document = json.loads(content)
-        except (OSError, ValueError, json.JSONDecodeError):
-            return None
+        except (ValueError, json.JSONDecodeError) as error:
+            raise JournalReadError(run_id=run_id, reason="unsupported-journal-contract") from error
         if not isinstance(document, dict):
-            return None
+            raise JournalReadError(run_id=run_id, reason="unsupported-journal-contract")
         schema = document.pop("schema", None)
         document["schema_version"] = schema
+        if schema != "verification-journal-v3":
+            raise JournalReadError(run_id=run_id, reason="unsupported-journal-contract")
         try:
-            if schema == "verification-journal-v2":
-                return VerificationJournal.model_validate(document)
-            if schema == "verification-journal-v1":
-                return VerificationJournalV1.model_validate(document)
-            return None
-        except Exception:
-            return None
+            journal = VerificationJournal.model_validate(document)
+        except ValidationError as error:
+            static_error = any(
+                item["type"] == "invalid-static-evidence"
+                or item["loc"][:1] in {
+                    ("static_scopes",),
+                    ("static_contents",),
+                    ("static_subjects",),
+                    ("static_facts",),
+                    ("static_comparisons",),
+                }
+                for item in error.errors()
+            )
+            raise JournalReadError(run_id=run_id, reason="invalid-static-evidence" if static_error
+                                   else "unsupported-journal-contract") from error
+        if journal.run_id != run_id:
+            raise JournalReadError(run_id=run_id, reason="unsupported-journal-contract")
+        return journal
+
+    def lookup_static(self, run_id: str, scope_ref: str, producer_ref: str) -> Path | None:
+        """Resolve a typed producer fact of an admitted Journal static scope."""
+        return self.lookup(f"journal-static:{run_id}:{scope_ref}", producer_ref)
+
+    def lookup_report_static(
+        self, report_generation_id: str, scope_ref: str, producer_ref: str,
+    ) -> Path | None:
+        """Resolve a typed producer fact of a report-side static scope."""
+        return self.lookup(f"report-static:{report_generation_id}:{scope_ref}", producer_ref)
+
+    def index_report_static(
+        self,
+        report_generation_id: str,
+        scope: StaticScopeEvidence,
+        *,
+        replace_generation: bool = True,
+    ) -> None:
+        """Publish typed producer locators for one report-side static scope.
+
+        Live process objects reuse this Run's recorded locators. Portable
+        journal scopes reuse the already-written journal-static keys.
+        Associations without a recorded log are omitted, matching Journal
+        write filtering.
+        """
+        associations = static_producer_log_associations(scope)
+        dest = f"report-static:{report_generation_id}:{scope.scope_ref}"
+        source = f"journal-static:{self.run_id}:{scope.scope_ref}"
+        try:
+            with self._lock:
+                located: dict[str, str] = {}
+                for producer_ref, process in associations:
+                    relative = self._relative_reference(process)
+                    if relative is not None:
+                        located[producer_ref] = relative
+                entries = self._read_index_entries()
+                journal_logs = entries.get(source, {})
+                for producer_ref, _process in associations:
+                    if producer_ref in located:
+                        continue
+                    relative = journal_logs.get(producer_ref)
+                    if not isinstance(relative, str):
+                        continue
+                    self._validate_relative_locator(relative)
+                    located[producer_ref] = relative
+                if located:
+                    self._ensure_run()
+                self._update_entries(
+                    entries,
+                    dest,
+                    located,
+                    replace_generation=replace_generation,
+                    remove_failure_ids=(),
+                )
+                self._directory.write_logs_text(
+                    self._INDEX_NAME,
+                    self._index_content(entries),
+                )
+        except (OSError, NotImplementedError, ValueError) as error:
+            raise InfrastructureError(
+                "could not write PF diagnosis index",
+                detail=str(error),
+            ) from error
 
     def lookup_run(self, run_id: str, failure_id: str) -> Path | None:
         return self.lookup(f"journal:{run_id}", failure_id)

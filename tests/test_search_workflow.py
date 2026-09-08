@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+
 from pathlib import Path
 import sys
 
@@ -7,7 +9,7 @@ import pytest
 
 from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore, ReportUpdate, ValidatedReport
 from pf.runlog import RunLogStore
@@ -32,9 +34,7 @@ from pf.schemas.evaluation import (
     ProcessSpec,
     ProcessTerminalUnavailable,
     RuntimeEvaluationRun,
-    StaticUnchangedEvaluation,
     TimedOut,
-    TyCheck,
     VerifierDiagnostics,
     VerifierIndeterminate,
 )
@@ -62,7 +62,7 @@ class FailedSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> CellIndeterminate:
         self.cells.append(cell)
         failure = FailurePolicy().classify(
@@ -70,7 +70,7 @@ class FailedSearch:
                 package=package.name,
                 cell=cell,
                 source_snapshot_digest=snapshot.identity.digest,
-                evaluation_policy_identity=evaluation_policy_identity(package.config),
+                execution_policy_identity=execution_policy_identity(package.config),
             ),
             cause="TIMEOUT",
             stage=f"evaluation-{len(self.cells)}",
@@ -100,14 +100,14 @@ class SourceDriftingSearch(FailedSearch):
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> CellIndeterminate:
         (self._root / "new-source.py").write_text(
             "VALUE = 1\n",
             encoding="utf-8",
         )
         return super().search(
-            package=package, cell=cell, snapshot=snapshot, source_plan=source_plan
+            package=package, cell=cell, snapshot=snapshot, source_plan=source_plan, run_cache=run_cache
         )
 
 
@@ -121,9 +121,9 @@ class TimedOutVerifierSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> CellIndeterminate:
-        policy = evaluation_policy_identity(package.config)
+        policy = execution_policy_identity(package.config)
         attempt = Attempt.from_identity(
             AttemptIdentity(
                 source_snapshot_digest=snapshot.identity.digest,
@@ -132,7 +132,7 @@ class TimedOutVerifierSearch:
                 requested_managed_vector=(),
                 active_declaration_ids=(),
                 source_plan_identity=source_plan.identity,
-                evaluation_policy_identity=policy,
+                execution_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="harness-relaxation-v1",
                 harness_baseline_digest="baseline",
@@ -151,14 +151,6 @@ class TimedOutVerifierSearch:
             resolved_graph=(),
             policy_identity=policy,
         )
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=TyCheck(
-                process=ProcessResult(exit_code=0, duration_seconds=0.1),
-                diagnostics=(),
-            ),
-            baseline_digest="baseline",
-        )
         evaluation = IndeterminateEvaluation(
             proposal=proposal,
             cause="TIMEOUT",
@@ -166,7 +158,7 @@ class TimedOutVerifierSearch:
                 terminal=TimedOut(),
                 reason="process-timed-out",
             ),
-            static=static,
+
         )
         failure = FailurePolicy().record_evaluation(
             AttemptFailureScope(attempt=attempt),
@@ -201,7 +193,7 @@ class UnavailableBaselineSearch:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> BaselineIndeterminate:
         attempt = Attempt.from_identity(
             AttemptIdentity(
@@ -211,7 +203,7 @@ class UnavailableBaselineSearch:
                 requested_managed_vector=None,
                 active_declaration_ids=cell.active_declaration_ids,
                 source_plan_identity=source_plan.identity,
-                evaluation_policy_identity=evaluation_policy_identity(package.config),
+                execution_policy_identity=execution_policy_identity(package.config),
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
             )
@@ -284,7 +276,7 @@ class TestSearchWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> CellIndeterminate:
                 raise RuntimeError("operation failed")
 

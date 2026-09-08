@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from candidate_fixtures import frozen_candidate_snapshot
 from pf.schemas.project import Candidate
 
@@ -13,7 +14,7 @@ from rich.console import Console
 
 from pf.errors import DiagnoseNotFoundError
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
@@ -36,17 +37,15 @@ from pf.schemas.evaluation import (
     PrepareFailure,
     Signaled,
     Unattributed,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    TyCheck,
     VerifierPass,
     VerifierRejected,
     VerifierRejectedEvaluation,
+    execution_terminal,
+)
+from pf.schemas.journal import (
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
-    execution_terminal,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -83,6 +82,14 @@ class RecordingLogLocator:
         return self.path
 
     def lookup_run(self, run_id: str, failure_id: str) -> Path | None:
+        return None
+
+    def lookup_static(self, run_id: str, scope_ref: str, producer_ref: str) -> Path | None:
+        return None
+
+    def lookup_report_static(
+        self, report_generation_id: str, scope_ref: str, producer_ref: str,
+    ) -> Path | None:
         return None
 
     def read_latest_journal(self, package: str) -> VerificationJournal | None:
@@ -122,7 +129,7 @@ test-command = ["python", "-c", "pass"]
                 package=package.name,
                 cell=cell,
                 source_snapshot_digest=snapshot.identity.digest,
-                evaluation_policy_identity=evaluation_policy_identity(package.config),
+                execution_policy_identity=execution_policy_identity(package.config),
             ),
             cause="SOURCE_FAILURE",
             stage="candidate-discovery",
@@ -194,7 +201,7 @@ def _attempt(
             requested_managed_vector=vector,
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity=source_plan_identity_value,
-            evaluation_policy_identity=policy_identity,
+            execution_policy_identity=policy_identity,
             resolution_context_digest="context",
             harness_policy_identity=(
                 "original-harness-v1"
@@ -236,14 +243,13 @@ def _pass_evaluation(
     attempt: Attempt,
     vector: tuple[VersionPin, ...],
     snapshot_digest: str,
-    baseline_check: TyCheck,
-    baseline_digest: str,
     policy_identity: str,
 ) -> PassEvaluation:
     project_digest = f"project-{attempt.attempt_id}"
     environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
+                attempt_id=attempt.attempt_id,
             project_plan_digest=project_digest,
             environment_plan_digest=environment_digest,
             graph=(),
@@ -269,11 +275,7 @@ def _pass_evaluation(
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=baseline_check,
-            baseline_digest=baseline_digest,
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
@@ -307,7 +309,7 @@ def _write_success_with_predecessor_report(
     snapshot = SnapshotBuilder.without_processes().build(root)
     try:
         cell = package.cells[0]
-        policy_identity = evaluation_policy_identity(package.config)
+        policy_identity = execution_policy_identity(package.config)
         plan_identity = SourcePlan.for_package(package, "SEARCH").identity
         baseline_vector = (VersionPin(name="idna", version="3.11"),)
         baseline_attempt = _attempt(
@@ -317,20 +319,13 @@ def _write_success_with_predecessor_report(
             policy_identity=policy_identity,
             source_plan_identity_value=plan_identity,
         )
-        check = TyCheck(process=_process(), diagnostics=())
-        digest = ty_diagnostic_digest(check.diagnostics)
         baseline_evaluation = _pass_evaluation(
             attempt=baseline_attempt,
             vector=baseline_vector,
             snapshot_digest=snapshot.identity.digest,
-            baseline_check=check,
-            baseline_digest=digest,
+
+
             policy_identity=policy_identity,
-        )
-        baseline = StaticBaseline(
-            proposal=baseline_evaluation.proposal,
-            ty=check,
-            digest=digest,
         )
 
         rejected_vector = (VersionPin(name="idna", version="2.0"),)
@@ -345,13 +340,13 @@ def _write_success_with_predecessor_report(
             attempt=rejected_attempt,
             vector=rejected_vector,
             snapshot_digest=snapshot.identity.digest,
-            baseline_check=check,
-            baseline_digest=digest,
+
+
             policy_identity=policy_identity,
         )
         failed_test = VerifierRejectedEvaluation(
             proposal=rejected_pass.proposal,
-            static=rejected_pass.static,
+
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         failure = _verifier_failure(rejected_attempt)
@@ -368,8 +363,8 @@ def _write_success_with_predecessor_report(
             attempt=final_attempt,
             vector=final_vector,
             snapshot_digest=snapshot.identity.digest,
-            baseline_check=check,
-            baseline_digest=digest,
+
+
             policy_identity=policy_identity,
         )
         search = CoordinateSuccess(
@@ -414,9 +409,10 @@ def _write_success_with_predecessor_report(
             source_snapshot=snapshot.identity,
             cell_results=(
                 CellSuccess(
+
                     cell=cell,
                     baseline_attempt=baseline_attempt,
-                    static_baseline=baseline,
+
                     baseline=baseline_evaluation,
                     candidate_snapshots=(frozen_candidate_snapshot(package, cell, tuple(
                         Candidate(version=pin.version, series_key=pin.version,
@@ -568,11 +564,6 @@ class TestDiagnoseWorkflow:
                 "Adjust the configured test dependencies so they preserve the dependency graph under test.",
             ),
             (
-                "RUNTIME_INTERFACE_MISSING",
-                "A required runtime interface is missing from this version combination.",
-                "Review the confirmed missing module or member before changing dependency constraints.",
-            ),
-            (
                 "VERIFIER_EXITED_NONZERO",
                 "The configured verifier rejected this version combination.",
                 "Review the verifier diagnostics and log before changing code or dependency constraints.",
@@ -642,7 +633,7 @@ class TestDiagnoseWorkflow:
                     package="demo",
                     cell=cell,
                     source_snapshot_digest="snapshot",
-                    evaluation_policy_identity="policy",
+                    execution_policy_identity="policy",
                 ),
                 disposition="INDETERMINATE",
                 cause=cause,
@@ -688,13 +679,14 @@ class TestDiagnoseWorkflow:
         )
         logs.write_journal(
             VerificationJournal(
+                static_scopes=(),
                 run_id="diagnose-tail",
                 command="check",
                 source_snapshot_digest="snapshot",
                 package_policies=(
                     VerificationPackagePolicy(
                         package="demo",
-                        evaluation_policy_identity="policy",
+                        execution_policy_identity="policy",
                     ),
                 ),
                 entries=(
@@ -1007,13 +999,14 @@ class TestDiagnoseWorkflow:
         logs = RunLogStore(root=tmp_path, run_id="check-run")
         logs.write_journal(
             VerificationJournal(
+                static_scopes=(),
                 run_id="check-run",
                 command="check",
                 source_snapshot_digest="snapshot",
                 package_policies=(
                     VerificationPackagePolicy(
                         package="demo",
-                        evaluation_policy_identity="policy",
+                        execution_policy_identity="policy",
                     ),
                 ),
                 entries=(
@@ -1075,13 +1068,14 @@ class TestDiagnoseWorkflow:
         logs = RunLogStore(root=tmp_path, run_id="search-run")
         logs.write_journal(
             VerificationJournal(
+                static_scopes=(),
                 run_id="search-run",
                 command="search",
                 source_snapshot_digest="snapshot",
                 package_policies=(
                     VerificationPackagePolicy(
                         package="demo",
-                        evaluation_policy_identity="policy",
+                        execution_policy_identity="policy",
                     ),
                 ),
                 entries=(
@@ -1138,13 +1132,14 @@ class TestDiagnoseWorkflow:
         logs = RunLogStore(root=tmp_path, run_id="check-capture")
         logs.write_journal(
             VerificationJournal(
+                static_scopes=(),
                 run_id="check-capture",
                 command="check",
                 source_snapshot_digest="snapshot",
                 package_policies=(
                     VerificationPackagePolicy(
                         package="demo",
-                        evaluation_policy_identity="policy",
+                        execution_policy_identity="policy",
                     ),
                 ),
                 entries=(
@@ -1204,6 +1199,7 @@ class TestDiagnoseWorkflow:
                 force_terminal=True,
                 color_system=None,
                 width=width,
+                height=25,
             ),
             stderr=Console(file=StringIO(), force_terminal=False),
             root=tmp_path,

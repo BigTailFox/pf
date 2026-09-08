@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -101,8 +101,8 @@ Journal、FailureRecord 或 identity。
 `CellContextEvent` 提供当前 detail identity。Identity 切换清空旧 stage；同一 probe 的
 evaluator lookup/cache hit 不制造新的 `CellContextEvent`、Attempt、验证进度或耗时；只有实际首次执行才切换
 probe identity 并展示 activity。同一完整结果被另一 active dependency 使用时，算法仍登记该 Slice 的证据。
-static/witness/test 阶段保留 identity。Candidate discovery 清空 identity。Evaluator cache/baseline-seed
-lookup 未执行真实 probe 时不制造 detail。
+static-probe / oracle-probe / test 阶段保留 identity，并标明 static/oracle 窗口。Candidate discovery 清空 identity。Evaluator cache/baseline-seed
+lookup 未执行真实 probe 时不制造 detail。cache hit 不生成新 ty stage 或复制耗时。
 
 只有 direct serial pytest 在 collection 完成并取得唯一 nodeid 集时显示 determinate `completed/total` 与 ETA；ETA 以当前 dynamic stage elapsed 的平均吞吐估计，尚无完成测试时为 `ETA --:--:--`。generic、collect-only、xdist/unknown、bootstrap/collection 未完成或首个合法 snapshot 前 telemetry 失败都保持 spinner。同一 stage 已显示 determinate progress 后，协议失效只冻结最后合法进度输入，不能降回 spinner。Progress/ETA 是 UI-only，不改变 TestOutcome。
 
@@ -129,7 +129,7 @@ search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收
 
 普通 Cell 不展示 baseline `ty` warning、stdout/stderr tail、Process Log link、cause/status Enum 或全部 Failures。若应有的 Journal/Index 写入失败使 diagnose 不可用，才回退到对应 Process Log link；没有日志则显示 `Detailed diagnosis unavailable.`。
 
-`PytestFailureDetail` 只展示 `FAILED <nodeid>`、非 call phase 和数量，并以 dim 与 Reason 区分。`StaticIssueDetail` 同样使用 dim，且仅用于最终 `CONFIRMED_MISSING` witness 覆盖的 incremental issues；普通 static regression 与无关 `ty` facts 不显示。静态单行格式为：
+`PytestFailureDetail` 只展示 `FAILED <nodeid>`、非 call phase 和数量，并以 dim 与 Reason 区分。最终 summary 只依据动态结果；ty diagnostic 或不可用不把动态 PASS 显示成失败。diagnose 若展示静态关联，须标明 GLOBAL vs S_hi 与 SLICE vs S_slice，并写明这些事实解释探测路径，不是兼容性结论。静态单行格式为：
 
 ```text
 path[:line[:column]] [check_name] single-line message

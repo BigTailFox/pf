@@ -14,7 +14,7 @@ import pytest
 
 SCRIPT = run_path("scripts/qualify_execution_failures.py")
 FIXTURES = cast(Callable[..., dict[str, bytes]], SCRIPT["fixtures"])
-MANIFEST = Path("tests/execution_qualification/2026-09-06-uv-0.12.5-v1.json")
+MANIFEST = Path("tests/execution_qualification/2026-09-07-d038-uv-0.12.5-v1.json")
 
 
 def assert_case(record: dict[str, Any]) -> None:
@@ -36,10 +36,17 @@ def assert_case(record: dict[str, Any]) -> None:
     boundary = record["search"]["boundaries"][0]
     assert (boundary["floor"], boundary["predecessor"]) == ("2", "1")
     assert boundary["predecessor_failure_id"] == failure["failure_id"]
+    if record["global_comparison"] is None:
+        assert record["static_unavailable_detail"]
+    elif record["write_bytecode"]:
+        assert record["global_comparison"] == {"status": "UNCOMPARED", "reason": "context-mismatch"}
+    else:
+        assert record["global_comparison"]["status"] == "COMPARED"
+        assert record["global_comparison"]["state"] == "STATIC_UNCHANGED"
+        assert record["global_comparison"]["incremental_identities"] == []
     assert record["report_roundtrip"] is True
     assert record["full_verifier_count"] == 2
     assert record["new_full_pass_after_rejection"] is True
-    assert all("1" not in region["observed_versions"] for region in record["search"]["regions"])
 
 
 
@@ -66,7 +73,7 @@ class TestExecutionFailureQualification:
         assert manifest["uv_version"] == "0.12.5"
         assert manifest["protocol"] == "uv-pip-compile-pylock-v1"
         assert manifest["profile"] == "uv-diagnostics-0.12.5-v1"
-        assert manifest["failure_policy"] == "failure-execution-v3"
+        assert manifest["failure_policy"] == "failure-execution-v4"
         assert {case["operation"] for case in manifest["cases"]} == {
             "resolve",
             "install",
@@ -82,10 +89,13 @@ class TestExecutionFailureQualification:
                 for filename, content in artifacts.items()
             }
 
+    @pytest.mark.qualification
     @pytest.mark.parametrize("operation", ["resolve", "install"])
+    @pytest.mark.parametrize("write_bytecode", [True, False])
     def test_replay_searches_to_full_pass_after_execution_rejection(
-        self, replay, operation
+        self, replay, operation, write_bytecode
     ):
         assert_case(
-            next(case for case in replay["cases"] if case["operation"] == operation)
+            next(case for case in replay["cases"]
+                 if case["operation"] == operation and case["write_bytecode"] == write_bytecode)
         )

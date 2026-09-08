@@ -4,8 +4,14 @@ The in-tree backend has no external build requirements. It executes the unchange
 Python-2 setup.py in metadata/build hooks. Static Metadata-Version 2.2 in the
 install fixture lets uv resolve it before the same syntax error occurs at install.
 No process outcome, dependency graph, static check or verifier is simulated.
+Both backend bytecode profiles are explicit: generated path-dependent source
+bytes require GLOBAL fallback, while disabled bytecode permits comparison.
 """
 from __future__ import annotations
+
+from pf.static_cache import TyCheckCache
+
+from pf.cancellation import Cancellation
 
 import argparse
 from contextlib import contextmanager
@@ -26,7 +32,6 @@ from threading import Thread
 from zipfile import ZipFile, ZipInfo
 
 from pf.adapters.process import SubprocessRunner
-from pf.adapters.runtime_witness import RuntimeWitnessAdapter
 from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import UvAdapter
@@ -34,6 +39,7 @@ from pf.baseline import HighestVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
+from pf.static_request import StaticRequestFactory
 from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
@@ -195,13 +201,15 @@ class RecordingRunner(SubprocessRunner):
         super().__init__()
         self.observations = []
 
-    def run(self, spec):
-        result = super().run(spec)
+    def run(self, spec, *, cancellation: Cancellation | None = None):
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
+        result = super().run(spec, cancellation=cancellation)
         self.observations.append((spec, result))
         return result
 
 
-def qualify_case(root: Path, *, operation: str) -> dict:
+def qualify_case(root: Path, *, operation: str, write_bytecode: bool) -> dict:
     name = f"pf-execution-{operation}"
     artifacts = fixtures(name, static_metadata=operation == "install")
     with registry(name, artifacts, root.parent) as index:
@@ -224,15 +232,17 @@ def qualify_case(root: Path, *, operation: str) -> dict:
         runner = RecordingRunner()
         adapter = UvAdapter(runner)
         environments = EnvironmentFactory(adapter)
-        static = StaticEvaluator(TyAdapter(runner))
-        full = RuntimeEvaluator(static=static, verifier=ConfiguredVerifier(runner), witnesses=RuntimeWitnessAdapter(runner))
+        static = StaticEvaluator(TyAdapter(runner), requests=StaticRequestFactory(runner))
+        full = RuntimeEvaluator( verifier=ConfiguredVerifier(runner))
         coordinator = SearchCoordinator(
             environments=environments, candidates=CandidateBuilder(adapter), static=static,
             full=full, highest=HighestVersionVerifier(environments=environments, static=static, full=full),
             coordinate_search=CoordinateSearch(),
         )
         try:
-            result = coordinator.search(package=package, cell=package.cells[0], snapshot=snapshot, source_plan=source_plan)
+            with TyCheckCache() as run_cache:
+                result = coordinator.search(run_cache=run_cache, package=package, cell=package.cells[0], snapshot=snapshot, source_plan=source_plan)
+                static_scope = run_cache.snapshot(package.cells[0])
             if not isinstance(result, CellSuccess):
                 raise RuntimeError(f"{operation} search did not pass: {result!r}")
             failure = next(item for item in result.failure_records if item.stage == f"{operation}-project")
@@ -244,12 +254,43 @@ def qualify_case(root: Path, *, operation: str) -> dict:
             assert (failure.project_plan_digest is not None) == (operation == "install")
             assert failure.environment_plan_digest is None
             assert [pin.version for pin in result.baseline.proposal.managed_vector] == ["3"]
-            assert [pin.version for pin in result.final_vector] == ["2"]
+            assert [pin.version for pin in result.final_vector] == ["2"], {
+                "actual_vector": [pin.model_dump(mode="json") for pin in result.final_vector],
+                "failed_processes": [
+                    {"argv": spec.argv, "exit_code": process.exit_code,
+                     "stderr": runner.output(process).stderr[:2_000]}
+                    for spec, process in runner.observations
+                    if isinstance(process, ProcessResult) and process.exit_code != 0
+                ],
+            }
             assert result.final_evaluation.proposal != result.baseline.proposal
             assert result.search.boundaries[0].predecessor == "1"
             assert result.search.boundaries[0].predecessor_failure_id == failure.failure_id
-            assert all("1" not in region.observed_versions for region in result.search.regions)
-            report = PackageReportBuilder().build(package=package, source_plan=source_plan, source_snapshot=snapshot.identity, cell_results=(result,))
+            uncollected = static_scope.highest_uncollected
+            if uncollected is not None:
+                assert uncollected.unavailable.reason == "static-subject-unavailable"
+                assert static_scope.comparisons == ()
+                assert static_scope.facts == ()
+                assert static_scope.consumers == ()
+                global_comparison = None
+                static_unavailable_detail = uncollected.unavailable.detail
+            else:
+                final_comparison = next(
+                    item for item in static_scope.comparisons
+                    if static_scope.consumer(item.subject_ref).preparation.proposal
+                    == result.final_evaluation.proposal
+                )
+                assert final_comparison.context.kind == "GLOBAL"
+                assert final_comparison.reference_ref == static_scope.highest_reference_ref
+                if write_bytecode:
+                    assert final_comparison.result.status == "UNCOMPARED"
+                    assert final_comparison.result.reason == "context-mismatch"
+                else:
+                    assert final_comparison.result.status == "COMPARED"
+                    assert final_comparison.result.state == "STATIC_UNCHANGED"
+                global_comparison = final_comparison.result.model_dump(mode="json")
+                static_unavailable_detail = None
+            report = PackageReportBuilder().build(package=package, source_plan=source_plan, source_snapshot=snapshot.identity, cell_results=(result,), static_scopes=(static_scope,))
             path = root / "package-floor.json"
             ReportStore().write(path, report)
             assert ReportStore().read(path) == report
@@ -274,22 +315,50 @@ def qualify_case(root: Path, *, operation: str) -> dict:
                 "failed_argv": list(spec.argv), "diagnostic": diagnostic,
                 "fixture_kind": "legacy Python-2 setup.py via dependency-free in-tree backend",
                 "sdist_static_metadata": operation == "install", "report_roundtrip": True,
+                "global_comparison": global_comparison,
+                "static_unavailable_detail": static_unavailable_detail,
+                "write_bytecode": write_bytecode,
                 "artifact_sha256": {filename: hashlib.sha256(content).hexdigest() for filename, content in artifacts.items()},
             }
         finally:
             snapshot.close()
 
 
+@contextmanager
+def bytecode_setting(enabled: bool):
+    """Control real backend bytecode output for both admission profiles."""
+    previous = os.environ.get("PYTHONDONTWRITEBYTECODE")
+    if enabled:
+        os.environ.pop("PYTHONDONTWRITEBYTECODE", None)
+    else:
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("PYTHONDONTWRITEBYTECODE", None)
+        else:
+            os.environ["PYTHONDONTWRITEBYTECODE"] = previous
+
+
 def qualify() -> dict:
     with tempfile.TemporaryDirectory(prefix="pf-execution-qualification-") as temporary:
         root = Path(temporary)
+        cases = []
+        for write_bytecode in (True, False):
+            with bytecode_setting(write_bytecode):
+                for operation in ("resolve", "install"):
+                    cases.append(qualify_case(
+                        root / f"{operation}-{write_bytecode}", operation=operation,
+                        write_bytecode=write_bytecode,
+                    ))
         return {
             "schema": "pf-execution-failure-qualification-v1",
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "python": sys.version.split()[0], "uv_version": "0.12.5",
             "protocol": UV_PROTOCOL_IDENTITY, "profile": "uv-diagnostics-0.12.5-v1",
-            "failure_policy": "failure-execution-v3",
-            "cases": [qualify_case(root / operation, operation=operation) for operation in ("resolve", "install")],
+            "failure_policy": "failure-execution-v4",
+            "cases": cases,
         }
 
 

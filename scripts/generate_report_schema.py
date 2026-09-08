@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from copy import deepcopy
 from pathlib import Path
 
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.report import PackageReportBuilder
 from pf.resolution import environment_identity_digest
 from pf.schemas.config import EffectiveConfig
@@ -13,12 +14,7 @@ from pf.schemas.evaluation import (
     AttemptIdentity,
     NormalExit,
     PassEvaluation,
-    ProcessResult,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    TyCheck,
     VerifierPass,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     Cell,
@@ -73,7 +69,7 @@ def _complete_report() -> PackageFloorReportV1Wire:
     package = _package(cell)
     source_plan = SourcePlan.for_package(package, "SEARCH")
     snapshot = _snapshot()
-    policy = evaluation_policy_identity(package.config)
+    policy = execution_policy_identity(package.config)
     attempt = Attempt.from_identity(
         AttemptIdentity(
             source_snapshot_digest=snapshot.digest,
@@ -82,7 +78,7 @@ def _complete_report() -> PackageFloorReportV1Wire:
             requested_managed_vector=None,
             active_declaration_ids=(),
             source_plan_identity=source_plan.identity,
-            evaluation_policy_identity=policy,
+            execution_policy_identity=policy,
             resolution_context_digest="context",
             harness_policy_identity="original-harness-v1",
         )
@@ -91,6 +87,7 @@ def _complete_report() -> PackageFloorReportV1Wire:
     environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
+            attempt_id=attempt.attempt_id,
             project_plan_digest=project_digest,
             environment_plan_digest=environment_digest,
             graph=(),
@@ -110,22 +107,9 @@ def _complete_report() -> PackageFloorReportV1Wire:
             abi="cpython-312-x86_64-linux-gnu",
         ),
     )
-    process = ProcessResult(
-        exit_code=0,
-        signal=None,
-        duration_seconds=0.0,
-        stdout="",
-        stderr="",
-    )
-    digest = ty_diagnostic_digest(())
-    static = StaticUnchangedEvaluation(
-        proposal=proposal,
-        ty=TyCheck(process=process, diagnostics=()),
-        baseline_digest=digest,
-    )
     evaluation = PassEvaluation(
         proposal=proposal,
-        static=static,
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
     report = PackageReportBuilder().build(
@@ -134,20 +118,16 @@ def _complete_report() -> PackageFloorReportV1Wire:
         source_snapshot=snapshot,
         cell_results=(
             CellSuccess(
+
                 cell=cell,
                 baseline_attempt=attempt,
-                static_baseline=StaticBaseline(
-                    proposal=proposal,
-                    ty=static.ty,
-                    digest=digest,
-                ),
+
                 baseline=evaluation,
                 candidate_snapshots=(),
                 search=CoordinateSuccess(
                     vector=(),
                     observations=(),
                     boundaries=(),
-                    regions=(),
                     sweeps=0,
                 ),
                 final_vector=(),
@@ -180,6 +160,7 @@ def generated_files() -> dict[Path, str]:
         mode="serialization",
         ref_template="#/$defs/{model}",
     )
+    _isolate_full_static_scope_schema(schema)
     _require_const_types(schema)
     _require_serialized_defaults(schema)
     _remove_null_types(schema)
@@ -206,6 +187,70 @@ def generated_files() -> dict[Path, str]:
         )
         + "\n",
     }
+
+
+def _isolate_full_static_scope_schema(schema: dict) -> None:
+    """Separate full scoped preimages from the compact report's shared models."""
+    definitions = schema.get("$defs", {})
+    evidence = definitions.get("ReportEvidenceV1", {})
+    properties = evidence.get("properties", {})
+    intern_fields = [
+        name for name in (
+            "static_contents",
+            "static_subjects",
+            "static_facts",
+            "static_comparisons",
+            "static_scopes",
+        )
+        if name in properties
+    ]
+    if not intern_fields:
+        return
+    original = deepcopy(definitions)
+    cloned: set[str] = set()
+
+    def visit(value):
+        if isinstance(value, list):
+            return [visit(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {key: visit(item) for key, item in value.items()}
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            name = reference.removeprefix("#/$defs/")
+            scoped = f"Scope_{name}"
+            result["$ref"] = f"#/$defs/{scoped}"
+            if name not in cloned:
+                cloned.add(name)
+                definitions[scoped] = visit(original[name])
+        if "properties" in result:
+            result["required"] = sorted(result["properties"])
+        # Full scoped serialization emits nullable fields as explicit facts.
+        if "anyOf" in result or "oneOf" in result or isinstance(result.get("type"), list):
+            result["x-pf-preserve-null"] = True
+        return result
+
+    for name in intern_fields:
+        properties[name] = visit(properties[name])
+    reachable: set[str] = set()
+
+    def collect(value):
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                name = reference.removeprefix("#/$defs/")
+                if name not in reachable:
+                    reachable.add(name)
+                    collect(definitions[name])
+            for key, item in value.items():
+                if key != "$defs":
+                    collect(item)
+
+    collect(schema)
+    schema["$defs"] = {name: definitions[name] for name in sorted(reachable)}
 
 
 def _require_const_types(value: object) -> None:

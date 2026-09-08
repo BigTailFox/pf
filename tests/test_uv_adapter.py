@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 from io import BytesIO
 from pathlib import Path
 import json
@@ -71,7 +73,9 @@ class RecordingRunner:
     def __init__(self) -> None:
         self.specs: list[ProcessSpec] = []
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.specs.append(spec)
         return ProcessResult(
             exit_code=0,
@@ -147,7 +151,9 @@ class TestUvAdapter:
             def __init__(self) -> None:
                 self.specs: list[ProcessSpec] = []
 
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.specs.append(spec)
                 return process_result(exit_code=1, stderr="resolution failed")
 
@@ -350,7 +356,9 @@ wheels = [{{ name = "pytest-8.4.2-py3-none-any.whl", url = "https://files.exampl
                 self.specs: list[ProcessSpec] = []
                 self.compiles = 0
 
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.specs.append(spec)
                 if spec.argv[1:] == ("--version",):
                     return process_result(stdout="uv 0.12.5 (test)\n")
@@ -481,7 +489,7 @@ test-command = ["pytest"]
             request_digest="environment-request",
             project_plan=project,
             harness=relax_harness(
-                package,
+                package.harness_requirements,
                 baseline,
                 project_plan=project,
                 source_plan=search_source_plan,
@@ -585,7 +593,9 @@ test-command = ["pytest"]
         )
 
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return process_result(exit_code=1, stderr=stderr)
 
         context = ResolutionContext.from_inputs(
@@ -673,7 +683,9 @@ packages = [
             def __init__(self) -> None:
                 self.compiles = 0
 
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 if spec.argv[1:3] == ("pip", "compile"):
                     output = Path(spec.argv[spec.argv.index("--output-file") + 1])
                     output.write_text(
@@ -721,9 +733,8 @@ packages = [
             request_digest="environment-request",
             project_plan=project,
             harness=original_harness(
-                package,
+                package.harness_requirements,
                 package.cells[0],
-                source_plan=SourcePlan.for_package(package, "SEARCH"),
             ),
             work_directory=tmp_path,
             artifact_policy="wheel",
@@ -746,7 +757,9 @@ packages = [
         self, tmp_path: Path
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 output = Path(spec.argv[spec.argv.index("--output-file") + 1])
                 output.write_text("not a pylock", encoding="utf-8")
                 return process_result()
@@ -790,7 +803,9 @@ packages = [
         self, tmp_path: Path, duplicate: bool
     ) -> None:
         class GraphRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(
                     exit_code=0,
                     signal=None,
@@ -876,7 +891,9 @@ packages = [
         expected: str,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return result
 
         outcome = UvAdapter(Runner()).create_environment(
@@ -894,7 +911,9 @@ packages = [
         tmp_path: Path,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessTerminalUnavailable:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessTerminalUnavailable:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessTerminalUnavailable()
 
         outcome = UvAdapter(Runner()).create_environment(
@@ -909,7 +928,9 @@ packages = [
 
     def test_uv_adapter_inspects_interpreter_identity(self, tmp_path: Path) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return process_result(
                     stdout=json.dumps(
                         {
@@ -945,7 +966,9 @@ packages = [
         expected: str,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return result
 
         outcome = UvAdapter(Runner()).inspect_interpreter(
@@ -978,7 +1001,9 @@ packages = [
         result: ProcessResult,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return result
 
         outcome = UvAdapter(Runner()).inspect_environment(
@@ -995,7 +1020,9 @@ packages = [
         tmp_path: Path,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return process_result(
                     stdout='[{"name":"demo","version":"1.0","requires":["not [valid"]}]'
                 )
@@ -1683,7 +1710,9 @@ class TestPythonInventory:
             def __init__(self) -> None:
                 self.spec: ProcessSpec | None = None
 
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.spec = spec
                 return ProcessResult(
                     exit_code=0,
@@ -1769,7 +1798,9 @@ class TestPythonInventory:
         result: ProcessResult,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return result
 
         with pytest.raises(InfrastructureError):
@@ -1780,7 +1811,9 @@ class TestPythonInventory:
         tmp_path: Path,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return process_result(exit_code=1, stderr="uv: python list failed")
 
         with pytest.raises(InfrastructureError) as caught:

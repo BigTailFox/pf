@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from scripted_static import collect_highest
+from pf.static_cache import RunTyFactRef
+
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
 import time
-import json
-from typing import Literal
 
 import pytest
 
@@ -18,22 +19,16 @@ from evaluation_fixtures import (
     successful_process,
 )
 
-from pf.adapters.runtime_witness import RuntimeWitnessAdapter
-from pf.schemas.evaluation import ProcessResult
+from pf.static_cache import TyCheckCache
+from scripted_static import ScriptedStaticRequests
 from pf.environment import ExactSelection, HighestResolution, PreparedEnvironment
 from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     AttemptFailureScope,
     CellStageEvent,
-    IndeterminateEvaluation,
     NormalExit,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeWitnessResult,
     StageProgress,
-    StaticBaseline,
-    StaticBaselineCapture,
-    StaticRegressionEvaluation,
     TimedOut,
     ToolFailure,
     TyCheck,
@@ -43,10 +38,21 @@ from pf.schemas.evaluation import (
     VerifierRejected,
     VerifierRequest,
     VerifierRun,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import VersionPin
-from pf.static_transition import static_fingerprint
+
+
+from pf.schemas.policy import GuidancePolicy
+
+
+def collect_global(static, prepared, package, cache):
+    static.collect_prepared(prepared, package=package, run_cache=cache)
+    assert prepared.static_consumer is not None
+    observation = prepared.static_consumer.fact.observation.observation_policy
+    return cache.compare_global(
+        prepared.static_consumer,
+        guidance=GuidancePolicy(observation=observation, observation_identity=observation.identity),
+    )
 
 
 def diagnostic(
@@ -99,74 +105,11 @@ class RecordingStages:
             self.events.append(event)
 
 
-class TestStaticFingerprint:
-    def test_static_fingerprint_preserves_the_complete_ordered_multiset(self) -> None:
-        states = {
-            "empty": static_fingerprint(()),
-            "a": static_fingerprint(("A",)),
-            "a-twice": static_fingerprint(("A", "A")),
-            "a-b": static_fingerprint(("A", "B")),
-            "c": static_fingerprint(("C",)),
-        }
-
-        assert len(set(states.values())) == len(states)
-        assert states == {
-            name: static_fingerprint(identities)
-            for name, identities in {
-                "empty": (),
-                "a": ("A",),
-                "a-twice": ("A", "A"),
-                "a-b": ("A", "B"),
-                "c": ("C",),
-            }.items()
-        }
 
 
 class TestStaticEvaluator:
-    @pytest.mark.parametrize("scope", ("cell", "snapshot", "policy"))
-    def test_static_evaluator_rejects_a_baseline_from_another_scope(
-        self,
-        tmp_path: Path,
-        scope: str,
-    ) -> None:
-        project = evaluation_project(tmp_path / "project", dependency=None)
-        assembly = evaluation_assembly(highest=())
-        prepared = assembly.environments.prepare(
-            package=project.package,
-            cell=project.package.cells[0],
-            snapshot=project.snapshot,
-            resolution=HighestResolution(),
-            source_plan=project.source_plan,
-        )
-        assert isinstance(prepared, PreparedEnvironment)
-        changes: dict[str, object]
-        if scope == "cell":
-            changes = {
-                "cell": prepared.proposal.cell.model_copy(
-                    update={"python_minor": "3.11"}
-                )
-            }
-        elif scope == "snapshot":
-            changes = {"snapshot_digest": "other-snapshot"}
-        else:
-            changes = {"policy_identity": "other-policy"}
-        baseline = StaticBaseline(
-            proposal=prepared.proposal.model_copy(update=changes),
-            ty=empty_check(),
-            digest=ty_diagnostic_digest(()),
-        )
-
-        with pytest.raises(ValueError, match="cell, snapshot, and policy"):
-            assembly.static.evaluate(
-                prepared,
-                package=project.package,
-                baseline=baseline,
-            )
-        assert assembly.ty.vectors == []
-        prepared.close()
-
     def test_static_evaluator_uses_multiset_subtraction_against_a_frozen_baseline(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         repeated = diagnostic("snapshot|demo.py|1|2|invalid-type", message="baseline")
@@ -206,34 +149,22 @@ class TestStaticEvaluator:
         )
         assert isinstance(candidate, PreparedEnvironment)
 
-        capture = assembly.static.capture(highest, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
-        result = assembly.static.evaluate(
-            candidate,
-            package=project.package,
-            baseline=capture.baseline,
-        )
-
-        assert capture.static.status == "STATIC_UNCHANGED"
-        assert capture.static.ty is capture.baseline.ty
-        assert isinstance(result, StaticRegressionEvaluation)
-        assert [item.identity for item in result.incremental] == [shifted.identity]
-        assert result.static_fingerprint == static_fingerprint((shifted.identity,))
-        assert result.baseline_digest == capture.baseline.digest
+        capture = collect_highest(assembly.static, highest, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, RunTyFactRef)
+        result = collect_global(assembly.static, candidate, project.package, run_cache)
+        assert result.status == "COMPARED"
+        assert result.state == "STATIC_REGRESSION"
+        assert result.incremental_identities == (shifted.identity,)
+        scope = run_cache.snapshot(candidate.proposal.cell)
+        assert scope.comparisons[0].result == result
         highest.close()
         candidate.close()
 
-    @pytest.mark.parametrize("operation", ("capture", "evaluate"))
     def test_static_evaluator_preserves_tool_failure(
-        self,
+        self, run_cache,
         tmp_path: Path,
-        operation: str,
     ) -> None:
-        outcomes: tuple[TyCheck | ToolFailure, ...] = (
-            (empty_check(), tool_failure())
-            if operation == "evaluate"
-            else (tool_failure(),)
-        )
+        outcomes: tuple[TyCheck | ToolFailure, ...] = (tool_failure(),)
         project = evaluation_project(tmp_path / "project", dependency=None)
         assembly = evaluation_assembly(
             highest=(),
@@ -248,23 +179,42 @@ class TestStaticEvaluator:
         )
         assert isinstance(prepared, PreparedEnvironment)
 
-        if operation == "capture":
-            result = assembly.static.capture(prepared, package=project.package)
-        else:
-            capture = assembly.static.capture(prepared, package=project.package)
-            assert isinstance(capture, StaticBaselineCapture)
-            result = assembly.static.evaluate(
-                prepared,
-                package=project.package,
-                baseline=capture.baseline,
-            )
-
-        assert isinstance(result, IndeterminateEvaluation)
-        assert result.cause == "TOOL_FAILURE"
+        result = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(result, RunTyFactRef)
+        assert result.observation.fact.kind == "ty-check-unavailable"
+        assert result.process == outcomes[-1].process
         prepared.close()
 
 
 class TestRuntimeEvaluator:
+    @pytest.mark.parametrize("outcome", (
+        VerifierPass(terminal=NormalExit(exit_code=0)),
+        VerifierRejected(terminal=NormalExit(exit_code=1)),
+        VerifierIndeterminate(terminal=TimedOut(), reason="process-timed-out"),
+    ))
+    def test_configured_execution_needs_no_static_capture(self, run_cache, tmp_path, outcome):
+        project = evaluation_project(tmp_path / "project", dependency=None)
+        assembly = evaluation_assembly(
+            highest=(), verifier_handler=lambda *_: VerifierRun(authoritative=outcome),
+        )
+        prepared = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
+            resolution=HighestResolution(), source_plan=project.source_plan,
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+        try:
+            run = assembly.runtime.evaluate(prepared, package=project.package, run_cache=run_cache)
+            assert run.evaluation.proposal == prepared.proposal
+            assert run.evaluation.verifier == outcome
+            assert assembly.ty.vectors == []
+            assert assembly.verifier.vectors == [()]
+            assert prepared.tested
+            scope = run_cache.snapshot(prepared.proposal.cell)
+            assert scope.facts == scope.consumers == scope.passes == ()
+        finally:
+            prepared.close()
+            project.snapshot.close()
+
     @pytest.mark.parametrize(
         ("outcome", "expected_type", "expected_cause"),
         (
@@ -284,17 +234,20 @@ class TestRuntimeEvaluator:
             ),
         ),
     )
+    @pytest.mark.parametrize("static_available", (True, False))
     def test_runtime_evaluator_preserves_authoritative_verifier_outcome(
-        self,
+        self, run_cache,
         tmp_path: Path,
         outcome: VerifierPass | VerifierRejected | VerifierIndeterminate,
         expected_type: str,
         expected_cause: str | None,
+        static_available: bool,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
         assembly = evaluation_assembly(
             highest=(),
             verifier_handler=lambda vector, call: VerifierRun(authoritative=outcome),
+            ty_handler=lambda vector, call: empty_check() if static_available else tool_failure(),
         )
         prepared = assembly.environments.prepare(
             package=project.package,
@@ -304,16 +257,19 @@ class TestRuntimeEvaluator:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = assembly.static.capture(prepared, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
+        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, RunTyFactRef)
 
         run = assembly.runtime.evaluate(
             prepared,
-            package=project.package,
-            baseline=capture.baseline,
-            static_result=capture.static,
+            run_cache=run_cache, package=project.package,
+
         )
 
+        if not static_available:
+            scope = run_cache.snapshot(prepared.proposal.cell)
+            assert scope.facts[0].observation.fact.kind == "ty-check-unavailable"
+        assert len(assembly.verifier.vectors) == 1
         assert run.evaluation.status == expected_type
         assert prepared.tested is True
         if expected_cause is not None:
@@ -327,7 +283,7 @@ class TestRuntimeEvaluator:
         prepared.close()
 
     def test_runtime_evaluator_runs_tests_for_a_general_static_regression(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         increment = diagnostic("snapshot|demo.py|1|2|invalid-type")
@@ -354,8 +310,8 @@ class TestRuntimeEvaluator:
             source_plan=project.source_plan,
         )
         assert isinstance(highest, PreparedEnvironment)
-        capture = assembly.static.capture(highest, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
+        capture = collect_highest(assembly.static, highest, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, RunTyFactRef)
         candidate = assembly.environments.prepare(
             package=project.package,
             cell=project.package.cells[0],
@@ -365,14 +321,15 @@ class TestRuntimeEvaluator:
         )
         assert isinstance(candidate, PreparedEnvironment)
 
+        comparison = collect_global(assembly.static, candidate, project.package, run_cache)
         run = assembly.runtime.evaluate(
             candidate,
-            package=project.package,
-            baseline=capture.baseline,
+            run_cache=run_cache, package=project.package,
         )
 
         assert run.evaluation.status == "PASS"
-        assert run.evaluation.static.status == "STATIC_REGRESSION"
+        assert comparison.status == "COMPARED"
+        assert comparison.state == "STATIC_REGRESSION"
         assert assembly.verifier.vectors[-1] == (
             VersionPin(name="demo-dep", version="2"),
         )
@@ -380,167 +337,56 @@ class TestRuntimeEvaluator:
         candidate.close()
 
 
-class TestRuntimeWitnessEvaluator:
-    @pytest.mark.parametrize(
-        "witness_status",
-        ("PRESENT", "NOT_APPLICABLE", "CONFIRMED_MISSING", "TOOL_FAILURE"),
-    )
-    @pytest.mark.parametrize("verifier_exit", (0, 4))
-    def test_runtime_evaluator_routes_a_static_witness_outcome(
-        self,
-        tmp_path: Path,
-        verifier_exit: int,
-        witness_status: Literal[
-            "PRESENT",
-            "NOT_APPLICABLE",
-            "CONFIRMED_MISSING",
-            "TOOL_FAILURE",
-        ],
+class TestRuntimeStaticGuidance:
+    @pytest.mark.parametrize("code,source", [
+        ("unresolved-import", "import requests.missing\n"),
+        ("unresolved-attribute", "import requests\nrequests.missing\n"),
+        ("invalid-assignment", "value: int = 'text'\n"),
+    ])
+    @pytest.mark.parametrize("verifier_exit", [0, 4])
+    def test_static_regression_runs_the_configured_verifier(
+        self, run_cache, tmp_path: Path, code: str, source: str, verifier_exit: int,
     ) -> None:
-        increment = diagnostic("snapshot|demo.py|1|8|unresolved-import")
-        project = evaluation_project(
-            tmp_path / "project",
-            dependency="requests",
-            source="import requests.missing\n",
-        )
-
-        class WitnessRunner:
-            def run(self, spec):
-                return ProcessResult(exit_code=0, duration_seconds=0,
-                    stdout=json.dumps({"status": witness_status}, separators=(",", ":")) + "\n",
-                    stderr="SyntaxWarning: import warning\n")
-
+        increment = diagnostic(f"snapshot|demo.py|1|8|{code}")
+        project = evaluation_project(tmp_path / "project", dependency="requests", source=source)
         assembly = evaluation_assembly(
             highest=(VersionPin(name="requests", version="3"),),
-            ty_handler=lambda vector, call: (
-                empty_check()
-                if call == 1
-                else TyCheck(
-                    process=successful_process(exit_code=1),
-                    diagnostics=(increment,),
-                )
-            ),
+            ty_handler=lambda vector, call: empty_check() if call == 1 else TyCheck(
+                process=successful_process(exit_code=1), diagnostics=(increment,)),
             verifier_handler=lambda vector, call: VerifierRun(authoritative=(
                 VerifierPass(terminal=NormalExit(exit_code=0)) if verifier_exit == 0
-                else VerifierRejected(terminal=NormalExit(exit_code=verifier_exit))
-            )),
+                else VerifierRejected(terminal=NormalExit(exit_code=verifier_exit)))),
         )
-        highest = assembly.environments.prepare(
-            package=project.package,
-            cell=project.package.cells[0],
-            snapshot=project.snapshot,
-            resolution=HighestResolution(),
-            source_plan=project.source_plan,
-        )
+        highest = assembly.environments.prepare(package=project.package, cell=project.package.cells[0],
+                                               snapshot=project.snapshot, resolution=HighestResolution(),
+                                               source_plan=project.source_plan)
         assert isinstance(highest, PreparedEnvironment)
-        capture = assembly.static.capture(highest, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
-        candidate = assembly.environments.prepare(
-            package=project.package,
-            cell=project.package.cells[0],
-            snapshot=project.snapshot,
-            resolution=candidate_resolution(highest, "requests", "2"),
-            source_plan=project.source_plan,
-        )
-        assert isinstance(candidate, PreparedEnvironment)
-
-        run = RuntimeEvaluator(static=assembly.static, verifier=assembly.verifier,
-                               witnesses=RuntimeWitnessAdapter(WitnessRunner())).evaluate(
-            candidate,
-            package=project.package,
-            baseline=capture.baseline,
-        )
-
-        assert len(run.evaluation.witnesses) == 1
-        assert run.evaluation.static is not None
-        assert run.evaluation.static.status == "STATIC_REGRESSION"
-        process = run.evaluation.witnesses[0].outcome.process
-        assert isinstance(process, ProcessResult)
-        assert process.stderr == "SyntaxWarning: import warning\n"
-        if witness_status in {"PRESENT", "NOT_APPLICABLE"}:
+        candidate = None
+        try:
+            capture = collect_highest(assembly.static, highest, run_cache=run_cache, package=project.package)
+            assert isinstance(capture, RunTyFactRef)
+            candidate = assembly.environments.prepare(package=project.package, cell=project.package.cells[0],
+                                                      snapshot=project.snapshot,
+                                                      resolution=candidate_resolution(highest, "requests", "2"),
+                                                      source_plan=project.source_plan)
+            assert isinstance(candidate, PreparedEnvironment)
+            comparison = collect_global(assembly.static, candidate, project.package, run_cache)
+            run = assembly.runtime.evaluate(candidate, run_cache=run_cache, package=project.package)
             assert run.evaluation.status == ("PASS" if verifier_exit == 0 else "VERIFIER_REJECTED")
             assert len(assembly.verifier.vectors) == 1
-        elif witness_status == "CONFIRMED_MISSING":
-            assert isinstance(run.evaluation, RuntimeInterfaceMissingEvaluation)
-            assert assembly.verifier.vectors == []
-            assert run.evaluation.witnesses[-1].plan.diagnostic_identities == (
-                increment.identity,
-            )
-            failure = FailurePolicy().record_evaluation(
-                AttemptFailureScope(attempt=candidate.attempt),
-                run.evaluation,
-            )
-            assert failure is not None
-            assert failure.cause == "RUNTIME_INTERFACE_MISSING"
-            assert failure.disposition == "REJECTED"
-        else:
-            assert isinstance(run.evaluation, IndeterminateEvaluation)
-            assert run.evaluation.cause == "TOOL_FAILURE"
-            assert assembly.verifier.vectors == []
-        highest.close()
-        candidate.close()
-
-    def test_runtime_evaluator_deduplicates_an_identical_witness_plan(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        increment = diagnostic("snapshot|demo.py|1|8|unresolved-import")
-        project = evaluation_project(
-            tmp_path / "project",
-            dependency="requests",
-            source="import requests.missing\n",
-        )
-        assembly = evaluation_assembly(
-            highest=(VersionPin(name="requests", version="3"),),
-            ty_handler=lambda vector, call: (
-                empty_check()
-                if call == 1
-                else TyCheck(
-                    process=successful_process(exit_code=1),
-                    diagnostics=(increment, increment),
-                )
-            ),
-            witness_handler=lambda vector, plan, call: RuntimeWitnessResult(
-                status="PRESENT",
-                plan=plan,
-                process=successful_process(),
-            ),
-        )
-        highest = assembly.environments.prepare(
-            package=project.package,
-            cell=project.package.cells[0],
-            snapshot=project.snapshot,
-            resolution=HighestResolution(),
-            source_plan=project.source_plan,
-        )
-        assert isinstance(highest, PreparedEnvironment)
-        capture = assembly.static.capture(highest, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
-        candidate = assembly.environments.prepare(
-            package=project.package,
-            cell=project.package.cells[0],
-            snapshot=project.snapshot,
-            resolution=candidate_resolution(highest, "requests", "2"),
-            source_plan=project.source_plan,
-        )
-        assert isinstance(candidate, PreparedEnvironment)
-
-        run = assembly.runtime.evaluate(
-            candidate,
-            package=project.package,
-            baseline=capture.baseline,
-        )
-
-        assert run.evaluation.status == "PASS"
-        assert len(assembly.witnesses.calls) == 1
-        assert len(run.evaluation.witnesses) == 1
-        highest.close()
-        candidate.close()
+            assert comparison.status == "COMPARED"
+            assert comparison.state == "STATIC_REGRESSION"
+            assert comparison.incremental_identities == (increment.identity,)
+            assert candidate.tested
+        finally:
+            highest.close()
+            if isinstance(candidate, PreparedEnvironment):
+                candidate.close()
 
 
 class TestEvaluationProgress:
     def test_evaluators_report_stage_and_verifier_progress(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         events = RecordingStages()
@@ -554,9 +400,9 @@ class TestEvaluationProgress:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = assembly.static.capture(prepared, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
-        assert events.events[-1].stage == "capturing static baseline"
+        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, RunTyFactRef)
+        assert events.events[-1].stage == "static-probe"
         events.events.clear()
 
         class ProgressVerifier:
@@ -572,14 +418,12 @@ class TestEvaluationProgress:
                 )
 
         run = RuntimeEvaluator(
-            static=assembly.static,
             verifier=ProgressVerifier(),
             events=events,
         ).evaluate(
             prepared,
-            package=project.package,
-            baseline=capture.baseline,
-            static_result=capture.static,
+            run_cache=run_cache, package=project.package,
+
         )
 
         assert run.evaluation.status == "PASS"
@@ -594,10 +438,33 @@ class TestEvaluationProgress:
         )
         prepared.close()
 
+    def test_cache_hit_does_not_emit_a_ty_stage(
+        self, run_cache, tmp_path: Path,
+    ) -> None:
+        events = RecordingStages()
+        project = evaluation_project(tmp_path / "project", dependency=None)
+        assembly = evaluation_assembly(highest=(), events=events)
+        prepared = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+        first = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(first, RunTyFactRef)
+        assert any(event.stage == "static-probe" for event in events.events)
+        events.events.clear()
+        second = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert second is first
+        assert all(getattr(event, "stage", None) != "static-probe" for event in events.events)
+        prepared.close()
+
 
 class TestStagePermitPools:
     def test_ty_permits_bound_concurrent_public_static_evaluations(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
@@ -616,12 +483,12 @@ class TestStagePermitPools:
         calls: list[dict[str, object]] = []
 
         class BlockingTy:
-            def check(self, **kwargs: object) -> TyCheck:
+            def observe(self, request, *, cancellation=None) -> TyCheck:
                 nonlocal active, maximum_active
                 with lock:
                     active += 1
                     maximum_active = max(maximum_active, active)
-                    calls.append(kwargs)
+                    calls.append({"request": request})
                 time.sleep(0.05)
                 with lock:
                     active -= 1
@@ -629,24 +496,29 @@ class TestStagePermitPools:
 
         static = StaticEvaluator(
             BlockingTy(),
+            requests=ScriptedStaticRequests(),
             permits=StagePermitPools(ty_jobs=1, test_jobs=2),
         )
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            captures = tuple(
-                executor.map(
-                    lambda _: static.capture(prepared, package=project.package),
-                    range(2),
-                )
-            )
-
-        assert all(isinstance(item, StaticBaselineCapture) for item in captures)
-        assert maximum_active == 1
-        assert len(calls) == 2
-        assert all("jobs" not in call for call in calls)
-        prepared.close()
+        other = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
+            resolution=HighestResolution(), source_plan=project.source_plan,
+        )
+        assert isinstance(other, PreparedEnvironment)
+        try:
+            with TyCheckCache() as other_cache, ThreadPoolExecutor(max_workers=2) as executor:
+                captures = tuple(executor.map(
+                    lambda pair: collect_highest(static, pair[0], run_cache=pair[1], package=project.package),
+                    ((prepared, run_cache), (other, other_cache)),
+                ))
+            assert all(isinstance(item, RunTyFactRef) for item in captures)
+            assert maximum_active == 1
+            assert len(calls) == 2
+        finally:
+            prepared.close()
+            other.close()
 
     def test_test_permits_bound_concurrent_public_runtime_evaluations(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
@@ -659,8 +531,8 @@ class TestStagePermitPools:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = assembly.static.capture(prepared, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
+        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, RunTyFactRef)
         lock = Lock()
         active = 0
         maximum_active = 0
@@ -686,30 +558,40 @@ class TestStagePermitPools:
                 )
 
         runtime = RuntimeEvaluator(
-            static=assembly.static,
             verifier=BlockingVerifier(),
             permits=StagePermitPools(ty_jobs=2, test_jobs=1),
         )
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            runs = tuple(
-                executor.map(
-                    lambda _: runtime.evaluate(
-                        prepared,
-                        package=project.package,
-                        baseline=capture.baseline,
-                        static_result=capture.static,
-                    ),
-                    range(2),
-                )
-            )
+        other = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(other, PreparedEnvironment)
+        environments = (prepared, other)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                runs = tuple(
+                    executor.map(
+                        lambda environment: runtime.evaluate(
+                            environment,
+                            run_cache=run_cache, package=project.package,
 
-        assert all(run.evaluation.status == "PASS" for run in runs)
-        assert maximum_active == 1
-        assert len(requests) == 2
-        prepared.close()
+                        ),
+                        environments,
+                    )
+                )
+
+            assert all(run.evaluation.status == "PASS" for run in runs)
+            assert maximum_active == 1
+            assert len(requests) == 2
+        finally:
+            for environment in environments:
+                environment.close()
 
     def test_runtime_evaluator_uses_the_prepared_root_for_the_test_command(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         project = evaluation_project(tmp_path / "project", dependency=None)
@@ -722,8 +604,8 @@ class TestStagePermitPools:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = assembly.static.capture(prepared, package=project.package)
-        assert isinstance(capture, StaticBaselineCapture)
+        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, RunTyFactRef)
 
         class RequestRecorder(ScriptedVerifier):
             request: VerifierRequest | None = None
@@ -738,13 +620,11 @@ class TestStagePermitPools:
 
         verifier = RequestRecorder(assembly.uv)
         run = RuntimeEvaluator(
-            static=assembly.static,
             verifier=verifier,
         ).evaluate(
             prepared,
-            package=project.package,
-            baseline=capture.baseline,
-            static_result=capture.static,
+            run_cache=run_cache, package=project.package,
+
         )
 
         assert run.evaluation.status == "PASS"

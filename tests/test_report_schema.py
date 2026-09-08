@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from pf.search_space import SpaceSelection
 from pf.candidates import candidate_policy_identity
 
@@ -17,7 +18,7 @@ from pf.errors import ConfigurationError
 from pf.resolution import environment_identity_digest, resolution_graph_id
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.schemas.base import canonical_identity_json
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import (
@@ -35,30 +36,20 @@ from pf.schemas.evaluation import (
     CellFailureScope,
     FailureDetail,
     FailureRecord,
-    DiagnosticClassification,
     NormalExit,
     PassEvaluation,
     IndeterminateEvaluation,
     ProcessResult,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeWitnessAttempt,
-    RuntimeWitnessPlan,
-    RuntimeWitnessResult,
-    StaticBaseline,
-    StaticRegressionEvaluation,
-    StaticUnchangedEvaluation,
     ExecutionFailureAuthority,
-    TyCheck,
-    TyDiagnostic,
     VerifierPass,
     VerifierRejected,
     VerifierRejectedEvaluation,
+)
+from pf.schemas.journal import (
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
-    ty_diagnostic_digest,
 )
-from pf.static_transition import static_fingerprint
 from pf.schemas.project import (
     Cell,
     AvailableArtifact,
@@ -94,11 +85,6 @@ from pf.schemas.report import (
     ProbePass,
     ProbeIndeterminate,
     ProbeRejection,
-    StaticOnlyEvidence,
-    StaticRegion,
-    StaticRegionRuntimeReference,
-    StaticRegionSlice,
-    static_region_id,
 )
 
 
@@ -264,9 +250,11 @@ class TestReportIdentity:
 
 
 class TestPackageReportBuilder:
+    @pytest.mark.parametrize("timeout", [600, None])
     def test_build_round_trips_minimal_incomplete_schema_1(
         self,
         tmp_path: Path,
+        timeout: int | None,
     ) -> None:
         cell = Cell(
             package="demo",
@@ -277,7 +265,7 @@ class TestPackageReportBuilder:
         package = PackagePlan(
             name="demo",
             pyproject_path="pyproject.toml",
-            config=EffectiveConfig(),
+            config=EffectiveConfig.model_validate({"resolution": {"timeout_seconds": timeout}, "test": {"timeout_seconds": timeout}}),
             declarations=(),
             cells=(cell,),
             source_routes=(),
@@ -300,6 +288,10 @@ class TestPackageReportBuilder:
 
         document = json.loads(path.read_text(encoding="utf-8"))
         loaded = ReportStore().read(path)
+        assert document["identity"]["execution_policy"]["resolution"]["timeout_seconds"] == timeout
+        assert document["identity"]["execution_policy"]["verifier_timeout_seconds"] == timeout
+        assert document["identity"]["guidance_policy_identity"] == report.guidance_policy_identity
+        assert document["identity"]["search_derivation_identity"] == report.search_derivation_identity
         assert isinstance(report, ValidatedReport)
         assert loaded == report
         assert set(document) == {
@@ -317,9 +309,12 @@ class TestPackageReportBuilder:
             "package": report.package.model_dump(mode="json"),
             "source_snapshot": report.source_snapshot.model_dump(mode="json"),
             "policy_identity": report.policy_identity,
+            "execution_policy_identity": report.execution_policy.identity,
+            "guidance_policy_identity": report.guidance_policy_identity,
+            "search_derivation_identity": report.search_derivation_identity,
             "search_policy": report.search_policy.model_dump(mode="json"),
             "verifier_outcome_policy": report.verifier_outcome_policy,
-            "failure_policy": "failure-execution-v3",
+            "failure_policy": "failure-execution-v4",
             "source_plan": SourcePlan.for_package(package, "SEARCH").model_dump(
                 mode="json"
             ),
@@ -347,7 +342,6 @@ class TestPackageReportBuilder:
             "status": "incomplete",
             "reasons": ["MISSING_CELL"],
         }
-        assert "null" not in path.read_text(encoding="utf-8")
         assert path.read_bytes().endswith(b"\n")
 
     def test_build_interns_cell_failure_and_resolves_its_context(
@@ -373,13 +367,13 @@ class TestPackageReportBuilder:
             entries=(),
             pyproject_identities=(),
         )
-        policy = evaluation_policy_identity(package.config)
+        policy = execution_policy_identity(package.config)
         failure = FailurePolicy().classify(
             scope=CellFailureScope(
                 package="demo",
                 cell=cell,
                 source_snapshot_digest=snapshot.digest,
-                evaluation_policy_identity=policy,
+                execution_policy_identity=policy,
             ),
             cause="TIMEOUT",
             stage="scheduler-deadline",
@@ -462,7 +456,7 @@ class TestPackageReportBuilder:
             entries=(),
             pyproject_identities=(),
         )
-        policy = evaluation_policy_identity(package.config)
+        policy = execution_policy_identity(package.config)
         attempt = Attempt.from_identity(
             AttemptIdentity(
                 source_snapshot_digest=snapshot.digest,
@@ -473,7 +467,7 @@ class TestPackageReportBuilder:
                 source_plan_identity=SourcePlan.for_package(
                     package, "SEARCH"
                 ).identity,
-                evaluation_policy_identity=policy,
+                execution_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
             )
@@ -549,7 +543,7 @@ class TestPackageReportBuilder:
             entries=(),
             pyproject_identities=(),
         )
-        policy = evaluation_policy_identity(package.config)
+        policy = execution_policy_identity(package.config)
         attempt = Attempt.from_identity(
             AttemptIdentity(
                 source_snapshot_digest=snapshot.digest,
@@ -560,7 +554,7 @@ class TestPackageReportBuilder:
                 source_plan_identity=SourcePlan.for_package(
                     package, "SEARCH"
                 ).identity,
-                evaluation_policy_identity=policy,
+                execution_policy_identity=policy,
                 resolution_context_digest="context",
                 harness_policy_identity="original-harness-v1",
             )
@@ -570,6 +564,7 @@ class TestPackageReportBuilder:
         environment_plan_digest = None
         proposal = Proposal(
             proposal_id=environment_identity_digest(
+                attempt_id=attempt.attempt_id,
                 project_plan_digest=project_plan_digest,
                 environment_plan_digest=environment_plan_digest,
                 graph=graph,
@@ -589,33 +584,16 @@ class TestPackageReportBuilder:
                 abi="cpython-312-x86_64-linux-gnu",
             ),
         )
-        process = ProcessResult(
-            exit_code=0,
-            signal=None,
-            duration_seconds=0.1,
-            stdout="",
-            stderr="",
-        )
-        ty = TyCheck(process=process, diagnostics=())
-        baseline_digest = ty_diagnostic_digest(())
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=ty,
-            baseline_digest=baseline_digest,
-        )
         evaluation = PassEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         )
         result = CellSuccess(
+
             cell=cell,
             baseline_attempt=attempt,
-            static_baseline=StaticBaseline(
-                proposal=proposal,
-                ty=ty,
-                digest=baseline_digest,
-            ),
+
             baseline=evaluation,
             candidate_snapshots=(),
             search=CoordinateSuccess(
@@ -642,7 +620,6 @@ class TestPackageReportBuilder:
         proposal_ref = proposal.proposal_id
         assert len(document["evidence"]["resolution_graphs"]) == 1
         assert len(document["evidence"]["proposals"]) == 1
-        assert len(document["evidence"]["static_evaluations"]) == 1
         assert len(document["evidence"]["evaluations"]) == 1
         assert document["evidence"]["proposals"][0] == {
             "proposal_id": proposal_ref,
@@ -665,14 +642,12 @@ class TestPackageReportBuilder:
                 "baseline": {
                     "attempt_ref": attempt.attempt_id,
                     "proposal_ref": proposal_ref,
-                    "static_baseline_digest": baseline_digest,
                 },
                 "candidate_snapshot_refs": [],
                 "search": {
                     "status": "SUCCESS",
                     "observations": [],
                     "boundaries": [],
-                    "regions": [],
                     "sweeps": 0,
                 },
                 "final_proposal_ref": proposal_ref,
@@ -695,7 +670,6 @@ class _CompleteReportCase:
         ("inputs", "candidate_snapshots"),
         ("evidence", "resolution_graphs"),
         ("evidence", "proposals"),
-        ("evidence", "static_evaluations"),
         ("evidence", "evaluations"),
         ("evidence", "failures"),
     )
@@ -774,7 +748,7 @@ class _CompleteReportCase:
             entries=(),
             pyproject_identities=(),
         )
-        policy = evaluation_policy_identity(package.config)
+        policy = execution_policy_identity(package.config)
         candidate_policy = candidate_policy_identity(package.search_policy_for(dependency), artifact="any", effective_space="all")
         artifact = AvailableArtifact(
             python_minors=(cell.python_minor,), targets=(cell.target,),
@@ -826,14 +800,6 @@ class _CompleteReportCase:
                 series_representatives=(("1.0", "1.0"),),
             ),
         )
-        process = ProcessResult(
-            exit_code=0,
-            signal=None,
-            duration_seconds=0.1,
-            stdout="excluded ty output",
-            stderr="",
-        )
-        baseline_digest = ty_diagnostic_digest(())
 
         def passed(
             *,
@@ -852,7 +818,7 @@ class _CompleteReportCase:
                     ),
                     active_declaration_ids=cell.active_declaration_ids,
                     source_plan_identity=plan_identity,
-                    evaluation_policy_identity=policy,
+                    execution_policy_identity=policy,
                     resolution_context_digest="context",
                     harness_policy_identity=(
                         "harness-relaxation-v1"
@@ -903,6 +869,7 @@ class _CompleteReportCase:
             environment_digest = f"environment-{suffix}" if attempt.identity.harness_declaration_ids else None
             proposal = Proposal(
                 proposal_id=environment_identity_digest(
+                attempt_id=attempt.attempt_id,
                     project_plan_digest=project_digest,
                     environment_plan_digest=environment_digest,
                     graph=graph,
@@ -922,17 +889,11 @@ class _CompleteReportCase:
                     abi="cpython-312-x86_64-linux-gnu",
                 ),
             )
-            static = StaticUnchangedEvaluation(
-                proposal=proposal,
-                ty=TyCheck(process=process, diagnostics=()),
-                baseline_digest=baseline_digest,
-            )
             return (
                 attempt,
                 proposal,
                 PassEvaluation(
                     proposal=proposal,
-                    static=static,
                     verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
                 ),
             )
@@ -976,13 +937,10 @@ class _CompleteReportCase:
             sweeps=1,
         )
         result = CellSuccess(
+
             cell=cell,
             baseline_attempt=baseline_attempt,
-            static_baseline=StaticBaseline(
-                proposal=baseline_proposal,
-                ty=baseline.static.ty,
-                digest=baseline_digest,
-            ),
+
             baseline=baseline,
             candidate_snapshots=(candidate_snapshot,),
             search=search,
@@ -1056,9 +1014,10 @@ class _CompleteReportCase:
             project_plan_digest=None, environment_plan_digest=None,
         ))
         rejected_result = CellSuccess(
+
             cell=cell,
             baseline_attempt=baseline_attempt,
-            static_baseline=result.static_baseline,
+
             baseline=baseline,
             candidate_snapshots=(expanded_snapshot,),
             search=CoordinateSuccess(
@@ -1103,36 +1062,9 @@ class _CompleteReportCase:
         rejected_document = json.loads(rejected_path.read_text(encoding="utf-8"))
         rejected_loaded = ReportStore().read(rejected_path)
 
-        diagnostic = TyDiagnostic(
-            identity="snapshot|demo.py|1|1|invalid-argument-type",
-            origin="snapshot",
-            path="demo.py",
-            line=1,
-            column=1,
-            code="invalid-argument-type",
-            severity="major",
-            message="incompatible call",
-        )
-        regression = StaticRegressionEvaluation(
-            proposal=rejected_proposal,
-            ty=TyCheck(
-                process=process.model_copy(update={"exit_code": 1}),
-                diagnostics=(diagnostic,),
-            ),
-            baseline_digest=baseline_digest,
-            incremental=(diagnostic,),
-            static_fingerprint=static_fingerprint((diagnostic.identity,)),
-            classifications=(
-                DiagnosticClassification(
-                    diagnostic_identity=diagnostic.identity,
-                    classification="general",
-                    reason_code="not-runtime-witnessable",
-                ),
-            ),
-        )
         test_evaluation = VerifierRejectedEvaluation(
             proposal=rejected_proposal,
-            static=regression,
+
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         test_failure = FailureRecord.from_verifier(
@@ -1143,9 +1075,10 @@ class _CompleteReportCase:
             terminal=NormalExit(exit_code=1),
         )
         test_failed_result = CellSuccess(
+
             cell=cell,
             baseline_attempt=baseline_attempt,
-            static_baseline=result.static_baseline,
+
             baseline=baseline,
             candidate_snapshots=(expanded_snapshot,),
             search=CoordinateSuccess(
@@ -1192,97 +1125,11 @@ class _CompleteReportCase:
         test_failed_document = json.loads(test_failed_path.read_text(encoding="utf-8"))
         test_failed_loaded = ReportStore().read(test_failed_path)
 
-        witness_plan = RuntimeWitnessPlan(
-            diagnostic_identities=(diagnostic.identity,),
-            managed_dependency=dependency,
-            operation="import-module",
-            module="demo_dep",
-        )
-        witness_regression = regression.model_copy(
-            update={
-                "classifications": (
-                    DiagnosticClassification(
-                        diagnostic_identity=diagnostic.identity,
-                        classification="strong",
-                        reason_code="runtime-witnessable",
-                        witness_plan=witness_plan,
-                    ),
-                )
-            }
-        )
-        missing_evaluation = RuntimeInterfaceMissingEvaluation(
-            proposal=rejected_proposal,
-            static=witness_regression,
-            witnesses=(
-                RuntimeWitnessAttempt(
-                    plan=witness_plan,
-                    outcome=RuntimeWitnessResult(
-                        status="CONFIRMED_MISSING",
-                        plan=witness_plan,
-                        process=process,
-                    ),
-                ),
-            ),
-        )
-        missing_failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=rejected_attempt),
-            cause="RUNTIME_INTERFACE_MISSING",
-            stage="witness",
-            process=process,
-        )
-        missing_result = test_failed_result.model_copy(
-            update={
-                "search": test_failed_result.search.model_copy(
-                    update={
-                        "observations": (
-                            ProbeObservation(
-                                dependency=dependency,
-                                candidate_version="0.9",
-                                vector=(
-                                    rejected_attempt.identity.requested_managed_vector
-                                    or ()
-                                ),
-                                evidence=ProbeRejection(
-                                    attempt=rejected_attempt,
-                                    proposal_id=rejected_proposal.proposal_id,
-                                    failure_id=missing_failure.failure_id,
-                                    cause=missing_failure.cause,
-                                    evaluation=missing_evaluation,
-                                ),
-                            ),
-                            result.search.observations[0],
-                        ),
-                        "boundaries": (
-                            CoordinateBoundary(
-                                dependency=dependency,
-                                floor="1.0",
-                                predecessor="0.9",
-                                predecessor_failure_id=missing_failure.failure_id,
-                            ),
-                        ),
-                    }
-                ),
-                "failure_records": (missing_failure,),
-            }
-        )
-        missing_report = PackageReportBuilder().build(
-            package=package,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-            source_snapshot=snapshot,
-            cell_results=(missing_result,),
-        )
-        missing_path = tmp_path / "runtime-missing.json"
-
-        ReportStore().write(missing_path, missing_report)
-
-        missing_document = json.loads(missing_path.read_text(encoding="utf-8"))
-        missing_loaded = ReportStore().read(missing_path)
-
         indeterminate_evaluation = IndeterminateEvaluation(
             proposal=rejected_proposal,
             cause="TOOL_FAILURE",
             verifier=VerifierIndeterminate(terminal=Signaled(signal=9), reason="process-signaled"),
-            static=regression,
+
         )
         indeterminate_failure = FailurePolicy().record_evaluation(
             AttemptFailureScope(attempt=rejected_attempt), indeterminate_evaluation,
@@ -1318,12 +1165,13 @@ class _CompleteReportCase:
             failure_id=indeterminate_failure.failure_id,
         )
         indeterminate_result = CellIndeterminate(
+
             cell=cell,
             phase="test",
             failure_id=indeterminate_failure.failure_id,
             failure_records=(indeterminate_failure,),
             baseline_attempt=baseline_attempt,
-            static_baseline=result.static_baseline,
+
             baseline=baseline,
             candidate_snapshots=(expanded_snapshot,),
             coordinate_failure=coordinate_failure,
@@ -1354,7 +1202,7 @@ class _CompleteReportCase:
             ),
         )
         region_candidates = (cheap_candidate, *expanded_candidates)
-        region_snapshot = CandidateSnapshot(
+        search_snapshot = CandidateSnapshot(
             selection=SpaceSelection("all", "explicit", ()), series_inventory=None,
             dependency=dependency,
             cell=cell,
@@ -1390,24 +1238,22 @@ class _CompleteReportCase:
             suffix="cheap",
         )
 
-        def regional_static(proposal: Proposal) -> StaticRegressionEvaluation:
-            return StaticRegressionEvaluation(
-                proposal=proposal,
-                ty=regression.ty,
-                baseline_digest=regression.baseline_digest,
-                incremental=regression.incremental,
-                static_fingerprint=regression.static_fingerprint,
-                classifications=regression.classifications,
-            )
-
-        regional_final = PassEvaluation(
+        cheap_rejection = VerifierRejectedEvaluation(
+            proposal=cheap_proposal,
+            verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
+        )
+        cheap_failure = FailureRecord.from_verifier(
+            scope=AttemptFailureScope(attempt=cheap_attempt), disposition="REJECTED",
+            cause="VERIFIER_EXITED_NONZERO", stage="test", terminal=NormalExit(exit_code=1),
+        )
+        direct_search_final = PassEvaluation(
             proposal=final_proposal,
-            static=regional_static(final_proposal),
+
             verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         )
-        regional_rejection = VerifierRejectedEvaluation(
+        direct_search_rejection = VerifierRejectedEvaluation(
             proposal=rejected_proposal,
-            static=regression,
+
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         baseline_test_failure = FailureRecord.from_verifier(
@@ -1419,7 +1265,7 @@ class _CompleteReportCase:
         )
         baseline_test_evaluation = VerifierRejectedEvaluation(
             proposal=baseline_proposal,
-            static=baseline.static,
+
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         baseline_rejection_report = PackageReportBuilder().build(
@@ -1428,13 +1274,10 @@ class _CompleteReportCase:
             source_snapshot=snapshot,
             cell_results=(
                 BaselineRejection(
+
                     attempt=baseline_attempt,
                     failure=baseline_test_failure,
-                    static_baseline=StaticBaseline(
-                        proposal=baseline_proposal,
-                        ty=baseline.static.ty,
-                        digest=baseline_digest,
-                    ),
+
                     evaluation=baseline_test_evaluation,
                 ),
             ),
@@ -1448,36 +1291,13 @@ class _CompleteReportCase:
             baseline_rejection_path.read_text(encoding="utf-8")
         )
         baseline_rejection_loaded = ReportStore().read(baseline_rejection_path)
-        region_slice = StaticRegionSlice(
-            cell=cell,
-            source_snapshot_digest=snapshot.digest,
-            policy_identity=policy,
-            baseline_digest=baseline_digest,
-            active_dependency=dependency,
-            other_coordinates=(),
-            candidate_order=("0.8", "0.9", "1.0"),
-        )
-        region = StaticRegion(
-            slice=region_slice,
-            static_fingerprint=regression.static_fingerprint,
-            observed_versions=("0.8", "0.9", "1.0"),
-            runtime_references=(
-                StaticRegionRuntimeReference(
-                    proposal_id=rejected_proposal.proposal_id,
-                    status="REJECTED",
-                ),
-                StaticRegionRuntimeReference(
-                    proposal_id=final_proposal.proposal_id,
-                    status="PASS",
-                ),
-            ),
-        )
-        regional_result = CellSuccess(
+        direct_search_result = CellSuccess(
+
             cell=cell,
             baseline_attempt=baseline_attempt,
-            static_baseline=result.static_baseline,
+
             baseline=baseline,
-            candidate_snapshots=(region_snapshot,),
+            candidate_snapshots=(search_snapshot,),
             search=CoordinateSuccess(
                 vector=final_vector,
                 observations=(
@@ -1485,13 +1305,10 @@ class _CompleteReportCase:
                         dependency=dependency,
                         candidate_version="0.8",
                         vector=cheap_proposal.managed_vector,
-                        evidence=StaticOnlyEvidence(
-                            attempt=cheap_attempt,
-                            proposal_id=cheap_proposal.proposal_id,
-                            static_evaluation=regional_static(cheap_proposal),
-                            guidance="REJECTED",
-                            region_slice=region_slice,
-                            representative_proposal_id=(rejected_proposal.proposal_id),
+                        evidence=ProbeRejection(
+                            attempt=cheap_attempt, proposal_id=cheap_proposal.proposal_id,
+                            failure_id=cheap_failure.failure_id, cause=cheap_failure.cause,
+                            evaluation=cheap_rejection,
                         ),
                     ),
                     ProbeObservation(
@@ -1503,7 +1320,7 @@ class _CompleteReportCase:
                             proposal_id=rejected_proposal.proposal_id,
                             failure_id=test_failure.failure_id,
                             cause=test_failure.cause,
-                            evaluation=regional_rejection,
+                            evaluation=direct_search_rejection,
                         ),
                     ),
                     ProbeObservation(
@@ -1513,7 +1330,7 @@ class _CompleteReportCase:
                         evidence=ProbePass(
                             attempt=final_attempt,
                             proposal_id=final_proposal.proposal_id,
-                            evaluation=regional_final,
+                            evaluation=direct_search_final,
                         ),
                     ),
                 ),
@@ -1525,25 +1342,24 @@ class _CompleteReportCase:
                         predecessor_failure_id=test_failure.failure_id,
                     ),
                 ),
-                regions=(region,),
                 sweeps=1,
             ),
             final_vector=final_vector,
-            final_evaluation=regional_final,
-            failure_records=(test_failure,),
+            final_evaluation=direct_search_final,
+            failure_records=(cheap_failure, test_failure),
         )
-        regional_report = PackageReportBuilder().build(
+        direct_search_report = PackageReportBuilder().build(
             package=package,
             source_plan=SourcePlan.for_package(package, "SEARCH"),
             source_snapshot=snapshot,
-            cell_results=(regional_result,),
+            cell_results=(direct_search_result,),
         )
-        regional_path = tmp_path / "static-region.json"
+        direct_search_path = tmp_path / "direct-search.json"
 
-        ReportStore().write(regional_path, regional_report)
+        ReportStore().write(direct_search_path, direct_search_report)
 
-        regional_document = json.loads(regional_path.read_text(encoding="utf-8"))
-        regional_loaded = ReportStore().read(regional_path)
+        direct_search_document = json.loads(direct_search_path.read_text(encoding="utf-8"))
+        direct_search_loaded = ReportStore().read(direct_search_path)
 
         non_monotonic = CoordinateFailure(
             status="NON_MONOTONIC",
@@ -1583,13 +1399,14 @@ class _CompleteReportCase:
             counterexample=("0.8", "0.9"),
         )
         search_failure_result = CellSearchFailure(
+
             reason="NON_MONOTONIC",
             cell=cell,
             phase="coordinate-search",
             baseline_attempt=baseline_attempt,
-            static_baseline=result.static_baseline,
+
             baseline=baseline,
-            candidate_snapshots=(region_snapshot,),
+            candidate_snapshots=(search_snapshot,),
             coordinate_failure=non_monotonic,
             failure_records=(failure,),
         )
@@ -1632,16 +1449,11 @@ class _CompleteReportCase:
             indeterminate_loaded=indeterminate_loaded,
             indeterminate_report=indeterminate_report,
             loaded=loaded,
-            missing_document=missing_document,
-            missing_failure=missing_failure,
-            missing_loaded=missing_loaded,
-            missing_report=missing_report,
             package=package,
-            region=region,
-            region_snapshot=region_snapshot,
-            regional_document=regional_document,
-            regional_loaded=regional_loaded,
-            regional_report=regional_report,
+            search_snapshot=search_snapshot,
+            direct_search_document=direct_search_document,
+            direct_search_loaded=direct_search_loaded,
+            direct_search_report=direct_search_report,
             rejected_attempt=rejected_attempt,
             rejected_document=rejected_document,
             rejected_loaded=rejected_loaded,
@@ -1661,6 +1473,28 @@ class _CompleteReportCase:
 
 
 class TestCompleteReportEvidence(_CompleteReportCase):
+    def test_direct_final_pass_can_have_no_static_association(self) -> None:
+        case = self.case
+        result = case.result
+        report = PackageReportBuilder().build(
+            package=case.package, source_plan=SourcePlan.for_package(case.package, "SEARCH"),
+            source_snapshot=case.report.source_snapshot, cell_results=(result,),
+        )
+        restored = report.cell_results[0]
+        assert isinstance(restored, CellSuccess)
+        assert restored.final_evaluation == case.result.final_evaluation
+
+    def test_direct_pass_observations_share_dynamic_terminal_wire(self) -> None:
+        case = self.case
+        reference = case.final_proposal.proposal_id
+        first = next(item for item in case.document["evidence"]["evaluations"] if item["proposal_ref"] == reference)
+        second = next(item for item in case.direct_search_document["evidence"]["evaluations"] if item["proposal_ref"] == reference)
+        assert first == second == {
+            "proposal_ref": reference, "status": "PASS",
+            "terminal": {"kind": "normal-exit", "exit_code": 0},
+        }
+        assert case.report.cell_results[0].final_evaluation == case.direct_search_report.cell_results[0].final_evaluation
+
     def test_build_round_trips_direct_pass_observation(self) -> None:
         case = self.case
 
@@ -1763,29 +1597,21 @@ class TestCompleteReportEvidence(_CompleteReportCase):
             for item in case.test_failed_document["evidence"]["evaluations"]
             if item["proposal_ref"] == case.rejected_proposal.proposal_id
         )
-        static = next(
-            item
-            for item in case.test_failed_document["evidence"]["static_evaluations"]
-            if item["proposal_ref"] == case.rejected_proposal.proposal_id
-        )
         context = case.test_failed_loaded.failure_context(case.test_failure.failure_id)
 
         assert terminal["status"] == "VERIFIER_REJECTED"
         assert terminal["failure_ref"] == case.test_failure.failure_id
         assert "test" not in terminal
-        assert static["status"] == "STATIC_REGRESSION"
-        assert static["classifications"][0]["reason_code"] == (
-            "not-runtime-witnessable"
-        )
         journal = VerificationJournal(
+            static_scopes=(),
             run_id="same-authority",
             command="search",
             source_snapshot_digest=case.test_failure.scope.attempt.identity.source_snapshot_digest,
             package_policies=(
                 VerificationPackagePolicy(
                     package=case.cell.package,
-                    evaluation_policy_identity=(
-                        case.test_failure.scope.attempt.identity.evaluation_policy_identity
+                    execution_policy_identity=(
+                        case.test_failure.scope.attempt.identity.execution_policy_identity
                     ),
                 ),
             ),
@@ -1813,24 +1639,6 @@ class TestCompleteReportEvidence(_CompleteReportCase):
         assert context.proposal_id == case.rejected_proposal.proposal_id
         assert context.boundary_role == "predecessor"
 
-    def test_build_round_trips_runtime_interface_missing_evaluation(
-        self,
-    ) -> None:
-        case = self.case
-
-        terminal = next(
-            item
-            for item in case.missing_document["evidence"]["evaluations"]
-            if item["proposal_ref"] == case.rejected_proposal.proposal_id
-        )
-
-        assert terminal["status"] == "RUNTIME_INTERFACE_MISSING"
-        assert terminal["failure_ref"] == case.missing_failure.failure_id
-        assert terminal["witnesses"][-1]["outcome"] == {
-            "status": "CONFIRMED_MISSING",
-            "failure_ref": case.missing_failure.failure_id,
-        }
-        assert case.missing_loaded == case.missing_report
 
     def test_build_round_trips_indeterminate_evaluation(
         self,
@@ -1862,32 +1670,17 @@ class TestCompleteReportEvidence(_CompleteReportCase):
         )
         assert case.baseline_rejection_loaded == case.baseline_rejection_report
 
-    def test_build_round_trips_static_region_evidence(self) -> None:
+    def test_build_round_trips_direct_search_evidence(self) -> None:
         case = self.case
 
-        search = case.regional_document["cell_results"][0]["search"]
-        wire_region = search["regions"][0]
-        static_only = search["observations"][0]["evidence"]
+        search = case.direct_search_document["cell_results"][0]["search"]
+        direct = search["observations"][0]["evidence"]
 
-        assert wire_region["region_id"] == static_region_id(case.region)
-        assert wire_region["candidate_snapshot_ref"] == case.region_snapshot.digest
-        assert wire_region["runtime_references"] == [
-            {"proposal_ref": reference}
-            for reference in sorted(
-                (
-                    case.rejected_proposal.proposal_id,
-                    case.final_proposal.proposal_id,
-                )
-            )
-        ]
-        assert static_only == {
-            "kind": "STATIC_ONLY",
-            "attempt_ref": case.cheap_attempt.attempt_id,
-            "guidance": "REJECTED",
-            "region_ref": static_region_id(case.region),
-            "representative_proposal_ref": case.rejected_proposal.proposal_id,
-        }
-        assert case.regional_loaded == case.regional_report
+        assert direct["kind"] == "DIRECT"
+        assert direct["status"] == "REJECTED"
+        assert direct["attempt_ref"] == case.cheap_attempt.attempt_id
+        assert direct["failure_ref"] in {item["failure_id"] for item in case.direct_search_document["evidence"]["failures"]}
+        assert case.direct_search_loaded == case.direct_search_report
 
     def test_build_round_trips_non_monotonic_search_failure(
         self,
@@ -1903,14 +1696,14 @@ class TestCompleteReportEvidence(_CompleteReportCase):
 
 class TestValidatedReport(_CompleteReportCase):
     def test_cell_result_returns_none_for_unknown_evidence(self) -> None:
-        assert self.case.regional_loaded.cell_result("cell-" + "f" * 64) is None
+        assert self.case.direct_search_loaded.cell_result("cell-" + "f" * 64) is None
 
     def test_failure_returns_none_for_unknown_evidence(self) -> None:
-        assert self.case.regional_loaded.failure("failure-ffffffffffffffff") is None
+        assert self.case.direct_search_loaded.failure("failure-ffffffffffffffff") is None
 
     def test_failure_context_returns_none_for_unknown_evidence(self) -> None:
         assert (
-            self.case.regional_loaded.failure_context("failure-ffffffffffffffff")
+            self.case.direct_search_loaded.failure_context("failure-ffffffffffffffff")
             is None
         )
 
@@ -2001,13 +1794,13 @@ class TestCompleteReportStore(_CompleteReportCase):
             ReportStore().merge((report, changed))
 
     def test_read_rejects_source_snapshot_identity_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["identity"]["source_snapshot"]["digest"] = "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_an_unknown_cell_declaration(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["inputs"]["target_cells"][0]["active_declaration_refs"] = [
             "missing-declaration"
         ]
@@ -2015,7 +1808,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_cell_identity_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["inputs"]["target_cells"][0]["cell_id"] = "cell-" + "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
@@ -2024,20 +1817,20 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["inputs"]["candidate_snapshots"][0]["cell_ref"] = "cell-" + "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_a_noncanonical_resolution_graph(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         graph = document["evidence"]["resolution_graphs"][0]
         graph["nodes"].append(copy.deepcopy(graph["nodes"][0]))
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_resolution_graph_identity_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["resolution_graphs"][0]["resolution_graph_id"] = (
             "resolution-" + "f" * 64
         )
@@ -2048,14 +1841,14 @@ class TestCompleteReportStore(_CompleteReportCase):
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_an_attempt_for_an_unknown_cell(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["attempts"][0]["cell_ref"] = "cell-" + "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
     @pytest.mark.parametrize("context_digest", ("", "different-opaque-context"))
     def test_read_rejects_attempt_identity_drift(self, tmp_path: Path, context_digest: str) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["attempts"][0]["resolution_context_digest"] = context_digest
 
         self._assert_read_rejects(tmp_path, document)
@@ -2063,13 +1856,13 @@ class TestCompleteReportStore(_CompleteReportCase):
     def test_read_rejects_a_proposal_for_an_unknown_attempt(
         self, tmp_path: Path
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["proposals"][0]["attempt_ref"] = "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_a_proposal_for_an_unknown_graph(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["proposals"][0]["resolution_graph_ref"] = (
             "resolution-" + "f" * 64
         )
@@ -2077,13 +1870,13 @@ class TestCompleteReportStore(_CompleteReportCase):
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_an_invalid_interpreter_version(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["proposals"][0]["interpreter"]["version"] = "invalid"
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_an_unknown_fixed_declaration(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["proposals"][0]["fixed_declaration_refs"] = [
             "missing-declaration"
         ]
@@ -2092,7 +1885,7 @@ class TestCompleteReportStore(_CompleteReportCase):
 
     def test_read_rejects_proposal_vector_drift(self, tmp_path: Path) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         proposal = next(
             item
             for item in document["evidence"]["proposals"]
@@ -2102,54 +1895,52 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_static_evidence_for_an_unknown_proposal(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        document["evidence"]["static_evaluations"][0]["proposal_ref"] = "f" * 64
-        document["evidence"]["static_evaluations"].sort(
-            key=lambda item: item["proposal_ref"]
-        )
 
-        self._assert_read_rejects(tmp_path, document)
-
-    def test_read_rejects_static_evaluation_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        document["evidence"]["static_evaluations"][0]["static_fingerprint"] = "tampered"
-
-        self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_evaluation_for_an_unknown_proposal(
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["evaluations"][0]["proposal_ref"] = "f" * 64
         document["evidence"]["evaluations"].sort(key=lambda item: item["proposal_ref"])
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_a_cross_proposal_static_reference(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        evaluations = document["evidence"]["evaluations"]
-        evaluations[0]["static_evaluation_ref"] = evaluations[1]["proposal_ref"]
-
-        self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_a_failure_for_an_unknown_attempt(
         self, tmp_path: Path
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["failures"][0]["scope"]["attempt_ref"] = "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
+    def test_read_requires_verifier_authority_even_with_recomputed_failure_id(self, tmp_path: Path) -> None:
+        original = self.case.indeterminate_failure
+        replacement = FailureRecord.from_facts(
+            scope=original.scope,
+            disposition="INDETERMINATE",
+            cause="TOOL_FAILURE",
+            stage="candidate-discovery",
+            process=ProcessResult(exit_code=2, duration_seconds=0),
+            project_plan_digest=original.project_plan_digest,
+            environment_plan_digest=original.environment_plan_digest,
+        )
+        document = copy.deepcopy(self.case.indeterminate_document)
+        record = next(item for item in document["evidence"]["failures"] if item["failure_id"] == original.failure_id)
+        record.update(
+            stage=replacement.stage, cause=replacement.cause,
+            authority=replacement.authority.model_dump(mode="json", exclude_none=True),
+        )
+        document = json.loads(json.dumps(document).replace(original.failure_id, replacement.failure_id))
+        path = tmp_path / "non-verifier.json"
+        path.write_text(json.dumps(document))
+        with pytest.raises(ConfigurationError, match="INDETERMINATE requires verifier authority"):
+            ReportStore().read(path)
+
     def test_read_rejects_failure_identity_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["evidence"]["failures"][0]["failure_id"] = "failure-ffffffffffffffff"
 
         self._assert_read_rejects(tmp_path, document)
@@ -2191,7 +1982,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_test_failure_without_its_record(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         failed = next(
             item
             for item in document["evidence"]["evaluations"]
@@ -2216,7 +2007,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         observation = next(
             item
             for item in document["cell_results"][0]["search"]["observations"]
@@ -2231,7 +2022,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         observation = next(
             item
             for item in document["cell_results"][0]["search"]["observations"]
@@ -2245,7 +2036,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         observation = next(
             item
             for item in document["cell_results"][0]["search"]["observations"]
@@ -2260,7 +2051,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         observation = next(
             item
             for item in document["cell_results"][0]["search"]["observations"]
@@ -2295,31 +2086,12 @@ class TestCompleteReportStore(_CompleteReportCase):
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_duplicate_region_runtime_references(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        references = document["cell_results"][0]["search"]["regions"][0][
-            "runtime_references"
-        ]
-        references.append(copy.deepcopy(references[0]))
-
-        self._assert_read_rejects(tmp_path, document)
-
-    def test_read_rejects_static_region_identity_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        document["cell_results"][0]["search"]["regions"][0]["region_id"] = (
-            "region-" + "f" * 64
-        )
-
-        self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_duplicate_cell_failure_references(
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         references = document["cell_results"][0]["failure_refs"]
         references.append(references[0])
 
@@ -2329,7 +2101,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["cell_results"][0]["failure_refs"][0] = "failure-ffffffffffffffff"
 
         self._assert_read_rejects(tmp_path, document)
@@ -2338,7 +2110,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["cell_results"][0]["candidate_snapshot_refs"][0] = "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
@@ -2347,7 +2119,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         references = document["cell_results"][0]["candidate_snapshot_refs"]
         references.append(references[0])
 
@@ -2402,19 +2174,19 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["projections"][0]["declaration_ref"] = "missing-declaration"
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_an_unknown_projection_cell(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["projections"][0]["floors"][0]["cell_ref"] = "cell-" + "f" * 64
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_incomplete_projection_coverage(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["projections"] = []
 
         self._assert_read_rejects(tmp_path, document)
@@ -2423,7 +2195,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["result"] = {
             "status": "incomplete",
             "reasons": ["MISSING_CELL"],
@@ -2491,7 +2263,6 @@ class TestCompleteReportStore(_CompleteReportCase):
             "candidate-snapshots",
             "resolution-graphs",
             "proposals",
-            "static-evaluations",
             "evaluations",
             "failures",
         ),
@@ -2503,7 +2274,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         table: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document[section][table].append(copy.deepcopy(document[section][table][0]))
 
         self._assert_read_rejects(tmp_path, document)
@@ -2518,7 +2289,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         table: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document[table].append(copy.deepcopy(document[table][0]))
 
         self._assert_read_rejects(tmp_path, document)
@@ -2528,13 +2299,13 @@ class TestCompleteReportStore(_CompleteReportCase):
         ("missing-attempt", "proposal-id"),
         ids=("missing", "proposal-instead-of-attempt"),
     )
-    def test_read_rejects_invalid_static_only_attempt_reference(
+    def test_read_rejects_invalid_observation_attempt_reference(
         self,
         tmp_path: Path,
         attempt_ref: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         evidence = document["cell_results"][0]["search"]["observations"][0]["evidence"]
         evidence["attempt_ref"] = (
             case.cheap_proposal.proposal_id
@@ -2546,7 +2317,7 @@ class TestCompleteReportStore(_CompleteReportCase):
 
     def test_read_rejects_unreachable_resolution_graph(self, tmp_path: Path) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         graph = (ResolvedNode(name="orphan", version="1.0"),)
         document["evidence"]["resolution_graphs"].append(
             {
@@ -2565,7 +2336,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["evidence"]["proposals"][0]["project_plan_digest"] = "tampered"
 
         self._assert_read_rejects(tmp_path, document)
@@ -2586,7 +2357,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         value: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["evidence"]["proposals"][0]["interpreter"][field] = value
 
         self._assert_read_rejects(tmp_path, document)
@@ -2601,7 +2372,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         digest_field: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         proposal = next(
             item
             for item in document["evidence"]["proposals"]
@@ -2609,6 +2380,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         )
         proposal[digest_field] = ""
         proposal["proposal_id"] = environment_identity_digest(
+            attempt_id=proposal["attempt_ref"],
             project_plan_digest=proposal["project_plan_digest"],
             environment_plan_digest=proposal["environment_plan_digest"],
             graph=case.cheap_proposal.resolved_graph,
@@ -2620,7 +2392,7 @@ class TestCompleteReportStore(_CompleteReportCase):
     @pytest.mark.parametrize("branch", ["project", "environment"])
     @pytest.mark.parametrize("mutation", ["missing", "inconsistent"])
     def test_read_rejects_invalid_environment_plan_branch(self, tmp_path, branch, mutation):
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         proposal = next(item for item in document["evidence"]["proposals"]
                         if (item["environment_plan_digest"] is None) == (branch == "project"))
         if mutation == "missing":
@@ -2634,7 +2406,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         reference = case.inactive_fixed_declaration.declaration_id
         document["evidence"]["proposals"][0]["fixed_declaration_refs"] = [
             reference,
@@ -2648,7 +2420,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["evidence"]["proposals"][0]["fixed_declaration_refs"] = [
             case.inactive_fixed_declaration.declaration_id
         ]
@@ -2660,7 +2432,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["evidence"]["proposals"][0]["fixed_declaration_refs"] = [
             case.declaration.declaration_id
         ]
@@ -2672,7 +2444,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["inputs"]["candidate_snapshots"][0]["candidates"][0]["version"] = (
             "tampered"
         )
@@ -2683,7 +2455,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["inputs"]["candidate_snapshots"][0].pop(
             "baseline_selection"
         )
@@ -2695,7 +2467,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         snapshot = document["inputs"]["candidate_snapshots"][0]
         old_snapshot_id = snapshot["candidate_snapshot_id"]
         snapshot["baseline_selection"] = {
@@ -2732,7 +2504,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         snapshot = document["inputs"]["candidate_snapshots"][0]
         old_snapshot_id = snapshot["candidate_snapshot_id"]
         snapshot["candidates"][-1]["artifact"]["content_hash"] = (
@@ -2772,7 +2544,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         snapshot = document["inputs"]["candidate_snapshots"][0]
         snapshot["candidates"].reverse()
         snapshot["series_representatives"].reverse()
@@ -2801,39 +2573,17 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["identity"]["report_generation_id"] = "tampered-generation"
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_unowned_region_candidate_snapshot(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        document["cell_results"][0]["search"]["regions"][0][
-            "candidate_snapshot_ref"
-        ] = "missing-candidate"
-
-        self._assert_read_rejects(tmp_path, document)
-
-    def test_read_rejects_nonlocal_region_runtime_reference(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        case = self.case
-        document = copy.deepcopy(case.regional_document)
-        document["cell_results"][0]["search"]["regions"][0]["runtime_references"][0][
-            "proposal_ref"
-        ] = case.cheap_proposal.proposal_id
-
-        self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_missing_predecessor_failure_reference(
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["cell_results"][0]["search"]["boundaries"][0][
             "predecessor_failure_ref"
         ] = "missing-failure"
@@ -2845,7 +2595,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         tmp_path: Path,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["cell_results"][0]["final_proposal_ref"] = (
             case.rejected_proposal.proposal_id
         )
@@ -2853,7 +2603,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_projection_floor_drift(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["projections"][0]["floors"][0]["version"] = "9.9"
 
         self._assert_read_rejects(tmp_path, document)
@@ -2862,34 +2612,27 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["identity"]["unexpected"] = True
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_boolean_search_sweeps(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["cell_results"][0]["search"]["sweeps"] = True
 
         self._assert_read_rejects(tmp_path, document)
 
-    def test_read_rejects_boolean_process_duration(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
-        document["evidence"]["static_evaluations"][0]["ty"]["process"][
-            "duration_seconds"
-        ] = False
-
-        self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_null_optional_wire_field(self, tmp_path: Path) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["cell_results"][0]["search"]["boundaries"][0]["predecessor"] = None
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_unsorted_proposals(self, tmp_path: Path) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["evidence"]["proposals"].reverse()
 
         self._assert_read_rejects(tmp_path, document)
@@ -2910,7 +2653,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         locator: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["inputs"]["candidate_snapshots"][0]["candidates"][0]["artifact"][
             "locator"
         ] = locator
@@ -2919,14 +2662,14 @@ class TestCompleteReportStore(_CompleteReportCase):
 
     def test_read_rejects_non_public_persisted_input(self, tmp_path: Path) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["identity"]["package"]["pyproject_path"] = "/tmp/secret/pyproject.toml"
 
         self._assert_read_rejects(tmp_path, document)
 
     def test_read_rejects_non_public_source_route_locator(self, tmp_path: Path) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         document["inputs"]["source_plan"]["routes"][0]["search_source"]["locator"] = (
             "https://alice:secret@example.com/pkg.whl?token=abc"
         )
@@ -2937,7 +2680,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         self,
         tmp_path: Path,
     ) -> None:
-        document = copy.deepcopy(self.case.regional_document)
+        document = copy.deepcopy(self.case.direct_search_document)
         document["inputs"]["source_plan"]["source_mode"] = "DEVELOPMENT"
         path = tmp_path / "development-report.json"
         path.write_text(json.dumps(document), encoding="utf-8")
@@ -2958,7 +2701,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         surface: str,
     ) -> None:
         case = self.case
-        document = copy.deepcopy(case.regional_document)
+        document = copy.deepcopy(case.direct_search_document)
         secret = "SECRET-PROCESS-OUTPUT\x1b[31m"
         if surface == "structure":
             document["identity"]["package"]["name"] = {"secret": secret}

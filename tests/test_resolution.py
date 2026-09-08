@@ -17,6 +17,7 @@ from pf.resolution import (
     ResolutionContext,
     ResolutionPackage,
     ResolutionPlan,
+    ResolutionPlanEvidence,
     ResolutionRunContext,
     resolution_graph_id,
 )
@@ -68,6 +69,32 @@ def _plan() -> ResolutionPlan:
         native=NativeResolutionPlan.from_content('lock-version = "1.0"\n'),
         process=_process(),
     )
+
+
+class TestResolutionPlanEvidence:
+    def test_saved_preparation_round_trips_without_process_or_native_content(self) -> None:
+        plan = _plan()
+        evidence = ResolutionPlanEvidence.from_plan(plan)
+        restored = ResolutionPlanEvidence.model_validate_json(evidence.model_dump_json())
+        assert restored == evidence
+        assert restored.semantic_digest == plan.semantic_digest
+        assert restored.context == plan.context
+        assert restored.packages == plan.packages
+        assert restored.direct_harness == plan.direct_harness
+
+    @pytest.mark.parametrize("field,value", [
+        ("request_digest", "different-request"),
+        ("kind", "environment"),
+        ("packages", []),
+        ("semantic_digest", "forged"),
+    ])
+    def test_saved_preparation_rejects_changed_preimages(
+        self, field: str, value: object,
+    ) -> None:
+        payload = ResolutionPlanEvidence.from_plan(_plan()).model_dump(mode="json")
+        payload[field] = value
+        with pytest.raises(ValueError, match="semantic digest"):
+            ResolutionPlanEvidence.model_validate(payload)
 
 
 class TestResolutionIdentity:

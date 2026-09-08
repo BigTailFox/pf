@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 from collections.abc import Callable
 import json
 from pathlib import Path
@@ -77,7 +79,9 @@ class EvidenceRunner:
         self._writer = writer
         self._exit_code = exit_code
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         environment = {item.name: item.value for item in spec.environment}
         self._writer(
             Path(environment["PF_PYTEST_OBSERVER_DIR"]),
@@ -128,7 +132,9 @@ class TestPytestObserverArtifactProtocol:
         tmp_path: Path,
     ) -> None:
         class DetailRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
@@ -170,7 +176,9 @@ class TestPytestObserverArtifactProtocol:
         tmp_path: Path,
     ) -> None:
         class NestedDetailRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
@@ -216,7 +224,9 @@ class TestPytestObserverArtifactProtocol:
         tmp_path: Path,
     ) -> None:
         class DuplicateDetailRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
@@ -338,7 +348,9 @@ class TestPytestObserverArtifactProtocol:
         payload_for: Callable[[str], bytes],
     ) -> None:
         class InvalidDetailRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                 _write_summary(
@@ -410,7 +422,9 @@ class TestPytestObserverArtifactProtocol:
             return real_temporary_directory(prefix=prefix)
 
         class SetupFailureRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 assert "PF_PYTEST_OBSERVER_DETAILS_DIR" not in environment
                 nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
@@ -775,7 +789,9 @@ class TestPytestObserverProcessPrecedence:
         status: str,
     ) -> None:
         class IncompleteRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 _write_summary(
                     Path(environment["PF_PYTEST_OBSERVER_DIR"]),

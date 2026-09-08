@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 from collections.abc import Callable
 import json
 from pathlib import Path
@@ -54,9 +56,11 @@ class _CountingRunner:
         self.count = 0
         self._inner = SubprocessRunner()
 
-    def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult | ProcessTerminalUnavailable:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.count += 1
-        return self._inner.run(spec)
+        return self._inner.run(spec, cancellation=cancellation)
 
 
 def _run_counted(
@@ -87,7 +91,9 @@ class _RecordingRunner:
         self.specs: list[ProcessSpec] = []
         self.prune_request: object = None
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.specs.append(spec)
         environment = {item.name: item.value for item in spec.environment}
         nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
@@ -247,8 +253,10 @@ class TestFailedCasePruning:
         exit_code: int,
     ) -> None:
         class ExitRunner(_RecordingRunner):
-            def run(self, spec: ProcessSpec) -> ProcessResult:
-                super().run(spec)
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
+                super().run(spec, cancellation=cancellation)
                 return ProcessResult(exit_code=exit_code, duration_seconds=0.1)
 
         verifier = ConfiguredVerifier(ExitRunner())
@@ -279,7 +287,9 @@ class TestFailedCasePruning:
             def __init__(self) -> None:
                 self.specs: list[ProcessSpec] = []
 
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.specs.append(spec)
                 return ProcessResult(
                     exit_code=143,
@@ -306,10 +316,12 @@ class TestFailedCasePruning:
         tmp_path: Path,
     ) -> None:
         class UnexpectedRunner(_RecordingRunner):
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 environment = {item.name: item.value for item in spec.environment}
                 projection = environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION")
-                result = super().run(spec)
+                result = super().run(spec, cancellation=cancellation)
                 if projection == "collected":
                     nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
                     cases_directory = Path(environment["PF_PYTEST_OBSERVER_CASES_DIR"])
@@ -366,7 +378,9 @@ class TestFailedCasePruning:
         tmp_path: Path,
     ) -> None:
         class GenericRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(exit_code=1, duration_seconds=0.1)
 
         run = ConfiguredVerifier(GenericRunner()).run(
@@ -499,8 +513,10 @@ class TestFailedCasePruning:
         mutate: str,
     ) -> None:
         class MutatingRunner(_RecordingRunner):
-            def run(self, spec: ProcessSpec) -> ProcessResult:
-                result = super().run(spec)
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
+                result = super().run(spec, cancellation=cancellation)
                 environment = {item.name: item.value for item in spec.environment}
                 if (
                     environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION")
@@ -567,8 +583,10 @@ class TestFailedCasePruning:
         tmp_path: Path,
     ) -> None:
         class WorkerRunner(_RecordingRunner):
-            def run(self, spec: ProcessSpec) -> ProcessResult:
-                result = super().run(spec)
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
+                result = super().run(spec, cancellation=cancellation)
                 environment = {item.name: item.value for item in spec.environment}
                 if (
                     environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION")
@@ -635,8 +653,9 @@ class TestFailedCasePruning:
                 self.specs: list[ProcessSpec] = []
 
             def run(
-                self, spec: ProcessSpec
-            ) -> ProcessResult | ProcessTerminalUnavailable:
+                self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult | ProcessTerminalUnavailable:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.specs.append(spec)
                 return factory()
 
@@ -722,11 +741,8 @@ class TestFailedCasePruning:
         assert run.failed_case_additions == ("test_example.py::test_bad",)
 
     def test_portable_schemas_omit_pruning_context(self) -> None:
-        from pf.schemas.evaluation import (
-            FailureRecord,
-            VerificationJournal,
-            VerificationJournalV1,
-        )
+        from pf.schemas.evaluation import (FailureRecord)
+        from pf.schemas.journal import VerificationJournal
         from pf.schemas.report import (
             FailureRecordV1,
             PackageFloorReportV1Wire,
@@ -745,7 +761,6 @@ class TestFailedCasePruning:
             FailureRecord,
             FailureRecordV1,
             VerificationJournal,
-            VerificationJournalV1,
             PackageFloorReportV1Wire,
             ProbeRejection,
         ):
@@ -757,7 +772,9 @@ class _OverlayRunner:
     def __init__(self) -> None:
         self.specs: list[ProcessSpec] = []
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.specs.append(spec)
         environment = {item.name: item.value for item in spec.environment}
         observer_directory = environment.get("PF_PYTEST_OBSERVER_DIR")
@@ -783,7 +800,7 @@ class _OverlayRunner:
 
 class TestPublicOperations:
     def test_smoke_cell_runs_one_original_pytest_with_overlay(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -808,14 +825,13 @@ test-command = ["pytest"]
         runner = _OverlayRunner()
         assembly = evaluation_assembly(highest=())
         runtime = RuntimeEvaluator(
-            static=assembly.static,
             verifier=ConfiguredVerifier(runner),
         )
         result = HighestVersionVerifier(
             environments=assembly.environments,
             static=assembly.static,
             full=runtime,
-        ).verify(
+        ).verify(run_cache=run_cache,
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
@@ -832,7 +848,7 @@ test-command = ["pytest"]
         assert "PF_PYTEST_PRUNE_REQUEST" not in environment
 
     def test_check_runs_one_original_pytest_with_overlay(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -857,14 +873,13 @@ test-command = ["pytest"]
         runner = _OverlayRunner()
         assembly = evaluation_assembly(highest=(), lowest=())
         runtime = RuntimeEvaluator(
-            static=assembly.static,
             verifier=ConfiguredVerifier(runner),
         )
         result = CompatibilityChecker(
             environments=assembly.environments,
             static=assembly.static,
             full=runtime,
-        ).check(
+        ).check(run_cache=run_cache,
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
@@ -892,8 +907,10 @@ class TestPruningCollectionAuthority:
         )
 
         class ArtifactRunner(_CountingRunner):
-            def run(self, spec: ProcessSpec):
-                result = super().run(spec)
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None):
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
+                result = super().run(spec, cancellation=cancellation)
                 env = {item.name: item.value for item in spec.environment}
                 if not summary_valid:
                     for artifact in Path(env["PF_PYTEST_OBSERVER_DIR"]).iterdir():

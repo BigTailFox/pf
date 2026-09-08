@@ -16,6 +16,8 @@ import threading
 import time
 from typing import BinaryIO, Protocol
 
+from pf.cancellation import Cancellation
+
 from pf.schemas.evaluation import (
     EnvironmentVariable,
     ProcessEvent,
@@ -36,7 +38,9 @@ class ProcessOutput:
 
 
 class ProcessRunner(Protocol):
-    def run(self, spec: ProcessSpec) -> ProcessObservation: ...
+    def run(
+        self, spec: ProcessSpec, *, cancellation: Cancellation | None = None
+    ) -> ProcessObservation: ...
 
 
 class ProcessListener(Protocol):
@@ -296,24 +300,29 @@ class SubprocessRunner:
         for process, process_group in processes:
             self._terminate(process, process_group)
 
-    def run(self, spec: ProcessSpec) -> ProcessObservation:
+    def run(
+        self, spec: ProcessSpec, *, cancellation: Cancellation | None = None
+    ) -> ProcessObservation:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         with self._lock:
             if self._interrupted:
                 raise KeyboardInterrupt
         started = time.monotonic()
         process_id = next(self._process_ids)
         redactor = self._redactor.with_secrets(
-            tuple(item.value for item in spec.environment)
+            tuple(item.value for item in spec.environment if item.sensitive)
         )
         argv = tuple(redactor.redact(argument) for argument in spec.argv)
         self._emit(ProcessEvent(process_id=process_id, argv=argv, state="started"))
-        environment = os.environ.copy()
+        environment = os.environ.copy() if spec.environment_mode == "inherited" else {}
         for name in spec.environment_removals:
             environment.pop(name, None)
         environment.update({item.name: item.value for item in spec.environment})
-        size = self._terminal_size()
-        environment["COLUMNS"] = str(size.columns)
-        environment["LINES"] = str(size.lines)
+        if spec.environment_mode == "inherited":
+            size = self._terminal_size()
+            environment["COLUMNS"] = str(size.columns)
+            environment["LINES"] = str(size.lines)
         with (
             tempfile.TemporaryFile() as stdout_file,
             tempfile.TemporaryFile() as stderr_file,
@@ -351,9 +360,18 @@ class SubprocessRunner:
                         duration_seconds=result.duration_seconds,
                     )
                 )
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return result
 
             timed_out = False
+            release_cancellation = (
+                cancellation.register(
+                    lambda: self._terminate(process, spec.start_new_session)
+                )
+                if cancellation is not None
+                else lambda: None
+            )
             try:
                 with self._lock:
                     if self._interrupted:
@@ -374,6 +392,7 @@ class SubprocessRunner:
                     self._terminate(process, spec.start_new_session)
                     raise
             finally:
+                release_cancellation()
                 with self._lock:
                     self._inflight = [
                         item for item in self._inflight if item[0] is not process
@@ -422,6 +441,8 @@ class SubprocessRunner:
             )
             if self._interrupted:
                 raise KeyboardInterrupt
+            if cancellation is not None:
+                cancellation.raise_if_cancelled()
             return unavailable
         exit_code = return_code if return_code >= 0 else None
         process_signal = -return_code if return_code < 0 else None
@@ -446,6 +467,8 @@ class SubprocessRunner:
         )
         if self._interrupted:
             raise KeyboardInterrupt
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         return result
 
     def output(self, result: ProcessResult) -> ProcessOutput:

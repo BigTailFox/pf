@@ -5,6 +5,8 @@ from pathlib import Path
 from runpy import run_path
 from typing import Callable, cast
 
+import pytest
+
 
 _script = run_path("scripts/qualify_uv_workspace_sources.py")
 SCENARIOS = cast(tuple[str, ...], _script["SCENARIOS"])
@@ -30,6 +32,7 @@ class TestUvWorkspaceSourceQualification:
             for item in manifest["scenarios"]
         )
 
+    @pytest.mark.qualification
     def test_runner_replays_unmanaged_workspace_fail_closed_locally(
         self,
         tmp_path: Path,

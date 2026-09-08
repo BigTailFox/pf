@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+
 from io import StringIO
 from pathlib import Path
 import re
@@ -7,11 +9,11 @@ import re
 import pytest
 
 from conftest import empty_harness_baseline
+from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
 from rich.console import Console
 
 from pf.errors import InfrastructureError
-from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
 from pf.schemas.config import SmokeRequest
 from pf.schemas.evaluation import (
@@ -27,15 +29,16 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessObservation,
     ProcessResult,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    TyCheck,
+    ToolFailure,
     VerifierPass,
+    VerifierIndeterminate,
+    VerifierDiagnostics,
+    VerifierRun,
+    TimedOut,
     VerifierRejected,
     VerifierRejectedEvaluation,
-    VerificationJournal,
-    ty_diagnostic_digest,
 )
+from pf.schemas.journal import VerificationJournal
 from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan
 from pf.snapshot import SnapshotBuilder, SourceSnapshot
 from pf.terminal import TerminalPresenter
@@ -66,7 +69,7 @@ def attempt_and_proposal(
     cell: Cell,
     snapshot: SourceSnapshot,
 ) -> tuple[Attempt, Proposal]:
-    policy_identity = evaluation_policy_identity(package.config)
+    policy_identity = execution_policy_identity(package.config)
     attempt = Attempt.from_identity(
         AttemptIdentity(
             source_snapshot_digest=snapshot.identity.digest,
@@ -75,7 +78,7 @@ def attempt_and_proposal(
             requested_managed_vector=None,
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
-            evaluation_policy_identity=policy_identity,
+            execution_policy_identity=policy_identity,
             resolution_context_digest="context",
             harness_policy_identity="original-harness-v1",
         )
@@ -108,10 +111,40 @@ class FailingJournal:
 
 
 class TestSmokeWorkflow:
+    def test_smoke_runs_verifier_when_static_capture_is_unavailable(self, tmp_path: Path) -> None:
+        evaluation_project(tmp_path, dependency=None)
+        assembly = evaluation_assembly(
+            highest=(),
+            ty_handler=lambda vector, call: ToolFailure(
+                cause="TOOL_FAILURE", stage="ty", process=successful_process(exit_code=2)
+            ),
+        )
+        events = Events()
+        result = SmokeCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            verifier=assembly.highest,
+            verification=VerificationRunner(
+                events=events, logs=None, host_target="x86_64-unknown-linux-gnu"
+            ),
+            events=events,
+        ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
+        assert result.status == "PASS"
+        assert len(result.outcomes) == 1
+        outcome = result.outcomes[0]
+        assert isinstance(outcome, HighestVersionPass)
+        assert outcome.evaluation.verifier.terminal == NormalExit(exit_code=0)
+        assert assembly.ty.vectors == [()]
+        assert assembly.verifier.vectors == [()]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+
     def test_smoke_workflow_emits_live_baseline_identity_before_verification(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
         (tmp_path / "pyproject.toml").write_text(
             """
     [project]
@@ -145,40 +178,22 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> HighestVersionOutcome:
                 seen.append(cell)
                 live_frames.append(visible(stderr.getvalue()))
-                process = ProcessResult(
-                    exit_code=0,
-                    signal=None,
-                    duration_seconds=0.1,
-                    stdout="[]",
-                    stderr="",
-                )
                 attempt, proposal = attempt_and_proposal(
                     package=package,
                     cell=cell,
                     snapshot=snapshot,
                 )
-                check = TyCheck(process=process, diagnostics=())
-                baseline = StaticBaseline(
-                    proposal=proposal,
-                    ty=check,
-                    digest=ty_diagnostic_digest(check.diagnostics),
-                )
-                static = StaticUnchangedEvaluation(
-                    proposal=proposal,
-                    ty=check,
-                    baseline_digest=baseline.digest,
-                )
                 return HighestVersionPass(
                     attempt=attempt,
-                    baseline=baseline,
+
                     harness_baseline=empty_harness_baseline(cell),
                     evaluation=PassEvaluation(
                         proposal=proposal,
-                        static=static,
+
                         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
                     ),
                 )
@@ -238,37 +253,16 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> HighestVersionOutcome:
-                process = ProcessResult(
-                    exit_code=1,
-                    signal=None,
-                    duration_seconds=0.1,
-                    stdout="1 failed",
-                    stderr="",
-                )
                 attempt, proposal = attempt_and_proposal(
                     package=package,
                     cell=cell,
                     snapshot=snapshot,
                 )
-                check = TyCheck(
-                    process=process.model_copy(update={"stdout": "[]"}),
-                    diagnostics=(),
-                )
-                baseline = StaticBaseline(
-                    proposal=proposal,
-                    ty=check,
-                    digest=ty_diagnostic_digest(check.diagnostics),
-                )
-                static = StaticUnchangedEvaluation(
-                    proposal=proposal,
-                    ty=check,
-                    baseline_digest=baseline.digest,
-                )
                 evaluation = VerifierRejectedEvaluation(
                     proposal=proposal,
-                    static=static,
+
                     verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
                 )
                 failure = FailureRecord.from_verifier(
@@ -281,7 +275,7 @@ class TestSmokeWorkflow:
                 return BaselineRejection(
                     attempt=attempt,
                     failure=failure,
-                    static_baseline=baseline,
+
                     evaluation=evaluation,
                 )
 
@@ -299,72 +293,28 @@ class TestSmokeWorkflow:
 
         assert result.status == "BASELINE_REJECTION"
 
-    def test_smoke_workflow_preserves_an_indeterminate_tool_failure(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            """
-    [project]
-    name = "demo"
-    version = "0.1.0"
-
-    [dependency-groups]
-    test = []
-
-    [tool.pf]
-    pythons = ["3.10"]
-    platforms = ["x86_64-unknown-linux-gnu"]
-    test-command = ["python", "-c", "pass"]
-    """.strip()
-            + "\n",
-            encoding="utf-8",
-        )
-        process = ProcessResult(
-            exit_code=2,
-            signal=None,
-            duration_seconds=0.1,
-            stdout="",
-            stderr="ty crashed",
-        )
-
-        class Verifier:
-            def verify(
-                self,
-                *,
-                package: PackagePlan,
-                cell: Cell,
-                snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
-            ) -> HighestVersionOutcome:
-                attempt, _ = attempt_and_proposal(
-                    package=package,
-                    cell=cell,
-                    snapshot=snapshot,
-                )
-                failure = FailurePolicy().classify(
-                    scope=AttemptFailureScope(attempt=attempt),
-                    cause="TOOL_FAILURE",
-                    stage="ty",
-                    process=process,
-                )
-                return BaselineIndeterminate(attempt=attempt, failure=failure)
-
-        result = SmokeCommandWorkflow(
-            projects=ProjectLoader(),
-            snapshots=SnapshotBuilder.without_processes(),
-            verifier=Verifier(),
-            verification=VerificationRunner(
-                events=Events(),
-                logs=None,
-                host_target="x86_64-unknown-linux-gnu",
+    def test_smoke_workflow_preserves_verifier_timeout_diagnostics(self, tmp_path: Path) -> None:
+        evaluation_project(tmp_path, dependency=None)
+        process = ProcessResult(exit_code=None, signal=9, timed_out=True, duration_seconds=1.0, stderr="test timed out")
+        assembly = evaluation_assembly(
+            highest=(),
+            verifier_handler=lambda vector, call: VerifierRun(
+                authoritative=VerifierIndeterminate(terminal=TimedOut(), reason="process-timed-out"),
+                diagnostics=VerifierDiagnostics(process=process),
             ),
+        )
+        result = SmokeCommandWorkflow(
+            projects=ProjectLoader(), snapshots=SnapshotBuilder.without_processes(),
+            verifier=assembly.highest,
+            verification=VerificationRunner(events=Events(), logs=None, host_target="x86_64-unknown-linux-gnu"),
             events=Events(),
         ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
-
         assert result.status == "INDETERMINATE"
-        assert isinstance(result.outcomes[0], BaselineIndeterminate)
-        assert result.outcomes[0].failure.process is process
+        outcome = result.outcomes[0]
+        assert isinstance(outcome, BaselineIndeterminate)
+        assert outcome.failure.cause == "TIMEOUT"
+        assert outcome.runtime is not None and outcome.runtime.diagnostics is not None
+        assert outcome.runtime.diagnostics.process is process
 
     def test_smoke_omits_diagnose_when_journal_write_fails(
         self,
@@ -412,37 +362,17 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> HighestVersionOutcome:
                 nonlocal failure_id
-                process = ProcessResult(
-                    exit_code=1,
-                    signal=None,
-                    duration_seconds=0.1,
-                    stdout="1 failed",
-                    stderr="",
-                )
                 attempt, proposal = attempt_and_proposal(
                     package=package,
                     cell=cell,
                     snapshot=snapshot,
                 )
-                check = TyCheck(
-                    process=process.model_copy(update={"stdout": "[]"}),
-                    diagnostics=(),
-                )
-                baseline = StaticBaseline(
-                    proposal=proposal,
-                    ty=check,
-                    digest=ty_diagnostic_digest(check.diagnostics),
-                )
                 evaluation = VerifierRejectedEvaluation(
                     proposal=proposal,
-                    static=StaticUnchangedEvaluation(
-                        proposal=proposal,
-                        ty=check,
-                        baseline_digest=baseline.digest,
-                    ),
+
                     verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
                 )
                 failure = FailureRecord.from_verifier(
@@ -456,7 +386,7 @@ class TestSmokeWorkflow:
                 return BaselineRejection(
                     attempt=attempt,
                     failure=failure,
-                    static_baseline=baseline,
+
                     evaluation=evaluation,
                 )
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 import json
 from pathlib import Path
 import sys
@@ -30,7 +32,9 @@ class _Runner:
         self.result = result
         self.spec: ProcessSpec | None = None
 
-    def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult | ProcessTerminalUnavailable:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.spec = spec
         _write_observer_summary(spec)
         return self.result
@@ -198,7 +202,9 @@ class TestConfiguredVerifierOutcome:
         self, tmp_path, command, process, terminal, reason
     ) -> None:
         class InterruptedRunner(_Runner):
-            def run(self, spec: ProcessSpec):
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None):
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 self.spec = spec
                 return self.result
 
@@ -247,8 +253,9 @@ class TestConfiguredVerifierOutcome:
         class BrokenRunner:
             def run(
                 self,
-                spec: ProcessSpec,
-            ) -> ProcessResult | ProcessTerminalUnavailable:
+                spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult | ProcessTerminalUnavailable:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 raise RuntimeError(f"runner exploded for {spec.argv[0]}")
 
         with pytest.raises(

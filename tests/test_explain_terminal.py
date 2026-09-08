@@ -27,17 +27,12 @@ from pf.schemas.evaluation import (
     PytestFailureCase,
     PytestFailureDetail,
     RuntimeEvaluationRun,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    TyCheck,
-    TyDiagnostic,
     Unattributed,
     Unavailable,
     VerifierDiagnostics,
     VerifierPass,
     VerifierRejected,
     VerifierRejectedEvaluation,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     Cell,
@@ -90,7 +85,7 @@ def _attempt(
             requested_managed_vector=() if resolution == "exact-vector" else None,
             active_declaration_ids=(),
             source_plan_identity="sources",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
             resolution_context_digest="context",
             harness_policy_identity=(
                 "harness-relaxation-v1"
@@ -187,20 +182,9 @@ def _search_failure(
         resolved_graph=(),
         policy_identity="policy",
     )
-    process = _process_result(exit_code=0)
-    ty = TyCheck(process=process, diagnostics=())
-    baseline = StaticBaseline(
-        proposal=proposal,
-        ty=ty,
-        digest=ty_diagnostic_digest(()),
-    )
     evaluation = PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=ty,
-            baseline_digest=baseline.digest,
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
     return CellSearchFailure(
@@ -208,7 +192,7 @@ def _search_failure(
         cell=cell,
         phase="runtime-search",
         baseline_attempt=attempt,
-        static_baseline=baseline,
+
         baseline=evaluation,
     )
 
@@ -335,7 +319,7 @@ class TestExplainCellCards:
                 package=cell.package,
                 cell=cell,
                 source_snapshot_digest="snapshot",
-                evaluation_policy_identity="policy",
+                execution_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
             stage="candidate-discovery",
@@ -622,7 +606,7 @@ class TestExplainCellCards:
         assert '-> foo>=2; python_version < "3.12"' in rendered
         assert '-> foo>=3; python_version >= "3.12"' in rendered
 
-    def test_explain_terminal_cell_hides_static_baseline_evidence(self) -> None:
+    def test_explain_terminal_cell_renders_dynamic_baseline(self) -> None:
         cell = Cell(
             package="demo",
             target="x86_64-unknown-linux-gnu",
@@ -640,30 +624,9 @@ class TestExplainCellCards:
             resolved_graph=(),
             policy_identity="policy",
         )
-        diagnostic = TyDiagnostic(
-            identity="snapshot|demo.py|1|1|existing-error",
-            origin="snapshot",
-            path="demo.py",
-            line=1,
-            column=1,
-            code="existing-error",
-            severity="major",
-            message="existing project error",
-        )
-        ty = TyCheck(process=_process_result(), diagnostics=(diagnostic,))
-        baseline = StaticBaseline(
-            proposal=proposal,
-            ty=ty,
-            digest=ty_diagnostic_digest(ty.diagnostics),
-        )
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=ty,
-            baseline_digest=baseline.digest,
-        )
         baseline_pass = PassEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
         )
         terminal = FailurePolicy().classify(
@@ -671,7 +634,7 @@ class TestExplainCellCards:
                 package=cell.package,
                 cell=cell,
                 source_snapshot_digest="snapshot",
-                evaluation_policy_identity="policy",
+                execution_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
             stage="candidate-discovery",
@@ -683,7 +646,7 @@ class TestExplainCellCards:
             failure_id=terminal.failure_id,
             failure_records=(terminal,),
             baseline_attempt=attempt,
-            static_baseline=baseline,
+
             baseline=baseline_pass,
         )
         stdout = StringIO()
@@ -821,21 +784,10 @@ class TestExplainCellCards:
             resolved_graph=(),
             policy_identity="policy",
         )
-        ty = TyCheck(process=_process_result(exit_code=0), diagnostics=())
-        baseline = StaticBaseline(
-            proposal=proposal,
-            ty=ty,
-            digest=ty_diagnostic_digest(ty.diagnostics),
-        )
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=ty,
-            baseline_digest=baseline.digest,
-        )
         test_process = _process_result()
         evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         runtime = RuntimeEvaluationRun(
@@ -861,7 +813,7 @@ class TestExplainCellCards:
         result = BaselineRejection(
             attempt=attempt,
             failure=failure,
-            static_baseline=baseline,
+
             evaluation=evaluation,
             runtime=runtime,
         )
@@ -981,7 +933,7 @@ class TestExplainCellCards:
                 package=indeterminate_cell.package,
                 cell=indeterminate_cell,
                 source_snapshot_digest="snapshot",
-                evaluation_policy_identity="policy",
+                execution_policy_identity="policy",
             ),
             cause="TOOL_FAILURE",
             stage="candidate-discovery",

@@ -34,11 +34,18 @@ EXAMPLE_PATHS = (
 )
 
 
-def _contains_key(value: object, key: str) -> bool:
+def _contains_schema_keyword(value: object, key: str) -> bool:
     if isinstance(value, dict):
-        return key in value or any(_contains_key(item, key) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_key(item, key) for item in value)
+        if key in value:
+            return True
+        for name, item in value.items():
+            if name in {"$defs", "properties", "patternProperties", "dependentSchemas"} and isinstance(item, dict):
+                if any(_contains_schema_keyword(child, key) for child in item.values()):
+                    return True
+            elif _contains_schema_keyword(item, key):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_schema_keyword(item, key) for item in value)
     return False
 
 
@@ -109,21 +116,27 @@ class TestReportArtifacts:
             for definition in schema["$defs"].values()
             if definition.get("type") == "object"
         )
-        assert not _contains_key(schema, "default")
+        assert not _contains_schema_keyword(schema, "default")
         nullable_fields = {
             (name, field)
             for name, definition in schema["$defs"].items()
             for field, field_schema in definition.get("properties", {}).items()
             if _contains_type(field_schema, "null")
         }
-        assert nullable_fields == {
+        compact_nullable = {(name, field) for name, field in nullable_fields if not name.startswith("Scope_")}
+        assert compact_nullable == {
             ("SearchPolicyBinding", "requested_space"),
             ("CandidateSnapshotV1", "series_inventory_ref"),
             ("ProposalV1", "environment_plan_digest"),
             ("OperationRequestBinding", "project_plan_digest"),
             ("OperationRequestBinding", "environment_plan_digest"),
             ("StructuredOperationFailureAuthority", "terminal"),
+            ("ExecutionPolicy", "verifier_timeout_seconds"),
+            ("ResolutionConfig", "timeout_seconds"),
         }
+        scope_schema = schema["$defs"]["Scope_StaticScopeWire"]
+        assert set(scope_schema["properties"]) == set(scope_schema["required"])
+        assert ("Scope_StaticScopeWire", "highest_uncollected") in nullable_fields
         for name, field in nullable_fields:
             assert field in schema["$defs"][name]["required"]
 

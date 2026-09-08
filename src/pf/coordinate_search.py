@@ -7,6 +7,7 @@ from typing import Literal, NoReturn, Protocol, runtime_checkable
 from packaging.version import Version
 
 from pf.errors import ConfigurationError
+from pf.static_guidance import StaticGuidanceEvaluator, StaticHint, locate_static_hint
 from pf.schemas.evaluation import SearchProbeRequest
 from pf.schemas.project import CandidateSnapshot, VersionPin
 from pf.schemas.report import (
@@ -15,11 +16,10 @@ from pf.schemas.report import (
     CoordinateOutcome,
     CoordinateSuccess,
     ProbeEvidence,
+    ProbePass,
     ProbeIndeterminate,
     ProbeObservation,
     ProbeRejection,
-    StaticOnlyEvidence,
-    StaticRegion,
 )
 
 
@@ -29,26 +29,44 @@ class VectorEvaluator(Protocol):
 
 @runtime_checkable
 class RuntimeBackedVectorEvaluator(Protocol):
-    @property
-    def regions(self) -> tuple[StaticRegion, ...]: ...
 
     def evaluate_in_slice(
-        self,
-        request: SearchProbeRequest,
-    ) -> ProbeEvidence | StaticOnlyEvidence: ...
-
-    def promote(
         self,
         request: SearchProbeRequest,
     ) -> ProbeEvidence: ...
 
 
+@runtime_checkable
+class DirectEvidenceLookup(Protocol):
+    def lookup_direct_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence | None: ...
+
+
+@runtime_checkable
+class DirectEvidenceConsumer(Protocol):
+    def consume_direct_in_slice(self, request: SearchProbeRequest, evidence: ProbeEvidence) -> None: ...
+
+
+@runtime_checkable
+class CoordinateEnvironmentOwner(Protocol):
+    def finish_coordinate(self) -> None: ...
+
+
+@runtime_checkable
+class DirectBoundRecorder(Protocol):
+    def record_direct_bound(
+        self,
+        vector: tuple[VersionPin, ...],
+        *,
+        dependency: str,
+        versions: tuple[str, ...],
+        predecessor: str | None,
+        predecessor_failure_id: str | None,
+    ) -> None: ...
+
+
 @dataclass
 class _SearchStopped(Exception):
     result: CoordinateFailure
-
-
-SearchEvidence = ProbeEvidence | StaticOnlyEvidence
 
 
 CoordinateProgressConsumer = Callable[
@@ -131,12 +149,16 @@ class _CoordinateRun:
                 self._publish_progress(current, completed)
                 current_boundaries: dict[str, CoordinateBoundary] = {}
                 for dependency in sorted(snapshots):
-                    floor, boundary = self._find_floor(
-                        current=current,
-                        snapshot=snapshots[dependency],
-                        hint=hint_by_name.get(dependency),
-                        history=boundaries.get(dependency),
-                    )
+                    try:
+                        floor, boundary = self._find_floor(
+                            current=current,
+                            snapshot=snapshots[dependency],
+                            hint=hint_by_name.get(dependency),
+                            history=boundaries.get(dependency),
+                        )
+                    finally:
+                        if isinstance(self._evaluator, CoordinateEnvironmentOwner):
+                            self._evaluator.finish_coordinate()
                     current_boundaries[dependency] = boundary
                     if Version(floor) < Version(current[dependency]):
                         current[dependency] = floor
@@ -150,7 +172,6 @@ class _CoordinateRun:
                 vector=self._vector(current),
                 observations=tuple(self._observations),
                 boundaries=tuple(boundaries[name] for name in sorted(boundaries)),
-                regions=self._regions(),
                 sweeps=sweeps,
             )
         except _SearchStopped as stopped:
@@ -182,36 +203,67 @@ class _CoordinateRun:
         if not versions:
             self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
         search_current = current
-        if current_version in versions:
+        current_direct = None
+        if isinstance(self._evaluator, DirectEvidenceLookup):
+            # Consume existing direct observations before any early boundary or
+            # static phase. A cached lower PASS/higher rejection is still a
+            # counterexample, even when it was first seen under another axis.
+            passes = []
+            for version in versions:
+                vector = dict(current)
+                vector[dependency] = str(version)
+                request = self._probe_request(self._vector(vector), dependency=dependency, window=versions)
+                existing = self._evaluator.lookup_direct_in_slice(request)
+                if existing is not None:
+                    self._probe(vector, dependency=dependency, window=versions, direct=existing)
+                    if isinstance(existing, ProbePass):
+                        passes.append((version, existing))
+            if passes:
+                current_version, current_direct = min(passes, key=lambda item: item[0])
+                search_current = dict(current)
+                search_current[dependency] = str(current_version)
+                versions = [version for version in versions if version <= current_version]
+        while current_version in versions:
             current_index = versions.index(current_version)
-            current_evidence = self._promote_version(
-                current,
-                dependency,
-                current_version,
-                window=[current_version],
+            current_evidence = self._probe(
+                search_current, dependency=dependency,
+                window=[current_version], direct=current_direct,
             )
             if self._status(current_evidence) != "PASS":
                 self._stop("NONDETERMINISTIC", dependency=dependency)
             if current_index == 0:
-                return str(current_version), CoordinateBoundary(
-                    dependency=dependency,
+                return str(current_version), self._direct_bound(
+                    current=search_current,
+                    snapshot=snapshot,
+                    versions=versions,
                     floor=str(current_version),
                 )
             expected_predecessor = versions[current_index - 1]
-            if (
+            predecessor_vector = dict(search_current)
+            predecessor_vector[dependency] = str(expected_predecessor)
+            predecessor_request = self._probe_request(
+                self._vector(predecessor_vector), dependency=dependency,
+                window=[expected_predecessor, current_version],
+            )
+            cached_predecessor = (
+                self._evaluator.lookup_direct_in_slice(predecessor_request)
+                if isinstance(self._evaluator, DirectEvidenceLookup) else None
+            )
+            if cached_predecessor is not None or (
                 history is not None
                 and history.floor == str(current_version)
                 and history.predecessor == str(expected_predecessor)
             ):
-                predecessor_evidence = self._promote_version(
-                    current,
-                    dependency,
-                    expected_predecessor,
+                predecessor_evidence = self._probe(
+                    predecessor_vector, dependency=dependency,
                     window=[expected_predecessor, current_version],
+                    direct=cached_predecessor, selection_reason="history",
                 )
                 if isinstance(predecessor_evidence, ProbeRejection):
-                    return str(current_version), CoordinateBoundary(
-                        dependency=dependency,
+                    return str(current_version), self._direct_bound(
+                        current=search_current,
+                        snapshot=snapshot,
+                        versions=versions,
                         floor=str(current_version),
                         predecessor=str(expected_predecessor),
                         predecessor_failure_id=predecessor_evidence.failure_id,
@@ -219,8 +271,24 @@ class _CoordinateRun:
                 if self._status(predecessor_evidence) != "PASS":
                     self._stop("NONDETERMINISTIC", dependency=dependency)
                 versions = versions[:current_index]
-                search_current = dict(current)
+                search_current = dict(search_current)
                 search_current[dependency] = str(expected_predecessor)
+                current_version = expected_predecessor
+                current_direct = predecessor_evidence
+            else:
+                break
+
+        static_hint = None
+        static_search_ref = None
+        if (any(version < Version(search_current[dependency]) for version in versions)
+                and isinstance(self._evaluator, StaticGuidanceEvaluator)):
+            static_slice = self._evaluator.open_static_slice(
+                self._vector(search_current), dependency=dependency,
+                versions=tuple(str(version) for version in versions),
+            )
+            if static_slice is not None:
+                static_result = locate_static_hint(static_slice, tuple(str(version) for version in versions))
+                static_hint, static_search_ref = static_result.hint, static_result.search_ref
 
         for _ in range(len(versions) * 2 + 1):
             floor = self._guided_floor(
@@ -228,16 +296,18 @@ class _CoordinateRun:
                 dependency=dependency,
                 versions=versions,
                 hint=hint,
+                static_hint=static_hint, static_search_ref=static_search_ref,
             )
+            static_hint = None
             if floor is None or floor not in versions:
                 self._stop("NO_PASS_IN_SEARCH_SPACE", dependency=dependency)
             index = versions.index(floor)
-            promotion_window = versions[max(0, index - 1) : index + 1]
-            floor_evidence = self._promote_version(
+            boundary_window = versions[max(0, index - 1) : index + 1]
+            floor_evidence = self._probe_version(
                 search_current,
                 dependency,
                 floor,
-                window=promotion_window,
+                window=boundary_window,
             )
             if self._status(floor_evidence) != "PASS":
                 continue
@@ -247,11 +317,11 @@ class _CoordinateRun:
                     floor=str(floor),
                 )
             predecessor = versions[index - 1]
-            evidence = self._promote_version(
+            evidence = self._probe_version(
                 search_current,
                 dependency,
                 predecessor,
-                window=promotion_window,
+                window=boundary_window,
             )
             if isinstance(evidence, ProbeRejection):
                 return str(floor), CoordinateBoundary(
@@ -265,6 +335,31 @@ class _CoordinateRun:
             self._stop("NONDETERMINISTIC", dependency=dependency)
         self._stop("NONDETERMINISTIC", dependency=dependency)
 
+    def _direct_bound(
+        self,
+        *,
+        current: dict[str, str],
+        snapshot: CandidateSnapshot,
+        versions: list[Version],
+        floor: str,
+        predecessor: str | None = None,
+        predecessor_failure_id: str | None = None,
+    ) -> CoordinateBoundary:
+        if isinstance(self._evaluator, DirectBoundRecorder):
+            self._evaluator.record_direct_bound(
+                self._vector(current),
+                dependency=snapshot.dependency,
+                versions=tuple(str(version) for version in versions),
+                predecessor=predecessor,
+                predecessor_failure_id=predecessor_failure_id,
+            )
+        return CoordinateBoundary(
+            dependency=snapshot.dependency,
+            floor=floor,
+            predecessor=predecessor,
+            predecessor_failure_id=predecessor_failure_id,
+        )
+
     def _guided_floor(
         self,
         *,
@@ -272,6 +367,8 @@ class _CoordinateRun:
         dependency: str,
         versions: list[Version],
         hint: str | None,
+        static_hint: StaticHint | None = None,
+        static_search_ref: str | None = None,
     ) -> Version | None:
         current_version = Version(current[dependency])
         probe_hint = versions[0]
@@ -279,11 +376,17 @@ class _CoordinateRun:
             eligible = [version for version in versions if version <= Version(hint)]
             if eligible:
                 probe_hint = eligible[-1]
+        if static_hint is not None and Version(static_hint.suspect.version) in versions:
+            probe_hint = Version(static_hint.suspect.version)
+        else:
+            static_hint = None
         hint_evidence = self._probe_version(
             current,
             dependency,
             probe_hint,
             window=versions,
+            selection_reason="static-suspect" if static_hint is not None else "mechanical",
+            static_search_ref=static_search_ref if static_hint is not None else None,
         )
         if self._status(hint_evidence) == "PASS":
             if probe_hint == versions[0]:
@@ -311,6 +414,21 @@ class _CoordinateRun:
                     high=probe_hint,
                 )
         else:
+            if static_hint is not None and not static_hint.clean_is_anchor:
+                clean = Version(static_hint.clean_neighbor.version)
+                if clean in versions and clean > probe_hint:
+                    clean_evidence = self._probe_version(
+                        current, dependency, clean,
+                        window=[version for version in versions if version >= probe_hint],
+                        selection_reason="static-clean-neighbor", static_search_ref=static_search_ref,
+                    )
+                    if self._status(clean_evidence) == "PASS":
+                        return self._locate(
+                            current=current, dependency=dependency,
+                            points=[version for version in versions if probe_hint <= version <= clean],
+                            low=probe_hint, high=clean,
+                        )
+                    probe_hint = clean
             points = [version for version in versions if version >= probe_hint]
             current_window = (
                 points
@@ -318,7 +436,7 @@ class _CoordinateRun:
                 else [*points, current_version]
             )
             current_evidence = (
-                self._promote_version(
+                self._probe_version(
                     current,
                     dependency,
                     current_version,
@@ -399,10 +517,13 @@ class _CoordinateRun:
         version: Version,
         *,
         window: list[Version],
-    ) -> SearchEvidence:
+        selection_reason: Literal["mechanical", "history", "static-suspect", "static-clean-neighbor"] = "mechanical",
+        static_search_ref: str | None = None,
+    ) -> ProbeEvidence:
         vector = dict(current)
         vector[dependency] = str(version)
-        return self._probe(vector, dependency=dependency, window=window)
+        return self._probe(vector, dependency=dependency, window=window,
+                           selection_reason=selection_reason, static_search_ref=static_search_ref)
 
     def _probe(
         self,
@@ -410,55 +531,34 @@ class _CoordinateRun:
         *,
         dependency: str | None,
         window: list[Version] | None = None,
-    ) -> SearchEvidence:
+        direct: ProbeEvidence | None = None,
+        selection_reason: Literal["mechanical", "history", "static-suspect", "static-clean-neighbor"] = "mechanical",
+        static_search_ref: str | None = None,
+    ) -> ProbeEvidence:
         vector = self._vector(versions)
         key = tuple((pin.name, pin.version) for pin in vector)
-        if dependency is not None and isinstance(
-            self._evaluator, RuntimeBackedVectorEvaluator
-        ):
-            evidence = self._evaluator.evaluate_in_slice(
-                self._probe_request(
-                    vector,
-                    dependency=dependency,
-                    window=window,
+        evidence = direct
+        if evidence is None and dependency is not None and isinstance(self._evaluator, DirectEvidenceLookup):
+            evidence = self._evaluator.lookup_direct_in_slice(
+                self._probe_request(vector, dependency=dependency, window=window),
+            )
+        if evidence is not None and dependency is not None and isinstance(self._evaluator, DirectEvidenceConsumer):
+            self._evaluator.consume_direct_in_slice(
+                self._probe_request(vector, dependency=dependency, window=window).model_copy(update={
+                    "selection_reason": selection_reason, "static_search_ref": static_search_ref,
+                }), evidence,
+            )
+        if evidence is None:
+            if dependency is not None and isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
+                evidence = self._evaluator.evaluate_in_slice(
+                    self._probe_request(vector, dependency=dependency, window=window).model_copy(update={
+                        "selection_reason": selection_reason, "static_search_ref": static_search_ref,
+                    }),
                 )
-            )
-        else:
-            evidence = self._evaluator.evaluate(vector)
-        self._record_observation(
-            versions=versions,
-            dependency=dependency,
-            vector=vector,
-            key=key,
-            evidence=evidence,
-        )
-        self._check_terminal(evidence, dependency=dependency)
-        self._record_runtime_status(
-            evidence,
-            versions=versions,
-            dependency=dependency,
-            key=key,
-        )
-        return evidence
-
-    def _promote_version(
-        self,
-        current: dict[str, str],
-        dependency: str,
-        version: Version,
-        *,
-        window: list[Version],
-    ) -> SearchEvidence:
-        versions = dict(current)
-        versions[dependency] = str(version)
-        vector = self._vector(versions)
-        key = tuple((pin.name, pin.version) for pin in vector)
-        if isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
-            evidence = self._evaluator.promote(
-                self._probe_request(vector, dependency=dependency, window=window)
-            )
-        else:
-            evidence = self._evaluator.evaluate(vector)
+            else:
+                evidence = self._evaluator.evaluate(vector)
+        if not isinstance(evidence, (ProbePass, ProbeRejection, ProbeIndeterminate)):
+            raise TypeError("oracle requires direct probe evidence")
         self._record_observation(
             versions=versions,
             dependency=dependency,
@@ -501,12 +601,9 @@ class _CoordinateRun:
         dependency: str | None,
         vector: tuple[VersionPin, ...],
         key: tuple[tuple[str, str], ...],
-        evidence: ProbeEvidence | StaticOnlyEvidence,
+        evidence: ProbeEvidence,
     ) -> None:
-        evidence_kind = (
-            evidence.kind if isinstance(evidence, StaticOnlyEvidence) else evidence.status
-        )
-        observation_key = (dependency, key, evidence_kind)
+        observation_key = (dependency, key, evidence.status)
         if observation_key not in self._observation_keys:
             self._observation_keys.add(observation_key)
             self._observations.append(
@@ -522,7 +619,7 @@ class _CoordinateRun:
 
     def _check_terminal(
         self,
-        evidence: ProbeEvidence | StaticOnlyEvidence,
+        evidence: ProbeEvidence,
         *,
         dependency: str | None,
     ) -> None:
@@ -535,13 +632,13 @@ class _CoordinateRun:
 
     def _record_runtime_status(
         self,
-        evidence: ProbeEvidence | StaticOnlyEvidence,
+        evidence: ProbeEvidence,
         *,
         versions: dict[str, str],
         dependency: str | None,
         key: tuple[tuple[str, str], ...],
     ) -> None:
-        if dependency is not None and not isinstance(evidence, StaticOnlyEvidence):
+        if dependency is not None:
             slice_key = (
                 dependency,
                 tuple((name, value) for name, value in key if name != dependency),
@@ -561,9 +658,7 @@ class _CoordinateRun:
                         )
 
     @staticmethod
-    def _status(evidence: SearchEvidence) -> Literal["PASS", "REJECTED", "INDETERMINATE"]:
-        if isinstance(evidence, StaticOnlyEvidence):
-            return evidence.guidance
+    def _status(evidence: ProbeEvidence) -> Literal["PASS", "REJECTED", "INDETERMINATE"]:
         return evidence.status
 
     def _stop(
@@ -580,17 +675,12 @@ class _CoordinateRun:
                     "status": status,
                     "dependency": dependency,
                     "observations": tuple(self._observations),
-                    "regions": self._regions(),
                     "counterexample": counterexample,
                     "failure_id": failure_id,
                 }
             )
         )
 
-    def _regions(self) -> tuple[StaticRegion, ...]:
-        if isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
-            return self._evaluator.regions
-        return ()
 
     @staticmethod
     def _vector(versions: dict[str, str]) -> tuple[VersionPin, ...]:

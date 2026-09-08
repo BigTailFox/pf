@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from pf.schemas.static_scope import (
+    InternedStaticComparison,
+    InternedStaticContent,
+    InternedStaticFact,
+    InternedStaticSubject,
+    StaticScopeWire,
+)
+
 import hashlib
 from typing import Annotated, Literal, Union
 
@@ -7,13 +15,13 @@ from packaging.version import Version
 from pydantic import Field, field_validator, model_validator, model_serializer
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
+from pf.schemas.policy import ExecutionPolicy
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
     Evaluation,
-    DiagnosticClassification,
     FailureCause,
     FailureAuthority,
     ConfiguredVerifierFailureAuthority,
@@ -24,19 +32,8 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     NormalExit,
     PassEvaluation,
-    RuntimeInterfaceMissingEvaluation,
     SearchFailureEvent,
-    RuntimeWitnessPlan,
-    RuntimeWitnessResult,
-    ProcessResult,
-    StaticBaseline,
-    StaticEvaluation,
-    StaticRegressionEvaluation,
-    StaticUnchangedEvaluation,
     VerifierRejectedEvaluation,
-    TyCheck,
-    TyDiagnostic,
-    process_facts_match,
     runtime_process_observation,
     failure_process_matches,
 )
@@ -63,10 +60,10 @@ from pf.schemas.project import (
 
 
 def _require_proposal_scope(
-    evaluation: Evaluation | StaticEvaluation,
+    evaluation: Evaluation,
     *,
     cell: Cell,
-    baseline: StaticBaseline,
+    baseline: PassEvaluation,
 ) -> None:
     proposal = evaluation.proposal
     if (
@@ -75,41 +72,17 @@ def _require_proposal_scope(
         or proposal.policy_identity != baseline.proposal.policy_identity
     ):
         raise ValueError(
-            "evaluation must match the cell, snapshot, and policy of its static baseline"
+            "evaluation must match the cell, snapshot, and policy of its highest baseline"
         )
-
-
-def _require_static_evidence(
-    static: StaticEvaluation,
-    *,
-    cell: Cell,
-    baseline: StaticBaseline,
-) -> None:
-    _require_proposal_scope(static, cell=cell, baseline=baseline)
-    if isinstance(static, (StaticUnchangedEvaluation, StaticRegressionEvaluation)) and (
-        static.baseline_digest != baseline.digest
-    ):
-        raise ValueError("static evidence must use the cell frozen static baseline")
 
 
 def _require_evaluation_evidence(
     evaluation: Evaluation,
     *,
     cell: Cell,
-    baseline: StaticBaseline,
+    baseline: PassEvaluation,
 ) -> None:
     _require_proposal_scope(evaluation, cell=cell, baseline=baseline)
-    if isinstance(
-        evaluation,
-        (
-            PassEvaluation,
-            VerifierRejectedEvaluation,
-            RuntimeInterfaceMissingEvaluation,
-        ),
-    ):
-        if evaluation.static.proposal != evaluation.proposal:
-            raise ValueError("evaluation static evidence must match its proposal")
-        _require_static_evidence(evaluation.static, cell=cell, baseline=baseline)
 
 
 def _failure_scope_cell(failure: FailureRecord) -> Cell:
@@ -136,7 +109,7 @@ def _searches_for_cell(
 def _require_search_evidence(
     result: "CellSuccess | CellIndeterminate | CellSearchFailure",
     *,
-    baseline: StaticBaseline,
+    baseline: PassEvaluation,
     baseline_attempt: Attempt,
 ) -> None:
     snapshots = {
@@ -174,24 +147,6 @@ def _require_search_evidence(
                     raise ValueError(
                         "coordinate boundary must use the exact frozen predecessor"
                     )
-        for region in search.regions:
-            region_slice = region.slice
-            snapshot = snapshots.get(region_slice.active_dependency)
-            if (
-                snapshot is None
-                or region_slice.cell != result.cell
-                or region_slice.source_snapshot_digest
-                != baseline.proposal.snapshot_digest
-                or region_slice.policy_identity != baseline.proposal.policy_identity
-                or region_slice.baseline_digest != baseline.digest
-                or region_slice.candidate_order
-                != tuple(candidate.version for candidate in snapshot.candidates)
-                or {pin.name for pin in region_slice.other_coordinates}
-                != set(snapshots) - {region_slice.active_dependency}
-            ):
-                raise ValueError(
-                    "static region Slice must match its frozen cell search context"
-                )
         for observation in search.observations:
             evidence = observation.evidence
             if (
@@ -235,7 +190,6 @@ def _require_search_evidence(
                     raise ValueError(
                         "probe Attempt selected candidate evidence must match its vector"
                     )
-            static = evidence.static_evaluation
             if isinstance(evidence, ProbePass) and not isinstance(
                 evidence.evaluation, PassEvaluation
             ):
@@ -243,17 +197,11 @@ def _require_search_evidence(
             if (
                 isinstance(evidence, ProbeRejection)
                 and evidence.cause
-                in {"RUNTIME_INTERFACE_MISSING", "VERIFIER_EXITED_NONZERO"}
+                in {"VERIFIER_EXITED_NONZERO"}
                 and evidence.evaluation is None
             ):
                 raise ValueError(
                     "reported runtime/test rejection requires structured evaluation"
-                )
-            if static is not None:
-                _require_static_evidence(
-                    static,
-                    cell=result.cell,
-                    baseline=baseline,
                 )
 
 
@@ -271,19 +219,14 @@ def _require_shared_evaluation_context(
         or identity.cell != baseline.cell
         or identity.active_declaration_ids != baseline.active_declaration_ids
         or identity.source_plan_identity != baseline.source_plan_identity
-        or identity.evaluation_policy_identity != baseline.evaluation_policy_identity
+        or identity.execution_policy_identity != baseline.execution_policy_identity
     ):
         raise ValueError("probe Attempt must share the baseline evaluation context")
 
 
 def _require_attempt_proposal(
     attempt: Attempt,
-    evaluation: StaticUnchangedEvaluation
-    | PassEvaluation
-    | StaticRegressionEvaluation
-    | RuntimeInterfaceMissingEvaluation
-    | VerifierRejectedEvaluation
-    | IndeterminateEvaluation,
+    evaluation: Evaluation,
 ) -> None:
     proposal = evaluation.proposal
     identity = attempt.identity
@@ -299,7 +242,7 @@ def _require_attempt_proposal(
     if (
         proposal.snapshot_digest != identity.source_snapshot_digest
         or proposal.cell != identity.cell
-        or proposal.policy_identity != identity.evaluation_policy_identity
+        or proposal.policy_identity != identity.execution_policy_identity
     ):
         raise ValueError("probe Proposal must match its Attempt context")
 
@@ -324,11 +267,6 @@ class ProbePass(FrozenSchema):
         _require_attempt_proposal(self.attempt, self.evaluation)
         return self
 
-    @property
-    def static_evaluation(
-        self,
-    ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation:
-        return self.evaluation.static
 
 
 class ProbeRejection(FrozenSchema):
@@ -338,7 +276,7 @@ class ProbeRejection(FrozenSchema):
     failure_id: str
     cause: FailureCause
     evaluation: (
-        RuntimeInterfaceMissingEvaluation | VerifierRejectedEvaluation | None
+        VerifierRejectedEvaluation | None
     ) = None
 
     @model_validator(mode="after")
@@ -346,7 +284,6 @@ class ProbeRejection(FrozenSchema):
         if self.attempt.identity.requested_resolution != "exact-vector":
             raise ValueError("probe rejection requires an exact-vector Attempt")
         if self.cause in {
-            "RUNTIME_INTERFACE_MISSING",
             "VERIFIER_EXITED_NONZERO",
         } and (
             self.evaluation is None
@@ -360,12 +297,7 @@ class ProbeRejection(FrozenSchema):
             self.cause != "VERIFIER_EXITED_NONZERO"
         ):
             raise ValueError("test probe rejection cause must match its evaluation")
-        if isinstance(self.evaluation, RuntimeInterfaceMissingEvaluation) and (
-            self.cause != "RUNTIME_INTERFACE_MISSING"
-        ):
-            raise ValueError("runtime probe rejection cause must match its evaluation")
         if self.evaluation is not None and self.cause not in {
-            "RUNTIME_INTERFACE_MISSING",
             "VERIFIER_EXITED_NONZERO",
         }:
             raise ValueError("prepare rejection cannot retain evaluation evidence")
@@ -375,15 +307,6 @@ class ProbeRejection(FrozenSchema):
             _require_attempt_proposal(self.attempt, self.evaluation)
         return self
 
-    @property
-    def static_evaluation(
-        self,
-    ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation | None:
-        if isinstance(self.evaluation, VerifierRejectedEvaluation):
-            return self.evaluation.static
-        if isinstance(self.evaluation, RuntimeInterfaceMissingEvaluation):
-            return self.evaluation.static
-        return None
 
 
 class ProbeIndeterminate(FrozenSchema):
@@ -408,249 +331,12 @@ class ProbeIndeterminate(FrozenSchema):
             _require_attempt_proposal(self.attempt, self.evaluation)
         return self
 
-    @property
-    def static_evaluation(
-        self,
-    ) -> StaticUnchangedEvaluation | StaticRegressionEvaluation | None:
-        return self.evaluation.static if self.evaluation is not None else None
 
 
 ProbeEvidence = Annotated[
     Union[ProbePass, ProbeRejection, ProbeIndeterminate],
     Field(discriminator="status"),
 ]
-
-
-class StaticRegionSlice(FrozenSchema):
-    cell: Cell
-    source_snapshot_digest: str
-    policy_identity: str
-    baseline_digest: str
-    active_dependency: str
-    other_coordinates: tuple[VersionPin, ...]
-    candidate_order: tuple[str, ...]
-
-    @model_validator(mode="after")
-    def validate_slice(self) -> "StaticRegionSlice":
-        if not all(
-            (
-                self.source_snapshot_digest,
-                self.policy_identity,
-                self.baseline_digest,
-                self.active_dependency,
-            )
-        ):
-            raise ValueError("static region Slice facts cannot be empty")
-        names = tuple(pin.name for pin in self.other_coordinates)
-        if names != tuple(sorted(set(names))) or self.active_dependency in names:
-            raise ValueError(
-                "static region other coordinates must be sorted and unique"
-            )
-        if not self.candidate_order or len(set(self.candidate_order)) != len(
-            self.candidate_order
-        ):
-            raise ValueError(
-                "static region candidate order must be non-empty and unique"
-            )
-        return self
-
-
-class StaticOnlyEvidence(FrozenSchema):
-    kind: Literal["STATIC_ONLY"] = "STATIC_ONLY"
-    attempt: Attempt
-    proposal_id: str
-    static_evaluation: StaticUnchangedEvaluation | StaticRegressionEvaluation
-    guidance: Literal["PASS", "REJECTED"]
-    region_slice: StaticRegionSlice
-    representative_proposal_id: str
-
-    @model_validator(mode="after")
-    def validate_static_only(self) -> "StaticOnlyEvidence":
-        if self.attempt.identity.requested_resolution != "exact-vector":
-            raise ValueError("static-only evidence requires an exact-vector Attempt")
-        if self.proposal_id != self.static_evaluation.proposal.proposal_id:
-            raise ValueError("static-only evidence must match its Proposal")
-        _require_attempt_proposal(self.attempt, self.static_evaluation)
-        identity = self.attempt.identity
-        if (
-            self.region_slice.cell != identity.cell
-            or self.region_slice.source_snapshot_digest
-            != identity.source_snapshot_digest
-            or self.region_slice.policy_identity != identity.evaluation_policy_identity
-            or self.static_evaluation.baseline_digest
-            != self.region_slice.baseline_digest
-        ):
-            raise ValueError("static-only evidence must stay within its Slice")
-        if not self.representative_proposal_id:
-            raise ValueError("static-only evidence requires a region representative")
-        if self.representative_proposal_id == self.proposal_id:
-            raise ValueError("static-only evidence cannot represent itself")
-        vector = identity.requested_managed_vector
-        assert vector is not None
-        coordinates = {pin.name: pin.version for pin in vector}
-        active_version = coordinates.pop(self.region_slice.active_dependency, None)
-        if (
-            active_version not in self.region_slice.candidate_order
-            or tuple(
-                VersionPin(name=name, version=coordinates[name])
-                for name in sorted(coordinates)
-            )
-            != self.region_slice.other_coordinates
-        ):
-            raise ValueError("static-only evidence vector must match its Slice")
-        return self
-
-
-class StaticRegionRuntimeReference(FrozenSchema):
-    proposal_id: str
-    status: Literal["PASS", "REJECTED", "INDETERMINATE"]
-
-
-class StaticRegion(FrozenSchema):
-    slice: StaticRegionSlice
-    static_fingerprint: str
-    observed_versions: tuple[str, ...]
-    runtime_references: tuple[StaticRegionRuntimeReference, ...]
-
-    @model_validator(mode="after")
-    def validate_region(self) -> "StaticRegion":
-        if not self.static_fingerprint or not self.observed_versions:
-            raise ValueError("static region evidence cannot be empty")
-        try:
-            indexes = tuple(
-                self.slice.candidate_order.index(version)
-                for version in self.observed_versions
-            )
-        except ValueError as error:
-            raise ValueError(
-                "static region version must belong to its Slice"
-            ) from error
-        if indexes != tuple(range(indexes[0], indexes[-1] + 1)):
-            raise ValueError("static region observations must be contiguous")
-        if not self.runtime_references:
-            raise ValueError("static region requires runtime representatives")
-        proposal_ids = tuple(item.proposal_id for item in self.runtime_references)
-        if any(not item for item in proposal_ids) or len(set(proposal_ids)) != len(
-            proposal_ids
-        ):
-            raise ValueError("static region runtime references must be unique")
-        return self
-
-
-def static_region_id(region: StaticRegion) -> str:
-    """Return the Schema 1 identity for one expanded static region."""
-
-    proposal_ids = tuple(
-        sorted(reference.proposal_id for reference in region.runtime_references)
-    )
-    if proposal_ids != tuple(sorted(set(proposal_ids))):
-        raise ValueError("static region runtime Proposal IDs must be unique")
-    payload = {
-        "slice": region.slice.model_dump(mode="json"),
-        "static_fingerprint": region.static_fingerprint,
-        "observed_versions": region.observed_versions,
-        "runtime_proposal_ids": proposal_ids,
-    }
-    digest = hashlib.sha256(
-        b"pf:static-region:v1\0" + canonical_identity_json(payload)
-    ).hexdigest()
-    return f"region-{digest}"
-
-
-def _observation_matches_region(
-    observation: ProbeObservation,
-    region: StaticRegion,
-) -> bool:
-    region_slice = region.slice
-    if (
-        observation.dependency != region_slice.active_dependency
-        or observation.candidate_version not in region.observed_versions
-    ):
-        return False
-    identity = observation.evidence.attempt.identity
-    if (
-        identity.cell != region_slice.cell
-        or identity.source_snapshot_digest != region_slice.source_snapshot_digest
-        or identity.evaluation_policy_identity != region_slice.policy_identity
-    ):
-        return False
-    coordinates = tuple(
-        pin for pin in observation.vector if pin.name != region_slice.active_dependency
-    )
-    if coordinates != region_slice.other_coordinates:
-        return False
-    static = observation.evidence.static_evaluation
-    return (
-        static is not None
-        and static.baseline_digest == region_slice.baseline_digest
-        and static.static_fingerprint == region.static_fingerprint
-    )
-
-
-def _require_region_evidence(
-    observations: tuple[ProbeObservation, ...],
-    regions: tuple[StaticRegion, ...],
-) -> None:
-    region_keys = tuple(
-        (region.slice, region.static_fingerprint, region.observed_versions)
-        for region in regions
-    )
-    if len(set(region_keys)) != len(region_keys):
-        raise ValueError("static regions must be unique")
-    for region in regions:
-        matching = tuple(
-            observation
-            for observation in observations
-            if _observation_matches_region(observation, region)
-        )
-        if any(
-            not any(
-                observation.candidate_version == version for observation in matching
-            )
-            for version in region.observed_versions
-        ):
-            raise ValueError(
-                "static region interval must be backed by its observations"
-            )
-        direct = {
-            (observation.evidence.proposal_id, observation.evidence.status)
-            for observation in matching
-            if not isinstance(observation.evidence, StaticOnlyEvidence)
-            and observation.evidence.proposal_id is not None
-        }
-        references = {
-            (reference.proposal_id, reference.status)
-            for reference in region.runtime_references
-        }
-        if not references <= direct:
-            raise ValueError(
-                "static region representative must reference direct runtime evidence"
-            )
-        for observation in matching:
-            evidence = observation.evidence
-            if isinstance(evidence, StaticOnlyEvidence) and (
-                evidence.region_slice != region.slice
-                or (
-                    evidence.representative_proposal_id,
-                    evidence.guidance,
-                )
-                not in references
-            ):
-                raise ValueError(
-                    "static-only guidance must reference its region runtime evidence"
-                )
-    for observation in observations:
-        evidence = observation.evidence
-        if not isinstance(evidence, StaticOnlyEvidence):
-            continue
-        matches = tuple(
-            region
-            for region in regions
-            if _observation_matches_region(observation, region)
-            and region.slice == evidence.region_slice
-        )
-        if len(matches) != 1:
-            raise ValueError("static-only evidence must belong to exactly one region")
 
 
 def _require_failure_matches_evidence(
@@ -674,35 +360,13 @@ def _require_failure_matches_evidence(
             and authority.terminal == evaluation.verifier.terminal
         ):
             raise ValueError("verifier rejection diagnosis must match its evaluation")
-    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        confirmed = next(
-            attempt.outcome
-            for attempt in evaluation.witnesses
-            if isinstance(attempt.outcome, RuntimeWitnessResult)
-            and attempt.outcome.status == "CONFIRMED_MISSING"
-        )
-        if failure.stage != "witness" or not process_facts_match(
-            failure.process,
-            confirmed.process,
-        ):
-            raise ValueError("runtime rejection diagnosis must match its witness")
     if isinstance(evaluation, IndeterminateEvaluation):
-        if evaluation.verifier is not None:
-            authority = failure.authority
-            matches = (
-                failure.stage == "test"
-                and isinstance(authority, ConfiguredVerifierFailureAuthority)
-                and authority.terminal == evaluation.verifier.terminal
-            )
-        else:
-            assert evaluation.failure is not None
-            matches = (
-                failure.stage == evaluation.failure.stage
-                and process_facts_match(
-                    failure.process,
-                    evaluation.failure.process,
-                )
-            )
+        authority = failure.authority
+        matches = (
+            failure.stage == "test"
+            and isinstance(authority, ConfiguredVerifierFailureAuthority)
+            and authority.terminal == evaluation.verifier.terminal
+        )
         if not matches:
             raise ValueError("indeterminate diagnosis must match its evaluation")
 
@@ -739,7 +403,7 @@ class ProbeObservation(FrozenSchema):
     dependency: str | None
     candidate_version: str | None
     vector: tuple[VersionPin, ...]
-    evidence: ProbeEvidence | StaticOnlyEvidence
+    evidence: ProbeEvidence
 
     @model_validator(mode="after")
     def validate_attempt(self) -> "ProbeObservation":
@@ -787,7 +451,6 @@ class CoordinateSuccess(FrozenSchema):
     vector: tuple[VersionPin, ...]
     observations: tuple[ProbeObservation, ...]
     boundaries: tuple[CoordinateBoundary, ...]
-    regions: tuple[StaticRegion, ...] = ()
     sweeps: int
 
     @model_validator(mode="after")
@@ -830,7 +493,6 @@ class CoordinateSuccess(FrozenSchema):
                 raise ValueError(
                     "coordinate predecessor must reference its rejection observation"
                 )
-        _require_region_evidence(self.observations, self.regions)
         return self
 
 
@@ -843,7 +505,6 @@ class CoordinateFailure(FrozenSchema):
     ]
     dependency: str | None = None
     observations: tuple[ProbeObservation, ...]
-    regions: tuple[StaticRegion, ...] = ()
     counterexample: tuple[str, str] | None = None
     failure_id: str | None = None
 
@@ -904,7 +565,6 @@ class CoordinateFailure(FrozenSchema):
             raise ValueError(
                 "only indeterminate coordinate search can retain a terminal failure"
             )
-        _require_region_evidence(self.observations, self.regions)
         return self
 
 
@@ -918,7 +578,6 @@ class CellSuccess(FrozenSchema):
     status: Literal["SUCCESS"] = "SUCCESS"
     cell: Cell
     baseline_attempt: Attempt
-    static_baseline: StaticBaseline
     baseline: PassEvaluation
     candidate_snapshots: tuple[CandidateSnapshot, ...]
     search: CoordinateSuccess
@@ -931,34 +590,29 @@ class CellSuccess(FrozenSchema):
     observed_upper: None = None
 
     @model_validator(mode="after")
-    def validate_static_baseline(self) -> "CellSuccess":
+    def validate_baseline(self) -> "CellSuccess":
         if self.baseline_attempt.identity.requested_resolution != "highest":
             raise ValueError("cell baseline evidence requires a highest Attempt")
         if self.baseline_attempt.identity.cell != self.cell:
             raise ValueError("cell baseline Attempt must match the result cell")
-        if self.static_baseline.proposal.attempt_id != self.baseline_attempt.attempt_id:
+        if self.baseline.proposal.attempt_id != self.baseline_attempt.attempt_id:
             raise ValueError("cell baseline Proposal must reference its Attempt")
-        if self.static_baseline.proposal.cell != self.cell:
-            raise ValueError("cell static baseline must match the result cell")
-        if self.static_baseline.proposal != self.baseline.proposal:
-            raise ValueError("cell static baseline must identify V_hi")
-        if self.baseline.static.ty != self.static_baseline.ty:
-            raise ValueError("cell baseline evaluation must reuse the captured TyCheck")
-        if self.baseline.static.baseline_digest != self.static_baseline.digest:
-            raise ValueError("cell baseline evaluation must use the captured digest")
+        if self.baseline.proposal.cell != self.cell:
+            raise ValueError("cell baseline must match the result cell")
+
         _require_evaluation_evidence(
             self.baseline,
             cell=self.cell,
-            baseline=self.static_baseline,
+            baseline=self.baseline,
         )
         _require_evaluation_evidence(
             self.final_evaluation,
             cell=self.cell,
-            baseline=self.static_baseline,
+            baseline=self.baseline,
         )
         _require_search_evidence(
             self,
-            baseline=self.static_baseline,
+            baseline=self.baseline,
             baseline_attempt=self.baseline_attempt,
         )
         final_attempts = {
@@ -1102,7 +756,6 @@ class CellIndeterminate(FrozenSchema):
     failure_id: str
     failure_records: tuple[FailureRecord, ...]
     baseline_attempt: Attempt | None = None
-    static_baseline: StaticBaseline | None = None
     baseline: PassEvaluation | None = None
     candidate_snapshots: tuple[CandidateSnapshot, ...] = ()
     coordinate_failure: CoordinateFailure | None = None
@@ -1133,7 +786,6 @@ class CellIndeterminate(FrozenSchema):
         has_search_evidence = any(
             (
                 self.baseline_attempt is not None,
-                self.static_baseline is not None,
                 self.baseline is not None,
                 bool(self.candidate_snapshots),
                 self.coordinate_failure is not None,
@@ -1141,36 +793,30 @@ class CellIndeterminate(FrozenSchema):
         )
         if has_search_evidence and (
             self.baseline_attempt is None
-            or self.static_baseline is None
             or self.baseline is None
         ):
             raise ValueError("cell search evidence requires its complete PASS baseline")
-        if self.static_baseline is not None:
+        if self.baseline is not None:
             assert self.baseline_attempt is not None
             assert self.baseline is not None
             if self.baseline_attempt.identity.requested_resolution != "highest":
                 raise ValueError("cell baseline evidence requires a highest Attempt")
             if (
-                self.static_baseline.proposal.attempt_id
+                self.baseline.proposal.attempt_id
                 != self.baseline_attempt.attempt_id
             ):
                 raise ValueError("cell baseline Proposal must reference its Attempt")
-            if self.static_baseline.proposal.cell != self.cell:
+            if self.baseline.proposal.cell != self.cell:
                 raise ValueError("cell indeterminate baseline must match its cell")
-            if self.static_baseline.proposal != self.baseline.proposal:
-                raise ValueError("cell indeterminate baseline must identify V_hi")
-            if self.baseline.static.ty != self.static_baseline.ty:
-                raise ValueError(
-                    "cell indeterminate baseline must reuse the captured V_hi TyCheck"
-                )
+
             _require_evaluation_evidence(
                 self.baseline,
                 cell=self.cell,
-                baseline=self.static_baseline,
+                baseline=self.baseline,
             )
             _require_search_evidence(
                 self,
-                baseline=self.static_baseline,
+                baseline=self.baseline,
                 baseline_attempt=self.baseline_attempt,
             )
         self._validate_search_failure_references(failures)
@@ -1202,7 +848,6 @@ class CellSearchFailure(FrozenSchema):
     cell: Cell
     phase: str
     baseline_attempt: Attempt
-    static_baseline: StaticBaseline
     baseline: PassEvaluation
     candidate_snapshots: tuple[CandidateSnapshot, ...] = ()
     coordinate_failure: CoordinateFailure | None = None
@@ -1221,26 +866,25 @@ class CellSearchFailure(FrozenSchema):
         ):
             raise ValueError("cell FailureRecord scope must match its result cell")
         _validate_failure_runtime_runs(self.cell, failures, self.failure_runtime_runs)
-        if self.static_baseline.proposal != self.baseline.proposal:
-            raise ValueError("search failure baseline must identify V_hi")
         if self.baseline_attempt.identity.requested_resolution != "highest":
             raise ValueError("cell baseline evidence requires a highest Attempt")
         if self.baseline_attempt.identity.cell != self.cell:
             raise ValueError("cell baseline Attempt must match the result cell")
-        if self.static_baseline.proposal.attempt_id != self.baseline_attempt.attempt_id:
+        if self.baseline.proposal.attempt_id != self.baseline_attempt.attempt_id:
             raise ValueError("cell baseline Proposal must reference its Attempt")
         if self.coordinate_failure is not None and (
             self.coordinate_failure.status != self.reason
         ):
             raise ValueError("search failure reason must match coordinate outcome")
+
         _require_evaluation_evidence(
             self.baseline,
             cell=self.cell,
-            baseline=self.static_baseline,
+            baseline=self.baseline,
         )
         _require_search_evidence(
             self,
-            baseline=self.static_baseline,
+            baseline=self.baseline,
             baseline_attempt=self.baseline_attempt,
         )
         for search in _searches_for_cell(self):
@@ -1333,8 +977,11 @@ class ReportIdentityV1(FrozenSchema):
     package: PackageIdentity
     source_snapshot: SourceSnapshotIdentity
     policy_identity: str
+    guidance_policy_identity: str
+    search_derivation_identity: str
+    execution_policy: ExecutionPolicy
     verifier_outcome_policy: Literal["configured-verifier-terminal-v1"]
-    failure_policy: Literal["failure-execution-v3"]
+    failure_policy: Literal["failure-execution-v4"]
 
 
 class TargetCellV1(FrozenSchema):
@@ -1462,81 +1109,21 @@ class ProposalV1(FrozenSchema):
         return result
 
 
-class StaticUnchangedEvaluationV1(FrozenSchema):
-    proposal_ref: str
-    status: Literal["STATIC_UNCHANGED"]
-    ty: TyCheck
-    baseline_digest: str
-    incremental: tuple[()]
-    static_fingerprint: str
-
-
-class StaticRegressionEvaluationV1(FrozenSchema):
-    proposal_ref: str
-    status: Literal["STATIC_REGRESSION"]
-    ty: TyCheck
-    baseline_digest: str
-    incremental: tuple[TyDiagnostic, ...]
-    static_fingerprint: str
-    classifications: tuple[DiagnosticClassification, ...]
-
-
-StaticEvaluationV1 = Annotated[
-    Union[StaticUnchangedEvaluationV1, StaticRegressionEvaluationV1],
-    Field(discriminator="status"),
-]
-
-
-class RuntimeWitnessPositiveV1(FrozenSchema):
-    status: Literal["PRESENT", "NOT_APPLICABLE"]
-    process: ProcessResult
-
-
-class RuntimeWitnessTerminalV1(FrozenSchema):
-    status: Literal["CONFIRMED_MISSING", "FAILURE"]
-    failure_ref: str
-
-
-RuntimeWitnessOutcomeV1 = Annotated[
-    Union[RuntimeWitnessPositiveV1, RuntimeWitnessTerminalV1],
-    Field(discriminator="status"),
-]
-
-
-class RuntimeWitnessAttemptV1(FrozenSchema):
-    plan: RuntimeWitnessPlan
-    outcome: RuntimeWitnessOutcomeV1
-
-
 class PassEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["PASS"]
-    static_evaluation_ref: str
-    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
     terminal: NormalExit
 
 
 class VerifierRejectedEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["VERIFIER_REJECTED"]
-    static_evaluation_ref: str
-    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
-    failure_ref: str
-
-
-class RuntimeInterfaceMissingEvaluationV1(FrozenSchema):
-    proposal_ref: str
-    status: Literal["RUNTIME_INTERFACE_MISSING"]
-    static_evaluation_ref: str
-    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
     failure_ref: str
 
 
 class IndeterminateEvaluationV1(FrozenSchema):
     proposal_ref: str
     status: Literal["INDETERMINATE"]
-    static_evaluation_ref: str | None = None
-    witnesses: tuple[RuntimeWitnessAttemptV1, ...]
     failure_ref: str
 
 
@@ -1544,7 +1131,6 @@ TerminalEvaluationV1 = Annotated[
     Union[
         PassEvaluationV1,
         VerifierRejectedEvaluationV1,
-        RuntimeInterfaceMissingEvaluationV1,
         IndeterminateEvaluationV1,
     ],
     Field(discriminator="status"),
@@ -1552,18 +1138,40 @@ TerminalEvaluationV1 = Annotated[
 
 
 class ReportEvidenceV1(FrozenSchema):
+    static_contents: tuple[InternedStaticContent, ...] = ()
+    static_subjects: tuple[InternedStaticSubject, ...] = ()
+    static_facts: tuple[InternedStaticFact, ...] = ()
+    static_comparisons: tuple[InternedStaticComparison, ...] = ()
+    static_scopes: tuple[StaticScopeWire, ...]
     resolution_graphs: tuple[ResolutionGraphV1, ...]
     attempts: tuple[AttemptV1, ...]
     proposals: tuple[ProposalV1, ...]
-    static_evaluations: tuple[StaticEvaluationV1, ...]
     evaluations: tuple[TerminalEvaluationV1, ...]
     failures: tuple[FailureRecordV1, ...]
+
+    @model_validator(mode="after")
+    def validate_interned_static_audit(self) -> ReportEvidenceV1:
+        from pf.schemas.static_scope import resolve_static_scopes
+        resolve_static_scopes(
+            self.static_facts, self.static_comparisons, self.static_scopes,
+            contents=self.static_contents, subjects=self.static_subjects,
+        )
+        return self
+
+    @model_serializer(mode="wrap")
+    def preserve_static_scope_facts(self, handler):
+        result = handler(self)
+        result["static_contents"] = [item.model_dump(mode="json") for item in self.static_contents]
+        result["static_subjects"] = [item.model_dump(mode="json") for item in self.static_subjects]
+        result["static_facts"] = [item.model_dump(mode="json") for item in self.static_facts]
+        result["static_comparisons"] = [item.model_dump(mode="json") for item in self.static_comparisons]
+        result["static_scopes"] = [scope.model_dump(mode="json") for scope in self.static_scopes]
+        return result
 
 
 class BaselineRefsV1(FrozenSchema):
     attempt_ref: str
     proposal_ref: str
-    static_baseline_digest: str
 
 
 class DirectPassV1(FrozenSchema):
@@ -1586,30 +1194,16 @@ class DirectIndeterminateV1(FrozenSchema):
     failure_ref: str
 
 
-class StaticOnlyEvidenceV1(FrozenSchema):
-    kind: Literal["STATIC_ONLY"]
-    attempt_ref: str
-    guidance: Literal["PASS", "REJECTED"]
-    region_ref: str
-    representative_proposal_ref: str
-
-
 DirectEvidenceV1 = Annotated[
     Union[DirectPassV1, DirectRejectionV1, DirectIndeterminateV1],
     Field(discriminator="status"),
 ]
 
 
-ObservationEvidenceV1 = Annotated[
-    Union[DirectEvidenceV1, StaticOnlyEvidenceV1],
-    Field(discriminator="kind"),
-]
-
-
 class ProbeObservationV1(FrozenSchema):
     dependency: str | None = None
     candidate_version: str | None = None
-    evidence: ObservationEvidenceV1
+    evidence: DirectEvidenceV1
 
 
 class CoordinateBoundaryV1(FrozenSchema):
@@ -1619,25 +1213,10 @@ class CoordinateBoundaryV1(FrozenSchema):
     predecessor_failure_ref: str | None = None
 
 
-class StaticRegionRuntimeReferenceV1(FrozenSchema):
-    proposal_ref: str
-
-
-class StaticRegionV1(FrozenSchema):
-    region_id: str
-    candidate_snapshot_ref: str
-    baseline_digest: str
-    other_coordinates: tuple[VersionPin, ...]
-    static_fingerprint: str
-    observed_versions: tuple[str, ...]
-    runtime_references: tuple[StaticRegionRuntimeReferenceV1, ...]
-
-
 class CoordinateSuccessV1(FrozenSchema):
     status: Literal["SUCCESS"]
     observations: tuple[ProbeObservationV1, ...]
     boundaries: tuple[CoordinateBoundaryV1, ...]
-    regions: tuple[StaticRegionV1, ...]
     sweeps: int
 
 
@@ -1650,7 +1229,6 @@ class CoordinateFailureV1(FrozenSchema):
     ]
     dependency: str | None = None
     observations: tuple[ProbeObservationV1, ...]
-    regions: tuple[StaticRegionV1, ...]
     counterexample: tuple[str, str] | None = None
     failure_ref: str | None = None
 
@@ -1672,7 +1250,6 @@ class BaselineRejectionV1(FrozenSchema):
     attempt_ref: str
     failure_refs: tuple[str, ...]
     proposal_ref: str | None = None
-    static_baseline_digest: str | None = None
 
 
 class BaselineIndeterminateV1(FrozenSchema):
@@ -1681,7 +1258,6 @@ class BaselineIndeterminateV1(FrozenSchema):
     attempt_ref: str
     failure_refs: tuple[str, ...]
     proposal_ref: str | None = None
-    static_baseline_digest: str | None = None
 
 
 class CellSuccessV1(FrozenSchema):
@@ -1787,6 +1363,9 @@ def report_generation_id(
     package: PackageIdentity,
     source_snapshot: SourceSnapshotIdentity,
     policy_identity: str,
+    execution_policy_identity: str,
+    guidance_policy_identity: str,
+    search_derivation_identity: str,
     verifier_outcome_policy: Literal["configured-verifier-terminal-v1"],
     source_plan: SourcePlan,
     requirement_declarations: tuple[RequirementDeclaration, ...],
@@ -1805,8 +1384,11 @@ def report_generation_id(
         "package": package.model_dump(mode="json"),
         "source_snapshot": source_snapshot.model_dump(mode="json"),
         "policy_identity": policy_identity,
+        "execution_policy_identity": execution_policy_identity,
+        "guidance_policy_identity": guidance_policy_identity,
+        "search_derivation_identity": search_derivation_identity,
         "verifier_outcome_policy": verifier_outcome_policy,
-        "failure_policy": "failure-execution-v3",
+        "failure_policy": "failure-execution-v4",
         "source_plan": source_plan.model_dump(mode="json"),
         "requirement_declarations": [
             declaration.model_dump(mode="json") for declaration in declarations

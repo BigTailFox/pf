@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from pf.cancellation import Cancellation
+from pf.static_request import StaticTyRequest
 from pf.baseline import HighestVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateSearch
@@ -17,6 +19,7 @@ from pf.environment import (
     LowestDirectResolution,
     ResolutionRequest,
 )
+from scripted_static import ScriptedStaticRequests
 from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.resolution import (
     InstallFailure,
@@ -35,9 +38,6 @@ from pf.schemas.evaluation import (
     InterpreterSuccess,
     NormalExit,
     ProcessResult,
-    RuntimeWitnessOutcome,
-    RuntimeWitnessPlan,
-    RuntimeWitnessResult,
     StageProgress,
     ToolFailure,
     OperationFailureResult,
@@ -389,7 +389,6 @@ class ScriptedUv:
 
 TyHandler = Callable[[tuple[VersionPin, ...], int], TyCheck | ToolFailure]
 VerifierHandler = Callable[[tuple[VersionPin, ...], int], VerifierRun]
-WitnessHandler = Callable[[tuple[VersionPin, ...], RuntimeWitnessPlan, int], RuntimeWitnessOutcome]
 
 
 class ScriptedTy:
@@ -403,10 +402,16 @@ class ScriptedTy:
         )
         self.vectors: list[tuple[VersionPin, ...]] = []
 
-    def check(self, **kwargs: object) -> TyCheck | ToolFailure:
-        vector = self._uv.vector_for_interpreter(cast(Path, kwargs["interpreter"]))
+    def observe(self, request: StaticTyRequest, *, cancellation: Cancellation | None = None) -> TyCheck | ToolFailure:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
+        vector = request.preparation.proposal.managed_vector
         self.vectors.append(vector)
-        return self._handler(vector, len(self.vectors))
+        outcome = self._handler(vector, len(self.vectors))
+        if isinstance(outcome, TyCheck):
+            return outcome.model_copy(update={"diagnostics": tuple(sorted(outcome.diagnostics,
+                                      key=lambda item: (item.identity, item.severity, item.message)))})
+        return outcome
 
 
 class ScriptedVerifier:
@@ -436,28 +441,6 @@ class ScriptedVerifier:
         return self._handler(vector, len(self.vectors))
 
 
-class ScriptedWitnesses:
-    def __init__(
-        self,
-        uv: ScriptedUv,
-        handler: WitnessHandler | None = None,
-    ) -> None:
-        self._uv = uv
-        self._handler = handler or (
-            lambda vector, plan, call: RuntimeWitnessResult(
-                status="NOT_APPLICABLE",
-                plan=plan,
-                process=successful_process(),
-            )
-        )
-        self.calls: list[tuple[tuple[VersionPin, ...], RuntimeWitnessPlan]] = []
-
-    def run(self, **kwargs: object) -> RuntimeWitnessOutcome:
-        plan = cast(RuntimeWitnessPlan, kwargs["plan"])
-        interpreter = cast(Path, kwargs["interpreter"])
-        vector = self._uv.vector_for_interpreter(interpreter)
-        self.calls.append((vector, plan))
-        return self._handler(vector, plan, len(self.calls))
 
 
 class ScriptedCandidates:
@@ -509,7 +492,6 @@ class EvaluationAssembly:
     uv: ScriptedUv
     ty: ScriptedTy
     verifier: ScriptedVerifier
-    witnesses: ScriptedWitnesses
     candidates: ScriptedCandidates
     environments: EnvironmentFactory
     static: StaticEvaluator
@@ -530,8 +512,8 @@ def evaluation_assembly(
     candidate_error: Exception | None = None,
     candidate_versions_by_dependency: dict[str, tuple[str, ...]] | None = None,
     ty_handler: TyHandler | None = None,
+    static_requests=None,
     verifier_handler: VerifierHandler | None = None,
-    witness_handler: WitnessHandler | None = None,
     install_failure: OperationFailureResult | None = None,
     diagnostics: SearchDiagnosticConsumer | None = None,
     events: SearchActivityConsumer | None = None,
@@ -543,7 +525,6 @@ def evaluation_assembly(
     )
     ty = ScriptedTy(uv, ty_handler)
     verifier = ScriptedVerifier(uv, verifier_handler)
-    witnesses = ScriptedWitnesses(uv, witness_handler)
     candidates = ScriptedCandidates(
         candidate_versions,
         candidate_error,
@@ -551,11 +532,9 @@ def evaluation_assembly(
         candidate_versions_by_dependency,
     )
     environments = EnvironmentFactory(uv, events=events)
-    static = StaticEvaluator(ty, events=events)
+    static = StaticEvaluator(ty, requests=static_requests or ScriptedStaticRequests(), events=events)
     runtime = RuntimeEvaluator(
-        static=static,
         verifier=verifier,
-        witnesses=witnesses,
         events=events,
     )
     highest_verifier = HighestVersionVerifier(
@@ -579,7 +558,6 @@ def evaluation_assembly(
         uv=uv,
         ty=ty,
         verifier=verifier,
-        witnesses=witnesses,
         candidates=candidates,
         environments=environments,
         static=static,

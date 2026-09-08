@@ -2,7 +2,7 @@
 
 - **状态：** 现行（长期 owner；从 D001 §4 迁移现有规则，无产品语义变更）
 - **策略 profile：** `registry-series-slice-v1`
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **产品与配置层级：** [D001](D001-pf.md)
 - **模块 interface：** [D002](D002-pf-implementation.md)
 - **算法消费：** [D003](D003-pf-search-algorithm.md)
@@ -12,7 +12,8 @@
 
 本文独占候选观测/准入、系列 DSL、anchor、条件默认、采样与 baseline artifact 选择域。
 D001 继续拥有 managed/fixed 声明资格、Cell、root/member 通用配置合并、CLI override、统一 artifact
-policy 与数值退出码；D003 拥有搜索顺序/边界，D014 拥有 identity/wire/reader。本文件不新增配置、
+policy 与数值退出码；D003 拥有搜索顺序/边界，D014 拥有 identity/wire/reader。SearchPolicy 消费
+本文的完整有效候选策略；精确安装选择与搜索 provenance 分开绑定。本文件不新增配置、
 Schema 或运行行为，也不作为临时迁移 Design 归档。
 
 ## 1. 候选观测与准入

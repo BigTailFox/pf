@@ -12,6 +12,55 @@ from pf.project import ProjectLoader
 from pf.report import ReportStore
 
 
+def _verify_project_only_cli(tmp_path, *, group, command):
+    (tmp_path / "src" / "demo").mkdir(parents=True)
+    (tmp_path / "src" / "demo" / "__init__.py").write_text("VALUE = 1\n")
+    (tmp_path / "pyproject.toml").write_text(f"""
+[project]
+name = "demo"
+version = "1"
+dependencies = ["idna>=3.10,<=3.10; platform_system == '{platform.system()}'"]
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+{group}[tool.pf]
+pythons = ["3.10"]
+search-space = "minors[declaration]"
+test-command = ["python", "-c", "import demo, idna; assert demo.VALUE == 1; assert idna.__version__ == '3.10'"]
+""")
+    package = ProjectLoader().load(root=tmp_path).target
+    assert package.declarations[0].managed
+    assert package.cells[0].active_declaration_ids == (
+        package.declarations[0].declaration_id,
+    )
+    before = set(tmp_path.glob(".pf/logs/*/process-*.log"))
+    result = subprocess.run(
+        [sys.executable, "-m", "pf", command],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (command, result.stdout, result.stderr)
+    logs = set(tmp_path.glob(".pf/logs/*/process-*.log")) - before
+    contents = [log.read_text() for log in logs]
+    assert any("import demo, idna" in content for content in contents)
+    if command in {"search", "minimize"}:
+        report = ReportStore().read(tmp_path / "package-floor.json")
+        assert report.result.status == "complete"
+        wire = json.loads((tmp_path / "package-floor.json").read_text())
+        assert wire["evidence"]["proposals"]
+        assert all(
+            item["environment_plan_digest"] is None
+            for item in wire["evidence"]["proposals"]
+        )
+        assert report.projection_evidence[0].floors[0].version == "3.10"
+        assert (
+            "platform_system"
+            in report.projection_evidence[0].projected_requirements[0]
+        )
+
+
 class TestInstalledCli:
     def test_missing_group_and_missing_verifier_record_actual_start_failure(
         self, tmp_path
@@ -46,59 +95,23 @@ test-command = ["pf-d035-unavailable-verifier"]
         assert failure["stage"] == "test"
         assert failure["authority"]["terminal"]["kind"] == "start-failed"
 
-    @pytest.mark.parametrize("command", ["smoke", "check", "search", "minimize"])
     @pytest.mark.parametrize(
         "group",
         ["", "[dependency-groups]\ntest = []\n"],
         ids=["missing-group", "empty-group"],
     )
-    def test_cli_verifies_project_only_environment(self, tmp_path, group, command):
-        (tmp_path / "src" / "demo").mkdir(parents=True)
-        (tmp_path / "src" / "demo" / "__init__.py").write_text("VALUE = 1\n")
-        (tmp_path / "pyproject.toml").write_text(f"""
-[project]
-name = "demo"
-version = "1"
-dependencies = ["idna>=3.10,<=3.10; platform_system == '{platform.system()}'"]
-[build-system]
-requires = ["uv_build>=0.8.22,<0.9.0"]
-build-backend = "uv_build"
-{group}[tool.pf]
-pythons = ["3.10"]
-search-space = "minors[declaration]"
-test-command = ["python", "-c", "import demo, idna; assert demo.VALUE == 1; assert idna.__version__ == '3.10'"]
-""")
-        package = ProjectLoader().load(root=tmp_path).target
-        assert package.declarations[0].managed
-        assert package.cells[0].active_declaration_ids == (
-            package.declarations[0].declaration_id,
-        )
-        before = set(tmp_path.glob(".pf/logs/*/process-*.log"))
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", command],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        assert result.returncode == 0, (command, result.stdout, result.stderr)
-        logs = set(tmp_path.glob(".pf/logs/*/process-*.log")) - before
-        contents = [log.read_text() for log in logs]
-        assert any("import demo, idna" in content for content in contents)
-        if command in {"search", "minimize"}:
-            report = ReportStore().read(tmp_path / "package-floor.json")
-            assert report.result.status == "complete"
-            wire = json.loads((tmp_path / "package-floor.json").read_text())
-            assert wire["evidence"]["proposals"]
-            assert all(
-                item["environment_plan_digest"] is None
-                for item in wire["evidence"]["proposals"]
-            )
-            assert report.projection_evidence[0].floors[0].version == "3.10"
-            assert (
-                "platform_system"
-                in report.projection_evidence[0].projected_requirements[0]
-            )
+    def test_cli_verifies_project_only_environment(self, tmp_path, group):
+        _verify_project_only_cli(tmp_path, group=group, command="search")
+
+    @pytest.mark.qualification
+    @pytest.mark.parametrize("command", ["smoke", "check", "minimize"])
+    @pytest.mark.parametrize(
+        "group",
+        ["", "[dependency-groups]\ntest = []\n"],
+        ids=["missing-group", "empty-group"],
+    )
+    def test_other_commands_verify_project_only_environment(self, tmp_path, group, command):
+        _verify_project_only_cli(tmp_path, group=group, command=command)
 
     def test_installed_module_cli_completes_report_lifecycle(
         self,

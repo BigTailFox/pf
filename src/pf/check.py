@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+from pf.schemas.policy import GuidancePolicy
+from pf.schemas.static import StaticContentUnavailable
+from pf.schemas.static_baseline import StaticUncollectedBaseline
+
 from typing import Literal
 
 from pf.environment import EnvironmentFactory, HighestResolution, LowestDirectResolution
@@ -12,11 +17,9 @@ from pf.schemas.evaluation import (
     CheckCellOutcome,
     DeclarationDetailIdentity,
     Evaluation,
-    IndeterminateEvaluation,
     PassEvaluation,
     PrepareFailure,
     RuntimeEvaluationRun,
-    StaticBaseline,
 )
 from pf.schemas.project import Cell, PackagePlan, SourcePlan
 from pf.snapshot import SourceSnapshot
@@ -48,6 +51,7 @@ class CompatibilityChecker:
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
+        run_cache: TyCheckCache,
     ) -> CheckCellOutcome:
         highest = self._environments.prepare(
             package=package,
@@ -59,18 +63,16 @@ class CompatibilityChecker:
         if isinstance(highest, PrepareFailure):
             return self._prepare_outcome(highest, role="declaration-capture")
         try:
-            capture = self._static.capture(highest, package=package)
+            capture = self._static.collect_prepared(highest, package=package, run_cache=run_cache)
+            if isinstance(capture, StaticContentUnavailable):
+                run_cache.set_highest_uncollected(StaticUncollectedBaseline(
+                    attempt=highest.attempt, proposal=highest.proposal, unavailable=capture,
+                ))
+            else:
+                assert highest.static_consumer is not None
+                run_cache.set_highest(highest.static_consumer)
         finally:
             highest.close()
-        if isinstance(capture, IndeterminateEvaluation):
-            return self._evaluation_outcome(
-                attempt=highest.attempt,
-                role="declaration-capture",
-                evaluation=capture,
-                static_baseline=None,
-                project_plan_digest=highest.project_plan.semantic_digest,
-                environment_plan_digest=highest.environment_identity.environment_plan_digest,
-            )
         if self._events is not None:
             self._events.consume(
                 CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
@@ -83,12 +85,21 @@ class CompatibilityChecker:
             source_plan=source_plan,
         )
         if isinstance(prepared, PrepareFailure):
-            return self._prepare_outcome(prepared, role="declaration")
+            return self._prepare_outcome(
+                prepared, role="declaration"
+            )
         try:
+            self._static.collect_prepared(prepared, package=package, run_cache=run_cache)
+            if prepared.static_consumer is not None:
+                observation = prepared.static_consumer.fact.observation.observation_policy
+                run_cache.compare_global(
+                    prepared.static_consumer,
+                    guidance=GuidancePolicy(observation=observation, observation_identity=observation.identity),
+                )
             runtime = self._full.evaluate(
                 prepared,
                 package=package,
-                baseline=capture.baseline,
+                run_cache=run_cache,
             )
         finally:
             prepared.close()
@@ -97,7 +108,6 @@ class CompatibilityChecker:
             role="declaration",
             evaluation=runtime.evaluation,
             runtime=runtime,
-            static_baseline=capture.baseline,
             project_plan_digest=prepared.project_plan.semantic_digest,
             environment_plan_digest=prepared.environment_identity.environment_plan_digest,
         )
@@ -124,7 +134,6 @@ class CompatibilityChecker:
         role: Literal["declaration-capture", "declaration"],
         evaluation: Evaluation,
         runtime: RuntimeEvaluationRun | None = None,
-        static_baseline: StaticBaseline | None,
         project_plan_digest: str,
         environment_plan_digest: str | None,
     ) -> CheckCellOutcome:
@@ -134,7 +143,6 @@ class CompatibilityChecker:
                 role=role,
                 attempt=attempt,
                 evaluation=evaluation,
-                static_baseline=static_baseline,
                 runtime=runtime,
             )
         failure = self._failures.record_evaluation(
@@ -150,6 +158,5 @@ class CompatibilityChecker:
             attempt=attempt,
             failure=failure,
             evaluation=evaluation,
-            static_baseline=static_baseline,
             runtime=runtime,
         )

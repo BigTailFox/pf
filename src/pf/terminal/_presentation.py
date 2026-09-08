@@ -15,7 +15,7 @@ from pf.schemas.evaluation import (
     CellCompletedEvent,
     CellDetailIdentity,
     CellFailed,
-    CellResultDetail,
+    PytestFailureDetail,
     CellSucceeded,
     CheckCellOutcome,
     DeclarationDetailIdentity,
@@ -28,11 +28,8 @@ from pf.schemas.evaluation import (
     ProcessObservation,
     ProcessResult,
     RuntimeEvaluationRun,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeWitnessResult,
     SearchFailureEvent,
     SearchProbeDetailIdentity,
-    StaticIssueDetail,
     VerifierRejectedEvaluation,
     VerificationRole,
 )
@@ -46,6 +43,14 @@ from pf.schemas.report import (
 
 
 OutcomeKind = Literal["success", "failure", "warning", "indeterminate"]
+
+
+def _probe_window_label(identity: SearchProbeDetailIdentity) -> str:
+    return (
+        f"{identity.window} {identity.lower_version}~{identity.upper_version}"
+        f"#{identity.candidate_count}"
+    )
+
 
 _OUTCOME_BORDER_STYLES: dict[OutcomeKind, str] = {
     "success": "dim green",
@@ -141,23 +146,30 @@ def live_cell_identity_text(
         first, second = "declaration", "lowest-direct"
     elif isinstance(identity, SearchProbeDetailIdentity):
         first = f"{identity.dependency}={identity.version}"
-        second = (
-            f"{identity.lower_version}~{identity.upper_version}"
-            f"#{identity.candidate_count}"
-        )
+        second = _probe_window_label(identity)
     elif identity is None:
         first = second = None
     else:
         raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
     if first is not None and second is not None:
+        window_style = (
+            "default"
+            if isinstance(identity, SearchProbeDetailIdentity) and identity.window == "static"
+            else "cyan"
+        )
         _append_bracket_token(value, first, style="bold cyan")
-        _append_bracket_token(value, second, style="cyan")
+        _append_bracket_token(value, second, style=window_style)
     if stage is not None:
         dynamic = stage == "dynamic tests"
+        label = {
+            "dynamic tests": "testing",
+            "static-probe": "static-probe",
+            "oracle-probe": "oracle-probe",
+        }.get(stage, stage)
         _append_bracket_token(
             value,
-            "testing" if dynamic else stage,
-            style="cyan" if dynamic else "default",
+            label,
+            style="cyan" if dynamic or stage == "oracle-probe" else "default",
         )
     return value
 
@@ -182,7 +194,7 @@ def cell_identity_text(
         value = Text(style=style, overflow="fold", no_wrap=False)
         value.append(f"[{identity.dependency}=")
         value.append(identity.version, style="bold")
-        value.append("][", style=secondary_style)
+        value.append(f"][{identity.window} ", style=secondary_style)
         value.append(identity.lower_version, style=bold_secondary_style)
         value.append("~", style=secondary_style)
         value.append(identity.upper_version, style=bold_secondary_style)
@@ -206,10 +218,7 @@ def result_identity_text(
     elif isinstance(identity, SearchProbeDetailIdentity):
         tokens = (
             f"{identity.dependency}={identity.version}",
-            (
-                f"{identity.lower_version}~{identity.upper_version}"
-                f"#{identity.candidate_count}"
-            ),
+            _probe_window_label(identity),
         )
     else:
         raise AssertionError(f"unsupported cell identity: {type(identity).__name__}")
@@ -330,7 +339,7 @@ class CellPresentation:
     status: str
     elapsed: float | None
     failures: tuple[FailureRecord, ...]
-    detail: CellResultDetail | None
+    detail: PytestFailureDetail | None
     primary_failure_id: str | None
     process: ProcessResult | None
     stage: str
@@ -389,7 +398,6 @@ class CellPresentation:
         cls,
         evaluation: (
             PassEvaluation
-            | RuntimeInterfaceMissingEvaluation
             | VerifierRejectedEvaluation
             | IndeterminateEvaluation
         ),
@@ -611,7 +619,6 @@ def _run_result_outcome(
 def _evaluation_outcome(
     evaluation: (
         PassEvaluation
-        | RuntimeInterfaceMissingEvaluation
         | VerifierRejectedEvaluation
         | IndeterminateEvaluation
     ),
@@ -620,25 +627,7 @@ def _evaluation_outcome(
 ) -> CellSucceeded | CellFailed:
     if isinstance(evaluation, PassEvaluation):
         return CellSucceeded(status=evaluation.status, phase="complete")
-    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        confirmed = evaluation.witnesses[-1].outcome
-        assert isinstance(confirmed, RuntimeWitnessResult)
-        return CellFailed(
-            status=evaluation.status,
-            phase="witness",
-            detail=_evaluation_detail(evaluation, runtime=runtime),
-            process=confirmed.process,
-        )
-    if isinstance(evaluation, VerifierRejectedEvaluation):
-        return CellFailed(status=evaluation.status, phase="test")
-    if evaluation.verifier is not None:
-        return CellFailed(status=evaluation.status, phase="test")
-    assert evaluation.failure is not None
-    return CellFailed(
-        status=evaluation.status,
-        phase=evaluation.failure.stage,
-        process=evaluation.failure.process,
-    )
+    return CellFailed(status=evaluation.status, phase="test")
 
 
 def _failed_evaluation_process(
@@ -650,14 +639,6 @@ def _failed_evaluation_process(
     process = _runtime_process(runtime)
     if process is not None:
         return process
-    if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        confirmed = evaluation.witnesses[-1].outcome
-        assert isinstance(confirmed, RuntimeWitnessResult)
-        return confirmed.process
-    if isinstance(evaluation, IndeterminateEvaluation):
-        if evaluation.failure is None:
-            return None
-        return evaluation.failure.process
     return None if failure is None else failure.process
 
 
@@ -665,24 +646,12 @@ def _evaluation_detail(
     evaluation: object | None,
     *,
     runtime: RuntimeEvaluationRun | None = None,
-) -> CellResultDetail | None:
+) -> PytestFailureDetail | None:
     if runtime is not None and runtime.diagnostics is not None:
         detail = runtime.diagnostics.detail
         if detail is not None:
             return detail
-    if not isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-        return None
-    confirmed = evaluation.witnesses[-1].outcome
-    assert isinstance(confirmed, RuntimeWitnessResult)
-    identities = set(confirmed.plan.diagnostic_identities)
-    relevant = tuple(
-        diagnostic
-        for diagnostic in evaluation.static.incremental
-        if diagnostic.identity in identities
-    )
-    if not relevant:
-        return None
-    return StaticIssueDetail(first=relevant[0], total=len(relevant))
+    return None
 
 
 def _runtime_process(runtime: RuntimeEvaluationRun | None) -> ProcessObservation | None:
@@ -693,7 +662,7 @@ def _runtime_process(runtime: RuntimeEvaluationRun | None) -> ProcessObservation
 
 def _search_projection(
     search_events: tuple[SearchFailureEvent, ...],
-) -> tuple[str, CellResultDetail | None] | None:
+) -> tuple[str, PytestFailureDetail | None] | None:
     if not search_events:
         return None
     terminal = search_events[-1]

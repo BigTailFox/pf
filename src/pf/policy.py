@@ -6,20 +6,18 @@ import json
 
 from pf.failure import FailurePolicy
 from pf.schemas.config import EffectiveConfig
-from pf.static_transition import STATIC_POLICY_VERSION
+from pf.schemas.policy import (
+    ExecutionPolicy, GuidancePolicy, SearchDerivationPolicy, TyObservationPolicy,
+)
+from pf.schemas.static import StaticContentManifest, StaticContentPath
 
 
 TY_DIAGNOSTIC_POLICY = {
     "comparison": "multiset-subtraction",
-    "fingerprint": "ordered-incremental-identity-multiset",
+    "fingerprint": "scoped-comparison-identity-multiset-v1",
     "identity_rule": ("snapshot-path-line-column-code+external-namespace-path-code"),
     "output_format": "gitlab",
-    "policy": STATIC_POLICY_VERSION,
-    "region_scope": "fixed-slice-contiguous",
-    "strong_classifier": "strong-classifier-v1",
-    "witness_planner": "witness-planner-v1",
-    "witness_harness": "witness-harness-v1",
-    "witness_stderr": "diagnostic-only",
+    "policy": "static-guidance-v1",
     "project_terminal": "adapter-cli-overrides",
     "boundary_rule": "runtime-evidence-only",
     "final_verification": "direct-test-command-pass",
@@ -52,24 +50,93 @@ VALIDATION_CONTRACT_POLICY = {
 }
 
 
-def evaluation_policy_identity(config: EffectiveConfig) -> str:
-    """Return the identity of every setting that changes evaluation evidence."""
-    document = {
+def execution_policy(config: EffectiveConfig) -> ExecutionPolicy:
+    """Project only the settings that govern configured execution authority."""
+    return ExecutionPolicy(
+        resolution=config.resolution,
+        verifier_command=config.test.command,
+        verifier_cwd=config.test.cwd,
+        verifier_timeout_seconds=config.test.timeout_seconds,
+    )
+
+
+def guidance_policy(
+    config: EffectiveConfig,
+    *,
+    tool_version: str,
+    tool_content: StaticContentManifest,
+    executable: StaticContentPath,
+) -> GuidancePolicy:
+    """Bind exact tool inputs without introducing a verifier dependency."""
+    observation = TyObservationPolicy(
+        tool_version=tool_version, tool_content=tool_content,
+        executable=executable, config=config.ty,
+    )
+    return GuidancePolicy(observation=observation, observation_identity=observation.identity)
+
+
+def search_derivation_policy(
+    config: EffectiveConfig, *, guidance: GuidancePolicy, small_threshold: int = 8,
+) -> SearchDerivationPolicy:
+    return SearchDerivationPolicy(
+        candidates=config.search, guidance_identity=guidance.identity,
+        small_threshold=small_threshold,
+    )
+
+
+def execution_policy_identity(config: EffectiveConfig) -> str:
+    """Identify dynamic execution independently of guidance and search."""
+    return execution_policy(config).identity
+
+
+def _digest(domain: str, document: object) -> str:
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(f"{domain}\0{canonical}".encode()).hexdigest()
+
+
+def guidance_policy_identity(config: EffectiveConfig) -> str:
+    """Identify guidance rules independently of ExecutionPolicy and candidate DSL."""
+    return _digest("pf:guidance-policy-identity:v1", {
+        "ty": config.ty.model_dump(mode="json"),
+        "tool_versions": {"ty": distribution_version("ty")},
+        "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,
+    })
+
+
+def search_derivation_identity(config: EffectiveConfig, *, small_threshold: int = 8) -> str:
+    """Identify search derivation rules independently of a specific run snapshot."""
+    return _digest("pf:search-derivation-identity:v1", {
+        "candidates": config.search.model_dump(mode="json"),
+        "guidance_identity": guidance_policy_identity(config),
+        "rules": "direct-first-coordinate-guidance-v1",
+        "hint_consumption": "suspect-then-clean-neighbor-v1",
+        "coordinate_order": "canonical-dependency-order",
+        "monotonicity": "rejected-prefix-pass-suffix",
+        "predecessor": "current-slice-direct-revalidation",
+        "mechanical": "lowest-then-ascending-small-else-midpoint",
+        "small_threshold": small_threshold,
+    })
+
+
+def report_provenance_identity(config: EffectiveConfig) -> str:
+    """Identify search/guidance provenance independently of ExecutionPolicy.
+
+    Apply and merge compare this digest separately from execution_policy.identity
+    so a ty/heuristic change is search-provenance-mismatch, not execution failure.
+    """
+    return _digest("pf:policy:v1", {
+        "guidance_policy_identity": guidance_policy_identity(config),
+        "search_derivation_identity": search_derivation_identity(config),
         "config": {
             "resolution": config.resolution.model_dump(mode="json"),
-            "ty": config.ty.model_dump(mode="json"),
             "test": {
                 "command": config.test.command,
                 "cwd": config.test.cwd,
                 "timeout_seconds": config.test.timeout_seconds,
             },
         },
-        "tool_versions": {"ty": distribution_version("ty")},
         "verifier_outcome_policy": CONFIGURED_VERIFIER_OUTCOME_POLICY,
-        "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,
         "failure_policy": FailurePolicy.identity,
         "execution_outcome_policy": EXECUTION_OUTCOME_POLICY,
         "validation_contract_policy": VALIDATION_CONTRACT_POLICY,
-    }
-    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"pf:policy:v1\0{canonical}".encode()).hexdigest()
+    })

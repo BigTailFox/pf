@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from pf.errors import MaterializationIntegrityError
+
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
-import hashlib
-import json
 import os
 from pathlib import Path
 import tempfile
 import threading
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 from packaging.requirements import Requirement
 import tomlkit
 from tomlkit.items import Array
 
+from pf.cancellation import Cancellation
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.harness import active_harness_requirements, original_harness, relax_harness
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.resolution import (
     EnvironmentIdentity,
     InstalledResolution,
@@ -28,6 +30,7 @@ from pf.resolution import (
     ResolutionOutcome,
     ResolutionPlan,
     ResolutionRunContext,
+    resolution_request_digest,
 )
 from pf.schemas.evaluation import (
     Attempt,
@@ -69,6 +72,11 @@ from pf.schemas.project import (
     selected_candidate_evidence_digest,
 )
 from pf.snapshot import SourceSnapshot
+
+
+if TYPE_CHECKING:
+    from pf.static_request import StaticRequestMaterialization
+    from pf.static_cache import RunStaticConsumerRef
 
 
 @dataclass(frozen=True)
@@ -203,6 +211,7 @@ class PreparedEnvironment:
         *,
         attempt: Attempt,
         proposal: Proposal,
+        source_plan: SourcePlan,
         proposal_root: Path,
         package_root: Path,
         environment_root: Path,
@@ -211,9 +220,13 @@ class PreparedEnvironment:
         environment_plan: ResolutionPlan | None,
         environment_identity: EnvironmentIdentity,
         harness_baseline: HarnessBaseline,
+        selected_candidates: tuple[SelectedCandidate, ...] | None,
         temporary_directory: tempfile.TemporaryDirectory[str],
     ) -> None:
+        if source_plan.identity != attempt.identity.source_plan_identity:
+            raise ValueError("prepared SourcePlan must match its actual Attempt")
         self.attempt = attempt
+        self.source_plan = source_plan
         self.proposal = proposal
         self.proposal_root = proposal_root
         self.package_root = package_root
@@ -223,14 +236,95 @@ class PreparedEnvironment:
         self.environment_plan = environment_plan
         self.environment_identity = environment_identity
         self.harness_baseline = harness_baseline
+        self.selected_candidates = selected_candidates
         self._temporary_directory = temporary_directory
-        self.tested = False
+        self._use_lock = threading.RLock()
+        self._operation: Literal["static", "verifier"] | None = None
+        self.static_materialization: StaticRequestMaterialization | None = None
+        self.static_consumer: RunStaticConsumerRef | None = None
+        self._tested = False
+        self._inputs_valid = True
+        self._closed = False
+
+    def invalidate_inputs(self) -> None:
+        """Record independently observed changes to owned execution inputs."""
+        with self._use_lock:
+            self._inputs_valid = False
+            self.static_consumer = None
+
+    @property
+    def inputs_valid(self) -> bool:
+        with self._use_lock:
+            return self._inputs_valid
+
+    @property
+    def tested(self) -> bool:
+        with self._use_lock:
+            return self._tested
+
+    @property
+    def closed(self) -> bool:
+        with self._use_lock:
+            return self._closed
+
+    @contextmanager
+    def static_use(self, *, cancellation: Cancellation | None = None) -> Iterator[bool]:
+        """Borrow clean inputs through complete collection and process cleanup."""
+        with self._static_lock(cancellation):
+            if self._closed or self._tested or not self._inputs_valid or self._operation == "verifier":
+                yield False
+                return
+            previous = self._operation
+            self._operation = "static"
+            try:
+                yield True
+            finally:
+                self._operation = previous
+
+    @contextmanager
+    def _static_lock(self, cancellation: Cancellation | None) -> Iterator[None]:
+        if cancellation is None:
+            self._use_lock.acquire()
+        else:
+            cancellation.raise_if_cancelled()
+            while not self._use_lock.acquire(timeout=0.05):
+                cancellation.raise_if_cancelled()
+        try:
+            if cancellation is not None:
+                cancellation.raise_if_cancelled()
+            yield
+        finally:
+            self._use_lock.release()
+
+    @contextmanager
+    def verifier_use(self) -> Iterator[None]:
+        with self._use_lock:
+            if not self._inputs_valid:
+                raise MaterializationIntegrityError("prepared execution inputs changed during static collection")
+            if self._closed or self._tested or self._operation is not None:
+                raise RuntimeError("verifier requires an unused, available environment")
+            self._tested = True
+            self._operation = "verifier"
+            try:
+                yield
+            finally:
+                self._operation = None
 
     def mark_tested(self) -> None:
-        self.tested = True
+        with self._use_lock:
+            if self._closed or self._operation == "static":
+                raise RuntimeError("cannot mark an unavailable environment tested")
+            self._tested = True
 
     def close(self) -> None:
-        self._temporary_directory.cleanup()
+        with self._use_lock:
+            if self._operation is not None:
+                raise RuntimeError("cannot close an environment from its active operation")
+            if not self._closed:
+                self._closed = True
+                self.static_materialization = None
+                self.static_consumer = None
+                self._temporary_directory.cleanup()
 
 
 class EnvironmentFactory:
@@ -388,16 +482,24 @@ class EnvironmentFactory:
                 context=context,
                 source_plan=source_plan,
             )
-            project_request = self._request_digest(
+            project_request = resolution_request_digest(
                 kind="project",
-                package=package,
-                snapshot=snapshot,
+                package_name=package.name,
+                snapshot_digest=snapshot.identity.digest,
                 cell=cell,
-                resolution=resolution,
-                context=context,
-                project_plan=None,
+                resolution_kind=resolution.kind,
+                selection=(
+                    resolution.selection if isinstance(resolution, ExactSelection) else None
+                ),
+                baseline_digest=(
+                    resolution.harness_baseline.digest
+                    if isinstance(resolution, (ExactSelection, LowestDirectResolution))
+                    else None
+                ),
+                context_digest=context.digest,
+                project_plan_digest=None,
                 harness=(),
-                source_plan=source_plan,
+                source_plan_identity=source_plan.identity,
             )
             emit_cell_stage(self._events, cell, "resolving project")
             project_outcome = self._resolve_once(
@@ -451,16 +553,24 @@ class EnvironmentFactory:
                     source_plan=source_plan,
                     project_plan=project_outcome,
                 )
-                environment_request = self._request_digest(
+                environment_request = resolution_request_digest(
                     kind="environment",
-                    package=package,
-                    snapshot=snapshot,
+                    package_name=package.name,
+                    snapshot_digest=snapshot.identity.digest,
                     cell=cell,
-                    resolution=resolution,
-                    context=context,
-                    project_plan=project_outcome,
+                    resolution_kind=resolution.kind,
+                    selection=(
+                        resolution.selection if isinstance(resolution, ExactSelection) else None
+                    ),
+                    baseline_digest=(
+                        resolution.harness_baseline.digest
+                        if isinstance(resolution, (ExactSelection, LowestDirectResolution))
+                        else None
+                    ),
+                    context_digest=context.digest,
+                    project_plan_digest=project_outcome.semantic_digest,
                     harness=harness,
-                    source_plan=source_plan,
+                    source_plan_identity=source_plan.identity,
                 )
                 emit_cell_stage(self._events, cell, "resolving environment")
                 environment_outcome = self._resolve_once(
@@ -586,7 +696,7 @@ class EnvironmentFactory:
                         failure=StructuredOperationFailure(fact=ProposalVectorMismatchFact(), terminal=None),
                     )
                 )
-            policy_identity = evaluation_policy_identity(package.config)
+            policy_identity = execution_policy_identity(package.config)
             fixed_declaration_ids = tuple(
                 sorted(
                     declaration.declaration_id
@@ -596,6 +706,7 @@ class EnvironmentFactory:
                 )
             )
             environment_identity = EnvironmentIdentity.from_plans(
+                attempt_id=attempt.attempt_id,
                 project_plan=project_outcome,
                 environment_plan=environment_outcome,
                 graph=graph.nodes,
@@ -627,6 +738,7 @@ class EnvironmentFactory:
             return PreparedEnvironment(
                 attempt=attempt,
                 proposal=proposal,
+                source_plan=source_plan,
                 proposal_root=proposal_root,
                 package_root=package_root,
                 environment_root=environment_root,
@@ -635,6 +747,7 @@ class EnvironmentFactory:
                 environment_plan=environment_outcome,
                 environment_identity=environment_identity,
                 harness_baseline=harness_baseline,
+                selected_candidates=(resolution.selection if isinstance(resolution, ExactSelection) else None),
                 temporary_directory=temporary_directory,
             )
         except Exception as error:
@@ -658,47 +771,6 @@ class EnvironmentFactory:
             return outcome
 
     @staticmethod
-    def _request_digest(
-        *,
-        kind: Literal["project", "environment"],
-        package: PackagePlan,
-        snapshot: SourceSnapshot,
-        cell: Cell,
-        resolution: ResolutionRequest,
-        context: ResolutionContext,
-        project_plan: ResolutionPlan | None,
-        harness: tuple[HarnessResolutionRequirement, ...],
-        source_plan: SourcePlan,
-    ) -> str:
-        payload = {
-            "kind": kind,
-            "package": package.name,
-            "snapshot_digest": snapshot.identity.digest,
-            "cell": cell.model_dump(mode="json"),
-            "resolution": resolution.kind,
-            "selection": (
-                [item.model_dump(mode="json") for item in resolution.selection]
-                if isinstance(resolution, ExactSelection)
-                else None
-            ),
-            "baseline_digest": (
-                resolution.harness_baseline.digest
-                if isinstance(resolution, (ExactSelection, LowestDirectResolution))
-                else None
-            ),
-            "context": context.digest,
-            "project_plan": (
-                project_plan.semantic_digest if project_plan is not None else None
-            ),
-            "harness": [item.model_dump(mode="json") for item in harness],
-            "source_plan_identity": source_plan.identity,
-        }
-        return hashlib.sha256(
-            b"pf:resolution-request:v1\0"
-            + json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-
-    @staticmethod
     def _harness_for_resolution(
         *,
         package: PackagePlan,
@@ -708,9 +780,9 @@ class EnvironmentFactory:
         project_plan: ResolutionPlan,
     ) -> tuple[HarnessResolutionRequirement, ...]:
         if isinstance(resolution, HighestResolution):
-            return original_harness(package, cell, source_plan=source_plan)
+            return original_harness(package.harness_requirements, cell)
         return relax_harness(
-            package,
+            package.harness_requirements,
             resolution.harness_baseline,
             project_plan=project_plan,
             source_plan=source_plan,
@@ -919,7 +991,7 @@ class EnvironmentFactory:
                 requested_managed_vector=managed_vector,
                 active_declaration_ids=cell.active_declaration_ids,
                 source_plan_identity=plan_identity,
-                evaluation_policy_identity=evaluation_policy_identity(package.config),
+                execution_policy_identity=execution_policy_identity(package.config),
                 resolution_context_digest=context.digest,
                 harness_policy_identity=(
                     "original-harness-v1"

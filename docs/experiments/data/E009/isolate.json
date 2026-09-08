@@ -1,0 +1,14 @@
+{
+  "source": "/home/llh/pf/experiments/mkdocs",
+  "destination": "/tmp/pf-d038-e009-mkdocs",
+  "git_head": "2862536793b3c67d9d83c33e0dd6d50a791928f8",
+  "dirty": true,
+  "excluded": [
+    ".pf",
+    "package-floor.json",
+    ".git"
+  ],
+  "schema": "pf-static-guidance-qualification-v1",
+  "mode": "isolate",
+  "recorded_at": "2026-09-08T01:32:51.290260+00:00"
+}

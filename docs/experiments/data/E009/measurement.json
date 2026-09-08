@@ -1,0 +1,534 @@
+{
+  "schema": "pf-d038-guidance-measurement-v1",
+  "recorded_at": "2026-09-08T01:35:39.422295+00:00",
+  "python": "3.10.16",
+  "seam": "SearchCoordinator + CoordinateSearch public evaluator",
+  "note": "Mechanical mode wraps open_static_slice only. It is not a product configuration switch. Counts come from scripted adapters, not registry wall time.",
+  "cases": [
+    {
+      "floor": 1,
+      "unavailable": null,
+      "guided": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "1"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": false,
+        "injected_unavailable": null,
+        "static_opens_or_ty_after_highest": 2,
+        "environments_closed": true
+      },
+      "mechanical": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "1"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          }
+        ],
+        "event_counts": {
+          "ty": 2,
+          "verifier": 2
+        },
+        "mechanical": true,
+        "injected_unavailable": null,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "same_floor": true,
+      "same_status": true
+    },
+    {
+      "floor": 1,
+      "unavailable": 1,
+      "guided": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "1"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          }
+        ],
+        "event_counts": {
+          "ty": 2,
+          "verifier": 2
+        },
+        "mechanical": false,
+        "injected_unavailable": 1,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "mechanical": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "1"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          }
+        ],
+        "event_counts": {
+          "ty": 2,
+          "verifier": 2
+        },
+        "mechanical": true,
+        "injected_unavailable": 1,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "same_floor": true,
+      "same_status": true
+    },
+    {
+      "floor": 2,
+      "unavailable": null,
+      "guided": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "2"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": false,
+        "injected_unavailable": null,
+        "static_opens_or_ty_after_highest": 2,
+        "environments_closed": true
+      },
+      "mechanical": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "2"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": true,
+        "injected_unavailable": null,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "same_floor": true,
+      "same_status": true
+    },
+    {
+      "floor": 2,
+      "unavailable": 1,
+      "guided": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "2"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": false,
+        "injected_unavailable": 1,
+        "static_opens_or_ty_after_highest": 2,
+        "environments_closed": true
+      },
+      "mechanical": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "2"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": true,
+        "injected_unavailable": 1,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "same_floor": true,
+      "same_status": true
+    },
+    {
+      "floor": 3,
+      "unavailable": null,
+      "guided": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "3"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 2
+        },
+        "mechanical": false,
+        "injected_unavailable": null,
+        "static_opens_or_ty_after_highest": 2,
+        "environments_closed": true
+      },
+      "mechanical": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "3"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": true,
+        "injected_unavailable": null,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "same_floor": true,
+      "same_status": true
+    },
+    {
+      "floor": 3,
+      "unavailable": 1,
+      "guided": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "3"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": false,
+        "injected_unavailable": 1,
+        "static_opens_or_ty_after_highest": 2,
+        "environments_closed": true
+      },
+      "mechanical": {
+        "status": "SUCCESS",
+        "floor_vector": [
+          {
+            "name": "demo-dep",
+            "version": "3"
+          }
+        ],
+        "events": [
+          {
+            "kind": "ty",
+            "version": 3
+          },
+          {
+            "kind": "verifier",
+            "version": 3
+          },
+          {
+            "kind": "ty",
+            "version": 1
+          },
+          {
+            "kind": "verifier",
+            "version": 1
+          },
+          {
+            "kind": "ty",
+            "version": 2
+          },
+          {
+            "kind": "verifier",
+            "version": 2
+          }
+        ],
+        "event_counts": {
+          "ty": 3,
+          "verifier": 3
+        },
+        "mechanical": true,
+        "injected_unavailable": 1,
+        "static_opens_or_ty_after_highest": 1,
+        "environments_closed": true
+      },
+      "same_floor": true,
+      "same_status": true
+    }
+  ],
+  "all_floors_match": true
+}

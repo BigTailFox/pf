@@ -8,7 +8,12 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 from pf.errors import ApplyAuthorizationError, ConfigurationError, NoApplicableFloorError
-from pf.policy import evaluation_policy_identity
+from pf.policy import (
+    execution_policy_identity,
+    guidance_policy_identity,
+    report_provenance_identity,
+    search_derivation_identity,
+)
 from pf.markers import MarkerError, PortableMarker, evaluate_contextual_marker, platform_marker_facts
 from pf.report import PackageReportBuilder, ValidatedReport
 from pf.schemas.apply import (
@@ -131,8 +136,20 @@ class ApplyAuthorizer:
         source_plan: SourcePlan,
         current_snapshot: SourceSnapshot,
     ) -> AuthorizedPackageApply:
-        if report.policy_identity != evaluation_policy_identity(package.config):
-            raise ApplyAuthorizationError("report evaluation policy mismatch")
+        if report.execution_policy.identity != execution_policy_identity(package.config):
+            raise ApplyAuthorizationError(
+                "report execution policy mismatch",
+                reason="execution-policy-mismatch",
+            )
+        if (
+            report.policy_identity != report_provenance_identity(package.config)
+            or report.guidance_policy_identity != guidance_policy_identity(package.config)
+            or report.search_derivation_identity != search_derivation_identity(package.config)
+        ):
+            raise ApplyAuthorizationError(
+                "report search provenance mismatch",
+                reason="search-provenance-mismatch",
+            )
         if report.source_plan != source_plan:
             raise ApplyAuthorizationError("report dependency source plan mismatch")
         if self._requires_python(
@@ -208,7 +225,10 @@ class ApplyAuthorizer:
             )
 
         if report.search_policy != SearchPolicyInputs.from_package(package):
-            raise ApplyAuthorizationError("report search policy mismatch")
+            raise ApplyAuthorizationError(
+                "report search provenance mismatch",
+                reason="search-provenance-mismatch",
+            )
 
         current_pyproject = self._pyproject_identity(
             current_snapshot.identity.pyproject_identities,

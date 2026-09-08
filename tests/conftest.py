@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import pytest
 from pathlib import Path
 
 from pf.schemas.project import Cell, HarnessBaseline
+from static_fixtures import scripted_static_request as scripted_static_request
 
 
 testmon_datafile = os.environ.get("TESTMON_DATAFILE")
@@ -17,3 +19,10 @@ def empty_harness_baseline(cell: Cell) -> HarnessBaseline:
         declaration_ids=(),
         observations=(),
     )
+
+
+@pytest.fixture
+def run_cache():
+    from pf.static_cache import TyCheckCache
+    with TyCheckCache() as cache:
+        yield cache

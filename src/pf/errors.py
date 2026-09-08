@@ -43,9 +43,11 @@ class ConfigurationError(PfError):
         *,
         detail: str | None = None,
         candidates: tuple[str, ...] = (),
+        reason: str | None = None,
     ) -> None:
         super().__init__(message, detail=detail)
         self.candidates = candidates
+        self.reason = reason
 
 
 class SearchSpaceResolutionError(PfError):
@@ -71,6 +73,18 @@ class SearchSpaceResolutionError(PfError):
         )
 
 
+class JournalReadError(ConfigurationError):
+    """A present Journal failed current-contract or evidence admission."""
+
+    def __init__(self, *, run_id: str, reason: str) -> None:
+        self.run_id = run_id
+        super().__init__(
+            f"cannot read verification journal: {reason}",
+            detail=f"run: {run_id}",
+            reason=reason,
+        )
+
+
 class ApplyAuthorizationError(ConfigurationError):
     """A report has evidence, but current apply authorization failed."""
 
@@ -81,10 +95,12 @@ class DiagnoseNotFoundError(ConfigurationError):
     def __init__(self, *, failure_id: str, package: str) -> None:
         self.failure_id = failure_id
         self.package = package
-        self.reason = (
-            "failure ID was not found in package-floor.json or the latest local Journal"
+        super().__init__(
+            f"failure ID not found: {failure_id}",
+            reason=(
+                "failure ID was not found in package-floor.json or the latest local Journal"
+            ),
         )
-        super().__init__(f"failure ID not found: {failure_id}")
 
 
 class ExplainReportError(ConfigurationError):
@@ -98,9 +114,8 @@ class ExplainReportError(ConfigurationError):
         recovery_command: str | None = None,
     ) -> None:
         self.report_path = report_path
-        self.reason = reason
         self.recovery_command = recovery_command
-        super().__init__(f"cannot explain {report_path}: {reason}")
+        super().__init__(f"cannot explain {report_path}: {reason}", reason=reason)
 
 
 class MergeInputError(ConfigurationError):
@@ -128,12 +143,14 @@ class MergeCompatibilityError(ConfigurationError):
         input_paths: tuple[str, ...],
         output_path: str,
         detail: str,
+        reason: str | None = None,
     ) -> None:
         self.input_paths = input_paths
         self.output_path = output_path
         super().__init__(
             "reports are incompatible and cannot be merged",
             detail=detail,
+            reason=reason,
         )
 
 
@@ -146,6 +163,10 @@ class InvocationError(ConfigurationError):
 class InfrastructureError(PfError):
     category = "infrastructure"
     exit_code = ExitCode.INDETERMINATE
+
+
+class MaterializationIntegrityError(InfrastructureError):
+    """Owned execution inputs changed after the prepared environment was verified."""
 
 
 class MergeOutputError(InfrastructureError):

@@ -9,12 +9,8 @@ from pf.schemas.evaluation import (
     FailureScope,
     IndeterminateEvaluation,
     PassEvaluation,
-    ProcessResult,
     ProcessObservation,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeWitnessResult,
     VerifierRejectedEvaluation,
-    rejection_is_supported,
     PrepareFailure,
     ExecutionFailure,
     ExecutionFailureAuthority,
@@ -26,7 +22,7 @@ from pf.schemas.evaluation import (
 class FailurePolicy:
     """Turn scoped operation facts into one conservative search disposition."""
 
-    identity = "failure-execution-v3"
+    identity = "failure-execution-v4"
 
     def record_prepare(self, prepared: PrepareFailure) -> FailureRecord:
         disposition, cause = classify_operation_failure(prepared.stage, prepared.failure)
@@ -54,25 +50,9 @@ class FailurePolicy:
         project_plan_digest: str | None = None,
         environment_plan_digest: str | None = None,
     ) -> FailureRecord:
-        requested_resolution = (
-            scope.attempt.identity.requested_resolution
-            if isinstance(scope, AttemptFailureScope)
-            else None
-        )
-        supported = isinstance(process, ProcessResult) and rejection_is_supported(
-            requested_resolution=requested_resolution,
-            cause=cause,
-            stage=stage,
-            exit_code=process.exit_code,
-            signal=process.signal,
-            start_error=process.start_error,
-            timed_out=process.timed_out,
-            stdout_complete=process.stdout_complete,
-            stderr_complete=process.stderr_complete,
-        )
         return FailureRecord.from_facts(
             scope=scope,
-            disposition="REJECTED" if supported else "INDETERMINATE",
+            disposition="INDETERMINATE",
             cause=cause,
             stage=stage,
             process=process,
@@ -102,42 +82,13 @@ class FailurePolicy:
                 project_plan_digest=project_plan_digest,
                 environment_plan_digest=environment_plan_digest,
             )
-        if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-            confirmed = next(
-                attempt.outcome
-                for attempt in evaluation.witnesses
-                if isinstance(attempt.outcome, RuntimeWitnessResult)
-                and attempt.outcome.status == "CONFIRMED_MISSING"
-            )
-            return self.classify(
-                scope=scope,
-                cause="RUNTIME_INTERFACE_MISSING",
-                stage="witness",
-                process=confirmed.process,
-                project_plan_digest=project_plan_digest,
-                environment_plan_digest=environment_plan_digest,
-            )
-        if (
-            isinstance(evaluation, IndeterminateEvaluation)
-            and evaluation.verifier is not None
-        ):
-            return FailureRecord.from_verifier(
-                scope=scope,
-                disposition="INDETERMINATE",
-                cause=evaluation.cause,
-                stage="test",
-                terminal=evaluation.verifier.terminal,
-                project_plan_digest=project_plan_digest,
-                environment_plan_digest=environment_plan_digest,
-            )
-        assert evaluation.failure is not None
-        return self.classify(
+        assert isinstance(evaluation, IndeterminateEvaluation)
+        return FailureRecord.from_verifier(
             scope=scope,
+            disposition="INDETERMINATE",
             cause=evaluation.cause,
-            stage=evaluation.failure.stage,
-            process=evaluation.failure.process,
-            summary_code=evaluation.failure.summary_code,
-            detail=evaluation.failure.detail,
+            stage="test",
+            terminal=evaluation.verifier.terminal,
             project_plan_digest=project_plan_digest,
             environment_plan_digest=environment_plan_digest,
         )

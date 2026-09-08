@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pydantic import Field
+
 import math
 import re
 from typing import Literal
@@ -92,7 +94,7 @@ class SearchConfig(FrozenSchema):
 
 class ResolutionConfig(FrozenSchema):
     artifact: Literal["wheel", "sdist", "any"] = "any"
-    timeout_seconds: StrictInt | None = 600
+    timeout_seconds: StrictInt | None = Field(default=600, json_schema_extra={"x-pf-preserve-null": True})
 
     @field_validator("timeout_seconds")
     @classmethod
@@ -104,7 +106,7 @@ class ResolutionConfig(FrozenSchema):
 
 class TyConfig(FrozenSchema):
     args: tuple[str, ...] = ()
-    timeout_seconds: StrictInt | None = 600
+    timeout_seconds: StrictInt | None = Field(default=600, json_schema_extra={"x-pf-preserve-null": True})
 
     @field_validator("timeout_seconds")
     @classmethod

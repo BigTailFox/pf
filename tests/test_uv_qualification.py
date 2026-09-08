@@ -57,6 +57,7 @@ class TestUvQualificationRunner:
             "offline-cache-miss",
         }
 
+    @pytest.mark.qualification
     def test_runner_qualifies_a_certified_local_case(
         self,
         monkeypatch: pytest.MonkeyPatch,

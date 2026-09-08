@@ -14,6 +14,8 @@ there is no registry, uv subprocess, ty subprocess, or configured verifier wall 
 
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+
 import argparse
 import hashlib
 import json
@@ -49,8 +51,6 @@ from pf.schemas.report import (
     CoordinateBoundary,
     CoordinateOutcome,
     ProbeEvidence,
-    StaticOnlyEvidence,
-    StaticRegion,
 )
 from pf.search import SearchCoordinator
 
@@ -109,7 +109,6 @@ class RequestMetrics:
     prepare_misses: int = 0
     static_misses: int = 0
     runtime_misses: int = 0
-    static_guidance: int = 0
     coordinate_wall_seconds: float = 0.0
     operation_counts: Counter[str] = field(default_factory=Counter)
     vectors: set[tuple[tuple[str, str], ...]] = field(default_factory=set)
@@ -123,7 +122,6 @@ class RequestMetrics:
             "prepare_misses": self.prepare_misses,
             "static_misses": self.static_misses,
             "runtime_misses": self.runtime_misses,
-            "static_guidance": self.static_guidance,
             "coordinate_wall_seconds": self.coordinate_wall_seconds,
             "operation_counts": dict(sorted(self.operation_counts.items())),
             "trace": self.trace,
@@ -150,42 +148,27 @@ class CountingEvaluator:
         self._counts = counts
         self._metrics = metrics
 
-    @property
-    def regions(self) -> tuple[StaticRegion, ...]:
-        return self._inner.regions
 
     def evaluate(self, vector: tuple[VersionPin, ...]) -> ProbeEvidence:
-        return cast(
-            ProbeEvidence,
-            self._record("evaluate", vector, lambda: self._inner.evaluate(vector)),
-        )
+        return self._record("evaluate", vector, lambda: self._inner.evaluate(vector))
 
     def evaluate_in_slice(
         self,
         request: SearchProbeRequest,
-    ) -> ProbeEvidence | StaticOnlyEvidence:
+    ) -> ProbeEvidence:
         return self._record(
             "evaluate_in_slice",
             request.vector,
             lambda: self._inner.evaluate_in_slice(request),
         )
 
-    def promote(self, request: SearchProbeRequest) -> ProbeEvidence:
-        return cast(
-            ProbeEvidence,
-            self._record(
-                "promote",
-                request.vector,
-                lambda: self._inner.promote(request),
-            ),
-        )
 
     def _record(
         self,
         operation: str,
         vector: tuple[VersionPin, ...],
-        call: Callable[[], ProbeEvidence | StaticOnlyEvidence],
-    ) -> ProbeEvidence | StaticOnlyEvidence:
+        call: Callable[[], ProbeEvidence],
+    ) -> ProbeEvidence:
         before = self._counts()
         started = time.perf_counter()
         result = call()
@@ -201,11 +184,7 @@ class CountingEvaluator:
         self._metrics.runtime_misses += delta[2]
         if not any(delta):
             self._metrics.cache_hits += 1
-        if isinstance(result, StaticOnlyEvidence):
-            self._metrics.static_guidance += 1
-            outcome = f"STATIC_ONLY:{result.guidance}"
-        else:
-            outcome = result.status
+        outcome = result.status
         self._metrics.trace.append(
             {
                 "operation": operation,
@@ -353,12 +332,13 @@ def _run_sample(
         coordinate_search=measured,
     )
     started = time.perf_counter()
-    result = coordinator.search(
-        package=project.package,
-        cell=project.package.cells[0],
-        snapshot=project.snapshot,
-        source_plan=project.source_plan,
-    )
+    with TyCheckCache() as run_cache:
+        result = coordinator.search(run_cache=run_cache,
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
     cell_seconds = time.perf_counter() - started
     if not isinstance(result, CellSuccess):
         raise AssertionError((scenario.name, variant, result.status))
@@ -399,7 +379,6 @@ SUMMARY_METRICS = (
     "prepare_misses",
     "static_misses",
     "runtime_misses",
-    "static_guidance",
     "sweeps",
     "coordinate_wall_seconds",
     "cell_wall_seconds",
@@ -514,7 +493,7 @@ def main() -> int:
                 "SearchCoordinator -> EnvironmentFactory -> StaticEvaluator -> "
                 "RuntimeEvaluator"
             ),
-            "lower_adapters": "deterministic in-memory uv/ty/verifier/witness",
+            "lower_adapters": "deterministic in-memory uv/ty/verifier",
             "configured_verifier_subprocess": False,
             "network_registry": False,
             "historical_trace_used": False,

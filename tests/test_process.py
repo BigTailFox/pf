@@ -106,6 +106,69 @@ class _ExactOverlapRedactor(SecretRedactor):
 
 
 class TestSubprocessRunner:
+    @pytest.mark.parametrize("terminal_values", [False, True], ids=["empty", "terminal"])
+    def test_explicit_environment_reaches_process_without_host_inputs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal_values: bool
+    ) -> None:
+        monkeypatch.setenv("PF_TEST_PARENT_ONLY", "parent-secret")
+        monkeypatch.setenv("COLUMNS", "999")
+        monkeypatch.setenv("LINES", "888")
+        environment = (
+            EnvironmentVariable(name="PF_TEST_TOKEN", value="child-secret"),
+        )
+        if terminal_values:
+            environment += (
+                EnvironmentVariable(name="COLUMNS", value="137"),
+                EnvironmentVariable(name="LINES", value="49"),
+            )
+        logs = RunLogStore(root=tmp_path, run_id="explicit-environment")
+        result = SubprocessRunner(logs=logs).run(
+            ProcessSpec(
+                argv=(
+                    sys.executable, "-I", "-S", "-c",
+                    "import os; "
+                    "assert 'PF_TEST_PARENT_ONLY' not in os.environ; "
+                    "assert os.environ['PF_TEST_TOKEN'] == 'child-secret'; "
+                    + (
+                        "assert os.environ['COLUMNS'] == '137'; "
+                        "assert os.environ['LINES'] == '49'; "
+                        if terminal_values else
+                        "assert 'COLUMNS' not in os.environ; "
+                        "assert 'LINES' not in os.environ; "
+                    )
+                    + "print('verified'); print(os.environ['PF_TEST_TOKEN'])",
+                ),
+                cwd=tmp_path.as_posix(),
+                environment_mode="explicit",
+                environment=environment,
+                timeout_seconds=5,
+            )
+        )
+        assert isinstance(result, ProcessResult)
+        assert result.exit_code == 0
+        assert result.stdout == "verified\n***\n"
+        log_path = logs.reference_for(result)
+        assert log_path is not None
+        assert "child-secret" not in log_path.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize(
+        "environment,removals",
+        [
+            ((EnvironmentVariable(name="X", value="a"), EnvironmentVariable(name="X", value="b")), ()),
+            ((), ("X",)),
+        ],
+        ids=["duplicate-name", "removal"],
+    )
+    def test_explicit_environment_rejects_ambiguous_requests(
+        self, environment: tuple[EnvironmentVariable, ...], removals: tuple[str, ...]
+    ) -> None:
+        with pytest.raises(ValueError, match="explicit process environment"):
+            ProcessSpec(
+                argv=("tool",), cwd=".", timeout_seconds=None,
+                environment_mode="explicit", environment=environment,
+                environment_removals=removals,
+            )
+
     def test_subprocess_runner_captures_and_redacts_external_output(
         self, tmp_path: Path
     ) -> None:
@@ -197,6 +260,26 @@ class TestSubprocessRunner:
         log_path = logs.reference_for(result)
         assert log_path is not None
         assert "runtime-secret" not in log_path.read_text(encoding="utf-8")
+
+    def test_explicit_public_environment_values_preserve_structured_output(self, tmp_path: Path) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="structured-environment")
+        runner = SubprocessRunner(logs=logs)
+        result = runner.run(ProcessSpec(
+            argv=(sys.executable, "-c", "import json,os; print(json.dumps({'line':int(os.environ['PF_LINE']), 'token':os.environ['PF_TOKEN']}))"),
+            cwd=str(tmp_path), environment_mode="explicit",
+            environment=(EnvironmentVariable(name="PF_LINE", value="1", sensitive=False),
+                         EnvironmentVariable(name="PF_TOKEN", value="runtime-secret")),
+            timeout_seconds=5,
+        ))
+        assert isinstance(result, ProcessResult)
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == {"line": 1, "token": "***"}
+        assert json.loads(runner.output(result).stdout) == {"line": 1, "token": "***"}
+        path = logs.reference_for(result)
+        assert path is not None
+        text = path.read_text(encoding="utf-8")
+        assert '"line": 1' in text
+        assert "runtime-secret" not in text
 
     def test_subprocess_runner_applies_environment_removals_before_overrides(
         self,

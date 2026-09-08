@@ -1,0 +1,429 @@
+{
+  "mode": "check",
+  "status": "PASS",
+  "root": "/tmp/pf-d038-e009-mkdocs",
+  "run_id": "20260908T013259.640291Z-1649178-5c2d0cfa",
+  "outcomes": [
+    {
+      "status": "PASS",
+      "role": "declaration",
+      "cell": {
+        "package": "mkdocs",
+        "python_minor": "3.10",
+        "extra_surface": [
+          "i18n"
+        ],
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "entered_verifier": true,
+      "evaluation": {
+        "status": "PASS",
+        "verifier_terminal": {
+          "kind": "normal-exit",
+          "exit_code": 0
+        },
+        "vector": [
+          {
+            "name": "babel",
+            "version": "2.9.0"
+          },
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.11.1"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "status": "PASS",
+      "role": "declaration",
+      "cell": {
+        "package": "mkdocs",
+        "python_minor": "3.11",
+        "extra_surface": [
+          "i18n"
+        ],
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "entered_verifier": true,
+      "evaluation": {
+        "status": "PASS",
+        "verifier_terminal": {
+          "kind": "normal-exit",
+          "exit_code": 0
+        },
+        "vector": [
+          {
+            "name": "babel",
+            "version": "2.9.0"
+          },
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.11.1"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "status": "PASS",
+      "role": "declaration",
+      "cell": {
+        "package": "mkdocs",
+        "python_minor": "3.12",
+        "extra_surface": [
+          "i18n"
+        ],
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "entered_verifier": true,
+      "evaluation": {
+        "status": "PASS",
+        "verifier_terminal": {
+          "kind": "normal-exit",
+          "exit_code": 0
+        },
+        "vector": [
+          {
+            "name": "babel",
+            "version": "2.9.0"
+          },
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.11.1"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "status": "PASS",
+      "role": "declaration",
+      "cell": {
+        "package": "mkdocs",
+        "python_minor": "3.8",
+        "extra_surface": [
+          "i18n"
+        ],
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "entered_verifier": true,
+      "evaluation": {
+        "status": "PASS",
+        "verifier_terminal": {
+          "kind": "normal-exit",
+          "exit_code": 0
+        },
+        "vector": [
+          {
+            "name": "babel",
+            "version": "2.9.0"
+          },
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "importlib-metadata",
+            "version": "4.4.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.11.1"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "status": "PASS",
+      "role": "declaration",
+      "cell": {
+        "package": "mkdocs",
+        "python_minor": "3.9",
+        "extra_surface": [
+          "i18n"
+        ],
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      "entered_verifier": true,
+      "evaluation": {
+        "status": "PASS",
+        "verifier_terminal": {
+          "kind": "normal-exit",
+          "exit_code": 0
+        },
+        "vector": [
+          {
+            "name": "babel",
+            "version": "2.9.0"
+          },
+          {
+            "name": "click",
+            "version": "7.0"
+          },
+          {
+            "name": "ghp-import",
+            "version": "1.0.0"
+          },
+          {
+            "name": "importlib-metadata",
+            "version": "4.4.0"
+          },
+          {
+            "name": "jinja2",
+            "version": "2.11.1"
+          },
+          {
+            "name": "markdown",
+            "version": "3.3.6"
+          },
+          {
+            "name": "markupsafe",
+            "version": "2.0.1"
+          },
+          {
+            "name": "mergedeep",
+            "version": "1.3.4"
+          },
+          {
+            "name": "mkdocs-get-deps",
+            "version": "0.2.0"
+          },
+          {
+            "name": "packaging",
+            "version": "20.5"
+          },
+          {
+            "name": "pathspec",
+            "version": "0.11.1"
+          },
+          {
+            "name": "pyyaml",
+            "version": "5.1"
+          },
+          {
+            "name": "pyyaml-env-tag",
+            "version": "0.1"
+          },
+          {
+            "name": "watchdog",
+            "version": "2.0.0"
+          }
+        ]
+      }
+    }
+  ],
+  "static_journal": [
+    {
+      "scope_ref": "3822b4f109815bc0b90dac55fc79e901",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "producer_kinds": []
+    },
+    {
+      "scope_ref": "d80638a76c105347b3eef6d6afed55f2",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "producer_kinds": []
+    },
+    {
+      "scope_ref": "5fc10f69276d5fa9a71e3372a58e35c4",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "producer_kinds": []
+    },
+    {
+      "scope_ref": "0353d2edd2725d3ba0143977b5131d00",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "producer_kinds": []
+    },
+    {
+      "scope_ref": "d8499c5534505e578b89f66938d2f863",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "producer_kinds": []
+    }
+  ],
+  "kind": "CheckPass",
+  "schema": "pf-static-guidance-qualification-v1",
+  "profile": "public-check-workflow-v1",
+  "recorded_at": "2026-09-08T01:33:25.607594+00:00",
+  "python": "3.10.16",
+  "cwd": "/home/llh/pf"
+}

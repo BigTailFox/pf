@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Iterable, Literal
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import Version
+from pydantic import ConfigDict
 
 from pf.errors import ConfigurationError, SearchSpaceResolutionError
 
@@ -242,6 +243,8 @@ def series_key(version: Version, family: Family) -> SeriesKey:
 
 @dataclass(frozen=True)
 class SpaceSelection:
+    __pydantic_config__ = ConfigDict(extra="forbid")
+
     expression: str
     reason: SelectionReason
     anchors: tuple[tuple[AnchorName, str], ...]

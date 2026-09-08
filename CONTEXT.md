@@ -141,7 +141,7 @@ _Avoid_: requested_resolution, Attempt kind
 
 **Verification Journal**
 
-一次 Verification Run 写入本机的 FailureRecord 记录；它不是 floor 报告。
+一次 Verification Run 写入本机的 FailureRecord 与独立静态审计区；静态审计不计失败，不是 floor 报告。
 
 _Avoid_: package-floor.json, Diagnosis Index
 
@@ -166,6 +166,18 @@ _Avoid_: head/tail, summary
 
 **Diagnosis Index**
 
-项目本地 `.pf/logs` 中把 FailureRecord 关联到相对 Process Log 路径的非证据索引。
+项目本地 `.pf/logs` 中把 FailureRecord 与静态 producer fact 关联到相对 Process Log 路径的非证据索引。
 
-_Avoid_: Report field, run ID
+_Avoid_: Report field, run ID, CLI selector
+
+**Static Probe**
+
+坐标内只采集/比较 ty 事实、不运行 configured verifier 的探测窗口。
+
+_Avoid_: Compatibility bound, oracle window
+
+**Oracle Probe**
+
+只消费直接动态证据的兼容性探测；静态 hint 只选择探针，不排除候选。
+
+_Avoid_: Witness, static rejection

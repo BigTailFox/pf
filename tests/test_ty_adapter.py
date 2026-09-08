@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 import json
 import os
 import sys
@@ -7,9 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from pf.adapters.ty import TyAdapter
+from pf.adapters.ty import TyOutputDecoder
 from pf.adapters.process import SubprocessRunner, read_process_output
-from pf.errors import ConfigurationError
 from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
@@ -23,7 +24,11 @@ class DiagnosticRunner:
     def __init__(self) -> None:
         self.spec: ProcessSpec | None = None
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(
+        self, spec: ProcessSpec, *, cancellation: Cancellation | None = None
+    ) -> ProcessResult:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.spec = spec
         output = json.dumps(
             [
@@ -56,42 +61,91 @@ class ResultRunner:
         self.result = result
         self.spec: ProcessSpec | None = None
 
-    def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
+    def run(
+        self, spec: ProcessSpec, *, cancellation: Cancellation | None = None
+    ) -> ProcessResult | ProcessTerminalUnavailable:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.spec = spec
         return self.result
 
 
-class TestTyAdapter:
-    def test_ty_adapter_handles_unavailable_process_terminal(
+def decode_process(runner, *, spec, snapshot_root, environment_root):
+    result = runner.run(spec)
+    return TyOutputDecoder(runner).decode(
+        result,
+        diagnostic_root=Path(spec.cwd),
+        snapshot_root=snapshot_root,
+        environment_root=environment_root,
+    )
+
+
+class TestTyOutputDecoder:
+    def test_decoder_handles_unavailable_process_terminal(
         self, tmp_path: Path
     ) -> None:
-        result = TyAdapter(ResultRunner(ProcessTerminalUnavailable())).check(
-            interpreter=tmp_path / ".venv/bin/python",
-            package=tmp_path,
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            ResultRunner(ProcessTerminalUnavailable()),
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / ".venv/bin/python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path),
+                ),
+                cwd=str(tmp_path),
+                timeout_seconds=600,
+            ),
+            snapshot_root=tmp_path,
+            environment_root=(tmp_path / ".venv/bin/python").parent.parent,
         )
 
         assert isinstance(result, ToolFailure)
         assert isinstance(result.process, ProcessTerminalUnavailable)
 
-    def test_ty_adapter_collects_snapshot_diagnostics_and_owns_target_argv(
+    def test_decoder_collects_snapshot_diagnostics(
         self,
         tmp_path: Path,
     ) -> None:
         runner = DiagnosticRunner()
-        adapter = TyAdapter(runner)
         interpreter = tmp_path / ".venv" / "bin" / "python"
 
-        result = adapter.check(
-            interpreter=interpreter,
-            package=tmp_path,
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=("--error", "possibly-unresolved-reference"),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(interpreter),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *("--error", "possibly-unresolved-reference"),
+                    str(tmp_path),
+                ),
+                cwd=str(tmp_path),
+                timeout_seconds=600,
+            ),
+            snapshot_root=tmp_path,
+            environment_root=(interpreter).parent.parent,
         )
 
         assert isinstance(result, TyCheck)
@@ -107,26 +161,8 @@ class TestTyAdapter:
         assert diagnostic.severity == "major"
         assert diagnostic.message == "Expected str, found int"
         assert runner.spec is not None
-        assert runner.spec.argv == (
-            "ty",
-            "check",
-            "--output-format",
-            "gitlab",
-            "--python",
-            interpreter.as_posix(),
-            "--python-version",
-            "3.11",
-            "--python-platform",
-            "linux",
-            "--no-progress",
-            "--color",
-            "never",
-            "--error",
-            "possibly-unresolved-reference",
-            tmp_path.as_posix(),
-        )
 
-    def test_ty_adapter_preserves_external_diagnostic_multiplicity_on_exit_zero(
+    def test_decoder_preserves_external_diagnostic_multiplicity_on_exit_zero(
         self,
         tmp_path: Path,
     ) -> None:
@@ -166,13 +202,31 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=environment / "bin" / "python",
-            package=package,
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(environment / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(package),
+                ),
+                cwd=str(package),
+                timeout_seconds=600,
+            ),
+            snapshot_root=package,
+            environment_root=(environment / "bin" / "python").parent.parent,
         )
 
         assert isinstance(result, TyCheck)
@@ -184,7 +238,7 @@ class TestTyAdapter:
             item.line is None and item.column is None for item in result.diagnostics
         )
 
-    def test_ty_adapter_namespaces_environment_paths_as_interpreter_files(
+    def test_decoder_namespaces_environment_paths_as_interpreter_files(
         self,
         tmp_path: Path,
     ) -> None:
@@ -213,19 +267,37 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=environment / "bin" / "python",
-            package=tmp_path / "source",
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(environment / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path / "source"),
+                ),
+                cwd=str(tmp_path / "source"),
+                timeout_seconds=600,
+            ),
+            snapshot_root=tmp_path / "source",
+            environment_root=(environment / "bin" / "python").parent.parent,
         )
 
         assert isinstance(result, TyCheck)
         assert result.diagnostics[0].path == "interpreter/lib/python3.11/os.pyi"
 
-    def test_ty_adapter_accepts_gitlab_lines_begin_without_a_column(
+    def test_decoder_accepts_gitlab_lines_begin_without_a_column(
         self, tmp_path: Path
     ) -> None:
         package = tmp_path / "source"
@@ -252,13 +324,33 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=tmp_path / "environment" / "bin" / "python",
-            package=package,
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / "environment" / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(package),
+                ),
+                cwd=str(package),
+                timeout_seconds=600,
+            ),
+            snapshot_root=package,
+            environment_root=(
+                tmp_path / "environment" / "bin" / "python"
+            ).parent.parent,
         )
 
         assert isinstance(result, TyCheck)
@@ -267,7 +359,7 @@ class TestTyAdapter:
         )
         assert result.diagnostics[0].column is None
 
-    def test_ty_adapter_resolves_relative_diagnostics_from_nested_package_cwd(
+    def test_decoder_resolves_relative_diagnostics_from_nested_package_cwd(
         self,
         tmp_path: Path,
     ) -> None:
@@ -296,68 +388,81 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=tmp_path / "environment" / "bin" / "python",
-            package=package,
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / "environment" / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(package),
+                ),
+                cwd=str(package),
+                timeout_seconds=600,
+            ),
             snapshot_root=tmp_path,
+            environment_root=(
+                tmp_path / "environment" / "bin" / "python"
+            ).parent.parent,
         )
 
         assert isinstance(result, TyCheck)
         assert result.diagnostics[0].path == "packages/demo/src/demo.py"
 
-    @pytest.mark.parametrize(
-        "args",
-        (
-            ("--output-format=concise",),
-            ("--python", "/usr/bin/python"),
-            ("--platform=darwin",),
-            ("--config-file", "ty.toml"),
-            ('--config=output_format="concise"',),
-            ("-c", 'output-format="concise"'),
-            ("--config", 'terminal.output_format="concise"'),
-            ("-c", 'environment.python-version="3.12"'),
-        ),
-    )
-    def test_ty_adapter_rejects_user_arguments_owned_by_the_adapter(
+    def test_real_ty_overrides_project_terminal_defaults(
         self,
         tmp_path: Path,
-        args: tuple[str, ...],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        runner = DiagnosticRunner()
-
-        with pytest.raises(ConfigurationError, match="adapter-owned ty option"):
-            TyAdapter(runner).check(
-                interpreter=tmp_path / "python",
-                package=tmp_path,
-                python_minor="3.11",
-                target="x86_64-unknown-linux-gnu",
-                args=args,
-                timeout_seconds=600,
-            )
-
-        assert runner.spec is None
-
-    @pytest.mark.parametrize("location", ("package", "snapshot"))
-    @pytest.mark.parametrize("settings", (
-        'output-format = "gitlab"',
-        'output-format = "concise"',
-    ))
-    def test_real_ty_overrides_project_terminal_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, location: str, settings: str) -> None:
-        monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
+        location = "package"
+        settings = 'output-format = "gitlab"'
+        monkeypatch.setenv(
+            "PATH",
+            str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
+        )
         package = tmp_path if location == "package" else tmp_path / "packages" / "demo"
         package.mkdir(parents=True, exist_ok=True)
         pyproject = tmp_path / "pyproject.toml"
-        source = '[tool.ty.terminal]\n' + settings + '\n'
+        source = "[tool.ty.terminal]\n" + settings + "\n"
         pyproject.write_text(source)
         (package / "demo.py").write_text('answer: int = "wrong"\n')
         runner = SubprocessRunner()
-        result = TyAdapter(runner).check(
-            interpreter=Path(sys.executable), package=package, python_minor="3.10",
-            target="x86_64-unknown-linux-gnu", args=(), timeout_seconds=30, snapshot_root=tmp_path,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(Path(sys.executable)),
+                    "--python-version",
+                    "3.10",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(package),
+                ),
+                cwd=str(package),
+                timeout_seconds=30,
+            ),
+            snapshot_root=tmp_path,
+            environment_root=(Path(sys.executable)).parent.parent,
         )
         assert isinstance(result, TyCheck), result.process
         assert result.process.exit_code == 1
@@ -367,47 +472,45 @@ class TestTyAdapter:
         assert "\x1b" not in output.stdout
         assert pyproject.read_text() == source
 
-    @pytest.mark.parametrize("config", ('[tool.ty]\nterminal = "invalid"\n', '[tool.ty.terminal]\ncolor = "always"\n'))
-    def test_real_ty_validates_invalid_project_configuration(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str) -> None:
-        monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
+    def test_real_ty_validates_invalid_project_configuration(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = '[tool.ty]\nterminal = "invalid"\n'
+        monkeypatch.setenv(
+            "PATH",
+            str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
+        )
         (tmp_path / "pyproject.toml").write_text(config)
-        result = TyAdapter(SubprocessRunner()).check(
-            interpreter=Path(sys.executable), package=tmp_path, python_minor="3.10",
-            target="x86_64-unknown-linux-gnu", args=(), timeout_seconds=30,
+        result = decode_process(
+            SubprocessRunner(),
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(Path(sys.executable)),
+                    "--python-version",
+                    "3.10",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path),
+                ),
+                cwd=str(tmp_path),
+                timeout_seconds=30,
+            ),
+            snapshot_root=tmp_path,
+            environment_root=(Path(sys.executable)).parent.parent,
         )
         assert isinstance(result, ToolFailure)
         assert result.cause == "TOOL_FAILURE"
         assert isinstance(result.process, ProcessResult)
         assert result.process.exit_code != 0
-
-    @pytest.mark.parametrize(
-        ("target", "platform"),
-        (
-            ("aarch64-apple-darwin", "darwin"),
-            ("x86_64-pc-windows-msvc", "win32"),
-            ("wasm32-unknown-unknown", "all"),
-        ),
-    )
-    def test_ty_adapter_maps_supported_and_unknown_targets(
-        self,
-        tmp_path: Path,
-        target: str,
-        platform: str,
-    ) -> None:
-        runner = DiagnosticRunner()
-
-        TyAdapter(runner).check(
-            interpreter=tmp_path / "python",
-            package=tmp_path,
-            python_minor="3.10",
-            target=target,
-            args=(),
-            timeout_seconds=None,
-        )
-
-        assert runner.spec is not None
-        option = runner.spec.argv.index("--python-platform")
-        assert runner.spec.argv[option + 1] == platform
 
     @pytest.mark.parametrize(
         ("exit_code", "timed_out", "expected"),
@@ -418,7 +521,7 @@ class TestTyAdapter:
             (None, True, "TIMEOUT"),
         ),
     )
-    def test_ty_adapter_preserves_non_diagnostic_terminal_states(
+    def test_decoder_preserves_non_diagnostic_terminal_states(
         self,
         tmp_path: Path,
         exit_code: int | None,
@@ -426,7 +529,11 @@ class TestTyAdapter:
         expected: str,
     ) -> None:
         class Runner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(
+                self, spec: ProcessSpec, *, cancellation: Cancellation | None = None
+            ) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(
                     exit_code=exit_code,
                     signal=None if exit_code is not None else 9,
@@ -436,13 +543,31 @@ class TestTyAdapter:
                     timed_out=timed_out,
                 )
 
-        result = TyAdapter(Runner()).check(
-            interpreter=tmp_path / "python",
-            package=tmp_path,
-            python_minor="3.10",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=None,
+        result = decode_process(
+            Runner(),
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / "python"),
+                    "--python-version",
+                    "3.10",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path),
+                ),
+                cwd=str(tmp_path),
+                timeout_seconds=None,
+            ),
+            snapshot_root=tmp_path,
+            environment_root=(tmp_path / "python").parent.parent,
         )
 
         observed = result.cause if isinstance(result, ToolFailure) else result.status
@@ -528,7 +653,7 @@ class TestTyAdapter:
             ("[]", True),
         ),
     )
-    def test_ty_adapter_rejects_incomplete_or_malformed_gitlab_output(
+    def test_decoder_rejects_incomplete_or_malformed_gitlab_output(
         self,
         tmp_path: Path,
         document: str,
@@ -545,19 +670,39 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=tmp_path / "environment" / "bin" / "python",
-            package=tmp_path / "source",
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / "environment" / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path / "source"),
+                ),
+                cwd=str(tmp_path / "source"),
+                timeout_seconds=600,
+            ),
+            snapshot_root=tmp_path / "source",
+            environment_root=(
+                tmp_path / "environment" / "bin" / "python"
+            ).parent.parent,
         )
 
         assert isinstance(result, ToolFailure)
         assert result.cause == "TOOL_FAILURE"
 
-    def test_ty_adapter_namespaces_external_paths_outside_the_environment(
+    def test_decoder_namespaces_external_paths_outside_the_environment(
         self,
         tmp_path: Path,
     ) -> None:
@@ -588,13 +733,33 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=tmp_path / "environment" / "bin" / "python",
-            package=tmp_path / "source",
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / "environment" / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path / "source"),
+                ),
+                cwd=str(tmp_path / "source"),
+                timeout_seconds=600,
+            ),
+            snapshot_root=tmp_path / "source",
+            environment_root=(
+                tmp_path / "environment" / "bin" / "python"
+            ).parent.parent,
         )
 
         assert isinstance(result, TyCheck)
@@ -604,7 +769,7 @@ class TestTyAdapter:
             "typeshed/stdlib/demo.pyi",
         ]
 
-    def test_ty_adapter_rejects_an_external_path_without_a_stable_namespace(
+    def test_decoder_rejects_an_external_path_without_a_stable_namespace(
         self,
         tmp_path: Path,
     ) -> None:
@@ -631,13 +796,33 @@ class TestTyAdapter:
             )
         )
 
-        result = TyAdapter(runner).check(
-            interpreter=tmp_path / "environment" / "bin" / "python",
-            package=tmp_path / "source",
-            python_minor="3.11",
-            target="x86_64-unknown-linux-gnu",
-            args=(),
-            timeout_seconds=600,
+        result = decode_process(
+            runner,
+            spec=ProcessSpec(
+                argv=(
+                    "ty",
+                    "check",
+                    "--output-format",
+                    "gitlab",
+                    "--python",
+                    str(tmp_path / "environment" / "bin" / "python"),
+                    "--python-version",
+                    "3.11",
+                    "--python-platform",
+                    "linux",
+                    "--no-progress",
+                    "--color",
+                    "never",
+                    *(),
+                    str(tmp_path / "source"),
+                ),
+                cwd=str(tmp_path / "source"),
+                timeout_seconds=600,
+            ),
+            snapshot_root=tmp_path / "source",
+            environment_root=(
+                tmp_path / "environment" / "bin" / "python"
+            ).parent.parent,
         )
 
         assert isinstance(result, ToolFailure)

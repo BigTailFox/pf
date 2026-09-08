@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+
 from pathlib import Path
 from threading import Lock
 import time
@@ -7,8 +9,12 @@ from typing import Literal, cast
 
 import pytest
 
-from evaluation_fixtures import evaluation_assembly, successful_process
+from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
 
+from pf.schemas.ty_fact import TyCheckUnavailable
+from pf.schemas.static import StaticContentUnavailable
+from scripted_static import ScriptedStaticRequests
+from pf.evaluation import StaticEvaluator
 from pf.check import CompatibilityChecker
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
@@ -32,15 +38,16 @@ from pf.schemas.evaluation import (
     ExecutionFailure,
     Unattributed,
     TyCheck,
-    ty_diagnostic_digest,
+    TyDiagnostic,
 )
 from pf.schemas.evaluation import (
-    StaticUnchangedEvaluation,
+    TimedOut,
+    VerifierIndeterminate,
     VerifierPass,
     VerifierRejected,
     VerifierRun,
 )
-from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan
+from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan, VersionPin
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
 from pf.errors import ConfigurationError
@@ -71,13 +78,6 @@ def tool_failure() -> ToolFailure:
 
 
 def passing_check(cell: Cell) -> PassEvaluation:
-    process = ProcessResult(
-        exit_code=0,
-        signal=None,
-        duration_seconds=0,
-        stdout="",
-        stderr="",
-    )
     proposal = Proposal(
         proposal_id="proposal",
         snapshot_digest="snapshot",
@@ -89,12 +89,7 @@ def passing_check(cell: Cell) -> PassEvaluation:
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=process, diagnostics=()),
-            baseline_digest=ty_diagnostic_digest(()),
-            incremental=(),
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
@@ -112,7 +107,7 @@ def attempt_for(
             requested_managed_vector=None,
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
             resolution_context_digest="context",
             harness_policy_identity=(
                 "original-harness-v1"
@@ -182,7 +177,7 @@ platforms = ["x86_64-unknown-linux-gnu"]
 class TestCompatibilityChecker:
     @pytest.mark.parametrize("test_command", (False, True))
     def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
-        self,
+        self, run_cache,
         tmp_path: Path,
         test_command: bool,
     ) -> None:
@@ -196,7 +191,7 @@ class TestCompatibilityChecker:
             static=assembly.static,
             full=assembly.runtime,
             events=events,
-        ).check(
+        ).check(run_cache=run_cache,
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
@@ -214,12 +209,101 @@ class TestCompatibilityChecker:
             for event in events.items
             if isinstance(event, CellContextEvent)
         ] == [DeclarationDetailIdentity()]
-        assert assembly.ty.vectors == [(), ()]
+        assert assembly.ty.vectors == [()]
         assert assembly.verifier.vectors == [()]
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
+    @pytest.mark.parametrize("uncollected", (None, "highest", "lowest-direct"))
+    def test_check_retains_global_multiset_comparison_in_scope(
+        self, run_cache, tmp_path: Path, uncollected: str | None,
+    ) -> None:
+        project = evaluation_project(tmp_path, dependency="demo-dep")
+        diagnostic = TyDiagnostic(
+            identity="snapshot|demo.py|1|1|invalid-type", origin="snapshot", path="demo.py",
+            line=1, column=1, code="invalid-type", severity="major", message="invalid type",
+        )
+        assembly = evaluation_assembly(
+            lowest=(VersionPin(name="demo-dep", version="1"),),
+            ty_handler=lambda vector, call: TyCheck(
+                process=successful_process(exit_code=1),
+                diagnostics=(diagnostic,) * (3 if vector[0].version == "1" else 1),
+            ),
+        )
+
+        class Requests(ScriptedStaticRequests):
+            def capture(self, prepared, **kwargs):
+                if prepared.attempt.identity.requested_resolution == uncollected:
+                    return StaticContentUnavailable(detail="unreadable-content")
+                return super().capture(prepared, **kwargs)
+
+        result = CompatibilityChecker(
+            environments=assembly.environments,
+            static=StaticEvaluator(assembly.ty, requests=Requests()), full=assembly.runtime,
+        ).check(
+            package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
+            source_plan=project.source_plan, run_cache=run_cache,
+        )
+        assert result.status == "PASS"
+        assert result.evaluation is not None
+        assert result.evaluation.proposal.managed_vector == (VersionPin(name="demo-dep", version="1"),)
+        assert len(assembly.verifier.vectors) == 1
+        scope = run_cache.snapshot(project.package.cells[0])
+        assert len(scope.facts) == (2 if uncollected is None else 1)
+        if uncollected == "lowest-direct":
+            assert scope.comparisons == ()
+            assert scope.passes == ()
+        else:
+            assert len(scope.comparisons) == 1
+            comparison = scope.comparisons[0]
+            assert comparison.context.kind == "GLOBAL"
+            if uncollected == "highest":
+                assert scope.highest_uncollected is not None
+                assert scope.highest_uncollected.unavailable.detail == "unreadable-content"
+                assert comparison.reference_ref is None
+                assert comparison.result.status == "UNCOMPARED"
+                assert comparison.result.reason == "reference-unavailable"
+            else:
+                assert comparison.reference_ref == scope.highest_reference_ref
+                assert comparison.result.status == "COMPARED"
+                assert comparison.result.state == "STATIC_REGRESSION"
+                assert comparison.result.incremental_identities == (diagnostic.identity,) * 2
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_check_preserves_capture_when_lowest_preparation_fails(self, run_cache, tmp_path: Path) -> None:
+        project = evaluation_project(tmp_path)
+        lowest = (VersionPin(name="demo-dep", version="1"),)
+        assembly = evaluation_assembly(
+            lowest=lowest,
+            ty_handler=lambda vector, call: ToolFailure(
+                cause="TOOL_FAILURE", stage="ty", process=successful_process(exit_code=2)
+            ),
+        )
+        assembly.uv.install_failures_by_vector[lowest] = OperationFailureResult(
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
+            stage="install-project", process=successful_process(exit_code=2),
+        )
+        result = CompatibilityChecker(
+            environments=assembly.environments, static=assembly.static, full=assembly.runtime
+        ).check(run_cache=run_cache,
+            package=project.package, cell=project.package.cells[0],
+            snapshot=project.snapshot, source_plan=project.source_plan,
+        )
+        assert result.status == "REJECTED"
+        assert result.role == "declaration"
+        assert result.evaluation is None
+        assert result.failure is not None
+        assert result.failure.stage == "install-project"
+        scope = run_cache.snapshot(project.package.cells[0])
+        assert scope.highest_reference_ref is not None
+        assert isinstance(scope.facts[0].observation.fact, TyCheckUnavailable)
+        assert scope.facts[0].observation.fact.reason == "exit-code"
+        assert assembly.uv.resolutions == ["highest", "lowest-direct"]
+        assert len(assembly.ty.vectors) == 1
+        assert assembly.verifier.vectors == []
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
     def test_check_highest_prepare_failure_does_not_start_lowest_direct(
-        self,
+        self, run_cache,
         tmp_path: Path,
     ) -> None:
         package, snapshot = write_check_project(tmp_path)
@@ -241,7 +325,7 @@ class TestCompatibilityChecker:
             static=assembly.static,
             full=assembly.runtime,
             events=events,
-        ).check(
+        ).check(run_cache=run_cache,
             package=package,
             cell=cell,
             snapshot=snapshot,
@@ -293,7 +377,7 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> CheckCellOutcome:
                 seen.append(cell.target)
                 return indeterminate_outcome(cell)
@@ -336,7 +420,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -391,7 +475,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> Evaluation:
                 raise AssertionError(
                     "invalid configuration must fail before evaluation"
@@ -412,28 +496,38 @@ class TestCheckWorkflow:
 
     @pytest.mark.parametrize(
         "evaluation_status",
-        ("VERIFIER_REJECTED", "INDETERMINATE"),
+        ("PASS", "VERIFIER_REJECTED", "INDETERMINATE"),
     )
-    def test_check_preserves_compatibility_and_indeterminate_outcomes(
-        self,
+    @pytest.mark.parametrize("failed_collections", ((), (1,), (2,), (1, 2)))
+    def test_check_preserves_configured_verifier_outcomes(
+        self, run_cache,
         tmp_path: Path,
         evaluation_status: str,
+        failed_collections: tuple[int, ...],
     ) -> None:
-        package, snapshot = write_check_project(tmp_path)
+        project = evaluation_project(tmp_path, dependency="demo-dep")
+        package, snapshot = project.package, project.snapshot
         assembly = evaluation_assembly(
-            highest=(),
-            lowest=(),
+            lowest=(VersionPin(name="demo-dep", version="1"),),
             ty_handler=lambda vector, call: (
                 ToolFailure(
                     cause="TOOL_FAILURE",
                     stage="ty",
                     process=successful_process(exit_code=2),
                 )
-                if evaluation_status == "INDETERMINATE" and call == 2
+                if call in failed_collections
                 else TyCheck(process=successful_process(), diagnostics=())
             ),
             verifier_handler=lambda vector, call: VerifierRun(
-                authoritative=VerifierRejected(terminal=NormalExit(exit_code=1))
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0))
+                    if evaluation_status == "PASS"
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                    if evaluation_status == "VERIFIER_REJECTED"
+                    else VerifierIndeterminate(
+                        terminal=TimedOut(), reason="process-timed-out"
+                    )
+                )
             ),
         )
 
@@ -441,7 +535,7 @@ class TestCheckWorkflow:
             environments=assembly.environments,
             static=assembly.static,
             full=assembly.runtime,
-        ).check(
+        ).check(run_cache=run_cache,
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
@@ -451,27 +545,40 @@ class TestCheckWorkflow:
         assert (
             result.status
             == {
+                "PASS": "PASS",
                 "VERIFIER_REJECTED": "REJECTED",
                 "INDETERMINATE": "INDETERMINATE",
             }[evaluation_status]
         )
         assert result.role == "declaration"
         assert result.attempt.identity.requested_resolution == "lowest-direct"
-        assert result.failure is not None
-        assert (
-            result.failure.cause
-            == {
-                "VERIFIER_REJECTED": "VERIFIER_EXITED_NONZERO",
-                "INDETERMINATE": "TOOL_FAILURE",
-            }[evaluation_status]
-        )
-        assert (
-            result.failure.stage
-            == {
-                "VERIFIER_REJECTED": "test",
-                "INDETERMINATE": "ty",
-            }[evaluation_status]
-        )
+        assert result.evaluation is not None
+        scope = run_cache.snapshot(package.cells[0])
+        assert len(scope.facts) == 2
+        assert len(scope.comparisons) == 1
+        comparison = scope.comparisons[0]
+        assert comparison.context.kind == "GLOBAL"
+        assert comparison.reference_ref == scope.highest_reference_ref
+        if 2 in failed_collections:
+            assert comparison.result.status == "UNAVAILABLE"
+        elif 1 in failed_collections:
+            assert comparison.result.status == "UNCOMPARED"
+            assert comparison.result.reason == "reference-unavailable"
+        else:
+            assert comparison.result.status == "COMPARED"
+            assert comparison.result.state == "STATIC_UNCHANGED"
+        if evaluation_status == "PASS":
+            assert result.failure is None
+        else:
+            assert result.failure is not None
+            assert result.failure.cause == (
+                "VERIFIER_EXITED_NONZERO"
+                if evaluation_status == "VERIFIER_REJECTED"
+                else "TIMEOUT"
+            )
+            assert result.failure.stage == "test"
+            assert result.failure.authority.kind == "configured-verifier"
+        assert assembly.verifier.vectors == [(VersionPin(name="demo-dep", version="1"),)]
         assert assembly.uv.resolutions == ["highest", "lowest-direct"]
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
@@ -490,7 +597,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> CheckCellOutcome:
                 if indeterminate:
                     return indeterminate_outcome(cell)
@@ -550,7 +657,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -612,7 +719,7 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan,
+                source_plan: SourcePlan, run_cache: TyCheckCache,
             ) -> CheckCellOutcome:
                 nonlocal active, maximum_active
                 with lock:

@@ -1374,12 +1374,14 @@ class TestResultCardWidths:
                 force_terminal=True,
                 color_system=None,
                 width=width,
+                height=25,
             ),
             stderr=Console(
                 file=stderr,
                 force_terminal=True,
                 color_system=None,
                 width=width,
+                height=25,
             ),
             root=tmp_path,
         )
@@ -1407,6 +1409,7 @@ class TestResultCardWidths:
                 force_terminal=True,
                 color_system=None,
                 width=width,
+                height=25,
             ),
             stderr=Console(file=StringIO(), force_terminal=False),
         )

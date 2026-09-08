@@ -1,8 +1,8 @@
 # PF 统一验证运行语义
 
 - **状态：** 现行
-- **Journal：** `verification-journal-v2`
-- **最后核对：** 2026-09-06
+- **Journal：** `verification-journal-v3`
+- **最后核对：** 2026-09-08
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -85,8 +85,8 @@ prepare(highest, original harness, DEVELOPMENT)
 -> close
 ```
 
-使用 `HighestVersionVerifier`，复用 capture 的 TyCheck，只运行一次完整 test-command，不运行 witness
-或 candidate discovery；写 Journal，不读写 floor report。
+使用 `HighestVersionVerifier`，复用 capture 的 TyCheck（若可用），只运行一次完整 test-command，
+不运行 candidate discovery；写 Journal，不读写 floor report。ty 不可用仍进入 verifier。
 
 ### 3.2 Check
 
@@ -153,7 +153,7 @@ Workflow继续拥有project load、snapshot build/close、SourcePlan构造、sta
 post-run source drift、report build/update与report-generation association replacement。Runner不关闭、
 materialize或重建snapshot，也不拥有report ID。
 
-`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。Runtime witness、uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。
+`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。capture 前创建 Run ty cache。Journal v3 独立静态审计区不计失败；Diagnosis Index 用 typed producer keys 关联静态日志。diagnose 只展示与 Failure 合法关联的静态材料。
 
 ## 5. Activity 与 completion
 
@@ -223,7 +223,7 @@ Rejected 聚合为 `COMPATIBILITY_FAILED`；否则任一 Indeterminate 聚合为
 
 ## 7. Verification Journal
 
-V2 位置：
+V3 位置：
 
 ```text
 .pf/logs/<run-id>/journal.json
@@ -232,20 +232,30 @@ V2 位置：
 结构：
 
 ```text
-schema = verification-journal-v2
+schema = verification-journal-v3
 run_id
 command = smoke | check | search
 source_snapshot_digest
 package_policies[]
   package
-  evaluation_policy_identity
+  execution_policy_identity
 entries[]
   package
   Cell
   Role
   Attempt?       CellFailureScope 时省略
   FailureRecord v3 authority
+static_contents[] / static_subjects[] / static_facts[] / static_comparisons[]
+static_scopes[]
+  run_id
+  scope
+    scope_ref / Cell
+    processes[] / facts[] / consumers[] / passes[] / comparisons[]
+    highest_reference_ref | highest_uncollected
 ```
+
+磁盘上的静态审计与报告相同：原始内容、subject、TyCheck 与比较 intern 到文档级 table；
+scope 只保留 membership。Writer/reader 拒绝嵌入完整 subject 的旧 intern 形状。
 
 磁盘字段为 `schema`；内存 `VerificationJournal` 字段为 `schema_version`，由 RunLogStore 编解码。
 
@@ -254,8 +264,17 @@ entries[]
 Journal 不保存 stdout/stderr、完整 Evaluation、`RuntimeEvaluationRun` diagnostics、absolute path
 或 report refs。对于同一 Failure ID，其展开后的 `FailureAuthority` 必须与 D014 report 完全
 一致。Process 原文在 D007 Process Log；search 的完整 portable evidence 在 D014 report。
-Writer 只写 V2；`verification-journal-v1` 仅作历史本机日志的严格 reader compatibility，不是
-第二个写 contract。
+Writer 与 reader 仅接受 V3，不保留历史 reader。`schemas/journal.py` 拥有 Journal 模型；
+RunLogStore 拒绝与自身 run_id 不同的写入。无法解码或不支持的 contract 返回
+`JournalReadError(reason="unsupported-journal-contract")`；非法静态 scope、引用、比较或
+Run/Cell/source/policy 关联返回 `invalid-static-evidence`，不能静默当作没有 Journal。
+
+静态审计独立于 Failure entries，不增加兼容性失败计数。每个 scope 绑定 Journal 的 run_id、
+唯一 Cell 与该包的执行策略/源码；raw producer、consumer、PASS 和 comparison 的闭包由共享
+静态模型复证。最高输入不可采集时保留实际 Attempt/Proposal 与原因，不补造 raw fact/process。
+Run 收尾先 stop/drain，保存全部已完成 scope，再关闭 cache；操作异常也执行此收尾。
+即使没有 Failure，仍保存该 Run 的静态审计。Journal 是完整审计文档，读取必须覆盖 writer
+保存的全部 scope，不能沿用小型元数据的大小上限将已写入文档当成不存在。
 
 ## 8. Diagnosis Index 与 report association
 
@@ -264,10 +283,14 @@ Writer 只写 V2；`verification-journal-v1` 仅作历史本机日志的严格 r
 ```text
 latest_journal[package] = run_id
 (run_id, failure_id) -> relative Process Log
+(run_id, scope_ref, process_ref) -> static scope member Process Log
 (report_generation_id, failure_id) -> relative Process Log
 ```
 
 不得扫描 run directories 或按 output text 猜 locator。新 Verification Run 替换对应 package 的 `latest_journal`。
+静态 process association 使用独立索引命名空间，按已准入 scope 的 process member 解析；
+不伪装成 Failure ID，也不把 producer 日志改挂到命中同一事实的 consumer。重写同一 Run 的
+portable Journal 时保留已有静态日志关联；导入另一目录的 portable 数据可以没有本机日志。
 
 Search 必须先成功更新单target report path，再用该`ReportUpdate`更新report-side associations：
 

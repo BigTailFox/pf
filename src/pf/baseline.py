@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+from pf.schemas.static import StaticContentUnavailable
+from pf.schemas.static_baseline import StaticUncollectedBaseline
+
 from pf.environment import EnvironmentFactory, HighestResolution
 from pf.evaluation import RuntimeEvaluator, StaticEvaluator
 from pf.failure import FailurePolicy
@@ -41,6 +45,7 @@ class HighestVersionVerifier:
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
+        run_cache: TyCheckCache,
     ) -> HighestVersionOutcome:
         prepared = self._environments.prepare(
             package=package,
@@ -63,35 +68,27 @@ class HighestVersionVerifier:
                 failure_process=prepared.process,
             )
         try:
-            capture = self._static.capture(prepared, package=package)
-            if isinstance(capture, IndeterminateEvaluation):
-                assert capture.failure is not None
-                return BaselineIndeterminate(
-                    attempt=prepared.attempt,
-                    failure=self._failures.classify(
-                        scope=AttemptFailureScope(attempt=prepared.attempt),
-                        cause=capture.cause,
-                        stage=capture.failure.stage,
-                        process=capture.failure.process,
-                        summary_code=capture.failure.summary_code,
-                        project_plan_digest=prepared.project_plan.semantic_digest,
-                        environment_plan_digest=prepared.environment_identity.environment_plan_digest,
-                    ),
-                    evaluation=capture,
-                )
+            capture = self._static.collect_prepared(prepared, package=package, run_cache=run_cache)
+            if isinstance(capture, StaticContentUnavailable):
+                run_cache.set_highest_uncollected(StaticUncollectedBaseline(
+                    attempt=prepared.attempt, proposal=prepared.proposal, unavailable=capture,
+                ))
+            else:
+                assert prepared.static_consumer is not None
+                run_cache.set_highest(prepared.static_consumer)
             run = self._full.evaluate(
                 prepared,
                 package=package,
-                baseline=capture.baseline,
-                static_result=capture.static,
+
+                run_cache=run_cache,
             )
             evaluation = run.evaluation
             if isinstance(evaluation, PassEvaluation):
                 return HighestVersionPass(
                     attempt=prepared.attempt,
-                    baseline=capture.baseline,
                     harness_baseline=prepared.harness_baseline,
                     evaluation=evaluation,
+
                 )
             failure = self._failures.record_evaluation(
                 AttemptFailureScope(attempt=prepared.attempt),
@@ -105,16 +102,18 @@ class HighestVersionVerifier:
                 return BaselineRejection(
                     attempt=prepared.attempt,
                     failure=failure,
-                    static_baseline=capture.baseline,
+
                     evaluation=evaluation,
+
                     runtime=run,
                 )
             assert isinstance(evaluation, IndeterminateEvaluation)
             return BaselineIndeterminate(
                 attempt=prepared.attempt,
                 failure=failure,
-                static_baseline=capture.baseline,
+
                 evaluation=evaluation,
+
                 runtime=run,
             )
         finally:

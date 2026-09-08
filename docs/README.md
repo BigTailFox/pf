@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-06（源码与文档核对；不表示重新完成运行资格矩阵）
+- **最后核对：** 2026-09-08（D038/P042 已归档；稳定规则由现行 owner 接管）
 
 本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛由 [AGENTS.md](../AGENTS.md) 拥有。
 
@@ -52,8 +52,8 @@ Plan 完成、临时 Design 被 owner 吸收、Review 问题解决或明确移�
 | --- | --- |
 | [D001](designs/D001-pf.md) | 产品承诺、声明/Cell 准入、命令/通用配置、统一 artifact policy、apply 条件、数值退出码 |
 | [D002](designs/D002-pf-implementation.md) | 模块 interface、依赖方向、composition、资源/持久化 owner 与测试 seam |
-| [D003](designs/D003-pf-search-algorithm.md) | 单 Cell 搜索、probe、static region、执行复用、边界与终止 |
-| [D004](designs/D004-pf-ty-enhancement.md) | ty 基线、诊断 identity、static transition、runtime witness 与静态策略子对象 |
+| [D003](designs/D003-pf-search-algorithm.md) | 单 Cell 两阶段搜索、direct fast path、独立 static/oracle 窗口、执行复用、边界与终止 |
+| [D004](designs/D004-pf-ty-enhancement.md) | 规范静态投影、原始 TyCheck/Unavailable、Run 缓存、S_hi/S_slice 比较准入与 GuidancePolicy |
 | [D005](designs/D005-pf-failure-and-diagnose.md) | Attempt/failure scope、disposition/cause、执行事实资格、FailureRecord identity、诊断 title/next step |
 | [D006](designs/D006-pf-cli-enhancement.md) | 通道、live/final Cell、summary、explain/diagnose 展示；[附录](designs/appendices/D006-visual-specification.md) 固定 help 文案与视觉细则 |
 | [D007](designs/D007-pf-process-output.md) | ProcessObservation、Process Log、Output Cache、完整性、脱敏与安全读取 |
@@ -81,7 +81,7 @@ Plan 完成、临时 Design 被 owner 吸收、Review 问题解决或明确移�
 <a id="uv-resolution-output-completeness"></a>
 
 成功解析日志完整性开放项的稳定入口为 [C003](concepts/C003-pf-resolution-output-completeness.md)。
-目前没有进行中的临时 Design 或 Plan。原 D031 拆至 C001，编号不复用。
+原 D031 拆至 C001，编号不复用。
 
 ## 5. 历史证据与归档入口
 
@@ -95,6 +95,7 @@ Plan 完成、临时 Design 被 owner 吸收、Review 问题解决或明确移�
 | [E006](experiments/E006-requests-complete-search.md) | requests 两阶段完整 search 与 smoke/check 记录 |
 | [E007](experiments/E007-mkdocs-baseline-and-build-failures.md) | MkDocs 基线/build 调查；后续 D036/P041 已完成，不表示重跑了 MkDocs search |
 | [E008](experiments/E008-mkdocs-complete-search.md) | MkDocs 5-Cell smoke/check/search 完整记录、最终 PASS 与 witness 目标错配发现 |
+| [E009](experiments/E009-mkdocs-static-guidance.md) | 静态 guidance 后 MkDocs check/search 资格；check 声明下界进入原 unittest，intern 后 search 经 64 MiB reader 复证 |
 
 既有 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。
 补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)；

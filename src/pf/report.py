@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.schemas.static_scope import StaticScopeEvidence, intern_static_scopes, resolve_static_scopes
+
 from dataclasses import dataclass, field
 import json
 import os
@@ -19,7 +21,13 @@ from pf.candidates import candidate_policy_identity, candidate_series_key
 from pf.search_space import bind_policy, evaluate_series, SeriesSpace, SpaceSelection
 from packaging.specifiers import SpecifierSet
 from pf import __version__
-from pf.policy import evaluation_policy_identity
+from pf.policy import (
+    execution_policy,
+    guidance_policy_identity,
+    report_provenance_identity,
+    search_derivation_identity,
+)
+from pf.schemas.policy import ExecutionPolicy
 from pf.schemas.config import EffectiveConfig, ResolutionConfig
 from pf.schemas.evaluation import (
     Attempt,
@@ -33,12 +41,6 @@ from pf.schemas.evaluation import (
     IndeterminateEvaluation,
     NormalExit,
     PassEvaluation,
-    RuntimeInterfaceMissingEvaluation,
-    RuntimeWitnessAttempt,
-    RuntimeWitnessResult,
-    StaticBaseline,
-    StaticRegressionEvaluation,
-    StaticUnchangedEvaluation,
     Signaled,
     StartFailed,
     TimedOut,
@@ -46,7 +48,6 @@ from pf.schemas.evaluation import (
     VerifierPass,
     VerifierRejected,
     VerifierRejectedEvaluation,
-    ToolFailure,
 )
 from pf.resolution import environment_identity_digest, resolution_graph_id
 from pf.markers import MarkerError, PortableMarker, evaluate_contextual_marker, platform_marker_facts
@@ -96,13 +97,6 @@ from pf.schemas.report import (
     ProbeIndeterminate,
     ProbeRejection,
     ProbeObservation,
-    StaticOnlyEvidence,
-    StaticOnlyEvidenceV1,
-    StaticRegion,
-    StaticRegionSlice,
-    StaticRegionV1,
-    StaticRegionRuntimeReference,
-    StaticRegionRuntimeReferenceV1,
     CellResult,
     CellSearchFailure,
     CellSearchFailureV1,
@@ -124,20 +118,13 @@ from pf.schemas.report import (
     TargetCellV1,
     PassEvaluationV1,
     IndeterminateEvaluationV1,
-    RuntimeInterfaceMissingEvaluationV1,
-    RuntimeWitnessAttemptV1,
-    RuntimeWitnessPositiveV1,
-    RuntimeWitnessTerminalV1,
     ProposalV1,
     ResolutionGraphV1,
-    StaticUnchangedEvaluationV1,
-    StaticRegressionEvaluationV1,
     VerifierRejectedEvaluationV1,
     CandidateSnapshotV1,
     SeriesInventoryV1,
     failure_records_for_result,
     report_generation_id,
-    static_region_id,
 )
 
 CellKey = tuple[str, str, str, tuple[str, ...]]
@@ -240,6 +227,8 @@ def _is_public_artifact(artifact: AvailableArtifact) -> bool:
     return artifact.locator is None or _is_public_locator(artifact.locator)
 
 
+
+
 @dataclass(frozen=True)
 class FailureContext:
     cell: Cell
@@ -266,11 +255,15 @@ class ValidatedReport:
     package: PackageIdentity
     source_snapshot: SourceSnapshotIdentity
     policy_identity: str
+    guidance_policy_identity: str
+    search_derivation_identity: str
+    execution_policy: ExecutionPolicy
     verifier_outcome_policy: Literal["configured-verifier-terminal-v1"]
     source_plan: SourcePlan
     requirement_declarations: tuple[RequirementDeclaration, ...]
     target_cells: tuple[Cell, ...]
     cell_results: tuple[CellResult, ...]
+    static_scopes: tuple[StaticScopeEvidence, ...]
     projection_evidence: tuple[ProjectionEvidence, ...]
     result: CompleteReportResult | IncompleteReportResult
     failure_records: tuple[FailureRecord, ...]
@@ -379,9 +372,16 @@ class PackageReportBuilder:
         source_plan: SourcePlan,
         source_snapshot: SourceSnapshotIdentity,
         cell_results: tuple[CellResult, ...],
+        static_scopes: tuple[StaticScopeEvidence, ...] = (),
         _generator: GeneratorIdentity | None = None,
         _policy_identity: str | None = None,
+        _execution_policy: ExecutionPolicy | None = None,
     ) -> ValidatedReport:
+        ordered_static_scopes = tuple(sorted(static_scopes, key=lambda scope: scope.scope_ref))
+        try:
+            interned = intern_static_scopes(ordered_static_scopes)
+        except ValueError as error:
+            raise ConfigurationError(f"invalid static evidence: {error}") from error
         if source_plan.source_mode != "SEARCH":
             raise ConfigurationError("report source plan must use SEARCH mode")
         if source_plan.routes != package.source_routes:
@@ -451,9 +451,10 @@ class PackageReportBuilder:
             pyproject_path=package.pyproject_path,
             requires_python=package.requires_python,
         )
-        policy_identity = _policy_identity or self._policy_identity(
-            package, cell_results
-        )
+        policy_identity = _policy_identity or report_provenance_identity(package.config)
+        execution = _execution_policy or execution_policy(package.config)
+        guidance_identity = guidance_policy_identity(package.config)
+        derivation_identity = search_derivation_identity(package.config)
         search_policy = SearchPolicyInputs.from_package(package)
         declarations = tuple(
             sorted(package.declarations, key=lambda item: item.declaration_id)
@@ -464,6 +465,9 @@ class PackageReportBuilder:
             package=package_identity,
             source_snapshot=source_snapshot,
             policy_identity=policy_identity,
+            execution_policy_identity=execution.identity,
+            guidance_policy_identity=guidance_identity,
+            search_derivation_identity=derivation_identity,
             verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
             source_plan=source_plan,
             requirement_declarations=declarations,
@@ -533,7 +537,7 @@ class PackageReportBuilder:
             self._wire_attempt(
                 attempt_by_id[attempt_id],
                 source_snapshot=source_snapshot,
-                policy_identity=policy_identity,
+                policy_identity=execution.identity,
             )
             for attempt_id in sorted(attempt_by_id)
         )
@@ -541,7 +545,7 @@ class PackageReportBuilder:
             self._wire_failure(
                 failure_by_id[failure_id],
                 source_snapshot=source_snapshot,
-                policy_identity=policy_identity,
+                policy_identity=execution.identity,
             )
             for failure_id in sorted(failure_by_id)
         )
@@ -577,9 +581,7 @@ class PackageReportBuilder:
                 for observation in outcome.observations
                 if (
                     evaluation := (
-                        observation.evidence.static_evaluation
-                        if isinstance(observation.evidence, StaticOnlyEvidence)
-                        else observation.evidence.evaluation
+                        observation.evidence.evaluation
                         if isinstance(
                             observation.evidence,
                             (ProbePass, ProbeRejection, ProbeIndeterminate),
@@ -599,7 +601,7 @@ class PackageReportBuilder:
                 attempt_by_id=attempt_by_id,
                 declarations=declarations,
                 source_snapshot=source_snapshot,
-                policy_identity=policy_identity,
+                policy_identity=execution.identity,
             )
             for proposal_id in sorted(proposal_by_id)
         )
@@ -613,52 +615,6 @@ class PackageReportBuilder:
                 nodes=graphs[reference],
             )
             for reference in sorted(graphs)
-        )
-        static_evaluations = (
-            tuple(
-                static
-                for result in ordered_results
-                if isinstance(result, CellSuccess)
-                for static in (result.baseline.static, result.final_evaluation.static)
-            )
-            + tuple(
-                result.baseline.static
-                for result in ordered_results
-                if isinstance(result, CellIndeterminate) and result.baseline is not None
-            )
-            + tuple(
-                result.baseline.static
-                for result in ordered_results
-                if isinstance(result, CellSearchFailure)
-            )
-            + tuple(
-                result.evaluation.static
-                for result in ordered_results
-                if isinstance(result, (BaselineRejection, BaselineIndeterminate))
-                and result.evaluation is not None
-                and result.evaluation.static is not None
-            )
-            + tuple(
-                static
-                for outcome in search_outcomes
-                for observation in outcome.observations
-                if (static := observation.evidence.static_evaluation) is not None
-            )
-        )
-        wire_static_candidates = tuple(
-            self._wire_static(static) for static in static_evaluations
-        )
-        static_by_proposal = {
-            static.proposal_ref: static for static in wire_static_candidates
-        }
-        if any(
-            static_by_proposal[item.proposal_ref].model_dump(mode="json")
-            != item.model_dump(mode="json")
-            for item in wire_static_candidates
-        ):
-            raise ConfigurationError("conflicting StaticEvaluation for one Proposal")
-        wire_static = tuple(
-            static_by_proposal[reference] for reference in sorted(static_by_proposal)
         )
         evaluations = (
             tuple(
@@ -687,7 +643,6 @@ class PackageReportBuilder:
                 evaluation
                 for outcome in search_outcomes
                 for observation in outcome.observations
-                if not isinstance(observation.evidence, StaticOnlyEvidence)
                 if (
                     evaluation := (
                         observation.evidence.evaluation
@@ -757,11 +712,10 @@ class PackageReportBuilder:
                             BaselineRefsV1(
                                 attempt_ref=result.baseline_attempt.attempt_id,
                                 proposal_ref=result.baseline.proposal.proposal_id,
-                                static_baseline_digest=result.static_baseline.digest,
+
                             )
                             if result.baseline_attempt is not None
                             and result.baseline is not None
-                            and result.static_baseline is not None
                             else None
                         ),
                         candidate_snapshot_refs=(
@@ -777,7 +731,6 @@ class PackageReportBuilder:
                         coordinate_failure=(
                             self._wire_coordinate_failure(
                                 result.coordinate_failure,
-                                candidate_snapshots=(result.candidate_snapshots),
                             )
                             if result.coordinate_failure is not None
                             else None
@@ -792,7 +745,7 @@ class PackageReportBuilder:
                         baseline=BaselineRefsV1(
                             attempt_ref=result.baseline_attempt.attempt_id,
                             proposal_ref=result.baseline.proposal.proposal_id,
-                            static_baseline_digest=result.static_baseline.digest,
+
                         ),
                         candidate_snapshot_refs=tuple(
                             snapshot.digest
@@ -803,7 +756,6 @@ class PackageReportBuilder:
                         ),
                         search=self._wire_coordinate_success(
                             result.search,
-                            candidate_snapshots=result.candidate_snapshots,
                         ),
                         final_proposal_ref=(
                             result.final_evaluation.proposal.proposal_id
@@ -823,7 +775,7 @@ class PackageReportBuilder:
                         baseline=BaselineRefsV1(
                             attempt_ref=result.baseline_attempt.attempt_id,
                             proposal_ref=result.baseline.proposal.proposal_id,
-                            static_baseline_digest=result.static_baseline.digest,
+
                         ),
                         candidate_snapshot_refs=tuple(
                             snapshot.digest
@@ -835,7 +787,6 @@ class PackageReportBuilder:
                         coordinate_failure=(
                             self._wire_coordinate_failure(
                                 result.coordinate_failure,
-                                candidate_snapshots=(result.candidate_snapshots),
                             )
                             if result.coordinate_failure is not None
                             else None
@@ -857,11 +808,7 @@ class PackageReportBuilder:
                             if result.evaluation is not None
                             else None
                         ),
-                        static_baseline_digest=(
-                            result.static_baseline.digest
-                            if result.static_baseline is not None
-                            else None
-                        ),
+
                     )
                 )
             else:
@@ -877,11 +824,7 @@ class PackageReportBuilder:
                             if result.evaluation is not None
                             else None
                         ),
-                        static_baseline_digest=(
-                            result.static_baseline.digest
-                            if result.static_baseline is not None
-                            else None
-                        ),
+
                     )
                 )
         wire_results = tuple(wire_result_list)
@@ -893,8 +836,11 @@ class PackageReportBuilder:
                 package=package_identity,
                 source_snapshot=source_snapshot,
                 policy_identity=policy_identity,
+                guidance_policy_identity=guidance_identity,
+                search_derivation_identity=derivation_identity,
+                execution_policy=execution,
                 verifier_outcome_policy=CONFIGURED_VERIFIER_OUTCOME_POLICY,
-                failure_policy="failure-execution-v3",
+                failure_policy="failure-execution-v4",
             ),
             inputs=ReportInputsV1(
                 search_policy=search_policy,
@@ -935,10 +881,15 @@ class PackageReportBuilder:
                 ),
             ),
             evidence=ReportEvidenceV1(
+                static_contents=interned.contents,
+                static_subjects=interned.subjects,
+                static_facts=interned.facts,
+                static_comparisons=interned.comparisons,
+                static_scopes=interned.scopes,
                 resolution_graphs=wire_graphs,
                 attempts=wire_attempts,
                 proposals=wire_proposals,
-                static_evaluations=wire_static,
+
                 evaluations=wire_evaluations,
                 failures=wire_failures,
             ),
@@ -968,8 +919,6 @@ class PackageReportBuilder:
     @staticmethod
     def _wire_observation(
         observation: ProbeObservation,
-        *,
-        region_ids: dict[StaticRegionSlice, str] | None = None,
     ) -> ProbeObservationV1:
         evidence = observation.evidence
         if isinstance(evidence, ProbePass):
@@ -992,19 +941,6 @@ class PackageReportBuilder:
                 status="INDETERMINATE",
                 failure_ref=evidence.failure_id,
             )
-        elif isinstance(evidence, StaticOnlyEvidence):
-            reference = (region_ids or {}).get(evidence.region_slice)
-            if reference is None:
-                raise ConfigurationError(
-                    "Static-only observation does not reference a local Region"
-                )
-            wire_evidence = StaticOnlyEvidenceV1(
-                kind="STATIC_ONLY",
-                attempt_ref=evidence.attempt.attempt_id,
-                guidance=evidence.guidance,
-                region_ref=reference,
-                representative_proposal_ref=(evidence.representative_proposal_id),
-            )
         else:
             raise ConfigurationError("Schema 1 observation evidence is not supported")
         return ProbeObservationV1(
@@ -1017,26 +953,12 @@ class PackageReportBuilder:
     def _wire_coordinate_success(
         cls,
         outcome: CoordinateSuccess,
-        *,
-        candidate_snapshots: tuple[CandidateSnapshot, ...],
     ) -> CoordinateSuccessV1:
-        regions = tuple(
-            cls._wire_region(
-                region,
-                candidate_snapshots=candidate_snapshots,
-            )
-            for region in outcome.regions
-        )
-        region_ids = {
-            region.slice: wire.region_id
-            for region, wire in zip(outcome.regions, regions)
-        }
         return CoordinateSuccessV1(
             status="SUCCESS",
             observations=tuple(
                 cls._wire_observation(
                     observation,
-                    region_ids=region_ids,
                 )
                 for observation in outcome.observations
             ),
@@ -1049,71 +971,25 @@ class PackageReportBuilder:
                 )
                 for boundary in outcome.boundaries
             ),
-            regions=regions,
-            sweeps=outcome.sweeps,
-        )
 
-    @staticmethod
-    def _wire_region(
-        region: StaticRegion,
-        *,
-        candidate_snapshots: tuple[CandidateSnapshot, ...],
-    ) -> StaticRegionV1:
-        snapshot = next(
-            (
-                item
-                for item in candidate_snapshots
-                if item.dependency == region.slice.active_dependency
-            ),
-            None,
-        )
-        if snapshot is None:
-            raise ConfigurationError("Static Region has no matching CandidateSnapshot")
-        return StaticRegionV1(
-            region_id=static_region_id(region),
-            candidate_snapshot_ref=snapshot.digest,
-            baseline_digest=region.slice.baseline_digest,
-            other_coordinates=region.slice.other_coordinates,
-            static_fingerprint=region.static_fingerprint,
-            observed_versions=region.observed_versions,
-            runtime_references=tuple(
-                StaticRegionRuntimeReferenceV1(proposal_ref=reference.proposal_id)
-                for reference in sorted(
-                    region.runtime_references,
-                    key=lambda item: item.proposal_id,
-                )
-            ),
+            sweeps=outcome.sweeps,
         )
 
     @classmethod
     def _wire_coordinate_failure(
         cls,
         outcome: CoordinateFailure,
-        *,
-        candidate_snapshots: tuple[CandidateSnapshot, ...],
     ) -> CoordinateFailureV1:
-        regions = tuple(
-            cls._wire_region(
-                region,
-                candidate_snapshots=candidate_snapshots,
-            )
-            for region in outcome.regions
-        )
-        region_ids = {
-            region.slice: wire.region_id
-            for region, wire in zip(outcome.regions, regions)
-        }
         return CoordinateFailureV1(
             status=outcome.status,
             dependency=outcome.dependency,
             observations=tuple(
                 cls._wire_observation(
                     observation,
-                    region_ids=region_ids,
                 )
                 for observation in outcome.observations
             ),
-            regions=regions,
+
             counterexample=outcome.counterexample,
             failure_ref=outcome.failure_id,
         )
@@ -1151,6 +1027,7 @@ class PackageReportBuilder:
                 f"Proposal is missing plan or interpreter identity: {proposal.proposal_id}"
             )
         expected = environment_identity_digest(
+            attempt_id=attempt.attempt_id,
             project_plan_digest=proposal.project_plan_digest,
             environment_plan_digest=proposal.environment_plan_digest,
             graph=proposal.resolved_graph,
@@ -1194,35 +1071,12 @@ class PackageReportBuilder:
             interpreter=proposal.interpreter,
         )
 
-    @staticmethod
-    def _wire_static(
-        static: StaticUnchangedEvaluation | StaticRegressionEvaluation,
-    ) -> StaticUnchangedEvaluationV1 | StaticRegressionEvaluationV1:
-        if isinstance(static, StaticUnchangedEvaluation):
-            return StaticUnchangedEvaluationV1(
-                proposal_ref=static.proposal.proposal_id,
-                status="STATIC_UNCHANGED",
-                ty=static.ty,
-                baseline_digest=static.baseline_digest,
-                incremental=(),
-                static_fingerprint=static.static_fingerprint,
-            )
-        return StaticRegressionEvaluationV1(
-            proposal_ref=static.proposal.proposal_id,
-            status="STATIC_REGRESSION",
-            ty=static.ty,
-            baseline_digest=static.baseline_digest,
-            incremental=static.incremental,
-            static_fingerprint=static.static_fingerprint,
-            classifications=static.classifications,
-        )
 
     @staticmethod
     def _wire_evaluation(
         evaluation: (
             PassEvaluation
             | VerifierRejectedEvaluation
-            | RuntimeInterfaceMissingEvaluation
             | IndeterminateEvaluation
         ),
         *,
@@ -1230,7 +1084,6 @@ class PackageReportBuilder:
     ) -> (
         PassEvaluationV1
         | VerifierRejectedEvaluationV1
-        | RuntimeInterfaceMissingEvaluationV1
         | IndeterminateEvaluationV1
     ):
         if isinstance(evaluation, PassEvaluation):
@@ -1241,11 +1094,7 @@ class PackageReportBuilder:
             return PassEvaluationV1(
                 proposal_ref=evaluation.proposal.proposal_id,
                 status="PASS",
-                static_evaluation_ref=evaluation.static.proposal.proposal_id,
-                witnesses=PackageReportBuilder._wire_witnesses(
-                    evaluation.witnesses,
-                    failure_ref=None,
-                ),
+
                 terminal=evaluation.verifier.terminal,
             )
         if failure_ref is None:
@@ -1256,75 +1105,16 @@ class PackageReportBuilder:
             return VerifierRejectedEvaluationV1(
                 proposal_ref=evaluation.proposal.proposal_id,
                 status="VERIFIER_REJECTED",
-                static_evaluation_ref=evaluation.static.proposal.proposal_id,
-                witnesses=PackageReportBuilder._wire_witnesses(
-                    evaluation.witnesses,
-                    failure_ref=failure_ref,
-                ),
-                failure_ref=failure_ref,
-            )
-        if isinstance(evaluation, RuntimeInterfaceMissingEvaluation):
-            return RuntimeInterfaceMissingEvaluationV1(
-                proposal_ref=evaluation.proposal.proposal_id,
-                status="RUNTIME_INTERFACE_MISSING",
-                static_evaluation_ref=evaluation.static.proposal.proposal_id,
-                witnesses=PackageReportBuilder._wire_witnesses(
-                    evaluation.witnesses,
-                    failure_ref=failure_ref,
-                ),
+
                 failure_ref=failure_ref,
             )
         return IndeterminateEvaluationV1(
             proposal_ref=evaluation.proposal.proposal_id,
             status="INDETERMINATE",
-            static_evaluation_ref=(
-                evaluation.static.proposal.proposal_id
-                if evaluation.static is not None
-                else None
-            ),
-            witnesses=PackageReportBuilder._wire_witnesses(
-                evaluation.witnesses,
-                failure_ref=failure_ref,
-            ),
+
             failure_ref=failure_ref,
         )
 
-    @staticmethod
-    def _wire_witnesses(
-        witnesses: tuple[RuntimeWitnessAttempt, ...],
-        *,
-        failure_ref: str | None,
-    ) -> tuple[RuntimeWitnessAttemptV1, ...]:
-        result = []
-        for witness in witnesses:
-            outcome = witness.outcome
-            if isinstance(outcome, RuntimeWitnessResult) and (
-                outcome.status in {"PRESENT", "NOT_APPLICABLE"}
-            ):
-                wire_outcome = RuntimeWitnessPositiveV1(
-                    status=outcome.status,
-                    process=outcome.process,
-                )
-            else:
-                if failure_ref is None:
-                    raise ConfigurationError(
-                        "terminal runtime witness requires FailureRecord"
-                    )
-                wire_outcome = RuntimeWitnessTerminalV1(
-                    status=(
-                        "CONFIRMED_MISSING"
-                        if isinstance(outcome, RuntimeWitnessResult)
-                        else "FAILURE"
-                    ),
-                    failure_ref=failure_ref,
-                )
-            result.append(
-                RuntimeWitnessAttemptV1(
-                    plan=witness.plan,
-                    outcome=wire_outcome,
-                )
-            )
-        return tuple(result)
 
     @staticmethod
     def _wire_attempt(
@@ -1336,7 +1126,7 @@ class PackageReportBuilder:
         identity = attempt.identity
         if (
             identity.source_snapshot_digest != source_snapshot.digest
-            or identity.evaluation_policy_identity != policy_identity
+            or identity.execution_policy_identity != policy_identity
             or identity.active_declaration_ids != identity.cell.active_declaration_ids
             or not identity.resolution_context_digest
             or identity.harness_policy_identity is None
@@ -1380,7 +1170,7 @@ class PackageReportBuilder:
             )
         elif (
             scope.source_snapshot_digest != source_snapshot.digest
-            or scope.evaluation_policy_identity != policy_identity
+            or scope.execution_policy_identity != policy_identity
         ):
             raise ConfigurationError(
                 f"FailureRecord scope does not match report generation: {failure.failure_id}"
@@ -1866,22 +1656,6 @@ class PackageReportBuilder:
         }
 
     @staticmethod
-    def _policy_identity(
-        package: PackagePlan,
-        cell_results: tuple[CellResult, ...],
-    ) -> str:
-        for result in cell_results:
-            if isinstance(result, CellSuccess):
-                return result.final_evaluation.proposal.policy_identity
-            if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
-                return result.attempt.identity.evaluation_policy_identity
-            if isinstance(result, (CellIndeterminate, CellSearchFailure)) and (
-                result.baseline is not None
-            ):
-                return result.baseline.proposal.policy_identity
-        return evaluation_policy_identity(package.config)
-
-    @staticmethod
     def _cell_key(cell: Cell) -> CellKey:
         return cell_identity(cell)
 
@@ -1904,6 +1678,8 @@ class ReportStore:
         ("package", "package"),
         ("source_snapshot", "source snapshot"),
         ("policy_identity", "policy"),
+        ("guidance_policy_identity", "guidance policy"),
+        ("search_derivation_identity", "search derivation"),
         ("search_policy", "search policy"),
         ("source_plan", "source plan"),
         ("requirement_declarations", "declarations"),
@@ -1951,26 +1727,40 @@ class ReportStore:
     def _read_document(path: Path) -> dict[str, object]:
         try:
             if path.stat().st_size > 64 * 1024 * 1024:
-                raise ConfigurationError("report exceeds the 64 MiB read limit")
+                raise ConfigurationError(
+                    "report exceeds the 64 MiB read limit",
+                    reason="unsupported-report-contract",
+                )
             content = path.read_bytes()
         except OSError as error:
             raise ConfigurationError(f"cannot read report: {path}") from error
         if len(content) > 64 * 1024 * 1024:
-            raise ConfigurationError("report exceeds the 64 MiB read limit")
+            raise ConfigurationError(
+                "report exceeds the 64 MiB read limit",
+                reason="unsupported-report-contract",
+            )
         try:
             document = json.loads(content.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as error:
-            raise ConfigurationError(f"invalid report JSON: {path}") from error
+            raise ConfigurationError(
+                f"invalid report JSON: {path}",
+                reason="unsupported-report-contract",
+            ) from error
         schema_version = (
             document.get("schema_version") if isinstance(document, dict) else None
         )
         if schema_version != 1:
-            raise ConfigurationError("unsupported report schema_version")
+            raise ConfigurationError(
+                "unsupported report schema_version",
+                reason="unsupported-report-contract",
+            )
         return document
 
     @classmethod
     def _validate_v1(cls, document: dict[str, object]) -> ValidatedReport:
         required_nullable = {
+            ("identity", "execution_policy", "verifier_timeout_seconds"),
+            ("identity", "execution_policy", "resolution", "timeout_seconds"),
             ("evidence", "failures", "*", "authority", "terminal"),
             ("evidence", "failures", "*", "authority", "attribution", "request_binding", "project_plan_digest"),
             ("evidence", "failures", "*", "authority", "attribution", "request_binding", "environment_plan_digest"),
@@ -1980,6 +1770,16 @@ class ReportStore:
         }
 
         def contains_null(value: object, path: tuple[str, ...] = ()) -> bool:
+            # The scoped static protocol preserves its complete nullable preimages,
+            # as in Journal; its typed schema and canonical replay validate them.
+            if path in {
+                ("evidence", "static_contents"),
+                ("evidence", "static_subjects"),
+                ("evidence", "static_facts"),
+                ("evidence", "static_comparisons"),
+                ("evidence", "static_scopes"),
+            }:
+                return False
             if value is None:
                 return path not in required_nullable
             if isinstance(value, dict):
@@ -2006,7 +1806,8 @@ class ReportStore:
                 }
             )
             raise ConfigurationError(
-                "invalid v1 report structure: " + ", ".join(error_types[:8])
+                "invalid v1 report structure: " + ", ".join(error_types[:8]),
+                reason="unsupported-report-contract",
             ) from error
         if not _same_explicit_json(
             document,
@@ -2178,7 +1979,7 @@ class ReportStore:
                         requested_managed_vector=record.requested_managed_vector,
                         active_declaration_ids=cell.active_declaration_ids,
                         source_plan_identity=record.source_plan_identity,
-                        evaluation_policy_identity=wire.identity.policy_identity,
+                        execution_policy_identity=wire.identity.execution_policy.identity,
                         resolution_context_digest=record.resolution_context_digest,
                         harness_policy_identity=record.harness_policy_identity,
                         harness_declaration_ids=record.harness_declaration_ids,
@@ -2288,6 +2089,7 @@ class ReportStore:
                     f"{_safe_report_id(record.proposal_id)}"
                 )
             expected_proposal_id = environment_identity_digest(
+                attempt_id=attempt.attempt_id,
                 project_plan_digest=record.project_plan_digest,
                 environment_plan_digest=record.environment_plan_digest,
                 graph=graph,
@@ -2305,7 +2107,7 @@ class ReportStore:
                 managed_vector=record.managed_vector,
                 fixed_declaration_ids=record.fixed_declaration_refs,
                 resolved_graph=graph,
-                policy_identity=wire.identity.policy_identity,
+                policy_identity=wire.identity.execution_policy.identity,
                 project_plan_digest=record.project_plan_digest,
                 environment_plan_digest=record.environment_plan_digest,
                 interpreter=record.interpreter,
@@ -2325,47 +2127,6 @@ class ReportStore:
             for proposal in proposal_by_id.values()
             if proposal.attempt_id is not None
         }
-        static_refs = tuple(
-            item.proposal_ref for item in wire.evidence.static_evaluations
-        )
-        if static_refs != tuple(sorted(set(static_refs))):
-            raise ConfigurationError(
-                "invalid v1 report: StaticEvaluations must be sorted and unique"
-            )
-        static_by_proposal: dict[
-            str, StaticUnchangedEvaluation | StaticRegressionEvaluation
-        ] = {}
-        for record in wire.evidence.static_evaluations:
-            proposal = proposal_by_id.get(record.proposal_ref)
-            if proposal is None:
-                raise ConfigurationError(
-                    "invalid v1 report: unknown Proposal ref in StaticEvaluation "
-                    f"{_safe_report_id(record.proposal_ref)}"
-                )
-            try:
-                if isinstance(record, StaticUnchangedEvaluationV1):
-                    static = StaticUnchangedEvaluation(
-                        proposal=proposal,
-                        ty=record.ty,
-                        baseline_digest=record.baseline_digest,
-                        incremental=(),
-                        static_fingerprint=record.static_fingerprint,
-                    )
-                else:
-                    static = StaticRegressionEvaluation(
-                        proposal=proposal,
-                        ty=record.ty,
-                        baseline_digest=record.baseline_digest,
-                        incremental=record.incremental,
-                        static_fingerprint=record.static_fingerprint,
-                        classifications=record.classifications,
-                    )
-                static_by_proposal[record.proposal_ref] = static
-            except ValidationError as error:
-                raise ConfigurationError(
-                    "invalid v1 report: StaticEvaluation mismatch: "
-                    f"{_safe_report_id(record.proposal_ref)}"
-                ) from error
         evaluation_refs = tuple(item.proposal_ref for item in wire.evidence.evaluations)
         if evaluation_refs != tuple(sorted(set(evaluation_refs))):
             raise ConfigurationError(
@@ -2375,26 +2136,14 @@ class ReportStore:
             str,
             PassEvaluation
             | VerifierRejectedEvaluation
-            | RuntimeInterfaceMissingEvaluation
             | IndeterminateEvaluation,
         ] = {}
         pending_evaluations = tuple(wire.evidence.evaluations)
         for record in wire.evidence.evaluations:
             proposal = proposal_by_id.get(record.proposal_ref)
-            static_ref = record.static_evaluation_ref
-            static = (
-                static_by_proposal.get(static_ref) if static_ref is not None else None
-            )
-            if proposal is None or (
-                not isinstance(record, IndeterminateEvaluationV1) and static is None
-            ):
+            if proposal is None:
                 raise ConfigurationError(
-                    "invalid v1 report: unknown evidence ref in Evaluation "
-                    f"{_safe_report_id(record.proposal_ref)}"
-                )
-            if static_ref is not None and static_ref != record.proposal_ref:
-                raise ConfigurationError(
-                    "invalid v1 report: cross-Proposal StaticEvaluation ref: "
+                    "invalid v1 report: unknown Proposal ref in Evaluation "
                     f"{_safe_report_id(record.proposal_ref)}"
                 )
         failure_ids = tuple(item.failure_id for item in wire.evidence.failures)
@@ -2416,7 +2165,7 @@ class ReportStore:
                     package=cell.package,
                     cell=cell,
                     source_snapshot_digest=source_snapshot.digest,
-                    evaluation_policy_identity=wire.identity.policy_identity,
+                    execution_policy_identity=wire.identity.execution_policy.identity,
                 )
             else:
                 attempt = attempt_by_id.get(scope_record.attempt_ref)
@@ -2443,75 +2192,14 @@ class ReportStore:
                     f"{_safe_report_id(record.failure_id)}"
                 ) from error
 
-        def resolve_witnesses(
-            records: tuple[RuntimeWitnessAttemptV1, ...],
-            *,
-            terminal_failure_ref: str | None,
-        ) -> tuple[RuntimeWitnessAttempt, ...]:
-            witnesses = []
-            for item in records:
-                outcome_record = item.outcome
-                if isinstance(outcome_record, RuntimeWitnessPositiveV1):
-                    outcome = RuntimeWitnessResult(
-                        status=outcome_record.status,
-                        plan=item.plan,
-                        process=outcome_record.process,
-                    )
-                else:
-                    if outcome_record.failure_ref != terminal_failure_ref:
-                        raise ConfigurationError(
-                            "invalid v1 report: witness failure does not match terminal Evaluation"
-                        )
-                    failure = failure_by_id.get(outcome_record.failure_ref)
-                    if (
-                        failure is None
-                        or failure.process is None
-                        or failure.stage != "witness"
-                    ):
-                        raise ConfigurationError(
-                            "invalid v1 report: witness FailureRecord mismatch"
-                        )
-                    if outcome_record.status == "CONFIRMED_MISSING":
-                        outcome = RuntimeWitnessResult(
-                            status="CONFIRMED_MISSING",
-                            plan=item.plan,
-                            process=failure.process,
-                        )
-                    else:
-                        outcome = ToolFailure(
-                            cause=failure.cause,
-                            stage=failure.stage,
-                            process=failure.process,
-                            summary_code=failure.summary_code,
-                        )
-                witnesses.append(RuntimeWitnessAttempt(plan=item.plan, outcome=outcome))
-            return tuple(witnesses)
 
         for record in pending_evaluations:
             proposal = proposal_by_id[record.proposal_ref]
-            static = (
-                static_by_proposal.get(record.static_evaluation_ref)
-                if record.static_evaluation_ref is not None
-                else None
-            )
-            terminal_failure_ref = (
-                None if isinstance(record, PassEvaluationV1) else record.failure_ref
-            )
-            witnesses = resolve_witnesses(
-                record.witnesses,
-                terminal_failure_ref=terminal_failure_ref,
-            )
             try:
                 if isinstance(record, PassEvaluationV1):
-                    if static is None:
-                        raise ConfigurationError(
-                            "invalid v1 report: missing PASS static evidence: "
-                            f"{_safe_report_id(record.proposal_ref)}"
-                        )
                     evaluation = PassEvaluation(
                         proposal=proposal,
-                        static=static,
-                        witnesses=witnesses,
+
                         verifier=VerifierPass(terminal=record.terminal),
                     )
                 elif isinstance(record, VerifierRejectedEvaluationV1):
@@ -2527,7 +2215,6 @@ class ReportStore:
                         )
                         or not isinstance(authority.terminal, NormalExit)
                         or authority.terminal.exit_code == 0
-                        or static is None
                     ):
                         raise ConfigurationError(
                             "invalid v1 report: VERIFIER_REJECTED failure mismatch: "
@@ -2540,82 +2227,31 @@ class ReportStore:
                     assert isinstance(authority.terminal, NormalExit)
                     evaluation = VerifierRejectedEvaluation(
                         proposal=proposal,
-                        static=static,
-                        witnesses=witnesses,
+
                         verifier=VerifierRejected(terminal=authority.terminal),
-                    )
-                elif isinstance(record, RuntimeInterfaceMissingEvaluationV1):
-                    failure = failure_by_id.get(record.failure_ref)
-                    if (
-                        failure is None
-                        or failure.cause != "RUNTIME_INTERFACE_MISSING"
-                        or failure.stage != "witness"
-                        or static is None
-                        or not isinstance(static, StaticRegressionEvaluation)
-                    ):
-                        raise ConfigurationError(
-                            "invalid v1 report: runtime-missing failure mismatch: "
-                            f"{_safe_report_id(record.proposal_ref)}"
-                        )
-                    evaluation = RuntimeInterfaceMissingEvaluation(
-                        proposal=proposal,
-                        static=static,
-                        witnesses=witnesses,
                     )
                 else:
                     failure = failure_by_id.get(record.failure_ref)
-                    if failure is None:
-                        raise ConfigurationError(
-                            "invalid v1 report: INDETERMINATE failure mismatch: "
-                            f"{_safe_report_id(record.proposal_ref)}"
-                        )
-                    authority = failure.authority
-                    if isinstance(authority, ConfiguredVerifierFailureAuthority):
-                        terminal = authority.terminal
-                        if isinstance(terminal, NormalExit):
-                            raise ConfigurationError(
-                                "invalid v1 report: indeterminate verifier has normal exit"
-                            )
-                        reason = (
-                            "process-start-failed"
-                            if isinstance(terminal, StartFailed)
-                            else (
-                                "process-timed-out"
-                                if isinstance(terminal, TimedOut)
-                                else (
-                                    "process-signaled"
-                                    if isinstance(terminal, Signaled)
-                                    else "terminal-unavailable"
-                                )
-                            )
-                        )
-                        evaluation = IndeterminateEvaluation(
-                            proposal=proposal,
-                            cause=failure.cause,
-                            verifier=VerifierIndeterminate(
-                                terminal=terminal,
-                                reason=reason,
-                            ),
-                            static=static,
-                            witnesses=witnesses,
-                        )
-                    else:
-                        if failure.process is None:
-                            raise ConfigurationError(
-                                "invalid v1 report: process INDETERMINATE has no process"
-                            )
-                        evaluation = IndeterminateEvaluation(
-                            proposal=proposal,
-                            cause=failure.cause,
-                            failure=ToolFailure(
-                                cause=failure.cause,
-                                stage=failure.stage,
-                                process=failure.process,
-                                summary_code=failure.summary_code,
-                            ),
-                            static=static,
-                            witnesses=witnesses,
-                        )
+                    if (
+                        failure is None
+                        or failure.stage != "test"
+                        or failure.cause not in {"TIMEOUT", "TOOL_FAILURE"}
+                        or not isinstance(failure.authority, ConfiguredVerifierFailureAuthority)
+                    ):
+                        raise ConfigurationError("invalid v1 report: INDETERMINATE requires verifier authority")
+                    terminal = failure.authority.terminal
+                    if isinstance(terminal, NormalExit):
+                        raise ConfigurationError("invalid v1 report: indeterminate verifier has normal exit")
+                    reason = (
+                        "process-start-failed" if isinstance(terminal, StartFailed)
+                        else "process-timed-out" if isinstance(terminal, TimedOut)
+                        else "process-signaled" if isinstance(terminal, Signaled)
+                        else "terminal-unavailable"
+                    )
+                    evaluation = IndeterminateEvaluation(
+                        proposal=proposal, cause=failure.cause,
+                        verifier=VerifierIndeterminate(terminal=terminal, reason=reason),
+                    )
                 evaluation_by_proposal[record.proposal_ref] = evaluation
             except ValidationError as error:
                 raise ConfigurationError(
@@ -2879,26 +2515,18 @@ class ReportStore:
         referenced_attempt_ids: set[str] = set()
         referenced_proposal_ids: set[str] = set()
         referenced_candidate_ids: set[str] = set()
-        referenced_static_ids: set[str] = set()
         referenced_evaluation_ids: set[str] = set()
 
         def resolve_search_evidence(
             observation_records: tuple[ProbeObservationV1, ...],
-            region_records: tuple[StaticRegionV1, ...],
             *,
             cell: Cell,
-            snapshots: tuple[CandidateSnapshot, ...],
-        ) -> tuple[tuple[ProbeObservation, ...], tuple[StaticRegion, ...]]:
+        ) -> tuple[ProbeObservation, ...]:
             resolved_observations: list[ProbeObservation | None] = [
                 None for _ in observation_records
             ]
-            direct_status_by_proposal: dict[
-                str, Literal["PASS", "REJECTED", "INDETERMINATE"]
-            ] = {}
             for index, observation_record in enumerate(observation_records):
                 evidence_record = observation_record.evidence
-                if isinstance(evidence_record, StaticOnlyEvidenceV1):
-                    continue
                 attempt = attempt_by_id.get(evidence_record.attempt_ref)
                 proposal = proposal_by_attempt.get(evidence_record.attempt_ref)
                 if (
@@ -2944,7 +2572,6 @@ class ReportStore:
                         )
                     rejection_evaluation: (
                         VerifierRejectedEvaluation
-                        | RuntimeInterfaceMissingEvaluation
                         | None
                     )
                     if proposal is None:
@@ -2953,7 +2580,6 @@ class ReportStore:
                         evaluation,
                         (
                             VerifierRejectedEvaluation,
-                            RuntimeInterfaceMissingEvaluation,
                         ),
                     ):
                         rejection_evaluation = evaluation
@@ -3024,131 +2650,12 @@ class ReportStore:
                 referenced_attempt_ids.add(attempt.attempt_id)
                 if proposal is not None:
                     referenced_proposal_ids.add(proposal.proposal_id)
-                    direct_status_by_proposal[proposal.proposal_id] = evidence.status
-                    if proposal.proposal_id in static_by_proposal:
-                        referenced_static_ids.add(proposal.proposal_id)
                     if proposal.proposal_id in evaluation_by_proposal:
                         referenced_evaluation_ids.add(proposal.proposal_id)
 
-            snapshot_by_id = {item.digest: item for item in snapshots}
-            region_by_id: dict[str, StaticRegion] = {}
-            for region_record in region_records:
-                if region_record.region_id in region_by_id:
-                    raise ConfigurationError(
-                        "invalid v1 report: duplicate local Region: "
-                        f"{_safe_report_id(region_record.region_id)}"
-                    )
-                snapshot = snapshot_by_id.get(region_record.candidate_snapshot_ref)
-                if snapshot is None:
-                    raise ConfigurationError(
-                        "invalid v1 report: Region CandidateSnapshot is not owned by "
-                        "CellResult: "
-                        f"{_safe_report_id(region_record.region_id)}"
-                    )
-                proposal_refs = tuple(
-                    item.proposal_ref for item in region_record.runtime_references
-                )
-                if proposal_refs != tuple(sorted(set(proposal_refs))):
-                    raise ConfigurationError(
-                        "invalid v1 report: Region runtime refs must be sorted and "
-                        "unique: "
-                        f"{_safe_report_id(region_record.region_id)}"
-                    )
-                runtime_references = []
-                for proposal_ref in proposal_refs:
-                    proposal = proposal_by_id.get(proposal_ref)
-                    status = direct_status_by_proposal.get(proposal_ref)
-                    if proposal is None or proposal.cell != cell or status is None:
-                        raise ConfigurationError(
-                            "invalid v1 report: Region representative is not local "
-                            "direct evidence: "
-                            f"{_safe_report_id(proposal_ref)}"
-                        )
-                    runtime_references.append(
-                        StaticRegionRuntimeReference(
-                            proposal_id=proposal_ref,
-                            status=status,
-                        )
-                    )
-                    referenced_proposal_ids.add(proposal_ref)
-                region = StaticRegion(
-                    slice=StaticRegionSlice(
-                        cell=cell,
-                        source_snapshot_digest=source_snapshot.digest,
-                        policy_identity=wire.identity.policy_identity,
-                        baseline_digest=region_record.baseline_digest,
-                        active_dependency=snapshot.dependency,
-                        other_coordinates=region_record.other_coordinates,
-                        candidate_order=tuple(
-                            candidate.version for candidate in snapshot.candidates
-                        ),
-                    ),
-                    static_fingerprint=region_record.static_fingerprint,
-                    observed_versions=region_record.observed_versions,
-                    runtime_references=tuple(runtime_references),
-                )
-                if static_region_id(region) != region_record.region_id:
-                    raise ConfigurationError(
-                        "invalid v1 report: Region identity mismatch: "
-                        f"{_safe_report_id(region_record.region_id)}"
-                    )
-                region_by_id[region_record.region_id] = region
-                referenced_candidate_ids.add(snapshot.digest)
-
-            for index, observation_record in enumerate(observation_records):
-                evidence_record = observation_record.evidence
-                if not isinstance(evidence_record, StaticOnlyEvidenceV1):
-                    continue
-                attempt = attempt_by_id.get(evidence_record.attempt_ref)
-                proposal = proposal_by_attempt.get(evidence_record.attempt_ref)
-                region = region_by_id.get(evidence_record.region_ref)
-                representative = proposal_by_id.get(
-                    evidence_record.representative_proposal_ref
-                )
-                static = (
-                    static_by_proposal.get(proposal.proposal_id)
-                    if proposal is not None
-                    else None
-                )
-                if (
-                    attempt is None
-                    or attempt.identity.cell != cell
-                    or attempt.identity.requested_managed_vector is None
-                    or proposal is None
-                    or static is None
-                    or region is None
-                    or representative is None
-                    or representative.cell != cell
-                ):
-                    raise ConfigurationError(
-                        "invalid v1 report: incomplete static-only evidence: "
-                        f"{_safe_report_id(evidence_record.attempt_ref)}"
-                    )
-                evidence = StaticOnlyEvidence(
-                    attempt=attempt,
-                    proposal_id=proposal.proposal_id,
-                    static_evaluation=static,
-                    guidance=evidence_record.guidance,
-                    region_slice=region.slice,
-                    representative_proposal_id=representative.proposal_id,
-                )
-                resolved_observations[index] = ProbeObservation(
-                    dependency=observation_record.dependency,
-                    candidate_version=observation_record.candidate_version,
-                    vector=attempt.identity.requested_managed_vector,
-                    evidence=evidence,
-                )
-                referenced_attempt_ids.add(attempt.attempt_id)
-                referenced_proposal_ids.update(
-                    (proposal.proposal_id, representative.proposal_id)
-                )
-                referenced_static_ids.add(proposal.proposal_id)
             if any(item is None for item in resolved_observations):
                 raise ConfigurationError("invalid v1 report: unresolved Observation")
-            return (
-                tuple(item for item in resolved_observations if item is not None),
-                tuple(region_by_id[item.region_id] for item in region_records),
-            )
+            return tuple(item for item in resolved_observations if item is not None)
 
         for record in wire.cell_results:
             cell = cell_by_id.get(record.cell_ref)
@@ -3189,16 +2696,12 @@ class ReportStore:
                     final_evaluation = evaluation_by_proposal.get(
                         record.final_proposal_ref
                     )
-                    baseline_static = static_by_proposal.get(
-                        record.baseline.proposal_ref
-                    )
                     if (
                         baseline_attempt is None
                         or baseline_proposal is None
                         or final_proposal is None
                         or not isinstance(baseline_evaluation, PassEvaluation)
                         or not isinstance(final_evaluation, PassEvaluation)
-                        or baseline_static is None
                     ):
                         raise ConfigurationError(
                             "invalid v1 report: unknown baseline/final ref in CellResult "
@@ -3207,7 +2710,6 @@ class ReportStore:
                     assert baseline_attempt is not None
                     assert baseline_proposal is not None
                     assert final_proposal is not None
-                    assert baseline_static is not None
                     if (
                         baseline_attempt.identity.cell != cell
                         or baseline_proposal.cell != cell
@@ -3243,11 +2745,11 @@ class ReportStore:
                             "invalid v1 report: invalid CandidateSnapshot refs for Cell "
                             f"{_safe_report_id(record.cell_ref)}"
                         )
-                    observations, regions = resolve_search_evidence(
+                    observations = resolve_search_evidence(
                         record.search.observations,
-                        record.search.regions,
+
                         cell=cell,
-                        snapshots=owned_snapshots,
+
                     )
                     boundaries = tuple(
                         CoordinateBoundary(
@@ -3261,18 +2763,14 @@ class ReportStore:
                     resolved = CellSuccess(
                         cell=cell,
                         baseline_attempt=baseline_attempt,
-                        static_baseline=StaticBaseline(
-                            proposal=baseline_proposal,
-                            ty=baseline_static.ty,
-                            digest=record.baseline.static_baseline_digest,
-                        ),
+
                         baseline=baseline_evaluation,
                         candidate_snapshots=owned_snapshots,
                         search=CoordinateSuccess(
                             vector=final_proposal.managed_vector,
                             observations=tuple(observations),
                             boundaries=boundaries,
-                            regions=regions,
+
                             sweeps=record.search.sweeps,
                         ),
                         final_vector=final_proposal.managed_vector,
@@ -3281,9 +2779,6 @@ class ReportStore:
                     )
                     referenced_attempt_ids.add(baseline_attempt.attempt_id)
                     referenced_proposal_ids.update(
-                        (baseline_proposal.proposal_id, final_proposal.proposal_id)
-                    )
-                    referenced_static_ids.update(
                         (baseline_proposal.proposal_id, final_proposal.proposal_id)
                     )
                     referenced_evaluation_ids.update(
@@ -3298,7 +2793,6 @@ class ReportStore:
                             f"{_safe_report_id(record.cell_ref)}"
                         )
                     baseline_attempt = None
-                    static_baseline = None
                     baseline_evaluation = None
                     owned_snapshots: tuple[CandidateSnapshot, ...] = ()
                     coordinate_failure = None
@@ -3312,14 +2806,10 @@ class ReportStore:
                         baseline_evaluation = evaluation_by_proposal.get(
                             record.baseline.proposal_ref
                         )
-                        baseline_static = static_by_proposal.get(
-                            record.baseline.proposal_ref
-                        )
                         if (
                             baseline_attempt is None
                             or baseline_proposal is None
                             or not isinstance(baseline_evaluation, PassEvaluation)
-                            or baseline_static is None
                             or baseline_attempt.identity.cell != cell
                             or baseline_proposal.cell != cell
                         ):
@@ -3327,14 +2817,8 @@ class ReportStore:
                                 "invalid v1 report: incomplete indeterminate baseline: "
                                 f"{_safe_report_id(record.cell_ref)}"
                             )
-                        static_baseline = StaticBaseline(
-                            proposal=baseline_proposal,
-                            ty=baseline_static.ty,
-                            digest=record.baseline.static_baseline_digest,
-                        )
                         referenced_attempt_ids.add(baseline_attempt.attempt_id)
                         referenced_proposal_ids.add(baseline_proposal.proposal_id)
-                        referenced_static_ids.add(baseline_proposal.proposal_id)
                         referenced_evaluation_ids.add(baseline_proposal.proposal_id)
                     elif (
                         record.candidate_snapshot_refs
@@ -3369,17 +2853,17 @@ class ReportStore:
                     referenced_candidate_ids.update(candidate_snapshot_refs)
                     if record.coordinate_failure is not None:
                         outcome_record = record.coordinate_failure
-                        observations, regions = resolve_search_evidence(
+                        observations = resolve_search_evidence(
                             outcome_record.observations,
-                            outcome_record.regions,
+
                             cell=cell,
-                            snapshots=owned_snapshots,
+
                         )
                         coordinate_failure = CoordinateFailure(
                             status=outcome_record.status,
                             dependency=outcome_record.dependency,
                             observations=observations,
-                            regions=regions,
+
                             counterexample=outcome_record.counterexample,
                             failure_id=outcome_record.failure_ref,
                         )
@@ -3389,7 +2873,7 @@ class ReportStore:
                         failure_id=record.failure_ref,
                         failure_records=owned_failures,
                         baseline_attempt=baseline_attempt,
-                        static_baseline=static_baseline,
+
                         baseline=baseline_evaluation,
                         candidate_snapshots=owned_snapshots,
                         coordinate_failure=coordinate_failure,
@@ -3400,14 +2884,10 @@ class ReportStore:
                     baseline_evaluation = evaluation_by_proposal.get(
                         record.baseline.proposal_ref
                     )
-                    baseline_static = static_by_proposal.get(
-                        record.baseline.proposal_ref
-                    )
                     if (
                         baseline_attempt is None
                         or baseline_proposal is None
                         or not isinstance(baseline_evaluation, PassEvaluation)
-                        or baseline_static is None
                         or baseline_attempt.identity.cell != cell
                         or baseline_proposal.cell != cell
                     ):
@@ -3439,17 +2919,17 @@ class ReportStore:
                     coordinate_failure = None
                     if record.coordinate_failure is not None:
                         outcome_record = record.coordinate_failure
-                        observations, regions = resolve_search_evidence(
+                        observations = resolve_search_evidence(
                             outcome_record.observations,
-                            outcome_record.regions,
+
                             cell=cell,
-                            snapshots=owned_snapshots,
+
                         )
                         coordinate_failure = CoordinateFailure(
                             status=outcome_record.status,
                             dependency=outcome_record.dependency,
                             observations=observations,
-                            regions=regions,
+
                             counterexample=outcome_record.counterexample,
                             failure_id=outcome_record.failure_ref,
                         )
@@ -3458,11 +2938,7 @@ class ReportStore:
                         cell=cell,
                         phase=record.phase,
                         baseline_attempt=baseline_attempt,
-                        static_baseline=StaticBaseline(
-                            proposal=baseline_proposal,
-                            ty=baseline_static.ty,
-                            digest=record.baseline.static_baseline_digest,
-                        ),
+
                         baseline=baseline_evaluation,
                         candidate_snapshots=owned_snapshots,
                         coordinate_failure=coordinate_failure,
@@ -3470,7 +2946,6 @@ class ReportStore:
                     )
                     referenced_attempt_ids.add(baseline_attempt.attempt_id)
                     referenced_proposal_ids.add(baseline_proposal.proposal_id)
-                    referenced_static_ids.add(baseline_proposal.proposal_id)
                     referenced_evaluation_ids.add(baseline_proposal.proposal_id)
                     referenced_candidate_ids.update(record.candidate_snapshot_refs)
                 else:
@@ -3502,11 +2977,6 @@ class ReportStore:
                         if record.proposal_ref is not None
                         else None
                     )
-                    static = (
-                        static_by_proposal.get(record.proposal_ref)
-                        if record.proposal_ref is not None
-                        else None
-                    )
                     if record.proposal_ref is not None and (
                         proposal is None
                         or evaluation is None
@@ -3516,22 +2986,6 @@ class ReportStore:
                             "invalid v1 report: incomplete baseline Evaluation refs: "
                             f"{_safe_report_id(record.cell_ref)}"
                         )
-                    if record.static_baseline_digest is not None and static is None:
-                        raise ConfigurationError(
-                            "invalid v1 report: missing baseline StaticEvaluation: "
-                            f"{_safe_report_id(record.cell_ref)}"
-                        )
-                    static_baseline = (
-                        StaticBaseline(
-                            proposal=proposal,
-                            ty=static.ty,
-                            digest=record.static_baseline_digest,
-                        )
-                        if proposal is not None
-                        and static is not None
-                        and record.static_baseline_digest is not None
-                        else None
-                    )
                     if isinstance(record, BaselineRejectionV1):
                         if evaluation is not None and not isinstance(
                             evaluation, VerifierRejectedEvaluation
@@ -3544,7 +2998,7 @@ class ReportStore:
                         resolved = BaselineRejection(
                             attempt=attempt,
                             failure=failure,
-                            static_baseline=static_baseline,
+
                             evaluation=evaluation,
                         )
                     else:
@@ -3559,14 +3013,12 @@ class ReportStore:
                         resolved = BaselineIndeterminate(
                             attempt=attempt,
                             failure=failure,
-                            static_baseline=static_baseline,
+
                             evaluation=evaluation,
                         )
                     if proposal is not None:
                         referenced_proposal_ids.add(proposal.proposal_id)
                         referenced_evaluation_ids.add(proposal.proposal_id)
-                        if static is not None:
-                            referenced_static_ids.add(proposal.proposal_id)
             except ValidationError as error:
                 raise ConfigurationError(
                     "invalid v1 report: CellResult evidence mismatch: "
@@ -3584,6 +3036,108 @@ class ReportStore:
             for proposal in proposal_by_id.values()
             if proposal.attempt_id is not None
         )
+        scope_refs = tuple(scope.scope_ref for scope in wire.evidence.static_scopes)
+        if scope_refs != tuple(sorted(set(scope_refs))):
+            raise ConfigurationError(
+                "invalid v1 report: static scopes must be sorted and unique",
+                reason="invalid-static-evidence",
+            )
+        result_cells = {result.cell for result in resolved_results}
+        for scope in wire.evidence.static_scopes:
+            if scope.cell not in result_cells or (
+                scope.highest_reference_ref is None and scope.highest_uncollected is None
+            ):
+                raise ConfigurationError(
+                    "invalid v1 report: static scope requires its Cell and highest root",
+                    reason="invalid-static-evidence",
+                )
+            attempts = [member.preparation.attempt for member in scope.consumers]
+            attempts.extend(item.attempt for item in scope.omissions)
+            attempts.extend(item.attempt for item in scope.skips)
+            attempts.extend(item.attempt for item in scope.selections)
+            for omitted in scope.omissions:
+                dynamic = evaluation_by_proposal.get(omitted.proposal.proposal_id)
+                if not isinstance(dynamic, PassEvaluation) or dynamic.proposal != omitted.proposal:
+                    raise ConfigurationError(
+                        "invalid v1 report: omitted guidance requires its direct dynamic upper PASS",
+                        reason="invalid-static-evidence",
+                    )
+            for skip in scope.skips:
+                dynamic = evaluation_by_proposal.get(skip.proposal.proposal_id)
+                interned = attempt_by_id.get(skip.attempt.attempt_id)
+                if (
+                    interned != skip.attempt
+                    or not isinstance(dynamic, PassEvaluation)
+                    or dynamic.proposal != skip.proposal
+                ):
+                    raise ConfigurationError(
+                        "invalid v1 report: direct-bound skip requires its dynamic floor PASS",
+                        reason="invalid-static-evidence",
+                    )
+                if skip.predecessor_failure_id is not None:
+                    failure = failure_by_id.get(skip.predecessor_failure_id)
+                    if (
+                        failure is None
+                        or failure.disposition != "REJECTED"
+                        or not isinstance(failure.scope, AttemptFailureScope)
+                    ):
+                        raise ConfigurationError(
+                            "invalid v1 report: direct-bound skip requires its predecessor rejection",
+                            reason="invalid-static-evidence",
+                        )
+            for selection in scope.selections:
+                interned = attempt_by_id.get(selection.attempt.attempt_id)
+                if interned != selection.attempt:
+                    raise ConfigurationError(
+                        "invalid v1 report: oracle selection requires its dynamic Attempt",
+                        reason="invalid-static-evidence",
+                    )
+                if selection.status == "PASS":
+                    dynamic = evaluation_by_proposal.get(selection.proposal_id)
+                    if not isinstance(dynamic, PassEvaluation) or dynamic.proposal.proposal_id != selection.proposal_id:
+                        raise ConfigurationError(
+                            "invalid v1 report: oracle selection PASS requires its dynamic evaluation",
+                            reason="invalid-static-evidence",
+                        )
+                else:
+                    failure = failure_by_id.get(selection.failure_id)
+                    if (
+                        failure is None
+                        or failure.disposition != selection.status
+                        or not isinstance(failure.scope, AttemptFailureScope)
+                        or failure.scope.attempt != selection.attempt
+                    ):
+                        raise ConfigurationError(
+                            "invalid v1 report: oracle selection requires its dynamic FailureRecord",
+                            reason="invalid-static-evidence",
+                        )
+            if scope.highest_uncollected is not None:
+                attempts.append(scope.highest_uncollected.attempt)
+            if any(attempt.identity.source_snapshot_digest != source_snapshot.digest
+                   or attempt.identity.execution_policy_identity != wire.identity.execution_policy.identity
+                   or attempt.identity.source_plan_identity != source_plan.identity for attempt in attempts):
+                raise ConfigurationError(
+                    "invalid v1 report: static scope input context mismatch",
+                    reason="invalid-static-evidence",
+                )
+            consumers = {member.ref: member for member in scope.consumers}
+            for member in scope.consumers:
+                proposal = member.preparation.proposal
+                dynamic = proposal_by_id.get(proposal.proposal_id)
+                if dynamic is not None and dynamic != proposal:
+                    raise ConfigurationError(
+                        "invalid v1 report: static consumer Proposal mismatch",
+                        reason="invalid-static-evidence",
+                    )
+            for passed in scope.passes:
+                proposal = consumers[passed.consumer_ref].preparation.proposal
+                dynamic = evaluation_by_proposal.get(proposal.proposal_id)
+                if not isinstance(dynamic, PassEvaluation) or dynamic.proposal != proposal or dynamic.verifier != passed.evidence.verifier:
+                    raise ConfigurationError(
+                        "invalid v1 report: static anchor requires its direct dynamic PASS",
+                        reason="invalid-static-evidence",
+                    )
+
         ordered_result_keys = tuple(
             cell_identity(result.cell) for result in resolved_results
         )
@@ -3607,8 +3161,6 @@ class ReportStore:
         }
         if referenced_graph_ids != set(graph_by_id):
             raise ConfigurationError("invalid v1 report: unreachable ResolutionGraph")
-        if referenced_static_ids != set(static_by_proposal):
-            raise ConfigurationError("invalid v1 report: unreachable StaticEvaluation")
         if referenced_evaluation_ids != set(evaluation_by_proposal):
             raise ConfigurationError("invalid v1 report: unreachable Evaluation")
         cell_results = tuple(resolved_results)
@@ -3681,6 +3233,9 @@ class ReportStore:
             package=wire.identity.package,
             source_snapshot=source_snapshot,
             policy_identity=wire.identity.policy_identity,
+            execution_policy_identity=wire.identity.execution_policy.identity,
+            guidance_policy_identity=wire.identity.guidance_policy_identity,
+            search_derivation_identity=wire.identity.search_derivation_identity,
             verifier_outcome_policy=wire.identity.verifier_outcome_policy,
             source_plan=source_plan,
             requirement_declarations=declarations,
@@ -3730,6 +3285,9 @@ class ReportStore:
             package=wire.identity.package,
             source_snapshot=source_snapshot,
             policy_identity=wire.identity.policy_identity,
+            guidance_policy_identity=wire.identity.guidance_policy_identity,
+            search_derivation_identity=wire.identity.search_derivation_identity,
+            execution_policy=wire.identity.execution_policy,
             verifier_outcome_policy=wire.identity.verifier_outcome_policy,
             source_plan=source_plan,
             requirement_declarations=declarations,
@@ -3742,6 +3300,7 @@ class ReportStore:
                 for result in wire.cell_results
                 for reference in result.failure_refs
             ),
+            static_scopes=_resolve_report_static_scopes(wire),
             _wire=wire,
         )
 
@@ -3768,6 +3327,7 @@ class ReportStore:
         return self._reintern(
             first,
             tuple(cell_results[key] for key in sorted(cell_results)),
+            _localize_static_scopes(tuple(scope for report in reports for scope in report.static_scopes)),
         )
 
     def update(
@@ -3793,6 +3353,9 @@ class ReportStore:
         return self._reintern(
             existing,
             tuple(final_by_cell[key] for key in sorted(final_by_cell)),
+            _localize_static_scopes(tuple(scope for scope in existing.static_scopes
+                                         if self._cell_key(scope.cell) not in replaced_keys)
+                                   + replacement.static_scopes),
         )
 
     def update_path(
@@ -3848,6 +3411,7 @@ class ReportStore:
     def _reintern(
         generation: ValidatedReport,
         cell_results: tuple[CellResult, ...],
+        static_scopes: tuple[StaticScopeEvidence, ...],
     ) -> ValidatedReport:
         package = PackagePlan(
             name=generation.package.name,
@@ -3864,8 +3428,10 @@ class ReportStore:
             source_plan=generation.source_plan,
             source_snapshot=generation.source_snapshot,
             cell_results=cell_results,
+            static_scopes=static_scopes,
             _generator=generation.generator,
             _policy_identity=generation.policy_identity,
+            _execution_policy=generation.execution_policy,
         )
         if rebuilt.report_generation_id != generation.report_generation_id:
             raise ConfigurationError(
@@ -3879,9 +3445,31 @@ class ReportStore:
         left: ValidatedReport,
         right: ValidatedReport,
     ) -> None:
+        if left.execution_policy != right.execution_policy:
+            raise ConfigurationError(
+                "report execution policy mismatch",
+                reason="execution-policy-mismatch",
+            )
+        if (
+            left.policy_identity != right.policy_identity
+            or left.guidance_policy_identity != right.guidance_policy_identity
+            or left.search_derivation_identity != right.search_derivation_identity
+            or left.search_policy != right.search_policy
+        ):
+            raise ConfigurationError(
+                "report search provenance mismatch",
+                reason="search-provenance-mismatch",
+            )
         if left.report_generation_id != right.report_generation_id:
             raise ConfigurationError("report generation identity mismatch")
         for field_name, label in cls._GENERATION_FIELDS:
+            if field_name in {
+                "policy_identity",
+                "guidance_policy_identity",
+                "search_derivation_identity",
+                "search_policy",
+            }:
+                continue
             if getattr(left, field_name) != getattr(right, field_name):
                 raise ConfigurationError(f"report {label} identity mismatch")
 
@@ -3898,3 +3486,40 @@ class ReportStore:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def _resolve_report_static_scopes(wire: PackageFloorReportV1Wire) -> tuple[StaticScopeEvidence, ...]:
+    try:
+        return resolve_static_scopes(
+            wire.evidence.static_facts,
+            wire.evidence.static_comparisons,
+            wire.evidence.static_scopes,
+            contents=wire.evidence.static_contents,
+            subjects=wire.evidence.static_subjects,
+        )
+    except (ValueError, ValidationError) as error:
+        raise ConfigurationError(
+            "invalid v1 report: static evidence is not closed",
+            reason="invalid-static-evidence",
+        ) from error
+
+
+def _localize_static_scopes(scopes: tuple[StaticScopeEvidence, ...]) -> tuple[StaticScopeEvidence, ...]:
+    """Keep each input document's membership separate when local names collide."""
+    reserved = {scope.scope_ref for scope in scopes}
+    used: set[str] = set()
+    result = []
+    for scope in scopes:
+        reference = scope.scope_ref
+        if reference in used:
+            suffix = 2
+            while f"{reference}-{suffix}" in reserved or f"{reference}-{suffix}" in used:
+                suffix += 1
+            reference = f"{reference}-{suffix}"
+            scope = StaticScopeEvidence.model_validate({
+                **{name: getattr(scope, name) for name in StaticScopeEvidence.model_fields},
+                "scope_ref": reference,
+            })
+        used.add(reference)
+        result.append(scope)
+    return tuple(sorted(result, key=lambda scope: scope.scope_ref))

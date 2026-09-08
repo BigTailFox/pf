@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **版本：** `schema_version = 1`
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **产品语义：** [D001](D001-pf.md)
 - **领域模型：** [D002](D002-pf-implementation.md)–[D005](D005-pf-failure-and-diagnose.md)、[D008](D008-pf-verification-run.md)、[D012](D012-pf-harness-relaxation.md)、[D013](D013-pf-pytest-observer.md)
 - **机器结构：** [package-floor-v1.schema.json](../schemas/package-floor-v1.schema.json)
@@ -42,9 +42,12 @@ result          complete | incomplete
 - generator name/version/algorithm；
 - canonical package name、项目相对`pyproject.toml`路径与`requires_python`；
 - 完整 SourceSnapshot identity；
-- evaluation policy identity；
+- required `execution_policy` 对象（`ExecutionPolicy`，hash domain `pf:execution-policy:v1`）；
+- required `guidance_policy_identity`；
+- required `search_derivation_identity`；
+- `policy_identity`：report provenance digest（domain `pf:policy:v1`），不是 Attempt 的执行身份；
 - required `verifier_outcome_policy = configured-verifier-terminal-v1`；
-- required `failure_policy = failure-execution-v3`。
+- required `failure_policy = failure-execution-v4`。
 
 Generation ID 的唯一算法是：
 
@@ -55,6 +58,9 @@ sha256(
     package,
     source_snapshot,
     policy_identity,
+    execution_policy_identity,
+    guidance_policy_identity,
+    search_derivation_identity,
     verifier_outcome_policy,
     failure_policy,
     source_plan,
@@ -90,58 +96,40 @@ scheduling和prerelease推断不进入resolution context。Apply authorizer从re
 同一root/target inputs重算该摘要并在任何source-drift waiver前比较；target dependency arrays先投影为
 已由apply结构授权的report值，以保留original/projected/no-op语义，不新增wire字段。
 
-evaluation policy identity的配置与既有工具preimage是resolution的`artifact/timeout_seconds`、ty的
-`args/timeout_seconds`、test的`command/cwd/timeout_seconds`，以及既有ty tool version、D004 §11 独占的 `ty_diagnostic_policy`、configured
-verifier outcome与failure policy facts；前缀仍为`pf:policy:v1`。test group、target/extra、candidate search和
-全部scheduling limits不进入该identity。
+报告 identity 拆成三类独立 policy，外加 generation/apply 用的 provenance digest。Attempt、Proposal、
+FailureScope 与动态 evidence 只绑定 `ExecutionPolicy.identity`；静态关联放在 evaluation 外的
+run/observation association 中，以 typed refs 连接。
 
-Evaluation-policy preimage 还必须包含固定 `execution_outcome_policy` 对象：
+| 字段 / 对象 | Domain / 字面量 | 拥有的规则 | 明确不包含 |
+| --- | --- | --- | --- |
+| `execution_policy` | `pf:execution-policy:v1`；`failure = failure-execution-v4`；`rules = configured-execution-only-v1` | resolution 的 `artifact/timeout_seconds`、configured verifier 的 `command/cwd/timeout_seconds`、原命令 PASS、failed-case 资格、`execution-outcome-v1` / `operation-structured-facts-v1`、uv protocol/profile、validation-contract 字面量 | ty version/args/timeout/内容、静态比较/anchor/二分、hint 消费、坐标搜索顺序 |
+| `guidance_policy_identity` | GuidancePolicy / TyObservationPolicy（[D004](D004-pf-ty-enhancement.md)） | ty 采集子对象：精确工具 version/内容 identity、有效 args/timeout/owned options、诊断身份与 unavailable 分类 | 动态 verifier authority、实际 anchor Proposal |
+| `search_derivation_identity` | SearchDerivationPolicy | 坐标算法、机械 probe、fast path、hint 消费及所用 Guidance identity | 某次运行的 observation 或动态终态 |
+| `policy_identity` | `pf:policy:v1` | 仅作 report provenance：绑定 guidance/search identity 与 generation 隔离所需的固定执行契约事实 | Attempt/Proposal 执行身份；ty 采集字段只存在于 Guidance/TyObservation |
 
-```json
-{
-  "rules": "execution-outcome-v1",
-  "structured_facts": "operation-structured-facts-v1",
-  "attribution_profiles": [{
-    "tool": "uv", "tool_version": "0.12.5",
-    "protocol": "uv-pip-compile-pylock-v1",
-    "profile": "uv-diagnostics-0.12.5-v1",
-    "codes": ["direct-version-contradiction", "transitive-version-contradiction"]
-  }]
-}
-```
+`execution_policy` 对象还固定：`verifier_outcome = configured-verifier-terminal-v1`、
+`pass_authority = direct-test-command-pass`、`failed_case_authority =
+qualified-rejection-only-original-command-for-pass`、`execution_outcome = execution-outcome-v1`、
+`structured_facts = operation-structured-facts-v1`、`uv_protocol = uv-pip-compile-pylock-v1`、
+`uv_diagnostic_profile = uv-diagnostics-0.12.5-v1`，以及
+`test_group_selection` / `empty_harness_prepare` / `project_marker_projection` /
+`resolution_projection` / `inspection` / `self_reference` / `extra_exploration` /
+`baseline_harness` / `probe_harness` / `project_overlap` / `external_ceiling` 的现行字面量。
+这些不是用户配置或运行期匹配结果；classifier/profile 或 normalization 语义变化须同步变更
+ExecutionPolicy identity。uv 归因 code 表由 D005 拥有。test group 名称、target/extra、candidate
+search 和全部 scheduling limits 不进入 ExecutionPolicy。具体 surface、declarations 和 observations
+仍由 Cell/source snapshot、Attempt/resolution evidence 绑定。
 
-keys 按 canonical JSON 排序，codes 数组保持上述顺序；structured_facts 版本绑定 D005 的完整
-code/stage/terminal/cause 表。该对象不是用户配置或运行期匹配结果；classifier/profile 语义变化
-须同步变更其版本及 policy preimage。新的 evaluation policy 隔离 Attempt/Proposal、resolution/
-evaluation cache 与 generation，不仅改变 Failure ID。Configured verifier policy 仍为原终态规则。
-
-Evaluation-policy canonical preimage 另含固定 `validation_contract_policy` 字段，其值为：
-
-```json
-{
-  "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
-  "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
-  "project_marker_projection": "portable-cell-platform-v1",
-  "self_reference": "required-effective-cell-surface",
-  "extra_exploration": "nonempty-declared-groups-only",
-  "resolution_projection": "actual-interpreter-target-active-pylock",
-  "baseline_harness": "original-external-declarations",
-  "probe_harness": "remove-eligible-direct-lower-bounds",
-  "project_overlap": "exact-project-node-without-harness-ceiling",
-  "external_ceiling": "baseline-observed-version-for-current-harness-only-node"
-}
-```
-
-`policy.py` 统一物化这些语义事实，不是用户配置项；baseline 同时指 declaration-capture，probe 同时指
-check declaration。行为本身由 D001/D012 拥有；具体 surface、declarations 和 observations 仍分别由
-Cell/source snapshot、Attempt/resolution evidence 绑定，不放入此固定 policy 字段。
 `project_marker_projection` 隔离五字段 target-derived project 求值语义；其余 contextual 字段不因此
 获得可移植承诺。RequirementDeclaration/TargetCell/marker 字符串与 active refs 沿用 Schema 1，
 不序列化 marker AST/environment，也不增加 ApplySelector 维度。JSON Schema 与 v1 digest prefix
-不变，examples 随 policy preimage/digest 重生成；不提供旧 policy reader、fallback 或 migrator。
-即使 source、Cells、generator 和显式 any/pytest 配置相同，normalization policy 不同也产生不同
-evaluation policy/generation。merge/update 拒绝跨 generation 混合；update_path 整体替换。Apply 在
-任何 source-drift waiver 前检查当前 evaluation policy，force 不绕过 mismatch。离线 read 内部自洽的
+不变，examples 随三类 identity 重生成；不提供旧 policy reader、fallback 或 migrator。
+
+Apply 在任何 source-drift waiver 前分别比较当前 `execution_policy.identity` 与
+`policy_identity` / `guidance_policy_identity` / `search_derivation_identity`；前者不匹配是
+`execution-policy-mismatch`，后者不匹配是 `search-provenance-mismatch`。force 不绕过任一类。
+ty/guidance 改变可以令旧报告不能直接 merge/apply，应诊断为 provenance 不匹配，而不是原 verifier
+PASS 失效。merge/update 拒绝跨 generation 混合；update_path 整体替换。离线 read 内部自洽的
 报告不自动授予当前语义的 apply 或与新 generation merge 的权限。Schema 版本和 generation 前缀保持 v1；
 baseline/Attempt digest 的变化不能代替上述 generation/apply 检查。
 
@@ -159,7 +147,7 @@ baseline/Attempt digest 的变化不能代替上述 generation/apply 检查。
   `DependencySourceRoute`；每条route绑定development/search source及可选workspace member version
   metadata。它是唯一 SourcePlan wire 值；派生 `identity` 与查询不进入 JSON。
 
-CandidateSnapshot 的 selection policy 与顶层 evaluation policy 是不同事实，因此 record 自带
+CandidateSnapshot 的 selection policy 与报告三类 policy identity 是不同事实，因此 record 自带
 `policy_identity`，但 reader 必须从保存的请求和已验证 evidence 复算，不能信任 opaque digest。
 每条 CandidateSnapshot 还保存`source_plan_identity`；它必须等于完整generation SourcePlan的唯一摘要，
 且 Reader 必须通过 `SourcePlan.source_for` 证明其 dependency/source 精确对应 registry SEARCH effective source。Workspace member当前版本
@@ -236,26 +224,33 @@ fail closed。SUCCESS、SEARCH_FAILED 与带搜索证据的 CELL_INDETERMINATE �
 
 ### 1.3 Evidence
 
-`evidence` 包含六张定义表：
+`evidence` 包含动态定义表与文档级静态 intern 表：
 
 | 表 | 稳定 owner/key | 主要依赖 |
 | --- | --- | --- |
 | `resolution_graphs` | `resolution_graph_id` | canonical nodes |
-| `attempts` | `attempt_id` | Cell、SourcePlan identity、policy、resolution context、harness facts、request |
+| `attempts` | `attempt_id` | Cell、SourcePlan identity、ExecutionPolicy identity、resolution context、harness facts、request |
 | `proposals` | `proposal_id` | Attempt、managed vector、fixed declarations、graph、project 与 nullable environment plan digest、interpreter |
-| `static_evaluations` | `proposal_ref` | Proposal、TyCheck、baseline digest、increment/fingerprint/classification |
-| `evaluations` | `proposal_ref` | Proposal、static evaluation、witnesses、verifier terminal/failure ref |
+| `static_contents` | content identity | 共享 `StaticContentManifest`；source/target/installed/configuration 只保存 content identity |
+| `static_subjects` | subject identity | 六组静态投影的 deflated 主体，内容经 `static_contents` intern |
+| `static_facts` | observation identity | 原始 TyCheck / TyCheckUnavailable；绑定 `subject_identity` 与 observation policy，不嵌入完整 subject |
+| `static_comparisons` | comparison identity | GLOBAL/SLICE 语义比较 intern，不绑定 Proposal |
+| `static_scopes` | scope membership refs | 独立 Run/Cell membership、consumer `(ref, fact_ref, subject_identity)` 与 preparation（无 subject 预像） |
+| `evaluations` | `proposal_ref` | Proposal、verifier terminal/failure ref |
 | `failures` | `failure_id` | Cell/Attempt scope、disposition、cause、stage、FailureAuthority、已取得 plan digests |
 
 Proposal 只有在 prepare 成功并复证实际 graph 后才能存在；prepare failure 可以引用 Attempt，但不能虚构 Proposal。成功 Proposal 的 `project_plan_digest` 必须非空，`environment_plan_digest` 是 required-nullable：key 必须存在，null 当且仅当引用 Attempt 的 active harness declaration IDs 为空；非 null digest 必须非空。interpreter Python minor 必须匹配 Attempt Cell。
 
 Project-only Proposal 的 graph 来自已安装并复证的 project plan；有 harness 时来自 environment plan。EnvironmentIdentity preimage 显式保留 null，reader 重算 identity 并拒绝分支不一致、缺 key 与 digest 漂移。wire serializer 在 exclude_none=True 下显式保留该 null，Schema generator 保留其 null 分支；generation、write/read、merge/update、examples 共享此契约。其他 optional fields 仍须省略。Schema version 保持 1，无旧形状 fallback。
 
-固定 test-group selection / empty-harness facts 进入 evaluation-policy preimage，具体 group 与原文仍由 SourceSnapshot 绑定。跨 policy generation 不可 merge/apply，update_path 按既有规则整体替换，force 不豁免 evaluation-policy mismatch。
+固定 test-group selection / empty-harness facts 进入 ExecutionPolicy，具体 group 与原文仍由 SourceSnapshot 绑定。跨 policy generation 不可 merge/apply，update_path 按既有规则整体替换，force 不豁免 execution-policy 或 search-provenance mismatch。
 
-Static Evaluation 只能是 `STATIC_UNCHANGED | STATIC_REGRESSION`。Terminal Evaluation 只能是
-现行领域 union `PASS | VERIFIER_REJECTED | RUNTIME_INTERFACE_MISSING | INDETERMINATE`。
-Verifier evaluation 保存 `ExecutionTerminal`；不保存完整 `ProcessResult` 或 pytest diagnostics。
+静态事实 intern 为原始 TyCheck 或比较结果，不绑定 Proposal，也不再编码 STATIC_UNCHANGED /
+STATIC_REGRESSION / region / witness。内容 manifest 与 StaticSubject 分别 intern；consumer
+preparation 只保存 subject identity，不复制 process 或重写原始事实。Reader 拒绝嵌入完整
+subject 的旧 intern 形状，以及悬空/未使用 intern 条目。Terminal Evaluation 只能是现行领域 union
+`PASS | VERIFIER_REJECTED | INDETERMINATE`。Verifier evaluation 保存 `ExecutionTerminal`；
+不保存完整 `ProcessResult` 或 pytest diagnostics。
 
 Failure wire 必须恰有一个判别 `authority`：
 `process | configured-verifier | structured | execution | operation-structured`。Reader
@@ -294,15 +289,14 @@ BASELINE_INDETERMINATE
 SEARCH_FAILED
 ```
 
-每个结果只通过 ref 连接 baseline、candidate snapshots、observations、regions、boundaries、FailureRecords 和 final Proposal。`SUCCESS.final_proposal_ref` 是 final vector 与 final PASS Evaluation 的唯一 authority；wire 不保存第二份 `final_vector` 或 `observed_upper`。
+每个结果只通过 ref 连接 baseline、candidate snapshots、observations、boundaries、FailureRecords 和 final Proposal。`SUCCESS.final_proposal_ref` 是 final vector 与 final PASS Evaluation 的唯一 authority；wire 不保存第二份 `final_vector` 或 `observed_upper`。
 
 Direct observation 必须引用当前 Attempt，并闭合到同一 Proposal/Evaluation/Failure。Rejection/Indeterminate
 要求 exact-vector Attempt；PASS 可以引用 exact-vector，或引用当前 CellResult 的真实 baseline highest Attempt、
 Proposal 与 PassEvaluation。后一种 observation 的 vector 只从 baseline Proposal managed vector 展开，且必须与
 CellResult 的 `baseline_attempt`、static baseline 和 baseline evaluation roots 完全一致；其他 highest、跨 Cell/
-context、漂移向量与非 PASS highest observation 均无效。Static-only observation 只能引用同 Cell、baseline、
-Slice 和 fingerprint 的 region 与 runtime representative；它不能成为 boundary 或 final authority。Boundary
-predecessor failure、failure disposition、region runtime reference、non-monotonic counterexample 和 coordinate
+context、漂移向量与非 PASS highest observation 均无效。静态事实可 intern 引用，但不能成为 boundary 或 final
+authority。Boundary predecessor failure、failure disposition、non-monotonic counterexample 和 coordinate
 outcome 必须与 D003–D005 的展开语义一致。
 
 `projections`只保存declaration ref、Cell ref、exact floor、生成requirements与`representable`。Reader展开后复证D001的完整TargetCell→floor映射和complete authority。`result.status = complete`当且仅当全部target Cells有成功root且全部full-matrix projection可表示；否则为`incomplete`并保存规范reason集合。Incomplete的空/不可表示full-matrix projection本身不授权apply；`ApplyAuthorizer`只从final `CellSuccess` roots请求一次apply-time group projection，scope/waiver/history不写回wire。
@@ -327,7 +321,7 @@ outcome 必须与 D003–D005 的展开语义一致。
 4. 要求输入与 `model_dump(exclude_none=True)` 完全一致，禁止 coercion/default 补事实；
 5. 建立线性的 typed indexes，拒绝重复、未知或错误种类的 ref；
 6. 要求SourcePlan为SEARCH，通过其 interface 复算唯一摘要与 effective source，并复算generation、
-   Cell、CandidateSnapshot、ResolutionGraph、当前 Attempt v1、Proposal、region与Failure v3 identity；
+   Cell、CandidateSnapshot、ResolutionGraph、当前 Attempt v1、Proposal、interned static contents/subjects/facts/comparisons 与 Failure v3 identity；
 7. 验证 cross-cell scope、Evaluation/Failure/Proposal 闭环、搜索边界、projection 与 result；
 8. 从 roots 检查全图可达性和规范顺序；
 9. 返回 immutable、resolved `ValidatedReport`，不向调用方泄漏 wire refs 或 join 规则。
@@ -362,7 +356,7 @@ Build/reintern/update/merge 保留原始规范 search_policy 与最终 roots 可
 填补新事实。Generation compatibility 包括完整 search_policy，跨 generation 仍不混合。
 
 `ApplyAuthorizer` 在 source-drift waiver 前比较当前合并的完整 search_policy（含 profile、artifact 和未选
-默认分支），保持既有 evaluation policy 检查，force 不绕过 mismatch。它不联网重算系列；报告锚点始终由
+默认分支），并分别检查 ExecutionPolicy 与 search/guidance provenance，force 不绕过 mismatch。它不联网重算系列；报告锚点始终由
 原始声明派生。首次 original、已投影 projected 与重复 no-op apply 沿用既有声明结构授权，不因改写下界
 重解释旧报告。`ValidatedReport.search_spaces()` 提供 typed policy/selection/representatives，Explain 只消费
 已验证投影，不解析 DSL 或 join wire refs。
@@ -385,7 +379,7 @@ ReportStore.update_path(path, replacement) -> ReportUpdate
 
 `PackageReportBuilder`把领域`CellResult` intern为规范图并计算report projection/result；Search writer 把真实 Run plan 同时用于 generation identity 与 `inputs.source_plan`，merge/update reintern 复用 generation plan，不从 PackagePlan 重建。同一owner的`project`按dependency group重生成Cell→PEP 508 projection并重求值。`ReportStore`独占wire codec、typed index、ref展开、完整验证、merge/update和原子事务；raw routes 只用于严格 codec、public locator 与 cross-ref，effective source/identity 闭合走 SourcePlan interface。Workflow、authorizer、explain与diagnose只消费`ValidatedReport`；editor只消费authorized edits。上述模块不得import wire records、读取`_wire`或自行join refs。
 
-同generation merge/update要求generator、package/requires-python、source snapshot（含dependency-array identity）、policy、verifier/failure policy、SourcePlan、declarations与target Cells完全兼容；先展开final CellResult roots，再重新intern整图，因此旧的不可达evidence被清理，共享graph只保留一次。相同Cell的冲突结果或相同evidence ID的不同payload直接拒绝，不合成运行期NONDETERMINISTIC，也不跨运行重试Attempt归因。`--force`不参与merge。不同generation的`update_path`整体替换；空replacement不删除existing Cells。`read`/`merge` 对坏报告 fail closed。`update_path` 在 replacement 已是现行 `ValidatedReport` 时，把不存在、不可读或非法 existing 视为缺席并写入 replacement，不与坏文件 merge。合法但 generation 不同的 existing 仍整体替换。合法apply会改变dependency-array/full snapshot identity并开始新generation，apply前后reports不可merge/rebase。
+同generation merge/update要求generator、package/requires-python、source snapshot（含dependency-array identity）、ExecutionPolicy、guidance/search identity、report provenance、verifier/failure policy、SourcePlan、declarations与target Cells完全兼容；先展开final CellResult roots，再重新intern整图，因此旧的不可达evidence被清理，共享graph只保留一次。相同Cell的冲突结果或相同evidence ID的不同payload直接拒绝，不合成运行期NONDETERMINISTIC，也不跨运行重试Attempt归因。`--force`不参与merge。不同generation的`update_path`整体替换；空replacement不删除existing Cells。`read`/`merge` 对坏报告 fail closed。`update_path` 在 replacement 已是现行 `ValidatedReport` 时，把不存在、不可读或非法 existing 视为缺席并写入 replacement，不与坏文件 merge。合法但 generation 不同的 existing 仍整体替换。合法apply会改变dependency-array/full snapshot identity并开始新generation，apply前后reports不可merge/rebase。
 
 `ReportUpdate` 只向 diagnosis association seam 暴露 `replace_generation` 与已移除 Failure IDs；ReportStore 不依赖 RunLogStore。
 

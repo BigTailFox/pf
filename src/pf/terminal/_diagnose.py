@@ -210,6 +210,21 @@ def render(
         (None, Text("Technical details", style="bold")),
         (None, _fact_grid(tuple(technical))),
     )
+    if diagnosis.static_associations:
+        related = [
+            (
+                association.path,
+                Text(_association_text(association)),
+            )
+            for association in diagnosis.static_associations
+        ]
+        rows = (
+            *rows,
+            (None, Text()),
+            (None, Text("Related static evidence", style="bold")),
+            (None, Text("These facts explain the probe path, not the compatibility result.", style="dim")),
+            (None, _fact_grid(tuple(related))),
+        )
     presenter.stdout.print(
         _result_card(rows, kind=kind)
         if presenter.stdout.is_terminal
@@ -221,6 +236,30 @@ def render(
         console=presenter.stdout,
     )
     return 0
+
+
+def _association_text(association) -> str:
+    parts = []
+    if association.path == "selection" and association.selection_reason is not None:
+        parts.append(f"probed as {association.selection_reason}")
+        if association.static_search_ref is not None:
+            parts.append(association.static_search_ref)
+    if association.fact_kind is not None:
+        parts.append(association.fact_kind)
+        if association.diagnostic_count:
+            parts.append(f"{association.diagnostic_count} diagnostic{'s' if association.diagnostic_count != 1 else ''}")
+    for comparison in association.comparisons:
+        detail = comparison.state or comparison.status
+        if comparison.kind == "GLOBAL":
+            parts.append(f"GLOBAL vs S_hi: {detail}")
+        else:
+            parts.append(f"SLICE vs S_slice: {detail}")
+    if association.producer_ref is not None:
+        parts.append(
+            "static log available" if association.log_path is not None
+            else "static process log is unavailable"
+        )
+    return " · ".join(parts) if parts else association.path
 
 
 def _single_line_summary(value: str) -> str:

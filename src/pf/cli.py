@@ -11,7 +11,6 @@ from cyclopts.exceptions import CycloptsError, MissingArgumentError
 from packaging.utils import InvalidName, canonicalize_name
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
-from pf.adapters.runtime_witness import RuntimeWitnessAdapter
 from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import RegistryAccess, UvAdapter
@@ -24,6 +23,7 @@ from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError, ExitCode, InvocationError, PfError
+from pf.static_request import StaticRequestFactory
 from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
 from pf.project import ProjectLoader, host_target
 from pf.project_discovery import ProjectDiscovery
@@ -242,13 +242,12 @@ class CliContext:
         permits = StagePermitPools()
         static = StaticEvaluator(
             TyAdapter(runner),
+            requests=StaticRequestFactory(runner),
             events=self.presenter,
             permits=permits,
         )
         full = RuntimeEvaluator(
-            static=static,
             verifier=ConfiguredVerifier(runner),
-            witnesses=RuntimeWitnessAdapter(runner),
             events=self.presenter,
             permits=permits,
         )

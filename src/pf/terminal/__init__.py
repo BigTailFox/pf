@@ -39,12 +39,9 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessResult,
     PytestFailureDetail,
-    RuntimeInterfaceMissingEvaluation,
     SearchFailureEvent,
     SmokeResult,
-    StaticIssueDetail,
     VerifierRejectedEvaluation,
-    TyDiagnostic,
     VerificationRole,
 )
 from pf.schemas.project import ApplySelector, Cell
@@ -221,7 +218,6 @@ _FAILURE_TITLES: dict[FailureCause, str] = {
     "RESOLUTION_FAILED": "This resolution attempt did not pass; a dependency conflict has not been proven.",
     "INSTALLATION_FAILED": "The selected plan did not pass this installation attempt.",
     "HARNESS_CONFLICT": "The test dependencies cannot be installed without changing the versions being checked.",
-    "RUNTIME_INTERFACE_MISSING": "A required runtime interface is missing from this version combination.",
     "VERIFIER_EXITED_NONZERO": "The configured verifier rejected this version combination.",
     "SOURCE_FAILURE": "PF could not reach or read a configured package source.",
     "ENVIRONMENT_FAILURE": "The current Python or system environment cannot run this check.",
@@ -236,7 +232,6 @@ _FAILURE_NEXT_STEPS: dict[FailureCause, str] = {
     "RESOLUTION_FAILED": "Inspect the resolution diagnostics and log before changing dependency constraints.",
     "INSTALLATION_FAILED": "Inspect the installation diagnostics and log for the selected plan.",
     "HARNESS_CONFLICT": "Adjust the configured test dependencies so they preserve the dependency graph under test.",
-    "RUNTIME_INTERFACE_MISSING": "Review the confirmed missing module or member before changing dependency constraints.",
     "VERIFIER_EXITED_NONZERO": "Review the verifier diagnostics and log before changing code or dependency constraints.",
     "SOURCE_FAILURE": "Check the index URL, network, credentials, and source availability, then rerun PF.",
     "ENVIRONMENT_FAILURE": "Verify the interpreter, platform support, permissions, and required system tools.",
@@ -336,25 +331,15 @@ def _failed_at_label(stage: str | None) -> str | None:
     return _FAILED_AT.get(stage, stage.replace("-", " "))
 
 
-def _ty_diagnostic_summary(diagnostic: TyDiagnostic) -> str:
-    location = diagnostic.path
-    if diagnostic.line is not None:
-        location += f":{diagnostic.line}"
-    if diagnostic.column is not None:
-        location += f":{diagnostic.column}"
-    return f"{location} [{diagnostic.code}] {_single_line_summary(diagnostic.message)}"
 
 
 def _cell_detail_lines(
-    detail: PytestFailureDetail | StaticIssueDetail | None,
+    detail: PytestFailureDetail | None,
 ) -> tuple[Text, ...]:
     if detail is None:
         return ()
-    if isinstance(detail, PytestFailureDetail):
-        phase = "" if detail.first.phase == "call" else f" ({detail.first.phase})"
-        first = Text(f"FAILED {detail.first.nodeid}{phase}", style="dim")
-    else:
-        first = Text(_ty_diagnostic_summary(detail.first), style="dim")
+    phase = "" if detail.first.phase == "call" else f" ({detail.first.phase})"
+    first = Text(f"FAILED {detail.first.nodeid}{phase}", style="dim")
     if detail.total == 1:
         return (_fold_text(first),)
     return (
@@ -741,6 +726,14 @@ class TerminalPresenter:
                 ),
             )
         ]
+        reason = getattr(error, "reason", None)
+        if reason in {
+            "execution-policy-mismatch",
+            "search-provenance-mismatch",
+            "unsupported-report-contract",
+            "invalid-static-evidence",
+        }:
+            rows.append((None, Text(f"reason: {reason}")))
         if error.detail:
             rows.append((None, Text(_single_line_summary(error.detail))))
         self.stderr.print(marker_group(tuple(rows), expand=False), soft_wrap=True)
@@ -774,7 +767,7 @@ class TerminalPresenter:
                     terminal=self.stderr.is_terminal,
                 ),
             ),
-            ("reason", Text(error.reason)),
+            ("reason", Text(error.reason or "")),
         ]
         rows: list[tuple[RenderableType | None, RenderableType]] = [
             (
@@ -808,7 +801,7 @@ class TerminalPresenter:
                     (
                         ("failure", Text(error.failure_id)),
                         ("package", Text(error.package, style="bold cyan")),
-                        ("reason", Text(error.reason)),
+                        ("reason", Text(error.reason or "")),
                     )
                 ),
             ),
@@ -857,7 +850,17 @@ class TerminalPresenter:
         elif isinstance(error, MergeCompatibilityError):
             facts.extend(
                 (
-                    ("Reason", Text("reports are incompatible and cannot be merged")),
+                    (
+                        "Reason",
+                        Text(
+                            error.reason
+                            if error.reason in {
+                                "execution-policy-mismatch",
+                                "search-provenance-mismatch",
+                            }
+                            else "reports are incompatible and cannot be merged"
+                        ),
+                    ),
                     ("Detail", Text(error.detail or "compatibility check failed")),
                 )
             )
@@ -1002,7 +1005,6 @@ class TerminalPresenter:
             if not isinstance(
                 evaluation,
                 (
-                    RuntimeInterfaceMissingEvaluation,
                     VerifierRejectedEvaluation,
                     PassEvaluation,
                 ),

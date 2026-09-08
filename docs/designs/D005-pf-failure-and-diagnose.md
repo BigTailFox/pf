@@ -1,11 +1,11 @@
 # PF failure 语义与 diagnose
 
 - **状态：** 现行
-- **策略版本：** `failure-execution-v3`
-- **最后核对：** 2026-09-06
+- **策略版本：** `failure-execution-v4`
+- **最后核对：** 2026-09-08
 - **领域词汇：** [CONTEXT](../../CONTEXT.md)
 - **搜索消费：** [D003](D003-pf-search-algorithm.md)
-- **Runtime interface witness：** [D004](D004-pf-ty-enhancement.md)
+- **静态事实：** [D004](D004-pf-ty-enhancement.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行角色与读取面：** [D008](D008-pf-verification-run.md)
 - **Harness negative evidence：** [D012](D012-pf-harness-relaxation.md)
@@ -41,7 +41,6 @@ RESOLUTION_CONFLICT
 RESOLUTION_FAILED
 INSTALLATION_FAILED
 HARNESS_CONFLICT
-RUNTIME_INTERFACE_MISSING
 VERIFIER_EXITED_NONZERO
 SOURCE_FAILURE
 ENVIRONMENT_FAILURE
@@ -56,9 +55,10 @@ NONDETERMINISTIC
 ## 2. Attempt 与 scope
 
 Attempt 在 environment resolution 前建立，identity 绑定 source snapshot、完整 Cell、
-resolution request、exact managed vector、active declarations、唯一 SourcePlan identity、evaluation
-policy、`ResolutionContext` digest、original/relaxed harness policy、harness declarations/baseline，以及
-exact request 的 selected-candidate evidence。当前唯一布局与摘要均为 `attempt-v1` / `pf:attempt:v1`；
+resolution request、exact managed vector、active declarations、唯一 SourcePlan identity、
+`ExecutionPolicy.identity`、`ResolutionContext` digest、original/relaxed harness policy、harness
+declarations/baseline，以及 exact request 的 selected-candidate evidence。ty args/timeout/tool
+version 不进入 Attempt。当前唯一布局与摘要均为 `attempt-v1` / `pf:attempt:v1`；
 Schema 1 只按该完整 preimage 重建和复算，不接受开发期旧 identity。
 uv version/protocol/profile 准入先于 Attempt；无法建立协议是 ConfigurationError，不补造
 Attempt 或 FailureRecord。非法内部对象、未建模 PF 异常沿 InfrastructureError 路径结束。
@@ -67,7 +67,7 @@ Failure scope 是判别 union：
 
 ```text
 AttemptFailureScope(attempt)
-CellFailureScope(package, cell, source_snapshot_digest, policy_identity)
+CellFailureScope(package, cell, source_snapshot_digest, execution_policy_identity)
 ```
 
 Candidate discovery 或 scheduling 在 Attempt 建立前失败时使用 Cell scope；它只能是
@@ -83,7 +83,6 @@ Rejection 只否定完整 Attempt。现行允许：
 | `HARNESS_CONFLICT` | `resolve-environment` | D012 资格 profile 证明 final environment request UNSAT |
 | `RESOLUTION_FAILED` | `resolve-project` / `resolve-environment` | 有效请求的 NormalExit(nonzero) / Unattributed |
 | `INSTALLATION_FAILED` | `install-project` / `install-environment` | 选定 final plan 的 NormalExit(nonzero) / Unattributed |
-| `RUNTIME_INTERFACE_MISSING` | `witness` | D004 structured witness 的 `CONFIRMED_MISSING` |
 | `VERIFIER_EXITED_NONZERO` | `test` | configured verifier 的 `NormalExit(exit_code != 0)` |
 
 Configured verifier 的 terminal disposition 已由 `ConfiguredVerifier` 机械形成；
@@ -99,8 +98,8 @@ timeout、signal、start failure、typed terminal unavailable 不形成 Rejectio
 不是独立 PF stage：没有合格归因时使用实际父 resolve/install 操作的兜底，不从日志生成
 build Attempt、terminal 或未取得的 plan。辅助 create/inspect 不采用候选拒绝兜底。
 
-D004 runtime witness 的资格保持独立：`PRESENT | NOT_APPLICABLE` 继续 verifier；
-`CONFIRMED_MISSING` 可形成 Rejection；witness `ToolFailure` 形成 Indeterminate。
+静态 prepare/ty/比较失败不形成 Rejection 或 Indeterminate；它们只影响 guidance / Journal
+审计。孤立 runtime interface missing 不再生产。
 
 ### 3.1 共享执行规则
 
@@ -127,7 +126,7 @@ ExecutionTerminal = NormalExit / StartFailed / TimedOut / Signaled / Unavailable
 strict integer，signal 为正 strict integer。ExecutionFailure 不接受 NormalExit(0)；UNSAT 只允许
 R 的 NormalExit(1)，不能接在 install、辅助或异常 terminal 上。Q 不接受 execution authority。
 有效原始观察中同时出现 normal 0 和失败归因，应先形成 evidence-conflict；非法内部凭据对象
-不得交给 classifier 猜测修复。planning、ty、runtime witness、Ctrl+C 保持其独立协议。
+不得交给 classifier 猜测修复。planning、ty、Ctrl+C 保持其独立协议。
 
 首轮 attribution 只有 `Unattributed = {kind: "unattributed"}`，以及：
 
@@ -199,7 +198,7 @@ FailureRecord
 
 每条记录必须恰有一种 authority：
 
-- ty/runtime witness 及排除的 planning 等操作可保存 D007 portable `ProcessResult`；typed
+- ty 及排除的 planning 等操作可保存 D007 portable `ProcessResult`；typed
   terminal unavailable 转为稳定 structured authority，不伪造 process facts；
 - configured verifier 只保存 `ExecutionTerminal`，不重复保存完整 `ProcessResult`；
 - R/I/A 采用 execution 或 operation-structured，Q 仅采用 operation-structured，scope 必须是
@@ -237,8 +236,9 @@ reader 检查固定凭据、facts、terminal/stage、harness/plan 时序与 bind
 cause/disposition、Failure ID、Attempt identity 和 refs。Attempt 的 resolution_context_digest
 必须非空但保持 opaque；不保存 context preimage，不从本机 context/日志补证或声称复算原文。
 重新哈希不能豁免可观察语义检查。Schema 1 的 required identity.failure_policy 与 generation
-规则由 D014 拥有；evaluation policy 吸收固定 execution-outcome-v1、
-operation-structured-facts-v1 和上述唯一 attribution profile/code 集合，不根据运行结果动态变更。
+规则由 D014 拥有；ExecutionPolicy 吸收固定 execution-outcome-v1、
+operation-structured-facts-v1 和上述唯一 attribution profile，不根据运行结果动态变更。
+ty 采集只进入 GuidancePolicy / TyObservationPolicy。
 
 Environment plan digest 存在时 project plan digest 必须存在。`FailureDetail` 必须非空、
 有界、脱敏且可移植；不能保存绝对路径、credential、动态异常正文或本地 locator。
@@ -260,7 +260,6 @@ Evaluation 映射固定为：
 
 ```text
 PassEvaluation                    -> None
-RuntimeInterfaceMissingEvaluation -> RUNTIME_INTERFACE_MISSING @ witness
 VerifierRejectedEvaluation        -> VERIFIER_EXITED_NONZERO @ test
 IndeterminateEvaluation           -> evaluation 自带 verifier/process authority
 ```
@@ -271,7 +270,8 @@ Rejection classifier。Role 不改变分类或 identity。
 ## 6. Diagnose
 
 报告、latest Journal 和 Diagnosis Index 的读取范围与优先级只由 D008 定义。
-命令参数与 Failure ID 准入只见 [D001 §5、§8](D001-pf.md#5-命令)；本节拥有 cause 的稳定用户语义。
+diagnose 只按 Failure ID 遍历合法 execution/selection 静态关联；未关联静态事实不是独立
+selector。命令参数与 Failure ID 准入只见 [D001 §5、§8](D001-pf.md#5-命令)；本节拥有 cause 的稳定用户语义。
 
 单条诊断按 `Failure / Outcome → What happened → Impact → Next step → Context →
 Technical details → optional log tail` 表达。Failure title与Next step保持本节稳定语义；
@@ -283,7 +283,6 @@ Role-aware Impact由D008拥有。Cause 的稳定用户语义：
 | `RESOLUTION_FAILED` | `This resolution attempt did not pass; a dependency conflict has not been proven.` | `Inspect the resolution diagnostics and log before changing dependency constraints.` |
 | `INSTALLATION_FAILED` | `The selected plan did not pass this installation attempt.` | `Inspect the installation diagnostics and log for the selected plan.` |
 | `HARNESS_CONFLICT` | `The test dependencies cannot be installed without changing the versions being checked.` | `Adjust the configured test dependencies so they preserve the dependency graph under test.` |
-| `RUNTIME_INTERFACE_MISSING` | `A required runtime interface is missing from this version combination.` | `Review the confirmed missing module or member before changing dependency constraints.` |
 | `VERIFIER_EXITED_NONZERO` | `The configured verifier rejected this version combination.` | `Review the verifier diagnostics and log before changing code or dependency constraints.` |
 | `SOURCE_FAILURE` | `PF could not reach or read a configured package source.` | `Check the index URL, network, credentials, and source availability, then rerun PF.` |
 | `ENVIRONMENT_FAILURE` | `The current Python or system environment cannot run this check.` | `Verify the interpreter, platform support, permissions, and required system tools.` |

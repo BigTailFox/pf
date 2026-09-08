@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 import json
 
 import pytest
@@ -189,7 +191,9 @@ class TestOptionalGroupPreparation:
         from pf.schemas.project import Cell
 
         class Runner:
-            def run(self, spec):
+            def run(self, spec, *, cancellation: Cancellation | None = None):
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 assert spec.argv[1:3] == ("pip", "sync")
                 return ProcessResult(
                     exit_code=1, duration_seconds=0.1, stderr="installation failed"

@@ -1,0 +1,436 @@
+{
+  "provenance": {
+    "source": "/tmp/pf-d038-e009-mkdocs/package-floor.json",
+    "run_id": "20260908T022518.098497Z-1722063-e8888b4a",
+    "report_generation_id": "a5c47dc73443ee5b890c4fe49e26baabe3e6bb3db252722b4413a882af8fc9c2",
+    "sha256": "5af3ca77d84996c248b95aaeacd97e8aa075e64b0270e320f02942c8c99f0ea2",
+    "bytes": 57004655,
+    "limit_bytes": 67108864,
+    "reader_validation": {
+      "status": "complete",
+      "report_roundtrip": true,
+      "exit_code": 0
+    },
+    "qualification": "/tmp/pf-d038-e009-search.json",
+    "pre_intern_bytes": 134330569,
+    "pre_intern_rejected_reason": "unsupported-report-contract / report exceeds the 64 MiB read limit"
+  },
+  "identity": {
+    "guidance_policy_identity": "efb23cb3ec88ed638a7ab73eee5a8136e9e583ac9aba6c29d1b861b39a8f3c63",
+    "search_derivation_identity": "efef7b09e9c81c3f21924d55126190467f2d9e0ccd288e7909688cf4bee25ab4"
+  },
+  "markdown": [
+    {
+      "python_minor": "3.10",
+      "floor": "3.3.7",
+      "predecessor": "3.2.2",
+      "predecessor_authority_kind": "configured-verifier",
+      "final_pass": true,
+      "final_verifier_terminal": {
+        "kind": "normal-exit",
+        "exit_code": 0
+      }
+    },
+    {
+      "python_minor": "3.11",
+      "floor": "3.3.7",
+      "predecessor": "3.2.2",
+      "predecessor_authority_kind": "configured-verifier",
+      "final_pass": true,
+      "final_verifier_terminal": {
+        "kind": "normal-exit",
+        "exit_code": 0
+      }
+    },
+    {
+      "python_minor": "3.12",
+      "floor": "3.3.7",
+      "predecessor": "3.2.2",
+      "predecessor_authority_kind": "configured-verifier",
+      "final_pass": true,
+      "final_verifier_terminal": {
+        "kind": "normal-exit",
+        "exit_code": 0
+      }
+    },
+    {
+      "python_minor": "3.8",
+      "floor": "3.3.7",
+      "predecessor": "3.2.2",
+      "predecessor_authority_kind": "configured-verifier",
+      "final_pass": true,
+      "final_verifier_terminal": {
+        "kind": "normal-exit",
+        "exit_code": 0
+      }
+    },
+    {
+      "python_minor": "3.9",
+      "floor": "3.3.7",
+      "predecessor": "3.2.2",
+      "predecessor_authority_kind": "configured-verifier",
+      "final_pass": true,
+      "final_verifier_terminal": {
+        "kind": "normal-exit",
+        "exit_code": 0
+      }
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.10",
+      "status": "SUCCESS",
+      "final_vector": [
+        {
+          "name": "babel",
+          "version": "2.7.0"
+        },
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "0.6.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.10.3"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "1.1.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.1.0"
+        },
+        {
+          "name": "packaging",
+          "version": "19.0"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.10.3"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1.2"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "1.0.2"
+        }
+      ]
+    },
+    {
+      "python_minor": "3.11",
+      "status": "SUCCESS",
+      "final_vector": [
+        {
+          "name": "babel",
+          "version": "2.7.0"
+        },
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "0.6.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.10.3"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "1.1.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.1.0"
+        },
+        {
+          "name": "packaging",
+          "version": "19.0"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.10.3"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1.2"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "1.0.2"
+        }
+      ]
+    },
+    {
+      "python_minor": "3.12",
+      "status": "SUCCESS",
+      "final_vector": [
+        {
+          "name": "babel",
+          "version": "2.7.0"
+        },
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "0.6.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.10.3"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "1.1.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.1.0"
+        },
+        {
+          "name": "packaging",
+          "version": "19.0"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.10.3"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1.2"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "1.0.2"
+        }
+      ]
+    },
+    {
+      "python_minor": "3.8",
+      "status": "SUCCESS",
+      "final_vector": [
+        {
+          "name": "babel",
+          "version": "1.0"
+        },
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "0.6.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "4.4.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.9.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "1.1.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.1.0"
+        },
+        {
+          "name": "packaging",
+          "version": "19.0"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.10.3"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1.2"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "1.0.2"
+        }
+      ]
+    },
+    {
+      "python_minor": "3.9",
+      "status": "SUCCESS",
+      "final_vector": [
+        {
+          "name": "babel",
+          "version": "1.0"
+        },
+        {
+          "name": "click",
+          "version": "7.0"
+        },
+        {
+          "name": "ghp-import",
+          "version": "0.6.0"
+        },
+        {
+          "name": "importlib-metadata",
+          "version": "4.4.0"
+        },
+        {
+          "name": "jinja2",
+          "version": "2.9.6"
+        },
+        {
+          "name": "markdown",
+          "version": "3.3.7"
+        },
+        {
+          "name": "markupsafe",
+          "version": "1.1.1"
+        },
+        {
+          "name": "mergedeep",
+          "version": "1.3.4"
+        },
+        {
+          "name": "mkdocs-get-deps",
+          "version": "0.1.0"
+        },
+        {
+          "name": "packaging",
+          "version": "19.0"
+        },
+        {
+          "name": "pathspec",
+          "version": "0.10.3"
+        },
+        {
+          "name": "pyyaml",
+          "version": "5.1.2"
+        },
+        {
+          "name": "pyyaml-env-tag",
+          "version": "0.1"
+        },
+        {
+          "name": "watchdog",
+          "version": "1.0.2"
+        }
+      ]
+    }
+  ],
+  "static_scopes": [
+    {
+      "scope_ref": "07b2d9153e575057a8d790ed1e0dbd44",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "omissions": 15,
+      "skips": 27,
+      "selections": 189
+    },
+    {
+      "scope_ref": "1b953d2b596a50f5950ad562620a69ec",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "omissions": 15,
+      "skips": 24,
+      "selections": 183
+    },
+    {
+      "scope_ref": "3f3ae743c53a58609bd321a8085ce7bb",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "omissions": 15,
+      "skips": 24,
+      "selections": 183
+    },
+    {
+      "scope_ref": "8f0c1b224a90551a96c47e5e42603a6e",
+      "facts": 0,
+      "comparisons": 0,
+      "searches": 0,
+      "omissions": 16,
+      "skips": 26,
+      "selections": 191
+    },
+    {
+      "scope_ref": "aa3ea9bfd7b851e08bd3c03cbfc47ffd",
+      "facts": 40,
+      "comparisons": 59,
+      "searches": 13,
+      "omissions": 2,
+      "skips": 24,
+      "selections": 183
+    }
+  ],
+  "wall_time": {
+    "elapsed_ms": 2454196,
+    "cards": {
+      "3.8": "0:07:05",
+      "3.9": "0:07:07",
+      "3.11": "0:07:47",
+      "3.12": "0:09:25",
+      "3.10": "0:37:54"
+    }
+  }
+}

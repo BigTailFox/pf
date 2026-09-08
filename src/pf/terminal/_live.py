@@ -196,15 +196,30 @@ class LiveVerificationView:
 
     def print_step(self, message: RenderableType) -> None:
         with self._lock:
-            printer = (
-                self._progress.print
-                if self._progress is not None
-                else self._stderr.print
-            )
+            printer = self._persistent_printer()
             if self._stderr.is_terminal:
                 printer(message, highlight=False, overflow="fold", crop=False)
                 return
             printer(message, highlight=False, soft_wrap=True)
+
+    def _live_started(self) -> bool:
+        return (
+            self._progress is not None
+            and self._progress.live is not None
+            and self._progress.live.is_started
+        )
+
+    def _uses_live_display(self) -> bool:
+        if not self._stderr.is_terminal or self._stderr.is_dumb_terminal:
+            return False
+        stream_isatty = getattr(self._stderr.file, "isatty", None)
+        return callable(stream_isatty) and bool(stream_isatty())
+
+    def _persistent_printer(self):
+        if self._live_started():
+            assert self._progress is not None
+            return self._progress.print
+        return self._stderr.print
 
     def _consume_status(self, event: StatusEvent) -> None:
         if not self._stderr.is_terminal:
@@ -241,7 +256,7 @@ class LiveVerificationView:
             heading,
         )
         detail_rows: tuple[_MarkerRow, ...] = tuple((None, line) for line in details)
-        if self._stderr.is_terminal:
+        if self._uses_live_display():
             self._complete_pending_setup()
             self._setup_lines.append(heading_row)
             self._queue_run_id()
@@ -387,7 +402,7 @@ class LiveVerificationView:
         )
         cell_report = self._render_cell(presentation)
         if cell_report is not None:
-            if self._stderr.is_terminal and self._setup_card_lines:
+            if self._uses_live_display() and self._setup_card_lines:
                 self._completed_cards.extend(cell_report)
             else:
                 for renderable in cell_report:
@@ -474,8 +489,7 @@ class LiveVerificationView:
             redirect_stdout=False,
             redirect_stderr=False,
         )
-        stream_isatty = getattr(self._stderr.file, "isatty", None)
-        if callable(stream_isatty) and stream_isatty():
+        if self._uses_live_display():
             self._progress.start()
 
     def _refresh_progress(self) -> None:
@@ -735,7 +749,7 @@ class LiveVerificationView:
         self._setup_card_lines = ()
         self._completed_cards.clear()
         self._refresh_progress()
-        self._progress.print(
+        self._persistent_printer()(
             Group(
                 self._setup_card(lines, border_style=outcome_border_style(kind)),
                 *completed_cards,

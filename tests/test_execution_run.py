@@ -211,6 +211,12 @@ class TestExecutionFailureRun:
                 def lookup_run(self, run_id, failure_id):
                     return None
 
+                def lookup_static(self, run_id, scope_ref, producer_ref):
+                    return None
+
+                def lookup_report_static(self, report_generation_id, scope_ref, producer_ref):
+                    return None
+
                 def read_latest_journal(self, package):
                     return logs.read_latest_journal(package)
 

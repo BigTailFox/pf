@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+
+
 from candidate_fixtures import frozen_candidate_snapshot
 
 from dataclasses import replace
@@ -22,7 +24,7 @@ from pf.errors import (
     NoApplicableFloorError,
 )
 from pf import policy as policy_module
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
 from pf.markers import PortableMarker
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
@@ -35,13 +37,9 @@ from pf.schemas.evaluation import (
     NormalExit,
     PassEvaluation,
     ProcessResult,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    TyCheck,
     VerifierPass,
     VerifierRejected,
     VerifierRejectedEvaluation,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -100,7 +98,7 @@ def _attempt(
             requested_managed_vector=(vector if resolution == "exact-vector" else None),
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity=source_plan_identity_value,
-            evaluation_policy_identity=policy,
+            execution_policy_identity=policy,
             resolution_context_digest="context",
             harness_policy_identity=(
                 "harness-relaxation-v1"
@@ -151,6 +149,7 @@ def _evaluation(
     environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
+                attempt_id=attempt.attempt_id,
             project_plan_digest=project_digest,
             environment_plan_digest=environment_digest,
             graph=(),
@@ -172,12 +171,7 @@ def _evaluation(
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=_process(), diagnostics=()),
-            baseline_digest=ty_diagnostic_digest(()),
-            incremental=(),
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
@@ -190,7 +184,7 @@ def _successful_cell(
     snapshot_digest: str,
     historical_rejection: bool = False,
 ) -> CellSuccess:
-    policy = evaluation_policy_identity(package.config)
+    policy = execution_policy_identity(package.config)
     plan_identity = SourcePlan.for_package(package, "SEARCH").identity
     vector = (VersionPin(name="idna", version=floor),)
     final_attempt = _attempt(
@@ -278,7 +272,7 @@ def _successful_cell(
         )
         rejected = VerifierRejectedEvaluation(
             proposal=rejected_pass.proposal,
-            static=rejected_pass.static,
+
             verifier=VerifierRejected(terminal=NormalExit(exit_code=1)),
         )
         failure = FailureRecord.from_verifier(
@@ -307,13 +301,10 @@ def _successful_cell(
         predecessor_failure_id = failure.failure_id
 
     return CellSuccess(
+
         cell=cell,
         baseline_attempt=baseline_attempt,
-        static_baseline=StaticBaseline(
-            proposal=baseline.proposal,
-            ty=baseline.static.ty,
-            digest=ty_diagnostic_digest(()),
-        ),
+
         baseline=baseline,
         candidate_snapshots=(snapshot,),
         search=CoordinateSuccess(
@@ -395,6 +386,33 @@ def _report(
 
 
 class TestApplyAuthorizer:
+    def test_fixed_source_ty_change_preserves_execution_but_rejects_cross_provenance_apply(self, tmp_path):
+        linux = "x86_64-unknown-linux-gnu"
+        _write_project(tmp_path, platforms=(linux,))
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            current = _report(project.target, snapshot, {linux: "2.0"})
+            config = project.target.config.model_dump(mode="json")
+            config["ty"]["timeout_seconds"] = 17
+            changed = project.target.model_copy(update={"config": type(project.target.config).model_validate(config)})
+            other = _report(changed, snapshot, {linux: "2.0"})
+            assert other.source_snapshot == current.source_snapshot
+            assert other.execution_policy == current.execution_policy
+            assert other.cell_results == current.cell_results
+            assert other.policy_identity != current.policy_identity
+            assert other.report_generation_id != current.report_generation_id
+            store = ReportStore()
+            with pytest.raises(ConfigurationError, match="search provenance mismatch") as merged:
+                store.merge((current, other))
+            assert merged.value.reason == "search-provenance-mismatch"
+            for force in (False, True):
+                with pytest.raises(ApplyAuthorizationError) as authorized:
+                    ApplyAuthorizer().authorize(report=other, project=project, current_snapshot=snapshot, force=force)
+                assert authorized.value.reason == "search-provenance-mismatch"
+        finally:
+            snapshot.close()
+
     def test_explain_uses_canonical_selector_for_partial_alias_report(self, tmp_path):
         linux = "x86_64-unknown-linux-gnu"
         _write_project(tmp_path, platforms=(linux, "x86_64-apple-darwin"), dependency="idna>=1; os_name == 'posix'")
@@ -495,19 +513,19 @@ class TestApplyAuthorizer:
                 lambda: store.update(other, current),
             ):
                 with pytest.raises(
-                    ConfigurationError, match="generation identity mismatch"
-                ):
+                    ConfigurationError, match="search provenance mismatch"
+                ) as merged:
                     operation()
+                assert merged.value.reason == "search-provenance-mismatch"
             for force in (False, True):
-                with pytest.raises(
-                    ApplyAuthorizationError, match="evaluation policy mismatch"
-                ):
+                with pytest.raises(ApplyAuthorizationError) as authorized:
                     ApplyAuthorizer().authorize(
                         report=other,
                         project=project,
                         current_snapshot=snapshot,
                         force=force,
                     )
+                assert authorized.value.reason == "search-provenance-mismatch"
             report_path = tmp_path / "package-floor.json"
             store.write(report_path, other)
             updated = store.update_path(report_path, current)
@@ -1572,13 +1590,14 @@ dynamic = ["version"]
         current_project = ProjectLoader().load(root=tmp_path)
         current_snapshot = _snapshot(current_project, tmp_path)
 
-        with pytest.raises(ApplyAuthorizationError, match="policy"):
+        with pytest.raises(ApplyAuthorizationError, match="execution policy") as authorized:
             ApplyAuthorizer().authorize(
                 report=report,
                 project=current_project,
                 current_snapshot=current_snapshot,
                 force=True,
             )
+        assert authorized.value.reason == "execution-policy-mismatch"
         report_snapshot.close()
         current_snapshot.close()
 

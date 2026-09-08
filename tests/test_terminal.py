@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from dataclasses import replace
 import re
 import sys
@@ -47,7 +48,6 @@ from pf.schemas.evaluation import (
     BaselineDetailIdentity,
     CellDetailIdentity,
     CellFailed,
-    CellResultDetail,
     CellFailureScope,
     CellMatrixEvent,
     CellSearchProgressEvent,
@@ -58,7 +58,6 @@ from pf.schemas.evaluation import (
     CheckIndeterminate,
     CheckPass,
     DeclarationDetailIdentity,
-    DiagnosticClassification,
     PassEvaluation,
     ProcessEvent,
     ProcessResult,
@@ -76,19 +75,12 @@ from pf.schemas.evaluation import (
     SmokeBaselineRejection,
     SmokePass,
     SmokeIndeterminate,
-    StaticBaseline,
-    StaticIssueDetail,
-    StaticRegressionEvaluation,
-    StaticUnchangedEvaluation,
     StatusEvent,
     StageProgress,
     ToolFailure,
-    TyCheck,
-    TyDiagnostic,
     VerificationRole,
     VerifierDiagnostics,
     VerifierRejectedEvaluation,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -115,16 +107,12 @@ from pf.schemas.report import (
     CellSearchFailure,
     CellSuccess,
     CompleteReportResult,
-    CoordinateFailure,
     IncompleteReportResult,
     ProjectionEvidence,
-    ProbeObservation,
-    ProbeRejection,
     failure_records_for_result,
 )
 from pf.terminal import CellPresentation, PF_THEME, TerminalPresenter
 from pf.search_space import SpaceSelection
-from pf.static_transition import static_fingerprint
 from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -190,17 +178,6 @@ def process_result(
     )
 
 
-def general_classifications(
-    *diagnostics: TyDiagnostic,
-) -> tuple[DiagnosticClassification, ...]:
-    return tuple(
-        DiagnosticClassification(
-            diagnostic_identity=diagnostic.identity,
-            classification="general",
-            reason_code="test-fixture",
-        )
-        for diagnostic in diagnostics
-    )
 
 
 def completed_event(
@@ -210,7 +187,7 @@ def completed_event(
     completed: int = 1,
     total: int = 1,
     phase: str = "complete",
-    detail: CellResultDetail | None = None,
+    detail: PytestFailureDetail | None = None,
     process: ProcessResult | None = None,
     failure: FailureRecord | None = None,
     role: VerificationRole | None = None,
@@ -275,7 +252,7 @@ def recorded_failure(
             package=cell.package,
             cell=cell,
             source_snapshot_digest="snapshot",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
         ),
         cause=cause,
         stage=stage,
@@ -376,7 +353,7 @@ def attempt_for(
             requested_managed_vector=vector,
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity="sources",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
             resolution_context_digest="context",
             harness_declaration_ids=("test-harness",) if harness else (),
             harness_policy_identity=(
@@ -481,7 +458,7 @@ def cell_indeterminate(
             package=cell.package,
             cell=cell,
             source_snapshot_digest="snapshot",
-            evaluation_policy_identity="policy",
+            execution_policy_identity="policy",
         ),
         cause=cause,
         stage=stage,
@@ -524,6 +501,29 @@ class TestErrorRendering:
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == "✗  configuration: unknown key: surprise\n"
         assert "\x1b[" not in stderr.getvalue()
+
+    @pytest.mark.parametrize(
+        "reason",
+        (
+            "execution-policy-mismatch",
+            "search-provenance-mismatch",
+            "unsupported-report-contract",
+            "invalid-static-evidence",
+        ),
+    )
+    def test_render_error_shows_typed_contract_reasons(self, reason: str) -> None:
+        stdout = StringIO()
+        stderr = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        )
+
+        exit_code = presenter.render_error(ConfigurationError("policy rejected", reason=reason))
+
+        assert exit_code == 3
+        assert stdout.getvalue() == ""
+        assert "reason: " + reason in stderr.getvalue()
 
     def test_render_interrupt_writes_one_stderr_final_without_traceback(self) -> None:
         stdout = StringIO()
@@ -682,6 +682,10 @@ class TestErrorRendering:
 
 
 class TestProgressRendering:
+    @pytest.fixture(autouse=True)
+    def _enable_rich_live(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
+
     @pytest.mark.parametrize(
         ("terminal_columns", "expected_width"),
         ((80, 80), (200, 120)),
@@ -1067,19 +1071,19 @@ class TestProgressRendering:
         terminal.consume(
             completed_event(
                 cell,
-                status="STATIC_REGRESSION",
+                status="VERIFIER_REJECTED",
                 process=process_result(
                     exit_code=1,
                     stderr="error: Unresolved import 'missing'",
                 ),
-                stage="ty",
+                stage="test",
             )
         )
 
         assert stdout.getvalue() == ""
         assert stderr.getvalue() == (
             "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   failed at [static checking]\n"
+            "   failed at [testing]\n"
         )
 
     def test_completed_cell_with_failure_record_prints_title_and_diagnose(
@@ -1114,53 +1118,6 @@ class TestProgressRendering:
         assert "STATIC_REGRESSION" not in output
         assert "REJECTED" not in output
 
-    def test_completed_cell_shows_first_causal_static_issue_and_count(self) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        attempt = attempt_for(cell, resolution="lowest-direct")
-        process = process_result(exit_code=0)
-        failure = FailurePolicy().classify(
-            scope=AttemptFailureScope(attempt=attempt),
-            cause="RUNTIME_INTERFACE_MISSING",
-            stage="witness",
-            process=process,
-        )
-        issue = TyDiagnostic(
-            identity="snapshot|demo.py|9|2|unresolved-import",
-            origin="snapshot",
-            path="demo.py",
-            line=9,
-            column=2,
-            code="unresolved-import",
-            severity="error",
-            message="Module `legacy` is unavailable",
-        )
-        terminal, stdout, stderr = presenter()
-
-        terminal.consume(
-            completed_event(
-                cell,
-                status="REJECTED",
-                failure=failure,
-                detail=StaticIssueDetail(first=issue, total=4),
-                role="declaration",
-                stage="witness",
-            )
-        )
-
-        output = stderr.getvalue()
-        assert stdout.getvalue() == ""
-        assert "failed at [witness]" in output
-        assert "A required runtime interface is missing" in output
-        assert (
-            "demo.py:9:2 [unresolved-import] Module `legacy` is unavailable" in output
-        )
-        assert "... and 3 more" in output
-        assert f"pf diagnose {failure.failure_id} --package demo" in output
 
     def test_completed_cell_falls_back_to_log_when_journal_is_unavailable(
         self,
@@ -1951,6 +1908,44 @@ class TestProgressRendering:
         assert {"1", "32"} <= second_codes
         assert not ({"2", "36"} & second_codes)
 
+    def test_tty_live_static_probe_window_is_not_an_oracle_bound(self) -> None:
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.10",
+            extra_surface=(),
+        )
+        stderr = TTYBuffer()
+        terminal = TerminalPresenter(
+            stdout=Console(file=StringIO(), force_terminal=True),
+            stderr=Console(
+                file=stderr,
+                force_terminal=True,
+                no_color=False,
+                color_system="standard",
+                theme=PF_THEME,
+            ),
+        )
+        terminal.consume(CellMatrixEvent(cells=(cell,)))
+        terminal.consume(
+            CellContextEvent(
+                cell=cell,
+                detail=SearchProbeDetailIdentity(
+                    dependency="pydantic",
+                    version="1.7.4",
+                    lower_version="1.7.4",
+                    upper_version="2.13.4",
+                    candidate_count=18,
+                    window="static",
+                ),
+            )
+        )
+        terminal.consume(CellStageEvent(cell=cell, stage="static-probe"))
+        terminal.close()
+        output = visible(stderr.getvalue())
+        assert "[pydantic=1.7.4][static 1.7.4~2.13.4#18][static-probe]" in output
+        assert "[oracle " not in output
+
     def test_tty_live_cell_renders_search_probe_identity_above_stage(self) -> None:
         cell = Cell(
             package="demo",
@@ -1983,13 +1978,13 @@ class TestProgressRendering:
                 ),
             )
         )
-        terminal.consume(CellStageEvent(cell=cell, stage="static check"))
+        terminal.consume(CellStageEvent(cell=cell, stage="oracle-probe"))
         terminal.consume(CellStageEvent(cell=cell, stage="dynamic tests"))
         terminal.close()
 
         raw = stderr.getvalue()
         output = visible(raw)
-        identity = "[pydantic=1.7.4][1.7.4~2.13.4#18][testing]"
+        identity = "[pydantic=1.7.4][oracle 1.7.4~2.13.4#18][testing]"
         assert identity in output
         assert "dynamic tests" not in output
         title = "[py3.10][x86_64-unknown-linux-gnu][no-extra]"
@@ -2074,7 +2069,7 @@ class TestProgressRendering:
         raw = stderr.getvalue()
         output = visible(raw)
         vector = "[cyclopts=2.4.0][packaging=24.0][rich=14.0]"
-        identity = "[pydantic=1.7.4][1.7.4~2.13.4#18][testing]"
+        identity = "[pydantic=1.7.4][oracle1.7.4~2.13.4#18][testing]"
         latest_frame = output[output.rfind("╭") :]
         compact_frame = "".join(
             character
@@ -2192,7 +2187,7 @@ class TestProgressRendering:
             "[cyclopts=2.4.0][packaging=24.0][pydantic=1.7.4][rich=14.0]"
             in completed_frame
         )
-        assert "[1.7.4~2.13.4#18]" not in completed_frame
+        assert "[oracle 1.7.4~2.13.4#18]" not in completed_frame
 
         terminal.consume(
             CellSearchProgressEvent(
@@ -2523,13 +2518,6 @@ class TestProgressRendering:
             resolved_graph=(),
             policy_identity="policy",
         )
-        ty_process = process_result(exit_code=0, stdout="[]")
-        check = TyCheck(process=ty_process, diagnostics=())
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=check,
-            baseline_digest=ty_diagnostic_digest(()),
-        )
         test_process = process_result(
             stderr=(
                 "==================== test session starts ====================\n"
@@ -2539,14 +2527,9 @@ class TestProgressRendering:
                 "=== 2 failed, 1 passed in 0.51s ==="
             )
         )
-        baseline = StaticBaseline(
-            proposal=proposal,
-            ty=check,
-            digest=ty_diagnostic_digest(check.diagnostics),
-        )
         evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=verifier_rejected(test_process),
         )
         runtime = RuntimeEvaluationRun(
@@ -2594,7 +2577,7 @@ class TestProgressRendering:
                     BaselineRejection(
                         attempt=attempt,
                         failure=failure,
-                        static_baseline=baseline,
+
                         evaluation=evaluation,
                         runtime=runtime,
                     ),
@@ -2847,19 +2830,19 @@ class TestProgressRendering:
         presenter.consume(
             completed_event(
                 cell,
-                status="STATIC_REGRESSION",
+                status="VERIFIER_REJECTED",
                 process=process_result(
                     exit_code=1,
                     stderr="error: Unresolved import 'missing'",
                 ),
-                stage="ty",
+                stage="test",
             )
         )
 
         output = terminal.getvalue()
         plain = visible(output)
         assert "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]" in plain
-        assert "failed at [static checking]" in plain
+        assert "failed at [testing]" in plain
         assert "0:00:00" in plain
         assert "error: Unresolved import 'missing'" not in plain
         assert "  error: Unresolved import 'missing'" not in plain
@@ -2899,8 +2882,8 @@ class TestProgressRendering:
         presenter.consume(
             completed_event(
                 cell,
-                status="STATIC_REGRESSION",
-                stage="ty",
+                status="VERIFIER_REJECTED",
+                stage="test",
             )
         )
 
@@ -2990,6 +2973,10 @@ class TestProgressRendering:
 
 
 class TestVerificationRendering:
+    @pytest.fixture(autouse=True)
+    def _enable_rich_live(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
+
     def test_check_live_and_typed_final_share_completion_semantics(self) -> None:
         cell = Cell(
             package="demo",
@@ -3169,7 +3156,7 @@ class TestVerificationRendering:
         assert stderr.getvalue().splitlines() == [
             "✓  [py3.10][x86_64-unknown-linux-gnu][no-extra]",
             "   [baseline][packaging=24.0][cyclopts=2.4.0]",
-            "   search completed at [pydantic=1.7.4][1.7.4~2.13.4#18]",
+            "   search completed at [pydantic=1.7.4][oracle 1.7.4~2.13.4#18]",
         ]
 
     def test_tty_search_completion_keeps_completed_packages_green(self) -> None:
@@ -3339,22 +3326,10 @@ class TestVerificationRendering:
             resolved_graph=(),
             policy_identity="policy",
         )
-        ty_process = process_result(exit_code=0, stdout="[]")
-        check = TyCheck(process=ty_process, diagnostics=())
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=check,
-            baseline_digest=ty_diagnostic_digest(()),
-        )
         test_process = process_result(stderr="1 failed\n2 passed")
-        baseline = StaticBaseline(
-            proposal=proposal,
-            ty=check,
-            digest=ty_diagnostic_digest(check.diagnostics),
-        )
         evaluation = VerifierRejectedEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=verifier_rejected(test_process),
         )
         runtime = RuntimeEvaluationRun(
@@ -3396,7 +3371,7 @@ class TestVerificationRendering:
                     BaselineRejection(
                         attempt=attempt,
                         failure=failure,
-                        static_baseline=baseline,
+
                         evaluation=evaluation,
                         runtime=runtime,
                     ),
@@ -3423,7 +3398,6 @@ class TestVerificationRendering:
         (
             ("install-project", "installing dependencies"),
             ("install-environment", "installing the environment plan"),
-            ("ty", "static checking"),
             ("test", "testing"),
         ),
     )
@@ -3445,18 +3419,13 @@ class TestVerificationRendering:
                 scope=AttemptFailureScope(attempt=attempt), disposition="INDETERMINATE",
                 cause="TOOL_FAILURE", stage="test", terminal=Signaled(signal=9),
             )
-        elif adapter_stage in {"install-project", "install-environment"}:
+        else:
             failure = FailurePolicy().record_prepare(PrepareFailure.model_validate({
                 "attempt": attempt, "stage": adapter_stage,
                 "failure": ExecutionFailure(terminal=Signaled(signal=9), attribution=Unattributed()),
                 "project_plan_digest": "a" * 64,
                 "environment_plan_digest": "b" * 64 if adapter_stage == "install-environment" else None,
             }))
-        else:
-            failure = FailurePolicy().classify(
-                scope=AttemptFailureScope(attempt=attempt), cause="TOOL_FAILURE",
-                stage=adapter_stage, process=ProcessResult(signal=9, duration_seconds=0),
-            )
 
         exit_code = terminal.render_smoke(
             SmokeIndeterminate(
@@ -3496,16 +3465,6 @@ class TestVerificationRendering:
             resolved_graph=(),
             policy_identity="policy",
         )
-        diagnostic = TyDiagnostic(
-            identity="snapshot|src/demo.py|4|7|invalid-type",
-            origin="snapshot",
-            path="src/demo.py",
-            line=4,
-            column=7,
-            code="invalid-type",
-            severity="major",
-            message="Expected str,\n  found int",
-        )
         process = process_result(exit_code=1, stdout="[]")
         logs = RunLogStore(root=tmp_path, run_id="ty-run")
         logs.record(
@@ -3516,12 +3475,6 @@ class TestVerificationRendering:
                 timeout_seconds=10,
             ),
             process,
-        )
-        check = TyCheck(process=process, diagnostics=(diagnostic,))
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=check,
-            baseline_digest=ty_diagnostic_digest(check.diagnostics),
         )
         stdout = StringIO()
         stderr = StringIO()
@@ -3538,14 +3491,10 @@ class TestVerificationRendering:
                     HighestVersionPass(
                         attempt=attempt,
                         harness_baseline=empty_harness_baseline(attempt.identity.cell),
-                        baseline=StaticBaseline(
-                            proposal=proposal,
-                            ty=check,
-                            digest=ty_diagnostic_digest(check.diagnostics),
-                        ),
+
                         evaluation=PassEvaluation(
                             proposal=proposal,
-                            static=static,
+
                             verifier=verifier_pass(
                                 process.model_copy(update={"exit_code": 0})
                             ),
@@ -3559,188 +3508,37 @@ class TestVerificationRendering:
         assert stdout.getvalue() == "✓  Smoke passed · 1 cell\n"
         assert stderr.getvalue() == ""
 
-    def test_check_hides_baseline_ty_warnings(self) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.11",
-            extra_surface=(),
-        )
-        proposal = Proposal(
-            proposal_id="lowest",
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=(),
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        diagnostic = TyDiagnostic(
-            identity="external|site-packages/demo.pyi|invalid-return-type",
-            origin="external",
-            path="site-packages/demo.pyi",
-            line=None,
-            column=None,
-            code="invalid-return-type",
-            severity="major",
-            message="Returned int instead of str",
-        )
-        process = process_result(exit_code=1, stdout="[]")
-        check = TyCheck(process=process, diagnostics=(diagnostic,))
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=check,
-            baseline_digest=ty_diagnostic_digest(check.diagnostics),
-        )
-        terminal, stdout, stderr = presenter()
-
-        exit_code = terminal.render_check(
-            CheckPass(
-                evaluations=(
-                    PassEvaluation(
-                        proposal=proposal,
-                        static=static,
-                        verifier=verifier_pass(
-                            process.model_copy(update={"exit_code": 0})
-                        ),
-                    ),
-                )
-            )
-        )
-
-        assert exit_code == 0
-        assert stdout.getvalue() == "✓  Check passed · 1 cell\n"
-        assert stderr.getvalue() == ""
-
-    def test_test_failure_does_not_blame_a_static_increment(self) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.11",
-            extra_surface=(),
-        )
-        proposal = Proposal(
-            proposal_id="lowest",
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=(),
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        existing = TyDiagnostic(
-            identity="snapshot|demo.py|1|1|existing",
-            origin="snapshot",
-            path="demo.py",
-            line=1,
-            column=1,
-            code="existing",
-            severity="major",
-            message="existing diagnostic",
-        )
-        increment = TyDiagnostic(
-            identity="snapshot|demo.py|9|2|dependency-regression",
-            origin="snapshot",
-            path="demo.py",
-            line=9,
-            column=2,
-            code="dependency-regression",
-            severity="major",
-            message="new dependency regression",
-        )
-        process = process_result(exit_code=1, stdout="[]")
-        static = StaticRegressionEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=process, diagnostics=(existing, increment)),
-            baseline_digest=ty_diagnostic_digest((existing,)),
-            incremental=(increment,),
-            static_fingerprint=static_fingerprint((increment.identity,)),
-            classifications=general_classifications(increment),
-        )
-        terminal, stdout, stderr = presenter()
-        evaluation = VerifierRejectedEvaluation(
-            proposal=proposal,
-            static=static,
-            verifier=verifier_rejected(process),
-        )
-
-        exit_code = terminal.render_check(
-            CheckCompatibilityFailure(evaluations=(evaluation,))
-        )
-
-        assert exit_code == 1
-        assert stdout.getvalue() == ""
-        assert stderr.getvalue() == (
-            "✗  [py3.11][x86_64-unknown-linux-gnu][no-extra]\n"
-            "   check failed at [declaration][lowest-direct][testing]\n"
-            "✗  Check failed · declared lower bounds are incompatible · 1 cell\n"
-        )
-
-    def test_check_does_not_show_static_increment_for_test_failure(
-        self,
+    @pytest.mark.parametrize("passed", (False, True))
+    def test_check_summary_uses_verifier_outcome(
+        self, passed: bool,
     ) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.11",
-            extra_surface=(),
-        )
-        proposal = Proposal(
-            proposal_id="lowest",
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=(),
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        increment = TyDiagnostic(
-            identity="snapshot|demo.py|9|2|dependency-regression",
-            origin="snapshot",
-            path="demo.py",
-            line=9,
-            column=2,
-            code="dependency-regression",
-            severity="major",
-            message="new dependency regression",
-        )
-        process = process_result(exit_code=1, stdout="[]")
-        static = StaticRegressionEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=process, diagnostics=(increment,)),
-            baseline_digest=ty_diagnostic_digest(()),
-            incremental=(increment,),
-            static_fingerprint=static_fingerprint((increment.identity,)),
-            classifications=general_classifications(increment),
-        )
+        cell = Cell(package="demo", target="x86_64-unknown-linux-gnu",
+                    python_minor="3.11", extra_surface=())
+        attempt = attempt_for(cell, resolution="lowest-direct")
+        proposal = Proposal(proposal_id="lowest", attempt_id=attempt.attempt_id,
+                            snapshot_digest="snapshot", cell=cell, managed_vector=(),
+                            fixed_declaration_ids=(), resolved_graph=(), policy_identity="policy")
         terminal, stdout, stderr = presenter()
-        evaluation = VerifierRejectedEvaluation(
-            proposal=proposal,
-            static=static,
-            verifier=verifier_rejected(process),
-        )
-        terminal.consume(
-            completed_event(
-                cell,
-                status="VERIFIER_REJECTED",
-                process=process,
-                stage="test",
-            )
-        )
+        if passed:
+            evaluation = PassEvaluation(proposal=proposal, verifier=verifier_pass(process_result(exit_code=0)))
+            result = CheckPass(evaluations=(evaluation,), outcomes=(CheckCellOutcome(
+                status="PASS", role="declaration", attempt=attempt,
+                evaluation=evaluation,
+            ),))
+        else:
+            evaluation = VerifierRejectedEvaluation(proposal=proposal, verifier=verifier_rejected(process_result(exit_code=1)))
+            result = CheckCompatibilityFailure(evaluations=(evaluation,), outcomes=(CheckCellOutcome(
+                status="REJECTED", role="declaration", attempt=attempt,
+                evaluation=evaluation, failure=verifier_failure(attempt),
+            ),))
+        assert terminal.render_check(result) == (0 if passed else 1)
+        rendered = stdout.getvalue() + stderr.getvalue()
+        assert ("Check passed" if passed else "Check failed") in rendered
+        if not passed:
+            assert "The configured verifier rejected this version combination." in rendered
 
-        exit_code = terminal.render_check(
-            CheckCompatibilityFailure(evaluations=(evaluation,))
-        )
 
-        assert exit_code == 1
-        assert stdout.getvalue() == ""
-        output = stderr.getvalue()
-        assert "demo.py:9:2 [dependency-regression]" not in output
-        assert "STATIC_REGRESSION" not in output
-        assert "ty: 1 new diagnostic" not in output
-        assert output.endswith(
-            "✗  Check failed · declared lower bounds are incompatible · 1 cell\n"
-        )
+
 
     def test_smoke_live_completion_omits_smoke_baseline_impact(self) -> None:
         cell = Cell(
@@ -3845,7 +3643,7 @@ class TestVerificationRendering:
                     candidate_count=14,
                 ),
                 "probe",
-                "search stopped at [pydantic=2.0.1][1.0~3.0#14][testing]",
+                "search stopped at [pydantic=2.0.1][oracle 1.0~3.0#14][testing]",
             ),
         ),
     )
@@ -4033,7 +3831,7 @@ class TestVerificationRendering:
         terminal.close()
 
         raw = stderr.getvalue()
-        expected = "search stopped at [pydantic=2.0.1][1.0~3.0#14][testing]"
+        expected = "search stopped at [pydantic=2.0.1][oracle 1.0~3.0#14][testing]"
         assert expected in visible(raw)
         action_at = raw.rindex("search stopped")
         action_style_at = raw.rfind("\x1b[", 0, action_at)
@@ -4056,6 +3854,10 @@ class TestVerificationRendering:
 
 
 class TestSearchRendering:
+    @pytest.fixture(autouse=True)
+    def _enable_rich_live(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
+
     def test_search_stopped_summary_uses_bold_result_color_for_the_full_line(
         self,
     ) -> None:
@@ -4180,28 +3982,10 @@ class TestSearchRendering:
             policy_identity="policy",
         )
         static_process = process_result(exit_code=1, stdout="[]")
-        increment = TyDiagnostic(
-            identity="snapshot|demo.py|4|2|bad-argument-type",
-            origin="snapshot",
-            path="demo.py",
-            line=4,
-            column=2,
-            code="bad-argument-type",
-            severity="error",
-            message="argument has the wrong type",
-        )
-        static = StaticRegressionEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=static_process, diagnostics=(increment,)),
-            baseline_digest=ty_diagnostic_digest(()),
-            incremental=(increment,),
-            static_fingerprint=static_fingerprint((increment.identity,)),
-            classifications=general_classifications(increment),
-        )
         dynamic_process = process_result(stderr="1 failed\n2 passed")
         dynamic = VerifierRejectedEvaluation(
             proposal=proposal,
-            static=static,
+
             verifier=verifier_rejected(dynamic_process),
         )
         install_process = process_result(stderr="No solution found\nconflicting pins")
@@ -4596,82 +4380,13 @@ class TestSearchRendering:
             ).split()
         )
 
-    def test_search_hides_highest_baseline_ty_warnings(self) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        attempt = attempt_for(cell)
-        proposal = Proposal(
-            proposal_id="highest",
-            attempt_id=attempt.attempt_id,
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=(),
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        diagnostic = TyDiagnostic(
-            identity="snapshot|demo.py|3|unresolved-reference",
-            origin="snapshot",
-            path="demo.py",
-            line=3,
-            column=None,
-            code="unresolved-reference",
-            severity="major",
-            message="Name is not defined",
-        )
-        process = process_result(exit_code=1, stdout="[]")
-        check = TyCheck(process=process, diagnostics=(diagnostic,))
-        baseline = StaticBaseline(
-            proposal=proposal,
-            ty=check,
-            digest=ty_diagnostic_digest(check.diagnostics),
-        )
-        static = StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=check,
-            baseline_digest=baseline.digest,
-        )
-        test_process = process_result(stderr="1 failed, 2 passed")
-        evaluation = VerifierRejectedEvaluation(
-            proposal=proposal,
-            static=static,
-            verifier=verifier_rejected(test_process),
-        )
-        failure = verifier_failure(attempt)
-        report = incomplete_report(
-            "BASELINE_REJECTION",
-            cell_results=(
-                BaselineRejection(
-                    attempt=attempt,
-                    failure=failure,
-                    static_baseline=baseline,
-                    evaluation=evaluation,
-                ),
-            ),
-        )
-        terminal, stdout, stderr = presenter()
-
-        exit_code = terminal.render_search(search_result(report))
-
-        assert exit_code == 1
-        assert stdout.getvalue() == ""
-        assert " ".join(stderr.getvalue().split()) == " ".join(
-            (
-                "✗  [py3.10][x86_64-unknown-linux-gnu][no-extra]\n"
-                "   search stopped at [baseline][highest][testing]\n"
-                "   The configured verifier rejected this version combination.\n"
-                f"   -> run `pf diagnose {failure.failure_id} --package demo` for more information.\n"
-                "✗  Search stopped · highest-version baseline did not pass · package-floor.json written\n"
-            ).split()
-        )
 
 
 class TestExplainRendering:
+    @pytest.fixture(autouse=True)
+    def _enable_rich_live(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TERM", "xterm-256color")
+
     def test_explain_marks_an_empty_projection(
         self,
     ) -> None:
@@ -4839,304 +4554,7 @@ class TestExplainRendering:
 
         assert digest not in stdout.getvalue()
 
-    def test_explain_hides_static_history_and_renders_the_final_search_conclusion(
-        self,
-    ) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        baseline_vector = (VersionPin(name="demo-dep", version="2"),)
-        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
-        candidate_snapshot, selected_digest = candidate_snapshot_for(
-            cell,
-            dependency="demo-dep",
-            baseline_version="2",
-            candidate_version="1",
-        )
-        baseline_attempt = attempt_for(cell)
-        baseline_proposal = Proposal(
-            proposal_id="highest",
-            attempt_id=baseline_attempt.attempt_id,
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=baseline_vector,
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        candidate_attempt = attempt_for(
-            cell,
-            resolution="exact-vector",
-            vector=candidate_vector,
-            selected_digest=selected_digest,
-        )
-        proposal = Proposal(
-            proposal_id="candidate",
-            attempt_id=candidate_attempt.attempt_id,
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=candidate_vector,
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        existing = TyDiagnostic(
-            identity="snapshot|demo.py|1|1|existing-error",
-            origin="snapshot",
-            path="demo.py",
-            line=1,
-            column=1,
-            code="existing-error",
-            severity="major",
-            message="existing project error",
-        )
-        increment = TyDiagnostic(
-            identity="snapshot|demo.py|2|1|dependency-regression",
-            origin="snapshot",
-            path="demo.py",
-            line=2,
-            column=1,
-            code="dependency-regression",
-            severity="major",
-            message="dependency API is unavailable",
-        )
-        process = process_result(stdout="[]")
-        baseline = StaticBaseline(
-            proposal=baseline_proposal,
-            ty=TyCheck(process=process, diagnostics=(existing,)),
-            digest=ty_diagnostic_digest((existing,)),
-        )
-        static = StaticRegressionEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=process, diagnostics=(existing, increment)),
-            baseline_digest=baseline.digest,
-            incremental=(increment,),
-            static_fingerprint=static_fingerprint((increment.identity,)),
-            classifications=general_classifications(increment),
-        )
-        runtime_failure = VerifierRejectedEvaluation(
-            proposal=proposal,
-            static=static,
-            verifier=verifier_rejected(process),
-        )
-        rejection = verifier_failure(candidate_attempt)
-        baseline_static = StaticUnchangedEvaluation(
-            proposal=baseline_proposal,
-            ty=baseline.ty,
-            baseline_digest=baseline.digest,
-        )
-        failure = CellSearchFailure(
-            reason="NO_PASS_IN_SEARCH_SPACE",
-            cell=cell,
-            phase="runtime-search",
-            baseline_attempt=baseline_attempt,
-            static_baseline=baseline,
-            baseline=PassEvaluation(
-                proposal=baseline_proposal,
-                static=baseline_static,
-                verifier=verifier_pass(process.model_copy(update={"exit_code": 0})),
-            ),
-            candidate_snapshots=(candidate_snapshot,),
-            failure_records=(rejection,),
-            coordinate_failure=CoordinateFailure(
-                status="NO_PASS_IN_SEARCH_SPACE",
-                observations=(
-                    ProbeObservation(
-                        dependency="demo-dep",
-                        candidate_version="1",
-                        vector=candidate_vector,
-                        evidence=ProbeRejection(
-                            attempt=candidate_attempt,
-                            proposal_id=proposal.proposal_id,
-                            failure_id=rejection.failure_id,
-                            cause="VERIFIER_EXITED_NONZERO",
-                            evaluation=runtime_failure,
-                        ),
-                    ),
-                ),
-            ),
-        )
-        report = incomplete_report(
-            "NO_PASS_IN_SEARCH_SPACE",
-            cell_results=(failure,),
-        )
-        terminal, stdout, _ = presenter()
 
-        exit_code = terminal.render_explain(explain_result(report))
-
-        assert exit_code == 0
-        rendered = stdout.getvalue()
-        assert "incomplete · blocked by report evidence" in rendered
-        assert "1 no floor · 1 total" in rendered
-        assert "configured search space was fully evaluated" in rendered
-        assert "no compatible version" in rendered
-        assert rejection.failure_id not in rendered
-        assert "What happened:" not in rendered
-        assert "ty baseline" not in rendered
-        assert "demo.py" not in rendered
-        assert "dependency-regression" not in rendered
-        assert "NO_PASS_IN_SEARCH_SPACE" not in rendered
-        assert "Apply: ready" not in rendered
-
-    def test_explain_does_not_render_large_static_diagnostic_history(self) -> None:
-        cell = Cell(
-            package="demo",
-            target="x86_64-unknown-linux-gnu",
-            python_minor="3.10",
-            extra_surface=(),
-        )
-        baseline_vector = (VersionPin(name="demo-dep", version="2"),)
-        candidate_vector = (VersionPin(name="demo-dep", version="1"),)
-        candidate_snapshot, selected_digest = candidate_snapshot_for(
-            cell,
-            dependency="demo-dep",
-            baseline_version="2",
-            candidate_version="1",
-        )
-        baseline_attempt = attempt_for(cell)
-        baseline_proposal = Proposal(
-            proposal_id="highest",
-            attempt_id=baseline_attempt.attempt_id,
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=baseline_vector,
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        candidate_attempt = attempt_for(
-            cell,
-            resolution="exact-vector",
-            vector=candidate_vector,
-            selected_digest=selected_digest,
-        )
-        proposal = Proposal(
-            proposal_id="candidate",
-            attempt_id=candidate_attempt.attempt_id,
-            snapshot_digest="snapshot",
-            cell=cell,
-            managed_vector=candidate_vector,
-            fixed_declaration_ids=(),
-            resolved_graph=(),
-            policy_identity="policy",
-        )
-        existing = TyDiagnostic(
-            identity="snapshot|demo.py|1|1|existing-error",
-            origin="snapshot",
-            path="demo.py",
-            line=1,
-            column=1,
-            code="existing-error",
-            severity="major",
-            message="existing project error",
-        )
-        process = process_result(stdout="[]")
-        baseline = StaticBaseline(
-            proposal=baseline_proposal,
-            ty=TyCheck(process=process, diagnostics=(existing,)),
-            digest=ty_diagnostic_digest((existing,)),
-        )
-        repeated = TyDiagnostic(
-            identity="snapshot|demo.py|2|1|dependency-regression",
-            origin="snapshot",
-            path="demo.py",
-            line=2,
-            column=1,
-            code="dependency-regression",
-            severity="major",
-            message="dependency API is unavailable",
-        )
-        extras = tuple(
-            TyDiagnostic(
-                identity=f"snapshot|demo.py|{index}|1|extra-{index}",
-                origin="snapshot",
-                path="demo.py",
-                line=index,
-                column=1,
-                code=f"extra-{index}",
-                severity="major",
-                message=f"extra diagnostic {index}",
-            )
-            for index in range(3, 14)
-        )
-        incremental: tuple[TyDiagnostic, ...] = tuple(
-            sorted(
-                (repeated, repeated, repeated, *extras),
-                key=lambda item: item.identity,
-            )
-        )
-        diagnostics: tuple[TyDiagnostic, ...] = tuple(
-            sorted((existing, *incremental), key=lambda item: item.identity)
-        )
-        static = StaticRegressionEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=process, diagnostics=diagnostics),
-            baseline_digest=baseline.digest,
-            incremental=incremental,
-            static_fingerprint=static_fingerprint(
-                tuple(item.identity for item in incremental)
-            ),
-            classifications=general_classifications(*incremental),
-        )
-        runtime_failure = VerifierRejectedEvaluation(
-            proposal=proposal,
-            static=static,
-            verifier=verifier_rejected(process),
-        )
-        rejection = verifier_failure(candidate_attempt)
-        baseline_static = StaticUnchangedEvaluation(
-            proposal=baseline_proposal,
-            ty=baseline.ty,
-            baseline_digest=baseline.digest,
-        )
-        failure = CellSearchFailure(
-            reason="NO_PASS_IN_SEARCH_SPACE",
-            cell=cell,
-            phase="runtime-search",
-            baseline_attempt=baseline_attempt,
-            static_baseline=baseline,
-            baseline=PassEvaluation(
-                proposal=baseline_proposal,
-                static=baseline_static,
-                verifier=verifier_pass(process.model_copy(update={"exit_code": 0})),
-            ),
-            candidate_snapshots=(candidate_snapshot,),
-            failure_records=(rejection,),
-            coordinate_failure=CoordinateFailure(
-                status="NO_PASS_IN_SEARCH_SPACE",
-                observations=(
-                    ProbeObservation(
-                        dependency="demo-dep",
-                        candidate_version="1",
-                        vector=candidate_vector,
-                        evidence=ProbeRejection(
-                            attempt=candidate_attempt,
-                            proposal_id=proposal.proposal_id,
-                            failure_id=rejection.failure_id,
-                            cause="VERIFIER_EXITED_NONZERO",
-                            evaluation=runtime_failure,
-                        ),
-                    ),
-                ),
-            ),
-        )
-        terminal, stdout, _ = presenter()
-
-        terminal.render_explain(explain_result(
-            incomplete_report("NO_PASS_IN_SEARCH_SPACE", cell_results=(failure,))
-        ))
-
-        rendered = stdout.getvalue()
-        assert "configured search space was fully evaluated" in rendered
-        assert "no compatible version" in rendered
-        assert "×3" not in rendered
-        assert "extra diagnostic 3" not in rendered
-        assert "more unique diagnostics" not in rendered
-        assert "extra diagnostic 9" not in rendered
-        assert "pf diagnose" not in rendered
 
     @pytest.mark.parametrize("width", (56, 80, 120))
     def test_explain_keeps_required_fields_readable_at_common_widths(

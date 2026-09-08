@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -38,7 +40,9 @@ class ProgressRunner:
     def __init__(self, progress_document: ProgressDocument) -> None:
         self._progress_document = progress_document
 
-    def run(self, spec: ProcessSpec) -> ProcessResult:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         environment = {item.name: item.value for item in spec.environment}
         nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
         evidence = Path(environment["PF_PYTEST_OBSERVER_DIR"])
@@ -132,7 +136,9 @@ class TestConfiguredVerifierProgress:
         observed: list[StageProgress | None] = []
 
         class PassRunner:
-            def run(self, spec: ProcessSpec) -> ProcessResult:
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
                 return ProcessResult(exit_code=0, signal=None, duration_seconds=0.1)
 
         result = ConfiguredVerifier(PassRunner()).run(

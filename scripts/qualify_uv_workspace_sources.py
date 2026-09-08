@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.cancellation import Cancellation
+
 import argparse
 from dataclasses import asdict, dataclass
 import json
@@ -64,9 +66,11 @@ class RecordingRunner(SubprocessRunner):
         super().__init__()
         self.specs: list[ProcessSpec] = []
 
-    def run(self, spec: ProcessSpec) -> ProcessResult | ProcessTerminalUnavailable:
+    def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult | ProcessTerminalUnavailable:
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         self.specs.append(spec)
-        return super().run(spec)
+        return super().run(spec, cancellation=cancellation)
 
 
 def _package_document(*, include_sources: bool, local_path: str) -> str:

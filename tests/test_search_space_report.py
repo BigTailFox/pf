@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+
 import copy
 import json
 from io import StringIO
@@ -53,9 +55,10 @@ test-command = ["python", "-c", "pass"]
 
     def report_for(cell, versions=("1", "2", "3")):
         assembly = evaluation_assembly(candidate_versions=versions)
-        result = assembly.coordinator.search(
-            package=project.target, cell=cell, snapshot=snapshot, source_plan=source
-        )
+        with TyCheckCache() as run_cache:
+            result = assembly.coordinator.search(
+                package=project.target, cell=cell, snapshot=snapshot, source_plan=source, run_cache=run_cache
+            )
         assert isinstance(result, CellSuccess)
         return PackageReportBuilder().build(
             package=project.target,
@@ -401,13 +404,14 @@ platforms = ["x86_64-unknown-linux-gnu"]
             tmp_path, owned_pyproject_paths=changed.owned_pyproject_paths
         )
         try:
-            with pytest.raises(ApplyAuthorizationError, match="search policy mismatch"):
+            with pytest.raises(ApplyAuthorizationError, match="search provenance mismatch") as authorized:
                 authorizer.authorize(
                     report=report,
                     project=changed,
                     current_snapshot=current,
                     force=force,
                 )
+            assert authorized.value.reason == "search-provenance-mismatch"
         finally:
             current.close()
 

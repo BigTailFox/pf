@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-from importlib.metadata import version as distribution_version
 import json
 from pathlib import Path
 from typing import cast, Literal
@@ -20,7 +18,7 @@ from pf.environment import (
 from pf.adapters.uv_lock import parse_uv_pylock
 from pf.errors import ConfigurationError
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy, execution_policy_identity
 from pf.project import ProjectLoader
 from pf.resolution import (
     InstalledResolution,
@@ -366,17 +364,49 @@ def _unsat_attribution(kwargs, code):
     })
 
 
-class TestEvaluationPolicy:
-    def test_evaluation_policy_identity_ignores_scheduler_concurrency(self) -> None:
+class TestExecutionPolicy:
+    def test_execution_policy_identity_ignores_scheduler_concurrency(self) -> None:
         automatic = EffectiveConfig(scheduling=SchedulingConfig(max_cells="auto"))
         serial = EffectiveConfig(scheduling=SchedulingConfig(max_cells=1))
 
-        assert evaluation_policy_identity(automatic) == evaluation_policy_identity(
+        assert execution_policy_identity(automatic) == execution_policy_identity(
             serial
         )
 
 
 class TestEnvironmentFactory:
+    @pytest.mark.parametrize("section,changes,isolated", [
+        ("ty", {"timeout_seconds": 17}, False),
+        ("ty", {"args": ["--warn", "all"]}, False),
+        ("search", {"default": {"resolution": "patch"}}, False),
+        ("test", {"timeout_seconds": 17}, True),
+        ("test", {"command": ["python", "-m", "unittest"]}, True),
+    ])
+    def test_prepared_identity_chain_depends_only_on_execution_for_fixed_source(self, tmp_path, section, changes, isolated):
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="demo"\nversion="1"\ndependencies=["idna"]\n[tool.pf]\npythons=["3.10"]\n')
+        package = ProjectLoader().load(root=tmp_path).target
+        config = package.config.model_dump(mode="json")
+        config[section].update(changes)
+        changed = package.model_copy(update={"config": EffectiveConfig.model_validate(config)})
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+        prepared = []
+        try:
+            for item in (package, changed):
+                result = EnvironmentFactory(SuccessfulUv()).prepare(package=item, cell=item.cells[0], snapshot=snapshot,
+                                                                    source_plan=SourcePlan.for_package(item, "SEARCH"), resolution=HighestResolution())
+                assert isinstance(result, PreparedEnvironment)
+                prepared.append(result)
+            first, second = prepared
+            assert first.proposal.snapshot_digest == second.proposal.snapshot_digest
+            assert first.proposal.resolved_graph == second.proposal.resolved_graph
+            assert (first.attempt.attempt_id != second.attempt.attempt_id) is isolated
+            assert (first.environment_identity.digest != second.environment_identity.digest) is isolated
+            assert (first.proposal.proposal_id != second.proposal.proposal_id) is isolated
+        finally:
+            for result in prepared:
+                result.close()
+            snapshot.close()
+
     @pytest.mark.parametrize("baseline_owned", (False, True))
     def test_overlap_satisfaction_and_ceiling_follow_current_project(
         self, tmp_path, baseline_owned
@@ -841,73 +871,16 @@ test-command = ["python", "-c", "pass"]
         assert prepared.environment_plan is None
         assert prepared.proposal.environment_plan_digest is None
         assert prepared.proposal.proposal_id == environment_identity_digest(
+            attempt_id=prepared.attempt.attempt_id,
             project_plan_digest=prepared.proposal.project_plan_digest,
             environment_plan_digest=prepared.proposal.environment_plan_digest,
             graph=prepared.proposal.resolved_graph,
         )
-        policy_document = {
-            "config": {
-                "resolution": package.config.resolution.model_dump(mode="json"),
-                "ty": package.config.ty.model_dump(mode="json"),
-                "test": {
-                    "command": package.config.test.command,
-                    "cwd": package.config.test.cwd,
-                    "timeout_seconds": package.config.test.timeout_seconds,
-                },
-            },
-            "tool_versions": {"ty": distribution_version("ty")},
-            "verifier_outcome_policy": "configured-verifier-terminal-v1",
-            "ty_diagnostic_policy": {
-                "comparison": "multiset-subtraction",
-                "identity_rule": (
-                    "snapshot-path-line-column-code+external-namespace-path-code"
-                ),
-                "output_format": "gitlab",
-                "policy": "static-transition-v1",
-                "fingerprint": "ordered-incremental-identity-multiset",
-                "region_scope": "fixed-slice-contiguous",
-                "strong_classifier": "strong-classifier-v1",
-                "witness_planner": "witness-planner-v1",
-                "witness_harness": "witness-harness-v1",
-                "witness_stderr": "diagnostic-only",
-                "project_terminal": "adapter-cli-overrides",
-                "boundary_rule": "runtime-evidence-only",
-                "final_verification": "direct-test-command-pass",
-            },
-            "failure_policy": "failure-execution-v3",
-            "execution_outcome_policy": {
-                "rules": "execution-outcome-v1",
-                "structured_facts": "operation-structured-facts-v1",
-                "attribution_profiles": [{
-                    "tool": "uv", "tool_version": "0.12.5",
-                    "protocol": "uv-pip-compile-pylock-v1", "profile": "uv-diagnostics-0.12.5-v1",
-                    "codes": ["direct-version-contradiction", "transitive-version-contradiction"],
-                }],
-            },
-            "validation_contract_policy": {
-                "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
-                "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
-                "project_marker_projection": "portable-cell-platform-v1",
-                "resolution_projection": "actual-interpreter-target-active-pylock",
-                "self_reference": "required-effective-cell-surface",
-                "extra_exploration": "nonempty-declared-groups-only",
-                "baseline_harness": "original-external-declarations",
-                "probe_harness": "remove-eligible-direct-lower-bounds",
-                "project_overlap": "exact-project-node-without-harness-ceiling",
-                "external_ceiling": "baseline-observed-version-for-current-harness-only-node",
-            },
-        }
-        expected_policy = hashlib.sha256(
-            (
-                "pf:policy:v1\0"
-                + json.dumps(policy_document, sort_keys=True, separators=(",", ":"))
-            ).encode()
-        ).hexdigest()
-        assert prepared.proposal.policy_identity == expected_policy
-        encoded = json.dumps(policy_document, sort_keys=True)
-        assert "prun" not in encoded
-        assert "failed_case" not in encoded
-        assert "maxfail" not in encoded
+        policy = execution_policy(package.config)
+        assert prepared.proposal.policy_identity == policy.identity
+        assert prepared.attempt.identity.execution_policy_identity == policy.identity
+        assert policy.resolution == package.config.resolution
+        assert policy.verifier_command == package.config.test.command
         source = prepared.proposal_root / "pyproject.toml"
         assert source.is_file()
         source.write_text("changed\n", encoding="utf-8")

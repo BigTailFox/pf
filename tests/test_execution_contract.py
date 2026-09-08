@@ -66,7 +66,7 @@ class TestExecutionTerminals:
         for terminal in (Signaled(signal=9), StartFailed(), Unavailable()):
             assert classify_execution_terminal(stage, terminal, Unattributed()) == ("INDETERMINATE", "TOOL_FAILURE")
 
-    @pytest.mark.parametrize("stage", ["inspect-project-plan", "inspect-environment-plan", "proposal-vector", "planning", "ty", "witness", "resolve-other"])
+    @pytest.mark.parametrize("stage", ["inspect-project-plan", "inspect-environment-plan", "proposal-vector", "planning", "ty", "resolve-other"])
     def test_excluded_operations_do_not_admit_execution_fallback(self, stage):
         with pytest.raises(ValueError, match="stage"):
             classify_execution_terminal(stage, NormalExit(exit_code=1), Unattributed())
@@ -184,7 +184,7 @@ def _attempt(*, harness=False):
             package="demo", target="x86_64-unknown-linux-gnu", python_minor="3.11", extra_surface=(),
         ), requested_resolution="highest", requested_managed_vector=None,
         active_declaration_ids=(), source_plan_identity="source-plan",
-        evaluation_policy_identity="policy", resolution_context_digest="opaque-context",
+        execution_policy_identity="policy", resolution_context_digest="opaque-context",
         harness_policy_identity="original-harness-v1", harness_declaration_ids=("pytest",) if harness else (),
     ))
 

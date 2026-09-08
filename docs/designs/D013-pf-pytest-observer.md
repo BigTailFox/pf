@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Observer 协议：** `pf-pytest-observer-v1`
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **Verifier authority：** [D002](D002-pf-implementation.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **进程事实：** [D007](D007-pf-process-output.md)
 - **运行时投影：** [D008](D008-pf-verification-run.md)
@@ -29,7 +29,7 @@ pythonX.Y -m pytest ...
 ```
 
 wrapper、tox、nox、coverage 或其他 generic command 不注入 observer。这个 selector 不进入
-evaluation policy identity，也不改变 D005 定义的 terminal outcome。pytest version、execution
+ExecutionPolicy identity，也不改变 D005 定义的 terminal outcome。pytest version、execution
 mode、facts、output completeness、progress 和 detail 都不能改变 disposition；terminal 与
 failure metadata 冲突只形成 runtime `summary_code`。
 
@@ -162,4 +162,4 @@ D002 `ConfiguredVerifier` 资源，资格矩阵须覆盖 `Config.args` 替换顺
 - 不解析 traceback、stderr、exception type 或 pytest facts决定 disposition；
 - 不根据 observer 推测“未注入时会得到的 exit code”；
 - 不重跑 verifier、修复 pytest 配置或维护 test-runner classifier registry；
-- 不替代 D004 的 runtime interface witness；`RuntimeWitness` 仍是独立 pre-verifier operation。
+- 静态诊断由 D004 的 TyCheck 拥有；pytest observer 只提供 configured verifier 的 runtime telemetry。

@@ -1,9 +1,12 @@
 # D036 execution qualification
 
-The [dated evidence](2026-09-06-uv-0.12.5-v1.json) was produced by
+The current test manifest is
+[2026-09-07-d038-uv-0.12.5-v1.json](2026-09-07-d038-uv-0.12.5-v1.json), produced by
 [qualify_execution_failures.py](../../scripts/qualify_execution_failures.py) using
 real uv 0.12.5, ty, configured verifier, EnvironmentFactory and SearchCoordinator.
-The historical `tests/uv_qualification/matrix-manifest.json` is unchanged.
+The [D036 dated evidence](2026-09-06-uv-0.12.5-v1.json) is historical and is not
+loaded by current tests. The historical `tests/uv_qualification/matrix-manifest.json`
+is unchanged.
 
 Each loopback HTTPS registry serves three deterministic dependency artifacts:
 
@@ -34,7 +37,7 @@ PATH="$PWD/.venv/bin:$PATH" UV_CACHE_DIR=/tmp/pf-uv-cache \
   --output /tmp/pf-execution-qualification.json
 ```
 
-`tests/test_execution_qualification.py` checks the dated manifest and independently
+`tests/test_execution_qualification.py` checks the D038 manifest and independently
 replays both cases. The script requires OpenSSL and the repository's uv/ty tools.
 The only server is bound to `127.0.0.1`; dependency build requirements are empty.
 Process argv and syntax-error diagnostics in the evidence are observations, not

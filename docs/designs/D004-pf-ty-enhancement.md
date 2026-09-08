@@ -1,61 +1,64 @@
-# PF `ty` static transition 与 runtime witness
+# PF `ty` 静态事实与比较
 
 - **状态：** 现行
-- **策略版本：** `static-transition-v1`
-- **最后核对：** 2026-09-06
+- **策略版本：** `static-guidance-v1`
+- **最后核对：** 2026-09-08
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
-- **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)
+- **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
+  [D038](../archived/designs/D038-pf-static-guidance-authority.md)
 
-本文是 PF 中 `ty` 运行、诊断身份、最高版本静态基线、增量 transition、diagnostic 分类和 runtime witness 的唯一契约。静态事实不决定 compatibility disposition；边界由 D003/D005 的 runtime evidence 决定。
+本文是 PF 中 `ty` 运行、诊断身份、规范静态投影、原始 TyCheck/Unavailable、Run 内缓存、
+`S_hi` / `S_slice` 比较准入和 GuidancePolicy 的唯一契约。静态事实不决定 compatibility
+disposition；边界由 D003/D005 的动态证据决定。生产路径不再包含 static witness、AST
+classifier 或 isolated runtime-interface rejection。
 
 D005 的 resolve/install 正常非零拒绝兜底不适用于本文件协议：ty 非零仍须解码其合法诊断，
-witness 只有 CONFIRMED_MISSING 可拒绝，其他异常非零不兜底。prepare rejection 没有 Proposal，
-不产生本文件静态事实或 witness；完整 PASS 仍须成功准备、满足本协议并运行完整 verifier。
+工具失败只形成 `TyCheckUnavailable`，不终止 verifier。prepare rejection 没有 Proposal，
+不产生本文件静态观察。完整 PASS 仍须成功准备并运行完整 verifier。
 
 ## 1. 目标
 
-PF 识别依赖环境变化引入的静态状态变化，而不要求项目 type-clean，也不把 `ty` 的模型结论直接等同于 runtime incompatibility。
+PF 识别依赖环境变化引入的静态状态变化，而不要求项目 type-clean，也不把 `ty` 的模型结论
+直接等同于 runtime incompatibility。静态证据可以指导探测，但不能排除候选。
 
-项目在最高版本环境已有的 diagnostic 被 `S_hi` 抵消。候选的新增 diagnostic 完整保存、分类并生成 fingerprint；它可以触发 witness 或 `test-command`，但自身不是 Rejection。
+## 2. `S_hi` 与 `S_slice`
 
-## 2. `V_hi`、`S_hi` 与 scope
+每个 Cell/run 有一个最高版本的显式 `StaticBaselineState`：
 
-每个 cell 在当前源码快照和声明的 highest Proposal `V_hi` 上运行一次 `ty`：
+- `AVAILABLE`：真实最高版本 Proposal、完整 TyCheck、诊断多重集与 digest。
+- `UNAVAILABLE`：真实 capture Proposal 与明确不可用原因；没有 diagnostic baseline digest，
+  不以空诊断代替失败。
 
-```text
-S_hi : multiset[DiagnosticIdentity]
-```
+highest prepare 失败没有 Proposal，继续按现行 preparation contract 处理。可用时捕获 TyCheck
+同时作为最高版本 Proposal 的空增量事实，不重复运行 ty。捕获失败不通过换一个候选重建全局
+baseline；全局比较保持不可用，局部比较独立判定。
 
-`S_hi` 只在相同 cell、source snapshot 和 Evaluation policy 内有效，不跨运行或 cell 复用。其 digest 是 Static/Test Evaluation key 的独立 context。
-
-捕获 `S_hi` 的同一次 TyCheck 同时构成 `V_hi` 的空增量 `StaticUnchangedEvaluation`；不得重跑 `ty`。无法获得完整 TyCheck 时不能构造 baseline，结果为 Indeterminate。
-
-## 3. Increment 与 static fingerprint
-
-对同 scope Proposal `P`：
-
-```text
-increment(P) = diagnostics(P) ⊖ S_hi
-
-increment(P) = ∅  -> STATIC_UNCHANGED
-increment(P) != ∅ -> STATIC_REGRESSION
-```
-
-`⊖` 是 multiset subtraction；相同 identity 按重数逐一抵消。Baseline diagnostic 消失或减少不进入 increment。Message、severity、GitLab fingerprint 与 `ty` exit code 不参与比较。
-
-两种状态都是 transition evidence，不是 `PASS` / `REJECTED`。每个状态都保存非空 fingerprint：
+每个坐标需要静态 guidance 时，从直接 PASS 上端 `U` 冻结 `S_slice`。通常 `U=current`；若
+predecessor 的真实 PASS 已提供更低上端，则用该上端的精确 Proposal。`S_slice` 保存该
+Proposal 的完整 ty diagnostics，而不是相对 `S_hi` 的增量。没有合格完整观察时返回
+NO_HINT(`anchor-unavailable`)。
 
 ```text
-sha256(
-  "pf:ty-static-state:static-transition-v1\0"
-  + canonical ordered incremental identity list
-)
+global_delta(P) = diagnostics(P) ⊖ diagnostics(S_hi)
+local_delta(P, S_slice) = diagnostics(P) ⊖ diagnostics(S_slice)
 ```
 
-重复 identity 按实际重数进入列表。空增量有固定 digest，不能用空值替代。Schema 反算 fingerprint，并要求 regression 的 incremental 使用规范顺序且是 TyCheck diagnostics 的子多重集。
+两种比较都使用多重集 subtraction。COMPARED 必须通过显式 GLOBAL/SLICE 准入。合法
+original→relaxed 与同一 baseline 的两个 relaxed 可以比较；非法 harness、不同 Python/surface/
+冻结坐标或 context 返回 UNCOMPARED(`context-mismatch`)。
+
+## 3. 原始 TyCheck 与 StaticComparison
+
+原始 `TyCheck` 保存 immutable diagnostics、规范 diagnostic identities、实际 ty process
+outcome、安全 process/log refs 与静态请求 scope。它不保存 baseline、delta、
+STATIC_UNCHANGED/REGRESSION、StaticHint 或 compatibility disposition。失败由独立的
+`TyCheckUnavailable` 保存。
+
+`StaticComparison` 是对已有原始事实的解释，绑定比较 context 与 GuidancePolicy。更换
+anchor 或 policy 不复用比较。同一 TyCheck 可对 GLOBAL 与 SLICE 得到不同合法 delta。
 
 ## 4. TyAdapter
 
@@ -84,17 +87,16 @@ ty check
 ```
 
 用户 `ty-args`、显式 config override 不得改变 owned options；`--config-file` 仍禁止，冲突在
-进程启动前失败。项目合法 `[tool.ty.terminal]` 展示默认配置允许存在，由 PF 固定 argv 覆盖，
-同值默认配置同样允许；不修改项目文件。固定 ty 支持项目 output-format；不支持的 terminal.color
-等配置仍由 ty 自身校验并产生 ToolFailure。解释器、minor、platform scope 继续由 PF 固定指定。
+进程启动前失败。项目合法 `[tool.ty.terminal]` 展示默认配置允许存在，由 PF 固定 argv 覆盖。
+解释器、minor、platform scope 继续由 PF 固定指定。非法 owned ty options 不因 guidance 降级而合法。
 
 ### 4.1 工具完成
 
 ```text
 exit 0/1 + 完整合法 GitLab JSON -> TyCheck
-timeout                         -> TIMEOUT
+timeout                         -> TIMEOUT / TyCheckUnavailable
 其他退出、signal、启动失败、
-截断或非法输出                  -> TOOL_FAILURE
+截断或非法输出                  -> TOOL_FAILURE / TyCheckUnavailable
 ```
 
 Exit code 只说明 TyCheck 是否可收集，不证明 diagnostic 数量或 compatibility。
@@ -119,140 +121,103 @@ External path 先 resolve，再依次规范到 `site-packages/`、`typeshed/` �
 identity = external | normalized-path | code
 ```
 
-无法得到稳定 external namespace 时整次检查为 TOOL_FAILURE。External identity 不保留 line/column，避免依赖内部行号漂移形成项目 regression。
+无法得到稳定 external namespace 时整次检查为 TOOL_FAILURE。External identity 不保留 line/column。
 
-`TyCheck.diagnostics` 按 identity，并以 severity/message 稳定打破相同 identity 的排序，保留重复项。Baseline digest 为：
+`TyCheck.diagnostics` 按 identity，并以 severity/message 稳定打破相同 identity 的排序，保留重复项。
 
-```text
-sha256(
-  "pf:ty-diagnostic-baseline:static-transition-v1\0"
-  + canonical identity list
-)
-```
+## 6. 静态请求与六组输入
 
-## 6. Diagnostic 分类与 witness plan
+`StaticRequestFactory` 从已复证的 ExecutionSubject 形成规范 `StaticSubject`。缓存 key 使用实际
+静态对象的规范投影，不依赖完整动态 Proposal identity。六组输入与采集子身份变化必须改变投影
+或拒绝未闭合外部输入；相同 sdist 的不同安装内容相互隔离；合法路径重定位与不同 Proposal 的
+同投影可以命中同一原始事实。
 
-每个 regression occurrence 必须有一条一一对应的 `DiagnosticClassification`。分类只使用 structured code、规范路径、源码 AST、Proposal vector/graph 与 active managed declaration，不使用 message、severity 或模糊字符串。
+## 7. StaticEvaluator 与 Run cache
 
-Strong eligibility 同时要求：
+`StaticEvaluator` 拥有 ty 收集、diagnostic identity、多重集 subtraction 和 fingerprint。
+`RuntimeEvaluator` 独占 verifier 调用及动态结果组装。两者通过显式静态结果相连，静态结果
+不再复用兼容性的 `IndeterminateEvaluation`。
 
-1. code 命中版本化 allowlist；
-2. AST 唯一恢复 module/symbol/member；
-3. import root 唯一映射到当前 active managed dependency；
-4. 能生成无歧义 RuntimeWitnessPlan。
+原始 `TyCheck` / `TyCheckUnavailable` 由 Run 内独立 `TyCheckCache` 共享。缓存静态事实，
+不缓存某次 guidance 解释。lookup 只读；collect 才原子加入或启动，只有 owner 占 ty permit。
+等待者不占 permit。cached unavailable 不是 CacheMiss，也不产生兼容性 disposition。
+prepare 失败、缺 baseline/anchor 与 context-mismatch 不进入原始 negative cache。
 
-`strong-classifier-v1` allowlist 为 `unresolved-import` 与 `unresolved-attribute`。第一版 planner 支持：
+物化环境释放不清除原始事实。关闭环境后仍可 lookup/compare；重建并复证同投影时不重跑 ty。
+不同 Proposal 不能共享动态 authority。capture 前 cache 已存在；跨 Run/Cell 与已关闭 refs
+即使 key/payload 相同也被拒绝。
 
-- `import module` -> `import-module`；
-- `from module import symbol` -> `import-symbol`；
-- 直接 imported module attribute -> `has-member`。
-
-相对导入、star import、复合/动态 owner、多义位置、非受管归因以及 allowlist 外 code 都降级为 general，并保存稳定 reason code。
-
-`RuntimeWitnessPlan` 保存 covered diagnostic identities、managed dependency、operation、module、owner/member 和 planner version。它属于当前 Proposal，不跨 Proposal 复用。重复 diagnostic occurrence 仍分别分类并进入 fingerprint；执行列表只对完全相同的 plan 保序去重。
-
-## 7. RuntimeWitnessAdapter
-
-Adapter 在当前 prepared environment 中执行：
-
-```text
-<interpreter> -I -c <adapter-owned-harness> <canonical-plan-json>
-```
-
-不使用 shell，也没有用户 witness command。Harness 只输出一行 canonical JSON result；adapter 要求 stdout 精确等于该行加换行；唯一字段 status 必须为 PRESENT、CONFIRMED_MISSING 或 NOT_APPLICABLE 字符串。结果分类：
-
-- `PRESENT`：目标 runtime 名称存在；
-- `CONFIRMED_MISSING`：精确目标 module/symbol/member 缺失；
-- `NOT_APPLICABLE`：执行完成但不能无歧义回答；
-- `ToolFailure`：timeout、signal、启动失败、typed terminal unavailable、非零退出、截断或非法输出。
-
-ModuleNotFoundError 必须指向目标 module 或其前缀；AttributeError 必须携带目标 owner 对象和 member name。`import-symbol` 使用 Python `fromlist` 导入语义后再核对属性，不能把可导入的 package submodule 误判为缺失。Import side-effect exception、任意 traceback 或无关缺失不能解释为 confirmed missing。
-
-Witness result 必须完整正常 exit 0，stdout/stderr 均完整，并保留 plan 与 ProcessResult。
-stderr 内容只作诊断，任何 warning、日志或形似 traceback 的文本均不参与 status/disposition；
-不设置白名单、不抑制导入 warnings，按 D007 脱敏日志/完整输出读取路径保留。
-stdout 非 canonical、多行、额外字段、错误 status 类型（包括数组/对象）均返回 typed ToolFailure，
-不让解析校验异常逃逸；导入 stdout 副作用仍破坏协议。真正 ToolFailure 保持 Indeterminate，
-不回退 verifier；PRESENT/NOT_APPLICABLE 继续 verifier，本身不授权兼容性。
-
-Schema 要求 witness attempts 按本 Proposal 保序去重后的 classification plans 形成前缀；PassEvaluation/VerifierRejectedEvaluation 不得保留 confirmed missing 或 tool failure，RuntimeInterfaceMissingEvaluation 必须在首个 confirmed missing 停止，witness IndeterminateEvaluation 必须在对应 ToolFailure 停止。
+同 key 并发请求只启动一个 ty 操作并共享终态。owner 环境保留至进程收拢；取消/异常不泄漏
+资源或等待者。同 ty key 不授权提前释放不同 Proposal 的环境。
 
 ## 8. RuntimeEvaluator 路由
 
 ```text
-run static transition
-  ├── Ty failure -> Indeterminate
-  ├── eligible strong plans
-  │     ├── CONFIRMED_MISSING -> RuntimeInterfaceMissingEvaluation
-  │     ├── PRESENT / NOT_APPLICABLE -> continue
-  │     └── ToolFailure -> Indeterminate
-  └── unchanged / general / no selected witness -> continue
+collect static facts as needed
+  └── ty unavailable -> 继续 verifier；比较记 UNAVAILABLE / NO_HINT
         ↓
 run configured verifier
   -> D005 terminal disposition
   -> PassEvaluation | VerifierRejectedEvaluation | IndeterminateEvaluation
 ```
 
-Witness 是内部负向优化，不产生正向 compatibility。未选择 witness 时直接运行 test-command。PassEvaluation/VerifierRejectedEvaluation/RuntimeInterfaceMissingEvaluation/IndeterminateEvaluation 都保留本 Proposal 的 static evidence；运行过的 witness attempts 同样保留。
+ty regression、optional/fallback 路径和孤立接口缺失都不能提前拒绝。完整 PASS 只来自配置的
+verifier 原命令阶段 `NormalExit(0)`。
 
 ## 9. check、smoke 与 search
 
 命令如何组合 capture/full evaluation 只见 [D008 §3](D008-pf-verification-run.md#3-命令序列)；
-搜索的 static/runtime 调度只见 D003。完整 PASS 的资格由 D005 拥有。
+搜索的静态/oracle 调度只见 D003。完整 PASS 的资格由 D005 拥有。
 模块依赖与 public-seam 测试边界只见 [D002 §7、§11](D002-pf-implementation.md#7-verification-modules)。
+
+check 保留真实 HarnessBaseline；capture ty 失败仍验证 lowest-direct。smoke 复用 capture 的
+TyCheck（若有），只运行一次完整 test-command。
 
 ## 10. Schema、cache 与报告
 
-公共证据至少保留 baseline Proposal/TyCheck/digest、每个 candidate 的 TyCheck/increment/fingerprint/classification、witness plan/result、test result，以及 Proposal/cell/snapshot/policy 一致性。Schema 1 只改变这些事实的持久化所有权：StaticEvaluation、terminal Evaluation、Proposal 和 FailureRecord 按 D014 的 typed refs 关联，不改变本节的静态证据语义。
+公共证据至少保留原始 TyCheck/Unavailable、GLOBAL/SLICE 比较、producer/consumer 关联、
+anchor PASS ref 与 GuidancePolicy。这些事实 intern 到文档级 table，scope 只保留 membership。
+静态 refs 无兼容性权限。Failure 的 execution/selection 辅助关联不进入 Failure ID。
 
 概念 cache key：
 
 ```text
-TyCheckKey        = proposal_id
-StaticStateKey    = (proposal_id, S_hi digest, static policy identity)
-WitnessKey        = (proposal_id, witness plan identity)
-TestEvaluationKey = (proposal_id, S_hi digest, full policy identity)
+TyCheckKey        = (StaticSubjectIdentity, TyObservationPolicy)
+StaticCompareKey  = (subject fact, reference fact, context, GuidancePolicy)
+TestEvaluationKey = (proposal_id, execution policy identity)
 ```
 
-Proposal identity 已吸收 static/full policy；EvaluationCache 仍显式接收 baseline digest，并把 static 与 full evidence 分仓。Region 调度 cache 由 D003 拥有，不构造 Proposal-level Evaluation。没有跨运行 Evaluation cache。
-
-`StaticEvaluator` 只消费 `EffectiveConfig.ty.args/timeout_seconds`，并只在真正调用 `TyOperations.check` 时取得 invocation-wide ty permit。`RuntimeEvaluator` 消费 `test.command/cwd/timeout_seconds`；runtime witness 使用 test timeout，但不占 test permit，只有真正调用 configured verifier 时取得 invocation-wide test permit。两个 pool 由 composition root 共享并在 Verification Run 开始前用 resolved `RunLimits.ty_jobs/test_jobs` 配置；limits 不写入 ty/test argv。`test-group` 只用于 project/harness planning，不进入 configured verifier request。
+没有跨运行 Evaluation cache。`StaticEvaluator` 只消费 `EffectiveConfig.ty.args/timeout_seconds`，
+并只在真正调用 `TyOperations.check` 时取得 invocation-wide ty permit。`RuntimeEvaluator` 消费
+`test.command/cwd/timeout_seconds`，只有真正调用 configured verifier 时取得 test permit。
+cache hit / negative hit 不生成新 ty stage 或复制耗时。
 
 ## 11. 策略 identity
 
-本文件独占 `ty_diagnostic_policy` 的静态/witness 子对象；外层 evaluation-policy preimage 与配置绑定由 [D014 §1.1](D014-pf-report-schema.md#11-identity) 定义。该子对象字段为：
+本文件独占 GuidancePolicy / TyObservation 子身份；ExecutionPolicy 与 SearchDerivationPolicy 分开。
+报告 identity 的三类字段、generation 与 apply 比较由 [D014 §1.1](D014-pf-report-schema.md#11-identity) 拥有。
+ty args/timeout/tool version/内容 identity 只进入本节采集子对象，不进入 ExecutionPolicy 或 Attempt identity。
 
 ```text
-policy             = static-transition-v1
+policy             = static-guidance-v1
 output_format      = gitlab
 comparison         = multiset-subtraction
-fingerprint        = ordered-incremental-identity-multiset
 identity_rule      = snapshot-path-line-column-code+external-namespace-path-code
-region_scope       = fixed-slice-contiguous
-strong_classifier  = strong-classifier-v1
-witness_planner    = witness-planner-v1
-witness_harness    = witness-harness-v1
-witness_stderr     = diagnostic-only
-project_terminal   = adapter-cli-overrides
 boundary_rule      = runtime-evidence-only
 final_verification = direct-test-command-pass
 ```
 
-`final_verification` 表示原命令阶段 `NormalExit(0)`：pytest 从用户 argv/ini/`PYTEST_ADDOPTS` 解析得到的 `Config.args` 不被 FailedCaseSet 替换。failed-set `NormalExit(0)` 不授权 PASS。
-
-改变 identity、multiset、allowlist、AST attribution、witness protocol、region scope 或 final rule
-必须通过相应版本或显式策略事实改变 identity。pre-release 的 stderr 诊断化与项目 terminal 默认值
-覆盖由上述两个事实隔离身份，保留 witness-harness-v1、pf:policy:v1 与 Schema 1，只有当前目标协议，
-不提供旧规则开关或兼容 reader。pytest summary 不进入 evaluation policy identity。
+`final_verification` 表示原命令阶段 `NormalExit(0)`。failed-set `NormalExit(0)` 不授权 PASS。
+仅改变 guidance/ty heuristic 不改变同一执行对象已有动态证据的 authority identity。
 
 ## 12. 不变量与非目标
 
-1. 同一 Evaluation 必须引用同 scope frozen `S_hi`。
+1. 同一 GLOBAL 比较必须引用同 scope 的 `S_hi` 状态，包括 UNAVAILABLE。
 2. `V_hi` capture 是空增量 unchanged，不重跑 ty。
 3. Regression 当且仅当 multiset increment 非空；它没有 disposition。
-4. 每个 increment occurrence 有同序 classification 和显式 fingerprint。
-5. 只有 confirmed-missing witness 或 D005 授权的 Verifier Rejection 可从 static 路径形成 runtime negative evidence。
-6. 完整 PASS 必须由本 Proposal 的 PassEvaluation 证明。
-7. 截断、坏 JSON、side-effect exception 或归因歧义不能形成 compatibility boundary。
+4. 静态失败最多退回无提示的 oracle 搜索。
+5. 完整 PASS 必须由本 Proposal 的 PassEvaluation 证明。
+6. 截断、坏 JSON 或未闭合输入不能形成 compatibility boundary。
 
-非目标包括要求仓库 type-clean、为所有 unresolved 自动建 witness、解析 message、static-only floor、region runtime 等价证明和跨运行 baseline/evaluation cache。
+非目标包括要求仓库 type-clean、解析 message、静态 floor、跨运行 baseline/evaluation cache、
+以及用 CFG/reachability 分析恢复孤立接口缺失的拒绝权限。

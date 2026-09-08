@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+
+
 from candidate_fixtures import frozen_candidate_snapshot
 
 import json
@@ -11,6 +13,7 @@ from packaging.specifiers import SpecifierSet
 import pytest
 
 from pf.errors import ConfigurationError
+from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
 from pf.resolution import environment_identity_digest
@@ -20,11 +23,7 @@ from pf.schemas.evaluation import (
     NormalExit,
     PassEvaluation,
     ProcessResult,
-    StaticBaseline,
-    StaticUnchangedEvaluation,
-    TyCheck,
     VerifierPass,
-    ty_diagnostic_digest,
 )
 from pf.schemas.project import (
     ApplySelector,
@@ -93,6 +92,7 @@ def report_attempt(
     resolution: Literal["highest", "exact-vector"],
     vector: tuple[VersionPin, ...],
     source_plan_identity_value: str,
+    policy_identity: str,
 ) -> Attempt:
     return Attempt.from_identity(
         AttemptIdentity(
@@ -102,7 +102,7 @@ def report_attempt(
             requested_managed_vector=(vector if resolution == "exact-vector" else None),
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity=source_plan_identity_value,
-            evaluation_policy_identity="policy",
+            execution_policy_identity=policy_identity,
             resolution_context_digest="context",
             harness_policy_identity=(
                 "harness-relaxation-v1"
@@ -144,22 +144,15 @@ def passing_evaluation(
     version: str,
     *,
     snapshot_digest: str,
-    resolution: Literal["highest", "exact-vector"] = "exact-vector",
-    attempt: Attempt | None = None,
-    source_plan_identity_value: str = "sources",
+    attempt: Attempt,
 ) -> PassEvaluation:
     vector = (VersionPin(name="idna", version=version),)
-    owned_attempt = attempt or report_attempt(
-        cell=cell,
-        snapshot_digest=snapshot_digest,
-        resolution=resolution,
-        vector=vector,
-        source_plan_identity_value=source_plan_identity_value,
-    )
+    owned_attempt = attempt
     project_digest = f"project-{cell_id(cell)}-{version}"
     environment_digest = None
     proposal = Proposal(
         proposal_id=environment_identity_digest(
+            attempt_id=owned_attempt.attempt_id,
             project_plan_digest=project_digest,
             environment_plan_digest=environment_digest,
             graph=(),
@@ -170,7 +163,7 @@ def passing_evaluation(
         managed_vector=vector,
         fixed_declaration_ids=(),
         resolved_graph=(),
-        policy_identity="policy",
+        policy_identity=owned_attempt.identity.execution_policy_identity,
         project_plan_digest=project_digest,
         environment_plan_digest=environment_digest,
         interpreter=InterpreterIdentity(
@@ -181,12 +174,7 @@ def passing_evaluation(
     )
     return PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=successful_process(), diagnostics=()),
-            baseline_digest=ty_diagnostic_digest(()),
-            incremental=(),
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
 
@@ -206,6 +194,7 @@ def successful_cell(
         resolution="exact-vector",
         vector=vector,
         source_plan_identity_value=plan_identity,
+        policy_identity=execution_policy_identity(package.config),
     )
     final_evaluation = passing_evaluation(
         cell,
@@ -236,22 +225,19 @@ def successful_cell(
         resolution="highest",
         vector=vector,
         source_plan_identity_value=plan_identity,
+        policy_identity=execution_policy_identity(package.config),
     )
     baseline = passing_evaluation(
         cell,
         "3.11",
         snapshot_digest=snapshot_digest,
-        resolution="highest",
         attempt=baseline_attempt,
     )
     return CellSuccess(
+
         cell=cell,
         baseline_attempt=baseline_attempt,
-        static_baseline=StaticBaseline(
-            proposal=baseline.proposal,
-            ty=baseline.static.ty,
-            digest=ty_diagnostic_digest(baseline.static.ty.diagnostics),
-        ),
+
         baseline=baseline,
         candidate_snapshots=candidate_snapshot(package, cell, vector),
         search=search,
@@ -640,6 +626,9 @@ class TestReportProjection:
             package=report.package,
             source_snapshot=report.source_snapshot,
             policy_identity=report.policy_identity,
+            execution_policy_identity=report.execution_policy.identity,
+            guidance_policy_identity=report.guidance_policy_identity,
+            search_derivation_identity=report.search_derivation_identity,
             requirement_declarations=report.requirement_declarations,
             source_plan=SourcePlan.for_package(package, "SEARCH"),
             target_cells=target_cells,

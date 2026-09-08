@@ -6,21 +6,58 @@
     "failures": [],
     "proposals": [],
     "resolution_graphs": [],
-    "static_evaluations": []
+    "static_comparisons": [],
+    "static_contents": [],
+    "static_facts": [],
+    "static_scopes": [],
+    "static_subjects": []
   },
   "identity": {
-    "failure_policy": "failure-execution-v3",
+    "execution_policy": {
+      "baseline_harness": "original-external-declarations",
+      "empty_harness_prepare": "install-project-plan-without-environment-resolution-v1",
+      "execution_outcome": "execution-outcome-v1",
+      "external_ceiling": "baseline-observed-version-for-current-harness-only-node",
+      "extra_exploration": "nonempty-declared-groups-only",
+      "failed_case_authority": "qualified-rejection-only-original-command-for-pass",
+      "failure": "failure-execution-v4",
+      "inspection": "no-bytecode-write-v1",
+      "pass_authority": "direct-test-command-pass",
+      "probe_harness": "remove-eligible-direct-lower-bounds",
+      "project_marker_projection": "portable-cell-platform-v1",
+      "project_overlap": "exact-project-node-without-harness-ceiling",
+      "resolution": {
+        "artifact": "any",
+        "timeout_seconds": 600
+      },
+      "resolution_projection": "actual-interpreter-target-active-pylock",
+      "rules": "configured-execution-only-v1",
+      "self_reference": "required-effective-cell-surface",
+      "structured_facts": "operation-structured-facts-v1",
+      "test_group_selection": "explicit-or-dev-then-test-else-empty-v1",
+      "uv_diagnostic_profile": "uv-diagnostics-0.12.5-v1",
+      "uv_protocol": "uv-pip-compile-pylock-v1",
+      "verifier_command": [
+        "pytest"
+      ],
+      "verifier_cwd": "package",
+      "verifier_outcome": "configured-verifier-terminal-v1",
+      "verifier_timeout_seconds": 1800
+    },
+    "failure_policy": "failure-execution-v4",
     "generator": {
       "algorithm": "v1",
       "name": "pf",
       "version": "0.2.0"
     },
+    "guidance_policy_identity": "efb23cb3ec88ed638a7ab73eee5a8136e9e583ac9aba6c29d1b861b39a8f3c63",
     "package": {
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "8f59827d0b1ea10b0690ba93d74be96960f4322a54b3ddcfba631c5c4b57b4f2",
-    "report_generation_id": "c2a4ac149790ee2632c83930a33d74596b2227d4e3c57cdfadf2395bd05d5af3",
+    "policy_identity": "1a0a12f878a5e25f638aab48c3b6d252f693c86b26cc13decd866fcd39fa453a",
+    "report_generation_id": "81f0f06419ff1beac92f92e1833f5ae4235103e15da283c68544f4f77a4bb050",
+    "search_derivation_identity": "efef7b09e9c81c3f21924d55126190467f2d9e0ccd288e7909688cf4bee25ab4",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],

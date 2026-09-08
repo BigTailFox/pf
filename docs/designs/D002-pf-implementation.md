@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-06
+- **最后核对：** 2026-09-08
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -62,8 +62,10 @@ src/pf/
 ├── harness.py                   original/relaxed direct harness 纯变换
 ├── resolution.py                resolution protocol、plans、outcomes、identity
 ├── environment.py               prepare 与 PreparedEnvironment lifecycle
-├── static_transition.py         fingerprint、classifier、witness planning
-├── evaluation.py                Static/Runtime Evaluator 与 run-local cache
+├── static.py / static_cache.py  原始 TyCheck cache、比较与 Run scope
+├── static_request.py            规范静态投影与采集请求
+├── static_guidance.py           纯静态二分与 hint
+├── evaluation.py                Static/Runtime Evaluator
 ├── baseline.py                  highest full-verification lifecycle
 ├── check.py                     declaration two-phase CompatibilityChecker
 ├── failure.py                   FailurePolicy
@@ -82,7 +84,7 @@ src/pf/
 ├── _pytest_pruning.py           wheel-packaged standalone pytest pruning plugin
 ├── terminal/                    presenter 与 private live/explain/diagnose views
 ├── schemas/                     base/config/project/evaluation/report/apply records
-└── adapters/                    process、uv/uv-lock、ty、verifier/pytest 与 runtime-witness seams
+└── adapters/                    process、uv/uv-lock、ty 与 verifier/pytest seams
 ```
 
 ## 4. Schema boundary
@@ -258,7 +260,7 @@ CandidateBuilder.build(package, cell, baseline, source_plan)
 EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_plan)
     -> PreparedEnvironment | PrepareFailure
 
-StaticEvaluator.capture/evaluate(...)
+StaticEvaluator.lookup/collect/compare(...)
 RuntimeEvaluator.evaluate(...)
 HighestVersionVerifier.verify(...) -> HighestVersionOutcome
 CompatibilityChecker.check(...) -> CheckCellOutcome
@@ -278,7 +280,7 @@ highest full verify 和单 Cell search；三者的构造器直接依赖 composit
 `EnvironmentFactory`、`StaticEvaluator`、`RuntimeEvaluator` 实例，不为 caller 复制 env/static/full
 Protocol。Search 还直接依赖 `CandidateBuilder`、共享的 `HighestVersionVerifier` 与 `CoordinateSearch`。
 这些 in-process module 不是 adapter seam；真实替换点只保留 uv、candidate provider、ty、configured
-verifier、runtime witness/process 及 activity/diagnostic consumer。不得用 evaluator facade、parameter
+verifier、process 及 activity/diagnostic consumer。不得用 evaluator facade、parameter
 bundle、factory、locator 或 service registry隐藏该依赖图。
 
 `EffectiveConfig` 是按消费者分组的 frozen interface：`target`、`search`、`resolution`、`ty`、`test`、`scheduling`。ConfigLoader 独占 raw key/default/merge/canonicalization；ProjectLoader 独占 dependency selection 与 `DependencySearchPolicy` 到 managed searchable direct dependency 的资格绑定，并在 `PackagePlan.dependency_search_policies` 中提供排序唯一的完整 named policy。CandidateBuilder 和其他消费者不得重新读取 raw TOML 或实现平行默认逻辑。
@@ -296,14 +298,14 @@ source drift/report/association。接口间不通过 per-Cell workflow closure �
 Adapter 返回中性 OperationFailure，Factory 绑定 Attempt 和已取得 plan，FailurePolicy 分类；
 分类、authority 与 sidecar 约束只见 D005，Run/展示关联只见 D008。
 
-`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；同一 Proposal 的 static-only probe 晋升到 full evaluation 时复用尚未关闭的 prepared lifecycle。
+`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；坐标内合法静态物化环境可供 oracle 复用，同 ty key 不授权提前释放。
 
 `_ProposalRunner` 是一次 Cell search 的唯一执行 cache/lifecycle owner，持有 baseline seed、
-完整向量的 prepare/static/full 结果、保留环境、FailedCaseSet 与 region point 表。
-`CoordinateSearch` 只保存算法 observation、Slice 状态、boundary history 与当前向量。
-两者的 seed/reuse/promotion/region 与 cleanup 行为只见 D003，不建立第二份执行 cache。
+完整向量的 prepare/full 结果、保留环境与 FailedCaseSet。原始 TyCheck 由 Run-owned
+`TyCheckCache` 共享。`CoordinateSearch` 只保存算法 observation、Slice 状态、boundary history 与当前向量。
+两者的 seed/reuse/cleanup 行为只见 D003，不建立第二份执行 cache。
 
-Evaluator 的 static transition/witness 由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
+Evaluator 的静态事实与比较由 D004 定义；本章只拥有 `ConfiguredVerifier` interface，
 terminal disposition 由 D005 定义；D013 只拥有 pytest diagnostics。Adapter 只返回自己的
 稳定 operation facts，不能决定搜索 Role。
 
@@ -324,7 +326,6 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 
 - `UvAdapter` 拥有 uv argv、resolver protocol、candidate query、pylock parsing、venv、install 与 graph inspection；D012 拥有语义和资格边界。
 - `TyAdapter` 拥有 ty argv/JSON normalization；D004 拥有诊断语义。
-- `RuntimeWitnessAdapter` 只执行 D004 的 structured harness。
 - `ConfiguredVerifier.run(VerifierRequest) -> VerifierRun` 是配置 verifier 的唯一 public
   module interface；D005 独占 terminal disposition，`VerifierDiagnostics` 只在运行期存在。
 - `VerifierRequest.failed_case_nodeids` 与 `VerifierRun.failed_case_additions` /
@@ -365,10 +366,10 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 ## 11. 验证边界
 
-测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。评价与产品 tests 通过 lower uv/candidate/ty/verifier/witness adapters装配真实 Environment/Static/Runtime、Highest、Check 与 Search graph；不直接构造 PreparedEnvironment，不替换 concrete prepare/capture/evaluate/verify/minimize，也不读取 evaluator/search private state。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
+测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。评价与产品 tests 通过 lower uv/candidate/ty/verifier adapters 装配真实 Environment/Static/Runtime、Highest、Check 与 Search graph；不直接构造 PreparedEnvironment，不替换 concrete prepare/lookup/collect/compare/evaluate/verify/minimize，也不读取 evaluator/search private state。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
 
-Static classification 从 `StaticEvaluator.capture/evaluate` 的 outcome 观察，不以直接调用 classifier
-或预制 Evaluation 冒充产品路径。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
-baseline/candidate 终止、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
+静态事实从 `StaticEvaluator.lookup/collect/compare` 的 outcome 观察。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
+baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
-历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。
+历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
+[D038](../archived/designs/D038-pf-static-guidance-authority.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

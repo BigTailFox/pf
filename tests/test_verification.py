@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pf.static_cache import TyCheckCache
+
 from collections.abc import Callable
 import inspect
 from pathlib import Path
@@ -10,7 +12,7 @@ import pytest
 
 from pf.errors import ConfigurationError, InfrastructureError
 from pf.failure import FailurePolicy
-from pf.policy import evaluation_policy_identity
+from pf.policy import execution_policy_identity
 from pf.schemas.config import EffectiveConfig, RunLimits, TestConfig as PfTestConfig
 from pf.schemas.evaluation import (
     ActivityEvent,
@@ -28,14 +30,10 @@ from pf.schemas.evaluation import (
     NormalExit,
     PassEvaluation,
     ProcessObservation,
-    ProcessResult,
     ProcessTerminalUnavailable,
-    StaticUnchangedEvaluation,
-    TyCheck,
     VerifierPass,
-    VerificationJournal,
-    ty_diagnostic_digest,
 )
+from pf.schemas.journal import VerificationJournal
 from pf.schemas.project import (
     Cell,
     DependencySourceRoute,
@@ -80,7 +78,7 @@ class _SearchOperation:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> CellResult:
         return self._run(package, cell, snapshot, source_plan)
 
@@ -100,7 +98,7 @@ class _CheckOperation:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> CheckCellOutcome:
         return self._run(package, cell, snapshot, source_plan)
 
@@ -120,7 +118,7 @@ class _SmokeOperation:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan,
+        source_plan: SourcePlan, run_cache: TyCheckCache,
     ) -> BaselineIndeterminate:
         return self._run(package, cell, snapshot, source_plan)
 
@@ -186,7 +184,7 @@ def _attempt(
             ),
             active_declaration_ids=cell.active_declaration_ids,
             source_plan_identity=SourcePlan.for_package(package, "SEARCH").identity,
-            evaluation_policy_identity=evaluation_policy_identity(package.config),
+            execution_policy_identity=execution_policy_identity(package.config),
             resolution_context_digest="context",
             harness_policy_identity=(
                 "original-harness-v1"
@@ -231,7 +229,7 @@ def _cell_failure(
             package=package.name,
             cell=cell,
             source_snapshot_digest=snapshot.identity.digest,
-            evaluation_policy_identity=evaluation_policy_identity(package.config),
+            execution_policy_identity=execution_policy_identity(package.config),
         ),
         cause="SOURCE_FAILURE",
         stage="candidate-discovery",
@@ -289,21 +287,11 @@ def _check_pass(
         managed_vector=(),
         fixed_declaration_ids=(),
         resolved_graph=(),
-        policy_identity=evaluation_policy_identity(package.config),
-    )
-    process = ProcessResult(
-        exit_code=0,
-        duration_seconds=0.1,
-        stdout="[]",
-        stderr="",
+        policy_identity=execution_policy_identity(package.config),
     )
     evaluation = PassEvaluation(
         proposal=proposal,
-        static=StaticUnchangedEvaluation(
-            proposal=proposal,
-            ty=TyCheck(process=process, diagnostics=()),
-            baseline_digest=ty_diagnostic_digest(()),
-        ),
+
         verifier=VerifierPass(terminal=NormalExit(exit_code=0)),
     )
     return CheckCellOutcome(
@@ -357,6 +345,41 @@ def _limits(
 
 
 class TestVerificationRunnerRequest:
+    @pytest.mark.parametrize("crash", [False, True])
+    def test_each_run_owns_one_open_cache_and_closes_it_on_every_exit(self, tmp_path, crash):
+        host = _cell()
+        cells = (host,) if crash else (host, _cell("3.11"))
+        snapshot, package = _case(tmp_path, cells=cells)
+        received: list[TyCheckCache] = []
+
+        class Operation:
+            def search(self, *, package, cell, snapshot, source_plan, run_cache):
+                assert run_cache.snapshot(cell).facts == ()
+                received.append(run_cache)
+                if crash:
+                    raise RuntimeError("controlled operation failure")
+                return _search_indeterminate(package, snapshot, cell)
+
+        runner = VerificationRunner(events=_Events(), logs=None, host_target=HOST)
+        request = _search_request(package, snapshot, Operation())
+        try:
+            runs = []
+            for _ in range(2):
+                offset = len(received)
+                if crash:
+                    with pytest.raises(RuntimeError, match="controlled operation failure"):
+                        runner.run(request)
+                else:
+                    assert len(runner.run(request).cell_results) == len(cells)
+                current = received[offset:]
+                assert current and all(item is current[0] for item in current)
+                runs.append(current[0])
+                with pytest.raises(ValueError, match="closed"):
+                    current[0].snapshot(host)
+            assert runs[0] is not runs[1]
+        finally:
+            snapshot.close()
+
     def test_unknown_request_fails_closed(self) -> None:
         with pytest.raises(TypeError, match="verification request"):
             VerificationRunner(
@@ -393,7 +416,7 @@ class TestVerificationRunnerRequest:
             )
         )
 
-        assert results == (outcome,)
+        assert results.cell_results == (outcome,)
         assert received == [(package, host, snapshot, source_plan)]
         assert received[0][0] is package
         assert received[0][2] is snapshot
@@ -680,7 +703,7 @@ class TestVerificationRunnerLifecycle:
             if isinstance(item, CellCompletedEvent)
         ]
         assert completions == [fast, slow]
-        assert [result.cell for result in results] == [fast, slow]
+        assert [result.cell for result in results.cell_results] == [fast, slow]
         assert events.items == []
         snapshot.close()
 
@@ -711,10 +734,10 @@ class TestVerificationRunnerLifecycle:
             item.cell for item in events.items if isinstance(item, CellContextEvent)
         ]
         assert contexts == [first]
-        assert outcomes[1].cell == pending
-        assert isinstance(outcomes[1], CellIndeterminate)
-        assert outcomes[1].phase == "scheduler-deadline"
-        assert outcomes[1].baseline_attempt is None
+        assert outcomes.cell_results[1].cell == pending
+        assert isinstance(outcomes.cell_results[1], CellIndeterminate)
+        assert outcomes.cell_results[1].phase == "scheduler-deadline"
+        assert outcomes.cell_results[1].baseline_attempt is None
         snapshot.close()
 
 
@@ -744,7 +767,7 @@ class TestVerificationRunnerProjection:
                 failure_id=second_failure.failure_id,
                 failure_records=(second_failure,),
                 baseline_attempt=None,
-                static_baseline=None,
+
                 baseline=None,
                 candidate_snapshots=(),
                 coordinate_failure=None,
@@ -1045,7 +1068,7 @@ class TestVerificationRunnerDurability:
             )
         )
 
-        assert results == ()
+        assert results.cell_results == ()
         assert len(journals) == 1
         assert journals[0].entries == ()
         snapshot.close()

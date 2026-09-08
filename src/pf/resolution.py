@@ -17,6 +17,8 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import (
     Cell,
     HarnessSatisfaction,
+    HarnessResolutionRequirement,
+    SelectedCandidate,
     InterpreterIdentity,
     ResolvedNode,
     SourceIdentity,
@@ -32,6 +34,42 @@ UV_SUPPORTED_VERSIONS = frozenset(UV_DIAGNOSTIC_PROFILES)
 
 def _digest(prefix: bytes, value: object) -> str:
     return hashlib.sha256(prefix + canonical_identity_json(value)).hexdigest()
+
+
+def resolution_request_digest(
+    *,
+    kind: Literal["project", "environment"],
+    package_name: str,
+    snapshot_digest: str,
+    cell: Cell,
+    resolution_kind: Literal["highest", "lowest-direct", "exact-selection"],
+    selection: tuple[SelectedCandidate, ...] | None,
+    baseline_digest: str | None,
+    context_digest: str,
+    project_plan_digest: str | None,
+    harness: tuple[HarnessResolutionRequirement, ...],
+    source_plan_identity: str,
+) -> str:
+    """Bind saved preparation inputs without materialization or process handles."""
+    return _digest(
+        b"pf:resolution-request:v1\0",
+        {
+            "kind": kind,
+            "package": package_name,
+            "snapshot_digest": snapshot_digest,
+            "cell": cell.model_dump(mode="json"),
+            "resolution": resolution_kind,
+            "selection": (
+                [item.model_dump(mode="json") for item in selection]
+                if selection is not None else None
+            ),
+            "baseline_digest": baseline_digest,
+            "context": context_digest,
+            "project_plan": project_plan_digest,
+            "harness": [item.model_dump(mode="json") for item in harness],
+            "source_plan_identity": source_plan_identity,
+        },
+    )
 
 
 class ResolutionRunContext(FrozenSchema):
@@ -290,59 +328,24 @@ def resolution_semantic_digest(
     )
 
 
-class ResolutionPlan(FrozenSchema):
-    status: Literal["PLAN"] = "PLAN"
+class ResolutionPlanEvidence(FrozenSchema):
+    """Portable semantic preparation evidence shared by producers and readers."""
+
     kind: Literal["project", "environment"]
     request_digest: str
     context: ResolutionContext
     packages: tuple[ResolutionPackage, ...]
     direct_harness: tuple[HarnessSatisfaction, ...] = ()
-    native: NativeResolutionPlan
-    process: ProcessResult = Field(exclude=True, repr=False)
     semantic_digest: str
-    digest: str
 
     @classmethod
-    def from_evidence(
-        cls,
-        *,
-        kind: Literal["project", "environment"],
-        request_digest: str,
-        context: ResolutionContext,
-        packages: tuple[ResolutionPackage, ...],
-        direct_harness: tuple[HarnessSatisfaction, ...],
-        native: NativeResolutionPlan,
-        process: ProcessResult,
-    ) -> "ResolutionPlan":
-        return cls(
-            kind=kind,
-            request_digest=request_digest,
-            context=context,
-            packages=packages,
-            direct_harness=direct_harness,
-            native=native,
-            process=process,
-            semantic_digest=resolution_semantic_digest(
-                kind=kind,
-                request_digest=request_digest,
-                context=context,
-                packages=packages,
-                direct_harness=direct_harness,
-            ),
-            digest=resolution_plan_digest(
-                kind=kind,
-                request_digest=request_digest,
-                context=context,
-                packages=packages,
-                direct_harness=direct_harness,
-                native_digest=native.digest,
-            ),
-        )
+    def from_plan(cls, plan: ResolutionPlan) -> ResolutionPlanEvidence:
+        return cls.model_validate({
+            name: getattr(plan, name) for name in cls.model_fields
+        })
 
     @model_validator(mode="after")
-    def validate_plan(self) -> "ResolutionPlan":
-        if execution_terminal(self.process) != NormalExit(exit_code=0):
-            raise ValueError("resolution plan requires a successful process")
+    def validate_semantic_evidence(self) -> ResolutionPlanEvidence:
         if not self.request_digest:
             raise ValueError("resolution request digest cannot be empty")
         names = tuple(item.name for item in self.packages)
@@ -389,6 +392,56 @@ class ResolutionPlan(FrozenSchema):
         )
         if self.semantic_digest != expected_semantic:
             raise ValueError("resolution semantic digest does not match its evidence")
+        return self
+
+
+class ResolutionPlan(ResolutionPlanEvidence):
+    status: Literal["PLAN"] = "PLAN"
+    native: NativeResolutionPlan
+    process: ProcessResult = Field(exclude=True, repr=False)
+    digest: str
+
+    @classmethod
+    def from_evidence(
+        cls,
+        *,
+        kind: Literal["project", "environment"],
+        request_digest: str,
+        context: ResolutionContext,
+        packages: tuple[ResolutionPackage, ...],
+        direct_harness: tuple[HarnessSatisfaction, ...],
+        native: NativeResolutionPlan,
+        process: ProcessResult,
+    ) -> "ResolutionPlan":
+        return cls(
+            kind=kind,
+            request_digest=request_digest,
+            context=context,
+            packages=packages,
+            direct_harness=direct_harness,
+            native=native,
+            process=process,
+            semantic_digest=resolution_semantic_digest(
+                kind=kind,
+                request_digest=request_digest,
+                context=context,
+                packages=packages,
+                direct_harness=direct_harness,
+            ),
+            digest=resolution_plan_digest(
+                kind=kind,
+                request_digest=request_digest,
+                context=context,
+                packages=packages,
+                direct_harness=direct_harness,
+                native_digest=native.digest,
+            ),
+        )
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> "ResolutionPlan":
+        if execution_terminal(self.process) != NormalExit(exit_code=0):
+            raise ValueError("resolution plan requires a successful process")
         expected = resolution_plan_digest(
             kind=self.kind,
             request_digest=self.request_digest,
@@ -404,6 +457,7 @@ class ResolutionPlan(FrozenSchema):
 
 def environment_identity_digest(
     *,
+    attempt_id: str,
     project_plan_digest: str,
     environment_plan_digest: str | None,
     graph: tuple[ResolvedNode, ...],
@@ -411,6 +465,7 @@ def environment_identity_digest(
     return _digest(
         b"pf:environment:v1\0",
         {
+            "attempt_id": attempt_id,
             "project_plan_digest": project_plan_digest,
             "environment_plan_digest": environment_plan_digest,
             "graph": [item.model_dump(mode="json") for item in graph],
@@ -442,6 +497,7 @@ def resolution_graph_id(graph: tuple[ResolvedNode, ...]) -> str:
 
 
 class EnvironmentIdentity(FrozenSchema):
+    attempt_id: str
     project_plan_digest: str
     environment_plan_digest: str | None
     graph: tuple[ResolvedNode, ...]
@@ -451,6 +507,7 @@ class EnvironmentIdentity(FrozenSchema):
     def from_plans(
         cls,
         *,
+        attempt_id: str,
         project_plan: ResolutionPlan,
         environment_plan: ResolutionPlan | None,
         graph: tuple[ResolvedNode, ...],
@@ -459,10 +516,12 @@ class EnvironmentIdentity(FrozenSchema):
             environment_plan.semantic_digest if environment_plan is not None else None
         )
         return cls(
+            attempt_id=attempt_id,
             project_plan_digest=project_plan.semantic_digest,
             environment_plan_digest=environment_digest,
             graph=graph,
             digest=environment_identity_digest(
+                attempt_id=attempt_id,
                 project_plan_digest=project_plan.semantic_digest,
                 environment_plan_digest=environment_digest,
                 graph=graph,
@@ -473,6 +532,7 @@ class EnvironmentIdentity(FrozenSchema):
     def validate_environment_identity(self) -> "EnvironmentIdentity":
         resolution_graph_id(self.graph)
         expected = environment_identity_digest(
+            attempt_id=self.attempt_id,
             project_plan_digest=self.project_plan_digest,
             environment_plan_digest=self.environment_plan_digest,
             graph=self.graph,

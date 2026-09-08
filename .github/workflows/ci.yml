@@ -28,6 +28,6 @@ jobs:
         run: uv run pytest --no-testmon
       - name: Pytest with coverage gate
         if: matrix.python-version == '3.10'
-        run: uv run pytest --no-testmon --cov --cov-report=term-missing
+        run: uv run pytest --no-testmon --cov --cov-report=term-missing -m ""
       - name: Build
         run: uv build

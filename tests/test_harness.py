@@ -16,6 +16,7 @@ from pf.resolution import (
     NativeResolutionPlan,
     ResolutionContext,
     ResolutionPlan,
+    ResolutionPlanEvidence,
     ResolutionRunContext,
     ResolutionPackage,
 )
@@ -277,9 +278,11 @@ class TestHarnessRelaxation:
             else (),
         )
         relaxed = relax_harness(
-            package,
+            package.harness_requirements,
             baseline,
-            project_plan=project,
+            project_plan=ResolutionPlanEvidence.model_validate_json(
+                ResolutionPlanEvidence.from_plan(project).model_dump_json()
+            ),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
         requirement = relaxed.requirements[0]
@@ -314,9 +317,8 @@ class TestHarnessRelaxation:
         )
 
         original = original_harness(
-            package,
+            package.harness_requirements,
             package.cells[0],
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
         )
 
         assert [_render(package, item) for item in original] == [
@@ -332,7 +334,7 @@ class TestHarnessRelaxation:
         package = _load_harness(tmp_path, ("pytest>=8,<9,!=8.2",))
 
         relaxed = relax_harness(
-            package,
+            package.harness_requirements,
             _baseline(package),
             project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
@@ -369,7 +371,7 @@ class TestHarnessRelaxation:
         package = _load_harness(tmp_path, (raw,))
 
         relaxed = relax_harness(
-            package,
+            package.harness_requirements,
             _baseline(package),
             project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
@@ -423,7 +425,7 @@ class TestHarnessRelaxation:
         )
 
         relaxed = relax_harness(
-            package,
+            package.harness_requirements,
             _baseline(package),
             project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
@@ -442,7 +444,7 @@ class TestHarnessRelaxation:
         package = _load_harness(tmp_path, ("tool>=2.0a1",))
 
         relaxed = relax_harness(
-            package,
+            package.harness_requirements,
             _baseline(package),
             project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
@@ -463,7 +465,7 @@ class TestHarnessRelaxation:
         )
 
         relaxed = relax_harness(
-            package,
+            package.harness_requirements,
             _baseline(package),
             project_plan=_project_plan(package),
             source_plan=SourcePlan.for_package(package, "SEARCH"),
@@ -480,7 +482,7 @@ class TestHarnessRelaxation:
 
         with pytest.raises(ValueError, match="does not match active declarations"):
             relax_harness(
-                package,
+                package.harness_requirements,
                 baseline,
                 project_plan=_project_plan(package),
                 source_plan=SourcePlan.for_package(package, "SEARCH"),

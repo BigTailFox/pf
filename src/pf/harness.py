@@ -6,14 +6,13 @@ from packaging.version import Version
 
 from pf.errors import ConfigurationError
 from pf.markers import MarkerError, evaluate_contextual_marker
-from pf.resolution import ResolutionPlan
+from pf.resolution import ResolutionPlanEvidence
 from pf.schemas.project import (
     Cell,
     HarnessBaseline,
     HarnessRequirement,
     HarnessResolutionRequirement,
     HarnessSpecifierClause,
-    PackagePlan,
     RelaxedHarness,
     SourceIdentity,
     SourcePlan,
@@ -68,13 +67,12 @@ def active_harness_requirements(
 
 
 def relax_harness(
-    package: PackagePlan,
+    requirements: tuple[HarnessRequirement, ...],
     baseline: HarnessBaseline,
     *,
-    project_plan: ResolutionPlan,
+    project_plan: ResolutionPlanEvidence,
     source_plan: SourcePlan,
 ) -> RelaxedHarness:
-    requirements = package.harness_requirements
     active = active_harness_requirements(requirements, baseline.cell)
     declaration_ids = tuple(sorted(item.declaration_id for item in active))
     if declaration_ids != baseline.declaration_ids:
@@ -122,13 +120,10 @@ def relax_harness(
 
 
 def original_harness(
-    package: PackagePlan,
+    requirements: tuple[HarnessRequirement, ...],
     cell: Cell,
-    *,
-    source_plan: SourcePlan,
 ) -> tuple[HarnessResolutionRequirement, ...]:
     """Project active declarations without applying the relaxation policy."""
-    del source_plan
     return tuple(
         HarnessResolutionRequirement(
             declaration=requirement,
@@ -136,7 +131,7 @@ def original_harness(
             relaxed_minimum=False,
         )
         for requirement in active_harness_requirements(
-            package.harness_requirements, cell
+            requirements, cell
         )
     )
 

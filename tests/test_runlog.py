@@ -14,9 +14,10 @@ from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
     ProcessTerminalUnavailable,
+)
+from pf.schemas.journal import (
     VerificationJournal,
     VerificationJournalEntry,
-    VerificationJournalV1,
     VerificationPackagePolicy,
 )
 from pf.schemas.project import Cell
@@ -34,7 +35,7 @@ def _entry(*, package: str, policy: str) -> VerificationJournalEntry:
             package=package,
             cell=cell,
             source_snapshot_digest="snapshot",
-            evaluation_policy_identity=policy,
+            execution_policy_identity=policy,
         ),
         cause="SOURCE_FAILURE",
         stage="candidate-discovery",
@@ -265,23 +266,24 @@ class TestRunLogStoreJournal:
         with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
             store.read_tail(path)
 
-    def test_run_log_store_round_trips_a_v2_journal_with_per_package_policies(
+    def test_run_log_store_round_trips_a_v3_journal_with_per_package_policies(
         self,
         tmp_path: Path,
     ) -> None:
-        store = RunLogStore(root=tmp_path, run_id="journal-v2")
+        store = RunLogStore(root=tmp_path, run_id="journal-v3")
         journal = VerificationJournal(
-            run_id="journal-v2",
+            static_scopes=(),
+            run_id="journal-v3",
             command="search",
             source_snapshot_digest="snapshot",
             package_policies=(
                 VerificationPackagePolicy(
                     package="alpha",
-                    evaluation_policy_identity="policy-alpha",
+                    execution_policy_identity="policy-alpha",
                 ),
                 VerificationPackagePolicy(
                     package="beta",
-                    evaluation_policy_identity="policy-beta",
+                    execution_policy_identity="policy-beta",
                 ),
             ),
             entries=(
@@ -295,59 +297,9 @@ class TestRunLogStoreJournal:
         assert store.read_latest_journal("alpha") == journal
         assert store.read_latest_journal("beta") == journal
         document = json.loads(path.read_text(encoding="utf-8"))
-        assert document["schema"] == "verification-journal-v2"
-        assert "evaluation_policy_identity" not in document
+        assert document["schema"] == "verification-journal-v3"
+        assert "execution_policy_identity" not in document
         assert "packages" not in document
-
-    def test_run_log_store_reads_a_v1_journal_as_historical_metadata(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        store = RunLogStore(root=tmp_path, run_id="legacy-run")
-        entry = _entry(package="demo", policy="legacy-policy")
-        current = VerificationJournal(
-            run_id="legacy-run",
-            command="check",
-            source_snapshot_digest="snapshot",
-            package_policies=(
-                VerificationPackagePolicy(
-                    package="demo",
-                    evaluation_policy_identity="legacy-policy",
-                ),
-            ),
-            entries=(entry,),
-        )
-        path = store.write_journal(current)
-        legacy = VerificationJournalV1(
-            run_id="legacy-run",
-            command="check",
-            packages=("demo",),
-            source_snapshot_digest="snapshot",
-            evaluation_policy_identity="legacy-policy",
-            entries=(entry,),
-        )
-        document = legacy.model_dump(mode="json")
-        document["schema"] = document.pop("schema_version")
-        path.write_text(json.dumps(document), encoding="utf-8")
-
-        assert store.read_latest_journal("demo") == legacy
-
-    def test_run_log_store_writer_rejects_a_v1_journal(self, tmp_path: Path) -> None:
-        store = RunLogStore(root=tmp_path, run_id="v2-writer")
-        entry = _entry(package="demo", policy="legacy-policy")
-        legacy = VerificationJournalV1(
-            run_id="v2-writer",
-            command="check",
-            packages=("demo",),
-            source_snapshot_digest="snapshot",
-            evaluation_policy_identity="legacy-policy",
-            entries=(entry,),
-        )
-
-        with pytest.raises(InfrastructureError, match="verification journal"):
-            store.write_journal(legacy)  # ty: ignore[invalid-argument-type]
-
-        assert not (tmp_path / ".pf/logs/v2-writer/journal.json").exists()
 
     def test_run_log_store_replaces_and_resolves_report_and_journal_associations(
         self,
