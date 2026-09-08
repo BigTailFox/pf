@@ -6,7 +6,7 @@
 - **对照：** configured-verifier authority 落地工作树；运行 ID `20260828T063807.140981Z-999683-d803a27c`
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D012](../designs/D012-pf-harness-relaxation.md)
 - **历史决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、[D015](../archived/designs/D015-pf-authoritative-verification-outcome.md)
-- **当前评审：** [R008](../reviews/R008-pf-search-performance-review.md) 汇总本实验的适用边界、当前瓶颈判断与优化候选
+- **当前评审：** [R008](../reviews/R008-pf-search-performance-review.md) 2026-09-08 重评后汇总本实验的适用边界。本文计数保持 2026-08-28 口径，不代表现行 region/witness 已删除后的墙钟
 - **CLI 项迁移：** 原 §5(3) 非交互搜索遥测由 [R006](../reviews/R006-pf-cli-system-review.md) §5.2 完整接管，本文不再跟踪其 Design、Plan 或完成状态
 - **已解决项：** [D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 已完成原 §5(1) static-to-runtime promotion 的同 Proposal prepared lifecycle 复用
 
@@ -81,10 +81,10 @@ Python 3.11 与 3.12 访问了相同数量和形状的向量，但 interpreter�
 本实验产生的结论与候选已经按现行 owner 分流：
 
 1. **已解决：保留 promotion 所需的 prepared environment。** D022/P028 已让同 Proposal 的 static probe 到 runtime promotion 在短生命周期内复用环境；不同 Proposal 不原地升级/降级，运行 verifier 后立即关闭并视为污染。
-2. **已移交 R008：提高昂贵 verifier 的有效裁剪率。** [R008 §4](../reviews/R008-pf-search-performance-review.md) 统一评估 probe order、static region 与 hints；任何 shortcut 都只能提供 guidance，最终 floor 和 predecessor 仍须满足 D003/D005 的 runtime certification。
+2. **已移交 R008：提高昂贵 verifier 的有效裁剪率。** 2026-09-08 重评后由 [R008](../reviews/R008-pf-search-performance-review.md) 跟踪：region 免 pytest 已撤销；剩余为 hints 接线。shortcut 只能提供 guidance，最终 floor 和 predecessor 仍须直接 runtime 证据。
 3. **已移交 R006：非交互搜索遥测。** 问题、候选事实、identity 约束、验收与停止条件现由 [R006 §5.2](../reviews/R006-pf-cli-system-review.md) 单独跟踪；本项只保留来源位置。
-4. **已移交 R008：在昂贵工作前检查旧 report compatibility。** 本次完成 Cell 搜索后才发现旧开发期内联报告不可读取；R008 统一跟踪前移校验及最终复证边界。
-5. **已移交 R008：审查 resolver 与环境实现成本。** Candidate HTTP response、resolution single-flight 与 Proposal materialize 的可复用和优化边界由 R008 统一校准；Cell-specific resolution context 和终态不得被弱化。
+4. **已移交 R008：在昂贵工作前检查旧 report compatibility。** 前提已失效：R008 2026-09-08 重评确认 D014 把非法 existing 当缺席，preflight 候选撤销。
+5. **已移交 R008：审查 resolver 与环境实现成本。** Candidate HTTP、resolution single-flight 与 Proposal materialize 仍由 [R008 §5](../reviews/R008-pf-search-performance-review.md) 开放跟踪；Cell-specific resolution context 和终态不得被弱化。
 
 不建议由 PF 隐式改写用户的 `test-command`、自动启用 testmon、跳过完整 verifier，或把未运行 runtime 的 static PASS 称为 floor。这些做法会改变验证契约，而不是单纯优化实现。
 

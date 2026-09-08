@@ -9,6 +9,9 @@
   [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)、
   [D014](../designs/D014-pf-report-schema.md)
 - **实验：** [E005](../experiments/E005-pf-multi-resolution-search-simulation.md)
+- **相关构想：** [C004](C004-pf-evidence-respecting-optimistic-monotone-search.md) 讨论把一维
+  `REJECTED* PASS*` 从正确性假设改为乐观搜索假设；本文 §5.5 的立刻 `NON_MONOTONIC` 终止是树草案
+  对现行契约的沿用，不是 C004 的目标
 
 本文保留树搜索的候选方案与验证方法，供后续探索；不定义当前或已接受的目标契约。
 下文的算法、接口、wire 形状和验收项都是待验证的设想。取得明确收益依据后，应重新评审范围，

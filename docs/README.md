@@ -110,12 +110,14 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 | 文档 | 当前跟踪范围 |
 | --- | --- |
+| [R011](reviews/R011-pf-architecture-review.md) | 静态评价深模块、schema 底层分家、D002 地图；FailurePolicy 假想 seam。不重复 R006/R008/R010 |
 | [R010](reviews/R010-pf-engineering-document-audit.md) | §2 实现偏移与 §4 工程事项；文档治理已由本页与 AGENTS.md 拥有 |
 | [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
-| [R008](reviews/R008-pf-search-performance-review.md) | region/hints/single-flight/materialize/xdist 与真实性能证据；过期 preflight 候选已撤销 |
+| [R008](reviews/R008-pf-search-performance-review.md) | 2026-09-08 重评：hints/single-flight/materialize/xdist 与当前 HEAD 分阶段基线；region/preflight 已撤销 |
 | [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) | 原 D031 的树搜索设想；E005 尚未证明树的默认收益，predecessor 重验已另行完成 |
 | [C002](concepts/C002-pf-registry-analysis-cli.md) | 独立 registry 发布分布分析 CLI，命令与数据契约待探索 |
 | [C003](concepts/C003-pf-resolution-output-completeness.md) | 成功 resolve 的日志完整性是否可与 lock authority 分离，依据待验证 |
+| [C004](concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) | 将一维单调性从正确性假设改为乐观搜索假设；反例 refinement 与最短分段声明（`>=` + `!=`）待证 |
 
 <a id="uv-resolution-output-completeness"></a>
 

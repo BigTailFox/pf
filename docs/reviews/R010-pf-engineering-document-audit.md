@@ -98,7 +98,8 @@ Role 不进入 Failure ID 不意味着 reader 可以忽略 Role 的闭合。
 
 另修复 E001 的可变根报告链接：固定为 `git show 0bc8550:package-floor.json`，已核对其 generation/snapshot
 与实验记录一致。E004 的 D012 旧章节锚点改为当前位置；两者均不改变历史运行事实。
-R008 追加带日期的现状说明：原逐 Slice 首探、两次解析/venv sync 不是当前流程；
+R008 已于 2026-09-08 按现行 D003/D038 全文重评，不再把 09-04 的 region 流程当现行算法。
+原文「每个 Slice 从最早候选开始」「总是两次解析/venv sync」不是现状。E002 的耗时与计数保持历史口径。
 坏 existing report 已由 D014 update_path 当作缺席处理，撤销基于“晚失败”的 preflight 候选。
 
 ## 4. R007 开放项交接
@@ -108,7 +109,7 @@ R008 追加带日期的现状说明：原逐 Slice 首探、两次解析/venv sy
 
 | 原事项 | 接收者与本轮状态 |
 | --- | --- |
-| verifier 成本、region/hints、single-flight、materialize、xdist | R008 继续拥有；先刷新真实性能基线，不能把 E002/E005 外推为当前 wall-clock 收益 |
+| verifier 成本、region/hints、single-flight、materialize、xdist | R008 继续拥有。2026-09-08 已按现行 D003/D038 全文重评：region 免 pytest 候选撤销；开放项为 hints 接线、single-flight、materialize、xdist 与当前 HEAD 分阶段基线。E002/E005/E006 不能外推为现行墙钟收益 |
 | report preflight | R008 已撤销旧晚失败理由；未来预警属于新的产品判断 |
 | 非 TTY 活动、terminal-private result-card | R006 继续拥有；不因本轮文档整理启动实现 |
 | E001 artifact 链接漂移 | 本轮已修复，见 §3 |

@@ -1,12 +1,13 @@
 # R008 — PF 搜索流程与性能优化评审
 
 - **状态：** 开放
-- **日期：** 2026-09-04
+- **日期：** 2026-09-08（全文重评；初评 2026-09-04）
 - **性质：** 非规范性性能与架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
-- **对照：** 当前 `main`
-- **输入：** [E002](../experiments/E002-pf-search-performance.md) 的历史运行证据、
-  [R007 §7.1–7.2](../archived/reviews/R007-pf-current-improvement-priorities.md#7-既有开放轨继续跟踪不重复新开)、
-  当前实现与本轮汇总评审意见
+- **对照：** 当前 HEAD；算法 owner 为 [D003](../designs/D003-pf-search-algorithm.md) `direct-first-coordinate-guidance-v1`
+- **输入：** 现行 D003/D012 与 `SearchCoordinator` / `CoordinateSearch` / prepare / verifier 实现；
+  [E002](../experiments/E002-pf-search-performance.md)（2026-08-28，region/witness 时代）；
+  [E006](../experiments/E006-requests-complete-search.md)（2026-09-05–06，仍含 witness）；
+  [E009](../experiments/E009-mkdocs-static-guidance.md)（2026-09-08，现行 guidance 权限）
 - **现行契约所有者：** [D001](../designs/D001-pf.md)、
   [D002](../designs/D002-pf-implementation.md)、
   [D003](../designs/D003-pf-search-algorithm.md)、
@@ -16,286 +17,223 @@
   [D012](../designs/D012-pf-harness-relaxation.md)、
   [D013](../designs/D013-pf-pytest-observer.md)、
   [D014](../designs/D014-pf-report-schema.md)
-- **与既有文档的关系：** E002 保存 2026-08-28 运行的原始计数与当时结论；[R007 归档](../archived/reviews/R007-pf-current-improvement-priorities.md)
-  保存当时全项目优先级。本文只汇总搜索流程、瓶颈判断、候选排序与治理边界，不把历史基线改写成当前性能实测。
-  搜索期 FailedCaseSet 拒绝预言与 pytest early-exit 已落地为默认内部策略；完成后的稳定规则由
-  D001/D002/D003/D004/D005/D013 拥有。历史见
-  [D024](../archived/designs/D024-pf-failed-case-pruning.md) 与
-  [P030](../archived/plans/P030-pf-failed-case-pruning.md)。本文仍不把协议测试描述为已证实的第二段 wall-clock 收益。
+- **与既有文档的关系：** 初评正文按当时 region / witness / StaticOnlyEvidence 模型写成。
+  D033 predecessor 重验、D035 project-only prepare、D036 正常非零分类、D038 删除 witness 与
+  region 权限后，那套流程不再是现行算法。本文重写现行结论与开放项；不回写 E002/E006 的历史计数。
+  FailedCaseSet 拒绝预言已落地，稳定规则由 D001/D002/D003/D004/D005/D013 拥有。
 
-## 2026-09-08 状态核对
+## 1. 现行结论
 
-文档治理变更不刷新 wall-clock 基线，也不启动性能实现。§4.1 region、§4.2 hints、§4.3
-single-flight、§4.4 materialize 与 §4.7 xdist 候选仍开放。§2 是 2026-09-04 评审快照，不是现行算法；
-现行时序见 D003/D012，witness 已由 D038 删除。R007 已完全归档，不再保留现行目录跳转页。
+搜索仍然是有限、确定、会终止的坐标下降，主导墙钟成本仍是用户配置的完整 `test-command`。
+组合空间裁剪继续有效：CoordinateSearch 不会枚举笛卡尔积。这是算法不变量，不依赖 E002 的具体次数。
 
-## 2026-09-06 状态核对
+2026-09-04 初评把「让 static region 更早免掉 pytest」列为 P1。该机制已不存在。
+[D038](../archived/designs/D038-pf-static-guidance-authority.md) 删除了 region、带 disposition 的
+static-only evidence、promotion 定界和 witness 拒绝权限。现行静态阶段只产出 hint，不能排除候选、
+不能更新兼容性边界。floor / predecessor / final 仍须当前 context 的直接 runtime 证据。
+因此 E002 的「18/121 个 search-only 向量免 pytest、约 14.9%」只描述已删除路径，不能当作当前收益或目标。
 
-对照 `30c5d7d`：以下原评审正文是当时快照，不是现行搜索算法说明；现行时序见 D003/D012。
-D033 已增加后续 sweep 的 predecessor 直接重验，D035 已增加 project-only prepare，D036 已改变
-resolve/install 正常非零分类。原文“每个 Slice 从最早候选开始”“总是两次解析/venv sync”不再描述现状。
-E002 的耗时与计数保持历史口径，尚无本轮真实 wall-clock 基线。
+当前 HEAD 上最接近现行算法的真实墙钟是 E009 的 MkDocs 五 Cell search：进程 2,454,196 ms
+（约 41 分钟）。Cell 卡片 3.8 / 3.9 / 3.11 / 3.12 为 7:05–9:25，3.10 为 37:54。
+该差未归因于 guidance、锁或探针数；E009 也没有逐探针的 prepare / ty / verifier 分解。
+四个 Cell 的静态 scope `facts=0`，只有一个 Cell 形成 40 条 facts / 13 次静态搜索。
+S_hi 在该隔离树不可用。受控 `measure_d038_guidance.py` 在 scripted adapter 上六组
+guided/mechanical 的 floor 全部相同；有的用例 guided 的 verifier 次数还多于 mechanical。
+静态 guidance 目前不是已证实的 pytest 削减杠杆。
 
-- §4.1 region、§4.2 hints、§4.3 single-flight、§4.4 materialize 与 §4.7 xdist 候选继续开放。
-- §4.5 的“坏报告导致搜索结束时整次失败”前提已失效：现行 `ReportStore.update_path` 把非法 existing
-  当作缺席并写 replacement（D014 §5），因此撤销该晚失败优化候选。未来若要增加预警，需要新的产品理由。
-- §4.6 已实现；其第二段 wall-clock 收益仍未证实。原文 `§11 第 2 组` 指归档 D024 §11，
-  不是本 Review 的章节；argv overlay 位置以 D001 §4 的首个字面 `--` 之前为准。
-- R007 已归档，剩余工程事项转入 [R010 §4](R010-pf-engineering-document-audit.md#4-r007-开放项交接)。
+仍成立、且未接线的探针顺序杠杆是 `CoordinateSearch.minimize(..., hints=)`：产品
+`SearchCoordinator` 仍不传入 hints，无静态 hint 时首次 oracle 探针仍是窗口内最早候选。
+同一 invocation 内后续 sweep 的 predecessor 重验已经由 D033 落地，优先于外部 hint 与静态 hint。
 
-以下保留原评审证据与候选理由，不回写历史计数。
+开放项不再包含 region 改造或 report preflight。需要新的当前 HEAD 分阶段基线之后，才能在
+hints、single-flight、materialize、xdist failed-set 之间用墙钟做取舍。
 
-## 1. 最终结论
+## 2. 现行搜索流程
 
-PF 搜索的主导瓶颈是用户配置的完整 `test-command`，通常是整份 pytest；不是死循环，也不是组合空间
-失控。E002 中 Python 3.11/3.12 各只访问 54 个唯一向量，而这些已观察坐标版本的笛卡尔积已经达到
-114,048。`CoordinateSearch` 的坐标下降、二分/小窗口线性定位、单调下降与 invocation-local cache 已经
-有效避免枚举组合空间。
-
-真正昂贵的是每个需要直接 runtime 证据的 Proposal 仍须运行权威 verifier。E002 的 106 次 configured
-verifier 累计 3,470.40 秒，中位 36.22 秒，P90 39.34 秒；static region 只让 18 个 search-only 唯一
-向量免于运行 pytest，约占 14.9%。因此最高杠杆仍是减少进入 verifier 的探针数，同时继续直接认证最终
-floor 与 predecessor。
-
-对带 active dependency 的 search runtime probe/promotion，默认 reject-oracle 会先用已知失败
-nodeid 做拒绝预言，并在首败后提前结束；PASS、current、floor 与 final 仍只来自不收窄用户 collection
-的原命令阶段 `NormalExit(0)`。该策略不新增 evaluation policy identity。early-exit 的 wall-clock
-对照见实施证据；没有 FailedCaseSet 命中率数据时，不得把协议测试写成已证实的第二段收益。
-
-每个唯一 Proposal 还需要独立的可写源码副本、resolution、venv、sync 与静态评价。这是明确的重复
-结构成本，但 E002 没有分离记录 `copytree` 等进程内耗时，不能据此声称它已经是第二大 wall-clock
-来源。D022/P028 已解决同一 Proposal 从 static-only promotion 到 runtime 时的重复 prepare；不同
-Proposal 的环境隔离仍是现行正确性要求。
-
-## 2. 评审当时的搜索流程
+现行时序只见 D003/D012；此处只标热点，不复制规则。
 
 ```text
 SearchCommandWorkflow
-  -> 加载目标项目和 effective config
-  -> 建立一次 immutable SourceSnapshot 与 SEARCH SourcePlan
-  -> VerificationRunner 按 max-cells 调度 host Cells
-       -> 每个 Cell 内串行执行 SearchCoordinator
-            -> highest baseline：prepare + ty + 完整 test-command
-            -> 冻结该 Cell 的 CandidateSnapshots
-            -> CoordinateSearch 从 highest vector 做多轮坐标下降
-                 -> 每个新 Proposal：materialize + resolve + venv/sync + ty
-                 -> 有合法 static-region guidance：保存 static-only evidence
-                 -> 否则：运行 witness / 完整 test-command
-                 -> floor 与 predecessor：promote 为直接 runtime evidence
-            -> 一轮没有坐标下降后提交 final vector
-  -> 复查 source snapshot 未漂移
-  -> build report；最后才读取、合并并写入已有 report
+  -> 一次 project load、SourceSnapshot、SEARCH SourcePlan、RunLimits
+  -> VerificationRunner 按 max-cells 调度 host Cells（ty-jobs / test-jobs 分 stage）
+       -> 每 Cell 串行 SearchCoordinator
+            -> HighestVersionVerifier：prepare + ty + 完整 test-command
+            -> 冻结 CandidateSnapshots
+            -> CoordinateSearch 从 baseline 做坐标下降，直到一轮无变化
+                 -> 已有直接证据可定界：跳过静态阶段（direct-bound）
+                 -> 否则：历史 predecessor 在当前完整 context 重验
+                 -> 仍未定界：打开独立静态窗口（只 ty，不跑 verifier）→ StaticHint 或 NO_HINT
+                 -> oracle：直接 Probe evidence；无 hint 则最早候选 / 二分
+                 -> floor 与 predecessor 必须是当前 context 的直接 runtime 观察
+  -> 源码未漂移后构建报告；ReportStore.update_path 读/合并已有报告
 ```
+
+不再存在 static fixpoint、`V_static`、region/promotion、witness rejection 或第二轮 dynamic search。
 
 ### 2.1 Run 与 Cell
 
-`SearchCommandWorkflow` 只加载一次项目、建立一次源快照，并把 immutable package、snapshot、SourcePlan
-与运行限制交给 `VerificationRunner`。Cells 可以并行，`max-cells=auto` 解析为逻辑 CPU 数；`ty-jobs`
-和 `test-jobs` 分别限制两个昂贵 stage。同一 Cell 的探针保持串行，以维持确定的坐标状态、region、
-promotion 与终止顺序。
+一次 invocation 一份 snapshot 与一份 SEARCH SourcePlan。Cells 可并行；同一 Cell 的探针串行，
+以保持坐标、history、静态 slice 与终止顺序确定。`max-cells=auto` 为逻辑 CPU 数。
 
-### 2.2 Baseline 与候选冻结
+### 2.2 Baseline 与候选
 
-每个 Cell 先按 SEARCH 源解析最高合格版本，运行完整静态与 runtime 评价。只有 direct PASS 才冻结
-static baseline 并进入搜索；该 baseline 的环境随后关闭。
+每个 Cell 先取得最高合格向量的直接完整 PASS，才冻结候选并进入搜索。Candidate Simple JSON 按
+dependency/source 在 invocation 内跨 Cell 缓存；资格与兼容性结论仍按 Cell 解释。
 
-候选按受管直接依赖和规范顺序冻结为 Cell-specific `CandidateSnapshot`。Simple JSON 原始响应按
-dependency/source 在一次 invocation 内跨 Cell 缓存；`requires-python`、wheel tag、specifier 与搜索策略
-等资格仍按 Cell 解释，不能把一个 Cell 的候选或兼容性结论直接复制给另一个 Cell。
+### 2.3 每个坐标
 
-### 2.3 坐标下降与单个探针
+1. 消费已有直接观察；能定界则 `StaticPhaseSkip(direct-bound)`，不获取静态 anchor。
+2. 若上一 sweep 的 history floor 仍是 current，且 predecessor 仍是 `C[d]` 中的直接前驱，
+   在**当前完整 context** 重验该 predecessor（D033）。Rejection 立即建界；PASS 则把上界降到
+   predecessor 后继续向下。
+3. 否则打开至多一次 `open_static_slice`，纯静态二分，得到 suspect / clean_neighbor 或 NO_HINT。
+4. oracle 继续：有效静态 suspect 优先于外部 hint，外部 hint 优先于最早候选。Hint 只改顺序。
+5. 窗口距离 ≤ 8 升序线性，更大窗口 lower-bound 二分。静态二分有独立对数上限，其 bracket
+   不传入 oracle 窗口。
+6. 提交前 floor 与 predecessor 必须再取当前 context 的直接 runtime 证据。
 
-依赖按 canonical name 顺序逐坐标定界。首次 probe 默认选择最早候选；窗口距离不超过 8 时升序线性
-扫描，更大窗口使用 lower-bound 二分。后续坐标下降会改变早先 Slice，因此必须执行最终无变化 sweep。
-候选有限且每次提交只会严格降低一个坐标，搜索必然终止。
+同一 Proposal 的静态采集若留下未跑 verifier 的 `PreparedEnvironment`，随后 oracle 仍可复用该
+lifecycle（D022）。不同 Proposal 不原地升降级，不共享已跑 verifier 的 venv。
+无活跃 external harness 时 prepare 走 project-only 安装，不再无条件二次 environment resolve（D035）。
 
-单个新 Proposal 的热路径为：
+### 2.4 产品路径未使用的 hints
 
-1. 从 `SourceSnapshot` 以 `copytree` 建立独立可写源码树，并写入精确 managed vector；
-2. 分别解析 project plan 与 environment plan；相同 resolution request 在本次 run 内只计算一次；
-3. 创建 venv、同步精确 artifact、检查 interpreter 与已安装 graph；
-4. 运行 `ty` 并形成该 Proposal 的 static fingerprint；
-5. 只有同一 Slice 上相邻、连续、相同 fingerprint 的已观察 component 已有唯一一致的 direct runtime
-   status 时，才返回 `StaticOnlyEvidence`；否则运行完整 runtime evaluator；
-6. 若该点成为 floor 或 predecessor，static-only evidence 必须 promotion，不能作为最终边界权威。
+`CoordinateSearch.minimize(..., hints=())` 仍接受每坐标 hint：选不高于 hint 的最新窗口候选作
+首次探针。`SearchCoordinator.search` 调用 `minimize` 时不传 `hints`，因此产品路径没有跨运行
+floor seed。Run 内 history 重验不是这个参数，已经生效。
 
-同一 Proposal 的 static-to-runtime promotion 现在复用尚未被 verifier 污染的 `PreparedEnvironment`。
-不同 Proposal 不原地升级/降级，也不共享运行过 verifier 的 venv。
+已有 report 不是跨运行 Evaluation cache。`ReportStore.update_path` 把非法 existing 当缺席并写
+replacement（D014 §5）。
 
-### 2.4 Hints 与持久化
+## 3. 证据分层
 
-`CoordinateSearch.minimize(..., hints=...)` 已支持每坐标 hint：选择不高于 hint 的最新候选作为首次探针，
-但 hint 只改变探针顺序，不是硬下界，也不是可复用证据。当前 `SearchCoordinator` 没有传入 `hints`，所以
-产品路径每个 Slice 仍从最早候选开始。
+性能计数属于运行证据，不进入 report identity。下列实验口径不可互换。
 
-Evaluation cache、observation、region 与 prepared lifecycle 全部 invocation-local。全部 Cells 结束且源码
-漂移检查通过后，workflow 才构建新报告，并由 `ReportStore.update_path()` 读取、校验和合并已有报告；
-已有 report 不是跨运行 Evaluation cache。
+| 记录 | 算法口径 | 能支持的判断 | 不能支持的判断 |
+| --- | --- | --- | --- |
+| E002，2026-08-28，PF 自搜索约 37 分钟 | region + witness；随后 D022 才修 promotion 重复 prepare | 组合空间裁剪有效（3.11/3.12 各 54 唯一向量 vs 已观察笛卡尔积 114,048）；当时 106 次 configured verifier 累计 3,470.40 s，中位 36.22 s，P90 39.34 s，是**当时**主导成本 | 当前 verifier 次数、static 免 pytest 比例、promotion 重复 prepare、现行 guidance 收益 |
+| E006，2026-09-05–06，requests 10 Cell | 第一阶段仍有 `RUNTIME_INTERFACE_MISSING` / witness；第二阶段在 D033 之后，仍早于 D038 | pytest 仍是第三方仓库上的贵 oracle；第一阶段最长 Cell 24m11s、330 runtime evaluations；第二阶段最长 14m37s、145 runtime evaluations；两次 invocation 的 coarse-to-fine 可行 | 现行无 witness 路径的 verifier 次数；把 40 次 witness 拒绝外推为 D038 之后仍会跳过 pytest |
+| E009，2026-09-08，MkDocs 5 Cell | 现行 D038：无 witness，静态只做 hint | 现行算法能跑完 13–14 依赖矩阵；墙钟约 41 分钟；check 中原命令 unittest 单次约 9.4–9.6 s；四个 Cell 静态事实为空；scripted guided/mechanical floor 相同 | 逐探针 prepare/ty/verifier 分解；把 3.10 的 37:54 解释成 guidance 或锁；E008 的 18.9% 固定算例 |
 
-## 3. 瓶颈判断
+E009 的 `test-command` 是 `python -m unittest ...`，不是 direct pytest，FailedCaseSet 拒绝预言
+在该次运行中不会触发。E002/E006 的 pytest 命中率仍然缺失。
 
-| 层级 | 当前证据 | 对 wall-clock 的判断 |
+## 4. 瓶颈判断
+
+| 层级 | 现行判断 | 依据 |
 | --- | --- | --- |
-| 组合空间 | 3.11/3.12 各 54 个唯一向量，对照 114,048 个已观察坐标组合 | 裁剪有效，不是主因 |
-| 完整 verifier | 106 次；累计 3,470.40s；median 36.22s；P90 39.34s | 已证实的主导成本 |
-| Static region | 18/121 个 search-only 唯一向量免 verifier，约 14.9% | 二分点通常不相邻，guidance 建立较晚 |
-| Proposal 环境 | 每个唯一 Proposal 独立 materialize、resolve、venv、sync | 重复结构成本；缺少当前分阶段 wall-time 证明 |
-| Promotion | E002 有 19 次同 Proposal 重复 prepare | 已由 D022/P028 解决，不再是开放瓶颈 |
-| 并发 | Cell 可并行、Cell 内串行；resolution 与 candidate HTTP 各有全局锁 | 不同 key 也会排队，可能削弱多 Cell prepare 并行；尚未量化 |
-| Report 校验 | 已有 report 在全部搜索完成后才读取 | 不增加正常搜索成本，但失败时可能浪费整次运行 |
-| FailedCaseSet × xdist | pytest-xdist controller 不收集 `session.items`，failed-set 缺 controller 证明后回退原命令 | serial 已有拒绝预言早停；xdist `test-command` 拿不到该段 |
+| 组合空间 | 不是主因 | D003 坐标下降与有限候选；E002 的 54 vs 114,048 仍说明该裁剪，不是当前次数 |
+| 完整 verifier | 仍是主导墙钟成本 | E002 当时定量；E006 每 Cell 17–24 分钟级 pytest search；E009 原命令 unittest 单次已约 9.5 s，search 墙钟 41 分钟 |
+| 静态 guidance | 不削减 oracle 权限；E009 多数 Cell 未形成静态事实；受控测量未显示稳定少跑 verifier | E009 static_scopes 与 measurement.json；D003 §3.4 / §6 |
+| 同 Proposal 再 prepare | 已不是开放瓶颈 | D022/P028 |
+| 无 harness 的二次 resolve | 已不是无条件成本 | D035 project-only prepare |
+| 后续 sweep 重复定界 | 部分已由 history 重验吸收 | D033；无当前 HEAD 的「因此少了几次 verifier」对照 |
+| Proposal 环境 | 每个唯一 Proposal 仍独立 materialize / resolve / venv / sync | 结构仍在；E002/E009 都没有 copytree 分段耗时 |
+| 并发 | Cell 可并行、Cell 内串行；candidate HTTP、CandidateBuilder.query、`_resolve_once` 仍是一把锁包住执行 | 源码仍如此；锁等待未计入 E009 |
+| FailedCaseSet × xdist | serial pytest 已有拒绝预言；xdist controller 仍无 `session.items` 权威，failed-set 回退原命令 | `ConfiguredVerifier._selection_decision` 与 `_pytest_observer._record_collection` |
+| 坏报告晚失败 | 不再是「跑完整次再因非法 JSON 失败」 | D014 `update_path` 把非法 existing 当缺席 |
 
-E002 是当前最完整的可复查定量基线，但它早于 D022。启动任何性能 Design 前，应在当前 HEAD 用固定
-source、candidate cutoff、Cell 集合与缓存条件重跑基线；历史计数只能定位问题，不能作为改动后的验收对照。
+## 5. 开放候选
 
-## 4. 优化候选与排序
+### 5.1 P1：把 hints 接入产品路径
 
-### 4.1 P1：让 direct runtime reference 更早服务 static guidance
+Hints 仍是 CoordinateSearch 的现行 interface，产品调用方仍不提供值。最有希望的来源仍是可读旧报告中
+相同 Cell/coordinate 的历史 floor：只做 run-local 调度 seed，当前 invocation 必须重做全部权威证据。
+版本不在当前 CandidateSnapshot、Cell 不匹配或报告不可读时应忽略或按明确规则早失败，不能把历史
+floor 当成兼容性事实或硬下界。
 
-当前 region 只沿已经观察到的相邻候选扩展。二分探针往往相隔较远，即使两侧已经有相同 fingerprint 和
-一致的 direct status，中点仍可能因为尚未形成连续 component 而进入 verifier。
+兄弟 Cell 已提交的 floor 仍低于旧报告：Cells 通常同时启动。不得为获得 sibling hint 串行化 Cells，
+也不得让调度竞态改变最终证据。
 
-后续 D003 Design 可以比较两类策略：
+这会把 report/run 事实传入 SearchCoordinator。保持小的 immutable value flow，不新增
+`HintProvider`。删除独立 hint module 后若复杂度不回到多个调用方，就不要建新 seam。
 
-- 调整 probe 顺序，以较低成本优先建立相邻 fingerprint component；
-- 在同一精确 Slice 内，当中点自身 fingerprint 与两侧已观察 direct reference 相同且状态唯一一致时，
-  允许该中点只形成 guidance，而不立即运行 verifier。
+D033 的 history 重验已经覆盖**同一次** search 的后续 sweep，不替代跨运行 hints。
+在没有当前 HEAD 的「最早候选首探浪费了多少 verifier」计数前，不能宣称墙钟收益。
 
-第二种策略放宽了现行“连续相邻 component”条件，可能改变定界路径，不能直接当作内部优化。Design 必须
-定义非单调、稀疏 hole、状态冲突与 promotion 反证时的行为。无论选择哪种策略，static-only 仍无 status，
-final、floor 与 predecessor 仍须直接 runtime 认证。
+### 5.2 P2：把全局 I/O 锁收窄为 per-key single-flight
 
-### 4.2 P1：把 hints 接入产品路径
+仍成立，源码未改：
 
-Hints 已是 `CoordinateSearch` 的现行 interface，但产品调用方没有提供值。最有希望的来源是可读旧报告中
-相同 Cell/coordinate 的历史 floor；它只能成为 run-local 调度 seed，当前 invocation 必须重新生成全部
-权威证据。版本不在当前 CandidateSnapshot、Cell 不匹配或报告不可读时应忽略 hint 或按明确规则早失败，
-不能把历史 floor 当成兼容性事实或硬下界。
+- `CandidateBuilder` 在一把 `_query_lock` 内调用 provider；
+- uv candidate adapter 在一把 `_candidate_lock` 内 `urlopen`；
+- `EnvironmentFactory._resolve_once` 在一把 `_plan_lock` 内执行完整 resolve。
 
-兄弟 Cell 已提交的 floor 也可以作为实验输入，但优先级低于旧报告：Cells 通常同时启动，数据是否可用取决于
-`max-cells` 与完成顺序。不得为了获得 sibling hint 串行化 Cells，也不得让调度竞态改变最终证据或结果。
+同 key 只计算一次是对的；不同 key 被同一把锁堵住。应在各自 owner 内改为同 key 单飞、不同 key
+有界重叠。不新建 public seam，不改变 probe 数或 report。测试从现有 interface 证明去重、重叠、
+失败不永久占位、并发上限。E009 的 3.10 与其余 Cell 墙钟差不能在计入 lock wait 之前归到这项。
 
-这项工作会把 report/run 事实传入 `SearchCoordinator`。应保持一个小的 immutable value flow，不新增
-`HintProvider`、repository 或跨运行 cache module。按删除测试，删除独立 hint module 后如果复杂度没有回到
-多个调用方，它就没有建立新 seam 的价值。
+### 5.3 P2：减少 Proposal 源码物化成本
 
-### 4.3 P2：把全局 I/O 锁收窄为 per-key single-flight
+`SourceSnapshot.materialize()` 仍是每个 Proposal 一次 `shutil.copytree(..., symlinks=True)`。
+先把 materialize duration、文件数与逻辑字节数纳入当前基线；只有真实仓库证明占比显著后，再评估
+reflink/CoW 或 immutable base 加 proposal overlay。必须保持独立可写、symlink、mode、排除规则、
+snapshot identity 与 cleanup；不支持 reflink 时安全回退。Hardlink 会让 Proposal 写入污染基线。
 
-`CandidateBuilder` 在一把锁内调用 provider，uv candidate adapter 在一把锁内执行 `urlopen`，
-`EnvironmentFactory._resolve_once` 也在一把锁内执行完整 resolve。它们保证同 key 只计算一次，却同时阻塞
-不同 key。
+### 5.4 P2：xdist `test-command` 的 failed-set Rejection
 
-应在各自 owner module 内改为：同 key 一个执行者、其余调用等待同一结果；不同 key 在有界并发下运行。
-这不需要建立新的 public seam，也不改变 probe 数、Cell evidence 或 report。测试应从现有 interface 证明
-同 key 去重、不同 key 可重叠、失败不会永久占位以及并发上限成立。
+serial/controller 的 collection 证明仍来自 `pytest_collection_finish` 之后的 `session.items`。
+pytest-xdist 的 controller 不做这份收集时，controller 记录为空或不可用，`_selection_decision`
+不应用 pruning，回退原命令。这只影响 `test-command` 本身走 xdist 的项目。
 
-### 4.4 P2：减少 Proposal 源码物化成本
+它不减少探针次数，只让部分 Rejection 有机会停在 failed-set 的一个 child process。没有 xdist
+套件上的命中率与墙钟对照前，不能排到 hints 之前。
 
-`SourceSnapshot.materialize()` 当前为每个 Proposal 完整 `copytree`。应先把 materialize duration、文件数与
-逻辑字节数纳入当前基线；只有真实仓库数据证明其占比显著后，再评估 filesystem reflink/CoW 或 immutable
-base 加 proposal overlay。
+后续 Design 须先定义 xdist 下何谓 controller 侧 collection 证明，并保持：PASS 只来自不收窄用户
+collection 的原命令；不得用 worker 列表并集在 Design 改写前授权 Rejection；不得改回自写 argv
+parser。归属 D002 `ConfiguredVerifier` 与 D013，不进入 CoordinateSearch，不新增 policy identity。
 
-任何替代实现都必须保持独立可写、symlink、mode、排除规则、snapshot identity 与 cleanup 语义，并在不支持
-reflink 的文件系统上安全回退。Hardlink 会让 Proposal 写入污染基线，不是合法优化。
+## 6. 已落地或已撤销（不再作为开放性能项）
 
-### 4.5 P2：把已有 report 的有界校验前移
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| 初评 §4.1 region / 放宽连续 fingerprint 以免 pytest | **撤销** | 与 D038 相反。静态不能再给候选 disposition。若将来研究「hint 是否减少 oracle 探针」，那是新的 D003 问题，须用当前算法的探针计数，不能复活 region |
+| 同 Proposal static→runtime 重复 prepare | 已落地 | D022/P028 |
+| 后续 sweep predecessor 重验 | 已落地 | D033；E006 第二阶段不能单独当作其墙钟验收 |
+| 无 harness 时两次 resolve/venv | 已落地为 project-only | D035 |
+| FailedCaseSet 拒绝预言 | 已落地为默认内部策略 | 无命中率则不记为已证实的第二段收益；unittest `test-command` 不走该路径 |
+| 坏报告晚失败 / preflight | **撤销** | 初评前提已失效 |
+| witness 提前拒绝 | **正确性删除，不是性能回归项** | E006 的 `RUNTIME_INTERFACE_MISSING` 次数不能当作 D038 之后仍应跳过 pytest 的配额 |
 
-在 snapshot 建立后、启动 Cells 前读取并校验已有报告，可以让损坏 JSON、不支持 Schema 与非法布局尽早
-失败。最终持久化前仍须重新读取并按现行 generation/update 规则处理，预读对象不能跨长运行被当成可信
-cache。合法但 generation 不同的报告继续被替换，不能误报为 blocker。
+## 7. 不采用的方向
 
-该候选不减少正常 verifier 次数，但能消除晚失败造成的整次成本浪费。若实现改变 workflow/interface 或
-错误时序，应由 D002/D014 Design 明确；不能借 preflight 引入旧 Schema compatibility reader。
+- 改写用户 `test-command`、隐式 testmon / pytest `--lf`、跨运行 last-failed；两段 pytest 拼接冒充一次原命令 PASS；
+- 把静态 hint、跨 Cell 结果或旧报告结果直接当作 floor、predecessor 或 final；
+- 恢复 witness 或 region 作为「性能优化」；
+- 跨运行 Evaluation cache，或不同 Proposal 共用已跑 verifier 的可写环境；
+- 为 sibling hint 等待另一个 Cell，或在单 Cell 内并行、乱序执行状态相关探针；
+- 以缩小 `search-space`、改变 `search-resolution` 或减少目标 Cell 冒充同一契约下的性能提升；
+- 没有 materialize 分段数据就引入复杂 overlay filesystem；
+- 建立通用 cache、hint manager 或 environment service；
+- 把 C001 树搜索当作默认性能方案。E005 未证明相对 predecessor 重验的增量；E006 的两次独立
+  invocation coarse-to-fine 是用户工作流，不是一次 search 内的树。
 
-### 4.6 已落地：按坐标 FailedCaseSet 做搜索期拒绝预言
+## 8. Module 与 seam
 
-完整 verifier 次数即使不变，同一坐标相继 Rejection 仍可能被同一批测试打死。现行默认策略在 Cell 内
-按主动坐标记录失败 pytest nodeid，后续探针先跑该集合；collection 证明成立且任意 normal nonzero
-时直接 Rejection，不再跑原命令。PASS 只来自一次原命令进程。direct pytest 原样保留用户 argv，并
-在末位附加 `--maxfail=1` 与 invocation-local `cache_dir`。
+高层 ownership 不需要为了性能重排：
 
-正确性前提是用户测试 oracle 无跨 invocation 外部副作用、无用例间关联副作用。固定内部策略、具体
-nodeid 与 pruning context 都不进入 evaluation policy identity。E002 没有 nodeid 命中率；没有
-§11 第 2 组 wall-clock / 命中率数据时，不把 FailedCaseSet 作为已证实的第二段收益关闭本 Review。
+- `CoordinateSearch` 拥有 hint、probe order、history 重验、boundary、sweep 与终止；
+- `SearchCoordinator` / `_ProposalRunner` 把 baseline、候选、静态 slice 与 runtime 接到该 interface；
+- `EnvironmentFactory` 拥有 prepare；`StaticEvaluator` 拥有原始 ty 事实；`RuntimeEvaluator` 拥有 verifier；
+- `VerificationRunner` / `Scheduler` 拥有跨 Cell 调度，不应学习坐标或 hint；
+- `ReportStore` 拥有 reader/update；workflow 只决定何时调用。
 
-### 4.7 P2：让 xdist `test-command` 也能采用 failed-set Rejection
+优化应加深这些 module 的内部 locality。Hints 接线若把 report floor 传入 Coordinator，保持只读
+value，不要新 facade。per-key single-flight 若保持现有 interface 与可观察结果，可作为 owner
+implementation 内的修复。Region 类 D003 变更必须先有新的、与现行「静态无 disposition」一致的 Design。
 
-现行 reject-oracle 的 collection 证明只认 serial/controller 在 `pytest_collection_finish` 之后的
-`session.items`。pytest-xdist 的 controller `pytest_collection` 禁止收集 items，controller 没有这份
-列表；worker 的 collected 投影只做防御。因此带 `-n` / `--dist load` 的 direct pytest 在 failed-set
-阶段缺少 controller 权威，总是回退原命令。`Config.args` 替换在 controller 与 worker 上已经成立，
-早停收益被证明规则挡住，不是 pruning plugin 没执行。
+## 9. 建议顺序
 
-这只影响用户 `test-command` 本身走 xdist 的项目；serial pytest 不受影响。它不减少探针次数，只让
-这些 Rejection 有机会停在 failed-set 的一个 child process。没有 xdist 套件上的命中率与 wall-clock
-对照前，不能把它排到 region/hint 之前。
+1. 在当前 HEAD 用固定 source、candidate cutoff、Cell 集合与缓存条件记录新基线，至少包括：
+   每 Cell 的候选数、sweep 数、唯一向量、prepare、静态 probe、oracle verifier 次数与耗时；
+   materialize / resolve / lock wait；wall-clock critical path；冷/热 registry。
+   E009 的 MkDocs 矩阵适合作对照，但必须补上 E009 没有的分阶段计数，并单独标注 3.10 的 37:54。
+2. 用固定 trace 比较「无 hints 的最早候选首探」与「旧 floor hint」，看 verifier 次数与结果等价性。
+   不要再用「放宽 region 以免 pytest」作对照。
+3. 有数据后再决定是否接受 hints 的 D003/D002 接线 Design。FailedCaseSet 已落地，不与 hints 捆一次改动。
+4. per-key single-flight 可独立实施，但应带锁等待计数，避免用 E009 的 Cell 墙钟差充当证明。
+5. materialize 与 xdist failed-set 分别按实测占比推进。
+6. 非 TTY 搜索活动仍由 [R006 §5.2](R006-pf-cli-system-review.md#52-来源-e002-53非-tty-搜索活动遥测) 拥有。
 
-后续 Design 必须先定义 xdist 下何谓 controller 侧 collection 证明，例如在全部 worker 完成 collection
-之后，用 xdist 公开 hook 上的 nodeid 列表作为 controller 侧 collection 证明，并保持：
-
-- PASS 仍只来自不收窄用户 collection 的原命令；
-- worker 划分不一致仍不构成 invalid；
-- 任一 worker 含请求外 item 仍回退，不得 Rejection；
-- 不得用 worker 列表并集在 Design 改写前授权 Rejection；
-- 不得改回自写 argv parser 或 `pytest_collection_modifyitems` 过滤。
-
-该改动属于 D002 `ConfiguredVerifier` 与 D013 collected projection，不进入 `CoordinateSearch`，也不
-新增 policy identity。历史偏差记录见 [P030](../archived/plans/P030-pf-failed-case-pruning.md) §7。
-
-## 5. 不采用的方向
-
-- 改写用户 `test-command` 文本、隐式启用 testmon / pytest `--lf`，或把 last-failed 做成跨运行
-  cache；也不得用两段 pytest 拼接冒充一次原命令 PASS。direct pytest 的 `--maxfail=1` overlay
-  与 failed-set 拒绝预言是默认内部策略；PASS 仍须一次原命令进程，不新增 policy identity；
-- 把 static-only evidence、跨 Cell 结果或旧报告结果直接当作 floor、predecessor 或 final authority；
-- 跨运行 Evaluation cache，或不同 Proposal 共用已经运行 verifier 的可写环境；
-- 为获取 sibling hint 而等待另一个 Cell，或在单 Cell 内并行、乱序执行状态相关探针；
-- 以缩小 `search-space`、改变 `search-resolution` 或减少目标 Cell 冒充同一搜索契约下的性能提升；
-- 在没有 materialize 分段数据前直接引入复杂 overlay filesystem；
-- 建立通用 cache、hint manager 或 environment service，把本来属于 `CoordinateSearch`、
-  `EnvironmentFactory`、candidate adapter 与 workflow 的知识搬到新的浅 module。
-
-## 6. Module 与 seam 判断
-
-现有高层 ownership 不需要为了性能重排：
-
-- `CoordinateSearch` 是有深度的算法 module，拥有 hint、probe order、promotion、boundary、sweep 与终止；
-- `SearchCoordinator` 把产品 baseline/candidate/evaluation 图适配到该算法 interface；
-- `_ProposalRunner`、`EnvironmentFactory`、`StaticEvaluator` 与 `RuntimeEvaluator` 分别拥有 proposal lifecycle、
-  prepare、static transition 与 runtime authority；
-- `VerificationRunner`/`Scheduler` 拥有跨 Cell 调度，不应学习坐标或 region；
-- `ReportStore` 拥有 reader/validator/update，workflow 只拥有何时调用持久化 seam。
-
-因此优化应增加这些 module 的内部 locality，而不是增加 pass-through facade。Region/hint 改动触及 D003
-interface 或跨 module value flow，必须先建立并接受 normative Design；per-key single-flight 若保持现有
-interface 与可观察结果，可以作为 owner implementation 内的独立修复。任何实质变更实施前仍须建立 durable
-Plan，并把每条验收标准映射到有序切片、迁移、测试和证据。
-
-## 7. 验证口径与建议顺序
-
-### 7.1 基线必须记录
-
-- 每个 Cell 的 candidate 数、sweep 数、唯一 vector、prepare、static-only、promotion 与 verifier 次数；
-- candidate HTTP、resolution lock wait、materialize、resolve、venv/sync、ty 与 configured verifier 的耗时；
-- wall-clock critical path，而不只累加并行子进程 duration；
-- 冷/热 registry 与 resolution cache 分开报告；
-- final vector、每个 boundary、FailureRecord、disposition 与终止原因。
-
-性能计数属于运行与 qualification 证据，不进入 report identity、Candidate、Failure 或 compatibility authority；
-面向非 TTY 用户的活动展示仍由 R006 §5.2 独立拥有。
-
-### 7.2 建议顺序
-
-1. 在当前 HEAD 另行记录新的性能基线，补齐进程内 materialize 与锁等待数据；
-2. 用固定 trace/fake evaluator 分别模拟“旧 floor hint”和“更早 region guidance”，比较 verifier 次数、
-   unique vector、最坏探针数与结果等价性；
-3. 根据数据只选择一个 P1 方向进入 D003 相关 Design；若收益接近，优先选择已经存在 interface 的 hints
-   接线，避免先放宽 static guidance。坐标内 FailedCaseSet 拒绝预言已落地为默认策略，不与
-   region/hint 捆成一次算法改动；
-4. per-key single-flight 可独立实施和验证，不与算法 Design 绑定；
-5. materialize 与 report preflight 分别按实测占比和晚失败频率决定是否推进，不打包成“搜索重构”；
-6. xdist failed-set 早停可在 FailedCaseSet 已落地后独立推进，但必须先接受 controller 侧 collection
-   证明的 Design；不能把 worker collected 并集直接当成现行 Rejection 资格。
-
-若候选不能减少 configured verifier 次数或 wall-clock critical path，或者需要削弱 runtime authority、
-环境隔离与确定终止，则停止该方向。本文本身不构成任何实现授权。
+若候选不能减少 configured verifier 次数或 wall-clock critical path，或需要削弱 runtime authority、
+环境隔离与确定终止，则停止该方向。本文不构成实现授权。
