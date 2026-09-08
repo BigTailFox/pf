@@ -29,6 +29,8 @@ STATUS_BY_KIND = {
     "concept": {"开放", "转入 Design", "关闭"},
     "experiment": {"进行中", "已完成"},
 }
+TEMPORARY_DESIGN_STATUSES = {"草案", "已接受待实施", "实施中"}
+TEMPORARY_DESIGN_FIELDS = {"状态", "目标 owner", "验收标准"}
 
 SKIP_SCHEMES = {"http", "https", "mailto"}
 LIVE_MARKDOWN_ROOTS = (
@@ -125,7 +127,11 @@ def check_owners(root: Path) -> list[str]:
     for path in sorted(listed - files):
         errors.append(f"index owner missing file: {rel(path, root)}")
     for path in sorted(files - listed):
-        errors.append(f"live Design not listed as owner: {rel(path, root)}")
+        token = status_token(frontmatter(path.read_text(encoding="utf-8")).get("状态", ""))
+        if token in TEMPORARY_DESIGN_STATUSES:
+            errors.append(f"temporary Design not listed in index: {rel(path, root)}")
+        else:
+            errors.append(f"live Design not listed as owner: {rel(path, root)}")
     return errors
 
 
@@ -134,7 +140,6 @@ def check_frontmatter(root: Path) -> list[str]:
     required_current = [
         root / "docs" / "README.md",
         root / "CONTEXT.md",
-        *sorted((root / "docs" / "designs").glob("D*.md")),
         *sorted((root / "docs" / "designs" / "appendices").glob("*.md")),
     ]
     for path in required_current:
@@ -145,6 +150,21 @@ def check_frontmatter(root: Path) -> list[str]:
         checked = fields.get("最后核对", "")
         if DATE.match(checked) is None:
             errors.append(f"{location}: 最后核对 must be YYYY-MM-DD")
+    for path in sorted((root / "docs" / "designs").glob("D*.md")):
+        fields = frontmatter(path.read_text(encoding="utf-8"))
+        location = rel(path, root)
+        token = status_token(fields.get("状态", ""))
+        if token == "现行":
+            checked = fields.get("最后核对", "")
+            if DATE.match(checked) is None:
+                errors.append(f"{location}: 最后核对 must be YYYY-MM-DD")
+            continue
+        if token not in TEMPORARY_DESIGN_STATUSES:
+            errors.append(f"{location}: 状态 {token!r} is not allowed")
+            continue
+        missing = TEMPORARY_DESIGN_FIELDS - fields.keys()
+        if missing:
+            errors.append(f"{location}: missing {', '.join(sorted(missing))}")
     kinds = (
         ("review", root / "docs" / "reviews", {"状态", "日期", "性质"}),
         ("concept", root / "docs" / "concepts", {"状态", "日期", "性质"}),

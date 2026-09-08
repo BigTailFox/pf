@@ -4,6 +4,7 @@
 - **日期：** 2026-09-08
 - **性质：** 非规范性架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
 - **对照：** 当前 HEAD；模块 owner 为 [D002](../designs/D002-pf-implementation.md)
+- **目标 Design：** [D039](../designs/D039-pf-static-evaluation-module.md)（草案，未接受、不授权实施）
 - **前序：** [R005](../archived/reviews/R005-pf-module-depth-review.md) 已完成 SourcePlan、WorkspaceInventory、Verification Run request 与评价 Protocol 合并并归档；CLI 剩余项由 [R006](R006-pf-cli-system-review.md) 拥有；搜索性能由 [R008](R008-pf-search-performance-review.md) 2026-09-08 重评拥有；实现偏移由 [R010](R010-pf-engineering-document-audit.md) 拥有
 - **契约所有者：** [D001](../designs/D001-pf.md)–[D008](../designs/D008-pf-verification-run.md)、
   [D012](../designs/D012-pf-harness-relaxation.md)–[D014](../designs/D014-pf-report-schema.md)、
@@ -33,8 +34,8 @@ composition root，并已按命令装配 capability graph。
 | --- | --- | --- |
 | P1 | 静态评价收成一个深模块 | 新发现；须 D002/D004 Design 后才能改生产代码 |
 | P1 | Schema 记录与准入/比较/hint 算法分家 | 新发现；与上项同一 Design，避免只搬家名 |
-| P2 | 修订 D002 模块地图 | 可随上项交付；只改过时文件名则是 owner 文档修正 |
-| P3 | 收回 `FailurePolicy` 可选注入 | 假想 seam；随失败或静态 owner 清理，不单独开 Design |
+| P2 | 修订 D002 模块地图 | 合入 [D039](../designs/D039-pf-static-evaluation-module.md)；与静态加深同一吸收 |
+| P3 | 收回 `FailurePolicy` 可选注入 | 合入 D039；不单独开 Design |
 | 已跟踪 | result-card、非 TTY 活动 | [R006](R006-pf-cli-system-review.md) |
 | 已跟踪 | hints、single-flight、materialize、xdist、当前 HEAD 基线 | [R008](R008-pf-search-performance-review.md) |
 | 已跟踪 | NO_PASS 文案、Journal Role、资格矩阵 | [R010](R010-pf-engineering-document-audit.md) |
@@ -112,7 +113,7 @@ hint 算法类型去手写 slice。
 停止条件：新 interface 与现有 Evaluator + Cache + RequestFactory 等宽；或只把文件挪进子目录而不
 减少调用方知识。文件行数不是启动理由。
 
-归属 D002（模块边界）与 D004（静态事实/比较）。须先接受 Design。D038 已归档，不把「静态无
+归属 D002（模块边界）与 D004（静态事实/比较）。须先接受 [D039](../designs/D039-pf-static-evaluation-module.md)。D038 已归档，不把「静态无
 compatibility disposition」改回去。
 
 ## 4. P1：Schema 层向上执行 domain 算法
@@ -147,7 +148,8 @@ record 只保存已资格化的 args 投影。
 
 Schema 可以引用其他 schema 与 `canonical_identity_json`。不能执行搜索、准入或 harness 变换。
 
-与 §3 同一 Design 交付：先分家再收模块，避免 schemas 仍调用「换了路径的同一函数」。
+与 §3 同一 Design 交付：先分家再收模块，避免 schemas 仍调用「换了路径的同一函数」。目标见
+[D039](../designs/D039-pf-static-evaluation-module.md)。
 
 ## 5. P2：D002 包布局不是现行 module 地图
 
@@ -160,6 +162,7 @@ D002 §3 仍列出 `static.py`，未列出 `cancellation.py`、`ty_fact.py`、`t
 
 若只更正不存在的文件名、补上 `cancellation.py`，属于 D002 owner 文档修正，不必另立产品 Design。
 若把静态簇写成「一个 module 的内部文件」，必须与 §3 的 interface 设计一起接受，不能只改目录。
+两项均已写入 [D039](../designs/D039-pf-static-evaluation-module.md)，与加深同一吸收。
 
 ## 6. P3：`FailurePolicy` 仍是单实现假想 seam
 
@@ -171,7 +174,7 @@ D002 §3 仍列出 `static.py`，未列出 `cancellation.py`、`ty_fact.py`、`t
 方向：编排器内部构造；测试从公开 outcome 观察分类。不能仅因「一个生产实现」删除
 `ConfiguredVerifier`、`UvOperations` 或 workflow Protocol 这类双 adapter 真实 seam。
 
-不单独开 Design。
+不单独开 Design。已合入 [D039](../designs/D039-pf-static-evaluation-module.md)。
 
 ## 7. 本评审不重复跟踪的开放项
 
@@ -202,13 +205,8 @@ PEP 508 规范化在 `report.py` 与 `authorization.py` 各有一份：R010 已�
 
 ## 9. 建议顺序与治理
 
-1. 接受一份临时 Design，同时覆盖 §3 的静态深模块与 §4 的 schema 底层。验收至少包括：
-   schemas 不再 import harness / `locate_static_hint` / `admit_static_consumer_context`；
-   产品路径只经 Evaluator、Run cache 与纯 guidance 使用静态行为；D002 §3 变成模块地图；
-   越过 Evaluator 的叶子测试不再规定产品契约。
-2. D002 过时文件名可在该 Design 的同一 Plan 里改掉，避免地图与加深分两次漂移。
-3. `FailurePolicy` 可选注入随该 Plan 或下一次 D005 触及分类装配时收回。
-4. R006/R008/R010 的开放项不因本评审启动。R008 须先有当前 HEAD 分阶段基线再决定 hints。
+1. 接受 [D039](../designs/D039-pf-static-evaluation-module.md)，覆盖 §3 静态深模块、§4 schema 底层、§5 D002 地图与 §6 `FailurePolicy` 构造。验收见 D039 AC1–AC12。
+2. R006/R008/R010 的开放项不因本评审启动。R008 须先有当前 HEAD 分阶段基线再决定 hints。
 
 任何实质 module/schema 边界变更都必须先接受 Design，再写覆盖每条验收的 Plan。本文不授权实施。
 
