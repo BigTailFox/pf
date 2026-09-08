@@ -6,7 +6,7 @@ import re
 import runpy
 import subprocess
 import sys
-from io import StringIO
+from io import BytesIO, StringIO, TextIOWrapper
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -14,7 +14,7 @@ import pytest
 from cyclopts.exceptions import CycloptsError
 from rich.console import Console
 
-from visible_text import visible_cli_text
+from visible_text import run_pf_cli, visible_cli_text
 
 from pf.cli import (
     ApplyWorkflow as ApplyWorkflowProtocol,
@@ -26,6 +26,7 @@ from pf.cli import (
     SearchWorkflow as SearchWorkflowProtocol,
     SmokeWorkflow as SmokeWorkflowProtocol,
     build_context,
+    configure_utf8_stdio,
     create_app,
     main,
 )
@@ -235,16 +236,30 @@ def invoke_app(*args: str) -> subprocess.CompletedProcess[str]:
 def module_help() -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment["COLUMNS"] = "200"
-    return subprocess.run(
-        [sys.executable, "-m", "pf", "--help"],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
+    return run_pf_cli("--help", env=environment)
 
 
 class TestCliInterface:
+    def test_cli_forces_utf8_stdio_instead_of_the_locale_code_page(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        buffer = BytesIO()
+        stream = TextIOWrapper(buffer, encoding="gbk", errors="strict")
+        monkeypatch.setattr(sys, "stdout", stream)
+        monkeypatch.setattr(sys, "stderr", stream)
+        monkeypatch.delenv("PYTHONUTF8", raising=False)
+        monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+
+        configure_utf8_stdio()
+
+        assert os.environ["PYTHONUTF8"] == "1"
+        assert os.environ["PYTHONIOENCODING"] == "utf-8"
+        assert stream.encoding.lower().replace("-", "") == "utf8"
+        stream.write("✓")
+        stream.flush()
+        assert "✓".encode("utf-8") in buffer.getvalue()
+
     @pytest.mark.filterwarnings(
         "ignore:Cyclopts application invoked without tokens:UserWarning"
     )
@@ -340,12 +355,7 @@ class TestCliInterface:
         monkeypatch.setenv("COLUMNS", "200")
         invalid_option = "--" + "not-a-real-option-" * 10
 
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "check", invalid_option],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = run_pf_cli("check", invalid_option)
 
         assert result.returncode == 1
         assert result.stdout == ""
@@ -381,7 +391,7 @@ class TestCliInterface:
             ["uv", "run", "--no-sync", "pf", "--help"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             env=environment,
         )
 
@@ -448,13 +458,7 @@ class TestCliInterface:
             + "\n",
             encoding="utf-8",
         )
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "check", "--package", "other"],
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = run_pf_cli("check", "--package", "other", cwd=tmp_path)
 
         assert result.returncode == 3
         assert "configuration:" in result.stderr

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import re
+import sys
 from typing import Annotated, Literal, Protocol, TypeVar, cast
 
 from cyclopts import App, Group, Parameter
@@ -675,7 +676,27 @@ def build_context() -> CliContext:
         raise
 
 
+def configure_utf8_stdio() -> None:
+    """Force UTF-8 for this process and inherited children.
+
+    Windows locale encodings cannot represent D006 status marks. PF does not
+    follow the host code page; CLI stdio and `PYTHONUTF8` are UTF-8.
+    """
+
+    os.environ["PYTHONUTF8"] = "1"
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8")
+        except (OSError, ValueError, AttributeError):
+            continue
+
+
 def main() -> None:
+    configure_utf8_stdio()
     try:
         context = build_context()
     except KeyboardInterrupt:

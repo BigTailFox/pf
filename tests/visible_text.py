@@ -1,5 +1,30 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
+import subprocess
+import sys
+
+
+def run_pf_cli(
+    *args: str,
+    cwd: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout: float | None = None,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Capture `python -m pf` as UTF-8 text, matching CLI stdio policy."""
+
+    return subprocess.run(
+        [sys.executable, "-m", "pf", *args],
+        cwd=cwd,
+        env=None if env is None else dict(env),
+        timeout=timeout,
+        check=check,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
 
 def _without_box_drawing(text: str) -> str:
     return "".join(

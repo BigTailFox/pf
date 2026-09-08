@@ -57,6 +57,8 @@ Try 'pf <command> --help' for more information.
 | warning、failure、incomplete/stopped summary、用户中断 | stderr |
 | TTY live progress、scope facts、Cell completion | stderr |
 
+CLI 进程在入口将 stdin/stdout/stderr 与 `PYTHONUTF8` / `PYTHONIOENCODING` 固定为 UTF-8，不跟随宿主 locale 代码页。D006 状态标记按字面写出；重定向流与子进程继承同一 UTF-8 约定。
+
 `explain`成功读取后全文在stdout，即使报告incomplete；读取失败走stderr与D001的typed配置错误结果。无source override的apply成功card与final走stdout；实际使用source override时，全部facts与warning final走stderr且退出0。host-partial 的 search 与成功 minimize 同样走 stderr warning、退出 0。动态workspace member或静态member version不满足intended requirement是`3 + stderr + no Usage`，必须显示dependency/member、intended requirement、离线验证限制与恢复动作，不得建议`--force`。一个顶层命令只有一个final summary，且它是最后一条结果信息。`minimize`只调用`render_minimize(report, result)`，不能连续渲染search/apply两份summary，也不能仅因report顶层status incomplete就跳过默认authorizer。host-partial 成功 apply 后，minimize 仍只渲染一张 apply/minimize 卡和一个 final；final 必须包含剩余其他宿主 Cell 计数与 `pf merge` 下一步，Preserved 只表示 original constraints retained。
 
 TTY 运行中顺序固定：

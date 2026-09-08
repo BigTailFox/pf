@@ -3,12 +3,11 @@ from __future__ import annotations
 
 
 from candidate_fixtures import frozen_candidate_snapshot
-from visible_text import visible_cli_text
+from visible_text import run_pf_cli, visible_cli_text
 
 from dataclasses import replace
 from io import StringIO
-import subprocess
-import sys
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -1032,19 +1031,15 @@ test-command = ["pytest"]
         snapshot.close()
         member_before = member_pyproject.read_bytes()
 
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pf",
-                "apply",
-                "--package",
-                "demo",
-            ],
+        environment = os.environ.copy()
+        environment["PYTHONUTF8"] = "0"
+        environment["PYTHONIOENCODING"] = "gbk"
+        result = run_pf_cli(
+            "apply",
+            "--package",
+            "demo",
             cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
+            env=environment,
         )
 
         assert result.returncode == expected_code
@@ -1112,24 +1107,11 @@ dynamic = ["version"]
         ReportStore().write(tmp_path / "package-floor.json", report)
         snapshot.close()
         before = pyproject.read_bytes()
-        argv = [
-            sys.executable,
-            "-m",
-            "pf",
-            "apply",
-            "--package",
-            "demo",
-        ]
+        argv = ["apply", "--package", "demo"]
         if force:
             argv.append("--force")
 
-        result = subprocess.run(
-            argv,
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = run_pf_cli(*argv, cwd=tmp_path)
 
         assert result.returncode == 3
         assert result.stdout == ""
@@ -1161,26 +1143,14 @@ dynamic = ["version"]
         ReportStore().write(tmp_path / "package-floor.json", first_report)
         first_snapshot.close()
 
-        explained = subprocess.run(
-            [sys.executable, "-m", "pf", "explain"],
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        explained = run_pf_cli("explain", cwd=tmp_path)
 
         assert explained.returncode == 0, explained.stderr
         assert "platform-scoped apply evidence is available" in (
             visible_cli_text(explained.stdout)
         )
 
-        linux_apply = subprocess.run(
-            [sys.executable, "-m", "pf", "apply"],
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        linux_apply = run_pf_cli("apply", cwd=tmp_path)
 
         assert linux_apply.returncode == 0, linux_apply.stderr
         assert "Scope linux/x86_64 verified" in visible_cli_text(linux_apply.stdout)
@@ -1196,13 +1166,7 @@ dynamic = ["version"]
         ReportStore().write(tmp_path / "package-floor.json", second_report)
         second_snapshot.close()
 
-        windows_apply = subprocess.run(
-            [sys.executable, "-m", "pf", "apply"],
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        windows_apply = run_pf_cli("apply", cwd=tmp_path)
 
         assert windows_apply.returncode == 0, windows_apply.stderr
         rendered = visible_cli_text(windows_apply.stdout)
@@ -1249,13 +1213,7 @@ dynamic = ["version"]
         snapshot.close()
         (tmp_path / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
 
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "apply", "--force"],
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = run_pf_cli("apply", "--force", cwd=tmp_path)
 
         assert result.returncode == 0, result.stderr
         assert result.stdout == ""

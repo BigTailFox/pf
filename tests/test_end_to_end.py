@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import platform
-import subprocess
-import sys
 import json
 
 import pytest
 
-from visible_text import visible_cli_text
+from visible_text import run_pf_cli, visible_cli_text
 
 from pf.project import ProjectLoader
 from pf.report import ReportStore
@@ -36,13 +34,7 @@ test-command = ["python", "-c", "import demo, idna; assert demo.VALUE == 1; asse
         package.declarations[0].declaration_id,
     )
     before = set(tmp_path.glob(".pf/logs/*/process-*.log"))
-    result = subprocess.run(
-        [sys.executable, "-m", "pf", command],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = run_pf_cli(command, cwd=tmp_path, timeout=120)
     assert result.returncode == 0, (command, result.stdout, result.stderr)
     logs = set(tmp_path.glob(".pf/logs/*/process-*.log")) - before
     contents = [log.read_text() for log in logs]
@@ -81,13 +73,7 @@ pythons = ["3.10"]
 test-group = "missing"
 test-command = ["pf-d035-unavailable-verifier"]
 """)
-        result = subprocess.run(
-            [sys.executable, "-m", "pf", "search"],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        result = run_pf_cli("search", cwd=tmp_path, timeout=120)
         assert result.returncode == 4, (result.stdout, result.stderr)
         report = ReportStore().read(tmp_path / "package-floor.json")
         assert report.result.status == "incomplete"
@@ -151,14 +137,7 @@ test-command = ["pf-d035-unavailable-verifier"]
 
         results = {}
         for command in ("search", "explain", "apply"):
-            result = subprocess.run(
-                [sys.executable, "-m", "pf", command],
-                cwd=tmp_path,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            result = run_pf_cli(command, cwd=tmp_path, timeout=60)
             assert result.returncode == 0, (
                 command,
                 result.stdout,
@@ -167,14 +146,7 @@ test-command = ["pf-d035-unavailable-verifier"]
             results[command] = result
 
         lockfile.write_text("bootstrap snapshot\n", encoding="utf-8")
-        repeated_apply = subprocess.run(
-            [sys.executable, "-m", "pf", "apply"],
-            cwd=tmp_path,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        repeated_apply = run_pf_cli("apply", cwd=tmp_path, timeout=60)
 
         assert (tmp_path / "package-floor.json").is_file()
         process_logs = tuple((tmp_path / ".pf/logs").glob("*/process-*.log"))
