@@ -11,7 +11,9 @@
   [D003](../designs/D003-pf-search-algorithm.md)、[D004](../designs/D004-pf-ty-enhancement.md)、
   [D006](../designs/D006-pf-cli-enhancement.md)、[D014](../designs/D014-pf-report-schema.md)
 - **相关构想：** [C001](C001-pf-multi-resolution-coordinate-search.md) 仍按现行立刻
-  `NON_MONOTONIC` 终止来写树 refinement；本文讨论的是一维证据模型，二者不互相替代
+  `NON_MONOTONIC` 终止来写树 refinement；本文讨论的是一维证据模型，二者不互相替代。
+  [C005](C005-pf-check-first-lifecycle.md) 把「假设降成本、证据定真值」用到声明下界在开发
+  周期中的寿命，不替代本文的单调性 refinement
 - **权威先例：** [D038](../archived/designs/D038-pf-static-guidance-authority.md) 已将静态事实降为
   guidance；稳定规则由 D003/D004 拥有。本文把同一原则用到单调性假设
 - **实验背景：** [E001](../experiments/E001-pf-self-bootstrap-validation-contract.md)、
