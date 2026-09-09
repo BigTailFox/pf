@@ -19,6 +19,13 @@
   Design, Plan, Review, Concept, or Experiment: follow [docs/README.md](docs/README.md).
 - **Vocabulary** — choosing or checking a PF domain term: use [CONTEXT.md](CONTEXT.md).
 
+## Tests
+
+- **Repository tests** prove the current contract through public seams. In-process results,
+  real-process protocol, and qualification matrices are not interchangeable.
+- Adding a test, choosing its marker or consumer, or picking a pytest command: follow
+  [tests/README.md](tests/README.md).
+
 ## Contract evolution
 
 - PF is pre-release. When implementing an accepted contract change, treat the target contract as the

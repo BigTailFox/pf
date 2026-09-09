@@ -42,6 +42,7 @@ class TestCancellation:
         assert cancellation.cancelled
 
 
+@pytest.mark.process
 class TestProcessCancellation:
     def test_cancel_before_spawn_does_not_start_a_process(self, tmp_path: Path) -> None:
         cancellation = Cancellation()

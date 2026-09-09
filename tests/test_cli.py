@@ -14,7 +14,7 @@ import pytest
 from cyclopts.exceptions import CycloptsError
 from rich.console import Console
 
-from visible_text import run_pf_cli, visible_cli_text
+from visible_text import run_installed_pf, run_pf_cli, visible_cli_text
 
 from pf.cli import (
     ApplyWorkflow as ApplyWorkflowProtocol,
@@ -314,6 +314,7 @@ class TestCliInterface:
 
         assert called
 
+    @pytest.mark.process
     def test_module_help_lists_every_v1_command(
         self,
         module_help: subprocess.CompletedProcess[str],
@@ -341,6 +342,7 @@ class TestCliInterface:
         assert stdout.index("Verify") < stdout.index("Find and apply floors")
         assert stdout.index("smoke") < stdout.index("check")
 
+    @pytest.mark.process
     def test_module_help_caps_the_outer_canvas_at_120_columns(
         self,
         module_help: subprocess.CompletedProcess[str],
@@ -348,6 +350,7 @@ class TestCliInterface:
         assert module_help.returncode == 0, module_help.stderr
         assert max(map(len, module_help.stdout.splitlines())) <= 120
 
+    @pytest.mark.process
     def test_invocation_errors_use_the_120_column_error_console(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -381,19 +384,14 @@ class TestCliInterface:
         assert "Traceback" not in result.stderr
         assert "\x1b" not in result.stderr
 
+    @pytest.mark.process
     def test_console_script_help_matches_module_help(
         self,
         module_help: subprocess.CompletedProcess[str],
     ) -> None:
         environment = os.environ.copy()
         environment["COLUMNS"] = "200"
-        script = subprocess.run(
-            ["uv", "run", "--no-sync", "pf", "--help"],
-            check=False,
-            capture_output=True,
-            encoding="utf-8",
-            env=environment,
-        )
+        script = run_installed_pf("--help", env=environment)
 
         assert module_help.returncode == 0, module_help.stderr
         assert script.returncode == 0, script.stderr
@@ -434,6 +432,7 @@ class TestCliInterface:
         assert "Try 'pf search --help'" in result.stderr
         assert "Traceback" not in result.stderr
 
+    @pytest.mark.process
     def test_unknown_package_is_a_configuration_error(self, tmp_path: Path) -> None:
         (tmp_path / "src" / "demo").mkdir(parents=True)
         (tmp_path / "src" / "demo" / "__init__.py").write_text(

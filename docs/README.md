@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 
 本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛由 [AGENTS.md](../AGENTS.md) 拥有。
 
@@ -12,6 +12,7 @@
 | 始终加载 | [AGENTS.md](../AGENTS.md) | 工程门槛与触发指针；不复制契约 |
 | 地图 | 本页 | 分类、生命周期、owner 表、开放项、归档入口 |
 | 词汇 | [CONTEXT.md](../CONTEXT.md) | 现行术语与 `_Avoid_`；不写行为或验收 |
+| 测试 | [tests/README.md](../tests/README.md) | 本仓库测试种类、消费者、断言与验证命令；由 AGENTS.md 触发 |
 | 契约 | `docs/designs/` 现行 owner | 唯一行为规范 |
 | 过程 | `docs/plans/` | 切片、决定、证据；不另立契约 |
 | 证据 | Review / Concept / Experiment / Investigation / `docs/archived/` | 问题、设想、运行事实、历史 |
@@ -19,6 +20,7 @@
 | 生成投影 | `docs/schemas/`、`docs/examples/` | 由 D014 脚本生成，不手改 |
 
 从 AGENTS.md 出发，定位行为 owner、给工程文档分类或归档，都经本页一跳到达唯一文件。
+本仓库测试经 AGENTS.md 进入 [tests/README.md](../tests/README.md)。
 
 ## 2. 文档类型与写入门槛
 
@@ -55,7 +57,7 @@
 | Concept | 开放 / 转入 Design / 关闭 | 状态、日期、性质 |
 | Experiment / Investigation | 进行中 / 已完成 | 状态、日期、性质、证据位置 |
 
-编号永久保留、不复用。D009–D011、D015–D036、D038 与全部 Plan 在归档；原 D031 拆至 C001 后不再回到 Design 号。现行 D012–D014、D037 的空号是归档结果，不是缺失。D039 是现行临时 Design，不占 owner 表。
+编号永久保留、不复用。D009–D011、D015–D036、D038、D040 与全部 Plan 在归档；原 D031 拆至 C001 后不再回到 Design 号。现行 D012–D014、D037 的空号是归档结果，不是缺失。D039 是现行临时 Design，不占 owner 表。
 
 ## 4. 单一权威与冲突分流
 

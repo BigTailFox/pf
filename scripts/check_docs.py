@@ -38,6 +38,8 @@ LIVE_MARKDOWN_ROOTS = (
     ROOT / "CONTEXT.md",
     ROOT / "README.md",
     ROOT / "README.zh.md",
+    ROOT / "tests" / "README.md",
+    ROOT / "tests" / "history.md",
 )
 
 
@@ -109,6 +111,8 @@ def check_pointers(root: Path) -> list[str]:
         errors.append("AGENTS.md missing owner-map pointer to docs/README.md")
     if "CONTEXT.md" not in agents:
         errors.append("AGENTS.md missing vocabulary pointer to CONTEXT.md")
+    if "tests/README.md" not in agents:
+        errors.append("AGENTS.md missing repository-tests pointer to tests/README.md")
     return errors
 
 

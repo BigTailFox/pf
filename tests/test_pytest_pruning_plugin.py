@@ -10,6 +10,8 @@ import pytest
 
 from pf import _pytest_pruning as pruning
 
+pytestmark = pytest.mark.infra
+
 
 @pytest.fixture
 def pruning_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

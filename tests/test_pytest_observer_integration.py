@@ -22,6 +22,8 @@ from pf.schemas.evaluation import (
     VerifierRequest,
 )
 
+pytestmark = pytest.mark.process
+
 
 def _run_pytest(
     root: Path,

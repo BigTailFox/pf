@@ -1,19 +1,24 @@
 # PF 工程文档归档
 
 - **状态：** 历史索引
-- **最后整理：** 2026-09-08
+- **最后整理：** 2026-09-09
 
 归档只保存决策来源、实施过程、评审证据和实验记录，不解释当前行为。现行契约与所有权见 [工程文档索引](../README.md)。
 编号永久保留、不复用；现行 owner 出现 D012–D014、D037 等空号是归档结果，不是缺失。原 D031 已拆至现行 [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)。
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
-| [designs](designs/) | D009–D011、D015–D030、D032–D036、D038 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P042 | 实施与验证已完成 |
+| [designs](designs/) | D009–D011、D015–D030、D032–D036、D038、D040 | 已实施并由现行 Design 接管 |
+| [plans](plans/) | P001–P043 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R007、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001 | 结论已纳入 D013 |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
+
+[D040](designs/D040-pf-test-lanes.md) /
+[P043](plans/P043-pf-test-lanes.md)：仓库测试车道与自举 targeted-runtime `C` 已完成；
+日常 / `pf search` / CI 分范围收集，机械漏标检查随日常与 PR pytest 运行。
+稳定规则由 D002 §11、`tests/README.md`、`pyproject.toml` 与 CI 接管。
 
 [D038](designs/D038-pf-static-guidance-authority.md) /
 [P042](plans/P042-pf-static-guidance-authority.md)：静态事实可改探测顺序但不能排除候选或更新边界；

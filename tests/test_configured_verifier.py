@@ -360,6 +360,7 @@ class TestConfiguredVerifierCommand:
         assert runner.spec is not None
         assert runner.spec.argv == command
 
+    @pytest.mark.process
     def test_run_enforces_fail_fast_and_isolates_cache(
         self,
         tmp_path: Path,

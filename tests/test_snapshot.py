@@ -280,6 +280,7 @@ text="1"
         assert "skip.generated" not in paths
         assert not any(path.startswith("ignored") for path in paths)
 
+    @pytest.mark.process
     def test_git_snapshot_uses_tracked_and_unignored_worktree_manifest(
         self, tmp_path: Path
     ) -> None:

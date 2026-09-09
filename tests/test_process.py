@@ -30,6 +30,8 @@ from pf.schemas.evaluation import (
     ProcessSpec,
 )
 
+pytestmark = pytest.mark.process
+
 
 class RecordingListener:
     def __init__(self) -> None:

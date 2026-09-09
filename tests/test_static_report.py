@@ -219,6 +219,7 @@ def scripted_uncollected_report(tmp_path_factory):
 
 
 class TestStaticReport:
+    @pytest.mark.process
     def test_search_workflow_persists_its_fresh_run_scope(self, actual_report):
         package, previous, root, coordinator = actual_report
         class Events:
@@ -254,6 +255,7 @@ class TestStaticReport:
         schema = json.loads((Path(__file__).parents[1] / "docs/schemas/package-floor-v1.schema.json").read_text())
         Draft202012Validator(schema).validate(json.loads(path.read_text()))
 
+    @pytest.mark.process
     def test_real_scope_survives_run_close_and_byte_stable_report_roundtrip(self, actual_report, tmp_path):
         _, report, _root, _coordinator = actual_report
         path = tmp_path / "report.json"

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.static_inputs import (
     PreparedStaticInputs, PreparedStaticInputsUnavailable, StaticInputsAdapter,
@@ -12,6 +14,8 @@ from pf.project import ProjectLoader
 from pf.schemas.static import StaticInstalledWorld, StaticSourceInput, StaticTargetInput
 from pf.schemas.project import SourcePlan
 from pf.snapshot import SnapshotBuilder
+
+pytestmark = pytest.mark.process
 
 
 class TestPreparedStaticInputs:

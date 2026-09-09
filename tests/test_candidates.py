@@ -532,6 +532,7 @@ test-command = ["pytest"]
 
 
 class TestCandidateRegistryAdmission:
+    @pytest.mark.process
     @pytest.mark.parametrize("defect", ("empty-hashes", "locator"))
     def test_build_preserves_inapplicable_series_offsets(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defect: str

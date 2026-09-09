@@ -357,6 +357,25 @@ class TestConfiguration:
         with pytest.raises(ConfigurationError, match=message):
             load_config(tmp_path, tmp_path)
 
+    def test_repository_test_command_is_the_targeted_runtime_contract(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        observation = PyprojectObservation(
+            path=root / "pyproject.toml",
+            document=tomli.loads((root / "pyproject.toml").read_text(encoding="utf-8")),
+        )
+        config = ConfigLoader().load(
+            root_observation=observation,
+            target_observation=observation,
+        )
+        assert config.test.command == (
+            "pytest",
+            "--no-testmon",
+            "--no-cov",
+            "--maxfail=1",
+            "-m",
+            "not process and not e2e and not qualification and not infra",
+        )
+
 
 class TestCliConfigParsers:
     def test_run_limits_resolve_persistent_values_and_auto_once(self) -> None:

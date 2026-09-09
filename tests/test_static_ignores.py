@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
 import pytest
+
+from visible_text import run_ty_executable
 
 from pf.static_ignores import (
     TyGlobalIgnoreInputs, TyGlobalIgnoreMaterialization, TyIgnoreUnavailable,
@@ -104,6 +105,7 @@ class TestGlobalIgnoreCapture:
         assert isinstance(capture_ty_global_ignores(environment=environment, cwd=tmp_path), TyIgnoreUnavailable)
 
 
+@pytest.mark.process
 class TestRealTyGlobalIgnores:
     def test_frozen_global_and_closed_local_inputs_preserve_default_selection(self, tmp_path: Path) -> None:
         source, home = tmp_path / "source", tmp_path / "home"
@@ -129,13 +131,13 @@ class TestRealTyGlobalIgnores:
         assert executable is not None
         command = (executable, "check", "--project", str(source), "--config-file", str(source / "ty.toml"),
                    "--python", sys.executable, "--output-format", "gitlab", "--no-progress", "--color", "never", str(source))
-        native = subprocess.run(command, cwd=source, env=environment, capture_output=True, text=True, timeout=30, check=False)
+        native = run_ty_executable(command, cwd=source, env=environment, timeout=30)
         assert native.returncode == 1, (native.stdout, native.stderr)
         expected = json.loads(native.stdout)
         assert [item["location"]["path"] for item in expected] == ["kept.py"]
         shutil.rmtree(home)
         assert boundaries.revalidate()
-        replay = subprocess.run(command, cwd=source, env=dict(frozen.environment), capture_output=True, text=True, timeout=30, check=False)
+        replay = run_ty_executable(command, cwd=source, env=dict(frozen.environment), timeout=30)
         assert boundaries.revalidate()
         assert replay.returncode == 1, (replay.stdout, replay.stderr)
         assert json.loads(replay.stdout) == expected
@@ -145,6 +147,7 @@ class TestRealTyGlobalIgnores:
         project, home, xdg = tmp_path / "project", tmp_path / "home", tmp_path / "xdg"
         project.mkdir()
         home.mkdir()
+        (project / ".git/info").mkdir(parents=True)
         (xdg / "git").mkdir(parents=True)
         (project / "ty.toml").write_text("")
         (project / "bad.py").write_text('value: int = "wrong"\n')
@@ -172,7 +175,7 @@ class TestRealTyGlobalIgnores:
         assert executable is not None
         command = (executable, "check", "--project", str(project), "--config-file", str(project / "ty.toml"),
                    "--python", sys.executable, "--output-format", "gitlab", "--no-progress", "--color", "never", str(project))
-        native = subprocess.run(command, cwd=project, env=environment, capture_output=True, text=True, timeout=30, check=False)
+        native = run_ty_executable(command, cwd=project, env=environment, timeout=30)
         assert native.returncode == 1, (native.stdout, native.stderr)
         expected = json.loads(native.stdout)
         assert {item["location"]["path"] for item in expected} == ({"bad.py", "keep.py"} if selected == "absent" else {"keep.py"})
@@ -180,6 +183,6 @@ class TestRealTyGlobalIgnores:
         for file in captured.files:
             if file.content is not None:
                 file.path.unlink()
-        replay = subprocess.run(command, cwd=project, env=dict(frozen.environment), capture_output=True, text=True, timeout=30, check=False)
+        replay = run_ty_executable(command, cwd=project, env=dict(frozen.environment), timeout=30)
         assert replay.returncode == 1, (replay.stdout, replay.stderr)
         assert json.loads(replay.stdout) == expected

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 import subprocess
 import sys
+
+from process_lane import require_external_process_lane
 
 
 def run_pf_cli(
@@ -15,6 +17,7 @@ def run_pf_cli(
 ) -> subprocess.CompletedProcess[str]:
     """Capture `python -m pf` as UTF-8 text, matching CLI stdio policy."""
 
+    require_external_process_lane("run_pf_cli")
     return subprocess.run(
         [sys.executable, "-m", "pf", *args],
         cwd=cwd,
@@ -23,6 +26,45 @@ def run_pf_cli(
         check=check,
         capture_output=True,
         encoding="utf-8",
+    )
+
+
+def run_installed_pf(
+    *args: str,
+    env: Mapping[str, str] | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Capture the installed `pf` entry via `uv run --no-sync pf`."""
+
+    require_external_process_lane("run_installed_pf")
+    return subprocess.run(
+        ["uv", "run", "--no-sync", "pf", *args],
+        env=None if env is None else dict(env),
+        timeout=timeout,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+
+def run_ty_executable(
+    argv: Sequence[str],
+    *,
+    cwd: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout: float = 30,
+) -> subprocess.CompletedProcess[str]:
+    """Run a real `ty` executable captured as text."""
+
+    require_external_process_lane("run_ty_executable")
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        env=None if env is None else dict(env),
+        timeout=timeout,
+        check=False,
+        capture_output=True,
+        text=True,
     )
 
 

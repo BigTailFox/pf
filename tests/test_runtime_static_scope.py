@@ -24,6 +24,7 @@ from pf.static_request import StaticRequestFactory
 
 
 class TestRuntimeStaticPassRegistration:
+    @pytest.mark.process
     def test_real_verifier_pass_is_saved_with_its_collected_consumer(self, static_request):
         prepared = static_request.prepared
         package = ProjectLoader().load(root=prepared.package_root).target

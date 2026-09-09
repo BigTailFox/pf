@@ -984,6 +984,7 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
         ("member_version", "expected_code"),
         (("2.5", 0), ("1.5", 3)),
     )
+    @pytest.mark.process
     def test_static_workspace_member_version_controls_cli_apply_without_metadata_edits(
         self,
         tmp_path: Path,
@@ -1058,6 +1059,7 @@ test-command = ["pytest"]
             )
 
     @pytest.mark.parametrize("force", (False, True))
+    @pytest.mark.process
     def test_dynamic_workspace_member_blocks_cli_apply_before_edit(
         self,
         tmp_path: Path,
@@ -1124,6 +1126,7 @@ dynamic = ["version"]
         assert "--force" not in visible
         assert pyproject.read_bytes() == before
 
+    @pytest.mark.process
     def test_sequential_scoped_apply_starts_a_new_generation_and_reprojects_group(
         self,
         tmp_path: Path,
@@ -1193,6 +1196,7 @@ dynamic = ["version"]
         raw = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
         assert raw.count('sys_platform != "linux"') == 0
 
+    @pytest.mark.process
     def test_force_source_drift_is_a_successful_stderr_warning(
         self,
         tmp_path: Path,

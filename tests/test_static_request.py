@@ -266,6 +266,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         assert restored.model_dump_json() == encoded
 
 
+@pytest.mark.process
 class TestRealStaticRequest:
     def test_complete_prepared_request_observes_and_survives_environment_close(self, tmp_path: Path) -> None:
         run_complete_prepared_request(
@@ -473,6 +474,7 @@ invalid-assignment = "error"
         assert StaticPreparationEvidence.model_validate_json(encoded) == evidence
 
 
+@pytest.mark.process
 class TestNonemptyStaticPreparation:
     def test_registry_selection_and_external_harness_round_trip(self, tmp_path: Path) -> None:
         run_nonempty_static_preparation(

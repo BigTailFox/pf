@@ -420,6 +420,7 @@ class TestTyOutputDecoder:
         assert isinstance(result, TyCheck)
         assert result.diagnostics[0].path == "packages/demo/src/demo.py"
 
+    @pytest.mark.process
     def test_real_ty_overrides_project_terminal_defaults(
         self,
         tmp_path: Path,
@@ -472,6 +473,7 @@ class TestTyOutputDecoder:
         assert "\x1b" not in output.stdout
         assert pyproject.read_text() == source
 
+    @pytest.mark.process
     def test_real_ty_validates_invalid_project_configuration(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

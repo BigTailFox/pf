@@ -4,10 +4,11 @@ from pathlib import Path
 import os
 import json
 import shutil
-import subprocess
 import sys
 
 import pytest
+
+from visible_text import run_ty_executable
 
 from pf.errors import ConfigurationError
 from pf.static_configuration import TyConfigurationResolution
@@ -107,6 +108,7 @@ class TestTySearchPaths:
             resolve_ty_search_paths(configuration(tmp_path, ""), args=args, environment={}, cwd=tmp_path, package_name="demo")
 
 
+@pytest.mark.process
 class TestRealTySearchPaths:
     def test_search_precedence_and_relative_bases(self, tmp_path: Path) -> None:
         reverse = False
@@ -134,11 +136,11 @@ class TestRealTySearchPaths:
         assert resolved.extra == ordered
         executable = shutil.which("ty")
         assert executable is not None
-        result = subprocess.run(
+        result = run_ty_executable(
             (executable, "check", "--project", str(project), "--python", sys.executable,
              "--output-format", "gitlab", "--no-progress", "--color", "never",
              "--no-respect-ignore-files", *args, str(cwd / "demo.py")),
-            cwd=cwd, env={}, capture_output=True, text=True, timeout=30, check=False,
+            cwd=cwd, env={}, timeout=30,
         )
         assert result.returncode == 0, (result.stdout, result.stderr)
         assert json.loads(result.stdout) == []
@@ -164,11 +166,11 @@ class TestRealTySearchPaths:
         assert resolved.extra + resolved.pythonpath == ((literal,) if mode == "pythonpath" else (external,))
         executable = shutil.which("ty")
         assert executable is not None
-        result = subprocess.run(
+        result = run_ty_executable(
             (executable, "check", "--project", str(project), "--python", sys.executable,
              "--output-format", "gitlab", "--no-progress", "--color", "never",
              "--no-respect-ignore-files", *args, str(project / "demo.py")),
-            cwd=project, env=environment, capture_output=True, text=True, timeout=30, check=False,
+            cwd=project, env=environment, timeout=30,
         )
         assert result.returncode == (1 if mode == "pythonpath" else 0), (result.stdout, result.stderr)
         assert [item["check_name"] for item in json.loads(result.stdout)] == (["invalid-assignment"] if mode == "pythonpath" else [])

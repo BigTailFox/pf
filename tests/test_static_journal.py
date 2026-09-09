@@ -112,6 +112,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('ver
 
 
 class TestStaticJournal:
+    @pytest.mark.process
     def test_real_pass_persists_raw_comparison_and_pass_after_run_close(
         self, actual_static_journal, tmp_path: Path, record_property
     ):
@@ -175,6 +176,7 @@ class TestStaticJournal:
         assert_interned_static_audit(json.loads(first))
         record_property("journal_bytes", len(first))
 
+    @pytest.mark.process
     def test_report_side_index_resolves_typed_producer_logs(
         self, actual_static_journal, tmp_path: Path,
     ):
@@ -202,6 +204,7 @@ class TestStaticJournal:
             "dangling-fact", "unused-fact", "embedded-fact",
         ],
     )
+    @pytest.mark.process
     def test_reader_rejects_invalid_static_scope_evidence(
         self, actual_static_journal, tmp_path: Path, mutation
     ):
@@ -245,6 +248,7 @@ class TestStaticJournal:
         assert caught.value.reason == "invalid-static-evidence"
 
     @pytest.mark.parametrize("content", ["[]", "{invalid-json"])
+    @pytest.mark.process
     def test_reader_rejects_an_undecodable_contract(
         self, actual_static_journal, tmp_path: Path, content
     ):
@@ -256,6 +260,7 @@ class TestStaticJournal:
             store.read_journal(journal.run_id)
         assert caught.value.reason == "unsupported-journal-contract"
 
+    @pytest.mark.process
     def test_reader_rejects_an_unsupported_contract(
         self, actual_static_journal, tmp_path: Path
     ):

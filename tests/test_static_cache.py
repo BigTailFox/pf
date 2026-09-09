@@ -144,6 +144,7 @@ class TestRunTyCache:
 
 
 class TestRunStaticScope:
+    @pytest.mark.process
     def test_global_comparison_replays_after_actual_environment_close(self, static_request):
         preparation = static_request.preparation
         policy = static_request.observation_policy

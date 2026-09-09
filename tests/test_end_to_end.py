@@ -11,6 +11,8 @@ from visible_text import run_pf_cli, visible_cli_text
 from pf.project import ProjectLoader
 from pf.report import ReportStore
 
+pytestmark = pytest.mark.process
+
 
 def _verify_project_only_cli(tmp_path, *, group, command):
     (tmp_path / "src" / "demo").mkdir(parents=True)
@@ -56,6 +58,7 @@ test-command = ["python", "-c", "import demo, idna; assert demo.VALUE == 1; asse
 
 
 class TestInstalledCli:
+    @pytest.mark.e2e
     def test_missing_group_and_missing_verifier_record_actual_start_failure(
         self, tmp_path
     ):
@@ -83,6 +86,7 @@ test-command = ["pf-d035-unavailable-verifier"]
         assert failure["stage"] == "test"
         assert failure["authority"]["terminal"]["kind"] == "start-failed"
 
+    @pytest.mark.e2e
     @pytest.mark.parametrize(
         "group",
         ["", "[dependency-groups]\ntest = []\n"],
@@ -101,6 +105,7 @@ test-command = ["pf-d035-unavailable-verifier"]
     def test_other_commands_verify_project_only_environment(self, tmp_path, group, command):
         _verify_project_only_cli(tmp_path, group=group, command=command)
 
+    @pytest.mark.e2e
     def test_installed_module_cli_completes_report_lifecycle(
         self,
         tmp_path: Path,

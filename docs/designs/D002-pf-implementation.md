@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -366,10 +366,19 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 ## 11. 验证边界
 
-测试优先覆盖 public module behavior：strict Schema/identity、真实临时项目与文件系统、recording adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。评价与产品 tests 通过 lower uv/candidate/ty/verifier adapters 装配真实 Environment/Static/Runtime、Highest、Check 与 Search graph；不直接构造 PreparedEnvironment，不替换 concrete prepare/lookup/collect/compare/evaluate/verify/minimize，也不读取 evaluator/search private state。需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注，不能由 fake、collection 或窄测试冒充。
+测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值，不替换 concrete prepare/lookup/collect/compare/evaluate/verify/minimize，不读取 evaluator/search private state。
+
+车道只调度真实性，不另开测试专用产品 API：
+
+- **进程内（默认收集与自举 `C`）：** 在已有 uv/candidate/ty/verifier/process seam 使用 recording 或 scripted adapter。CoordinateSearch 与产品编排器使用生产实现，下层按本车道替换。不得启动真实 uv / ty / nested pytest / `python -m pf` 或安装入口 `pf`，也不得进入生产 `SubprocessRunner.run`。
+- **`infra`：** 同上真实性；主体是插件 hook、文档不变式或测试基建，不进入自举 `C`。
+- **`process` / `e2e`：** 经真实 uv/candidate/ty/verifier 装配 Environment/Static/Runtime、Highest、Check 与 Search graph。只有这些车道（外加 `qualification`）可以主张「真实进程已经证明」。
+- **`qualification`：** 工具协议与版本矩阵；不能用 fake、collection 或进程内测试冒充。
+
+需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。
 
 静态事实从 `StaticEvaluator.lookup/collect/compare` 的 outcome 观察。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
 baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
-[D038](../archived/designs/D038-pf-static-guidance-authority.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。
+[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D040](../archived/designs/D040-pf-test-lanes.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

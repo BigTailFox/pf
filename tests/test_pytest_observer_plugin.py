@@ -9,6 +9,8 @@ import pytest
 
 from pf import _pytest_observer as observer
 
+pytestmark = pytest.mark.infra
+
 
 @pytest.fixture(autouse=True)
 def _reset_observer(monkeypatch: pytest.MonkeyPatch):

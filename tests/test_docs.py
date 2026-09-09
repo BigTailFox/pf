@@ -4,11 +4,15 @@ from pathlib import Path
 from runpy import run_path
 from typing import Callable, cast
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 _checker = run_path(str(ROOT / "scripts" / "check_docs.py"))
 _slugify = cast(Callable[[str], str], _checker["slugify"])
 _main = cast(Callable[..., int], _checker["main"])
+
+pytestmark = pytest.mark.infra
 
 
 class TestEngineeringDocs:

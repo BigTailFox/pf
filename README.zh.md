@@ -93,6 +93,7 @@ extra 探索叠加在该必需 surface 上。没有活跃外部测试依赖的 C
 
 - [D001 — 产品与命令契约](docs/designs/D001-pf.md)：floor、命令、配置、报告与退出码
 - [工程文档索引](docs/README.md)：契约所有权与文档布局
+- 本仓库自己的 `[tool.pf] test-command` 是 targeted-runtime contract：只覆盖进程内公开接口。真实 uv/ty/CLI 与资格回放在 CI 测试车道。由更宽历史 `C` 产生的既有 `package-floor.json` 不是相对于现行命令的 floor；见 [tests/README.md](tests/README.md)。
 
 ## 许可证
 

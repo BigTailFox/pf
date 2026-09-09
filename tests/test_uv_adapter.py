@@ -222,6 +222,7 @@ class TestUvAdapter:
             "--version",
         )
 
+    @pytest.mark.process
     def test_resolution_ignores_user_level_uv_configuration(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1763,6 +1764,7 @@ class TestPythonInventory:
         )
         assert runner.spec.summary_limit is None
 
+    @pytest.mark.process
     def test_uv_adapter_lists_real_cpython_inventory_beyond_default_summary(
         self,
         tmp_path: Path,

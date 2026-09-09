@@ -92,6 +92,7 @@ class TestTyConfigurationResolver:
         assert resolved.files[0].path == appdata / "ty" / "ty.toml"
 
 
+@pytest.mark.process
 class TestRealTyConfigurationEquivalence:
     def test_compiled_configuration_preserves_native_selection_and_merge(self, tmp_path: Path) -> None:
         format = "ty"

@@ -137,6 +137,7 @@ class _RecordingRunner:
 
 
 class TestFailedCasePruning:
+    @pytest.mark.process
     def test_original_command_adds_failed_nodeids(self, tmp_path: Path) -> None:
         _write(
             tmp_path,
@@ -150,6 +151,7 @@ class TestFailedCasePruning:
         assert isinstance(run.authoritative, VerifierRejected)
         assert run.failed_case_additions == ("test_example.py::test_bad",)
 
+    @pytest.mark.process
     def test_failed_set_rejects_without_running_the_original_command(
         self,
         tmp_path: Path,
@@ -192,6 +194,7 @@ class TestFailedCasePruning:
         ]
         assert runner.prune_request == ["test_example.py::test_bad"]
 
+    @pytest.mark.process
     def test_failed_set_pass_requires_original_command(
         self,
         tmp_path: Path,
@@ -208,6 +211,7 @@ class TestFailedCasePruning:
         assert isinstance(run.authoritative, VerifierRejected)
         assert run.failed_case_additions == ("test_example.py::test_other",)
 
+    @pytest.mark.process
     def test_failed_set_selection_only_collects_requested_nodeids(
         self,
         tmp_path: Path,
@@ -235,6 +239,7 @@ class TestFailedCasePruning:
         assert (tmp_path / "bad-ran").exists()
         assert run.failed_case_additions == ("test_a_bad.py::test_bad",)
 
+    @pytest.mark.process
     def test_missing_nodeid_falls_back_to_original_command(
         self,
         tmp_path: Path,
@@ -394,6 +399,7 @@ class TestFailedCasePruning:
         assert run.failed_case_additions == ()
         assert isinstance(run.authoritative, VerifierRejected)
 
+    @pytest.mark.process
     def test_empty_collection_falls_back_to_original_command(
         self,
         tmp_path: Path,
@@ -415,6 +421,7 @@ class TestFailedCasePruning:
         assert isinstance(run.authoritative, VerifierPass)
         assert run.failed_case_additions == ()
 
+    @pytest.mark.process
     def test_collection_error_falls_back_to_original_command(
         self,
         tmp_path: Path,
@@ -433,6 +440,7 @@ class TestFailedCasePruning:
         assert runner.count == 2
         assert run.failed_case_additions == ()
 
+    @pytest.mark.process
     def test_dynamic_parametrization_falls_back_to_original_command(
         self,
         tmp_path: Path,
@@ -467,6 +475,7 @@ class TestFailedCasePruning:
             for item in run.failed_case_additions
         )
 
+    @pytest.mark.process
     def test_duplicate_collected_item_falls_back_to_original_command(
         self,
         tmp_path: Path,
@@ -675,6 +684,7 @@ class TestFailedCasePruning:
         assert run.failed_case_additions == ()
 
     @pytest.mark.parametrize("flag", ("--lf", "--ff", "--sw"))
+    @pytest.mark.process
     def test_lastfailed_flags_match_a_single_original_command(
         self,
         tmp_path: Path,
@@ -694,6 +704,7 @@ class TestFailedCasePruning:
         assert isinstance(two_phase.authoritative, VerifierRejected)
         assert type(original.authoritative) is type(two_phase.authoritative)
 
+    @pytest.mark.process
     def test_xdist_without_controller_collection_falls_back(
         self,
         tmp_path: Path,
@@ -893,6 +904,7 @@ test-command = ["pytest"]
         assert "PF_PYTEST_PRUNE_REQUEST" not in environment
 
 
+@pytest.mark.process
 class TestPruningCollectionAuthority:
     @pytest.mark.parametrize("summary_valid", (False, True))
     @pytest.mark.parametrize("collection_valid", (False, True))

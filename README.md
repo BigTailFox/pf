@@ -96,6 +96,7 @@ Released PF pins uv `0.12.5` and ty `0.0.74`. The resolver protocol accepts only
 
 - [D001 — product and command contract](docs/designs/D001-pf.md): floors, commands, configuration, reports, and exit codes
 - [Engineering docs index](docs/README.md): contract ownership and layout
+- This repository's own `[tool.pf] test-command` is a targeted-runtime contract: in-process public interfaces only. Real uv/ty/CLI and qualification runs live in CI test lanes. An existing `package-floor.json` produced under a wider historical `C` is not a floor relative to the current command; see [tests/README.md](tests/README.md).
 
 ## License
 

@@ -25,7 +25,7 @@ jobs:
         run: uv run ty check src
       - name: Pytest (testmon disabled)
         if: matrix.python-version != '3.10'
-        run: uv run pytest --no-testmon
+        run: uv run pytest --no-testmon -m "not qualification"
       - name: Pytest with coverage gate
         if: matrix.python-version == '3.10'
         run: uv run pytest --no-testmon --cov --cov-report=term-missing -m ""
