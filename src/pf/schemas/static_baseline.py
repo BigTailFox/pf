@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import model_validator
 
-from pf.resolution import environment_identity_digest, resolution_graph_id
+from pf.schemas.resolution import environment_identity_digest, resolution_graph_id
 from pf.schemas.base import FrozenSchema
 from pf.schemas.evaluation import Attempt
 from pf.schemas.project import Proposal

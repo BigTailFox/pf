@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 import shutil
 
@@ -15,13 +14,18 @@ from pf.schemas.policy import (
     TyToolVersionDistribution, TyToolVersionUnavailable,
 )
 from pf.schemas.project import Cell, InterpreterIdentity, SourceIdentity
-from pf.schemas.static import StaticContentManifest, StaticContentUnavailable, StaticSubject
+from pf.schemas.static import (
+    StaticContentEntry,
+    StaticContentManifest,
+    StaticContentPath,
+    StaticSubject,
+)
 from pf.static_projection import (
     available_set_digest, available_set_preimage,
     static_subject as build_static_subject,
 )
 from pf.static_request import may_start_ty
-from pf.static_subject import StaticContentCollector, ty_check_key
+from pf.static_subject import ty_check_key
 from pf.policy import guidance_policy
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import ProcessResult, ProcessTerminalUnavailable, ToolFailure, TyCheck, TyDiagnostic
@@ -59,101 +63,25 @@ def _observation_policy(**overrides):
     return guidance_policy(EffectiveConfig(), **payload).observation
 
 
-class TestStaticContentCollector:
-    def test_collect_binds_actual_installed_bytes_and_round_trips_offline(
-        self, tmp_path: Path
-    ) -> None:
-        installed = tmp_path / "installed"
-        installed.mkdir()
-        metadata = installed / "METADATA"
-        metadata.write_text("Name: example\nVersion: 1.0\n", encoding="utf-8")
-        stub = installed / "module.pyi"
-        stub.write_bytes(b"x: int\n")
-        collector = StaticContentCollector()
-        original = collector.collect({"environment": installed})
-        assert isinstance(original, StaticContentManifest)
-        file = next(item for item in original.entries if item.location.path == "module.pyi")
-        assert file.content_digest == hashlib.sha256(b"x: int\n").hexdigest()
-        encoded = original.model_dump_json()
-
-        stub.write_bytes(b"x: str\n")
-        changed = collector.collect({"environment": installed})
-        assert isinstance(changed, StaticContentManifest)
-        assert changed.identity != original.identity
-        shutil.rmtree(installed)
-        restored = StaticContentManifest.model_validate_json(encoded)
-        assert restored.identity == original.identity
-        assert restored.model_dump_json() == encoded
-
-    def test_collect_preserves_logical_layout_across_materialization_roots(
-        self, tmp_path: Path
-    ) -> None:
-        first = tmp_path / "first"
-        first.mkdir()
-        (first / "module.py").write_bytes(b"x = 1\n")
-        (first / "empty").mkdir()
-        second = tmp_path / "second"
-        shutil.copytree(first, second)
-        collector = StaticContentCollector()
-        a = collector.collect({"snapshot": first})
-        b = collector.collect({"snapshot": second})
-        assert isinstance(a, StaticContentManifest)
-        assert isinstance(b, StaticContentManifest)
-        assert a.identity == b.identity
-        (second / "module.py").rename(second / "renamed.py")
-        c = collector.collect({"snapshot": second})
-        assert isinstance(c, StaticContentManifest)
-        assert c.identity != a.identity
-        assert any(item.location.path == "empty" for item in a.entries)
-        assert str(tmp_path) not in a.model_dump_json()
-
-    @pytest.mark.skipif(os.name == "nt", reason="test requires symlink creation")
-    def test_collect_closes_cross_root_symlinks_without_host_paths(
-        self, tmp_path: Path
-    ) -> None:
-        interpreter = tmp_path / "python"
-        interpreter.mkdir()
-        executable = interpreter / "python"
-        executable.write_bytes(b"interpreter contents")
-        environment = tmp_path / "venv"
-        environment.mkdir()
-        (environment / "python").symlink_to(executable)
-        result = StaticContentCollector().collect({
-            "environment": environment, "interpreter": interpreter,
-        })
-        assert isinstance(result, StaticContentManifest)
-        link = next(item for item in result.entries if item.kind == "symlink")
-        assert link.link_target is not None
-        assert link.link_target.root == "interpreter"
-        assert link.link_target.path == "python"
-        assert str(tmp_path) not in result.model_dump_json()
-
-    @pytest.mark.skipif(os.name == "nt", reason="test requires symlink creation")
-    def test_collect_does_not_discover_unregistered_external_inputs(
-        self, tmp_path: Path
-    ) -> None:
-        root = tmp_path / "root"
-        root.mkdir()
-        external = tmp_path / "external.pyi"
-        external.write_bytes(b"x: int")
-        (root / "module.pyi").symlink_to(external)
-        result = StaticContentCollector().collect({"snapshot": root})
-        assert result == StaticContentUnavailable(detail="unclosed-symlink")
-
-    @pytest.mark.skipif(os.name == "nt", reason="test requires FIFOs")
-    def test_collect_rejects_special_files_without_opening_them(self, tmp_path: Path) -> None:
-        os.mkfifo(tmp_path / "fifo")
-        assert StaticContentCollector().collect({"snapshot": tmp_path}) == (
-            StaticContentUnavailable(detail="unsupported-file-kind")
-        )
-
-
 class TestStaticContentManifestAdmission:
     @pytest.mark.parametrize("fault", ["version", "digest", "parent", "extra", "order"])
     def test_reader_rejects_unverifiable_content(self, tmp_path: Path, fault: str) -> None:
-        (tmp_path / "a.py").write_bytes(b"x = 1")
-        collected = StaticContentCollector().collect({"snapshot": tmp_path})
-        assert isinstance(collected, StaticContentManifest)
+        del tmp_path
+        digest = hashlib.sha256(b"x = 1").hexdigest()
+        collected = StaticContentManifest(entries=(
+            StaticContentEntry(
+                location=StaticContentPath(root="snapshot", path="."),
+                kind="directory",
+                content_digest=None,
+                link_target=None,
+            ),
+            StaticContentEntry(
+                location=StaticContentPath(root="snapshot", path="a.py"),
+                kind="file",
+                content_digest=digest,
+                link_target=None,
+            ),
+        ))
         document = collected.model_dump(mode="json")
         if fault == "version":
             document["format"] = "unknown"

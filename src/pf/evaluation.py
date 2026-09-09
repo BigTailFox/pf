@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 import os
 from threading import BoundedSemaphore
@@ -8,12 +8,6 @@ from typing import Protocol
 
 from pf.cancellation import Cancellation
 from pf.policy import execution_policy_identity
-from pf.static_cache import CacheMiss, RunTyFactRef, RunStaticConsumerRef, RunStaticPassRef, TyCheckCache
-from pf.static_request import StaticTyRequest
-from pf.schemas.static import StaticSubject, StaticContentUnavailable
-from pf.schemas.policy import TyObservationPolicy, GuidancePolicy
-from pf.schemas.static_comparison import StaticComparisonContext, StaticComparisonResult
-from pf.ty_fact import ty_fact_document
 from pf.environment import PreparedEnvironment, StageConsumer, emit_cell_stage
 from pf.schemas.evaluation import (
     CacheConflict,
@@ -23,8 +17,6 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     RuntimeEvaluationRun,
     StageProgress,
-    ToolFailure,
-    TyCheck,
     VerifierRejected,
     VerifierRejectedEvaluation,
     VerifierRequest,
@@ -118,102 +110,12 @@ class EvaluationCache:
         return proposal.proposal_id, proposal.policy_identity
 
 
-class TyOperations(Protocol):
-    def observe(
-        self, request: StaticTyRequest, *, cancellation: Cancellation | None = None,
-    ) -> TyCheck | ToolFailure | StaticContentUnavailable: ...
-
-class StaticRequestOperations(Protocol):
-    def capture(self, prepared: PreparedEnvironment, *, package: PackagePlan,
-                environment: Mapping[str, str], cancellation: Cancellation | None = None
-                ) -> StaticTyRequest | StaticContentUnavailable: ...
-
-
 class VerifierOperations(Protocol):
     def run(
         self,
         request: VerifierRequest,
         progress: Callable[[StageProgress | None], None] | None = None,
     ) -> VerifierRun: ...
-
-
-class StaticEvaluator:
-    """Collect raw static facts and compare admitted Run consumers."""
-
-    def __init__(
-        self,
-        ty: TyOperations,
-        *,
-        requests: StaticRequestOperations,
-        events: StageConsumer | None = None,
-        permits: StagePermitPools | None = None,
-    ) -> None:
-        self._ty = ty
-        self._requests = requests
-        self._events = events
-        self._permits = permits or StagePermitPools()
-
-    def lookup(
-        self, subject: StaticSubject, *, observation_policy: TyObservationPolicy,
-        run_cache: TyCheckCache,
-    ) -> RunTyFactRef | CacheMiss:
-        return run_cache.lookup(subject, observation_policy)
-
-    def compare(
-        self, subject_ref: RunStaticConsumerRef, reference_ref: RunStaticConsumerRef | None, *,
-        run_cache: TyCheckCache, context: StaticComparisonContext, guidance_policy: GuidancePolicy,
-        anchor_pass_ref: RunStaticPassRef | None = None,
-    ) -> StaticComparisonResult:
-        return run_cache.compare(subject_ref, reference_ref, context=context,
-                                 guidance=guidance_policy, anchor_pass=anchor_pass_ref)
-
-    def collect(
-        self, prepared: PreparedEnvironment, request: StaticTyRequest, *,
-        run_cache: TyCheckCache,
-    ) -> RunTyFactRef | StaticContentUnavailable:
-        # Every consumer retains its own clean materialization through owner or
-        # join completion. Only the elected owner enters the ty permit pool.
-        with prepared.static_use(cancellation=run_cache.cancellation) as available:
-            prepared.static_consumer = None
-            if (not available or request.prepared is not prepared
-                    or request.preparation.proposal != prepared.proposal or not request.revalidate()):
-                return StaticContentUnavailable(detail="content-changed")
-
-            def observe(cancellation: Cancellation):
-                with self._permits.ty(cancellation=cancellation):
-                    if not request.revalidate():
-                        return StaticContentUnavailable(detail="content-changed")
-                    outcome = self._ty.observe(request, cancellation=cancellation)
-                    if not request.revalidate():
-                        return StaticContentUnavailable(detail="content-changed")
-                    if isinstance(outcome, StaticContentUnavailable):
-                        return outcome
-                    document = ty_fact_document(request.subject, request.observation_policy, outcome)
-                    assert outcome.process is not None
-                    return document, outcome.process
-
-            result = run_cache.collect(request.preparation, request.observation_policy, observe,
-                                       revalidate=request.revalidate)
-            if isinstance(result, RunTyFactRef):
-                prepared.static_consumer = run_cache.consumer(result, request.preparation)
-            return result
-
-    def collect_prepared(
-        self, prepared: PreparedEnvironment, *, package: PackagePlan, run_cache: TyCheckCache,
-    ) -> RunTyFactRef | StaticContentUnavailable:
-        """Capture current inputs and collect one raw observation in this Run."""
-        with prepared.static_use(cancellation=run_cache.cancellation) as available:
-            prepared.static_consumer = None
-            if not available:
-                return StaticContentUnavailable(detail="content-changed")
-            request = self._requests.capture(prepared, package=package, environment=os.environ,
-                                             cancellation=run_cache.cancellation)
-            if isinstance(request, StaticContentUnavailable):
-                return request
-            if isinstance(run_cache.lookup(request.subject, request.observation_policy), CacheMiss):
-                emit_cell_stage(self._events, prepared.proposal.cell, "static-probe")
-            return self.collect(prepared, request, run_cache=run_cache)
-
 
 
 class RuntimeEvaluator:
@@ -235,7 +137,6 @@ class RuntimeEvaluator:
         prepared: PreparedEnvironment,
         *,
         package: PackagePlan,
-        run_cache: TyCheckCache,
         failed_case_nodeids: tuple[str, ...] = (),
     ) -> RuntimeEvaluationRun:
         if execution_policy_identity(package.config) != prepared.proposal.policy_identity:
@@ -262,7 +163,6 @@ class RuntimeEvaluator:
         )
         command = package.config.test.command
         with self._permits.test(), prepared.verifier_use():
-            consumer = prepared.static_consumer
             run = self._verifier.run(
                 VerifierRequest(
                     command=command,
@@ -275,9 +175,6 @@ class RuntimeEvaluator:
             )
         authoritative = run.authoritative
         if isinstance(authoritative, VerifierPass):
-            if (consumer is not None and run.diagnostics is not None
-                    and run_cache.admits_consumer(consumer, proposal=prepared.proposal)):
-                run_cache.record_pass(consumer, run)
             evaluation: Evaluation = PassEvaluation(
                 proposal=prepared.proposal,
 

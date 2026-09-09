@@ -1,7 +1,7 @@
 # PF Domain
 
 - **状态：** 现行
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-10
 
 PF 为 Python 分发包在明确运行环境与验证策略下寻找可验证的直接依赖下界。本页只固定现行术语；行为规则见 [工程文档索引](docs/README.md)。
 
@@ -150,9 +150,15 @@ _Avoid_: package-floor.json, ty-cache, Diagnosis Index
 
 **ty-cache**
 
-同一次 Verification Run 落在 `.pf/logs/<run-id>/ty-cache.json` 的原始 `TyFactDocument` sidecar（外层 `pf-ty-cache-v1`）；只服务 Run 内静态 lookup，不是 Process Log，不进入公开报告，不服务 `diagnose`。
+同一次 Verification Run 落在 `.pf/logs/<run-id>/ty-cache.json` 的原始 `TyFactDocument` sidecar（外层 `pf-ty-cache-v1`）；只服务 Run 内静态 lookup，不是 Process Log，不进入公开报告，不服务 `diagnose`。单独不能重放比较或 hint。
 
-_Avoid_: Verification Journal, package-floor.json, Process Log
+_Avoid_: Verification Journal, package-floor.json, Process Log, StaticAuditDocument
+
+**Static evaluation module**
+
+`pf.static` 的产品表面：`collect_prepared` / `capture_highest` / `compare_global` / `record_runtime` / `open_slice`。行为见 D002 / D004。
+
+_Avoid_: StaticRequestFactory, lookup/collect/compare 产品入口
 
 **Process Log**
 

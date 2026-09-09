@@ -19,8 +19,8 @@ from pf.environment import (
     LowestDirectResolution,
     ResolutionRequest,
 )
-from scripted_static import ScriptedStaticRequests
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator
+from pf.static import StaticEvaluator
 from pf.resolution import (
     InstallFailure,
     InstallOutcome,
@@ -43,6 +43,7 @@ from pf.schemas.evaluation import (
     OperationFailureResult,
     ToolSuccess,
     TyCheck,
+    VerifierDiagnostics,
     VerifierPass,
     VerifierRequest,
     VerifierRun,
@@ -397,6 +398,94 @@ TyHandler = Callable[[tuple[VersionPin, ...], int], TyCheck | ToolFailure]
 VerifierHandler = Callable[[tuple[VersionPin, ...], int], VerifierRun]
 
 
+class ScriptedProcessRunner:
+    """Satisfy inspect / ty --version for scripted environments without a host Python."""
+
+    def __init__(self, uv: ScriptedUv) -> None:
+        self._uv = uv
+
+    def run(self, spec, *, cancellation=None):
+        from importlib.metadata import version as distribution_version
+        import json
+        from pf.schemas.evaluation import ProcessResult
+
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
+        argv = spec.argv
+        if len(argv) >= 4 and argv[1:4] == ("-I", "-B", "-c"):
+            interpreter = Path(argv[0])
+            plan = self._uv._plans_by_interpreter[interpreter]
+            nodes = [{"name": "demo", "version": "0.1.0"}]
+            nodes.extend(
+                {"name": item.name, "version": item.version}
+                for item in plan.packages
+                if item.version is not None
+            )
+            payload = {
+                "interpreter": {
+                    "implementation": "cpython",
+                    "version": "3.10.18",
+                    "abi": "cpython-310-x86_64-linux-gnu",
+                },
+                "prefix": str(interpreter.parent.parent),
+                "executable": str(interpreter.resolve()),
+                "nodes": nodes,
+            }
+            return ProcessResult(
+                exit_code=0, signal=None, duration_seconds=0.01,
+                stdout=json.dumps(payload) + "\n", stderr="",
+            )
+        if len(argv) >= 2 and argv[1] == "--version":
+            return ProcessResult(
+                exit_code=0, signal=None, duration_seconds=0.01,
+                stdout=f"ty {distribution_version('ty')}\n", stderr="",
+            )
+        return ProcessResult(
+            exit_code=0, signal=None, duration_seconds=0.01, stdout="", stderr="",
+        )
+
+
+class FailingInspectRunner(ScriptedProcessRunner):
+    """Fail selected inspect calls so request assembly returns unavailable."""
+
+    def __init__(
+        self, uv: ScriptedUv, *, fail_at: set[int] | None = None,
+        fail_version_once: str | None = None, fail_all: bool = False,
+    ):
+        super().__init__(uv)
+        self._inspects = 0
+        self._fail_at = fail_at or set()
+        self._fail_version_once = fail_version_once
+        self._fail_all = fail_all
+        self._version_failed = False
+
+    def run(self, spec, *, cancellation=None):
+        from pf.schemas.evaluation import ProcessResult
+
+        if len(spec.argv) >= 4 and spec.argv[1:4] == ("-I", "-B", "-c"):
+            self._inspects += 1
+            interpreter = Path(spec.argv[0])
+            plan = self._uv._plans_by_interpreter.get(interpreter)
+            versions = {
+                item.version for item in (plan.packages if plan is not None else ())
+                if item.version is not None
+            }
+            fail = self._fail_all or self._inspects in self._fail_at
+            if (
+                self._fail_version_once is not None
+                and self._fail_version_once in versions
+                and not self._version_failed
+            ):
+                fail = True
+                self._version_failed = True
+            if fail:
+                return ProcessResult(
+                    exit_code=1, signal=None, duration_seconds=0.01,
+                    stdout="", stderr="inspect failed",
+                )
+        return super().run(spec, cancellation=cancellation)
+
+
 class ScriptedTy:
     def __init__(self, uv: ScriptedUv, handler: TyHandler | None = None) -> None:
         self._uv = uv
@@ -429,7 +518,8 @@ class ScriptedVerifier:
         self._uv = uv
         self._handler = handler or (
             lambda vector, call: VerifierRun(
-                authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
+                authoritative=VerifierPass(terminal=NormalExit(exit_code=0)),
+                diagnostics=VerifierDiagnostics(process=successful_process()),
             )
         )
         self.vectors: list[tuple[VersionPin, ...]] = []
@@ -518,7 +608,10 @@ def evaluation_assembly(
     candidate_error: Exception | None = None,
     candidate_versions_by_dependency: dict[str, tuple[str, ...]] | None = None,
     ty_handler: TyHandler | None = None,
-    static_requests=None,
+    processes=None,
+    fail_inspect_at: set[int] | None = None,
+    fail_inspect_version_once: str | None = None,
+    fail_all_inspects: bool = False,
     verifier_handler: VerifierHandler | None = None,
     install_failure: OperationFailureResult | None = None,
     diagnostics: SearchDiagnosticConsumer | None = None,
@@ -538,7 +631,15 @@ def evaluation_assembly(
         candidate_versions_by_dependency,
     )
     environments = EnvironmentFactory(uv, events=events)
-    static = StaticEvaluator(ty, requests=static_requests or ScriptedStaticRequests(), events=events)
+    if processes is None:
+        if fail_inspect_at or fail_inspect_version_once or fail_all_inspects:
+            processes = FailingInspectRunner(
+                uv, fail_at=fail_inspect_at, fail_version_once=fail_inspect_version_once,
+                fail_all=fail_all_inspects,
+            )
+        else:
+            processes = ScriptedProcessRunner(uv)
+    static = StaticEvaluator(ty, processes=processes, events=events)
     runtime = RuntimeEvaluator(
         verifier=verifier,
         events=events,

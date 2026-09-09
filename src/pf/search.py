@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache, RunStaticPassRef, RunStaticConsumerRef
-from pf.static_guidance import StaticPoint, StaticSearchResult
+from pf.static import (
+    CollectedStaticSubject,
+    StaticEvaluator,
+    StaticSliceCollector,
+    TyCheckCache,
+)
 from pf.policy import search_derivation_policy
-from pf.schemas.static_search import StaticSearchAudit, StaticSearchPointEvidence, StaticHintEvidence, StaticProbeUnavailableEvidence, StaticPhaseOmission, StaticPhaseSkip, OracleSelectionAudit
+from pf.schemas.static_search import StaticProbeUnavailableEvidence, StaticPhaseSkip, OracleSelectionAudit
 from pf.schemas.static import StaticContentUnavailable
-from pf.schemas.static_comparison import SliceComparisonContext, StaticComparisonDocument, StaticComparisonUnavailable
 from pf.schemas.policy import GuidancePolicy
 
 from dataclasses import dataclass
@@ -16,7 +19,7 @@ from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateProgressConsumer, CoordinateSearch
 from pf.errors import InfrastructureError, NoApplicableFloorError
 from pf.environment import EnvironmentFactory, ExactSelection, PreparedEnvironment
-from pf.evaluation import EvaluationCache, RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import EvaluationCache, RuntimeEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     Attempt,
@@ -48,7 +51,6 @@ from pf.schemas.evaluation import (
     SearchProbeRequest,
     SearchProbeDetailIdentity,
     VerifierRejectedEvaluation,
-    VerifierRun,
     runtime_process_observation,
 )
 from pf.schemas.project import (
@@ -155,85 +157,50 @@ class _RuntimeBackedVectorEvaluator:
         self._runner.finish_coordinate()
 
 
-class _RunnerStaticSlice:
-    def __init__(self, runner: "_ProposalRunner", passed: RunStaticPassRef, context: SliceComparisonContext):
+class _SearchStaticCollector:
+    def __init__(
+        self,
+        runner: "_ProposalRunner",
+        *,
+        dependency: str,
+        upper: tuple[VersionPin, ...],
+        versions: tuple[str, ...],
+    ):
         self._runner = runner
-        self._passed = passed
-        self._context = context
-        policy = passed.consumer.fact.observation.observation_policy
-        self._guidance = GuidancePolicy(observation=policy, observation_identity=policy.identity)
-        self.anchor = self._compare(passed.consumer)
-        self._prior = tuple(point.comparison_identity for point in self.known_points
-                            if point.comparison_identity is not None)
-        self._unavailable: dict[str, StaticProbeUnavailableEvidence] = {}
+        self._dependency = dependency
+        self._upper = upper
+        self._versions = versions
 
-    def _compare(self, consumer: RunStaticConsumerRef) -> StaticPoint:
-        compared = self._runner._run_cache.compare_document(
-            consumer, self._passed.consumer, context=self._context,
-            guidance=self._guidance, anchor_pass=self._passed,
-        )
-        version = next(pin.version for pin in consumer.preparation.proposal.managed_vector
-                       if pin.name == self._context.dependency)
-        return StaticPoint(version, compared.result if isinstance(compared, StaticComparisonDocument) else compared,
-                           compared.identity if isinstance(compared, StaticComparisonDocument) else None)
-
-    @property
-    def known_points(self) -> tuple[StaticPoint, ...]:
-        return tuple(StaticPoint(
-            next(pin.version for pin in document.subject.preparation.proposal.managed_vector
-                 if pin.name == self._context.dependency), document.result, document.identity,
-        ) for document in self._runner._run_cache.local_comparisons(
-            self._passed, context=self._context, guidance=self._guidance,
+    def inspect(self, version: str) -> CollectedStaticSubject | StaticProbeUnavailableEvidence:
+        vector = tuple(sorted(
+            (*(pin for pin in self._upper if pin.name != self._dependency),
+             VersionPin(name=self._dependency, version=version)),
+            key=lambda pin: pin.name,
         ))
-
-    def inspect(self, version: str) -> StaticPoint:
-        vector = tuple(sorted((*self._context.fixed_other_coordinates,
-                               VersionPin(name=self._context.dependency, version=version)), key=lambda pin: pin.name))
         self._runner._emit_probe_context_for(
-            dependency=self._context.dependency, version=version, window=self._context.window, kind="static",
+            dependency=self._dependency, version=version, kind="static",
+            lower_version=self._versions[0],
+            upper_version=self._versions[-1],
+            candidate_count=len(self._versions),
         )
-        collected = self._runner._inspect_static(vector)
-        if isinstance(collected, RunStaticConsumerRef):
-            return self._compare(collected)
-        reason = collected.unavailable.detail if collected.unavailable is not None else "prepare-unavailable"
-        self._unavailable[version] = collected
-        return StaticPoint(version, StaticComparisonUnavailable(reason=reason), None)
+        return self._runner.collect_static_handle(vector)
 
-    def finish(self, result: StaticSearchResult) -> str:
-        snapshot = next(item for item in self._runner._candidate_snapshots
-                        if item.dependency == self._context.dependency)
-        hint = result.hint
-        ref = self._runner._run_cache.record_search(StaticSearchAudit(
-            ref="pending", context=self._context, guidance=self._guidance,
-            policy=search_derivation_policy(self._runner._package.config, guidance=self._guidance,
-                                             small_threshold=self._runner._small_threshold),
-            candidates=snapshot, prior_comparison_identities=self._prior,
-            points=tuple(StaticSearchPointEvidence(
-                version=point.version, comparison_identity=point.comparison_identity,
-                unavailable=self._unavailable.get(point.version) if point.comparison_identity is None else None,
-            ) for point in result.points),
-            hint=StaticHintEvidence(suspect_index=result.points.index(hint.suspect),
-                                   clean_index=result.points.index(hint.clean_neighbor),
-                                   clean_is_anchor=hint.clean_is_anchor) if hint is not None else None,
-            reason=result.reason,
-        ))
+    def finish(self, keep_versions: tuple[str, ...]) -> None:
         keep: set[tuple[tuple[str, str], ...]] = set()
-        if hint is not None:
-            for point in (hint.suspect, hint.clean_neighbor):
-                vector = tuple(
-                    sorted(
-                        (
-                            *self._context.fixed_other_coordinates,
-                            VersionPin(
-                                name=self._context.dependency, version=point.version
-                            ),
-                        ),
-                        key=lambda pin: pin.name,
-                    )
-                )
-                keep.add(self._runner._key(vector))
+        for version in keep_versions:
+            vector = tuple(sorted(
+                (*(pin for pin in self._upper if pin.name != self._dependency),
+                 VersionPin(name=self._dependency, version=version)),
+                key=lambda pin: pin.name,
+            ))
+            keep.add(self._runner._key(vector))
         self._runner._release_prepared(keep=keep)
-        return ref
+
+    def derivation_policy(self, guidance: GuidancePolicy):
+        return search_derivation_policy(
+            self._runner._package.config, guidance=guidance,
+            small_threshold=self._runner._small_threshold,
+        )
 
 
 class _ProposalRunner:
@@ -253,7 +220,6 @@ class _ProposalRunner:
         run_cache: TyCheckCache,
         diagnostics: SearchDiagnosticConsumer | None = None,
         events: SearchActivityConsumer | None = None,
-        failures: FailurePolicy | None = None,
         small_threshold: int = 8,
     ) -> None:
         self._small_threshold = small_threshold
@@ -269,7 +235,8 @@ class _ProposalRunner:
         self._run_cache = run_cache
         self._diagnostics = diagnostics
         self._events = events
-        self._failures = failures or FailurePolicy()
+        self._failures = FailurePolicy()
+        self._static_handles: dict[tuple[tuple[str, str], ...], CollectedStaticSubject] = {}
         self._failure_records: dict[str, FailureRecord] = {}
         self._failure_runtime_runs: dict[str, FailureRuntimeRun] = {}
         self._emitted_diagnostics: set[str] = set()
@@ -316,22 +283,18 @@ class _ProposalRunner:
             self._full_runs[key] = run
             return run
         try:
-            self._static.collect_prepared(
+            collected = self._static.collect_prepared(
                 prepared, package=self._package, run_cache=self._run_cache,
             )
-            if prepared.static_consumer is not None:
-                observation = prepared.static_consumer.fact.observation.observation_policy
-                self._run_cache.compare_global(
-                    prepared.static_consumer,
-                    guidance=GuidancePolicy(observation=observation, observation_identity=observation.identity),
-                )
+            if isinstance(collected, CollectedStaticSubject):
+                self._static_handles[key] = collected
+                self._static.compare_global(collected, run_cache=self._run_cache)
             runtime = self._full.evaluate(
                 prepared,
                 package=self._package,
-
-                run_cache=self._run_cache,
                 failed_case_nodeids=self._failed_case_nodeids(request),
             )
+            self._static.record_runtime(prepared, runtime, run_cache=self._run_cache)
             self._merge_failed_cases(request, runtime.failed_case_additions)
             stored = self._cache.record_full(runtime.evaluation)
             if isinstance(stored, CacheConflict):
@@ -399,7 +362,7 @@ class _ProposalRunner:
             ):
                 raise ValueError("direct-bound skip predecessor must be this runner's rejection")
         snapshot = next(item for item in self._candidate_snapshots if item.dependency == dependency)
-        self._run_cache.record_skip(StaticPhaseSkip(
+        self._static.record_phase_skip(run_cache=self._run_cache, skip=StaticPhaseSkip(
             ref="pending", attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
             candidates=snapshot, window=versions,
             predecessor=predecessor, predecessor_failure_id=predecessor_failure_id,
@@ -409,7 +372,7 @@ class _ProposalRunner:
         self, request: SearchProbeRequest, *, reused: bool, evidence: ProbeEvidence,
     ) -> None:
         snapshot = next(item for item in self._candidate_snapshots if item.dependency == request.active_dependency)
-        self._run_cache.record_selection(OracleSelectionAudit(
+        self._static.record_oracle_selection(run_cache=self._run_cache, selection=OracleSelectionAudit(
             ref="pending", request=request, candidates=snapshot, reused=reused, observed_search_refs=(),
             attempt=evidence.attempt, proposal_id=getattr(evidence, "proposal_id", None),
             status=evidence.status, failure_id=getattr(evidence, "failure_id", None),
@@ -418,42 +381,63 @@ class _ProposalRunner:
 
     def open_static_slice(
         self, vector: tuple[VersionPin, ...], *, dependency: str, versions: tuple[str, ...],
-    ) -> _RunnerStaticSlice | None:
+    ):
         run = self._full_runs.get(self._key(vector))
         if run is None or not isinstance(run.evaluation, PassEvaluation):
             raise ValueError("static guidance requires an existing directly verified upper point")
         snapshot = next(item for item in self._candidate_snapshots if item.dependency == dependency)
-        passed = self._run_cache.find_pass(run.evaluation.proposal)
-        if passed is None:
-            collected = self._inspect_static(vector)
-            runtime = run.runtime
-            if (
-                isinstance(collected, RunStaticConsumerRef)
-                and runtime is not None
-                and runtime.diagnostics is not None
-            ):
-                passed = self._run_cache.record_pass(
-                    collected,
-                    VerifierRun(
-                        authoritative=run.evaluation.verifier,
-                        diagnostics=runtime.diagnostics,
-                    ),
-                )
-            else:
-                self._run_cache.record_omission(StaticPhaseOmission(
-                    ref="pending", attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
-                    candidates=snapshot, window=versions,
-                ))
-                return None
-        context = SliceComparisonContext(
-            dependency=dependency, fixed_other_coordinates=tuple(pin for pin in vector if pin.name != dependency),
-            window=tuple(snapshot.select(version) for version in versions), anchor_pass=passed.evidence,
+        collector: StaticSliceCollector = _SearchStaticCollector(
+            self, dependency=dependency, upper=vector, versions=versions,
         )
-        return _RunnerStaticSlice(self, passed, context)
+        return self._static.open_slice(
+            run_cache=self._run_cache,
+            upper_proposal=run.evaluation.proposal,
+            dependency=dependency,
+            versions=versions,
+            candidates=snapshot,
+            collector=collector,
+        )
+
+    def collect_static_handle(
+        self, vector: tuple[VersionPin, ...],
+    ) -> CollectedStaticSubject | StaticProbeUnavailableEvidence:
+        key = self._key(vector)
+        existing = self._static_handles.get(key)
+        if existing is not None:
+            return existing
+        run = self._full_runs.get(key)
+        if run is not None and run.evaluation is not None:
+            if isinstance(run.evaluation, PassEvaluation):
+                return self._collect_via_reprepare(
+                    run.evaluation.proposal, attempt=run.evidence.attempt, key=key,
+                )
+            return StaticProbeUnavailableEvidence(
+                attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
+                unavailable=StaticContentUnavailable(detail="content-changed"), failure=None, process=None,
+            )
+        self._emit_stage("static-probe")
+        prepared = self._prepare(vector)
+        if isinstance(prepared, PrepareFailure):
+            return StaticProbeUnavailableEvidence(
+                attempt=prepared.attempt, proposal=None, unavailable=None,
+                failure=prepared.model_copy(update={"process": None}), process=prepared.process,
+            )
+        result = self._static.collect_prepared(prepared, package=self._package, run_cache=self._run_cache)
+        if isinstance(result, StaticContentUnavailable):
+            if not prepared.inputs_valid:
+                prepared.close()
+                self._prepared.pop(key, None)
+            return StaticProbeUnavailableEvidence(
+                attempt=prepared.attempt, proposal=prepared.proposal,
+                unavailable=result, failure=None, process=None,
+            )
+        self._static_handles[key] = result
+        self._release_prepared(keep=frozenset({key}), retain_recent=1)
+        return result
 
     def _collect_via_reprepare(
-        self, proposal: Proposal, *, attempt: Attempt,
-    ) -> RunStaticConsumerRef | StaticProbeUnavailableEvidence:
+        self, proposal: Proposal, *, attempt: Attempt, key: tuple[tuple[str, str], ...],
+    ) -> CollectedStaticSubject | StaticProbeUnavailableEvidence:
         rebuilt = self._environments.reprepare(proposal, self._snapshot, self._source_plan)
         if isinstance(rebuilt, StaticContentUnavailable):
             return StaticProbeUnavailableEvidence(
@@ -467,42 +451,10 @@ class _ProposalRunner:
                 return StaticProbeUnavailableEvidence(
                     attempt=attempt, proposal=proposal, unavailable=result, failure=None, process=None,
                 )
-            assert rebuilt.static_consumer is not None
-            return rebuilt.static_consumer
+            self._static_handles[key] = result
+            return result
         finally:
             rebuilt.close()
-
-    def _inspect_static(
-        self, vector: tuple[VersionPin, ...],
-    ) -> RunStaticConsumerRef | StaticProbeUnavailableEvidence:
-        run = self._full_runs.get(self._key(vector))
-        if run is not None and run.evaluation is not None:
-            consumer = self._run_cache.find_consumer(run.evaluation.proposal)
-            if consumer is not None:
-                return consumer
-            if isinstance(run.evaluation, PassEvaluation):
-                return self._collect_via_reprepare(
-                    run.evaluation.proposal, attempt=run.evidence.attempt,
-                )
-            return StaticProbeUnavailableEvidence(
-                attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
-                unavailable=StaticContentUnavailable(detail="content-changed"), failure=None, process=None,
-            )
-        self._emit_stage("static-probe")
-        prepared = self._prepare(vector)
-        if isinstance(prepared, PrepareFailure):
-            return StaticProbeUnavailableEvidence(attempt=prepared.attempt, proposal=None, unavailable=None,
-                                                  failure=prepared.model_copy(update={"process": None}), process=prepared.process)
-        result = self._static.collect_prepared(prepared, package=self._package, run_cache=self._run_cache)
-        if isinstance(result, StaticContentUnavailable):
-            if not prepared.inputs_valid:
-                prepared.close()
-                self._prepared.pop(self._key(vector), None)
-            return StaticProbeUnavailableEvidence(attempt=prepared.attempt, proposal=prepared.proposal,
-                                                  unavailable=result, failure=None, process=None)
-        assert prepared.static_consumer is not None
-        self._release_prepared(keep=frozenset({self._key(vector)}), retain_recent=1)
-        return prepared.static_consumer
 
     def lookup_direct_in_slice(self, request: SearchProbeRequest) -> ProbeEvidence | None:
         """Read only this runner's exact execution context and completed facts."""
@@ -858,13 +810,12 @@ class SearchCoordinator:
         coordinate_search: CoordinateSearch,
         diagnostics: SearchDiagnosticConsumer | None = None,
         events: SearchActivityConsumer | None = None,
-        failures: FailurePolicy | None = None,
     ) -> None:
         self._environments = environments
         self._candidates = candidates
         self._static = static
         self._full = full
-        self._failures = failures or FailurePolicy()
+        self._failures = FailurePolicy()
         self._highest = highest
         self._diagnostics = diagnostics
         self._events = events
@@ -980,7 +931,6 @@ class SearchCoordinator:
             run_cache=run_cache,
             diagnostics=self._diagnostics,
             events=self._events,
-            failures=self._failures,
             small_threshold=self._coordinate_search.small_threshold,
         ) as runner:
             try:

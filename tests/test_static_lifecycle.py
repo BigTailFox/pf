@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pathlib import Path
 from threading import Event
@@ -14,7 +13,7 @@ from pf.environment import HighestResolution, PreparedEnvironment
 
 
 @pytest.fixture
-def prepared(tmp_path: Path) -> Iterator[PreparedEnvironment]:
+def assembly_and_prepared(tmp_path: Path):
     project = evaluation_project(tmp_path, dependency=None)
     assembly = evaluation_assembly(highest=())
     value = assembly.environments.prepare(
@@ -24,10 +23,15 @@ def prepared(tmp_path: Path) -> Iterator[PreparedEnvironment]:
     )
     assert isinstance(value, PreparedEnvironment)
     try:
-        yield value
+        yield assembly, value, project
     finally:
         value.close()
         project.snapshot.close()
+
+
+@pytest.fixture
+def prepared(assembly_and_prepared) -> PreparedEnvironment:
+    return assembly_and_prepared[1]
 
 
 class TestPreparedStaticLifetime:
@@ -97,8 +101,7 @@ class TestPreparedStaticLifetime:
 
     def test_reprepare_collects_after_original_environment_close(self, tmp_path: Path) -> None:
         from evaluation_fixtures import evaluation_assembly, evaluation_project
-        from pf.static_cache import RunTyFactRef, TyCheckCache
-        from scripted_static import ScriptedStaticRequests
+        from pf.static import CollectedStaticSubject, TyCheckCache
 
         project = evaluation_project(tmp_path, dependency=None)
         assembly = evaluation_assembly(highest=())
@@ -109,9 +112,6 @@ class TestPreparedStaticLifetime:
         )
         assert isinstance(prepared, PreparedEnvironment)
         proposal = prepared.proposal
-        request = ScriptedStaticRequests().capture(
-            prepared, package=project.package, environment={},
-        )
         prepared.close()
         assert not prepared.environment_root.exists()
         rebuilt = assembly.environments.reprepare(
@@ -123,8 +123,7 @@ class TestPreparedStaticLifetime:
             collected = assembly.static.collect_prepared(
                 rebuilt, package=project.package, run_cache=cache,
             )
-            assert isinstance(collected, RunTyFactRef)
-            assert collected.observation.subject.identity == request.subject.identity
+            assert isinstance(collected, CollectedStaticSubject)
             cache.close()
         finally:
             rebuilt.close()
@@ -133,17 +132,13 @@ class TestPreparedStaticLifetime:
 
 class TestStaticCancellationWhileWaiting:
     @pytest.mark.parametrize("cached", [False, True])
-    def test_run_stop_cancels_collection_waiting_for_input_admission(self, prepared, cached):
-        from evaluation_fixtures import successful_process
-        from scripted_static import ScriptedStaticRequests
-        from pf.evaluation import StaticEvaluator
-        from pf.project import ProjectLoader
+    def test_run_stop_cancels_collection_waiting_for_input_admission(self, assembly_and_prepared, cached):
+        from evaluation_fixtures import ScriptedProcessRunner, successful_process
+        from pf.static import CollectedStaticSubject, StaticEvaluator, TyCheckCache
         from pf.schemas.evaluation import TyCheck
-        from pf.static_cache import CacheMiss, RunTyFactRef, TyCheckCache
 
-        package = ProjectLoader().load(root=prepared.package_root).target
-        requests = ScriptedStaticRequests()
-        request = requests.capture(prepared, package=package, environment={})
+        assembly, prepared, project = assembly_and_prepared
+        package = project.package
         entered = Event()
         calls = []
 
@@ -152,14 +147,17 @@ class TestStaticCancellationWhileWaiting:
                 calls.append(request)
                 return TyCheck(process=successful_process(), diagnostics=())
 
-        static = StaticEvaluator(Ty(), requests=requests)
+        static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv))
         with TyCheckCache() as cache:
             if cached:
-                assert isinstance(static.collect(prepared, request, run_cache=cache), RunTyFactRef)
+                assert isinstance(
+                    static.collect_prepared(prepared, package=package, run_cache=cache),
+                    CollectedStaticSubject,
+                )
 
             def collect():
                 entered.set()
-                return static.collect(prepared, request, run_cache=cache)
+                return static.collect_prepared(prepared, package=package, run_cache=cache)
 
             with ThreadPoolExecutor(max_workers=1) as pool:
                 with prepared.static_use() as available:
@@ -174,8 +172,10 @@ class TestStaticCancellationWhileWaiting:
                     assert prepared.environment_root.exists()
             assert len(calls) == int(cached)
             assert len(cache.snapshot(prepared.proposal.cell).facts) == int(cached)
-            saved = cache.lookup(request.subject, request.observation_policy)
-            assert isinstance(saved, RunTyFactRef if cached else CacheMiss)
+            if cached:
+                assert cache.snapshot(prepared.proposal.cell).facts
+            else:
+                assert cache.snapshot(prepared.proposal.cell).facts == ()
         assert not prepared.closed
 
     def test_cancelled_input_borrow_finishes_while_other_owner_still_holds_it(self, prepared):

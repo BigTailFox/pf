@@ -11,6 +11,7 @@ from evaluation_fixtures import (
 )
 
 from pf.report import PackageReportBuilder, ReportStore
+from pf.schemas.journal import JournalHighestCollected
 from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
@@ -48,10 +49,10 @@ class TestHighestVersionVerifier:
 
         assert isinstance(result, HighestVersionPass)
         assert result.evaluation.status == "PASS"
-        scope = run_cache.snapshot(result.evaluation.proposal.cell)
-        assert scope.highest_reference_ref is not None
-        assert scope.consumer(scope.highest_reference_ref).preparation.proposal == result.evaluation.proposal
-        assert scope.facts[0].observation.fact.kind == "ty-check"
+        membership = run_cache.admitted_membership(result.evaluation.proposal.cell)
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestCollected)
+        assert run_cache.documents()[0].fact.kind == "ty-check"
         assert assembly.uv.resolutions == ["highest"]
         assert assembly.ty.vectors == [()]
         assert assembly.verifier.vectors == [()]
@@ -112,9 +113,10 @@ class TestHighestVersionVerifier:
         )
 
         assert isinstance(result, HighestVersionPass)
-        scope = run_cache.snapshot(result.evaluation.proposal.cell)
-        assert scope.highest_reference_ref is not None
-        assert scope.facts[0].observation.fact.kind == "ty-check-unavailable"
+        membership = run_cache.admitted_membership(result.evaluation.proposal.cell)
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestCollected)
+        assert run_cache.documents()[0].fact.kind == "ty-check-unavailable"
         assert result.evaluation is not None
         assert assembly.verifier.vectors == [()]
         assert assembly.ty.vectors == [()]
@@ -168,9 +170,10 @@ class TestHighestVersionVerifier:
         assert result.failure.cause == expected_cause
         assert result.evaluation is not None
         if not static_available:
-            scope = run_cache.snapshot(result.cell)
-            assert scope.highest_reference_ref is not None
-            assert scope.facts[0].observation.fact.kind == "ty-check-unavailable"
+            membership = run_cache.admitted_membership(result.cell)
+            assert membership is not None
+            assert isinstance(membership.highest, JournalHighestCollected)
+            assert run_cache.documents()[0].fact.kind == "ty-check-unavailable"
         assert len(assembly.ty.vectors) == 1
         assert len(assembly.verifier.vectors) == 1
         assert all(not root.exists() for root in assembly.uv.environment_roots)

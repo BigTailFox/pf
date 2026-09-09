@@ -1,19 +1,24 @@
 # PF 工程文档归档
 
 - **状态：** 历史索引
-- **最后整理：** 2026-09-09
+- **最后整理：** 2026-09-10
 
 归档只保存决策来源、实施过程、评审证据和实验记录，不解释当前行为。现行契约与所有权见 [工程文档索引](../README.md)。
 编号永久保留、不复用；现行 owner 出现 D012–D014、D037 等空号是归档结果，不是缺失。原 D031 已拆至现行 [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)。
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
-| [designs](designs/) | D009–D011、D015–D030、D032–D036、D038、D040、D041、D043 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P045 | 实施与验证已完成 |
+| [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D041、D043 | 已实施并由现行 Design 接管 |
+| [plans](plans/) | P001–P046 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R007、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001、I002 | 结论已纳入 D013 / 现行静态 owner |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
+
+[D039](designs/D039-pf-static-evaluation-module.md) /
+[P046](plans/P046-pf-static-evaluation-module.md)：静态评价深模块已完成；公开五方法、Preparation
+registry + Direct-PASS ledger、schema 纯化与 `failures=` 收回已落地。稳定规则由 D002/D003 §5/D004/D008
+与 CONTEXT 接管，D005 分类不变。
 
 [D043](designs/D043-pf-static-subject-v2.md) /
 [P045](plans/P045-pf-static-subject-v2.md) /

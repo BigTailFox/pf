@@ -30,6 +30,40 @@ from pf.static_projection import static_subject
 from pf.ty_version import read_ty_tool_version, ty_version_matches_metadata
 
 
+def static_preparation_evidence(
+    prepared: PreparedEnvironment, package: PackagePlan,
+) -> StaticPreparationEvidence | StaticContentUnavailable:
+    """Portable preparation from a prepared environment, before request assembly."""
+    plan = prepared.environment_plan or prepared.project_plan
+    interpreter = prepared.proposal.interpreter
+    if interpreter is None:
+        return StaticContentUnavailable(detail="installed-input-mismatch")
+    subject = static_subject(
+        source_snapshot_digest=prepared.proposal.snapshot_digest,
+        cell=prepared.proposal.cell,
+        interpreter=interpreter,
+        packages=plan.packages,
+        snapshot_root=prepared.proposal_root,
+    )
+    if isinstance(subject, StaticContentUnavailable):
+        return subject
+    return StaticPreparationEvidence(
+        attempt=prepared.attempt, proposal=prepared.proposal, subject=subject,
+        harness_requirements=package.harness_requirements,
+        execution_policy=execution_policy(package.config),
+        declarations=package.declarations,
+        selected_test_group=package.selected_test_group,
+        harness_baseline=prepared.harness_baseline,
+        selected_candidates=prepared.selected_candidates,
+        project_plan=ResolutionPlanEvidence.from_plan(prepared.project_plan),
+        environment_plan=(
+            ResolutionPlanEvidence.from_plan(prepared.environment_plan)
+            if prepared.environment_plan is not None else None
+        ),
+        source_plan=prepared.source_plan,
+    )
+
+
 def may_start_ty(
     policy: TyObservationPolicy, *, tool_version_matches: bool = True,
 ) -> bool:
@@ -106,7 +140,6 @@ class StaticRequestFactory:
                 except OSError:
                     return StaticContentUnavailable(detail="unreadable-content")
                 prepared.static_materialization = None
-                prepared.static_consumer = None
             inputs = StaticInputsAdapter(self._runner).capture(
                 prepared, package=package, source_plan=prepared.source_plan,
                 cancellation=cancellation,
@@ -249,21 +282,9 @@ class StaticRequestFactory:
             environment_mode="explicit",
             timeout_seconds=package.config.ty.timeout_seconds,
         )
-        preparation = StaticPreparationEvidence(
-            attempt=prepared.attempt, proposal=prepared.proposal, subject=subject,
-            harness_requirements=package.harness_requirements,
-            execution_policy=execution_policy(package.config),
-            declarations=package.declarations,
-            selected_test_group=package.selected_test_group,
-            harness_baseline=prepared.harness_baseline,
-            selected_candidates=prepared.selected_candidates,
-            project_plan=ResolutionPlanEvidence.from_plan(prepared.project_plan),
-            environment_plan=(
-                ResolutionPlanEvidence.from_plan(prepared.environment_plan)
-                if prepared.environment_plan is not None else None
-            ),
-            source_plan=prepared.source_plan,
-        )
+        preparation = static_preparation_evidence(prepared, package)
+        if isinstance(preparation, StaticContentUnavailable):
+            return preparation
         return StaticTyRequest(
             subject, policy, spec, snapshot_root, prepared.environment_root,
             prepared,

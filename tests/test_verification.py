@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 from collections.abc import Callable
 import inspect
@@ -354,7 +354,7 @@ class TestVerificationRunnerRequest:
 
         class Operation:
             def search(self, *, package, cell, snapshot, source_plan, run_cache):
-                assert run_cache.snapshot(cell).facts == ()
+                assert run_cache.documents() == ()
                 received.append(run_cache)
                 if crash:
                     raise RuntimeError("controlled operation failure")

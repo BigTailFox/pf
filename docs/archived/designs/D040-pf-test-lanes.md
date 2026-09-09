@@ -6,7 +6,7 @@
 - **目标 owner：** [D002](../../designs/D002-pf-implementation.md) §11
 - **验收标准：** [§8](#8-验收标准)
 - **来源：** [E001](../../experiments/E001-pf-self-bootstrap-validation-contract.md) 两类自举契约；[tests/README.md](../../../tests/README.md) 2026-09-08 单元/公开缝/资格分层；[R008](../../reviews/R008-pf-search-performance-review.md) 完整 `test-command` 主导搜索墙钟；当时 D002 §11 把真实装配写成默认证据、未区分调度
-- **关联：** [D001](../../designs/D001-pf.md) 的 configured validation contract `C` 与 `test-command` 语义不变；[D012](../../designs/D012-pf-harness-relaxation.md) / [D013](../../designs/D013-pf-pytest-observer.md) 资格矩阵仍在资格车道；[D039](../../designs/D039-pf-static-evaluation-module.md) 只改静态测试表面，与本文件正交
+- **关联：** [D001](../../designs/D001-pf.md) 的 configured validation contract `C` 与 `test-command` 语义不变；[D012](../../designs/D012-pf-harness-relaxation.md) / [D013](../../designs/D013-pf-pytest-observer.md) 资格矩阵仍在资格车道；[D039](D039-pf-static-evaluation-module.md) 只改静态测试表面，与本文件正交
 
 本文保存已完成的仓库测试车道与自举 targeted-runtime `C` 迁移。用户要求实施后经 P043 规划与验收，稳定规则已归并 [D002](../../designs/D002-pf-implementation.md) §11、`tests/README.md`、`pyproject.toml` 与 CI。正文保留迁移时的目标与理由，不再承担现行规范。
 种类、消费者与车道是仓库工程用语，不进入 [CONTEXT.md](../../../CONTEXT.md)。

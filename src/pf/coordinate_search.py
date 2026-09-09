@@ -7,7 +7,7 @@ from typing import Literal, NoReturn, Protocol, runtime_checkable
 from packaging.version import Version
 
 from pf.errors import ConfigurationError
-from pf.static_guidance import StaticGuidanceEvaluator, StaticHint, locate_static_hint
+from pf.static import StaticGuidanceEvaluator, StaticHint, locate_static_hint
 from pf.schemas.evaluation import CoordinateSelectionReason, SearchProbeRequest
 from pf.schemas.project import CandidateSnapshot, VersionPin
 from pf.schemas.report import (

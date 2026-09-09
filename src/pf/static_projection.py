@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 
 from packaging.version import Version
 
-from pf.resolution import ResolutionPackage
+from pf.schemas.resolution import ResolutionPackage
 from pf.schemas.base import canonical_identity_json
 from pf.schemas.project import Cell, InterpreterIdentity
 from pf.schemas.static import (

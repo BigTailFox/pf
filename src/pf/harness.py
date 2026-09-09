@@ -6,7 +6,7 @@ from packaging.version import Version
 
 from pf.errors import ConfigurationError
 from pf.markers import MarkerError, evaluate_contextual_marker
-from pf.resolution import ResolutionPlanEvidence
+from pf.schemas.resolution import ResolutionPlanEvidence
 from pf.schemas.project import (
     Cell,
     HarnessBaseline,

@@ -3,7 +3,7 @@
 - **状态：** 已完成并归档；2026-09-09 通过 AC1–AC14 验收，稳定规则已由现行 owner 接管；实施与证据见 [P045](../plans/P045-pf-static-subject-v2.md)
 - **日期：** 2026-09-09
 - **性质：** 已归档临时迁移 Design；不再承担现行规范
-- **目标 owner：** [D004](../../designs/D004-pf-ty-enhancement.md)、[D003](../../designs/D003-pf-search-algorithm.md)、[D014](../../designs/D014-pf-report-schema.md)、[D008](../../designs/D008-pf-verification-run.md)、[D012](../../designs/D012-pf-harness-relaxation.md)、[D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)；吸收时同步 [CONTEXT.md](../../../CONTEXT.md) 词汇，并修订 [D039](../../designs/D039-pf-static-evaluation-module.md) 的离线 admission / AC4 / AC10
+- **目标 owner：** [D004](../../designs/D004-pf-ty-enhancement.md)、[D003](../../designs/D003-pf-search-algorithm.md)、[D014](../../designs/D014-pf-report-schema.md)、[D008](../../designs/D008-pf-verification-run.md)、[D012](../../designs/D012-pf-harness-relaxation.md)、[D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)；吸收时同步 [CONTEXT.md](../../../CONTEXT.md) 词汇，并修订 [D039](D039-pf-static-evaluation-module.md) 的离线 admission / AC4 / AC10
 - **验收标准：** [§12](#12-验收标准)
 - **实施计划：** [P045](../plans/P045-pf-static-subject-v2.md)
 - **来源：** [I002](../investigations/I002-pf-self-search-py310-static-collection.md)；对照 [R008 2026-09-09](../../reviews/R008-pf-search-performance-review.md)

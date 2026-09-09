@@ -24,9 +24,10 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import VersionPin
 from pf.schemas.static_comparison import SliceAnchorPass
 from pf.schemas.static_consumer import StaticConsumerEvidence
+from pf.static_cache import RunTyFactRef
 from pf.ty_fact import ty_fact_document
-from scripted_static import ScriptedStaticRequests
-from pf.static_admission import admit_common_static_context, admit_harness_relation
+from static_fixtures import _ScriptedStaticRequest as ScriptedStaticRequests
+from pf.static.comparison import admit_common_static_context, admit_harness_relation
 from test_static_request import (
     assert_changed_other_coordinate,
     assert_global_comparison_contract,
@@ -99,8 +100,9 @@ class TestScriptedStaticComparison:
             )
             from pf.schemas.static_comparison import (
                 GlobalComparisonContext, SliceComparisonContext, StaticCompared,
-                StaticComparisonDocument, StaticUncompared,
+                StaticUncompared,
             )
+            from pf.static.comparison import compare_static_document
             from pf.ty_fact import ty_fact_document
 
             other_policy = guidance_policy(
@@ -115,7 +117,7 @@ class TestScriptedStaticComparison:
                     TyCheck(process=reference_process, diagnostics=()),
                 ),
             )
-            mismatched = StaticComparisonDocument.compare(
+            mismatched = compare_static_document(
                 context=GlobalComparisonContext(
                     highest_proposal_id=reference.preparation.proposal.proposal_id,
                 ),
@@ -129,7 +131,7 @@ class TestScriptedStaticComparison:
                 observation=reference.observation.observation_policy,
                 observation_identity=reference.observation.observation_policy.identity,
             )
-            local = StaticComparisonDocument.compare(
+            local = compare_static_document(
                 context=SliceComparisonContext(
                     dependency="idna",
                     fixed_other_coordinates=tuple(
@@ -241,6 +243,83 @@ class TestScriptedStaticComparison:
                 )
             finally:
                 lower.close()
+        finally:
+            highest.close()
+            project.snapshot.close()
+
+
+class TestSavedAuditAdmission:
+    def test_admit_rejects_unbound_pass_without_preparation_and_wrong_scope_ref(self, tmp_path):
+        from uuid import UUID, uuid5
+
+        from pf.schemas.evaluation import (
+            NormalExit,
+            TyCheck,
+            VerifierDiagnostics,
+            VerifierPass,
+            VerifierRun,
+        )
+        from pf.schemas.static_scope import StaticScopeEvidence
+        from pf.static.audit import _admit_saved_static_audit
+        from pf.static import TyCheckCache
+        from pf.ty_fact import ty_fact_document
+
+        project = evaluation_project(tmp_path, dependencies=("idna",))
+        assembly = evaluation_assembly(
+            highest=(VersionPin(name="idna", version="3.10"),),
+        )
+        factory = ScriptedStaticRequests()
+        highest = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+            resolution=HighestResolution(),
+        )
+        assert isinstance(highest, PreparedEnvironment)
+        try:
+            request = factory.capture(highest, package=project.package, environment={})
+            cache = TyCheckCache()
+            process = successful_process()
+            observation = ty_fact_document(
+                request.subject, request.observation_policy,
+                TyCheck(process=process, diagnostics=()),
+            )
+            fact = cache.collect(
+                request.preparation, request.observation_policy,
+                lambda _: (observation, process), revalidate=lambda: True,
+            )
+            assert isinstance(fact, RunTyFactRef)
+            consumer = cache.consumer(fact, request.preparation)
+            cache.set_highest(consumer)
+            run = VerifierRun(
+                authoritative=VerifierPass(terminal=NormalExit(exit_code=0)),
+                diagnostics=VerifierDiagnostics(process=successful_process()),
+            )
+            cache.register_prepared(highest, request.preparation)
+            from pf.schemas.evaluation import PassEvaluation, RuntimeEvaluationRun
+            assert isinstance(run.authoritative, VerifierPass)
+            cache.record_direct_pass(
+                highest,
+                RuntimeEvaluationRun(
+                    evaluation=PassEvaluation(
+                        proposal=highest.proposal, verifier=run.authoritative,
+                    ),
+                    diagnostics=run.diagnostics,
+                ),
+            )
+            admitted = cache.admitted_membership(request.preparation.proposal.cell)
+            assert admitted is not None
+            document = cache.snapshot(request.preparation.proposal.cell)
+            missing = document.model_dump(mode="json")
+            missing["passes"][0]["preparation_ref"] = None
+            with pytest.raises(ValueError, match="preparation_ref"):
+                _admit_saved_static_audit(StaticScopeEvidence.model_validate(missing))
+            wrong = document.model_dump(mode="json")
+            wrong["scope_ref"] = uuid5(UUID(document.run_identity), "other").hex
+            with pytest.raises(ValueError, match="scope_ref"):
+                _admit_saved_static_audit(StaticScopeEvidence.model_validate(wrong))
+            cache.close()
         finally:
             highest.close()
             project.snapshot.close()

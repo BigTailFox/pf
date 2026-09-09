@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -43,7 +43,6 @@ from pf.schemas.journal import (
     VerificationJournalEntry,
     VerificationPackagePolicy,
     cell_canonical_key,
-    static_membership_from_scope,
 )
 from pf.schemas.ty_cache import TyCacheDocument, ty_cache_from_documents
 from pf.schemas.project import Cell, PackagePlan, SourcePlan, cell_identity
@@ -226,6 +225,7 @@ class VerificationRunner:
         except BaseException as error:
             try:
                 try:
+                    gate.admit_remaining()
                     run_cache.stop()
                 finally:
                     gate.finalize()
@@ -235,6 +235,7 @@ class VerificationRunner:
                 run_cache.close()
             raise
         try:
+            gate.admit_remaining()
             run_cache.stop()
         finally:
             try:
@@ -405,10 +406,14 @@ class _VerificationEvents:
             )
         self._inner.consume(event)
 
-    def finalize(self) -> None:
+    def admit_remaining(self) -> None:
+        """Admit every Cell before stop. Do not run admission after stop."""
         with self._lock:
             for cell in self._cells:
                 self._capture_static_scope(cell)
+
+    def finalize(self) -> None:
+        with self._lock:
             if self._logs is not None and self._error is None:
                 self._persist()
             error = self._error
@@ -418,8 +423,13 @@ class _VerificationEvents:
     def _capture_static_scope(self, cell: Cell) -> None:
         if self._logs is None:
             return
-        scope = self._run_cache.snapshot(cell)
-        member = static_membership_from_scope(scope)
+        try:
+            member = self._run_cache.admitted_membership(cell)
+        except ValueError as error:
+            self._error = InfrastructureError(
+                "static audit admission failed", detail=str(error),
+            )
+            return
         if member is not None:
             self._static_membership[cell.model_dump_json()] = member
 

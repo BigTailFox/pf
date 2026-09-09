@@ -78,7 +78,6 @@ from pf.schemas.static import StaticContentUnavailable, StaticSubject
 
 if TYPE_CHECKING:
     from pf.static_request import StaticRequestMaterialization
-    from pf.static_cache import RunStaticConsumerRef
 
 
 @dataclass(frozen=True)
@@ -267,7 +266,6 @@ class PreparedEnvironment:
         self._use_lock = threading.RLock()
         self._operation: Literal["static", "verifier"] | None = None
         self.static_materialization: StaticRequestMaterialization | None = None
-        self.static_consumer: RunStaticConsumerRef | None = None
         self._tested = False
         self._inputs_valid = True
         self._closed = False
@@ -276,7 +274,6 @@ class PreparedEnvironment:
         """Record independently observed changes to owned execution inputs."""
         with self._use_lock:
             self._inputs_valid = False
-            self.static_consumer = None
 
     @property
     def inputs_valid(self) -> bool:
@@ -387,7 +384,6 @@ class PreparedEnvironment:
             if not self._closed:
                 self._closed = True
                 self.static_materialization = None
-                self.static_consumer = None
                 cleanup_temporary_directory(self._temporary_directory)
 
 

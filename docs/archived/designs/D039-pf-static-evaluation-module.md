@@ -1,13 +1,13 @@
 # D039 — PF 静态评价深模块
 
-- **状态：** 实施中
+- **状态：** 已完成并归档；2026-09-10 通过 AC1–AC14 验收，稳定规则已由现行 owner 接管；实施与证据见 [P046](../plans/P046-pf-static-evaluation-module.md)
 - **日期：** 2026-09-08
-- **性质：** 临时重构 Design；已接受，实施以覆盖 AC1–AC14 的 Plan 为准；吸收完成前不冒充已交付行为
-- **目标 owner：** [D002](D002-pf-implementation.md)、[D004](D004-pf-ty-enhancement.md)、[D008](D008-pf-verification-run.md)
+- **性质：** 已归档临时迁移 Design；不再承担现行规范
+- **目标 owner：** [D002](../../designs/D002-pf-implementation.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)
 - **验收标准：** [§9](#9-验收标准)
 - **实施计划：** [P046](../plans/P046-pf-static-evaluation-module.md)
-- **来源：** [R011](../reviews/R011-pf-architecture-review.md) §3–§6
-- **关联：** [D003](D003-pf-search-algorithm.md) 两阶段搜索与「静态无 compatibility disposition」不变；S4 必须改写 D003 §5 的 Direct-PASS / `record_runtime` / `open_static_slice` 责任，不是只改 StaticSlice 提供方指针。[D005](D005-pf-failure-and-diagnose.md) 分类 interface 与 Failure Process Log 资格不变；[D012](D012-pf-harness-relaxation.md) 保留 harness 变换；[D014](D014-pf-report-schema.md) 公开报告无静态 intern 表；比较重放只在完整的 Run-local static audit closure 上进行，不能只凭 `TyFactDocument`。[D043](../archived/designs/D043-pf-static-subject-v2.md) 已吸收的五表删除、`selection_reason` 与 v2 identity 字节不在本文件 AC10 范围内
+- **来源：** [R011](../../reviews/R011-pf-architecture-review.md) §3–§6
+- **关联：** [D003](../../designs/D003-pf-search-algorithm.md) 两阶段搜索与「静态无 compatibility disposition」不变；S4 必须改写 D003 §5 的 Direct-PASS / `record_runtime` / `open_static_slice` 责任，不是只改 StaticSlice 提供方指针。[D005](../../designs/D005-pf-failure-and-diagnose.md) 分类 interface 与 Failure Process Log 资格不变；[D012](../../designs/D012-pf-harness-relaxation.md) 保留 harness 变换；[D014](../../designs/D014-pf-report-schema.md) 公开报告无静态 intern 表；比较重放只在完整的 Run-local static audit closure 上进行，不能只凭 `TyFactDocument`。[D043](D043-pf-static-subject-v2.md) 已吸收的五表删除、`selection_reason` 与 v2 identity 字节不在本文件 AC10 范围内
 
 本文定义 R011 的**目标** module interface：把静态采集、Run cache、准入、比较与纯 guidance 收成一个深模块，并把 FrozenSchema 从这些算法中拆出；同一吸收改写 D002 模块地图，并收回 `FailurePolicy` 可选注入。行为语义仍以现行 D003/D004/D005 为准；本文件只改规则住在哪里、调用方必须学习什么。吸收完成前，现行行为仍以 D002/D004/D008 为准，本文件不冒充已交付行为。
 
@@ -543,6 +543,5 @@ slice/omission；产品调用方仍调用 cache 领域方法；D002/D004/D008 �
 
 ## 10. 接受状态
 
-实施中（2026-09-10 评审接受；同日收尾修订后以 [P046](../plans/P046-pf-static-evaluation-module.md) 为准）。
-P046 完成并吸收进 D002/D004/D008（及相关指针；D003 §5 改写 Direct-PASS / `record_runtime` 责任；
-D005 只核对不改分类规则）后，本文与 Plan 一并归档。接受本身不授权改生产代码，实施以 Plan 为准。
+已完成并归档。2026-09-10 按 [P046](../plans/P046-pf-static-evaluation-module.md) 实施 AC1–AC14；
+稳定规则已归并 D002/D003 §5/D004/D008 与 CONTEXT，D005 分类规则未改。正文保留迁移时的目标与理由，不再承担现行规范。

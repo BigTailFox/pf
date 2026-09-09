@@ -3,14 +3,13 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from pf.resolution import environment_identity_digest, resolution_graph_id
 from pf.schemas.base import FrozenSchema
 from pf.schemas.evaluation import Attempt, PrepareFailure, ProcessObservation, execution_terminal, SearchProbeRequest
 from pf.schemas.project import CandidateSnapshot, Proposal
 from pf.schemas.policy import GuidancePolicy, SearchDerivationPolicy
+from pf.schemas.resolution import environment_identity_digest, resolution_graph_id
 from pf.schemas.static import StaticContentUnavailable
-from pf.schemas.static_comparison import SliceComparisonContext, StaticComparisonUnavailable
-from pf.static_guidance import StaticPoint, locate_static_hint
+from pf.schemas.static_comparison import SliceComparisonContext
 
 
 class StaticProbeUnavailableEvidence(FrozenSchema):
@@ -79,105 +78,6 @@ class StaticSearchAudit(FrozenSchema):
     hint: StaticHintEvidence | None
     reason: Literal["lower-unchanged", "context-mismatch", "static-unavailable", "anchor-unavailable", "static-inconsistent"] | None
 
-    def validate_in_scope(self, scope) -> None:
-        if self.policy.guidance_identity != self.guidance.identity:
-            raise ValueError("static search policy must bind its guidance")
-        if self.candidates.cell != scope.cell or self.candidates.dependency != self.context.dependency:
-            raise ValueError("static search candidate snapshot must belong to its Slice")
-        window = self.context.window
-        expected = tuple(self.candidates.select(item.version) for item in window)
-        if expected != window:
-            raise ValueError("static search window must use its frozen candidate artifacts")
-        all_versions = [item.version for item in self.candidates.candidates]
-        indices = [all_versions.index(item.version) for item in window]
-        if indices != list(range(indices[0], indices[-1] + 1)):
-            raise ValueError("static search window must be contiguous in its frozen snapshot")
-        comparisons = {item.identity: item for item in scope.comparisons}
-
-        def resolve(identity, *, prior=False):
-            item = comparisons.get(identity)
-            if item is None or not isinstance(item.context, SliceComparisonContext):
-                raise ValueError("static search comparison is missing from this scope")
-            if (item.guidance != self.guidance
-                    or item.context.anchor_pass != self.context.anchor_pass
-                    or item.context.dependency != self.context.dependency
-                    or item.context.fixed_other_coordinates != self.context.fixed_other_coordinates
-                    or (not prior and item.context != self.context)):
-                raise ValueError("static search comparison belongs to another local context")
-            consumer = scope.consumer(item.subject_ref)
-            version = next(pin.version for pin in consumer.preparation.proposal.managed_vector
-                           if pin.name == self.context.dependency)
-            return item, StaticPoint(version, item.result, identity)
-
-        anchor_record, anchor = resolve(self.points[0].comparison_identity)
-        if anchor_record.subject_ref != anchor_record.reference_ref:
-            raise ValueError("static search anchor requires an actual self-comparison")
-        anchor_preparation = scope.consumer(anchor_record.reference_ref).preparation
-        if self.candidates.source_plan_identity != anchor_preparation.attempt.identity.source_plan_identity:
-            raise ValueError("static search candidate snapshot must bind its anchor source plan")
-        if self.points[0].version != anchor.version:
-            raise ValueError("static search anchor version differs from its Proposal")
-        prior = tuple(resolve(identity, prior=True)[1] for identity in self.prior_comparison_identities)
-        restored = [anchor]
-        for point in self.points[1:]:
-            if point.comparison_identity is not None:
-                _, actual = resolve(point.comparison_identity)
-            else:
-                failure = point.unavailable
-                assert failure is not None
-                identity = failure.attempt.identity
-                anchor_identity = anchor_preparation.attempt.identity
-                if (identity.cell != scope.cell or identity.requested_resolution != "exact-vector"
-                        or identity.source_snapshot_digest != anchor_identity.source_snapshot_digest
-                        or identity.source_plan_identity != anchor_identity.source_plan_identity
-                        or identity.execution_policy_identity != anchor_identity.execution_policy_identity):
-                    raise ValueError("static uncollected probe must belong to its exact Slice request")
-                expected_vector = {pin.name: pin.version for pin in self.context.fixed_other_coordinates}
-                expected_vector[self.context.dependency] = point.version
-                vector = (failure.proposal.managed_vector if failure.proposal is not None
-                          else identity.requested_managed_vector or ())
-                if {pin.name: pin.version for pin in vector} != expected_vector:
-                    raise ValueError("static uncollected probe vector must match its selected point")
-                reason = failure.unavailable.detail if failure.unavailable is not None else "prepare-unavailable"
-                actual = StaticPoint(point.version, StaticComparisonUnavailable(reason=reason), None)
-            if actual.version != point.version:
-                raise ValueError("static search point version differs from its comparison")
-            restored.append(actual)
-        cursor = 1
-        captured = None
-
-        class Replay:
-            known_points = prior
-
-            def __init__(self):
-                self.anchor = anchor
-
-            def inspect(self, version):
-                nonlocal cursor
-                if cursor >= len(restored) or restored[cursor].version != version:
-                    raise ValueError("static search query sequence cannot be replayed")
-                result = restored[cursor]
-                cursor += 1
-                return result
-
-            def finish(self, result):
-                nonlocal captured
-                captured = result
-
-        locate_static_hint(Replay(), tuple(item.version for item in window))
-        if cursor != len(restored) or captured is None or captured.reason != self.reason:
-            raise ValueError("static search result does not match its actual query sequence")
-        expected_hint = None
-        if captured.hint is not None:
-            expected_hint = StaticHintEvidence(
-                suspect_index=restored.index(captured.hint.suspect),
-                clean_index=restored.index(captured.hint.clean_neighbor),
-                clean_is_anchor=captured.hint.clean_is_anchor,
-            )
-        if expected_hint != self.hint:
-            raise ValueError("static hint endpoints do not match admitted local comparisons")
-
-
 class StaticPhaseOmission(FrozenSchema):
     """Requested local guidance with no admitted raw/PASS anchor; no fake observation."""
     ref: str = Field(min_length=1)
@@ -233,6 +133,8 @@ class StaticPhaseOmission(FrozenSchema):
         if known != self.observed_pass_refs:
             raise ValueError("omitted static phase must retain its observed PASS prefix")
         for passed in scope.passes[:len(self.observed_pass_refs)]:
+            if passed.consumer_ref is None:
+                continue
             consumer = scope.consumer(passed.consumer_ref)
             if consumer.preparation.proposal == self.proposal and isinstance(consumer.observation.fact, TyCheckFact):
                 raise ValueError("omitted static phase has an admitted local anchor")

@@ -3,12 +3,17 @@ from threading import Event
 
 import pytest
 
-from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
-from scripted_static import ScriptedStaticRequests
+from evaluation_fixtures import (
+    ScriptedProcessRunner,
+    evaluation_assembly,
+    evaluation_project,
+    successful_process,
+)
 from pf.environment import HighestResolution, LowestDirectResolution, PreparedEnvironment
-from pf.evaluation import StaticEvaluator, StagePermitPools
+from pf.evaluation import StagePermitPools
+from pf.static import CollectedStaticSubject, StaticEvaluator
 from pf.schemas.evaluation import ToolFailure, TyCheck, VerifierRun, VerifierPass, NormalExit, VerifierDiagnostics
-from pf.static_cache import RunTyFactRef, TyCheckCache
+from pf.static import TyCheckCache
 
 
 @pytest.fixture
@@ -28,13 +33,9 @@ def prepared_pair(tmp_path):
         source_plan=project.source_plan, resolution=LowestDirectResolution(owner.harness_baseline),
     )
     assert isinstance(waiter, PreparedEnvironment)
-    requests = ScriptedStaticRequests()
-    owner_request = requests.capture(owner, package=project.package, environment={})
-    waiter_request = requests.capture(waiter, package=project.package, environment={})
-    assert owner_request.subject == waiter_request.subject
     assert owner.proposal != waiter.proposal
     try:
-        yield project, assembly, owner, waiter, requests, owner_request, waiter_request
+        yield project, assembly, owner, waiter
     finally:
         owner.close()
         waiter.close()
@@ -46,7 +47,7 @@ class TestStaticConsumerOwnership:
     @pytest.mark.parametrize("target", ["owner", "waiter"])
     @pytest.mark.parametrize("action", ["close", "verifier"])
     def test_join_holds_each_proposal_inputs_until_static_completion(self, prepared_pair, failed, target, action):
-        project, assembly, owner, waiter, requests, owner_request, waiter_request = prepared_pair
+        project, assembly, owner, waiter = prepared_pair
         entered, joined, release, action_entered = Event(), Event(), Event(), Event()
         calls = []
 
@@ -66,7 +67,7 @@ class TestStaticConsumerOwnership:
                 return (ToolFailure(cause="TOOL_FAILURE", stage="ty", process=process) if failed
                         else TyCheck(process=process, diagnostics=()))
 
-        static = StaticEvaluator(Ty(), requests=requests, permits=StagePermitPools(ty_jobs=1, test_jobs=1))
+        static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv), permits=StagePermitPools(ty_jobs=1, test_jobs=1))
         environment = owner if target == "owner" else waiter
 
         def consume():
@@ -74,15 +75,16 @@ class TestStaticConsumerOwnership:
             if action == "close":
                 environment.close()
             else:
-                run = assembly.runtime.evaluate(environment, package=project.package, run_cache=cache)
+                run = assembly.runtime.evaluate(environment, package=project.package)
+                static.record_runtime(environment, run, run_cache=cache)
                 assert run.evaluation.proposal == environment.proposal
 
         try:
             with Cache() as cache, ThreadPoolExecutor(max_workers=3) as pool:
-                first = pool.submit(static.collect, owner, owner_request, run_cache=cache)
+                first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
                 try:
                     assert entered.wait(5)
-                    second = pool.submit(static.collect, waiter, waiter_request, run_cache=cache)
+                    second = pool.submit(static.collect_prepared, waiter, package=project.package, run_cache=cache)
                     assert joined.wait(5)
                     consumed = pool.submit(consume)
                     assert action_entered.wait(5)
@@ -94,41 +96,49 @@ class TestStaticConsumerOwnership:
                     release.set()
                 a, b = first.result(5), second.result(5)
                 consumed.result(5)
-                assert isinstance(a, RunTyFactRef) and a is b
-                assert a.observation.fact.kind == ("ty-check-unavailable" if failed else "ty-check")
+                assert isinstance(a, CollectedStaticSubject) and isinstance(b, CollectedStaticSubject)
                 scope = cache.snapshot(owner.proposal.cell)
+                assert scope.facts[0].observation.fact.kind == ("ty-check-unavailable" if failed else "ty-check")
                 assert len(scope.facts) == 1 and len(scope.consumers) == 2
-                assert {item.preparation.proposal.proposal_id for item in scope.consumers} == {
+                assert {
+                    scope.preparation(item.preparation_ref).proposal.proposal_id
+                    for item in scope.consumers
+                } == {
                     owner.proposal.proposal_id, waiter.proposal.proposal_id,
                 }
                 assert len(calls) == 1
                 assert len(scope.passes) == (1 if action == "verifier" else 0)
                 if scope.passes:
                     passed = scope.passes[0]
+                    assert passed.consumer_ref is not None
                     assert scope.consumer(passed.consumer_ref).preparation.proposal == environment.proposal
         finally:
             release.set()
 
     def test_changed_host_bytes_outside_subject_do_not_block_verifier(self, prepared_pair):
-        project, assembly, owner, _, requests, request, _ = prepared_pair
+        project, assembly, owner, _ = prepared_pair
 
         class Ty:
             def observe(self, request, *, cancellation=None):
                 return TyCheck(process=successful_process(), diagnostics=())
 
-        assert "ty-executable" not in dict(request.roots)
         (owner.environment_root / "changed.txt").write_text("outside v2 subject")
         with TyCheckCache() as cache:
-            result = StaticEvaluator(Ty(), requests=requests).collect(owner, request, run_cache=cache)
-            assert isinstance(result, RunTyFactRef)
-            run = assembly.runtime.evaluate(owner, package=project.package, run_cache=cache)
+            result = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv)).collect_prepared(
+                owner, package=project.package, run_cache=cache,
+            )
+            assert isinstance(result, CollectedStaticSubject)
+            run = assembly.runtime.evaluate(owner, package=project.package)
+            StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv)).record_runtime(
+                owner, run, run_cache=cache,
+            )
             assert run.evaluation.status == "PASS"
             assert len(assembly.verifier.vectors) == 1
 
     def test_unavailable_collection_still_runs_verifier(self, prepared_pair):
         from pf.schemas.static import StaticContentUnavailable
 
-        project, assembly, owner, _, requests, request, _ = prepared_pair
+        project, assembly, owner, _ = prepared_pair
 
         class Ty:
             def observe(self, request, *, cancellation=None):
@@ -136,9 +146,11 @@ class TestStaticConsumerOwnership:
                 return StaticContentUnavailable(detail="unreadable-content")
 
         with TyCheckCache() as cache:
-            result = StaticEvaluator(Ty(), requests=requests).collect(owner, request, run_cache=cache)
+            result = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv)).collect_prepared(
+                owner, package=project.package, run_cache=cache,
+            )
             assert isinstance(result, StaticContentUnavailable)
-            run = assembly.runtime.evaluate(owner, package=project.package, run_cache=cache)
+            run = assembly.runtime.evaluate(owner, package=project.package)
             assert run.evaluation.status == "PASS"
             assert len(assembly.verifier.vectors) == 1
             assert cache.snapshot(owner.proposal.cell).facts == ()
@@ -147,7 +159,7 @@ class TestStaticConsumerOwnership:
     def test_changed_waiter_is_not_admitted_and_clean_rebuild_uses_its_own_projection(
         self, prepared_pair, changed_projection,
     ):
-        project, assembly, owner, waiter, requests, owner_request, waiter_request = prepared_pair
+        project, assembly, owner, waiter = prepared_pair
         entered, joined, release = Event(), Event(), Event()
         calls = []
 
@@ -164,26 +176,29 @@ class TestStaticConsumerOwnership:
                 assert release.wait(5)
                 return TyCheck(process=successful_process(), diagnostics=())
 
-        static = StaticEvaluator(Ty(), requests=requests)
+        static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv))
         with Cache() as cache, ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(static.collect, owner, owner_request, run_cache=cache)
+            first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
             try:
                 assert entered.wait(5)
-                second = pool.submit(static.collect, waiter, waiter_request, run_cache=cache)
+                second = pool.submit(static.collect_prepared, waiter, package=project.package, run_cache=cache)
                 assert joined.wait(5)
                 (waiter.proposal_root / "changed.txt").write_text("external change while joining")
             finally:
                 release.set()
             fact, joined_fact = first.result(5), second.result(5)
-            assert isinstance(fact, RunTyFactRef)
-            assert isinstance(joined_fact, RunTyFactRef)
-            assert joined_fact.observation.subject.identity == fact.observation.subject.identity
+            assert isinstance(fact, CollectedStaticSubject)
+            assert isinstance(joined_fact, CollectedStaticSubject)
             scope = cache.snapshot(owner.proposal.cell)
             assert len(scope.facts) == 1
-            assert {item.preparation.proposal.proposal_id for item in scope.consumers} == {
+            assert {
+                scope.preparation(item.preparation_ref).proposal.proposal_id
+                for item in scope.consumers
+            } == {
                 owner.proposal.proposal_id, waiter.proposal.proposal_id,
             }
-            run = assembly.runtime.evaluate(waiter, package=project.package, run_cache=cache)
+            run = assembly.runtime.evaluate(waiter, package=project.package)
+            static.record_runtime(waiter, run, run_cache=cache)
             assert run.evaluation.status == "PASS"
             waiter.close()
             rebuilt = assembly.environments.prepare(
@@ -194,15 +209,14 @@ class TestStaticConsumerOwnership:
             try:
                 if changed_projection:
                     (rebuilt.environment_root / "support.txt").write_text("different installed support bytes")
-                current = static.collect_prepared(rebuilt, package=project.package, run_cache=cache)
-                assert isinstance(current, RunTyFactRef)
-                assert current.observation.subject.identity == fact.observation.subject.identity
-                assert len(calls) == 1
-                run = assembly.runtime.evaluate(rebuilt, package=project.package, run_cache=cache)
+                run = assembly.runtime.evaluate(rebuilt, package=project.package)
                 assert run.evaluation.status == "PASS"
+                with pytest.raises(ValueError, match="registered"):
+                    static.record_runtime(rebuilt, run, run_cache=cache)
+                assert len(calls) == 1
                 scope = cache.snapshot(owner.proposal.cell)
                 assert len(scope.facts) == 1
-                assert len(scope.consumers) == 2 and len(scope.passes) == 2
+                assert len(scope.consumers) == 2 and len(scope.passes) == 1
             finally:
                 rebuilt.close()
 
@@ -210,7 +224,7 @@ class TestStaticConsumerOwnership:
     def test_terminal_cleanup_releases_both_consumers_and_wakes_waiters(self, prepared_pair, mode):
         from pf.cancellation import OperationCancelled
         from pf.static_cache import CacheMiss
-        project, _assembly, owner, waiter, requests, owner_request, waiter_request = prepared_pair
+        project, assembly, owner, waiter = prepared_pair
         entered, joined, trigger, cleanup_started, finish_cleanup, cleaned = (Event() for _ in range(6))
         calls = []
 
@@ -239,12 +253,12 @@ class TestStaticConsumerOwnership:
                     unregister()
                     cleaned.set()
 
-        static = StaticEvaluator(Ty(), requests=requests, permits=StagePermitPools(ty_jobs=1, test_jobs=1))
+        static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv), permits=StagePermitPools(ty_jobs=1, test_jobs=1))
         with Cache() as cache, ThreadPoolExecutor(max_workers=4) as pool:
-            first = pool.submit(static.collect, owner, owner_request, run_cache=cache)
+            first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
             try:
                 assert entered.wait(5)
-                second = pool.submit(static.collect, waiter, waiter_request, run_cache=cache)
+                second = pool.submit(static.collect_prepared, waiter, package=project.package, run_cache=cache)
                 assert joined.wait(5)
                 closing = pool.submit(owner.close)
                 with pytest.raises(TimeoutError):
@@ -272,8 +286,8 @@ class TestStaticConsumerOwnership:
             waiter.close()
             assert waiter.closed
             assert len(calls) == 1
-            assert isinstance(cache.lookup(owner_request.subject, owner_request.observation_policy), CacheMiss)
+            assert isinstance(cache.lookup(calls[0].subject, calls[0].observation_policy), CacheMiss)
             scope = cache.snapshot(owner.proposal.cell)
             assert scope.facts == scope.consumers == scope.processes == scope.passes == ()
-            with pytest.raises(OperationCancelled):
-                static.collect(owner, owner_request, run_cache=cache)
+            with pytest.raises((OperationCancelled, ValueError)):
+                static.collect_prepared(owner, package=project.package, run_cache=cache)

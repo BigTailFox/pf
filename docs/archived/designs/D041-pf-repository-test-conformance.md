@@ -7,7 +7,7 @@
 - **验收标准：** [§8](#8-验收标准)
 - **实施计划：** [P044](../plans/P044-pf-repository-test-conformance.md)
 - **来源：** 2026-09-09 对照现行 `tests/README.md` 与 D002 §11 的仓库测试审查；同日独立 blind review（未读本文）交叉验证主要问题清单，并补 R1–R8
-- **关联：** [D006](../../designs/D006-pf-cli-enhancement.md) 视觉规则不变，文案实现偏移仍见 [R010](../../reviews/R010-pf-engineering-document-audit.md) §2.1；[D012](../../designs/D012-pf-harness-relaxation.md) / [D013](../../designs/D013-pf-pytest-observer.md) 资格矩阵仍在资格车道；[D039](../../designs/D039-pf-static-evaluation-module.md) 改静态公开表面，与本文件正交；车道调度已由归档 [D040](D040-pf-test-lanes.md) 吸收，本文件不重开车道
+- **关联：** [D006](../../designs/D006-pf-cli-enhancement.md) 视觉规则不变，文案实现偏移仍见 [R010](../../reviews/R010-pf-engineering-document-audit.md) §2.1；[D012](../../designs/D012-pf-harness-relaxation.md) / [D013](../../designs/D013-pf-pytest-observer.md) 资格矩阵仍在资格车道；[D039](D039-pf-static-evaluation-module.md) 改静态公开表面，与本文件正交；车道调度已由归档 [D040](D040-pf-test-lanes.md) 吸收，本文件不重开车道
 
 本文保存已完成的仓库测试符合性整改。用户要求实施后经 P044 规划与验收，稳定规则已归并 [D002](../../designs/D002-pf-implementation.md) §11 与 `tests/README.md`。正文保留迁移时的目标与理由，不再承担现行规范。
 

@@ -16,7 +16,7 @@ from pf.schemas.static import StaticContentUnavailable
 from pf.cancellation import Cancellation
 
 if TYPE_CHECKING:
-    from pf.static_request import StaticTyRequest
+    from pf.static import StaticTyRequest
 
 
 class TyAdapter:

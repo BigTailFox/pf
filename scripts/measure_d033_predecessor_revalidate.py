@@ -14,7 +14,7 @@ there is no registry, uv subprocess, ty subprocess, or configured verifier wall 
 
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 import argparse
 import hashlib

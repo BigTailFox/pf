@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
-from pf.schemas.static import StaticContentUnavailable
-from pf.schemas.static_baseline import StaticUncollectedBaseline
+from pf.static import StaticEvaluator, TyCheckCache
 
 from pf.environment import EnvironmentFactory, HighestResolution
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     AttemptFailureScope,
@@ -31,12 +29,11 @@ class HighestVersionVerifier:
         environments: EnvironmentFactory,
         static: StaticEvaluator,
         full: RuntimeEvaluator,
-        failures: FailurePolicy | None = None,
     ) -> None:
         self._environments = environments
         self._static = static
         self._full = full
-        self._failures = failures or FailurePolicy()
+        self._failures = FailurePolicy()
 
     def verify(
         self,
@@ -68,20 +65,9 @@ class HighestVersionVerifier:
                 failure_process=prepared.process,
             )
         try:
-            capture = self._static.collect_prepared(prepared, package=package, run_cache=run_cache)
-            if isinstance(capture, StaticContentUnavailable):
-                run_cache.set_highest_uncollected(StaticUncollectedBaseline(
-                    attempt=prepared.attempt, proposal=prepared.proposal, unavailable=capture,
-                ))
-            else:
-                assert prepared.static_consumer is not None
-                run_cache.set_highest(prepared.static_consumer)
-            run = self._full.evaluate(
-                prepared,
-                package=package,
-
-                run_cache=run_cache,
-            )
+            self._static.capture_highest(prepared, package=package, run_cache=run_cache)
+            run = self._full.evaluate(prepared, package=package)
+            self._static.record_runtime(prepared, run, run_cache=run_cache)
             evaluation = run.evaluation
             if isinstance(evaluation, PassEvaluation):
                 return HighestVersionPass(

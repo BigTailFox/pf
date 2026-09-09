@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from pf.errors import ConfigurationError
 from pf.project_discovery import PyprojectObservation
 from pf.search_space import defaults, parse
+from pf.ty_options import validate_ty_args
 from pf.schemas.config import (
     AllSearchableDependencies,
     DependencySearchPolicy,
@@ -183,6 +184,8 @@ class ConfigLoader:
         if test_command[:2] == ("uv", "run"):
             raise ConfigurationError("test-command cannot start with 'uv run'")
         overrides.sort(key=lambda item: item.name)
+        ty_args = tuple(merged.get("ty-args", ()))
+        validate_ty_args(ty_args)
 
         try:
             return EffectiveConfig(
@@ -213,7 +216,7 @@ class ConfigLoader:
                     ),
                 ),
                 ty=TyConfig(
-                    args=tuple(merged.get("ty-args", ())),
+                    args=ty_args,
                     timeout_seconds=self._duration(
                         merged.get("ty-timeout", "10m"),
                         field="ty-timeout",

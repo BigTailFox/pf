@@ -24,8 +24,8 @@ from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.editor import ProjectEditor
 from pf.errors import ConfigurationError, ExitCode, InvocationError, PfError
-from pf.static_request import StaticRequestFactory
-from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator, StagePermitPools
+from pf.static import StaticEvaluator
 from pf.project import ProjectLoader, host_target
 from pf.project_discovery import ProjectDiscovery
 from pf.report import PackageReportBuilder, ReportStore
@@ -279,7 +279,7 @@ class CliContext:
         permits = StagePermitPools()
         static = StaticEvaluator(
             TyAdapter(runner),
-            requests=StaticRequestFactory(runner),
+            processes=runner,
             events=self.presenter,
             permits=permits,
         )

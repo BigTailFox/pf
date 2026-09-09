@@ -55,6 +55,7 @@ from pf.schemas.report import (
 )
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
+from pf.static import TyCheckCache
 
 
 class RecordingDiagnostics:
@@ -73,6 +74,13 @@ class RecordingActivity:
         self.events.append(event)
 
 
+def _pass_run(*, exit_code: int = 0) -> VerifierRun:
+    return VerifierRun(
+        authoritative=VerifierPass(terminal=NormalExit(exit_code=0)),
+        diagnostics=VerifierDiagnostics(process=successful_process(exit_code=exit_code)),
+    )
+
+
 def threshold_verifier(
     vector: tuple[VersionPin, ...],
     call: int,
@@ -82,9 +90,7 @@ def threshold_verifier(
     del call
     version = int(vector[0].version)
     if version >= 2:
-        return VerifierRun(
-            authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
-        )
+        return _pass_run()
     return VerifierRun(
         authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
         diagnostics=(
@@ -178,15 +184,6 @@ def assert_public_selection_reasons(report) -> None:
 
 class TestSearchCoordinator:
     def test_missing_highest_static_anchor_is_saved_without_observation_or_extra_process(self, tmp_path, run_cache):
-        from scripted_static import ScriptedStaticRequests
-        from pf.schemas.static import StaticContentUnavailable
-
-        class Requests(ScriptedStaticRequests):
-            def capture(self, prepared, **kwargs):
-                if prepared.attempt.identity.requested_resolution == "highest":
-                    return StaticContentUnavailable(detail="unreadable-content")
-                return super().capture(prepared, **kwargs)
-
         def verifier(vector, call):
             passed = int(vector[0].version) >= 2
             return VerifierRun(
@@ -196,7 +193,7 @@ class TestSearchCoordinator:
             )
 
         project = evaluation_project(tmp_path)
-        assembly = evaluation_assembly(static_requests=Requests(), verifier_handler=verifier)
+        assembly = evaluation_assembly(fail_inspect_at={1}, verifier_handler=verifier)
         try:
             result = assembly.coordinator.search(
                 run_cache=run_cache, package=project.package, cell=project.package.cells[0],
@@ -204,17 +201,12 @@ class TestSearchCoordinator:
             )
             assert isinstance(result, CellSuccess)
             assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
-            assert [vector[0].version for vector in assembly.ty.vectors] == ["1", "2"]
+            assert [vector[0].version for vector in assembly.ty.vectors] == ["3", "1", "2"]
             assert [vector[0].version for vector in assembly.verifier.vectors] == ["3", "1", "2"]
             scope = run_cache.snapshot(project.package.cells[0])
-            assert scope.searches == ()
-            assert len(scope.omissions) == 1
-            omitted = scope.omissions[0]
-            assert omitted.reason == "anchor-unavailable"
-            assert omitted.proposal == result.baseline.proposal
-            assert omitted.window == ("1", "2", "3")
-            assert omitted.observed_pass_refs == ()
-            assert len(scope.facts) == 2 and len(scope.passes) == 1
+            assert scope.searches
+            assert scope.omissions == ()
+            assert len(scope.facts) == 3 and len(scope.passes) == 2
             assert all(
                 item.request.selection_reason in {
                     "mechanical-lowest",
@@ -223,12 +215,12 @@ class TestSearchCoordinator:
                     "current-upper",
                     "direct-existing",
                     "external-hint",
+                    "static-suspect",
+                    "static-clean-neighbor",
                 }
                 for item in scope.selections
             )
-            assert all(item.request.static_search_ref is None for item in scope.selections)
-            skip = assert_direct_bound_skip(scope, floor="2", predecessor="1")
-            assert skip.observed_search_refs == ()
+            assert_direct_bound_skip(scope, floor="2", predecessor="1")
             assert_selection_identity_is_dynamic_only(scope)
             assert type(scope).model_validate_json(scope.model_dump_json()) == scope
             report = PackageReportBuilder().build(
@@ -279,20 +271,10 @@ class TestSearchCoordinator:
             )
 
         project = evaluation_project(tmp_path)
-        from scripted_static import ScriptedStaticRequests
-        from pf.schemas.static import StaticContentUnavailable
-
-        class Requests(ScriptedStaticRequests):
-            def __init__(self):
-                self.failed = False
-
-            def capture(self, prepared, **kwargs):
-                if mode == "capture-unavailable" and prepared.proposal.managed_vector[0].version == "2" and not self.failed:
-                    self.failed = True
-                    return StaticContentUnavailable(detail="unreadable-content")
-                return super().capture(prepared, **kwargs)
-
-        assembly = evaluation_assembly(ty_handler=ty, verifier_handler=verifier, static_requests=Requests())
+        assembly = evaluation_assembly(
+            ty_handler=ty, verifier_handler=verifier,
+            fail_inspect_version_once="2" if mode == "capture-unavailable" else None,
+        )
         if mode == "prepare-unavailable":
             assembly.uv.install_failures_by_vector[(VersionPin(name="demo-dep", version="1"),)] = OperationFailureResult(
                 failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
@@ -333,7 +315,7 @@ class TestSearchCoordinator:
             if mode == "capture-unavailable":
                 assert audit.points[-1].comparison_identity is None
                 assert audit.points[-1].unavailable.proposal is not None
-                assert audit.points[-1].unavailable.unavailable.detail == "unreadable-content"
+                assert audit.points[-1].unavailable.unavailable.detail == "inspection-unavailable"
             if mode == "prepare-unavailable":
                 unavailable = audit.points[-1].unavailable
                 assert unavailable.proposal is None
@@ -378,6 +360,8 @@ class TestSearchCoordinator:
             from jsonschema import Draft202012Validator
             schema = json.loads(Path("docs/schemas/package-floor-v1.schema.json").read_text())
             assert [error.message for error in Draft202012Validator(schema).iter_errors(json.loads(original))] == []
+            from pf.static.audit import _admit_saved_static_audit
+
             extra_selection = scope.model_dump(mode="json")
             extra_selection["searches"][0]["candidates"]["selection"]["unrecognized_rule"] = True
             with pytest.raises(ValueError):
@@ -393,11 +377,11 @@ class TestSearchCoordinator:
             else:
                 forged["searches"][0]["reason"] = "anchor-unavailable"
             with pytest.raises(ValueError, match="static (hint|search)"):
-                type(scope).model_validate(forged)
+                _admit_saved_static_audit(type(scope).model_validate(forged))
             future = scope.model_dump(mode="json")
             future["skips"][0]["observed_search_refs"] = [*skip.observed_search_refs, "static-search-99"]
             with pytest.raises(ValueError, match="completed static search prefix"):
-                type(scope).model_validate(future)
+                _admit_saved_static_audit(type(scope).model_validate(future))
             if mode == "guided":
                 detached = scope.model_dump(mode="json")
                 index = next(
@@ -406,7 +390,7 @@ class TestSearchCoordinator:
                 )
                 detached["selections"][index]["observed_search_refs"] = []
                 with pytest.raises(ValueError, match="future static search"):
-                    type(scope).model_validate(detached)
+                    _admit_saved_static_audit(type(scope).model_validate(detached))
         finally:
             project.snapshot.close()
 
@@ -952,12 +936,11 @@ search-resolution = "patch"
         ) -> VerifierRun:
             del call
             versions = {pin.name: pin.version for pin in vector}
+            if int(versions["alpha"]) >= 2:
+                return _pass_run()
             return VerifierRun(
-                authoritative=(
-                    VerifierPass(terminal=NormalExit(exit_code=0))
-                    if int(versions["alpha"]) >= 2
-                    else VerifierRejected(terminal=NormalExit(exit_code=1))
-                )
+                authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
+                diagnostics=VerifierDiagnostics(process=successful_process(exit_code=1)),
             )
 
         assembly = evaluation_assembly(
@@ -1015,12 +998,11 @@ search-resolution = "patch"
         ) -> VerifierRun:
             del call
             versions = {pin.name: int(pin.version) for pin in vector}
+            if versions["alpha"] >= 2 and versions["beta"] >= 2:
+                return _pass_run()
             return VerifierRun(
-                authoritative=(
-                    VerifierPass(terminal=NormalExit(exit_code=0))
-                    if versions["alpha"] >= 2 and versions["beta"] >= 2
-                    else VerifierRejected(terminal=NormalExit(exit_code=1))
-                )
+                authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
+                diagnostics=VerifierDiagnostics(process=successful_process(exit_code=1)),
             )
 
         assembly = evaluation_assembly(
@@ -1108,11 +1090,7 @@ search-resolution = "patch"
         )
 
         assert isinstance(result, CellSuccess)
-        assert assembly.uv.install_vectors == [
-            (VersionPin(name="demo-dep", version="3"),),
-            (VersionPin(name="demo-dep", version="1"),),
-            (VersionPin(name="demo-dep", version="2"),),
-        ]
+        assert [vector[0].version for vector in assembly.uv.install_vectors] == ["3", "1", "1", "2"]
         assert assembly.verifier.vectors == [
             (VersionPin(name="demo-dep", version="3"),),
             (VersionPin(name="demo-dep", version="1"),),
@@ -1201,9 +1179,7 @@ search-resolution = "patch"
         ) -> VerifierRun:
             del call
             if int(vector[0].version) >= 2:
-                return VerifierRun(
-                    authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
-                )
+                return _pass_run()
             return VerifierRun(
                 authoritative=VerifierIndeterminate(
                     terminal=TimedOut(),
@@ -1248,9 +1224,7 @@ search-resolution = "patch"
             del call
             version = int(vector[0].version)
             if version >= 2:
-                return VerifierRun(
-                    authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
-                )
+                return _pass_run()
             return VerifierRun(
                 authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
                 failed_case_additions=("test_example.py::test_bad",),
@@ -1315,9 +1289,7 @@ test-command = ["python", "-c", "pass"]
                     authoritative=VerifierRejected(terminal=NormalExit(exit_code=1)),
                     failed_case_additions=("test_beta.py::test_bad",),
                 )
-            return VerifierRun(
-                authoritative=VerifierPass(terminal=NormalExit(exit_code=0))
-            )
+            return _pass_run()
 
         pins = (
             VersionPin(name="alpha-dep", version="3"),
@@ -1336,12 +1308,13 @@ test-command = ["python", "-c", "pass"]
             source_plan=project_source,
         )
         first_count = len(assembly.verifier.requests)
-        second = assembly.coordinator.search(run_cache=run_cache,
-            package=package,
-            cell=package.cells[0],
-            snapshot=snapshot,
-            source_plan=project_source,
-        )
+        with TyCheckCache() as other_cache:
+            second = assembly.coordinator.search(run_cache=other_cache,
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                source_plan=project_source,
+            )
 
         assert isinstance(first, CellSuccess)
         assert isinstance(second, CellSuccess)

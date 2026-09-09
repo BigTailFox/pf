@@ -33,7 +33,7 @@ def empty_harness_baseline(cell: Cell) -> HarnessBaseline:
 
 @pytest.fixture
 def run_cache():
-    from pf.static_cache import TyCheckCache
+    from pf.static import TyCheckCache
     with TyCheckCache() as cache:
         yield cache
 

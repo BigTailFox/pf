@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-10
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -45,47 +45,50 @@ baseline / failure / search / verification / report / editor
 
 `cli.py` 是唯一生产 composition root。业务模块不得导入 Rich；adapter 不得导入 CLI/terminal 或打印；`schemas` 不做 I/O；`coordinate_search.py` 与 `search.py` 不依赖 Cyclopts、Rich、subprocess 或 TOML。跨层循环是所有权错误，不能用延迟导入掩盖。
 
-## 3. 包布局与 owner
+## 3. 模块地图
+
+本节画 **module**，不以每个内部 `.py` 冒充独立 owner。物理文件名由实现决定。
 
 ```text
-src/pf/
-├── __init__.py / __main__.py    version 与统一 CLI entry point
-├── cli.py                       Cyclopts、CliContext、composition root
-├── errors.py                    PfError 与 D001 exit-code mapping
-├── config.py / policy.py        observation 上的配置合并、CLI parser、evaluation identity
-├── project_discovery.py         离线 package catalog、在线 immutable workspace inventory
-├── project.py                   inventory planning、declarations、Cells、test groups
-├── snapshot.py                  immutable SourceSnapshot lifecycle
-├── candidates.py                frozen CandidateSnapshots
-├── search_space.py              纯 DSL、默认绑定、系列切片与 search anchor 准入
-├── markers.py                   portable/contextual marker 资格、target facts 与求值
-├── harness.py                   original/relaxed direct harness 纯变换
-├── resolution.py                resolution protocol、plans、outcomes、identity
-├── environment.py               prepare 与 PreparedEnvironment lifecycle
-├── static.py / static_cache.py  原始 TyCheck cache、比较与 Run scope
-├── static_request.py            规范静态投影与采集请求
-├── static_guidance.py           纯静态二分与 hint
-├── evaluation.py                Static/Runtime Evaluator
-├── baseline.py                  highest full-verification lifecycle
-├── check.py                     declaration two-phase CompatibilityChecker
-├── failure.py                   FailurePolicy
-├── coordinate_search.py         pure vector search
-├── search.py                    single-Cell SearchCoordinator
-├── scheduling.py                generic Scheduler 与 schedule order
-├── verification.py              command requests、VerificationRunner、Run lifecycle 与 Journal timing
-├── report.py                    builder、resolved facade、store transaction
-├── authorization.py             report/current plan/snapshot → frozen apply grant
-├── editor.py                    authorized TOML transaction/recovery
-├── workflow.py                  seven command use cases
-├── runlog.py                    Process Logs、Journal、Diagnosis Index
-├── _secure_runlog.py            private secure-directory protocol/adapters
-├── windows_runlog.py            Windows native handle/DACL implementation
-├── _pytest_observer.py          wheel-packaged standalone pytest observer plugin
-├── _pytest_pruning.py           wheel-packaged standalone pytest pruning plugin
-├── terminal/                    presenter 与 private live/explain/diagnose views
-├── schemas/                     base/config/project/evaluation/report/apply records
-└── adapters/                    process、uv/uv-lock、ty 与 verifier/pytest seams
+cli.py                       Cyclopts、CliContext、composition root
+errors.py                    PfError 与 D001 exit-code mapping
+config.py / policy.py        observation 上的配置合并、CLI parser、evaluation identity
+project_discovery.py         离线 package catalog、在线 immutable workspace inventory
+project.py                   inventory planning、declarations、Cells、test groups
+snapshot.py                  immutable SourceSnapshot lifecycle
+candidates.py                frozen CandidateSnapshots
+search_space.py              纯 DSL、默认绑定、系列切片与 search anchor 准入
+markers.py                   portable/contextual marker 资格、target facts 与求值
+harness.py                   original/relaxed direct harness 纯变换
+resolution.py                resolution protocol、plans、outcomes；identity 纯函数见 schemas
+environment.py               prepare 与 PreparedEnvironment lifecycle
+cancellation.py              Run 取消
+static module (pf.static)    原始 TyCheck、Run cache、准入/比较、纯 guidance、request 装配
+evaluation.py                RuntimeEvaluator、动态 cache、stage permits
+baseline.py                  highest full-verification lifecycle
+check.py                     declaration two-phase CompatibilityChecker
+failure.py                   FailurePolicy 分类实现；构造由本节 composition 拥有
+coordinate_search.py         pure vector search
+search.py                    single-Cell SearchCoordinator
+scheduling.py                generic Scheduler 与 schedule order
+verification.py              command requests、VerificationRunner、Run lifecycle 与 Journal timing
+report.py                    builder、resolved facade、store transaction
+authorization.py             report/current plan/snapshot → frozen apply grant
+editor.py                    authorized TOML transaction/recovery
+workflow.py                  seven command use cases
+runlog.py                    Process Logs、Journal、Diagnosis Index
+_secure_runlog.py            private secure-directory protocol/adapters
+windows_runlog.py            Windows native handle/DACL implementation
+_pytest_observer.py          wheel-packaged standalone pytest observer plugin
+_pytest_pruning.py           wheel-packaged standalone pytest pruning plugin
+terminal/                    presenter 与 private live/explain/diagnose views
+schemas/                     记录与 identity；`schemas/static.py` 是记录模块
+adapters/                    process、uv/uv-lock、ty 与 verifier/pytest seams
 ```
+
+不存在独立的 `src/pf/static.py` module。`static_request.py`、`static_guidance.py`、其余
+`static_*.py`、`ty_fact.py`、`ty_options.py` 不是独立 owner，属于静态 module 的
+implementation。`evaluation.py` 不 re-export `StaticEvaluator`。
 
 ## 4. Schema boundary
 
@@ -106,9 +109,14 @@ ConfigDict(
 | --- | --- | --- |
 | `schemas.config` | effective config、CLI/workflow requests | D001 / `ConfigLoader` |
 | `schemas.project` | declarations、Cells、SourcePlan、candidates、Proposal、project plan | `ProjectLoader`、SourcePlan、Candidate/Environment owner |
-| `schemas.evaluation` | process、Attempt、Failure、static/runtime outcome、Journal、activity events | D004、D005、D008、D013 |
+| `schemas.evaluation` | process、Attempt、Failure、runtime outcome、activity events | D005、D008、D013 |
+| `schemas.policy` | 已资格化的 observation / guidance / execution identity | D004；validator 不执行 `validate_ty_args` |
+| `schemas.journal` | Verification Journal 与 `static_membership` | D008 |
+| `schemas.static_*` / `schemas.ty_fact` | 静态 records、TyFactDocument、scope/audit 结构 | D004；validator 不重放 compare / hint / harness |
 | `schemas.report` | search evidence、CellResult、projection、private Schema 1 wire | D003、D014 |
 | `schemas.apply` | workspace/package/group授权、presentation facts与command result | `ApplyAuthorizer`、`ProjectEditor` |
+
+Schema validator 只做结构与 identity 闭合。D004 的准入、减法、`locate_static_hint`、harness 变换与 ty-args 资格化不在 FrozenSchema 执行。`environment_identity_digest` / `resolution_graph_id` / `resolution_request_digest` 与被静态 records 引用的 `ResolutionPlanEvidence` 定义在 schemas 可依赖的纯层。
 
 Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、project semantic digest 与 nullable environment digest、managed vector、fixed declarations、graph、interpreter 与 policy identity。Prepare failure 只能保存已取得的事实，不能虚构 Proposal。
 
@@ -264,8 +272,9 @@ EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_plan)
     -> PreparedEnvironment | PrepareFailure
 PreparedEnvironment.relocate_to(request) -> PreparedEnvironment
 
-StaticEvaluator.lookup/collect/compare(...)
-RuntimeEvaluator.evaluate(...)
+StaticEvaluator.collect_prepared / capture_highest / compare_global
+StaticEvaluator.record_runtime / open_slice
+RuntimeEvaluator.evaluate(prepared, *, package, failed_case_nodeids=())
 HighestVersionVerifier.verify(...) -> HighestVersionOutcome
 CompatibilityChecker.check(...) -> CheckCellOutcome
 ConfiguredVerifier.run(VerifierRequest) -> VerifierRun
@@ -283,6 +292,9 @@ VerificationRunner.run(SearchVerificationRun) -> tuple[CellResult, ...]
 highest full verify 和单 Cell search；三者的构造器直接依赖 composition root 共享的同一
 `EnvironmentFactory`、`StaticEvaluator`、`RuntimeEvaluator` 实例，不为 caller 复制 env/static/full
 Protocol。Search 还直接依赖 `CandidateBuilder`、共享的 `HighestVersionVerifier` 与 `CoordinateSearch`。
+`cli.py` 不构造 `StaticRequestFactory`；生产 `TyAdapter` 与静态 request/inspect 装配绑定同一个
+`ProcessRunner`。`RuntimeEvaluator` 不接收 `run_cache`，不读 static consumer。Check / Highest /
+Search / `_ProposalRunner` 内部构造 `FailurePolicy()`，不接受 `failures=`。
 这些 in-process module 不是 adapter seam；真实替换点只保留 uv、candidate provider、ty、configured
 verifier、process 及 activity/diagnostic consumer。不得用 evaluator facade、parameter
 bundle、factory、locator 或 service registry隐藏该依赖图。
@@ -370,7 +382,7 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 ## 11. 验证边界
 
-测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值；relocation 经 `EnvironmentFactory.prepare` 或公开 `PreparedEnvironment.relocate_to`。不替换 concrete prepare/lookup/collect/compare/evaluate/verify/minimize，不读取 evaluator/search private state。不写入 `CliContext._check_workflow` 一类私有字段；进程内 CLI 经 `create_app` 与公开 property，替身 workflow 经 `CliContext.compose` 的可选参数注入。产品测试不进口 `pf._secure_runlog`；安全目录行为经 `RunLogStore` 与 `pf.windows_runlog`，必须直接驱动 POSIX/Windows adapter 协议的用例标 `infra`。产品测试不 patch `pf` 包内私有函数。真实 ty 进程经 `TyAdapter.observe`（及其公开装配），不手写 `ty check` argv；`decode_process` 的纯解码矩阵用 recording 的 `ProcessResult`。包装真实 runner 的 recording 不按 argv 识别 `ty check`。
+测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值；relocation 经 `EnvironmentFactory.prepare` 或公开 `PreparedEnvironment.relocate_to`。不替换 concrete prepare/collect_prepared/capture_highest/compare_global/record_runtime/open_slice/evaluate/verify/minimize，不读取 evaluator/search private state。产品测试不调用 `TyCheckCache` 领域方法；Runner 可见方法是构造、`admitted_membership`、`documents`、`stop`、`close`。分类从公开 Check/Highest/Search outcome 观察，不注入假 `FailurePolicy`。不写入 `CliContext._check_workflow` 一类私有字段；进程内 CLI 经 `create_app` 与公开 property，替身 workflow 经 `CliContext.compose` 的可选参数注入。产品测试不进口 `pf._secure_runlog`；安全目录行为经 `RunLogStore` 与 `pf.windows_runlog`，必须直接驱动 POSIX/Windows adapter 协议的用例标 `infra`。产品测试不 patch `pf` 包内私有函数。真实 ty 进程经 `TyAdapter.observe`（及其公开装配），不手写 `ty check` argv；`decode_process` 的纯解码矩阵用 recording 的 `ProcessResult`。包装真实 runner 的 recording 不按 argv 识别 `ty check`。
 
 车道只调度真实性，不另开测试专用产品 API。种类是 pytest marker（或默认未标记），一条测试只标它所证明的种类。PR 仍是日常 ∪ `process` ∪ `e2e`（`-m "not qualification"`）。
 
@@ -382,9 +394,10 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。覆盖率 `fail_under` 只作用于 canonical Python 在各 CI OS 上全量收集结果的并集；单宿主不必执行其他 OS 的平台私有分支。
 
-静态事实从 `StaticEvaluator.lookup/collect/compare` 的 outcome 观察。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
+静态事实从 `StaticEvaluator.collect_prepared` / `capture_highest` / `compare_global` /
+`record_runtime` / `open_slice` 与真实 Check/Highest/Search 的公开 outcome 观察。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
 baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
-[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D040](../archived/designs/D040-pf-test-lanes.md)、[D041](../archived/designs/D041-pf-repository-test-conformance.md)、
+[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D039](../archived/designs/D039-pf-static-evaluation-module.md)、[D040](../archived/designs/D040-pf-test-lanes.md)、[D041](../archived/designs/D041-pf-repository-test-conformance.md)、
 [D043](../archived/designs/D043-pf-static-subject-v2.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

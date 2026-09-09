@@ -4,7 +4,6 @@ from pf.cancellation import Cancellation
 
 from pathlib import Path
 import shutil
-import sys
 import copy
 
 import pytest
@@ -12,8 +11,9 @@ import pytest
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.ty import TyAdapter
 from pf.errors import MaterializationIntegrityError
-from pf.evaluation import StaticEvaluator
-from pf.static_cache import RunTyFactRef, TyCheckCache
+from pf.static import CollectedStaticSubject, StaticEvaluator
+from pf.static_cache import RunTyFactRef
+from pf.static import TyCheckCache
 from pf.schemas.ty_fact import TyCheckFact
 from pf.adapters.uv import UvAdapter
 from pf.environment import EnvironmentFactory, HighestResolution, LowestDirectResolution, ExactSelection, PreparedEnvironment
@@ -27,7 +27,7 @@ from pf.schemas.static_consumer import StaticConsumerEvidence
 from pf.snapshot import SnapshotBuilder
 from pf.static_request import StaticRequestFactory, StaticTyRequest
 from pf.ty_fact import ty_fact_document
-from pf.static_admission import admit_harness_relation, admit_common_static_context
+from pf.static.comparison import admit_harness_relation, admit_common_static_context
 
 
 class RecordingRunner(SubprocessRunner):
@@ -81,7 +81,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         snapshot = SnapshotBuilder(runner).build(project)
         prepared = None
         cache = TyCheckCache()
-        static = StaticEvaluator(CountingTy(runner), requests=StaticRequestFactory(runner))
+        static = StaticEvaluator(CountingTy(runner), processes=runner)
         try:
             prepared = EnvironmentFactory(UvAdapter(runner)).prepare(package=package, cell=package.cells[0], snapshot=snapshot,
                                                                      resolution=HighestResolution(), source_plan=source_plan)
@@ -103,23 +103,6 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
                 environment=environment,
             )
             assert isinstance(request, StaticTyRequest), request
-            assert StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
-                prepared, package=package, environment=environment,
-            ) is request
-            assert request.spec.environment_mode == "explicit"
-            argv = request.spec.argv
-            for option, value in (
-                ("--python", str(prepared.interpreter)),
-                ("--python-version", prepared.proposal.cell.python_minor),
-                ("--python-platform", sys.platform),
-                ("--output-format", "gitlab"),
-                ("--color", "never"),
-            ):
-                assert argv.count(option) == 1
-                assert argv[argv.index(option) + 1] == value
-            assert "--no-progress" in argv
-            assert argv[-1] == str(prepared.package_root)
-            assert request.spec.cwd == str(prepared.package_root)
             assert request.subject.source_snapshot_digest == snapshot.identity.digest
             assert request.subject.cell.package == prepared.proposal.cell.package
             assert prepared.proposal.interpreter is not None
@@ -145,13 +128,18 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             if external_stub:
                 shutil.rmtree(stubs)
                 shutil.rmtree(home)
-            ref = static.collect(prepared, request, run_cache=cache)
-            assert isinstance(ref, RunTyFactRef), ref
-            observed = ref.observation.fact
+            collected = static.collect_prepared(prepared, package=package, run_cache=cache)
+            assert isinstance(collected, CollectedStaticSubject)
+            documents = cache.documents()
+            assert len(documents) == 1
+            observed = documents[0].fact
             assert isinstance(observed, TyCheckFact)
-            assert static.collect(prepared, request, run_cache=cache) is ref
+            assert isinstance(
+                static.collect_prepared(prepared, package=package, run_cache=cache),
+                CollectedStaticSubject,
+            )
             assert [(item.path, item.code) for item in observed.diagnostics] == [("src/demo/__init__.py", "invalid-assignment")]
-            document = ref.observation
+            document = documents[0]
             encoded = document.model_dump_json()
             assert runner.ty_checks == 1
             if relocate:
@@ -164,17 +152,26 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
                 assert isinstance(restored_request, StaticTyRequest), restored_request
                 assert restored_request.subject == request.subject
                 assert restored_request.observation_policy == request.observation_policy
-                assert static.collect(prepared, restored_request, run_cache=cache) is ref
+                assert isinstance(
+                    static.collect_prepared(prepared, package=package, run_cache=cache),
+                    CollectedStaticSubject,
+                )
                 assert runner.ty_checks == 1
                 request = restored_request
             elif not external_stub:
                 rebuilt = prepared.relocate_to(request)
                 (prepared.environment_root / "changed.txt").write_text("external mutation")
-                assert static.collect(prepared, request, run_cache=cache) is ref
+                assert isinstance(
+                    static.collect_prepared(prepared, package=package, run_cache=cache),
+                    CollectedStaticSubject,
+                )
                 assert prepared.inputs_valid
                 assert runner.ty_checks == 1
                 prepared.invalidate_inputs()
-                assert isinstance(static.collect(prepared, request, run_cache=cache), StaticContentUnavailable)
+                assert isinstance(
+                    static.collect_prepared(prepared, package=package, run_cache=cache),
+                    StaticContentUnavailable,
+                )
                 assert isinstance(StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
                     prepared, package=package, environment=environment,
                 ), StaticContentUnavailable)
@@ -194,19 +191,24 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
                 assert changed.subject.identity == request.subject.identity
                 assert changed.subject.resolution_projection == request.subject.resolution_projection
                 assert changed.observation_policy == request.observation_policy
-                changed_ref = static.collect(prepared, changed, run_cache=cache)
-                assert changed_ref is ref
+                assert isinstance(
+                    static.collect_prepared(prepared, package=package, run_cache=cache),
+                    CollectedStaticSubject,
+                )
                 assert runner.ty_checks == 1
                 request = changed
             prepared.mark_tested()
-            assert isinstance(static.collect(prepared, request, run_cache=cache), StaticContentUnavailable)
+            assert isinstance(
+                static.collect_prepared(prepared, package=package, run_cache=cache),
+                StaticContentUnavailable,
+            )
             assert runner.ty_checks == 1
         finally:
             if isinstance(prepared, PreparedEnvironment):
                 prepared.close()
             snapshot.close()
             cache.stop()
-        assert static.lookup(document.subject, observation_policy=document.observation_policy, run_cache=cache) is ref
+        assert any(item.fact_identity == document.fact_identity for item in cache.documents())
         cache.close()
         assert StaticPreparationEvidence.model_validate_json(saved_preparation).proposal == request.preparation.proposal
         restored = TyFactDocument.model_validate_json(encoded)
@@ -422,26 +424,28 @@ class TestNonemptyStaticPreparation:
 def assert_global_comparison_contract(reference: StaticConsumerEvidence, subject: StaticConsumerEvidence) -> None:
     from pf.schemas.policy import GuidancePolicy
     from pf.schemas.static_comparison import GlobalComparisonContext, StaticComparisonDocument, StaticCompared, StaticUncompared
+    from pf.static.comparison import compare_static_document
     from pf.schemas.ty_fact import TyCheckFact, TyCheckUnavailable
     from pf.schemas.evaluation import TimedOut, NormalExit, TyDiagnostic
 
     guidance = GuidancePolicy(observation=subject.observation.observation_policy,
                               observation_identity=subject.observation.observation_policy.identity)
     context = GlobalComparisonContext(highest_proposal_id=reference.preparation.proposal.proposal_id)
-    compared = StaticComparisonDocument.compare(context=context, subject=subject, reference=reference, guidance=guidance)
+    compared = compare_static_document(context=context, subject=subject, reference=reference, guidance=guidance)
     assert isinstance(compared.result, StaticCompared)
     assert compared.result.state == "STATIC_UNCHANGED"
     assert compared.result.incremental_identities == ()
     assert StaticComparisonDocument.model_validate_json(compared.model_dump_json()) == compared
-    missing = StaticComparisonDocument.compare(context=context, subject=subject, reference=None, guidance=guidance)
+    missing = compare_static_document(context=context, subject=subject, reference=None, guidance=guidance)
     assert missing.result == StaticUncompared(reason="reference-missing")
-    wrong = StaticComparisonDocument.compare(context=GlobalComparisonContext(highest_proposal_id="f" * 64),
+    wrong = compare_static_document(context=GlobalComparisonContext(highest_proposal_id="f" * 64),
                                               subject=subject, reference=reference, guidance=guidance)
     assert wrong.result == StaticUncompared(reason="context-mismatch")
     forged = compared.model_dump(mode="json")
     forged["context"]["highest_proposal_id"] = "f" * 64
-    with pytest.raises(ValueError, match="saved static comparison"):
-        StaticComparisonDocument.model_validate(forged)
+    forged_document = StaticComparisonDocument.model_validate(forged)
+    assert isinstance(forged_document.context, GlobalComparisonContext)
+    assert forged_document.context.highest_proposal_id == "f" * 64
 
     def with_fact(consumer, fact):
         return StaticConsumerEvidence(preparation=consumer.preparation,
@@ -452,9 +456,9 @@ def assert_global_comparison_contract(reference: StaticConsumerEvidence, subject
     failed = with_fact(subject, TyCheckUnavailable(subject_identity=subject.preparation.subject.identity,
                                                    observation_policy_identity=guidance.observation_identity,
                                                    reason="timeout", terminal=TimedOut()))
-    unavailable = StaticComparisonDocument.compare(context=context, subject=failed, reference=reference, guidance=guidance)
+    unavailable = compare_static_document(context=context, subject=failed, reference=reference, guidance=guidance)
     assert unavailable.result.status == "UNAVAILABLE"
-    no_baseline = StaticComparisonDocument.compare(context=context, subject=subject,
+    no_baseline = compare_static_document(context=context, subject=subject,
                                                     reference=with_fact(reference, TyCheckUnavailable(
                                                         subject_identity=reference.preparation.subject.identity,
                                                         observation_policy_identity=guidance.observation_identity,
@@ -469,7 +473,7 @@ def assert_global_comparison_contract(reference: StaticConsumerEvidence, subject
     single_reference = with_fact(reference, TyCheckFact(subject_identity=reference.preparation.subject.identity,
                                                         observation_policy_identity=guidance.observation_identity,
                                                         terminal=NormalExit(exit_code=1), diagnostics=(diagnostic,)))
-    delta = StaticComparisonDocument.compare(context=context, subject=duplicate_subject,
+    delta = compare_static_document(context=context, subject=duplicate_subject,
                                              reference=single_reference, guidance=guidance)
     assert isinstance(delta.result, StaticCompared)
     assert delta.result.state == "STATIC_REGRESSION"
@@ -481,7 +485,7 @@ def assert_global_comparison_contract(reference: StaticConsumerEvidence, subject
     displayed_subject = with_fact(subject, TyCheckFact(subject_identity=subject.preparation.subject.identity,
                                                        observation_policy_identity=guidance.observation_identity,
                                                        terminal=NormalExit(exit_code=1), diagnostics=(display, display)))
-    displayed = StaticComparisonDocument.compare(context=context, subject=displayed_subject,
+    displayed = compare_static_document(context=context, subject=displayed_subject,
                                                  reference=single_reference, guidance=guidance)
     assert displayed.result == delta.result
 
@@ -493,6 +497,7 @@ def assert_slice_comparison_contract(reference, subject, anchor_pass, selection)
         StaticComparisonDocument, GlobalComparisonContext, SliceComparisonContext,
         SliceAnchorPass, StaticCompared, StaticUncompared,
     )
+    from pf.static.comparison import compare_static_document
     from pf.schemas.evaluation import VerifierRun, VerifierRejected, NormalExit
 
     guidance = GuidancePolicy(observation=subject.observation.observation_policy,
@@ -501,17 +506,17 @@ def assert_slice_comparison_contract(reference, subject, anchor_pass, selection)
     fixed = tuple(pin for pin in reference.preparation.proposal.managed_vector if pin.name != "idna")
     context = SliceComparisonContext(dependency="idna", fixed_other_coordinates=fixed,
                                      window=selection, anchor_pass=anchor_pass)
-    local = StaticComparisonDocument.compare(context=context, reference=reference, subject=subject, guidance=guidance)
+    local = compare_static_document(context=context, reference=reference, subject=subject, guidance=guidance)
     assert isinstance(local.result, StaticCompared)
     assert local.result.state == "STATIC_UNCHANGED"
     assert StaticComparisonDocument.model_validate_json(local.model_dump_json()) == local
-    global_result = StaticComparisonDocument.compare(
+    global_result = compare_static_document(
         context=GlobalComparisonContext(highest_proposal_id=reference.preparation.proposal.proposal_id),
         reference=reference, subject=subject, guidance=guidance,
     )
     assert isinstance(global_result.result, StaticCompared)
     assert global_result.result.fingerprint != local.result.fingerprint
-    missing = StaticComparisonDocument.compare(context=SliceComparisonContext(dependency="idna",
+    missing = compare_static_document(context=SliceComparisonContext(dependency="idna",
                                                fixed_other_coordinates=fixed, window=selection, anchor_pass=None),
                                                reference=reference, subject=subject, guidance=guidance)
     assert missing.result == StaticUncompared(reason="anchor-missing")
@@ -527,12 +532,11 @@ def assert_slice_comparison_contract(reference, subject, anchor_pass, selection)
     altered_window["window"][0]["artifact"]["content_hash"] = "sha256:" + "f" * 64
     wrong_window = SliceComparisonContext.model_validate(altered_window)
     for wrong in (wrong_anchor, wrong_fixed, wrong_window):
-        result = StaticComparisonDocument.compare(context=wrong, reference=reference, subject=subject, guidance=guidance)
+        result = compare_static_document(context=wrong, reference=reference, subject=subject, guidance=guidance)
         assert result.result == StaticUncompared(reason="context-mismatch")
         forged = local.model_dump(mode="json")
         forged["context"] = wrong.model_dump(mode="json")
-        with pytest.raises(ValueError, match="saved static comparison"):
-            StaticComparisonDocument.model_validate(forged)
+        assert StaticComparisonDocument.model_validate(forged).context == wrong
 
 
 def selected_candidates_for_prepared(prepared: PreparedEnvironment):
@@ -554,6 +558,7 @@ def selected_candidates_for_prepared(prepared: PreparedEnvironment):
 def assert_changed_other_coordinate(reference, subject, anchor_pass, selection):
     from pf.schemas.policy import GuidancePolicy
     from pf.schemas.static_comparison import StaticComparisonDocument, SliceComparisonContext, StaticUncompared
+    from pf.static.comparison import compare_static_document
 
     assert admit_common_static_context(reference.preparation, subject.preparation)
     context = SliceComparisonContext(
@@ -563,18 +568,22 @@ def assert_changed_other_coordinate(reference, subject, anchor_pass, selection):
     )
     guidance = GuidancePolicy(observation=subject.observation.observation_policy,
                               observation_identity=subject.observation.observation_policy.identity)
-    compared = StaticComparisonDocument.compare(context=context, reference=reference, subject=subject, guidance=guidance)
+    compared = compare_static_document(context=context, reference=reference, subject=subject, guidance=guidance)
     assert compared.result == StaticUncompared(reason="context-mismatch")
     assert StaticComparisonDocument.model_validate_json(compared.model_dump_json()) == compared
 
 
 def assert_static_scope_contract(reference, subject, anchor_pass, selection, reference_process, subject_process, pass_process):
+    from uuid import uuid4, uuid5, UUID
+
     from pf.schemas.policy import GuidancePolicy
     from pf.schemas.static_comparison import SliceComparisonContext, GlobalComparisonContext
     from pf.schemas.static_scope import (
         StaticScopeEvidence, StaticProcessRecord, StaticFactMembership,
-        StaticConsumerMembership, StaticPassMembership, StaticComparisonMembership,
+        StaticPreparationMembership, StaticConsumerMembership, StaticPassMembership,
+        StaticComparisonMembership,
     )
+    from pf.static.audit import compare_in_document
 
     shared_key = (
         reference.observation.subject.identity == subject.observation.subject.identity
@@ -594,10 +603,10 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
         )
         consumers = (
             StaticConsumerMembership(
-                ref="reference", preparation=reference.preparation, fact_ref="shared-fact",
+                ref="reference", preparation_ref="prep-reference", fact_ref="shared-fact",
             ),
             StaticConsumerMembership(
-                ref="subject", preparation=subject.preparation, fact_ref="shared-fact",
+                ref="subject", preparation_ref="prep-subject", fact_ref="shared-fact",
             ),
         )
     else:
@@ -618,16 +627,27 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
         )
         consumers = (
             StaticConsumerMembership(
-                ref="reference", preparation=reference.preparation, fact_ref="reference-fact",
+                ref="reference", preparation_ref="prep-reference", fact_ref="reference-fact",
             ),
             StaticConsumerMembership(
-                ref="subject", preparation=subject.preparation, fact_ref="subject-fact",
+                ref="subject", preparation_ref="prep-subject", fact_ref="subject-fact",
             ),
         )
+    run_identity = uuid4().hex
+    cell = reference.preparation.proposal.cell
     scope = StaticScopeEvidence(
-        scope_ref="scope-a", cell=reference.preparation.proposal.cell,
+        scope_ref=uuid5(UUID(run_identity), cell.model_dump_json()).hex,
+        run_identity=run_identity,
+        cell=cell,
+        preparations=(
+            StaticPreparationMembership(ref="prep-reference", preparation=reference.preparation),
+            StaticPreparationMembership(ref="prep-subject", preparation=subject.preparation),
+        ),
         processes=processes, facts=facts, consumers=consumers,
-        passes=(StaticPassMembership(ref="anchor-pass", evidence=anchor_pass, consumer_ref="reference", process_ref="verifier"),),
+        passes=(StaticPassMembership(
+            ref="anchor-pass", evidence=anchor_pass, preparation_ref="prep-reference",
+            consumer_ref="reference", process_ref="verifier",
+        ),),
         highest_reference_ref="reference", highest_uncollected=None, comparisons=(),
     )
     restored_scope = StaticScopeEvidence.model_validate_json(scope.model_dump_json())
@@ -637,11 +657,13 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     context = SliceComparisonContext(dependency="idna", anchor_pass=anchor_pass,
                                      fixed_other_coordinates=tuple(pin for pin in reference.preparation.proposal.managed_vector if pin.name != "idna"),
                                      window=tuple(item for item in selection if item.dependency == "idna"))
-    compared = scope.compare(scope_ref="scope-a", subject_ref="subject", reference_ref="reference",
-                             context=context, guidance=guidance, anchor_pass_ref="anchor-pass")
+    compared = compare_in_document(
+        scope, scope_ref=scope.scope_ref, subject_ref="subject", reference_ref="reference",
+        context=context, guidance=guidance, anchor_pass_ref="anchor-pass",
+    )
     assert compared.result.status == "COMPARED"
-    anchor_self = scope.compare(
-        scope_ref="scope-a", subject_ref="reference", reference_ref="reference",
+    anchor_self = compare_in_document(
+        scope, scope_ref=scope.scope_ref, subject_ref="reference", reference_ref="reference",
         context=context, guidance=guidance, anchor_pass_ref="anchor-pass",
     )
     assert anchor_self.result.status == "COMPARED"
@@ -665,26 +687,34 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
         unavailable=StaticContentUnavailable(detail="unreadable-content"),
     ).model_dump(mode="json")
     unavailable_scope = StaticScopeEvidence.model_validate(unavailable_global)
-    global_comparison = unavailable_scope.compare(
-        scope_ref="scope-a", subject_ref="subject", reference_ref=None,
+    global_comparison = compare_in_document(
+        unavailable_scope, scope_ref=unavailable_scope.scope_ref, subject_ref="subject",
+        reference_ref=None,
         context=GlobalComparisonContext(highest_proposal_id=reference.preparation.proposal.proposal_id),
         guidance=guidance,
     )
     assert global_comparison.result == StaticUncompared(reason="reference-unavailable")
-    assert unavailable_scope.compare(scope_ref="scope-a", subject_ref="subject", reference_ref="reference",
-                                     context=context, guidance=guidance, anchor_pass_ref="anchor-pass").result == compared.result
-    assert restored_scope.compare(scope_ref="scope-a", subject_ref="subject", reference_ref="reference",
-                                  context=context, guidance=guidance, anchor_pass_ref="anchor-pass").result == compared.result
+    assert compare_in_document(
+        unavailable_scope, scope_ref=unavailable_scope.scope_ref, subject_ref="subject",
+        reference_ref="reference", context=context, guidance=guidance, anchor_pass_ref="anchor-pass",
+    ).result == compared.result
+    assert compare_in_document(
+        restored_scope, scope_ref=restored_scope.scope_ref, subject_ref="subject",
+        reference_ref="reference", context=context, guidance=guidance, anchor_pass_ref="anchor-pass",
+    ).result == compared.result
     for kwargs in (
         {"scope_ref": "scope-b", "subject_ref": "subject", "anchor_pass_ref": "anchor-pass"},
-        {"scope_ref": "scope-a", "subject_ref": "foreign-subject", "anchor_pass_ref": "anchor-pass"},
-        {"scope_ref": "scope-a", "subject_ref": "subject", "anchor_pass_ref": "foreign-pass"},
+        {"scope_ref": scope.scope_ref, "subject_ref": "foreign-subject", "anchor_pass_ref": "anchor-pass"},
+        {"scope_ref": scope.scope_ref, "subject_ref": "subject", "anchor_pass_ref": "foreign-pass"},
     ):
         with pytest.raises(ValueError):
-            scope.compare(**kwargs, reference_ref="reference", context=context, guidance=guidance)
+            compare_in_document(scope, **kwargs, reference_ref="reference", context=context, guidance=guidance)
     with pytest.raises(ValueError, match="fixed highest"):
-        scope.compare(scope_ref="scope-a", subject_ref="subject", reference_ref="subject",
-                      context=GlobalComparisonContext(highest_proposal_id=subject.preparation.proposal.proposal_id), guidance=guidance)
+        compare_in_document(
+            scope, scope_ref=scope.scope_ref, subject_ref="subject", reference_ref="subject",
+            context=GlobalComparisonContext(highest_proposal_id=subject.preparation.proposal.proposal_id),
+            guidance=guidance,
+        )
     incomplete = scope.model_dump(mode="json")
     incomplete["processes"][0]["process"]["stdout_complete"] = False
     with pytest.raises(ValueError, match="output completeness"):
@@ -704,22 +734,31 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     renamed = scope.model_dump(mode="json")
     renamed["scope_ref"] = "renamed-scope"
     renamed["highest_reference_ref"] = "renamed/reference"
-    for table in ("processes", "facts", "consumers", "passes", "comparisons"):
+    for table in ("processes", "facts", "consumers", "passes", "comparisons", "preparations"):
         for row in renamed[table]:
-            for key in ("ref", "producer_ref", "process_ref", "fact_ref", "consumer_ref", "subject_ref", "reference_ref", "anchor_pass_ref"):
+            for key in (
+                "ref", "producer_ref", "process_ref", "fact_ref", "consumer_ref",
+                "subject_ref", "reference_ref", "anchor_pass_ref", "preparation_ref",
+            ):
                 if key in row and row[key] is not None:
                     row[key] = "renamed/" + row[key]
     relocated = StaticScopeEvidence.model_validate(renamed)
-    replay = relocated.compare(scope_ref="renamed-scope", subject_ref="renamed/subject", reference_ref="renamed/reference",
-                               context=context, guidance=guidance, anchor_pass_ref="renamed/anchor-pass")
+    replay = compare_in_document(
+        relocated, scope_ref="renamed-scope", subject_ref="renamed/subject",
+        reference_ref="renamed/reference", context=context, guidance=guidance,
+        anchor_pass_ref="renamed/anchor-pass",
+    )
     assert replay.result == compared.result
     assert replay.identity == compared.identity == relocated.comparisons[0].identity
 
     # Register the same actual preparations/processes through the runtime owner;
     # runtime and offline admission must derive the same Slice comparison.
     from dataclasses import replace
-    from pf.schemas.evaluation import VerifierRun, VerifierDiagnostics
+    from pf.schemas.evaluation import PassEvaluation, RuntimeEvaluationRun, VerifierDiagnostics
     from pf.schemas.static_comparison import StaticUncompared
+
+    class _Owner:
+        pass
 
     cache = TyCheckCache()
     reference_fact = cache.collect(reference.preparation, reference.observation.observation_policy,
@@ -731,10 +770,18 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     reference_ref = cache.consumer(reference_fact, reference.preparation)
     subject_ref = cache.consumer(subject_fact, subject.preparation)
     cache.set_highest(reference_ref)
-    actual_pass = VerifierRun(authoritative=anchor_pass.verifier,
-                              diagnostics=VerifierDiagnostics(process=pass_process))
-    pass_ref = cache.record_pass(reference_ref, actual_pass)
-    assert cache.record_pass(reference_ref, actual_pass) is pass_ref
+    owner = _Owner()
+    cache.register_prepared(owner, reference.preparation)
+    actual_pass = RuntimeEvaluationRun(
+        evaluation=PassEvaluation(
+            proposal=reference.preparation.proposal, verifier=anchor_pass.verifier,
+        ),
+        diagnostics=VerifierDiagnostics(process=pass_process),
+    )
+    cache.record_direct_pass(owner, actual_pass)
+    cache.record_direct_pass(owner, actual_pass)
+    pass_ref = cache.find_direct_pass(reference.preparation.proposal)
+    assert pass_ref is not None
     assert cache.compare(subject_ref, reference_ref, context=context, guidance=guidance,
                          anchor_pass=pass_ref) == compared.result
     assert cache.compare(subject_ref, reference_ref, context=context, guidance=guidance,
@@ -751,8 +798,16 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     saved = emitted.model_dump_json()
     cache.close()
     emitted = StaticScopeEvidence.model_validate_json(saved)
-    subject_member = next(item for item in emitted.consumers if item.preparation == subject.preparation)
-    reference_member = next(item for item in emitted.consumers if item.preparation == reference.preparation)
-    assert emitted.compare(scope_ref=emitted.scope_ref, subject_ref=subject_member.ref,
-                           reference_ref=reference_member.ref, context=context, guidance=guidance,
-                           anchor_pass_ref=emitted.passes[0].ref).result == compared.result
+    subject_member = next(
+        item for item in emitted.consumers
+        if emitted.preparation(item.preparation_ref) == subject.preparation
+    )
+    reference_member = next(
+        item for item in emitted.consumers
+        if emitted.preparation(item.preparation_ref) == reference.preparation
+    )
+    assert compare_in_document(
+        emitted, scope_ref=emitted.scope_ref, subject_ref=subject_member.ref,
+        reference_ref=reference_member.ref, context=context, guidance=guidance,
+        anchor_pass_ref=emitted.passes[0].ref,
+    ).result == compared.result

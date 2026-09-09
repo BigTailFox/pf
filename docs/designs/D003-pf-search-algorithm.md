@@ -2,13 +2,14 @@
 
 - **状态：** 现行
 - **算法版本：** `direct-first-coordinate-guidance-v1`
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-10
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态事实与比较：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
   [D038](../archived/designs/D038-pf-static-guidance-authority.md)、
+  [D039](../archived/designs/D039-pf-static-evaluation-module.md)、
   [D043](../archived/designs/D043-pf-static-subject-v2.md)
 
 本文是单个 package/cell 的坐标搜索、直接证据 fast path、局部静态 guidance、oracle
@@ -143,10 +144,18 @@ record_direct_bound(...)
 ```
 
 只读 lookup 不 prepare、ty 或 verifier。`evaluate_in_slice` 必须返回直接 Probe evidence，
-不能返回静态比较结果。`open_static_slice` 要求上端已有直接 runtime PASS；lookup 命中则不再
-prepare；未命中则 `reprepare` 后 collect。至多每个坐标一次；失败或不可用返回 `NO_HINT`，
-不改写 `S_hi`，不产生 Failure ID。`record_pass` 不要求静态 consumer。坐标结束时关闭未消费
-物化环境，保留完整结果和 Run-owned 原始静态事实。
+不能返回静态比较结果。
+
+`open_static_slice` 只转交该坐标的 `StaticSliceCollector` 与冻结的 `CandidateSnapshot`；
+slice 由 `StaticEvaluator.open_slice` 构造。上端直接 PASS 以 Direct-PASS ledger 为准：调用方
+必须已经在 `evaluate` 之后、prepared close 之前调用 `record_runtime`。仅有 Search 内存中的
+`PassEvaluation` 不得打开 slice。ledger 行尚无 consumer 时，module 经 collector 重建另一个
+prepared 并 `collect_prepared`，只绑定 consumer，不得替换 runtime owner。仍无合格 consumer
+时记 omission 并返回 None。无 PASS 不是 omission。至多每个坐标一次；失败或不可用返回
+`NO_HINT`，不改写 `S_hi`，不产生 Failure ID，不产生静态 compatibility disposition。
+
+Direct-PASS 按 Proposal 至多一个 runtime owner。`record_runtime` 是直接 runtime PASS 进入
+ledger 的唯一通道。坐标结束时关闭未消费物化环境，保留完整结果和 Run-owned 原始静态事实。
 
 `SearchProbeRequest` 只表示坐标 probe，`selection_reason` required 非空：
 

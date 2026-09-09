@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 from io import StringIO
 from pathlib import Path

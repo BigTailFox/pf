@@ -15,20 +15,16 @@ from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.errors import ConfigurationError
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator
+from pf.static import StaticEvaluator
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
-from pf.schemas.policy import GuidancePolicy
 from pf.schemas.project import SourcePlan
 from pf.schemas.config import RunLimits, SearchRequest
-from pf.schemas.static import StaticContentUnavailable
 from pf.workflow import SearchCommandWorkflow
 from pf.schemas.report import CellSuccess
-from pf.schemas.static_comparison import GlobalComparisonContext
 from pf.search import SearchCoordinator
 from pf.snapshot import SnapshotBuilder
-from pf.static_cache import RunTyFactRef
-from pf.static_request import StaticRequestFactory
 from pf.adapters.test_command import ConfiguredVerifier
 from pf.verification import SearchVerificationRun, VerificationRunner
 
@@ -100,11 +96,7 @@ def _scripted_search_report(root, *, unavailable=False, source="VALUE = 1\n", pr
     from pf.schemas.evaluation import (
         NormalExit, VerifierDiagnostics, VerifierPass, VerifierRejected, VerifierRun,
     )
-    from pf.static_cache import TyCheckCache
-
-    class UnavailableRequests:
-        def capture(self, prepared, **kwargs):
-            return StaticContentUnavailable(detail="unreadable-content")
+    from pf.static import TyCheckCache
 
     def collected_verifier(vector, _call):
         passed = int(vector[0].version) >= 2
@@ -126,7 +118,7 @@ def _scripted_search_report(root, *, unavailable=False, source="VALUE = 1\n", pr
         project = evaluation_project(root, dependency=None, source=source)
         assembly = evaluation_assembly(
             highest=(),
-            static_requests=UnavailableRequests() if unavailable else None,
+            fail_all_inspects=unavailable,
             verifier_handler=project_only_verifier,
         )
     else:
@@ -142,23 +134,6 @@ def _scripted_search_report(root, *, unavailable=False, source="VALUE = 1\n", pr
                 source_plan=project.source_plan,
             )
             assert result.status == "SUCCESS", result
-            scope = cache.snapshot(project.package.cells[0])
-            if scope.consumers and scope.facts:
-                member = scope.consumers[0]
-                policy = scope.facts[0].observation.observation_policy
-                fact = cache.lookup(member.preparation.subject, policy)
-                if isinstance(fact, RunTyFactRef):
-                    consumer = cache.consumer(fact, member.preparation)
-                    assembly.static.compare(
-                        consumer, consumer, run_cache=cache,
-                        context=GlobalComparisonContext(
-                            highest_proposal_id=member.preparation.proposal.proposal_id,
-                        ),
-                        guidance_policy=GuidancePolicy(
-                            observation=policy, observation_identity=policy.identity,
-                        ),
-                    )
-                    scope = cache.snapshot(project.package.cells[0])
             report = PackageReportBuilder().build(
                 package=project.package,
                 source_plan=project.source_plan,
@@ -191,7 +166,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     process = SubprocessRunner()
     uv = UvAdapter(process)
     environments = EnvironmentFactory(uv)
-    static = StaticEvaluator(TyAdapter(process), requests=StaticRequestFactory(process))
+    static = StaticEvaluator(TyAdapter(process), processes=process)
     full = RuntimeEvaluator(verifier=ConfiguredVerifier(process))
     highest = HighestVersionVerifier(environments=environments, static=static, full=full)
     coordinator = SearchCoordinator(environments=environments, candidates=CandidateBuilder(uv),
@@ -208,16 +183,6 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             caches.append(run_cache)
             result = coordinator.search(run_cache=run_cache, **kwargs)
             assert result.status == "SUCCESS", result
-            scope = run_cache.snapshot(result.cell)
-            if scope.consumers:
-                member = scope.consumers[0]
-                policy = scope.facts[0].observation.observation_policy
-                fact = run_cache.lookup(member.preparation.subject, policy)
-                assert isinstance(fact, RunTyFactRef)
-                consumer = run_cache.consumer(fact, member.preparation)
-                static.compare(consumer, consumer, run_cache=run_cache,
-                               context=GlobalComparisonContext(highest_proposal_id=member.preparation.proposal.proposal_id),
-                               guidance_policy=GuidancePolicy(observation=policy, observation_identity=policy.identity))
             return result
 
     snapshot = SnapshotBuilder(process).build(root)

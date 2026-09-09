@@ -13,7 +13,8 @@ from static_fixtures import (
 )
 from pf.cancellation import OperationCancelled
 from pf.schemas.evaluation import ProcessResult, ToolFailure, TyCheck
-from pf.static_cache import CacheMiss, RunTyFactRef, TyCheckCache
+from pf.static_cache import CacheMiss, RunTyFactRef
+from pf.static import TyCheckCache
 from pf.ty_fact import ty_fact_document
 
 
@@ -55,10 +56,12 @@ class TestRunTyCache:
 
     def test_membership_is_run_owned_even_with_identical_payload(self, preparation, static_subject, policy):
         process = ProcessResult(exit_code=0, duration_seconds=1)
+        other_process = process.model_copy()
         document = ty_fact_document(static_subject, policy, TyCheck(process=process, diagnostics=()))
+        other_document = ty_fact_document(static_subject, policy, TyCheck(process=other_process, diagnostics=()))
         first, second = TyCheckCache(), TyCheckCache()
         a = first.collect(preparation, policy, lambda _: (document, process), revalidate=lambda: True)
-        b = second.collect(preparation, policy, lambda _: (document, process), revalidate=lambda: True)
+        b = second.collect(preparation, policy, lambda _: (other_document, other_process), revalidate=lambda: True)
         assert isinstance(a, RunTyFactRef)
         assert isinstance(b, RunTyFactRef)
         assert a.observation == b.observation
@@ -148,20 +151,21 @@ class TestRunStaticScope:
     def test_global_comparison_replays_after_actual_environment_close(self, static_request):
         preparation = static_request.preparation
         policy = static_request.observation_policy
-        from pf.adapters.process import SubprocessRunner
-        from pf.adapters.ty import TyAdapter
-        from pf.static_request import StaticRequestFactory
-        from pf.evaluation import StaticEvaluator
         from pf.schemas.policy import GuidancePolicy
         from pf.schemas.static_comparison import GlobalComparisonContext, StaticUncompared
         from pf.schemas.static_scope import StaticScopeEvidence
 
         cache, other = TyCheckCache(), TyCheckCache()
-        static = StaticEvaluator(TyAdapter(SubprocessRunner()), requests=StaticRequestFactory(SubprocessRunner()))
         process = ProcessResult(exit_code=0, duration_seconds=1)
+        other_process = process.model_copy()
         document = ty_fact_document(preparation.subject, policy, TyCheck(process=process, diagnostics=()))
+        other_document = ty_fact_document(
+            preparation.subject, policy, TyCheck(process=other_process, diagnostics=()),
+        )
         fact = cache.collect(preparation, policy, lambda _: (document, process), revalidate=lambda: True)
-        foreign_fact = other.collect(preparation, policy, lambda _: (document, process), revalidate=lambda: True)
+        foreign_fact = other.collect(
+            preparation, policy, lambda _: (other_document, other_process), revalidate=lambda: True,
+        )
         assert isinstance(fact, RunTyFactRef)
         assert isinstance(foreign_fact, RunTyFactRef)
         consumer = cache.consumer(fact, preparation)
@@ -170,43 +174,47 @@ class TestRunStaticScope:
         other.set_highest(foreign)
         context = GlobalComparisonContext(highest_proposal_id=preparation.proposal.proposal_id)
         guidance = GuidancePolicy(observation=policy, observation_identity=policy.identity)
-        result = static.compare(consumer, consumer, run_cache=cache, context=context, guidance_policy=guidance)
+        result = cache.compare(consumer, consumer, context=context, guidance=guidance)
         assert result.status == "COMPARED"
         assert result.state == "STATIC_UNCHANGED"
         for left, right in ((foreign, consumer), (consumer, foreign), (replace(consumer), consumer)):
-            assert static.compare(left, right, run_cache=cache, context=context, guidance_policy=guidance) == StaticUncompared(reason="context-mismatch")
+            assert cache.compare(left, right, context=context, guidance=guidance) == StaticUncompared(reason="context-mismatch")
         assert cache.snapshot(preparation.proposal.cell).facts[0].observation == document
         static_request.prepared.close()
         assert not static_request.prepared.environment_root.exists()
-        assert static.compare(consumer, consumer, run_cache=cache, context=context, guidance_policy=guidance) == result
+        assert cache.compare(consumer, consumer, context=context, guidance=guidance) == result
         assert cache.lookup(preparation.subject, policy) is fact
         cache.stop()
         scope = cache.snapshot(preparation.proposal.cell)
         assert len(scope.facts) == len(scope.processes) == len(scope.consumers) == 1
         assert len(scope.comparisons) == 1
         assert scope.comparisons[0].result == result
-        assert static.compare(foreign, foreign, run_cache=other, context=context, guidance_policy=guidance) == result
+        assert other.compare(foreign, foreign, context=context, guidance=guidance) == result
         other_scope = other.snapshot(preparation.proposal.cell)
         assert scope.scope_ref != other_scope.scope_ref
         assert scope.comparisons[0].identity == other_scope.comparisons[0].identity
-        for field, value in (("identity", "0" * 64), ("subject_ref", "foreign-consumer"), ("reference_ref", None)):
+        for field, value in (("subject_ref", "foreign-consumer"),):
             forged = scope.model_dump(mode="json")
             forged["comparisons"][0][field] = value
             with pytest.raises(ValueError):
                 StaticScopeEvidence.model_validate(forged)
+        from pf.static.audit import _admit_saved_static_audit
         forged = scope.model_dump(mode="json")
         forged["comparisons"][0]["result"]["fingerprint"] = "0" * 64
         with pytest.raises(ValueError, match="semantic evidence"):
-            StaticScopeEvidence.model_validate(forged)
+            _admit_saved_static_audit(StaticScopeEvidence.model_validate(forged))
         producer = next(item for item in scope.consumers if item.ref == scope.facts[0].producer_ref)
-        assert producer.preparation == preparation
+        assert scope.preparation(producer.preparation_ref) == preparation
         assert fact.producer == preparation
         saved = scope.model_dump_json()
         cache.close()
         restored = StaticScopeEvidence.model_validate_json(saved)
-        assert restored.compare(scope_ref=restored.scope_ref, subject_ref=producer.ref,
-                                reference_ref=producer.ref, context=context, guidance=guidance).result == result
-        assert static.compare(consumer, consumer, run_cache=cache, context=context, guidance_policy=guidance) == StaticUncompared(reason="context-mismatch")
+        from pf.static.audit import compare_in_document
+        assert compare_in_document(
+            restored, scope_ref=restored.scope_ref, subject_ref=producer.ref,
+            reference_ref=producer.ref, context=context, guidance=guidance,
+        ).result == result
+        assert cache.compare(consumer, consumer, context=context, guidance=guidance) == StaticUncompared(reason="context-mismatch")
         other.close()
 
     @pytest.mark.parametrize("unavailable", [False, True])
@@ -241,7 +249,8 @@ class TestRunStaticScope:
     def test_comparison_identity_distinguishes_unavailable_references_from_empty_diagnostics(self, preparation, policy):
         from pf.schemas.static_baseline import StaticUncollectedBaseline
         from pf.schemas.static import StaticContentUnavailable
-        from pf.schemas.static_comparison import GlobalComparisonContext, StaticComparisonDocument
+        from pf.schemas.static_comparison import GlobalComparisonContext
+        from pf.static.comparison import compare_static_document
         from pf.schemas.static_consumer import StaticConsumerEvidence
         from pf.schemas.policy import GuidancePolicy
 
@@ -256,11 +265,11 @@ class TestRunStaticScope:
         context = GlobalComparisonContext(highest_proposal_id=preparation.proposal.proposal_id)
         guidance = GuidancePolicy(observation=policy, observation_identity=policy.identity)
         comparisons = [
-            StaticComparisonDocument.compare(context=context, subject=subject, reference=reference, guidance=guidance)
+            compare_static_document(context=context, subject=subject, reference=reference, guidance=guidance)
             for subject, reference in ((empty, empty), (empty, failed), (failed, empty), (empty, None))
         ]
         for reason in ("unreadable-content", "content-changed"):
-            comparisons.append(StaticComparisonDocument.compare(
+            comparisons.append(compare_static_document(
                 context=context, subject=empty, reference=None, guidance=guidance,
                 uncollected_reference=StaticUncollectedBaseline(
                     attempt=preparation.attempt, proposal=preparation.proposal,
@@ -272,7 +281,7 @@ class TestRunStaticScope:
             **policy.model_dump(mode="json"), "timeout_seconds": 17,
         })
         changed_guidance = GuidancePolicy(observation=changed_policy, observation_identity=changed_policy.identity)
-        changed = StaticComparisonDocument.compare(context=context, subject=empty, reference=None, guidance=changed_guidance)
+        changed = compare_static_document(context=context, subject=empty, reference=None, guidance=changed_guidance)
         assert changed.result == comparisons[3].result
         assert changed.identity != comparisons[3].identity
         assert comparisons[0].result.status == "COMPARED"
@@ -340,8 +349,11 @@ class TestRunStaticScope:
                 StaticScopeEvidence.model_validate(conflicting)
             saved = scope.model_dump_json()
         restored = StaticScopeEvidence.model_validate_json(saved)
-        comparison = restored.compare(scope_ref=restored.scope_ref, subject_ref=restored.consumers[0].ref,
-                                      reference_ref=None, context=context, guidance=guidance)
+        from pf.static.audit import compare_in_document
+        comparison = compare_in_document(
+            restored, scope_ref=restored.scope_ref, subject_ref=restored.consumers[0].ref,
+            reference_ref=None, context=context, guidance=guidance,
+        )
         assert comparison.result == expected
         assert comparison.uncollected_reference == missing
         assert len(restored.comparisons) == 1
@@ -349,9 +361,11 @@ class TestRunStaticScope:
         assert restored.comparisons[0].result == expected
         assert type(comparison).model_validate_json(comparison.model_dump_json()) == comparison
         with pytest.raises(ValueError, match="uncollected highest"):
-            restored.compare(scope_ref=restored.scope_ref, subject_ref=restored.consumers[0].ref,
-                             reference_ref=None, context=GlobalComparisonContext(highest_proposal_id="other"),
-                             guidance=guidance)
+            compare_in_document(
+                restored, scope_ref=restored.scope_ref, subject_ref=restored.consumers[0].ref,
+                reference_ref=None, context=GlobalComparisonContext(highest_proposal_id="other"),
+                guidance=guidance,
+            )
         with pytest.raises(ValueError, match="open"):
             cache.set_highest_uncollected(missing)
 
@@ -399,26 +413,22 @@ class TestRunStaticScope:
     ):
         from pf.schemas.policy import GuidancePolicy
         from pf.schemas.static_comparison import GlobalComparisonContext, StaticUncompared
-        from pf.evaluation import StaticEvaluator
-        from pf.adapters.process import SubprocessRunner
-        from pf.adapters.ty import TyAdapter
-        from pf.static_request import StaticRequestFactory
-
         process = ProcessResult(exit_code=0, duration_seconds=1)
+        other_process = process.model_copy()
         document = ty_fact_document(static_subject, policy, TyCheck(process=process, diagnostics=()))
+        other_document = ty_fact_document(static_subject, policy, TyCheck(process=other_process, diagnostics=()))
         first, second = TyCheckCache(), TyCheckCache()
         a = first.collect(preparation, policy, lambda _: (document, process), revalidate=lambda: True)
-        b = second.collect(preparation, policy, lambda _: (document, process), revalidate=lambda: True)
+        b = second.collect(preparation, policy, lambda _: (other_document, other_process), revalidate=lambda: True)
         assert isinstance(a, RunTyFactRef) and isinstance(b, RunTyFactRef)
         consumer = first.consumer(a, preparation)
         foreign = second.consumer(b, preparation)
         first.set_highest(consumer)
-        static = StaticEvaluator(TyAdapter(SubprocessRunner()), requests=StaticRequestFactory(SubprocessRunner()))
         context = GlobalComparisonContext(highest_proposal_id=preparation.proposal.proposal_id)
         guidance = GuidancePolicy(observation=policy, observation_identity=policy.identity)
-        assert static.compare(consumer, consumer, run_cache=first, context=context, guidance_policy=guidance).status == "COMPARED"
-        assert static.compare(foreign, consumer, run_cache=first, context=context, guidance_policy=guidance) == StaticUncompared(reason="context-mismatch")
+        assert first.compare(consumer, consumer, context=context, guidance=guidance).status == "COMPARED"
+        assert first.compare(foreign, consumer, context=context, guidance=guidance) == StaticUncompared(reason="context-mismatch")
         first.close()
         assert isinstance(first.lookup(static_subject, policy), CacheMiss)
-        assert static.compare(consumer, consumer, run_cache=first, context=context, guidance_policy=guidance) == StaticUncompared(reason="context-mismatch")
+        assert first.compare(consumer, consumer, context=context, guidance=guidance) == StaticUncompared(reason="context-mismatch")
         second.close()

@@ -30,7 +30,7 @@ from pf.schemas.evaluation import (
     VerifierRun,
 )
 from pf.schemas.report import CellSuccess
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 
 ROOT = Path(__file__).resolve().parents[1]

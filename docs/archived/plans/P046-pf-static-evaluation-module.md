@@ -1,12 +1,12 @@
 # P046 — D039 静态评价深模块实施计划
 
-- **状态：** 进行中
+- **状态：** 已完成
 - **日期：** 2026-09-10
 - **对应 Design：** [D039](../designs/D039-pf-static-evaluation-module.md)
-- **目标 owner：** [D002](../designs/D002-pf-implementation.md)、[D004](../designs/D004-pf-ty-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)；指针 [D003](../designs/D003-pf-search-algorithm.md)；[D005](../designs/D005-pf-failure-and-diagnose.md) 只核对
+- **目标 owner：** [D002](../../designs/D002-pf-implementation.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)；指针 [D003](../../designs/D003-pf-search-algorithm.md)；[D005](../../designs/D005-pf-failure-and-diagnose.md) 只核对
 - **起点：** `09b742cdd99b4485aa0e7f1236a8b3bde3264795`
-- **流程与测试：** [AGENTS.md](../../AGENTS.md)、[测试说明](../../tests/README.md)
-- **来源：** [R011](../reviews/R011-pf-architecture-review.md) §3–§6
+- **流程与测试：** [AGENTS.md](../../../AGENTS.md)、[测试说明](../../../tests/README.md)
+- **来源：** [R011](../../reviews/R011-pf-architecture-review.md) §3–§6
 
 本 Plan 记录切片、决定、去向与验收证据；目标行为只由 D039 规定。不另立契约。未开切片时不改 `src/` 或 `tests/`。
 
@@ -148,20 +148,20 @@ S1 对现行 `pf.resolution` 进口这些函数。S2 只改进口路径。
 
 | AC | 切片 | 命令 / 预定 nodeid | 状态 |
 | --- | --- | --- | --- |
-| AC1 | S3 | §5.1 AC1 五条 | 待证 |
-| AC2 | S3 | `tests/test_cli.py::TestDefaultContext::test_production_composition_shares_one_static_evaluator_and_process_runner` | 待证 |
-| AC3 | S3 | `tests/test_static_module_graph.py::test_search_has_no_handwritten_slice`；`tests/test_search_coordinator.py` / `tests/test_static_guidance.py` hint 语义；无 ledger 不得打开 slice | 待证 |
-| AC4 | S2 | `tests/test_static_module_graph.py::test_schemas_obey_static_import_allowlist`；`::test_schema_validators_do_not_replay_compare_hint_or_harness`；`tests/test_policy.py`（ty-args 不在 schema 执行） | 待证 |
-| AC5 | S2 前置 + S3 | S2：`tests/test_static_module_graph.py::test_admit_uses_shared_derive_and_hint`。S3：`::test_derive_and_hint_have_one_implementation` + 三入口语义 | 待证 |
-| AC6 | S4 | owner 正文（含 D003 §5 改写）+ `scripts/check_docs.py` | 待证 |
-| AC7 | S1 表 + S3 + S4 | 去向表执行；`tests/test_static_module_graph.py::test_no_test_only_public_static_exports` | 待证 |
-| AC8 | S3 | `tests/test_static_request.py` 连续 collect；`tests/test_static_comparison.py` GLOBAL/SLICE | 待证 |
-| AC9 | S3 | `tests/test_verification.py` 生命周期；`tests/test_static_module_graph.py::test_product_callers_do_not_invoke_cache_domain_methods` | 待证 |
-| AC10 | S1+S2 | E1 三 nodeid；S2 后再跑同一文件；`scripts/generate_report_schema.py --check` | 待证 |
-| AC11 | S3 | 现行 D003/D004 权威测试（`tests/test_static_guidance.py`、`tests/test_search_coordinator.py`） | 待证 |
-| AC12 | S3 | `tests/test_static_module_graph.py::test_orchestrators_do_not_accept_failures` | 待证 |
-| AC13 | S3 | §5.1 AC13 七条；`tests/test_evaluation.py` Runtime 无 `run_cache` | 待证 |
-| AC14 | S3 | `tests/test_static_module_graph.py::test_static_facts_do_not_associate_process_logs` 加 §5.1 AC14 家族表 | 待证 |
+| AC1 | S3 | §5.1 AC1 五条 | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_module_graph.py::test_product_callers_import_only_public_static_names tests/test_static_journal.py::TestStaticJournal::test_ordinary_journal_read_does_not_open_ty_cache tests/test_static_journal.py::TestStaticJournal::test_ordinary_ty_cache_decode_does_not_replay_comparison_or_hint tests/test_static_report.py::TestStaticReport::test_search_workflow_writes_a_report_without_static_intern tests/test_static_report.py::TestStaticReport::test_reader_rejects_old_intern_tables` → 五条 nodeid（intern 表拒绝含参数化）→ 8 passed, 1 deselected |
+| AC2 | S3 | `tests/test_cli.py::TestDefaultContext::test_production_composition_shares_one_static_evaluator_and_process_runner` | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_cli.py::TestDefaultContext::test_production_composition_shares_one_static_evaluator_and_process_runner` → 该 nodeid → 1 passed |
+| AC3 | S3 | `tests/test_static_module_graph.py::test_search_has_no_handwritten_slice`；`tests/test_search_coordinator.py` / `tests/test_static_guidance.py` hint 语义；无 ledger 不得打开 slice | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_module_graph.py::test_search_has_no_handwritten_slice tests/test_runtime_static_scope.py::TestRuntimeStaticPassRegistration::test_open_slice_requires_direct_pass_ledger tests/test_static_guidance.py tests/test_search_coordinator.py` → 结构扫描 + 无 ledger `ValueError` + guidance/coordinator → 169 passed |
+| AC4 | S2 | `tests/test_static_module_graph.py::test_schemas_obey_static_import_allowlist`；`::test_schema_validators_do_not_replay_compare_hint_or_harness`；`tests/test_policy.py`（ty-args 不在 schema 执行） | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_module_graph.py::test_schemas_obey_static_import_allowlist tests/test_static_module_graph.py::test_schema_validators_do_not_replay_compare_hint_or_harness tests/test_policy.py` → 三入口 → 32 passed |
+| AC5 | S2 前置 + S3 | S2：`tests/test_static_module_graph.py::test_admit_uses_shared_derive_and_hint`。S3：`::test_derive_and_hint_have_one_implementation` + 三入口语义 | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_module_graph.py::test_admit_uses_shared_derive_and_hint tests/test_static_module_graph.py::test_derive_and_hint_have_one_implementation tests/test_static_comparison.py` → admit/单实现 + GLOBAL/SLICE/`_admit` 坏 closure → 5 passed |
+| AC6 | S4 | owner 正文（含 D003 §5 改写）+ `scripts/check_docs.py` | 证明：D002 §3/§4/§7/§11、D003 §5、D004 §6–§7/§10、D008 §4/§7–§8、CONTEXT、R011、`docs/README.md` 已吸收；D005 只核对未改分类。E4：`.venv/bin/python scripts/check_docs.py` → exit 0 |
+| AC7 | S1 表 + S3 + S4 | 去向表执行；`tests/test_static_module_graph.py::test_no_test_only_public_static_exports` | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_module_graph.py::test_no_test_only_public_static_exports` → 该 nodeid → 1 passed。`tests/scripted_static.py` 与 `StaticContentCollector` / `TestStaticContentCollector` 已删除；`pf.static.__all__` 仅 §3.1/§3.4 |
+| AC8 | S3 | `tests/test_static_request.py` 连续 collect；`tests/test_static_comparison.py` GLOBAL/SLICE | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_comparison.py tests/test_search_coordinator.py::TestSearchCoordinator::test_same_ty_key_is_collected_once_and_global_local_deltas_differ` → 4 passed。process：`uv run pytest --no-testmon -q --tb=short -m "process and not qualification" tests/test_static_request.py` → `TestRealStaticRequest` 连续 `collect_prepared` hit → 3 passed |
+| AC9 | S3 | `tests/test_verification.py` 生命周期；`tests/test_static_module_graph.py::test_product_callers_do_not_invoke_cache_domain_methods` | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_verification.py tests/test_static_module_graph.py::test_product_callers_do_not_invoke_cache_domain_methods` → 38 passed |
+| AC10 | S1+S2 | E1 三 nodeid；S2 后再跑同一文件；`scripts/generate_report_schema.py --check` | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_identity_golden.py` → `TestIdentityGolden` 三 nodeid → 3 passed（S2 后进口 `pf.schemas.resolution` / `pf.resolution` re-export）。`.venv/bin/python scripts/generate_report_schema.py --check` → exit 0 |
+| AC11 | S3 | 现行 D003/D004 权威测试（`tests/test_static_guidance.py`、`tests/test_search_coordinator.py`） | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_guidance.py tests/test_search_coordinator.py` → 167 passed |
+| AC12 | S3 | `tests/test_static_module_graph.py::test_orchestrators_do_not_accept_failures` | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_static_module_graph.py::test_orchestrators_do_not_accept_failures` → 该 nodeid → 1 passed |
+| AC13 | S3 | §5.1 AC13；`tests/test_evaluation.py` Runtime 无 `run_cache` | 证明：`uv run pytest --no-testmon -q --tb=short tests/test_runtime_static_scope.py::TestRuntimeStaticPassRegistration tests/test_evaluation.py` → ledger 八条（含跨 Run process）+ Runtime 无 `run_cache` → 34 passed, 1 deselected |
+| AC14 | S3 | `tests/test_static_module_graph.py::test_static_facts_do_not_associate_process_logs` 加 §5.1 AC14 家族表 | 证明：`uv run pytest --no-testmon -q --tb=short` + §5.1 AC14 十三行 nodeid → 51 passed |
 
 停止条件与 D039 §9 对齐。
 
@@ -192,6 +192,7 @@ S1 对现行 `pf.resolution` 进口这些函数。S2 只改进口路径。
 - `test_later_collect_binds_consumer_without_replacing_runtime_owner`
 - `test_record_runtime_rejects_different_prepared_for_owned_proposal`
 - `test_record_runtime_validates_registration_before_outcome`（Rejection / 无 diagnostics 但未注册 prepared 仍 `ValueError`）
+- `test_record_runtime_rejects_process_from_another_run`（盲评 F4：同一 `ProcessObservation` 不得写入另一 Run）
 
 **AC14** — 静态 fact 不关联 Process Log；下列既有代表项证明 verifier 与各 prepare authority family 的 sidecar / diagnose 仍按 D005/D008。S3 不得删除或改弱这些断言。
 
@@ -269,10 +270,39 @@ uv run pytest --no-testmon -q -m "not qualification"
 - 2026-09-10：接受二次评审。D039 补 Direct-PASS ledger、`StaticAuditDocument` 结构 / `admitted_membership` / writer 错误映射、§3.2 fail-closed 契约。本 Plan 改 S2/S3 分界、补去向表与 §5 证据命令、锁定 E1 三组字面 hex。仍未改 `src/` / `tests/`。
 - 2026-09-10：接受三次评审。D039 分 Preparation registry 与 Direct-PASS ledger；未绑定 PASS 补 `scope_ref` / `run_identity` / `preparations[]` / `pass.preparation_ref`；`record_runtime` 固定先身份后 outcome；`open_slice` 固定 context 来源；S4 改写 D003 §5。本 Plan 补 §5.1 nodeid、E2 `test_resolution.py`、E3 `test_static_report.py` / `test_static_cache.py`、golden 真实 keyword。仍未改 `src/` / `tests/`。S2/S3 在本修订落地前不开。
 - 2026-09-10：接受收尾评审。D039 澄清 AC9 时序与 Search ledger 准入。本 Plan 补 E2 `test_admit_uses_shared_derive_and_hint`、E3 process 的 `test_static_cache.py`、§4 `test_policy.py` 去向、E4 逐 AC 回填格式。仍未改 `src/` / `tests/`。
+- 2026-09-10：S1 落地 `tests/test_identity_golden.py`，三组字面 hex 对现行 `pf.resolution` 成立（E1：3 passed）。开始 S2。
+- 2026-09-10：S2 纯化 schemas、`StaticAuditDocument` / `_admit_saved_static_audit` / `admitted_membership`；identity 下放到 `pf.schemas.resolution`。S3 一次切齐 `pf.static` 五方法、Preparation registry + Direct-PASS ledger、删除 `failures=` / RequestFactory 产品缝 / `scripted_static.py` / `StaticContentCollector`。S4 吸收 D002/D003 §5/D004/D008，回填 §5 十四行并归档。
+- 2026-09-10：盲评后修复 F1–F6/F8，F7 记为保留偏差。未标记回归 `uv run pytest --no-testmon -q -m "not qualification"` → 2512 passed, 1 skipped, 8 deselected。
 
 偏差与失败用例（实施时追加）：
 
-- （无）
+- schema 不再重放 harness；`project_plan.request_digest` 仍由 `StaticPreparationEvidence` 从 attempt 预像复算。`environment_plan.request_digest` 的 harness 变换改由 `_admit_saved_static_audit` 执行。
+- `open_slice` 无 ledger 的产品负向测试落在 `tests/test_runtime_static_scope.py::test_open_slice_requires_direct_pass_ledger`，与 AC3 结构扫描一并证明。
+- 2026-09-10 盲评（对起点 `09b742c` 工作区；契约为接受时 `b79ed47` 的 D039/P046）。发现 must-fix F1–F6、F8 与偏差 F7；完成声明在本条修复落地前不成立。
+  - **F1 / AC9：** Runner 在 `stop` 之后仍经 `finalize` 调用 `admitted_membership`。
+  - **F2 / AC13：** `collect_prepared` 在 `static_preparation_evidence` 返回 unavailable 时不登记 prepared。
+  - **F3 / AC13：** `TyCheckCache` 同时维护 `_DirectPassEntry` 与旧 `RunStaticPassRef` / `record_pass` / `find_pass`。
+  - **F4 / AC13：** verifier/ty process 只在单一 cache 内查重，同一 `ProcessObservation` 可写入另一 Run。
+  - **F5 / AC7：** 去向表未切完：产品测试读 `snapshot`；`test_static_request` 仍断言 RequestFactory 形状；`static_admission.py` / `static_guidance.py` 过渡 re-export 仍在。
+  - **F6 / AC5：** `test_derive_and_hint_have_one_implementation` 右侧 `or "compare_global" in FunctionDef` 恒真。
+  - **F7 / 偏差：** `StaticEvaluator` 除锁定五方法外另有 `record_phase_skip` / `record_oracle_selection`（Search 写 audit 且不得直接调 cache 领域方法）。保留这两入口，记为对「公开五方法」锁的偏差。
+  - **F8 / E4：** 十四行证据未全部写成可复现「命令 → nodeid → 结果」；完成/归档与上列缺口冲突。
+
+修复（2026-09-10，对上列盲评项）：
+
+- **F1：** `_VerificationEvents.admit_remaining()` 在 `stop` 前跑完全部 Cell admission；`finalize` 只 persist。收尾为 `admit_remaining` → `stop` → `documents` → `close`。
+- **F2：** `collect_prepared` 在无法形成 `StaticPreparationEvidence` 时 `ValueError`；`StaticContentUnavailable` 只在 `register_prepared` 之后返回。
+- **F3：** 删除 `RunStaticPassRef`、`record_pass`、`find_pass` 与 `_passes`；比较与 snapshot 只认 Direct-PASS ledger。
+- **F4：** ty/verifier process 按对象身份登记 Run owner；跨 Run 写入 `ValueError`。`test_record_runtime_rejects_process_from_another_run` 证明。相同 payload 的另一 process 对象仍可属于另一 Run。
+- **F5：** 删除 `static_admission.py` / `static_guidance.py` 过渡 re-export。baseline / check / evaluation / verification 改 `admitted_membership` / `documents`。`test_static_request` 去掉 RequestFactory argv 形状断言。
+- **F6：** `test_derive_and_hint_have_one_implementation` 要求 evaluator 实际调用 `compare_global` 与 `compare_document`，并证明 derive/hint 单实现；去掉恒真 `or`。
+- **F7：** 保留 `record_phase_skip` / `record_oracle_selection`。Search 写 phase skip / oracle selection 不得直接调 cache 领域方法，故多两个 Evaluator 入口；对 P046「公开五方法」锁记偏差。
+- **F8：** §5 十四行按本轮命令回填（AC13 现为 `TestRuntimeStaticPassRegistration` 整类 + `test_evaluation.py` → 34 passed, 1 deselected）。
+
+残留（记偏差，不扩公开表面）：
+
+- Search D003 权威测试（`test_search_coordinator.py`）仍经 `snapshot` 观察 Cell audit 的 searches/skips/selections；`admitted_membership` 只投影 Journal highest。产品调用方不读 snapshot。
+- process 夹具与 adapter 测试仍用 request factory 装配 adapter-facing `StaticTyRequest`（`static_fixtures.static_request`、`test_ty_adapter`、relocate 路径）。这不是产品 Evaluator 形状。
 
 ## 8. 文档与生成物
 

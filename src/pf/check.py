@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
-from pf.schemas.policy import GuidancePolicy
-from pf.schemas.static import StaticContentUnavailable
-from pf.schemas.static_baseline import StaticUncollectedBaseline
+from pf.static import CollectedStaticSubject, StaticEvaluator, TyCheckCache
 
 from typing import Literal
 
 from pf.environment import EnvironmentFactory, HighestResolution, LowestDirectResolution
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     Attempt,
@@ -35,13 +32,12 @@ class CompatibilityChecker:
         environments: EnvironmentFactory,
         static: StaticEvaluator,
         full: RuntimeEvaluator,
-        failures: FailurePolicy | None = None,
         events: ActivityConsumer | None = None,
     ) -> None:
         self._environments = environments
         self._static = static
         self._full = full
-        self._failures = failures or FailurePolicy()
+        self._failures = FailurePolicy()
         self._events = events
 
     def check(
@@ -63,14 +59,7 @@ class CompatibilityChecker:
         if isinstance(highest, PrepareFailure):
             return self._prepare_outcome(highest, role="declaration-capture")
         try:
-            capture = self._static.collect_prepared(highest, package=package, run_cache=run_cache)
-            if isinstance(capture, StaticContentUnavailable):
-                run_cache.set_highest_uncollected(StaticUncollectedBaseline(
-                    attempt=highest.attempt, proposal=highest.proposal, unavailable=capture,
-                ))
-            else:
-                assert highest.static_consumer is not None
-                run_cache.set_highest(highest.static_consumer)
+            self._static.capture_highest(highest, package=package, run_cache=run_cache)
         finally:
             highest.close()
         if self._events is not None:
@@ -89,18 +78,11 @@ class CompatibilityChecker:
                 prepared, role="declaration"
             )
         try:
-            self._static.collect_prepared(prepared, package=package, run_cache=run_cache)
-            if prepared.static_consumer is not None:
-                observation = prepared.static_consumer.fact.observation.observation_policy
-                run_cache.compare_global(
-                    prepared.static_consumer,
-                    guidance=GuidancePolicy(observation=observation, observation_identity=observation.identity),
-                )
-            runtime = self._full.evaluate(
-                prepared,
-                package=package,
-                run_cache=run_cache,
-            )
+            collected = self._static.collect_prepared(prepared, package=package, run_cache=run_cache)
+            if isinstance(collected, CollectedStaticSubject):
+                self._static.compare_global(collected, run_cache=run_cache)
+            runtime = self._full.evaluate(prepared, package=package)
+            self._static.record_runtime(prepared, runtime, run_cache=run_cache)
         finally:
             prepared.close()
         return self._evaluation_outcome(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 import copy
 import json

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 from pathlib import Path
 from threading import Barrier, Lock
@@ -8,12 +8,16 @@ from typing import Literal, cast
 
 import pytest
 
-from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
+from evaluation_fixtures import (
+    ScriptedProcessRunner,
+    evaluation_assembly,
+    evaluation_project,
+    successful_process,
+)
 
+from pf.schemas.journal import JournalHighestCollected, JournalHighestUncollected
 from pf.schemas.ty_fact import TyCheckUnavailable
-from pf.schemas.static import StaticContentUnavailable
-from scripted_static import ScriptedStaticRequests
-from pf.evaluation import StaticEvaluator
+from pf.static import StaticEvaluator
 from pf.check import CompatibilityChecker
 from pf.failure import FailurePolicy
 from pf.project import ProjectLoader
@@ -233,15 +237,25 @@ class TestCompatibilityChecker:
             ),
         )
 
-        class Requests(ScriptedStaticRequests):
-            def capture(self, prepared, **kwargs):
-                if prepared.attempt.identity.requested_resolution == uncollected:
-                    return StaticContentUnavailable(detail="unreadable-content")
-                return super().capture(prepared, **kwargs)
+        class Runner(ScriptedProcessRunner):
+            def __init__(self):
+                super().__init__(assembly.uv)
+                self.inspects = 0
+
+            def run(self, spec, *, cancellation=None):
+                if len(spec.argv) >= 4 and spec.argv[1:4] == ("-I", "-B", "-c"):
+                    self.inspects += 1
+                    fail_at = {None: 0, "highest": 1, "lowest-direct": 2}[uncollected]
+                    if fail_at and self.inspects == fail_at:
+                        return ProcessResult(
+                            exit_code=1, signal=None, duration_seconds=0.01,
+                            stdout="", stderr="inspect failed",
+                        )
+                return super().run(spec, cancellation=cancellation)
 
         result = CompatibilityChecker(
             environments=assembly.environments,
-            static=StaticEvaluator(assembly.ty, requests=Requests()), full=assembly.runtime,
+            static=StaticEvaluator(assembly.ty, processes=Runner()), full=assembly.runtime,
         ).check(
             package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
             source_plan=project.source_plan, run_cache=run_cache,
@@ -250,26 +264,16 @@ class TestCompatibilityChecker:
         assert result.evaluation is not None
         assert result.evaluation.proposal.managed_vector == (VersionPin(name="demo-dep", version="1"),)
         assert len(assembly.verifier.vectors) == 1
-        scope = run_cache.snapshot(project.package.cells[0])
-        assert len(scope.facts) == (2 if uncollected is None else 1)
-        if uncollected == "lowest-direct":
-            assert scope.comparisons == ()
-            assert scope.passes == ()
+        cell = project.package.cells[0]
+        documents = run_cache.documents()
+        membership = run_cache.admitted_membership(cell)
+        assert membership is not None
+        assert len(documents) == (2 if uncollected is None else 1)
+        if uncollected == "highest":
+            assert isinstance(membership.highest, JournalHighestUncollected)
+            assert membership.highest.detail == "inspection-unavailable"
         else:
-            assert len(scope.comparisons) == 1
-            comparison = scope.comparisons[0]
-            assert comparison.context.kind == "GLOBAL"
-            if uncollected == "highest":
-                assert scope.highest_uncollected is not None
-                assert scope.highest_uncollected.unavailable.detail == "unreadable-content"
-                assert comparison.reference_ref is None
-                assert comparison.result.status == "UNCOMPARED"
-                assert comparison.result.reason == "reference-unavailable"
-            else:
-                assert comparison.reference_ref == scope.highest_reference_ref
-                assert comparison.result.status == "COMPARED"
-                assert comparison.result.state == "STATIC_REGRESSION"
-                assert comparison.result.incremental_identities == (diagnostic.identity,) * 2
+            assert isinstance(membership.highest, JournalHighestCollected)
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     def test_check_preserves_capture_when_lowest_preparation_fails(self, run_cache, tmp_path: Path) -> None:
@@ -296,10 +300,12 @@ class TestCompatibilityChecker:
         assert result.evaluation is None
         assert result.failure is not None
         assert result.failure.stage == "install-project"
-        scope = run_cache.snapshot(project.package.cells[0])
-        assert scope.highest_reference_ref is not None
-        assert isinstance(scope.facts[0].observation.fact, TyCheckUnavailable)
-        assert scope.facts[0].observation.fact.reason == "exit-code"
+        membership = run_cache.admitted_membership(project.package.cells[0])
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestCollected)
+        fact = run_cache.documents()[0].fact
+        assert isinstance(fact, TyCheckUnavailable)
+        assert fact.reason == "exit-code"
         assert assembly.uv.resolutions == ["highest", "lowest-direct"]
         assert len(assembly.ty.vectors) == 1
         assert assembly.verifier.vectors == []
@@ -557,20 +563,10 @@ class TestCheckWorkflow:
         assert result.role == "declaration"
         assert result.attempt.identity.requested_resolution == "lowest-direct"
         assert result.evaluation is not None
-        scope = run_cache.snapshot(package.cells[0])
-        assert len(scope.facts) == 2
-        assert len(scope.comparisons) == 1
-        comparison = scope.comparisons[0]
-        assert comparison.context.kind == "GLOBAL"
-        assert comparison.reference_ref == scope.highest_reference_ref
-        if 2 in failed_collections:
-            assert comparison.result.status == "UNAVAILABLE"
-        elif 1 in failed_collections:
-            assert comparison.result.status == "UNCOMPARED"
-            assert comparison.result.reason == "reference-unavailable"
-        else:
-            assert comparison.result.status == "COMPARED"
-            assert comparison.result.state == "STATIC_UNCHANGED"
+        membership = run_cache.admitted_membership(package.cells[0])
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestCollected)
+        assert len(run_cache.documents()) == 2
         if evaluation_status == "PASS":
             assert result.failure is None
         else:

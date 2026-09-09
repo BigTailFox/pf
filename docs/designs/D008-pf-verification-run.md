@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v3`
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-10
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -147,8 +147,10 @@ Scheduler只理解`ScheduledCellTask`, worker, deadline callback, resolved posit
 的Cell不调用started。它不导入Evaluation、Failure、Role、Journal、CellResult或terminal facts。结果按
 target/Python/extra规范排序，completion保留真实完成顺序；单Cell内probe串行。
 
-当Cell完成时，Runner先做typed projection，再合并buffered与terminal failures，按
-cache→Journal→latest 提交：先原子写完整 ty-cache snapshot，再写 Journal（`static_membership`
+当Cell完成时，Runner先调用 `TyCheckCache.admitted_membership(cell)`（内部投影
+`StaticAuditDocument` → `_admit_saved_static_audit` → Journal highest membership；admission
+的 `ValueError` 记为 `InfrastructureError`，本次不写 Journal），再做typed projection，合并
+buffered与terminal failures，按 cache→Journal→latest 提交：先原子写完整 ty-cache snapshot，再写 Journal（`static_membership`
 若引用 fact，该 fact 必须已在 ty-cache），最后更新 latest / diagnose index。ty-cache 写失败则
 本次不写 Journal、不更新 latest；Journal 写失败允许留下无引用 sidecar、不更新 latest；latest
 失败时 Journal 仍可按 run-id 读，不得宣称 `diagnose_available`。`diagnose_available` 只要求
@@ -160,7 +162,7 @@ Workflow继续拥有project load、snapshot build/close、SourcePlan构造、sta
 post-run source drift、report build/update与report-generation association replacement。Runner不关闭、
 materialize或重建snapshot，也不拥有report ID。
 
-`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。capture 前创建 Run ty cache。Journal v3 的 `static_membership` 不计失败，只供 Run 内重建，不供 diagnose。Diagnosis Index 只关联 Failure 到 verifier Process Log。diagnose 只展示 Failure 权威，不读 ty-cache、不渲染静态。
+`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。capture 前创建 Run ty cache。Cell 完成时调用 `admitted_membership`；Run 收尾为 `stop` → `documents` → `close`，不在 `stop` 之后补跑 admission。Journal v3 的 `static_membership` 不计失败，只供 Run 内重建，不供 diagnose。Diagnosis Index 只关联 Failure 到 verifier Process Log；静态 fact / TyCheck 不建立 association。diagnose 只展示 Failure 权威，不读 ty-cache、不渲染静态。
 
 ## 5. Activity 与 completion
 

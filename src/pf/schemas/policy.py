@@ -10,7 +10,6 @@ from pydantic import Field, field_validator, model_validator, model_serializer
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.config import ResolutionConfig, SearchConfig
-from pf.ty_options import validate_ty_args
 
 
 def _identity(domain: bytes, policy: FrozenSchema) -> str:
@@ -130,7 +129,6 @@ class TyObservationPolicy(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_observation(self) -> TyObservationPolicy:
-        validate_ty_args(self.args)
         if self.timeout_seconds is not None and (
             isinstance(self.timeout_seconds, bool) or self.timeout_seconds <= 0
         ):

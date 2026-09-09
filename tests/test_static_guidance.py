@@ -6,7 +6,7 @@ from pf.coordinate_search import CoordinateSearch
 from pf.schemas.project import VersionPin
 from pf.schemas.report import CoordinateSuccess, CoordinateFailure
 from pf.schemas.static_comparison import StaticCompared, StaticComparisonUnavailable, StaticUncompared
-from pf.static_guidance import StaticPoint, locate_static_hint
+from pf.static import StaticPoint, locate_static_hint
 from test_search import snapshot_versions, probe_pass, probe_rejection
 
 

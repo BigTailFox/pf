@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from scripted_static import collect_highest
-from pf.static_cache import RunTyFactRef
+from pf.static import CollectedStaticSubject
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -18,10 +17,11 @@ from evaluation_fixtures import (
     successful_process,
 )
 
-from pf.static_cache import TyCheckCache
-from scripted_static import ScriptedStaticRequests
+from pf.static import TyCheckCache
+from evaluation_fixtures import ScriptedProcessRunner
 from pf.environment import ExactSelection, HighestResolution, PreparedEnvironment
-from pf.evaluation import RuntimeEvaluator, StagePermitPools, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator, StagePermitPools
+from pf.static import StaticEvaluator
 from pf.failure import FailurePolicy
 from pf.schemas.evaluation import (
     AttemptFailureScope,
@@ -41,17 +41,10 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import VersionPin
 
 
-from pf.schemas.policy import GuidancePolicy
-
-
 def collect_global(static, prepared, package, cache):
-    static.collect_prepared(prepared, package=package, run_cache=cache)
-    assert prepared.static_consumer is not None
-    observation = prepared.static_consumer.fact.observation.observation_policy
-    return cache.compare_global(
-        prepared.static_consumer,
-        guidance=GuidancePolicy(observation=observation, observation_identity=observation.identity),
-    )
+    collected = static.collect_prepared(prepared, package=package, run_cache=cache)
+    assert isinstance(collected, CollectedStaticSubject)
+    return static.compare_global(collected, run_cache=cache)
 
 
 def diagnostic(
@@ -148,14 +141,12 @@ class TestStaticEvaluator:
         )
         assert isinstance(candidate, PreparedEnvironment)
 
-        capture = collect_highest(assembly.static, highest, run_cache=run_cache, package=project.package)
-        assert isinstance(capture, RunTyFactRef)
+        capture = assembly.static.capture_highest(highest, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, CollectedStaticSubject)
         result = collect_global(assembly.static, candidate, project.package, run_cache)
         assert result.status == "COMPARED"
         assert result.state == "STATIC_REGRESSION"
         assert result.incremental_identities == (shifted.identity,)
-        scope = run_cache.snapshot(candidate.proposal.cell)
-        assert scope.comparisons[0].result == result
         highest.close()
         candidate.close()
 
@@ -178,10 +169,9 @@ class TestStaticEvaluator:
         )
         assert isinstance(prepared, PreparedEnvironment)
 
-        result = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert isinstance(result, RunTyFactRef)
-        assert result.observation.fact.kind == "ty-check-unavailable"
-        assert result.process == outcomes[-1].process
+        result = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(result, CollectedStaticSubject)
+        assert run_cache.documents()[0].fact.kind == "ty-check-unavailable"
         prepared.close()
 
 
@@ -202,14 +192,13 @@ class TestRuntimeEvaluator:
         )
         assert isinstance(prepared, PreparedEnvironment)
         try:
-            run = assembly.runtime.evaluate(prepared, package=project.package, run_cache=run_cache)
+            run = assembly.runtime.evaluate(prepared, package=project.package)
             assert run.evaluation.proposal == prepared.proposal
             assert run.evaluation.verifier == outcome
             assert assembly.ty.vectors == []
             assert assembly.verifier.vectors == [()]
             assert prepared.tested
-            scope = run_cache.snapshot(prepared.proposal.cell)
-            assert scope.facts == scope.consumers == scope.passes == ()
+            assert run_cache.documents() == ()
         finally:
             prepared.close()
             project.snapshot.close()
@@ -256,18 +245,14 @@ class TestRuntimeEvaluator:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert isinstance(capture, RunTyFactRef)
+        capture = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, CollectedStaticSubject)
 
-        run = assembly.runtime.evaluate(
-            prepared,
-            run_cache=run_cache, package=project.package,
-
-        )
+        run = assembly.runtime.evaluate(prepared, package=project.package)
+        assembly.static.record_runtime(prepared, run, run_cache=run_cache)
 
         if not static_available:
-            scope = run_cache.snapshot(prepared.proposal.cell)
-            assert scope.facts[0].observation.fact.kind == "ty-check-unavailable"
+            assert run_cache.documents()[0].fact.kind == "ty-check-unavailable"
         assert len(assembly.verifier.vectors) == 1
         assert run.evaluation.status == expected_type
         assert prepared.tested is True
@@ -309,8 +294,8 @@ class TestRuntimeEvaluator:
             source_plan=project.source_plan,
         )
         assert isinstance(highest, PreparedEnvironment)
-        capture = collect_highest(assembly.static, highest, run_cache=run_cache, package=project.package)
-        assert isinstance(capture, RunTyFactRef)
+        capture = assembly.static.capture_highest(highest, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, CollectedStaticSubject)
         candidate = assembly.environments.prepare(
             package=project.package,
             cell=project.package.cells[0],
@@ -321,10 +306,8 @@ class TestRuntimeEvaluator:
         assert isinstance(candidate, PreparedEnvironment)
 
         comparison = collect_global(assembly.static, candidate, project.package, run_cache)
-        run = assembly.runtime.evaluate(
-            candidate,
-            run_cache=run_cache, package=project.package,
-        )
+        run = assembly.runtime.evaluate(candidate, package=project.package)
+        assembly.static.record_runtime(candidate, run, run_cache=run_cache)
 
         assert run.evaluation.status == "PASS"
         assert comparison.status == "COMPARED"
@@ -362,15 +345,16 @@ class TestRuntimeStaticGuidance:
         assert isinstance(highest, PreparedEnvironment)
         candidate = None
         try:
-            capture = collect_highest(assembly.static, highest, run_cache=run_cache, package=project.package)
-            assert isinstance(capture, RunTyFactRef)
+            capture = assembly.static.capture_highest(highest, run_cache=run_cache, package=project.package)
+            assert isinstance(capture, CollectedStaticSubject)
             candidate = assembly.environments.prepare(package=project.package, cell=project.package.cells[0],
                                                       snapshot=project.snapshot,
                                                       resolution=candidate_resolution(highest, "requests", "2"),
                                                       source_plan=project.source_plan)
             assert isinstance(candidate, PreparedEnvironment)
             comparison = collect_global(assembly.static, candidate, project.package, run_cache)
-            run = assembly.runtime.evaluate(candidate, run_cache=run_cache, package=project.package)
+            run = assembly.runtime.evaluate(candidate, package=project.package)
+            assembly.static.record_runtime(candidate, run, run_cache=run_cache)
             assert run.evaluation.status == ("PASS" if verifier_exit == 0 else "VERIFIER_REJECTED")
             assert len(assembly.verifier.vectors) == 1
             assert comparison.status == "COMPARED"
@@ -399,8 +383,8 @@ class TestEvaluationProgress:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert isinstance(capture, RunTyFactRef)
+        capture = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, CollectedStaticSubject)
         assert events.events[-1].stage == "static-probe"
         events.events.clear()
 
@@ -419,11 +403,7 @@ class TestEvaluationProgress:
         run = RuntimeEvaluator(
             verifier=ProgressVerifier(),
             events=events,
-        ).evaluate(
-            prepared,
-            run_cache=run_cache, package=project.package,
-
-        )
+        ).evaluate(prepared, package=project.package)
 
         assert run.evaluation.status == "PASS"
         assert [event.stage for event in events.events] == [
@@ -451,12 +431,13 @@ class TestEvaluationProgress:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        first = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert isinstance(first, RunTyFactRef)
+        first = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(first, CollectedStaticSubject)
         assert any(event.stage == "static-probe" for event in events.events)
         events.events.clear()
-        second = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert second is first
+        second = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(second, CollectedStaticSubject)
+        assert len(assembly.ty.vectors) == 1
         assert all(getattr(event, "stage", None) != "static-probe" for event in events.events)
         prepared.close()
 
@@ -498,7 +479,7 @@ class TestStagePermitPools:
 
         static = StaticEvaluator(
             BlockingTy(),
-            requests=ScriptedStaticRequests(),
+            processes=ScriptedProcessRunner(assembly.uv),
             permits=StagePermitPools(ty_jobs=1, test_jobs=2),
         )
         other = assembly.environments.prepare(
@@ -509,15 +490,13 @@ class TestStagePermitPools:
         try:
             with TyCheckCache() as other_cache, ThreadPoolExecutor(max_workers=2) as executor:
                 first = executor.submit(
-                    collect_highest,
-                    static,
+                    static.capture_highest,
                     prepared,
                     run_cache=run_cache,
                     package=project.package,
                 )
                 second = executor.submit(
-                    collect_highest,
-                    static,
+                    static.capture_highest,
                     other,
                     run_cache=other_cache,
                     package=project.package,
@@ -525,7 +504,7 @@ class TestStagePermitPools:
                 assert entered.wait(timeout=1)
                 release.set()
                 captures = (first.result(timeout=2), second.result(timeout=2))
-            assert all(isinstance(item, RunTyFactRef) for item in captures)
+            assert all(isinstance(item, CollectedStaticSubject) for item in captures)
             assert maximum_active == 1
             assert len(calls) == 2
         finally:
@@ -546,8 +525,8 @@ class TestStagePermitPools:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert isinstance(capture, RunTyFactRef)
+        capture = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, CollectedStaticSubject)
         lock = Lock()
         active = 0
         maximum_active = 0
@@ -593,13 +572,11 @@ class TestStagePermitPools:
                 first = executor.submit(
                     runtime.evaluate,
                     prepared,
-                    run_cache=run_cache,
                     package=project.package,
                 )
                 second = executor.submit(
                     runtime.evaluate,
                     other,
-                    run_cache=run_cache,
                     package=project.package,
                 )
                 assert entered.wait(timeout=1)
@@ -627,8 +604,8 @@ class TestStagePermitPools:
             source_plan=project.source_plan,
         )
         assert isinstance(prepared, PreparedEnvironment)
-        capture = collect_highest(assembly.static, prepared, run_cache=run_cache, package=project.package)
-        assert isinstance(capture, RunTyFactRef)
+        capture = assembly.static.capture_highest(prepared, run_cache=run_cache, package=project.package)
+        assert isinstance(capture, CollectedStaticSubject)
 
         class RequestRecorder(ScriptedVerifier):
             request: VerifierRequest | None = None
@@ -644,11 +621,7 @@ class TestStagePermitPools:
         verifier = RequestRecorder(assembly.uv)
         run = RuntimeEvaluator(
             verifier=verifier,
-        ).evaluate(
-            prepared,
-            run_cache=run_cache, package=project.package,
-
-        )
+        ).evaluate(prepared, package=project.package)
 
         assert run.evaluation.status == "PASS"
         assert verifier.request is not None

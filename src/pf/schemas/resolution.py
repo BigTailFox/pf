@@ -1,0 +1,392 @@
+"""Resolution identity records and digest functions.
+
+FrozenSchema records and preimage→digest functions live here so schemas can
+close identity without importing the live resolution protocol.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+import hashlib
+import re
+from typing import Any, Literal
+
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
+from pydantic import model_validator
+
+from pf.schemas.base import FrozenSchema, canonical_identity_json
+from pf.schemas.project import (
+    Cell,
+    HarnessSatisfaction,
+    HarnessResolutionRequirement,
+    InterpreterIdentity,
+    ResolvedNode,
+    SelectedCandidate,
+    SourceIdentity,
+)
+
+
+UV_PROTOCOL_IDENTITY = "uv-pip-compile-pylock-v1"
+UV_DIAGNOSTIC_PROFILES = {
+    "0.12.5": "uv-diagnostics-0.12.5-v1",
+}
+UV_SUPPORTED_VERSIONS = frozenset(UV_DIAGNOSTIC_PROFILES)
+
+
+def identity_digest(prefix: bytes, value: object) -> str:
+    return hashlib.sha256(prefix + canonical_identity_json(value)).hexdigest()
+
+
+def resolution_request_digest(
+    *,
+    kind: Literal["project", "environment"],
+    package_name: str,
+    snapshot_digest: str,
+    cell: Cell,
+    resolution_kind: Literal["highest", "lowest-direct", "exact-selection"],
+    selection: tuple[SelectedCandidate, ...] | None,
+    baseline_digest: str | None,
+    context_digest: str,
+    project_plan_digest: str | None,
+    harness: tuple[HarnessResolutionRequirement, ...],
+    source_plan_identity: str,
+) -> str:
+    """Bind saved preparation inputs without materialization or process handles."""
+    return identity_digest(
+        b"pf:resolution-request:v1\0",
+        {
+            "kind": kind,
+            "package": package_name,
+            "snapshot_digest": snapshot_digest,
+            "cell": cell.model_dump(mode="json"),
+            "resolution": resolution_kind,
+            "selection": (
+                [item.model_dump(mode="json") for item in selection]
+                if selection is not None else None
+            ),
+            "baseline_digest": baseline_digest,
+            "context": context_digest,
+            "project_plan": project_plan_digest,
+            "harness": [item.model_dump(mode="json") for item in harness],
+            "source_plan_identity": source_plan_identity,
+        },
+    )
+
+
+class ResolutionRunContext(FrozenSchema):
+    uv_version: str
+    protocol_identity: Literal["uv-pip-compile-pylock-v1"] = UV_PROTOCOL_IDENTITY
+    qualification_profile: str = ""
+    release_cutoff: str
+    cache_policy_identity: Literal["shared-run-no-refresh-v1"] = (
+        "shared-run-no-refresh-v1"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_qualification_profile(cls, value: Any, /) -> Any:
+        if isinstance(value, dict) and "qualification_profile" not in value:
+            version = value.get("uv_version")
+            profile = UV_DIAGNOSTIC_PROFILES.get(version)
+            if profile is not None:
+                return {**value, "qualification_profile": profile}
+        return value
+
+    @model_validator(mode="after")
+    def validate_run_context(self) -> "ResolutionRunContext":
+        expected_profile = UV_DIAGNOSTIC_PROFILES.get(self.uv_version)
+        if expected_profile is None:
+            raise ValueError(f"unsupported uv version: {self.uv_version}")
+        if self.qualification_profile != expected_profile:
+            raise ValueError("uv qualification profile does not match its version")
+        try:
+            cutoff = datetime.fromisoformat(self.release_cutoff.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("resolution cutoff must be an ISO-8601 timestamp") from error
+        if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+            raise ValueError("resolution cutoff must include a UTC offset")
+        return self
+
+
+def resolution_context_digest(
+    *,
+    run: ResolutionRunContext,
+    cell: Cell,
+    source_plan_identity: str,
+    uv_project_configuration_identity: str,
+    interpreter: InterpreterIdentity | None,
+) -> str:
+    return identity_digest(
+        b"pf:resolution-context:v1\0",
+        {
+            "run": run.model_dump(mode="json"),
+            "cell": cell.model_dump(mode="json"),
+            "source_plan_identity": source_plan_identity,
+            "uv_project_configuration_identity": uv_project_configuration_identity,
+            "interpreter": interpreter.model_dump(mode="json") if interpreter else None,
+            "resolution_policy_identity": "uv-highest-normalized-input-v1",
+            "yanked_policy_identity": "uv-default-v1",
+        },
+    )
+
+
+class ResolutionContext(FrozenSchema):
+    run: ResolutionRunContext
+    cell: Cell
+    source_plan_identity: str
+    uv_project_configuration_identity: str
+    interpreter: InterpreterIdentity | None
+    resolution_policy_identity: Literal["uv-highest-normalized-input-v1"] = (
+        "uv-highest-normalized-input-v1"
+    )
+    yanked_policy_identity: Literal["uv-default-v1"] = "uv-default-v1"
+    digest: str
+
+    @classmethod
+    def from_inputs(
+        cls,
+        *,
+        run: ResolutionRunContext,
+        cell: Cell,
+        source_plan_identity: str,
+        uv_project_configuration_identity: str,
+        interpreter: InterpreterIdentity | None = None,
+    ) -> "ResolutionContext":
+        return cls(
+            run=run,
+            cell=cell,
+            source_plan_identity=source_plan_identity,
+            uv_project_configuration_identity=uv_project_configuration_identity,
+            interpreter=interpreter,
+            digest=resolution_context_digest(
+                run=run,
+                cell=cell,
+                source_plan_identity=source_plan_identity,
+                uv_project_configuration_identity=uv_project_configuration_identity,
+                interpreter=interpreter,
+            ),
+        )
+
+    @model_validator(mode="after")
+    def validate_context(self) -> "ResolutionContext":
+        if self.interpreter is not None:
+            release = Version(self.interpreter.version).release
+            if (
+                self.interpreter.implementation != "cpython"
+                or len(release) != 3
+                or ".".join(map(str, release[:2])) != self.cell.python_minor
+            ):
+                raise ValueError(
+                    "resolution interpreter must match the Cell and include a patch"
+                )
+        if not self.source_plan_identity:
+            raise ValueError("resolution source plan identity cannot be empty")
+        if not self.uv_project_configuration_identity:
+            raise ValueError("uv project configuration identity cannot be empty")
+        expected = resolution_context_digest(
+            run=self.run,
+            cell=self.cell,
+            source_plan_identity=self.source_plan_identity,
+            uv_project_configuration_identity=self.uv_project_configuration_identity,
+            interpreter=self.interpreter,
+        )
+        if self.digest != expected:
+            raise ValueError("resolution context digest does not match its inputs")
+        return self
+
+
+class ResolutionArtifact(FrozenSchema):
+    filename: str
+    kind: Literal["wheel", "sdist", "archive"]
+    locator: str
+    content_hash: str
+
+    @model_validator(mode="after")
+    def validate_artifact(self) -> "ResolutionArtifact":
+        if not self.filename or not self.locator:
+            raise ValueError("resolution artifact requires filename and locator")
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.content_hash) is None:
+            raise ValueError("resolution artifact requires a lowercase SHA-256")
+        return self
+
+
+class ResolutionPackage(FrozenSchema):
+    name: str
+    version: str | None
+    source: SourceIdentity
+    dependencies: tuple[str, ...] = ()
+    marker: str | None = None
+    available_artifacts: tuple[ResolutionArtifact, ...] = ()
+    selected_artifact: ResolutionArtifact | None = None
+
+    @model_validator(mode="after")
+    def validate_package(self) -> "ResolutionPackage":
+        if canonicalize_name(self.name) != self.name:
+            raise ValueError("resolution package name must be canonical")
+        if self.version is not None:
+            try:
+                normalized = str(Version(self.version))
+            except InvalidVersion as error:
+                raise ValueError("resolution package version must be valid") from error
+            if normalized != self.version:
+                raise ValueError("resolution package version must be normalized")
+        elif self.source.kind not in {"path", "workspace", "git"}:
+            raise ValueError("versionless package requires a source tree")
+        if self.dependencies != tuple(sorted(set(self.dependencies))):
+            raise ValueError("resolution dependencies must be sorted and unique")
+        artifacts = tuple(
+            (item.kind, item.filename, item.locator, item.content_hash)
+            for item in self.available_artifacts
+        )
+        if artifacts != tuple(sorted(set(artifacts))):
+            raise ValueError("resolution artifacts must be sorted and unique")
+        if (
+            self.selected_artifact is not None
+            and self.selected_artifact not in self.available_artifacts
+        ):
+            raise ValueError("selected artifact must belong to native alternatives")
+        return self
+
+
+def resolution_semantic_digest(
+    *,
+    kind: str,
+    request_digest: str,
+    context: ResolutionContext,
+    packages: tuple[ResolutionPackage, ...],
+    direct_harness: tuple[HarnessSatisfaction, ...],
+) -> str:
+    return identity_digest(
+        b"pf:resolution-semantic:v1\0",
+        {
+            "kind": kind,
+            "request_digest": request_digest,
+            "context": context.model_dump(mode="json"),
+            "packages": [
+                {
+                    "name": item.name,
+                    "version": item.version,
+                    "source": item.source.model_dump(mode="json"),
+                    "dependencies": item.dependencies,
+                    "selected_artifact": (
+                        item.selected_artifact.model_dump(mode="json")
+                        if item.selected_artifact is not None
+                        else None
+                    ),
+                }
+                for item in packages
+            ],
+            "direct_harness": [
+                item.model_dump(mode="json") for item in direct_harness
+            ],
+        },
+    )
+
+
+class ResolutionPlanEvidence(FrozenSchema):
+    """Portable semantic preparation evidence shared by producers and readers."""
+
+    kind: Literal["project", "environment"]
+    request_digest: str
+    context: ResolutionContext
+    packages: tuple[ResolutionPackage, ...]
+    direct_harness: tuple[HarnessSatisfaction, ...] = ()
+    semantic_digest: str
+
+    @classmethod
+    def from_plan(cls, plan: object) -> "ResolutionPlanEvidence":
+        return cls.model_validate({
+            name: getattr(plan, name) for name in cls.model_fields
+        })
+
+    @model_validator(mode="after")
+    def validate_semantic_evidence(self) -> "ResolutionPlanEvidence":
+        if not self.request_digest:
+            raise ValueError("resolution request digest cannot be empty")
+        names = tuple(item.name for item in self.packages)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("single-cell resolution packages must be sorted and unique")
+        harness_names = tuple(item.name for item in self.direct_harness)
+        if harness_names != tuple(sorted(set(harness_names))):
+            raise ValueError("direct harness observations must be sorted and unique")
+        if self.kind == "project" and self.direct_harness:
+            raise ValueError("project plan cannot contain direct harness observations")
+        packages = {item.name: item for item in self.packages}
+        for selection in self.direct_harness:
+            package = packages.get(selection.name)
+            if (
+                package is None
+                or package.version != selection.version
+                or package.source != selection.source
+            ):
+                raise ValueError(
+                    "direct harness selection must belong to the environment graph"
+                )
+            selected = package.selected_artifact
+            if selection.selected_artifact is None:
+                if selected is not None:
+                    raise ValueError(
+                        "direct harness selection omitted reliable artifact evidence"
+                    )
+            elif selected is None or (
+                selection.selected_artifact.filename != selected.filename
+                or selection.selected_artifact.kind != selected.kind
+                or selection.selected_artifact.locator != selected.locator
+                or selection.selected_artifact.content_hash
+                != selected.content_hash
+            ):
+                raise ValueError(
+                    "direct harness artifact must match the environment graph"
+                )
+        expected_semantic = resolution_semantic_digest(
+            kind=self.kind,
+            request_digest=self.request_digest,
+            context=self.context,
+            packages=self.packages,
+            direct_harness=self.direct_harness,
+        )
+        if self.semantic_digest != expected_semantic:
+            raise ValueError("resolution semantic digest does not match its evidence")
+        return self
+
+
+def environment_identity_digest(
+    *,
+    attempt_id: str,
+    project_plan_digest: str,
+    environment_plan_digest: str | None,
+    graph: tuple[ResolvedNode, ...],
+) -> str:
+    return identity_digest(
+        b"pf:environment:v1\0",
+        {
+            "attempt_id": attempt_id,
+            "project_plan_digest": project_plan_digest,
+            "environment_plan_digest": environment_plan_digest,
+            "graph": [item.model_dump(mode="json") for item in graph],
+        },
+    )
+
+
+def resolution_graph_id(graph: tuple[ResolvedNode, ...]) -> str:
+    """Return the Schema 1 identity for one canonical resolved graph."""
+    names = tuple(node.name for node in graph)
+    if names != tuple(sorted(set(names))):
+        raise ValueError("resolution graph nodes must be sorted and unique")
+    for node in graph:
+        if canonicalize_name(node.name) != node.name:
+            raise ValueError("resolution graph package names must be canonical")
+        if node.dependencies != tuple(sorted(set(node.dependencies))):
+            raise ValueError(
+                "resolution graph dependencies must be sorted and unique"
+            )
+        if any(canonicalize_name(item) != item for item in node.dependencies):
+            raise ValueError("resolution graph dependencies must be canonical")
+    payload = [node.model_dump(mode="json") for node in graph]
+    return (
+        "resolution-"
+        + hashlib.sha256(
+            b"pf:resolution-graph:v1\0" + canonical_identity_json(payload)
+        ).hexdigest()
+    )

@@ -57,7 +57,7 @@
 | Concept | 开放 / 转入 Design / 关闭 | 状态、日期、性质 |
 | Experiment / Investigation | 进行中 / 已完成 | 状态、日期、性质、证据位置 |
 
-编号永久保留、不复用。D009–D011、D015–D036、D038、D040、D041、D043 与已完成 Plan 在归档；原 D031 拆至 C001 后不再回到 Design 号。现行 D012–D014、D037 的空号是归档结果，不是缺失。D039、D042 是现行临时 Design，不占 owner 表。进行中 Plan 在 [docs/plans/](plans/)。
+编号永久保留、不复用。D009–D011、D015–D036、D038–D041、D043 与已完成 Plan 在归档；原 D031 拆至 C001 后不再回到 Design 号。现行 D012–D014、D037 的空号是归档结果，不是缺失。D042 是现行临时 Design，不占 owner 表。进行中 Plan 在 [docs/plans/](plans/)。
 
 ## 4. 单一权威与冲突分流
 
@@ -112,9 +112,8 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 | 文档 | 当前跟踪范围 |
 | --- | --- |
-| [D039](designs/D039-pf-static-evaluation-module.md) | R011 §3–§6 的临时目标：静态深模块、schema 底层、D002 地图、FailurePolicy 构造；实施中，Plan 为 [P046](plans/P046-pf-static-evaluation-module.md) |
 | [D042](designs/D042-pf-host-capability-locality.md) | 宿主能力局部化：Host OS 差异留在能力 owner 内，禁止通用平台独立层；草案，未接受、不授权实施 |
-| [R011](reviews/R011-pf-architecture-review.md) | 静态评价深模块、schema 底层分家、D002 地图；FailurePolicy 假想 seam。目标见 D039。不重复 R006/R008/R010 |
+| [R011](reviews/R011-pf-architecture-review.md) | §3–§6 已由归档 D039/P046 吸收进 D002/D003 §5/D004/D008。不重复 R006/R008/R010 |
 | [R010](reviews/R010-pf-engineering-document-audit.md) | §2 实现偏移与 §4 工程事项；文档治理已由本页与 AGENTS.md 拥有 |
 | [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
 | [R008](reviews/R008-pf-search-performance-review.md) | 2026-09-08 重评：hints/single-flight/materialize/xdist 与当前 HEAD 分阶段基线；region/preflight 已撤销 |

@@ -18,10 +18,10 @@ from pf.resolution import (
     ResolutionContext,
     ResolutionPackage,
     ResolutionPlan,
-    ResolutionPlanEvidence,
     ResolutionRunContext,
     resolution_graph_id,
 )
+from pf.schemas.resolution import ResolutionPlanEvidence
 from pf.schemas.evaluation import ProcessResult, ExecutionFailure, NormalExit, UvUnsatAttribution
 from pf.schemas.project import Cell, ResolvedNode, SourceIdentity
 

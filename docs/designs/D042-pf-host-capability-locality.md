@@ -6,7 +6,7 @@
 - **目标 owner：** [D002](D002-pf-implementation.md) §1、§8、§11；[D007](D007-pf-process-output.md) §4–§5、§8；[tests/README.md](../../tests/README.md)；[CONTEXT.md](../../CONTEXT.md)
 - **验收标准：** [§8](#8-验收标准)
 - **来源：** 三端（Linux / Windows / macOS）支持是否应建通用平台独立层的结构判断；证据见 [E010](../experiments/E010-windows-native-search-cleanup.md)、[R002 §6](../archived/reviews/R002-pf-v1-architecture-review.md#6-p2runlogstore-的平台-implementation-应进入私有-seam)、[R010 §4](../reviews/R010-pf-engineering-document-audit.md#4-r007-开放项交接) 的真实 host 资格缺口
-- **关联：** [D001](D001-pf.md) 保留 Cell target → PEP 508 五字段，不读 Host；[D008](D008-pf-verification-run.md) 保留 host Cell admission；[D039](D039-pf-static-evaluation-module.md) / [D041](../archived/designs/D041-pf-repository-test-conformance.md) 正交，吸收时并存不互相覆盖
+- **关联：** [D001](D001-pf.md) 保留 Cell target → PEP 508 五字段，不读 Host；[D008](D008-pf-verification-run.md) 保留 host Cell admission；[D039](../archived/designs/D039-pf-static-evaluation-module.md) / [D041](../archived/designs/D041-pf-repository-test-conformance.md) 正交，吸收时并存不互相覆盖
 
 本文把「三端支持」写成现行结构规则：Host OS 差异消化在拥有该能力的 module 内部；禁止通用平台独立层。产品语义、命令、失败资格与 wire 不变。接受前不是现行契约。
 

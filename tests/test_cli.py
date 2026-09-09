@@ -1581,6 +1581,35 @@ class TestDefaultContext:
         assert calls == 1
         context.close()
 
+    def test_production_composition_shares_one_static_evaluator_and_process_runner(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        context = build_context()
+        try:
+            context.check_workflow
+            context.smoke_workflow
+            context.search_workflow
+            static = context._static
+            runner = context._runner
+            assert static is not None and runner is not None
+            assert context._checker is not None
+            assert context._highest is not None
+            assert context._coordinator is not None
+            assert context._checker._static is static
+            assert context._highest._static is static
+            assert context._coordinator._static is static
+            from pf.adapters.ty import TyAdapter
+            assert isinstance(static._ty, TyAdapter)
+            assert static._ty._runner is runner
+            assert static._requests._runner is runner
+            source = Path(__file__).resolve().parents[1] / "src" / "pf" / "cli.py"
+            assert "StaticRequestFactory" not in source.read_text()
+        finally:
+            context.close()
+
     def test_search_assembly_surfaces_host_target_configuration_error(
         self,
         monkeypatch: pytest.MonkeyPatch,

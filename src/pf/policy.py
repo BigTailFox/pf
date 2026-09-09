@@ -9,6 +9,7 @@ from pf.schemas.policy import (
     ExecutionPolicy, GuidancePolicy, SearchDerivationPolicy, TyObservationPolicy,
     SnapshotTyConfig, SnapshotTyConfigUnavailable, TyToolVersion,
 )
+from pf.ty_options import validate_ty_args
 from pf.ty_version import read_ty_tool_version
 
 
@@ -67,6 +68,7 @@ def guidance_policy(
     snapshot_ty_config: SnapshotTyConfig,
 ) -> GuidancePolicy:
     """Bind the complete generation observation without a verifier dependency."""
+    validate_ty_args(config.ty.args)
     observation = TyObservationPolicy(
         tool_version=tool_version,
         args=config.ty.args,

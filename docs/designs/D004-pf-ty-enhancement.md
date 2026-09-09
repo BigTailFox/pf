@@ -2,13 +2,14 @@
 
 - **状态：** 现行
 - **策略版本：** `static-guidance-v1`
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-10
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
   [D038](../archived/designs/D038-pf-static-guidance-authority.md)、
+  [D039](../archived/designs/D039-pf-static-evaluation-module.md)、
   [D043](../archived/designs/D043-pf-static-subject-v2.md)
 
 本文是 PF 中 `ty` 运行、诊断身份、规范静态投影、原始 TyCheck/Unavailable、Run 内缓存、
@@ -129,9 +130,10 @@ identity = external | normalized-path | code
 
 ## 6. 静态请求与 `static-subject-v2`
 
-`StaticRequestFactory` 从已复证的 ExecutionSubject 形成规范 `StaticSubject`。缓存 key 使用实际
-静态对象的规范投影，不依赖完整动态 Proposal identity。合法路径重定位与不同 Proposal 的同投影
-可以命中同一原始事实。
+规范投影与采集请求是静态 module 的 implementation：`StaticEvaluator` 在 `collect_prepared` /
+`capture_highest` 内装配 `StaticTyRequest`。`StaticRequestFactory` 不是 composition 或产品测试
+入口。缓存 key 使用实际静态对象的规范投影，不依赖完整动态 Proposal identity。合法路径重定位
+与不同 Proposal 的同投影可以命中同一原始事实。
 
 `projection = static-subject-v2`。Identity 域 `pf:static-subject:v2`。`StaticSubject.identity`
 是下列完整预像的 digest，不能再取子集：
@@ -188,9 +190,13 @@ snapshot 副本、或 argv / 快照内配置引用未冻结的快照外根 → `
 
 ## 7. StaticEvaluator 与 Run cache
 
-`StaticEvaluator` 拥有 ty 收集、diagnostic identity、多重集 subtraction 和 fingerprint。
-`RuntimeEvaluator` 独占 verifier 调用及动态结果组装。两者通过显式静态结果相连，静态结果
-不再复用兼容性的 `IndeterminateEvaluation`。
+`StaticEvaluator` 拥有 ty 收集、diagnostic identity、多重集 subtraction、fingerprint、
+Preparation registry 与 Direct-PASS ledger。公开方法是 `collect_prepared`、`capture_highest`、
+`compare_global`、`record_runtime` 与 `open_slice`。`compare_global` 不向调用方索取
+`GuidancePolicy`。比较准入、减法与 `locate_static_hint` 的唯一实现在静态 module；
+`compare_global`、`StaticSlice` 与 `_admit_saved_static_audit` 委托同一内部 derive/hint。
+`RuntimeEvaluator` 独占 verifier 调用及动态结果组装，不读 static consumer、不写 Run cache。
+Check / Highest / Search 在每次 `evaluate` 之后、prepared close 之前调用 `record_runtime`。
 
 原始 `TyCheck` / `TyCheckUnavailable` 由 Run 内独立 `TyCheckCache` 共享。缓存静态事实，
 不缓存某次 guidance 解释。lookup 只读；collect 才原子加入或启动，只有 owner 占 ty permit。
@@ -198,9 +204,13 @@ snapshot 副本、或 argv / 快照内配置引用未冻结的快照外根 → `
 prepare 失败、缺 baseline/anchor 与 context-mismatch 不进入原始 negative cache。
 `TyCheckKey = (StaticSubject.identity, TyObservationPolicy.cache_identity)`。
 `TyCheckFact.observation_policy_identity` 绑定完整 generation identity。搜索主路径只用内存
-cache，不从 sidecar 恢复 oracle。
+cache，不从 sidecar 恢复 oracle。lookup 只读由连续 `collect_prepared` 的第二次结果证明。
 
-物化环境释放不清除原始事实。关闭环境后仍可 lookup/compare；重建并复证同投影时不重跑 ty。
+Preparation registry 按 exact prepared 对象身份登记，允许同一 Proposal 多个 registered
+prepared。Direct-PASS ledger 每 Proposal 一个 runtime owner；后续 collect 只绑定 consumer。
+`TyCheckCache` 生产只由 `VerificationRunner` 构造。产品调用方只转交 cache。
+
+物化环境释放不清除原始事实。关闭环境后仍可经已登记 handle 比较；重建并复证同投影时不重跑 ty。
 不同 Proposal 不能共享动态 authority。capture 前 cache 已存在；跨 Run/Cell 与已关闭 refs
 即使 key/payload 相同也被拒绝。
 
@@ -249,9 +259,10 @@ TestEvaluationKey = (proposal_id, execution policy identity)
 ```
 
 没有跨运行 Evaluation cache。`StaticEvaluator` 只消费 `EffectiveConfig.ty.args/timeout_seconds`，
-并只在真正调用 `TyOperations.check` 时取得 invocation-wide ty permit。`RuntimeEvaluator` 消费
+并只在真正调用 `TyOperations.observe` 时取得 invocation-wide ty permit。`RuntimeEvaluator` 消费
 `test.command/cwd/timeout_seconds`，只有真正调用 configured verifier 时取得 test permit。
-cache hit / negative hit 不生成新 ty stage 或复制耗时。
+cache hit / negative hit 不生成新 ty stage 或复制耗时。保存审计 admission 只接受完整
+`StaticAuditDocument`，不能只凭 `TyFactDocument` 重放比较或 hint。
 
 ## 11. 策略 identity
 

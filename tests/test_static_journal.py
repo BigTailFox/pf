@@ -12,17 +12,15 @@ from pf.adapters.uv import UvAdapter
 from pf.baseline import HighestVersionVerifier
 from pf.environment import EnvironmentFactory
 from pf.errors import JournalReadError
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator
+from pf.static import StaticEvaluator
 from pf.project import ProjectLoader
 from pf.runlog import RunLogStore
 from pf.schemas.config import RunLimits
 from pf.schemas.evaluation import CellCompletedEvent, HighestVersionPass
-from pf.schemas.policy import GuidancePolicy
 from pf.schemas.project import SourcePlan
-from pf.schemas.static_comparison import GlobalComparisonContext
 from pf.snapshot import SnapshotBuilder
-from pf.static_cache import CacheMiss, RunTyFactRef
-from pf.static_request import StaticRequestFactory
+from pf.static_cache import CacheMiss
 from pf.verification import SmokeVerificationRun, VerificationRunner
 from pf.errors import InfrastructureError
 from pf.schemas.journal import (
@@ -81,7 +79,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('ver
     logs = RunLogStore(root=root, run_id="actual-static-journal")
     runner = SubprocessRunner(logs=logs)
     snapshot = SnapshotBuilder(runner).build(project)
-    static = StaticEvaluator(TyAdapter(runner), requests=StaticRequestFactory(runner))
+    static = StaticEvaluator(TyAdapter(runner), processes=runner)
     highest = HighestVersionVerifier(
         environments=EnvironmentFactory(UvAdapter(runner)),
         static=static,
@@ -99,24 +97,6 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('ver
             caches.append(run_cache)
             result = highest.verify(run_cache=run_cache, **kwargs)
             assert isinstance(result, HighestVersionPass)
-            scope = run_cache.snapshot(result.attempt.identity.cell)
-            member = scope.consumers[0]
-            policy = scope.facts[0].observation.observation_policy
-            fact = run_cache.lookup(member.preparation.subject, policy)
-            assert isinstance(fact, RunTyFactRef)
-            consumer = run_cache.consumer(fact, member.preparation)
-            compared = static.compare(
-                consumer,
-                consumer,
-                run_cache=run_cache,
-                context=GlobalComparisonContext(
-                    highest_proposal_id=result.evaluation.proposal.proposal_id
-                ),
-                guidance_policy=GuidancePolicy(
-                    observation=policy, observation_identity=policy.identity
-                ),
-            )
-            assert compared.status == "COMPARED"
             return result
 
     try:
@@ -229,6 +209,24 @@ class TestStaticJournal:
         assert restored == journal
         assert store.latest_journal_id("demo") == journal.run_id
 
+    def test_ordinary_ty_cache_decode_does_not_replay_comparison_or_hint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        from pf.schemas.ty_cache import TyCacheDocument, ty_cache_from_documents
+
+        store, journal, _path = _write_current_journal(tmp_path)
+        store.write_ty_cache(ty_cache_from_documents(run_id=store.run_id, documents=()))
+
+        def boom(*_args, **_kwargs):
+            raise AssertionError("ordinary ty-cache decode must not replay admission")
+
+        monkeypatch.setattr("pf.static.audit._admit_saved_static_audit", boom)
+        monkeypatch.setattr("pf.static.comparison.derive_static_comparison", boom)
+        monkeypatch.setattr("pf.static.guidance.locate_static_hint", boom)
+        cache = store.read_ty_cache(journal.run_id)
+        assert isinstance(cache, TyCacheDocument)
+        assert cache.entries == ()
+
     def test_many_observations_round_trip_in_one_scope(
         self, tmp_path: Path, record_property
     ):
@@ -240,10 +238,7 @@ class TestStaticJournal:
             static_membership_from_scope,
         )
         from pf.schemas.ty_cache import ty_cache_from_documents
-        from pf.schemas.ty_fact import TyCheckFact
-        from pf.static_cache import TyCheckCache
-        from scripted_static import ScriptedStaticRequests
-        from pf.static_request import StaticTyRequest
+        from pf.static import CollectedStaticSubject, TyCheckCache
 
         project = evaluation_project(tmp_path / "project", dependency=None)
         assembly = evaluation_assembly(highest=())
@@ -255,26 +250,14 @@ class TestStaticJournal:
             resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
-        factory = ScriptedStaticRequests()
         store = RunLogStore(root=tmp_path, run_id="multiple-static-observations")
         try:
             with TyCheckCache() as cache:
-                for timeout in range(30, 42):
-                    config = project.package.config.model_copy(
-                        update={
-                            "ty": project.package.config.ty.model_copy(
-                                update={"timeout_seconds": timeout}
-                            )
-                        }
+                for _timeout in range(30, 42):
+                    collected = assembly.static.collect_prepared(
+                        prepared, package=project.package, run_cache=cache,
                     )
-                    selected = project.package.model_copy(update={"config": config})
-                    request = factory.capture(
-                        prepared, package=selected, environment={},
-                    )
-                    assert isinstance(request, StaticTyRequest)
-                    fact = assembly.static.collect(prepared, request, run_cache=cache)
-                    assert isinstance(fact, RunTyFactRef)
-                    assert isinstance(fact.observation.fact, TyCheckFact)
+                    assert isinstance(collected, CollectedStaticSubject)
                 scope = cache.snapshot(prepared.proposal.cell)
                 assert len(scope.facts) == 1
                 member = static_membership_from_scope(scope)
@@ -310,6 +293,7 @@ class TestStaticJournal:
         self, tmp_path: Path, scenario
     ):
         from evaluation_fixtures import (
+            FailingInspectRunner,
             evaluation_assembly,
             evaluation_project,
             successful_process,
@@ -321,7 +305,6 @@ class TestStaticJournal:
             VerifierPass,
             VerifierRun,
         )
-        from pf.schemas.static import StaticContentUnavailable
         from pf.static_cache import CacheMiss
 
         project = evaluation_project(tmp_path / "project", dependency=None)
@@ -342,12 +325,11 @@ class TestStaticJournal:
             ),
         )
 
-        class UnavailableRequests:
-            def capture(self, prepared, **kwargs):
-                return StaticContentUnavailable(detail="unreadable-content")
-
         static = (
-            StaticEvaluator(assembly.ty, requests=UnavailableRequests())
+            StaticEvaluator(
+                assembly.ty,
+                processes=FailingInspectRunner(assembly.uv, fail_all=True),
+            )
             if scenario == "input-unavailable"
             else assembly.static
         )
@@ -395,7 +377,7 @@ class TestStaticJournal:
             member = journal.static_membership[0]
             if scenario == "input-unavailable":
                 assert member.highest.kind == "uncollected"
-                assert member.highest.detail == "unreadable-content"
+                assert member.highest.detail == "inspection-unavailable"
                 cache = logs.read_ty_cache(journal.run_id)
                 assert cache.entries == ()
             else:

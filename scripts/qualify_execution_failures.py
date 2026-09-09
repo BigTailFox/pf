@@ -10,7 +10,7 @@ comparison admission.
 """
 from __future__ import annotations
 
-from pf.static_cache import TyCheckCache
+from pf.static import TyCheckCache
 
 from pf.cancellation import Cancellation
 
@@ -41,7 +41,8 @@ from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.static_request import StaticRequestFactory
-from pf.evaluation import RuntimeEvaluator, StaticEvaluator
+from pf.evaluation import RuntimeEvaluator
+from pf.static import StaticEvaluator
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
 from pf.resolution import UV_PROTOCOL_IDENTITY
@@ -233,7 +234,7 @@ def qualify_case(root: Path, *, operation: str, write_bytecode: bool) -> dict:
         runner = RecordingRunner()
         adapter = UvAdapter(runner)
         environments = EnvironmentFactory(adapter)
-        static = StaticEvaluator(TyAdapter(runner), requests=StaticRequestFactory(runner))
+        static = StaticEvaluator(TyAdapter(runner), processes=runner)
         full = RuntimeEvaluator( verifier=ConfiguredVerifier(runner))
         coordinator = SearchCoordinator(
             environments=environments, candidates=CandidateBuilder(adapter), static=static,
