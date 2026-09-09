@@ -28,6 +28,7 @@ STATUS_BY_KIND = {
     "review": {"开放", "已解决或已移交", "已归档"},
     "concept": {"开放", "转入 Design", "关闭"},
     "experiment": {"进行中", "已完成"},
+    "investigation": {"进行中", "已完成"},
 }
 TEMPORARY_DESIGN_STATUSES = {"草案", "已接受待实施", "实施中"}
 TEMPORARY_DESIGN_FIELDS = {"状态", "目标 owner", "验收标准"}
@@ -173,6 +174,7 @@ def check_frontmatter(root: Path) -> list[str]:
         ("review", root / "docs" / "reviews", {"状态", "日期", "性质"}),
         ("concept", root / "docs" / "concepts", {"状态", "日期", "性质"}),
         ("experiment", root / "docs" / "experiments", {"状态", "日期", "性质"}),
+        ("investigation", root / "docs" / "investigations", {"状态", "日期", "性质", "证据位置"}),
     )
     for kind, directory, required in kinds:
         if not directory.is_dir():

@@ -1,0 +1,475 @@
+{
+  "investigation": "I002",
+  "extracted_from": "local dogfood reports at repository root; not committed",
+  "code_baseline": "2286197deface02b1e8b0a17244b7ad47ea2d27d",
+  "host": {
+    "python": "3.10.16",
+    "executable": "/home/llh/pf/.venv/bin/python",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39"
+  },
+  "reports": {
+    "full": {
+      "artifact_name": "package-floor-full.json",
+      "bytes": 29559555,
+      "sha256": "38dc305ee94a1fdf132e06f182358aa44e4e17806c6a4b2c8520f59e84fd7169",
+      "mtime": 1788948483.7684667,
+      "report_generation_id": "55ba0feb9b035282267c63d5eb6c3d18ce86c77cf47482fd5b1b579e335e31d9",
+      "source_snapshot_digest": "4e7522a58af53adaaa0a0b6bf48e921984dc9db651d5b289ace3d2daebdaf3f2",
+      "guidance_policy_identity": "efb23cb3ec88ed638a7ab73eee5a8136e9e583ac9aba6c29d1b861b39a8f3c63",
+      "search_derivation_identity": "efef7b09e9c81c3f21924d55126190467f2d9e0ccd288e7909688cf4bee25ab4",
+      "generator": {
+        "algorithm": "v1",
+        "name": "pf",
+        "version": "0.3.0"
+      },
+      "result": {
+        "status": "complete"
+      },
+      "intern": {
+        "static_contents": 49,
+        "static_subjects": 24,
+        "static_facts": 24,
+        "static_fact_kinds": {
+          "ty-check": 24
+        },
+        "static_comparisons": 29,
+        "static_scopes": 3,
+        "attempts": 107,
+        "evaluations": 100,
+        "evaluation_status": {
+          "VERIFIER_REJECTED": 78,
+          "PASS": 22
+        },
+        "attempt_requested_resolution": {
+          "exact-vector": 104,
+          "highest": 3
+        },
+        "manifest_file_entries": 58265,
+        "manifest_symlink_entries": 96,
+        "manifest_directory_entries": 6709
+      },
+      "cells": [
+        {
+          "python_minor": "3.10",
+          "status": "SUCCESS",
+          "search_status": "SUCCESS",
+          "sweeps": 2,
+          "observations": 48,
+          "observation_status": {
+            "PASS": 19,
+            "REJECTED": 29
+          },
+          "floors": [
+            {
+              "dependency": "cyclopts",
+              "floor": "4.10.2",
+              "predecessor": "4.9.0"
+            },
+            {
+              "dependency": "packaging",
+              "floor": "26.3",
+              "predecessor": "26.2"
+            },
+            {
+              "dependency": "pydantic",
+              "floor": "2.10.6",
+              "predecessor": "2.9.2"
+            },
+            {
+              "dependency": "rich",
+              "floor": "14.3.4",
+              "predecessor": "14.2.0"
+            },
+            {
+              "dependency": "tomli",
+              "floor": "2.0.2",
+              "predecessor": "1.2.3"
+            },
+            {
+              "dependency": "tomlkit",
+              "floor": "0.8.0",
+              "predecessor": "0.7.2"
+            }
+          ]
+        },
+        {
+          "python_minor": "3.11",
+          "status": "SUCCESS",
+          "search_status": "SUCCESS",
+          "sweeps": 2,
+          "observations": 46,
+          "observation_status": {
+            "PASS": 18,
+            "REJECTED": 28
+          },
+          "floors": [
+            {
+              "dependency": "cyclopts",
+              "floor": "4.10.2",
+              "predecessor": "4.9.0"
+            },
+            {
+              "dependency": "packaging",
+              "floor": "26.3",
+              "predecessor": "26.2"
+            },
+            {
+              "dependency": "pydantic",
+              "floor": "2.10.6",
+              "predecessor": "2.9.2"
+            },
+            {
+              "dependency": "rich",
+              "floor": "14.3.4",
+              "predecessor": "14.2.0"
+            },
+            {
+              "dependency": "tomli",
+              "floor": "1.1.0",
+              "predecessor": "1.0.4"
+            },
+            {
+              "dependency": "tomlkit",
+              "floor": "0.8.0",
+              "predecessor": "0.7.2"
+            }
+          ]
+        },
+        {
+          "python_minor": "3.12",
+          "status": "SUCCESS",
+          "search_status": "SUCCESS",
+          "sweeps": 2,
+          "observations": 46,
+          "observation_status": {
+            "PASS": 18,
+            "REJECTED": 28
+          },
+          "floors": [
+            {
+              "dependency": "cyclopts",
+              "floor": "4.10.2",
+              "predecessor": "4.9.0"
+            },
+            {
+              "dependency": "packaging",
+              "floor": "26.3",
+              "predecessor": "26.2"
+            },
+            {
+              "dependency": "pydantic",
+              "floor": "2.10.6",
+              "predecessor": "2.9.2"
+            },
+            {
+              "dependency": "rich",
+              "floor": "14.3.4",
+              "predecessor": "14.2.0"
+            },
+            {
+              "dependency": "tomli",
+              "floor": "1.1.0",
+              "predecessor": "1.0.4"
+            },
+            {
+              "dependency": "tomlkit",
+              "floor": "0.8.0",
+              "predecessor": "0.7.2"
+            }
+          ]
+        }
+      ],
+      "scopes": [
+        {
+          "python_minor": "3.12",
+          "facts": 0,
+          "consumers": 0,
+          "passes": 0,
+          "comparisons": 0,
+          "searches": 0,
+          "search_reasons": {},
+          "omissions": 6,
+          "omission_reasons": {
+            "anchor-unavailable": 6
+          },
+          "skips": 6,
+          "selections": 82,
+          "processes": 0,
+          "process_ref_prefixes": {},
+          "highest_reference_ref_set": false,
+          "highest_uncollected": {
+            "reason": "static-subject-unavailable",
+            "detail": "unclosed-symlink"
+          }
+        },
+        {
+          "python_minor": "3.11",
+          "facts": 0,
+          "consumers": 0,
+          "passes": 0,
+          "comparisons": 0,
+          "searches": 0,
+          "search_reasons": {},
+          "omissions": 6,
+          "omission_reasons": {
+            "anchor-unavailable": 6
+          },
+          "skips": 6,
+          "selections": 82,
+          "processes": 0,
+          "process_ref_prefixes": {},
+          "highest_reference_ref_set": false,
+          "highest_uncollected": {
+            "reason": "static-subject-unavailable",
+            "detail": "unclosed-symlink"
+          }
+        },
+        {
+          "python_minor": "3.10",
+          "facts": 24,
+          "consumers": 24,
+          "passes": 7,
+          "comparisons": 29,
+          "searches": 4,
+          "search_reasons": {
+            "static-unavailable": 3,
+            "None": 1
+          },
+          "omissions": 2,
+          "omission_reasons": {
+            "anchor-unavailable": 2
+          },
+          "skips": 6,
+          "selections": 84,
+          "processes": 31,
+          "process_ref_prefixes": {
+            "ty": 24,
+            "verifier": 7
+          },
+          "highest_reference_ref_set": true,
+          "highest_uncollected": null
+        }
+      ]
+    },
+    "py310": {
+      "artifact_name": "package-floor-py310.json",
+      "bytes": 41929806,
+      "sha256": "415f46186363c004087efd68a7cd4ba350819c0763762a31ddc2c26be6a96d06",
+      "mtime": 1788949987.5704782,
+      "report_generation_id": "f908958ff38c1f480c039f58d13bacc1339e4341a538caa12b2088697964e68e",
+      "source_snapshot_digest": "8f174b52aa3cd7e34a21e93670a0c4df5c13e9ed286e17568da3daa38b4b321d",
+      "guidance_policy_identity": "efb23cb3ec88ed638a7ab73eee5a8136e9e583ac9aba6c29d1b861b39a8f3c63",
+      "search_derivation_identity": "efef7b09e9c81c3f21924d55126190467f2d9e0ccd288e7909688cf4bee25ab4",
+      "generator": {
+        "algorithm": "v1",
+        "name": "pf",
+        "version": "0.3.0"
+      },
+      "result": {
+        "status": "complete"
+      },
+      "intern": {
+        "static_contents": 79,
+        "static_subjects": 40,
+        "static_facts": 40,
+        "static_fact_kinds": {
+          "ty-check": 40
+        },
+        "static_comparisons": 51,
+        "static_scopes": 1,
+        "attempts": 33,
+        "evaluations": 28,
+        "evaluation_status": {
+          "VERIFIER_REJECTED": 21,
+          "PASS": 7
+        },
+        "attempt_requested_resolution": {
+          "exact-vector": 32,
+          "highest": 1
+        },
+        "manifest_file_entries": 95558,
+        "manifest_symlink_entries": 160,
+        "manifest_directory_entries": 11055
+      },
+      "cells": [
+        {
+          "python_minor": "3.10",
+          "status": "SUCCESS",
+          "search_status": "SUCCESS",
+          "sweeps": 2,
+          "observations": 44,
+          "observation_status": {
+            "PASS": 18,
+            "REJECTED": 26
+          },
+          "floors": [
+            {
+              "dependency": "cyclopts",
+              "floor": "4.10.2",
+              "predecessor": "4.9.0"
+            },
+            {
+              "dependency": "packaging",
+              "floor": "26.3",
+              "predecessor": "26.2"
+            },
+            {
+              "dependency": "pydantic",
+              "floor": "2.10.6",
+              "predecessor": "2.9.2"
+            },
+            {
+              "dependency": "rich",
+              "floor": "14.3.4",
+              "predecessor": "14.2.0"
+            },
+            {
+              "dependency": "tomli",
+              "floor": "2.0.2",
+              "predecessor": "1.2.3"
+            },
+            {
+              "dependency": "tomlkit",
+              "floor": "0.8.0",
+              "predecessor": "0.7.2"
+            }
+          ]
+        }
+      ],
+      "scopes": [
+        {
+          "python_minor": "3.10",
+          "facts": 40,
+          "consumers": 40,
+          "passes": 7,
+          "comparisons": 51,
+          "searches": 6,
+          "search_reasons": {
+            "None": 3,
+            "lower-unchanged": 1,
+            "static-unavailable": 2
+          },
+          "omissions": 0,
+          "omission_reasons": {},
+          "skips": 6,
+          "selections": 80,
+          "processes": 47,
+          "process_ref_prefixes": {
+            "ty": 40,
+            "verifier": 7
+          },
+          "highest_reference_ref_set": true,
+          "highest_uncollected": null
+        }
+      ]
+    },
+    "py312": {
+      "artifact_name": "package-floor-py312.json",
+      "bytes": 1841455,
+      "sha256": "9b667ad9fc81e20d57ba65df43a4fc735581bfa62685e9a7287716ab1a185c22",
+      "mtime": 1788953505.5500557,
+      "report_generation_id": "7625f970ced1652961656767c4310cba594e0273d51500a003d4f910262a80ef",
+      "source_snapshot_digest": "0696cb9b4150674afb90ea3d2469aca00360396e172174441bfab464d9f32d33",
+      "guidance_policy_identity": "efb23cb3ec88ed638a7ab73eee5a8136e9e583ac9aba6c29d1b861b39a8f3c63",
+      "search_derivation_identity": "efef7b09e9c81c3f21924d55126190467f2d9e0ccd288e7909688cf4bee25ab4",
+      "generator": {
+        "algorithm": "v1",
+        "name": "pf",
+        "version": "0.3.0"
+      },
+      "result": {
+        "status": "complete"
+      },
+      "intern": {
+        "static_contents": 0,
+        "static_subjects": 0,
+        "static_facts": 0,
+        "static_fact_kinds": {},
+        "static_comparisons": 0,
+        "static_scopes": 1,
+        "attempts": 35,
+        "evaluations": 34,
+        "evaluation_status": {
+          "PASS": 7,
+          "VERIFIER_REJECTED": 27
+        },
+        "attempt_requested_resolution": {
+          "exact-vector": 34,
+          "highest": 1
+        },
+        "manifest_file_entries": 0,
+        "manifest_symlink_entries": 0,
+        "manifest_directory_entries": 0
+      },
+      "cells": [
+        {
+          "python_minor": "3.12",
+          "status": "SUCCESS",
+          "search_status": "SUCCESS",
+          "sweeps": 2,
+          "observations": 46,
+          "observation_status": {
+            "PASS": 18,
+            "REJECTED": 28
+          },
+          "floors": [
+            {
+              "dependency": "cyclopts",
+              "floor": "4.10.2",
+              "predecessor": "4.9.0"
+            },
+            {
+              "dependency": "packaging",
+              "floor": "26.3",
+              "predecessor": "26.2"
+            },
+            {
+              "dependency": "pydantic",
+              "floor": "2.10.6",
+              "predecessor": "2.9.2"
+            },
+            {
+              "dependency": "rich",
+              "floor": "14.3.4",
+              "predecessor": "14.2.0"
+            },
+            {
+              "dependency": "tomli",
+              "floor": "1.1.0",
+              "predecessor": "1.0.4"
+            },
+            {
+              "dependency": "tomlkit",
+              "floor": "0.8.0",
+              "predecessor": "0.7.2"
+            }
+          ]
+        }
+      ],
+      "scopes": [
+        {
+          "python_minor": "3.12",
+          "facts": 0,
+          "consumers": 0,
+          "passes": 0,
+          "comparisons": 0,
+          "searches": 0,
+          "search_reasons": {},
+          "omissions": 6,
+          "omission_reasons": {
+            "anchor-unavailable": 6
+          },
+          "skips": 6,
+          "selections": 82,
+          "processes": 0,
+          "process_ref_prefixes": {},
+          "highest_reference_ref_set": false,
+          "highest_uncollected": {
+            "reason": "static-subject-unavailable",
+            "detail": "unclosed-symlink"
+          }
+        }
+      ]
+    }
+  }
+}

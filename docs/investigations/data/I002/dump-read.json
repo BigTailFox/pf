@@ -1,0 +1,36 @@
+{
+  "investigation": "I002",
+  "measured_at": "2026-09-09T20:09:02+08:00",
+  "host_python": "3.10.16",
+  "command": ".venv/bin/python json.loads then json.dumps(sort_keys=True, ensure_ascii=False, separators=(',', ':')) then pf.report.ReportStore.read",
+  "note": "Timed on already-interned report files. This is not live VerificationJournal.model_dump of uninterned StaticSubject trees.",
+  "results": [
+    {
+      "artifact_name": "package-floor-py312.json",
+      "bytes": 1841455,
+      "json_loads_s": 0.010,
+      "json_dumps_sort_keys_s": 0.010,
+      "dumps_output_bytes": 1841454,
+      "report_store_read_s": 0.142,
+      "cells": 1
+    },
+    {
+      "artifact_name": "package-floor-full.json",
+      "bytes": 29559555,
+      "json_loads_s": 0.151,
+      "json_dumps_sort_keys_s": 0.143,
+      "dumps_output_bytes": 29559554,
+      "report_store_read_s": 22.544,
+      "cells": 3
+    },
+    {
+      "artifact_name": "package-floor-py310.json",
+      "bytes": 41929806,
+      "json_loads_s": 0.172,
+      "json_dumps_sort_keys_s": 0.198,
+      "dumps_output_bytes": 41929805,
+      "report_store_read_s": 36.916,
+      "cells": 1
+    }
+  ]
+}
