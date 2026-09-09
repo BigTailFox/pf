@@ -10,6 +10,8 @@
 
 本文定义 R011 的**目标** module interface：把静态采集、Run cache、准入、比较与纯 guidance 收成一个深模块，并把 FrozenSchema 从这些算法中拆出；同一吸收改写 D002 模块地图，并收回 `FailurePolicy` 可选注入。行为语义仍以现行 D003/D004/D005 为准；本文件只改规则住在哪里、调用方必须学习什么。接受前不是现行契约。
 
+2026-09-10 按 D043 切齐后的现行缝修订预像：v1 文件树叶子与 intern codec 已不存在；离线 admission 不再假设 ReportStore inflate。目标与 AC1–AC12 不变。仍不接受、不授权实施。inspect / path-in-root / cell key 去重是将来 Plan 的内部卫生，不另立 AC。
+
 ## 1. 结论
 
 当前公开 seam 写成 `StaticEvaluator.lookup/collect/compare`，实现却是十余个平行文件，且 `schemas/` 向上执行准入、二分与 harness 变换。Evaluator 通不过删除测试：删掉它之后复杂度仍留在 cache、request factory、schema 比较函数和 SearchCoordinator 手写的 slice 里。
@@ -23,10 +25,10 @@ TyCheckCache                          # Run 拥有，VerificationRunner 构造�
 StaticGuidanceEvaluator.open_static_slice
   -> 静态 module 提供的 StaticSlice adapter
 locate_static_hint(slice, versions)   # CoordinateSearch 的纯 hint 入口
-admit_saved_static_audit(...)         # ReportStore / RunLogStore 离线读入；Plan 定精确名字
+admit_saved_static_audit(...)         # 夹具 / Run ty-cache 重放；Plan 定精确名字
 ```
 
-路径解析、ignore、relocation、configuration materialize、request 装配留在 implementation。产品代码与产品测试走同一公开表面。`TyCheckCache` 不收成 service locator。
+路径解析、configuration materialize、inspect、request 装配留在 implementation。v1 文件树 ignore / relocation / external freeze / process-env binding 已随 D043 删除，不是本 module 必留叶子。产品代码与产品测试走同一公开表面。`TyCheckCache` 不收成 service locator。
 
 R011 要求 §3 与 §4 同一份 Design：先把算法从 schemas 拿回静态 module，再收调用方 import。只搬家名或只建 `pf/static/` 子目录而不减少调用方知识，视为未完成。D002 过时文件名与 `FailurePolicy` 假想 seam 随本次吸收一起改，不另开 Design、不留给下一次文档修正。
 
@@ -60,10 +62,10 @@ R011 要求 §3 与 §4 同一份 Design：先把算法从 schemas 拿回静态 
 | `CacheMiss` | lookup 的只读未命中 | 不是 unavailable，不产生 disposition |
 | `StaticGuidanceEvaluator` / `StaticSlice` | `CoordinateSearch`；产品 SearchCoordinator 实现前者 | `open_static_slice` 至多每坐标一次；返回的 slice **由静态 module 构造** |
 | `locate_static_hint` / `StaticPoint` / `StaticHint` / `StaticSearchResult` | `CoordinateSearch` | 纯 hint 算法；schema 不得重放 |
-| 离线静态 admission（Plan 定精确名字，一类函数） | `ReportStore`、`RunLogStore` / Journal reader | 读入已保存比较与搜索审计时复算准入/减法/hint 序列；与在线 `compare` / `locate_static_hint` 同一实现 |
-| producer/log 关联（现行 `static_producer_log_associations` 一类） | `runlog.py`、diagnose workflow | Journal/diagnose 遍历合法关联；不是第三条平行静态 API |
+| 离线静态 admission（Plan 定精确名字，一类函数） | 测试夹具、Run ty-cache 上的比较重放 | 对已保存 `TyFactDocument` 复算准入/减法/hint；与在线 `compare` / `locate_static_hint` 同一实现。公开报告与普通 Journal decode 不 inflate、不重放 |
+| producer/log 关联 | 无独立静态 association API | D043 已删除 diagnose 静态交叉；`RunLogStore` 只关联 verifier Process Log |
 
-产品路径不再进口：`StaticRequestFactory`、`static_paths` / `static_ignores` / `static_relocation` / `static_configuration` / `static_process` / `static_external` / `static_subject` / `static_admission` / `ty_fact` / `ty_options` / `adapters.static_inputs`。`RunStaticPassRef` / `RunStaticConsumerRef` 不用于 SearchCoordinator 手写 slice。`report.py` / `runlog.py` 只进口上表的离线 admission 与关联函数，不进口 schema 内的重放实现。
+产品路径不再进口：`StaticRequestFactory`、`static_paths` / `static_configuration` / `static_subject` / `static_admission` / `ty_fact` / `ty_options` / `adapters.static_inputs`。`RunStaticPassRef` / `RunStaticConsumerRef` 不用于 SearchCoordinator 手写 slice。`report.py` / `runlog.py` 不进口 schema 内的重放实现。
 
 ### 3.2 Evaluator
 
@@ -84,7 +86,7 @@ lookup(subject, observation_policy, *, run_cache)
 
 collect_prepared(prepared, *, package, run_cache)
     -> 已完成原始事实 | StaticContentUnavailable
-    内部：闭合六组输入、revalidate、只让 owner 占 ty permit、原子登记
+    内部：按 v2 subject 与配置物化装配 request、revalidate、只让 owner 占 ty permit、原子登记
     成功返回值即后续 compare_global 的 subject，调用方不读 prepared.static_consumer
 
 capture_highest(prepared, *, package, run_cache)
@@ -135,10 +137,11 @@ SearchCoordinator.open_static_slice(vector, dependency, versions)
 
 下列行为留在 module 内，可以有内部 seam 和内部测试：
 
-- 六组 StaticSubject 投影与 `StaticTyRequest` 装配
-- 搜索路径、ignore、relocation、ty 配置物化、进程环境
+- v2 `StaticSubject` 投影与 `StaticTyRequest` 装配
+- 仍被 request 装配使用的搜索路径、ty 配置物化、inspect
 - `admit_*`、diagnostic subtraction 的实现（公开入口是 `compare` 与离线 admission，不是 `static_admission.py`）
-- producer/log 关联的具体遍历
+
+inspect 名称/版本核对、path-in-root、cell canonical key 若有重复实现，吸收 Plan 可收进 module 内部，不另立 AC。
 
 `PreparedEnvironment` 可以继续持有不透明的 static materialization/consumer 句柄，供 Evaluator 在 `static_use` 租约内使用；产品编排器不读取其内部形状。
 
@@ -161,7 +164,8 @@ FrozenSchema 只保存不可变记录与结构/identity 闭合。比较减法、
 | `schemas.policy` 调用 `validate_ty_args` | `ConfigLoader` 与静态 request 装配在写入前资格化；policy 记录只保存已资格化的 args 投影 |
 
 离线读入链：公开报告不再含五张静态 intern 表，ReportStore 不 inflate scopes。Journal 只保存
-`static_membership`，普通 decode 不打开 ty-cache、不调用 `resolve_static_scopes`。比较重放只在
+`static_membership`，普通 decode 不打开 ty-cache。schemas 不再保留 intern codec 类型或
+`intern_static_scopes`；旧 intern 字段名在 Journal / 报告 reader 上按字段拒绝。比较重放只在
 测试夹具或 Run ty-cache 的 `TyFactDocument` 上，经静态 module 的 admission 执行，不经报告 /
 Journal validator。
 
@@ -190,7 +194,7 @@ Journal validator。
 
 ### 4.3 顺序约束
 
-Plan 必须先完成 §4（算法离开 schemas——含 `static_scope` / report / journal 读入链，identity 纯函数就位），再收 §3 的产品 import。禁止把「换了路径的同一函数仍被 schema 或 `resolve_static_scopes` 构造路径调用」当作切片完成。
+Plan 必须先完成 §4（算法离开 schemas——含 `static_scope` / report / journal 读入链，identity 纯函数就位），再收 §3 的产品 import。禁止把「换了路径的同一函数仍被 schema validator 调用」当作切片完成。
 
 ## 5. 调用方与测试表面
 
@@ -202,11 +206,11 @@ Plan 必须先完成 §4（算法离开 schemas——含 `static_scope` / report
 
 产品测试与调用方走同一 seam：`lookup` / `collect_prepared` / `capture_highest` / `compare` / `compare_global` / `open_static_slice` / `locate_static_hint` / 离线 admission，以及真实 Check/Highest/Search 图。`lookup` 与 `compare` 的产品调用方是测试，不是 Check/Search。静态事实从这些 outcome 观察，不读取 Evaluator/cache private state，不直接构造 `PreparedEnvironment` 成功值。
 
-路径/ignore/relocation/configuration/process/external/subject 的现行叶子测试不再写入 D002 §11，也不再单独规定产品契约。它们要么改写为公开表面的语义断言（六组输入变化、合法重定位命中、未闭合输入不启动 ty），要么降为静态 module 内部测试。
+路径/configuration/inspect/subject 的现行叶子测试不再写入 D002 §11，也不再单独规定产品契约。它们要么改写为公开表面的语义断言（v2 subject / 配置物化变化、未闭合输入不启动 ty），要么降为静态 module 内部测试。v1 文件树叶子测试已随对应实现删除，不列入去向表。
 
 Plan **首切片**必须列出逐文件去向，AC7/AC8 按该表核对，至少包括：
 
-`tests/test_static_{cache,comparison,configuration,external,guidance,guidance_qualification,ignores,inputs,journal,lifecycle,ownership,paths,process,relocation,report,request,subject}.py`、`tests/test_runtime_static_scope.py`、`tests/scripted_static.py`、`tests/static_fixtures.py`。每项标明：改写到 §3.1 表面 / 降为 module 内部 / 删除。漏列视为 AC7 未完成。
+`tests/test_static_{cache,comparison,configuration,guidance,guidance_qualification,inputs,journal,lifecycle,ownership,paths,report,request,subject}.py`、`tests/test_runtime_static_scope.py`、`tests/scripted_static.py`、`tests/static_fixtures.py`。每项标明：改写到 §3.1 表面 / 降为 module 内部 / 删除。漏列视为 AC7 未完成。
 
 `CoordinateSearch` 测试继续注入 `StaticGuidanceEvaluator`；产品 Search 测试消费真实 slice，不在测试里复制 `_RunnerStaticSlice`。
 
@@ -245,6 +249,7 @@ failure.py                    FailurePolicy；编排器内部构造
 - 恢复 region、witness、静态 compatibility disposition，或跨运行 Evaluation cache。
 - 改 Schema 1 字段、generation 规则或 JSON 投影手改。
 - 另开一份只搬 schema 函数路径的平行 Design。
+- 把 inspect / path-in-root / cell key 去重写成独立 AC；那是吸收 Plan 的内部卫生。
 - 以本文件为现行 D002/D004/D005；吸收前调用方仍以现行 owner 为准。
 - 仅因单实现而删除 `ConfiguredVerifier`、`UvOperations` 或 workflow Protocol。
 
@@ -252,7 +257,7 @@ failure.py                    FailurePolicy；编排器内部构造
 
 | AC | 必须成立的目标 | 公开 seam / 证据 |
 | --- | --- | --- |
-| AC1 | `src/pf` 中 cli/check/baseline/search/verification/workflow/coordinate_search/report/runlog 只进口 §3.1 公开静态名字与 schema 记录，不进口 §3.1 禁止清单。ReportStore/Journal 进口离线 admission，不进口 schema 重放 | import 扫描；失败即未完成 |
+| AC1 | `src/pf` 中 cli/check/baseline/search/verification/workflow/coordinate_search/report/runlog 只进口 §3.1 公开静态名字与 schema 记录，不进口 §3.1 禁止清单。公开报告与普通 Journal decode 不 inflate、不重放；离线 admission 只服务夹具 / Run ty-cache | import 扫描；失败即未完成 |
 | AC2 | 生产构造 `StaticEvaluator` 不出现 `StaticRequestFactory`；request 装配在 module 内 | `cli.py` 与产品测试装配 |
 | AC3 | SearchCoordinator 不再定义手写 slice，不进口 cache ref 去构造 `StaticPoint`；`open_slice` 接收该坐标 `CandidateSnapshot`；`open_static_slice` 返回静态 module 的 adapter | `search.py` 与 Search/CoordinateSearch 测试；hint 语义与现行 D003/D004 一致 |
 | AC4 | `src/pf/schemas/` 满足 §4.2：禁入 harness/static_*/ty_options/resolution 算法进口；§4.2 表内既有例外不报失败；report / journal validator 不 inflate 静态 intern、不重放 compare 或 `locate_static_hint` | import 扫描 + validator 调用点；比较重放改走夹具或 Run ty-cache 上的静态 admission |

@@ -36,7 +36,6 @@ from pf.schemas.evaluation import (
 from pf.schemas.journal import VerificationJournal
 from pf.schemas.apply import ApplyCommandResult, AuthorizedWorkspaceApply
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
-from pf.static_association import DiagnoseStaticAssociation
 from pf.schemas.project import (
     ProjectPlan,
     SourcePlan,
@@ -431,7 +430,6 @@ class FailureDiagnosis:
     source_path: str | None = None
     verification_role: VerificationRole | None = None
     command: Literal["smoke", "check", "search"] | None = None
-    static_associations: tuple[DiagnoseStaticAssociation, ...] = ()
 
     def __post_init__(self) -> None:
         if self.source == "report" and self.source_path is None:

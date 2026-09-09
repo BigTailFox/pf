@@ -137,7 +137,7 @@ class VerificationJournal(FrozenSchema):
     source_snapshot_digest: str
     package_policies: tuple[VerificationPackagePolicy, ...]
     entries: tuple[VerificationJournalEntry, ...]
-    static_membership: tuple[JournalStaticMembership, ...] = ()
+    static_membership: tuple[JournalStaticMembership, ...]
 
     @model_validator(mode="wrap")
     @classmethod

@@ -383,6 +383,7 @@ def _write_success_with_predecessor_report(
                         cause=failure.cause,
                         evaluation=failed_test,
                     ),
+                    selection_reason="mechanical-lowest",
                 ),
                 ProbeObservation(
                     dependency="idna",
@@ -393,6 +394,7 @@ def _write_success_with_predecessor_report(
                         proposal_id=final_evaluation.proposal.proposal_id,
                         evaluation=final_evaluation,
                     ),
+                    selection_reason="mechanical-lowest",
                 ),
             ),
             boundaries=(

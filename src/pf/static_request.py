@@ -15,7 +15,7 @@ from pf.cancellation import Cancellation
 from pf.policy import guidance_policy, execution_policy
 from pf.resolution import ResolutionPlanEvidence
 from pf.schemas.static_preparation import StaticPreparationEvidence
-from pf.schemas.evaluation import ProcessResult, ProcessSpec
+from pf.schemas.evaluation import EnvironmentVariable, ProcessResult, ProcessSpec
 from pf.schemas.policy import (
     SnapshotTyConfigUnavailable, TyObservationPolicy, TyToolVersion,
     TyToolVersionDistribution,
@@ -216,8 +216,6 @@ class StaticRequestFactory:
         if not may_start_ty(policy, tool_version_matches=version_ok) or materialized is None:
             if snapshot_ty_config.kind == "unavailable":
                 return StaticContentUnavailable(detail=snapshot_ty_config.reason)
-            if not isinstance(tool_version, TyToolVersionDistribution):
-                return StaticContentUnavailable(detail="invalid-layout")
             return StaticContentUnavailable(detail="invalid-layout")
         if self._ty_executable is None:
             return StaticContentUnavailable(detail="invalid-layout")
@@ -233,7 +231,6 @@ class StaticRequestFactory:
             if name in {"LANG", "LC_ALL", "LC_CTYPE"}
         }
         values["TY_CONFIG_FILE"] = str(materialized.effective_file)
-        from pf.schemas.evaluation import EnvironmentVariable
         spec = ProcessSpec(
             argv=(
                 str(tool), "check", "--project", str(prepared.package_root),

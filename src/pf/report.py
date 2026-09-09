@@ -1750,7 +1750,7 @@ class ReportStore:
             ("identity", "execution_policy", "resolution", "timeout_seconds"),
             ("evidence", "failures", "*", "authority", "terminal"),
             ("evidence", "failures", "*", "authority", "attribution", "request_binding", "project_plan_digest"),
-                ("evidence", "failures", "*", "authority", "attribution", "request_binding", "environment_plan_digest"),
+            ("evidence", "failures", "*", "authority", "attribution", "request_binding", "environment_plan_digest"),
             ("evidence", "proposals", "*", "environment_plan_digest"),
             ("inputs", "search_policy", "bindings", "*", "requested_space"),
             ("inputs", "candidate_snapshots", "*", "series_inventory_ref"),

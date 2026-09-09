@@ -285,6 +285,7 @@ def _cell_success() -> CellSuccess:
                     proposal_id=proposal.proposal_id,
                     evaluation=evaluation,
                 ),
+                selection_reason="mechanical-lowest",
             ),
             ProbeObservation(
                 dependency=None,
@@ -295,6 +296,7 @@ def _cell_success() -> CellSuccess:
                     proposal_id=passed.proposal.proposal_id,
                     evaluation=passed,
                 ),
+                selection_reason=None,
             ),
         ),
         boundaries=(CoordinateBoundary(dependency="demo", floor="1"),),
@@ -659,6 +661,7 @@ class TestPlanningSchemas:
                                 failure_id=failure.failure_id,
                                 cause="VERIFIER_EXITED_NONZERO",
                             ),
+                            selection_reason=None,
                         ),
                     ),
                 ),
@@ -719,6 +722,7 @@ class TestSearchSchemas:
                                 failure_id="failure-missing",
                                 cause="RESOLUTION_CONFLICT",
                             ),
+                            selection_reason="mechanical-lowest",
                         ),
                     ),
                 ),
@@ -801,6 +805,7 @@ class TestSearchSchemas:
                         verifier=verifier_pass(_successful_process()),
                     ),
                 ),
+                selection_reason="mechanical-lowest",
             )
 
     def test_probe_pass_accepts_exact_vector_or_the_real_highest_attempt(
@@ -937,6 +942,7 @@ class TestSearchSchemas:
                             failure_id="failure-other",
                             cause="TIMEOUT",
                         ),
+                        selection_reason=None,
                     ),
                 ),
             )
@@ -955,6 +961,7 @@ class TestSearchSchemas:
                     failure_id="failure",
                     cause="RESOLUTION_CONFLICT",
                 ),
+                selection_reason="mechanical-lowest",
             )
 
     def test_non_monotonic_counterexample_requires_direct_same_slice_evidence(
@@ -983,6 +990,7 @@ class TestSearchSchemas:
                     verifier=verifier_pass(_successful_process()),
                 ),
             ),
+            selection_reason="mechanical-lowest",
         )
         high_attempt = _attempt(resolution="exact-vector", vector=high_vector)
         high = ProbeObservation(
@@ -994,6 +1002,7 @@ class TestSearchSchemas:
                 failure_id="failure-high",
                 cause="RESOLUTION_CONFLICT",
             ),
+            selection_reason="mechanical-lowest",
         )
 
         result = CoordinateFailure(
@@ -1048,6 +1057,7 @@ class TestSearchSchemas:
                             failure_id="failure",
                             cause="TIMEOUT",
                         ),
+                        selection_reason=None,
                     ),
                 ),
                 boundaries=(),
@@ -1072,6 +1082,7 @@ class TestSearchSchemas:
                             failure_id="failure-observed",
                             cause="RESOLUTION_CONFLICT",
                         ),
+                        selection_reason="mechanical-lowest",
                     ),
                 ),
                 boundaries=(
@@ -1228,6 +1239,7 @@ class TestSearchSchemas:
                                 cause=failure.cause,
                                 evaluation=candidate_failure,
                             ),
+                            selection_reason="mechanical-lowest",
                         ),
                     ),
                 ),
@@ -1492,6 +1504,7 @@ class TestEvaluationSchemas:
                         cause="TOOL_FAILURE",
                         evaluation=evaluation,
                     ),
+                    selection_reason=None,
                 ),
             ),
         )
@@ -1702,6 +1715,7 @@ class TestReportSchemas:
                 proposal_id=baseline_proposal.proposal_id,
                 evaluation=baseline_evaluation,
             ),
+            selection_reason=None,
         )
         values.update(
             {
@@ -1862,8 +1876,31 @@ class TestReportSchemas:
                 candidate_version=None,
                 vector=(),
                 evidence=evidence,
+                selection_reason="mechanical-lowest",
             )
 
+    def test_probe_observation_requires_selection_reason(self) -> None:
+        vector = (VersionPin(name="demo", version="1"),)
+        attempt = _attempt(resolution="exact-vector", vector=vector)
+        proposal = _proposal("candidate", attempt=attempt, vector=vector)
+        observation = ProbeObservation(
+            dependency="demo",
+            candidate_version="1",
+            vector=vector,
+            evidence=ProbePass(
+                attempt=attempt,
+                proposal_id=proposal.proposal_id,
+                evaluation=PassEvaluation(
+                    proposal=proposal,
+                    verifier=verifier_pass(_successful_process()),
+                ),
+            ),
+            selection_reason="mechanical-lowest",
+        )
+        payload = observation.model_dump(mode="json")
+        payload.pop("selection_reason")
+        with pytest.raises(ValidationError, match="selection_reason"):
+            ProbeObservation.model_validate(payload)
 
     def test_search_failure_event_retains_structured_failure_and_evaluation(
         self,

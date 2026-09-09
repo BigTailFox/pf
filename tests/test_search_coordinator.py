@@ -567,7 +567,6 @@ class TestSearchCoordinator:
                 discovery=ProjectDiscovery(), reports=ReportStore(), logs=logs,
             ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
             assert logs.journal_reads == []
-            assert diagnosis.static_associations == ()
             with pytest.raises(DiagnoseNotFoundError):
                 DiagnoseCommandWorkflow(
                     discovery=ProjectDiscovery(), reports=ReportStore(), logs=logs,
@@ -587,7 +586,6 @@ class TestSearchCoordinator:
                 logs=RunLogStore(root=tmp_path, run_id="guided"),
             ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
             assert journaled.source == "journal"
-            assert journaled.static_associations == ()
         finally:
             project.snapshot.close()
 
@@ -634,8 +632,6 @@ class TestSearchCoordinator:
             project.snapshot.close()
 
     def test_prepare_unavailable_diagnose_does_not_fabricate_ty_check(self, tmp_path, run_cache):
-        from pf.static_association import diagnose_static_associations
-
         def verifier(vector, call):
             version = int(vector[0].version)
             return VerifierRun(
@@ -660,10 +656,7 @@ class TestSearchCoordinator:
             prepare = next(point.unavailable for search in scope.searches for point in search.points
                            if point.unavailable is not None and point.unavailable.proposal is None)
             assert prepare.proposal is None
-            skip = assert_direct_bound_skip(scope, floor="2", predecessor="1")
-            failure = next(item for item in result.failure_records if item.failure_id == skip.predecessor_failure_id)
-            associations = diagnose_static_associations(failure, (scope,))
-            assert all(item.fact_kind != "ty-check" for item in associations)
+            assert_direct_bound_skip(scope, floor="2", predecessor="1")
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
                 source_snapshot=project.snapshot.identity, cell_results=(result,),

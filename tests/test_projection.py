@@ -214,6 +214,7 @@ def successful_cell(
                     proposal_id=final_evaluation.proposal.proposal_id,
                     evaluation=final_evaluation,
                 ),
+                selection_reason="mechanical-lowest",
             ),
         ),
         boundaries=(CoordinateBoundary(dependency="idna", floor=floor),),

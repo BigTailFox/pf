@@ -188,6 +188,15 @@ class TestStaticJournal:
             store.read_journal(journal.run_id)
         assert caught.value.reason == "invalid-static-evidence"
 
+    def test_reader_rejects_missing_static_membership(self, tmp_path: Path):
+        store, journal, path = _write_current_journal(tmp_path)
+        document = json.loads(path.read_text())
+        document.pop("static_membership")
+        path.write_text(json.dumps(document))
+        with pytest.raises(JournalReadError) as caught:
+            store.read_journal(journal.run_id)
+        assert caught.value.reason == "invalid-static-evidence"
+
     @pytest.mark.parametrize("content", ["[]", "{invalid-json"])
     def test_reader_rejects_an_undecodable_contract(
         self, tmp_path: Path, content

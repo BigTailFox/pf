@@ -921,6 +921,7 @@ class _CompleteReportCase:
                         proposal_id=final_proposal.proposal_id,
                         evaluation=final,
                     ),
+                    selection_reason="mechanical-lowest",
                 ),
                 ProbeObservation(
                     dependency=None,
@@ -931,6 +932,7 @@ class _CompleteReportCase:
                         proposal_id=baseline_proposal.proposal_id,
                         evaluation=baseline,
                     ),
+                    selection_reason=None,
                 ),
             ),
             boundaries=(CoordinateBoundary(dependency=dependency, floor="1.0"),),
@@ -1032,6 +1034,7 @@ class _CompleteReportCase:
                             failure_id=failure.failure_id,
                             cause=failure.cause,
                         ),
+                        selection_reason="mechanical-lowest",
                     ),
                     result.search.observations[0],
                 ),
@@ -1095,6 +1098,7 @@ class _CompleteReportCase:
                             cause=test_failure.cause,
                             evaluation=test_evaluation,
                         ),
+                        selection_reason="mechanical-lowest",
                     ),
                     result.search.observations[0],
                 ),
@@ -1148,6 +1152,7 @@ class _CompleteReportCase:
                         proposal_id=baseline_proposal.proposal_id,
                         evaluation=baseline,
                     ),
+                    selection_reason=None,
                 ),
                 ProbeObservation(
                     dependency=dependency,
@@ -1160,6 +1165,7 @@ class _CompleteReportCase:
                         cause=indeterminate_failure.cause,
                         evaluation=indeterminate_evaluation,
                     ),
+                    selection_reason="mechanical-lowest",
                 ),
             ),
             failure_id=indeterminate_failure.failure_id,
@@ -1310,6 +1316,7 @@ class _CompleteReportCase:
                             failure_id=cheap_failure.failure_id, cause=cheap_failure.cause,
                             evaluation=cheap_rejection,
                         ),
+                        selection_reason="mechanical-lowest",
                     ),
                     ProbeObservation(
                         dependency=dependency,
@@ -1322,6 +1329,7 @@ class _CompleteReportCase:
                             cause=test_failure.cause,
                             evaluation=direct_search_rejection,
                         ),
+                        selection_reason="mechanical-lowest",
                     ),
                     ProbeObservation(
                         dependency=dependency,
@@ -1332,6 +1340,7 @@ class _CompleteReportCase:
                             proposal_id=final_proposal.proposal_id,
                             evaluation=direct_search_final,
                         ),
+                        selection_reason="mechanical-lowest",
                     ),
                 ),
                 boundaries=(
@@ -1374,6 +1383,7 @@ class _CompleteReportCase:
                         proposal_id=baseline_proposal.proposal_id,
                         evaluation=baseline,
                     ),
+                    selection_reason=None,
                 ),
                 ProbeObservation(
                     dependency=dependency,
@@ -1384,6 +1394,7 @@ class _CompleteReportCase:
                         proposal_id=cheap_proposal.proposal_id,
                         evaluation=cheap_pass,
                     ),
+                    selection_reason="mechanical-lowest",
                 ),
                 ProbeObservation(
                     dependency=dependency,
@@ -1394,6 +1405,7 @@ class _CompleteReportCase:
                         failure_id=failure.failure_id,
                         cause=failure.cause,
                     ),
+                    selection_reason="mechanical-lowest",
                 ),
             ),
             counterexample=("0.8", "0.9"),

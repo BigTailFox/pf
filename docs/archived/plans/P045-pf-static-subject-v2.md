@@ -109,7 +109,7 @@ Journal 提交前校验 membership→cache；需要跨文件复证时调用显�
 | AC5 | S3 / E3 | 报告无五张静态表；`dependency=None` 时 `selection_reason=null`；坐标观察为 D043 §8.1 枚举；生成投影 `--check` 通过 | 证明：`tests/test_static_report.py::test_search_workflow_writes_a_report_without_static_intern`；`tests/test_search_coordinator.py` 的 `assert_public_selection_reasons`；`scripts/generate_report_schema.py --check` |
 | AC6 | S3 / E3 | 旧 intern 报告校验失败即停；`update_path` 把缺席/坏 existing 当缺席 | 证明：`tests/test_static_report.py` intern 字段拒绝与 `update_path` 缺席路径 |
 | AC7 | S4 / E4 | ty-cache 外层 `schema`/`run_id`/`entries`；完整 `TyFactDocument`；`TyCheckKey=(subject.identity, cache_identity)`；fact 绑 generation；Journal 名称 v3 且拒绝旧 intern；三种部分失败不提交悬空 membership/latest | 证明：`tests/test_static_journal.py::test_real_pass_persists_membership_and_ty_cache`；`tests/test_static_journal.py::test_reader_rejects_old_intern_tables`；`tests/test_static_journal.py` 三条部分失败；`tests/test_static_subject.py::TestStaticSubject::test_key_uses_subject_and_cache_identity` |
-| AC8 | S4 / E4 | 报告命中与 Journal 回退都不读 ty-cache、不渲染静态；ty-cache 缺失/损坏不阻断合法 Journal Failure | 证明：`tests/test_static_journal.py::test_ordinary_journal_read_does_not_open_ty_cache`；`tests/test_search_coordinator.py` 报告路径 `static_associations == ()` |
+| AC8 | S4 / E4 | 报告命中与 Journal 回退都不读 ty-cache、不渲染静态；ty-cache 缺失/损坏不阻断合法 Journal Failure | 证明：`tests/test_static_journal.py::test_ordinary_journal_read_does_not_open_ty_cache`；`tests/test_search_coordinator.py::test_oracle_selection_records_clean_neighbor_after_suspect_rejection` 不渲染 `Related static evidence` |
 | AC9 | S1 / E1 | `tool_version` 两种 kind 都能形成三层 identity；metadata available 且 `--version` 不等则不启动 ty；metadata unavailable 不 collect，仍能出报告 | 证明：`tests/test_policy.py::test_unavailable_tool_and_config_still_form_three_digests`；`tests/test_policy.py::test_teaching_golden_locks_three_identity_bytes`；`tests/test_policy.py::test_ty_version_output_parses_as_pep440_and_matches_metadata` |
 | AC10 | S1 / E1 | §7：两端 `snapshot_ty_config`（含 unavailable）与 `cache_identity` 相等才可 COMPARED；不同 key 不得 COMPARED | 证明：`tests/test_static_comparison.py::test_scripted_pair_covers_global_slice_and_scope_contracts`；`tests/test_policy.py::test_timeout_changes_generation_but_not_cache_identity` |
 | AC11 | S1 / E1 | §5.3 决策表；仅 `materialized` 的 digest 哈希 `--config-file` 字节；配置 unavailable 仍形成 generation/guidance | 证明：`tests/test_static_configuration.py::test_ty_file_inside_snapshot_materializes_without_owned_overrides`；`tests/test_policy.py::test_unavailable_tool_and_config_still_form_three_digests` |
@@ -196,12 +196,32 @@ AC12 必须回填静态 unavailable / `NO_HINT` 不产生 Failure 的公开 node
   `tests/test_static_process.py` process 代表项 2 passed。
 - 2026-09-09：S5 吸收 D001/D003/D004/D008/D012/D014/D002/D006、CONTEXT、D039；
   同变更归档 D043/P045/I002。
+- 2026-09-10：评审修复——删除残留 association 缝；收紧领域
+  `ProbeObservation.selection_reason` 与 `VerificationJournal.static_membership`
+  的 required 约束。
+- 2026-09-10：D043 残留收尾——删除无产品引用的 v1 文件树叶子
+  `static_external.py` / `static_ignores.py` / `static_relocation.py` /
+  `static_process.py` 及其测试；删除 `Interned*` 与 `intern_static_scopes`。
+  D039 同步修订预像，不接受、不实施搬家。inspect / path-in-root / cell key
+  去重留给 D039 Plan 内部卫生，不进 AC。
 
 偏差与失败用例（实施时追加；须含切片、决定或 nodeid）：
 
 - S4 门禁：`tests/test_ty_adapter.py::TestTyOutputDecoder::test_real_ty_validates_invalid_project_configuration`
   原期望 `invalid-layout` 或启动 ty 后 `TOOL_FAILURE`。v2 对非法 `[tool.ty]` 在物化阶段
   记 `configuration-context-unavailable` 且不启动 ty；已按现行决策表改断言。
+- 交付后评审：P045 §2 要求删除的 `diagnose_static_associations` /
+  `static_producer_log_associations` 调用点已去，但函数本体与
+  `tests/test_search_coordinator.py` 测试缝仍残留。已删除
+  `src/pf/static_association.py`，测试不再进口该缝。
+- 交付后评审：领域 `ProbeObservation.selection_reason` 曾带默认值，并由
+  before-validator 在缺席时填 `mechanical-lowest`。已改为无默认的
+  required-nullable；缺字段即 ValidationError，不再伪造首次进入 Slice 的原因。
+- 交付后评审：`VerificationJournal.static_membership` 曾 `= ()`，缺字段仍能通过。
+  已去掉默认值；缺字段即 ValidationError。
+- 交付后收尾：v1 文件树叶子 `static_external` / `static_ignores` / `static_relocation` /
+  `static_process` 及 `Interned*` / `intern_static_scopes` 已无产品调用方，已删除。
+  不实施 D039 搬家。
 
 ## 7. 文档与生成物
 

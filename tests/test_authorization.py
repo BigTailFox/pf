@@ -246,6 +246,7 @@ def _successful_cell(
                 proposal_id=final.proposal.proposal_id,
                 evaluation=final,
             ),
+            selection_reason="mechanical-lowest",
         ),
     )
     failure_records: tuple[FailureRecord, ...] = ()
@@ -294,6 +295,7 @@ def _successful_cell(
                     cause="VERIFIER_EXITED_NONZERO",
                     evaluation=rejected,
                 ),
+                selection_reason="mechanical-lowest",
             ),
             *observations,
         )

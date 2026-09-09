@@ -397,15 +397,7 @@ class ProbeObservation(FrozenSchema):
     candidate_version: str | None
     vector: tuple[VersionPin, ...]
     evidence: ProbeEvidence
-    selection_reason: CoordinateSelectionReason | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def default_coordinate_selection_reason(cls, value: object) -> object:
-        if isinstance(value, dict) and value.get("dependency") is not None:
-            if "selection_reason" not in value:
-                value = {**value, "selection_reason": "mechanical-lowest"}
-        return value
+    selection_reason: CoordinateSelectionReason | None
 
     @model_validator(mode="after")
     def validate_attempt(self) -> "ProbeObservation":

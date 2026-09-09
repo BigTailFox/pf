@@ -17,7 +17,6 @@ import tomlkit
 from pf.schemas.policy import (
     SnapshotTyConfig, SnapshotTyConfigMaterialized, SnapshotTyConfigUnavailable,
 )
-from pf.schemas.static import StaticContentUnavailable
 
 
 @dataclass(frozen=True)
@@ -238,13 +237,3 @@ class TyConfigurationResolver:
             return environment[name]
 
         return Path(re.sub(r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)", replace, value))
-
-
-def configuration_unavailable(
-    detail: Literal[
-        "configuration-context-unavailable",
-        "configuration-unreadable",
-        "undeclared-analysis-root",
-    ],
-) -> StaticContentUnavailable:
-    return StaticContentUnavailable(detail=detail)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pf.static_cache import TyCheckCache
-from pf.schemas.static_scope import StaticScopeEvidence
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -134,7 +133,6 @@ class SearchVerificationRun:
 @dataclass(frozen=True)
 class SearchVerificationResult:
     cell_results: tuple[CellResult, ...]
-    static_scopes: tuple[StaticScopeEvidence, ...]
 
 
 VerificationRun = CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun
@@ -236,20 +234,15 @@ class VerificationRunner:
             finally:
                 run_cache.close()
             raise
-        scopes: tuple[StaticScopeEvidence, ...] = ()
         try:
             run_cache.stop()
         finally:
             try:
                 gate.finalize()
-                if isinstance(request, SearchVerificationRun):
-                    scopes = tuple(scope for cell in cells
-                                   if (scope := run_cache.snapshot(cell)).facts
-                                   or scope.highest_uncollected is not None)
             finally:
                 run_cache.close()
         if isinstance(request, SearchVerificationRun):
-            return SearchVerificationResult(cast(tuple[CellResult, ...], outcomes), scopes)
+            return SearchVerificationResult(cast(tuple[CellResult, ...], outcomes))
         return outcomes
 
     @staticmethod

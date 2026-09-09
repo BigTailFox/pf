@@ -715,11 +715,6 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     assert replay.result == compared.result
     assert replay.identity == compared.identity == relocated.comparisons[0].identity
 
-    from pf.schemas.static_scope import intern_static_scopes
-    copy = scope.model_copy(update={"scope_ref": "scope-b"})
-    with pytest.raises(ValueError, match="static-subject-v2 is not interned"):
-        intern_static_scopes((scope, copy))
-
     # Register the same actual preparations/processes through the runtime owner;
     # runtime and offline admission must derive the same Slice comparison.
     from dataclasses import replace

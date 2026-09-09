@@ -73,23 +73,23 @@ service locator 隐藏 D002 写明的 Environment/Static/Runtime 依赖图。
 
 D002 §3 把静态写成 `static.py / static_cache.py`、`static_request.py`、`static_guidance.py`，
 公开 interface 为 `StaticEvaluator.lookup/collect/compare`（D002 §7）。`static.py` 不存在。
-包根另有 `static_admission.py`、`static_association.py`、`static_configuration.py`、
-`static_external.py`、`static_ignores.py`、`static_paths.py`、`static_process.py`、
-`static_relocation.py`、`static_subject.py`，以及 `ty_fact.py`、`ty_options.py`、
-`adapters/static_inputs.py`。`schemas/` 下另有 `static.py`、`static_baseline.py`、
+包根另有 `static_admission.py`、`static_configuration.py`、
+`static_paths.py`、`static_subject.py`，以及 `ty_fact.py`、`ty_options.py`、
+`adapters/static_inputs.py`。v1 文件树叶子（`static_external` / `static_ignores` /
+`static_process` / `static_relocation`）已随 D043 切齐删除。`schemas/` 下另有 `static.py`、`static_baseline.py`、
 `static_comparison.py`、`static_consumer.py`、`static_preparation.py`、`static_scope.py`、
 `static_search.py`、`ty_fact.py`。
 
 `StaticEvaluator.lookup` / `compare` 把参数转给 `TyCheckCache`；`collect` 才有 permit、
 `static_use` 与 revalidate。`SearchCoordinator`、`VerificationRunner`、`CompatibilityChecker`、
 `HighestVersionVerifier`、`cli.py`、`runlog.py` 与大量 tests 直接进口 cache ref、
-`StaticRequestFactory`、`StaticPoint` 以及路径/ignore/relocation。
+`StaticRequestFactory`、`StaticPoint` 以及路径/配置物化。
 
 删除测试：删掉 `StaticEvaluator` 后复杂度不会回到少数调用方，它已经散在 cache、request 装配和
 schema 比较函数里。因此当前 Evaluator 是浅 facade，不是深模块。D002 §11 要求静态事实从
-Evaluator outcome 观察；`tests/test_static_paths.py`、`test_static_ignores.py`、
-`test_static_subject.py`、`test_static_relocation.py`、`test_static_process.py`、
-`test_static_configuration.py`、`test_static_external.py` 等越过该表面。内部 seam 可以存在，
+Evaluator outcome 观察；`tests/test_static_paths.py`、
+`test_static_subject.py`、
+`test_static_configuration.py` 等越过该表面。内部 seam 可以存在，
 但不应继续规定产品形状。
 
 `TyCheckCache` 由 Verification Run 拥有、经 `search(..., run_cache=)` 传入是有意的 Run 作用域，

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from pf.cancellation import Cancellation
 
 
-# -I -S prevents project/site hooks. Inspect does not inventory distribution files.
+# -I -B isolates site/user hooks and skips bytecode. Inspect does not inventory distribution files.
 _INSPECT = """
 import importlib.metadata as metadata
 import json, os, platform, sys, sysconfig
