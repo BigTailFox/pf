@@ -314,8 +314,9 @@ class TestCliInterface:
             called = True
 
         monkeypatch.setattr("pf.cli.main", record_call)
+        monkeypatch.delitem(sys.modules, "pf.__main__", raising=False)
 
-        runpy.run_module("pf.__main__", run_name="__main__")
+        runpy.run_module("pf", run_name="__main__")
 
         assert called
 
