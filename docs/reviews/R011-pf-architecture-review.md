@@ -4,7 +4,7 @@
 - **日期：** 2026-09-08
 - **性质：** 非规范性架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
 - **对照：** 当前 HEAD；模块 owner 为 [D002](../designs/D002-pf-implementation.md)
-- **目标 Design：** [D039](../designs/D039-pf-static-evaluation-module.md)（草案，未接受、不授权实施）
+- **目标 Design：** [D039](../designs/D039-pf-static-evaluation-module.md)（实施中；Plan [P046](../plans/P046-pf-static-evaluation-module.md)；吸收前不冒充已交付）
 - **前序：** [R005](../archived/reviews/R005-pf-module-depth-review.md) 已完成 SourcePlan、WorkspaceInventory、Verification Run request 与评价 Protocol 合并并归档；CLI 剩余项由 [R006](R006-pf-cli-system-review.md) 拥有；搜索性能由 [R008](R008-pf-search-performance-review.md) 2026-09-08 重评拥有；实现偏移由 [R010](R010-pf-engineering-document-audit.md) 拥有
 - **契约所有者：** [D001](../designs/D001-pf.md)–[D008](../designs/D008-pf-verification-run.md)、
   [D012](../designs/D012-pf-harness-relaxation.md)–[D014](../designs/D014-pf-report-schema.md)、
@@ -205,7 +205,7 @@ PEP 508 规范化在 `report.py` 与 `authorization.py` 各有一份：R010 已�
 
 ## 9. 建议顺序与治理
 
-1. 接受 [D039](../designs/D039-pf-static-evaluation-module.md)，覆盖 §3 静态深模块、§4 schema 底层、§5 D002 地图与 §6 `FailurePolicy` 构造。验收见 D039 AC1–AC12。
+1. 接受并实施 [D039](../designs/D039-pf-static-evaluation-module.md)，覆盖 §3 静态深模块、§4 schema 底层、§5 D002 地图与 §6 `FailurePolicy` 构造。验收见 D039 AC1–AC14；实施以 [P046](../plans/P046-pf-static-evaluation-module.md) 为准。
 2. R006/R008/R010 的开放项不因本评审启动。R008 须先有当前 HEAD 分阶段基线再决定 hints。
 
 任何实质 module/schema 边界变更都必须先接受 Design，再写覆盖每条验收的 Plan。本文不授权实施。

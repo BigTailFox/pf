@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-10
 
 本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛由 [AGENTS.md](../AGENTS.md) 拥有。
 
@@ -112,7 +112,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 | 文档 | 当前跟踪范围 |
 | --- | --- |
-| [D039](designs/D039-pf-static-evaluation-module.md) | R011 §3–§6 的临时目标：静态深模块、schema 底层、D002 地图、FailurePolicy 构造；草案，未接受、不授权实施 |
+| [D039](designs/D039-pf-static-evaluation-module.md) | R011 §3–§6 的临时目标：静态深模块、schema 底层、D002 地图、FailurePolicy 构造；实施中，Plan 为 [P046](plans/P046-pf-static-evaluation-module.md) |
 | [D042](designs/D042-pf-host-capability-locality.md) | 宿主能力局部化：Host OS 差异留在能力 owner 内，禁止通用平台独立层；草案，未接受、不授权实施 |
 | [R011](reviews/R011-pf-architecture-review.md) | 静态评价深模块、schema 底层分家、D002 地图；FailurePolicy 假想 seam。目标见 D039。不重复 R006/R008/R010 |
 | [R010](reviews/R010-pf-engineering-document-audit.md) | §2 实现偏移与 §4 工程事项；文档治理已由本页与 AGENTS.md 拥有 |
