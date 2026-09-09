@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 import pytest
 import tomli
@@ -292,8 +293,8 @@ class TestResolutionIdentity:
             if (requirement := Requirement(raw_requirement)).name in {"ty", "uv"}
         }
 
-        assert str(requirements["uv"].specifier) == "==0.12.5"
-        assert str(requirements["ty"].specifier) == "==0.0.74"
+        assert requirements["uv"].specifier == SpecifierSet("==0.12.5")
+        assert requirements["ty"].specifier == SpecifierSet("==0.0.74")
         assert tuple(UV_DIAGNOSTIC_PROFILES) == ("0.12.5",)
         assert Version("0.12.5") in requirements["uv"].specifier
 

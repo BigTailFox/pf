@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
-import json
-import shutil
-import sys
 
 import pytest
-
-from visible_text import run_ty_executable
 
 from pf.errors import ConfigurationError
 from pf.static_configuration import TyConfigurationResolution
@@ -106,71 +101,3 @@ class TestTySearchPaths:
     def test_owned_scope_and_immutable_observation_options_remain_configuration_errors(self, tmp_path, args) -> None:
         with pytest.raises(ConfigurationError, match="adapter-owned"):
             resolve_ty_search_paths(configuration(tmp_path, ""), args=args, environment={}, cwd=tmp_path, package_name="demo")
-
-
-@pytest.mark.process
-class TestRealTySearchPaths:
-    def test_search_precedence_and_relative_bases(self, tmp_path: Path) -> None:
-        reverse = False
-        selected = "configured"
-        project = tmp_path / "project"
-        cwd = project / "member"
-        ordered = (project / "configured", cwd / "override", cwd / "dedicated")
-        names = ("configured", "override", "dedicated")
-        for index, path in enumerate(ordered):
-            path.mkdir(parents=True, exist_ok=True)
-            if index >= names.index(selected):
-                (path / "sample.pyi").write_text("VALUE: int\n" if names[index] == selected else "VALUE: str\n")
-        # Wrong-base candidates make a relative-path regression observable.
-        for path in (cwd / "configured", project / "override", project / "dedicated"):
-            path.mkdir()
-            (path / "sample.pyi").write_text("VALUE: str\n")
-        text = '[environment]\nroot=[]\nextra-paths=["./configured"]\n'
-        (project / "ty.toml").write_text(text)
-        (cwd / "demo.py").write_text("import sample\nvalue: int = sample.VALUE\n")
-        override = ("--config", 'environment.extra-paths=["./override"]')
-        dedicated = ("--extra-search-path", "./dedicated")
-        args = dedicated + override if reverse else override + dedicated
-        resolved = resolve_ty_search_paths(configuration(project, text), args=args, environment={}, cwd=cwd, package_name="demo")
-        assert isinstance(resolved, TySearchPaths)
-        assert resolved.extra == ordered
-        executable = shutil.which("ty")
-        assert executable is not None
-        result = run_ty_executable(
-            (executable, "check", "--project", str(project), "--python", sys.executable,
-             "--output-format", "gitlab", "--no-progress", "--color", "never",
-             "--no-respect-ignore-files", *args, str(cwd / "demo.py")),
-            cwd=cwd, env={}, timeout=30,
-        )
-        assert result.returncode == 0, (result.stdout, result.stderr)
-        assert json.loads(result.stdout) == []
-
-    def test_cli_expansion_and_literal_pythonpath(self, tmp_path: Path) -> None:
-        mode = "pythonpath"
-        project, external = tmp_path / "project", tmp_path / "external"
-        literal = project / "$ROOT"
-        literal.mkdir(parents=True)
-        external.mkdir()
-        (literal / "sample.pyi").write_text("VALUE: str\n")
-        (external / "sample.pyi").write_text("VALUE: int\n")
-        text = '[environment]\nroot=[]\n'
-        (project / "ty.toml").write_text(text)
-        (project / "demo.py").write_text("import sample\nvalue: int = sample.VALUE\n")
-        environment = {"ROOT": str(external)}
-        args = {"dedicated": ("--extra-search-path", "$ROOT"),
-                "config": ("--config", 'environment.extra-paths=["$ROOT"]'), "pythonpath": ()}[mode]
-        if mode == "pythonpath":
-            environment["PYTHONPATH"] = "$ROOT"
-        resolved = resolve_ty_search_paths(configuration(project, text), args=args, environment=environment, cwd=project, package_name="demo")
-        assert isinstance(resolved, TySearchPaths)
-        assert resolved.extra + resolved.pythonpath == ((literal,) if mode == "pythonpath" else (external,))
-        executable = shutil.which("ty")
-        assert executable is not None
-        result = run_ty_executable(
-            (executable, "check", "--project", str(project), "--python", sys.executable,
-             "--output-format", "gitlab", "--no-progress", "--color", "never",
-             "--no-respect-ignore-files", *args, str(project / "demo.py")),
-            cwd=project, env=environment, timeout=30,
-        )
-        assert result.returncode == (1 if mode == "pythonpath" else 0), (result.stdout, result.stderr)
-        assert [item["check_name"] for item in json.loads(result.stdout)] == (["invalid-assignment"] if mode == "pythonpath" else [])

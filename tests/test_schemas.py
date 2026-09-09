@@ -453,35 +453,37 @@ class TestPlanningSchemas:
             EffectiveConfig.model_validate(config)
 
     @pytest.mark.parametrize(
-        "payload",
+        "request_type,payload",
         (
-            {"root": ".", "max_cells": True},
-            {"root": ".", "ty_jobs": 0},
-            {"root": ".", "test_jobs": False},
-            {"root": ".", "max_duration_seconds": 0},
+            (SearchRequest, {"root": ".", "max_cells": True}),
+            (SearchRequest, {"root": ".", "ty_jobs": 0}),
+            (SearchRequest, {"root": ".", "test_jobs": False}),
+            (SearchRequest, {"root": ".", "max_duration_seconds": 0}),
+            (CheckRequest, {"root": ".", "max_cells": True}),
+            (CheckRequest, {"root": ".", "ty_jobs": 0}),
+            (CheckRequest, {"root": ".", "test_jobs": False}),
+            (SmokeRequest, {"root": ".", "max_cells": True}),
+            (SmokeRequest, {"root": ".", "max_cells": 0}),
+        ),
+        ids=(
+            "search-max-cells",
+            "search-ty-jobs",
+            "search-test-jobs",
+            "search-max-duration",
+            "check-max-cells",
+            "check-ty-jobs",
+            "check-test-jobs",
+            "smoke-max-cells-bool",
+            "smoke-max-cells-zero",
         ),
     )
-    def test_search_request_rejects_invalid_scheduling(
+    def test_command_request_rejects_invalid_scheduling(
         self,
+        request_type: type[SearchRequest] | type[CheckRequest] | type[SmokeRequest],
         payload: dict[str, object],
     ) -> None:
         with pytest.raises(ValidationError):
-            SearchRequest.model_validate(payload)
-
-    @pytest.mark.parametrize(
-        "payload",
-        (
-            {"root": ".", "max_cells": True},
-            {"root": ".", "ty_jobs": 0},
-            {"root": ".", "test_jobs": False},
-        ),
-    )
-    def test_check_request_rejects_invalid_scheduling(
-        self,
-        payload: dict[str, object],
-    ) -> None:
-        with pytest.raises(ValidationError):
-            CheckRequest.model_validate(payload)
+            request_type.model_validate(payload)
 
     def test_merge_request_requires_an_input_report(self) -> None:
         with pytest.raises(ValidationError):
@@ -664,13 +666,6 @@ class TestPlanningSchemas:
 
 
 class TestSearchSchemas:
-
-
-    @pytest.mark.parametrize("jobs", (True, 0))
-    def test_smoke_request_rejects_invalid_scheduling(self, jobs: bool | int) -> None:
-        with pytest.raises(ValidationError):
-            SmokeRequest(root=".", max_cells=jobs)
-
     def test_highest_version_and_smoke_results_enforce_their_evidence(self) -> None:
         attempt, passed = _baseline_evidence()
 

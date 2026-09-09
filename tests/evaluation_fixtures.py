@@ -91,6 +91,7 @@ def evaluation_project(
     *,
     dependency: str | None = "demo-dep",
     dependencies: tuple[str, ...] | None = None,
+    test_dependencies: tuple[str, ...] = (),
     source: str = "",
     search_space: str | None = None,
     search_configuration: str = "",
@@ -109,6 +110,11 @@ def evaluation_project(
         if selected_dependencies
         else ""
     )
+    test_group = (
+        "[" + ", ".join(f'"{item}"' for item in test_dependencies) + "]"
+        if test_dependencies
+        else "[]"
+    )
     (root / "pyproject.toml").write_text(
         f"""
 [project]
@@ -116,7 +122,7 @@ name = "demo"
 version = "0.1.0"
 {dependency_text}
 [dependency-groups]
-test = []
+test = {test_group}
 
 [tool.pf]
 {search_config}pythons = ["3.10"]

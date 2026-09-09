@@ -381,14 +381,24 @@ class TestPrepareExecution:
         assert isinstance(failure.authority, ExecutionFailureAuthority)
         assert failure.authority.attribution == Unattributed()
 
-    @pytest.mark.parametrize(("stage", "harness", "cause", "has_project", "has_environment"), [
-        ("resolve-project", False, "RESOLUTION_FAILED", False, False),
-        ("resolve-project", True, "RESOLUTION_FAILED", False, False),
-        ("resolve-environment", True, "RESOLUTION_FAILED", True, False),
-        ("install-project", False, "INSTALLATION_FAILED", True, False),
-        ("install-environment", True, "INSTALLATION_FAILED", True, True),
-    ])
-    @pytest.mark.parametrize("complete", [False, True])
+    @pytest.mark.parametrize(
+        ("stage", "harness", "cause", "has_project", "has_environment"),
+        [
+            ("resolve-project", False, "RESOLUTION_FAILED", False, False),
+            ("resolve-project", True, "RESOLUTION_FAILED", False, False),
+            ("resolve-environment", True, "RESOLUTION_FAILED", True, False),
+            ("install-project", False, "INSTALLATION_FAILED", True, False),
+            ("install-environment", True, "INSTALLATION_FAILED", True, True),
+        ],
+        ids=(
+            "resolve-project-no-harness-no-plans",
+            "resolve-project-harness-no-plans",
+            "resolve-environment-harness-project-only",
+            "install-project-no-harness-project-only",
+            "install-environment-harness-both-plans",
+        ),
+    )
+    @pytest.mark.parametrize("complete", [False, True], ids=("truncated", "complete"))
     def test_unattributed_normal_nonzero_rejects_through_factory_and_policy(
         self, tmp_path, stage, harness, cause, has_project, has_environment, complete,
     ):

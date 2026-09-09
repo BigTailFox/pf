@@ -146,6 +146,31 @@ class TestOptionalGroupPlanning:
         with pytest.raises(ConfigurationError, match="test-group"):
             ProjectLoader().load(root=tmp_path)
 
+    def test_empty_named_test_group_keeps_managed_declarations(self, tmp_path):
+        (tmp_path / "src" / "demo").mkdir(parents=True)
+        (tmp_path / "src" / "demo" / "__init__.py").write_text("VALUE = 1\n")
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "1"
+dependencies = ["idna>=3.10"]
+[dependency-groups]
+test = []
+[tool.pf]
+pythons = ["3.10"]
+test-command = ["pytest"]
+""".strip()
+            + "\n"
+        )
+        package = ProjectLoader().load(root=tmp_path).target
+        assert package.declarations[0].managed
+        assert package.cells[0].active_declaration_ids == (
+            package.declarations[0].declaration_id,
+        )
+        assert package.selected_test_group == "test"
+        assert package.harness_requirements == ()
+
 
 class RecordingUv(SuccessfulUv):
     def __init__(self):

@@ -382,8 +382,8 @@ def _primary_failure(presentation: CellPresentation) -> FailureRecord:
 
 _SEARCH_COMPLETION_REASONS = {
     "NO_PASS_IN_SEARCH_SPACE": (
-        "The configured search space was fully evaluated, but no compatible "
-        "version combination was found."
+        "No applicable floor was found in the configured search space under "
+        "PF's search rules."
     ),
     "NON_MONOTONIC": (
         "Search evidence was non-monotonic, so PF could not derive a reliable floor."

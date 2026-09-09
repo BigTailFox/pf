@@ -1727,7 +1727,7 @@ class TestCompleteReportStore(_CompleteReportCase):
         ),
         ids=("pyproject-identity", "source-plan"),
     )
-    def test_read_rejects_a_legacy_report_missing_apply_identity(
+    def test_read_rejects_a_report_missing_apply_identity(
         self,
         tmp_path: Path,
         field_path: tuple[str, ...],

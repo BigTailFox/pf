@@ -118,12 +118,15 @@ Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、pr
 
 ```text
 create_app(context: CliContext) -> cyclopts.App
+CliContext.compose(presenter, run_logs, *, root=..., <workflow>=...) -> CliContext
 build_context() -> CliContext
 main() -> None
 ```
 
 `pf` 与 `python -m pf` 进入同一个 `main()`。`build_context()` 只建立 `RunLogStore` 与
-`TerminalPresenter`。命令 handler 在同一 `cli.py` root 内按命令装配 capability graph：
+`TerminalPresenter`，并经 `CliContext.compose` 返回；省略 workflow 参数时仍懒装配。
+`compose` 的可选 workflow 是生产 composition 入口，供同一公开表面注入已装配实现；不是测试专用 API。
+命令 handler 在同一 `cli.py` root 内按命令装配 capability graph：
 help/version 只使用 parser/presenter；explain/diagnose/merge 不构造 UvAdapter、host target、
 评价图或 SearchCoordinator；apply 不构造 static/runtime evaluator、SearchCoordinator 或
 host target；check/smoke/search/minimize 装配各自验证图，`host_target()` 每 invocation 最多
@@ -259,6 +262,7 @@ CandidateBuilder.build(package, cell, baseline, source_plan)
 
 EnvironmentFactory.prepare(package, cell, snapshot, resolution, source_plan)
     -> PreparedEnvironment | PrepareFailure
+PreparedEnvironment.relocate_to(request) -> PreparedEnvironment
 
 StaticEvaluator.lookup/collect/compare(...)
 RuntimeEvaluator.evaluate(...)
@@ -298,7 +302,7 @@ source drift/report/association。接口间不通过 per-Cell workflow closure �
 Adapter 返回中性 OperationFailure，Factory 绑定 Attempt 和已取得 plan，FailurePolicy 分类；
 分类、authority 与 sidecar 约束只见 D005，Run/展示关联只见 D008。
 
-`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值只由 `EnvironmentFactory.prepare(...)` 构造，产品代码与测试都从该 seam取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；坐标内合法静态物化环境可供 oracle 复用，同 ty key 不授权提前释放。
+`PreparedEnvironment` 显式拥有 source copy、venv、interpreter、Attempt/Proposal、validated project plan、optional environment plan、EnvironmentIdentity 与 close 生命周期；成功值由 `EnvironmentFactory.prepare(...)` 构造，已成功的环境可通过公开 `relocate_to` 在新根重写 RECORD。产品代码与测试都从这些 seam 取得并显式关闭。不同 Proposal 不通过原地 upgrade/downgrade 复用环境；坐标内合法静态物化环境可供 oracle 复用，同 ty key 不授权提前释放。
 
 `_ProposalRunner` 是一次 Cell search 的唯一执行 cache/lifecycle owner，持有 baseline seed、
 完整向量的 prepare/full 结果、保留环境与 FailedCaseSet。原始 TyCheck 由 Run-owned
@@ -366,14 +370,15 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 ## 11. 验证边界
 
-测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值，不替换 concrete prepare/lookup/collect/compare/evaluate/verify/minimize，不读取 evaluator/search private state。
+测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值；relocation 经 `EnvironmentFactory.prepare` 或公开 `PreparedEnvironment.relocate_to`。不替换 concrete prepare/lookup/collect/compare/evaluate/verify/minimize，不读取 evaluator/search private state。不写入 `CliContext._check_workflow` 一类私有字段；进程内 CLI 经 `create_app` 与公开 property，替身 workflow 经 `CliContext.compose` 的可选参数注入。产品测试不进口 `pf._secure_runlog`；安全目录行为经 `RunLogStore` 与 `pf.windows_runlog`，必须直接驱动 POSIX/Windows adapter 协议的用例标 `infra`。产品测试不 patch `pf` 包内私有函数。真实 ty 进程经 `TyAdapter.observe`（及其公开装配），不手写 `ty check` argv；`decode_process` 的纯解码矩阵用 recording 的 `ProcessResult`。包装真实 runner 的 recording 不按 argv 识别 `ty check`。
 
-车道只调度真实性，不另开测试专用产品 API：
+车道只调度真实性，不另开测试专用产品 API。种类是 pytest marker（或默认未标记），一条测试只标它所证明的种类。PR 仍是日常 ∪ `process` ∪ `e2e`（`-m "not qualification"`）。
 
-- **进程内（默认收集与自举 `C`）：** 在已有 uv/candidate/ty/verifier/process seam 使用 recording 或 scripted adapter。CoordinateSearch 与产品编排器使用生产实现，下层按本车道替换。不得启动真实 uv / ty / nested pytest / `python -m pf` 或安装入口 `pf`，也不得进入生产 `SubprocessRunner.run`。
-- **`infra`：** 同上真实性；主体是插件 hook、文档不变式或测试基建，不进入自举 `C`。
-- **`process` / `e2e`：** 经真实 uv/candidate/ty/verifier 装配 Environment/Static/Runtime、Highest、Check 与 Search graph。只有这些车道（外加 `qualification`）可以主张「真实进程已经证明」。
-- **`qualification`：** 工具协议与版本矩阵；不能用 fake、collection 或进程内测试冒充。
+- **进程内（默认收集与自举 `C`）：** 公开 module 的接口结果、schema/identity、CLI `create_app` / `main()`、recording / scripted adapter。同一公开接口的不同输入用 `parametrize` 展开。不得启动真实 uv / ty / nested pytest / `python -m pf` 或安装入口 `pf`，也不得进入生产 `SubprocessRunner.run`。
+- **`infra`：** 插件 hook、文档不变式、车道漏标安全网；必须直接驱动 `_secure_runlog` adapter 协议时也可标。不进入自举 `C`。
+- **`process`：** 真实 uv / ty / nested pytest；`python -m pf` / 安装入口的 help、调用错误、adapter 协议代表项。经 `TyAdapter` / `UvAdapter` / `ConfiguredVerifier` / spawn helper。不含产品命令路径。
+- **`e2e`（且必须 `process`）：** 真实子进程执行了 `smoke` / `check` / `search` / `minimize` / `apply` / `explain` / `diagnose` / `merge` 的产品路径（含该命令的产品级失败）。`-m e2e` 即全部真实产品 CLI；日常与自举仍排除。帮助、未知 option、非法 duration 与未知 `--package` 走 `create_app`，不标 `e2e`。
+- **`qualification`：** `scripts/qualify_*.py` 的工具协议 / 版本矩阵；committed manifest 由未标记测试对照现行 protocol 常量。不是产品 process 溢流，也不是定期回归。仅在凭据变化时重跑脚本（更换受支持的 uv/pytest 版本、矩阵 case 或绑定字段）；不进日常 / PR。不用于产品 Environment/Static/CLI 组合。
 
 需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。覆盖率 `fail_under` 只作用于 canonical Python 在各 CI OS 上全量收集结果的并集；单宿主不必执行其他 OS 的平台私有分支。
 
@@ -381,4 +386,4 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
-[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D040](../archived/designs/D040-pf-test-lanes.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。
+[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D040](../archived/designs/D040-pf-test-lanes.md)、[D041](../archived/designs/D041-pf-repository-test-conformance.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

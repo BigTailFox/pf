@@ -70,6 +70,20 @@ class TestInstalledContentRelocation:
             if entry.location.path in {"demo.py", "site/demo.pth"}:
                 assert relocated.entry_at(entry.location) == entry
 
+    def test_direct_url_without_dir_info_keeps_actual_bytes(self, tmp_path: Path) -> None:
+        roots, _, _ = capture(tmp_path / "first")
+        (roots["environment"] / "site" / "demo.dist-info" / "direct_url.json").write_text(
+            json.dumps({"url": "https://example.test/demo"}),
+        )
+        raw = StaticContentCollector().collect(roots)
+        assert isinstance(raw, StaticContentManifest)
+        relocated = relocate_installed_content(raw, roots)
+        entry = next(
+            item for item in relocated.entries
+            if item.location.path.endswith("direct_url.json")
+        )
+        assert entry.relocation is None
+
     def test_changed_file_invalidates_captured_content(self, tmp_path: Path) -> None:
         roots, raw, _ = capture(tmp_path / "first")
         (roots["environment"] / "site" / "demo.pth").write_text("changed\n")

@@ -374,3 +374,43 @@ class TestRunLogStoreJournal:
         assert store.lookup("generation", "failure") == Path(
             ".pf/logs/atomic-run/process-0001.log"
         )
+
+
+class TestRunLogStoreIndexRejection:
+    @pytest.mark.parametrize(
+        "document",
+        (
+            {"format": "unknown", "entries": {}},
+            {"format": "pf-diagnosis-index-v1", "entries": []},
+            {"format": "pf-diagnosis-index-v1", "entries": {"generation": []}},
+            {
+                "format": "pf-diagnosis-index-v1",
+                "entries": {"generation": {"failure": 1}},
+            },
+            {
+                "format": "pf-diagnosis-index-v1",
+                "entries": {"generation": {"failure": "../outside.log"}},
+            },
+        ),
+        ids=(
+            "unknown-format",
+            "entries-list",
+            "generation-list",
+            "non-string-path",
+            "path-escape",
+        ),
+    )
+    def test_run_log_store_rejects_an_invalid_diagnosis_index(
+        self,
+        tmp_path: Path,
+        document: object,
+    ) -> None:
+        logs_root = tmp_path / ".pf/logs"
+        logs_root.mkdir(parents=True)
+        (logs_root / "diagnosis-index.json").write_text(
+            json.dumps(document),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
+            RunLogStore(root=tmp_path).lookup("generation", "failure")

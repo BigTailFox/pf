@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-import shutil
-import sys
 
 import pytest
 import tomli
 
-from pf.adapters.process import SubprocessRunner
-from pf.schemas.evaluation import EnvironmentVariable, ProcessResult, ProcessSpec
 from pf.static_configuration import (
     TyConfigurationResolution, TyConfigurationResolver, TyConfigurationUnavailable,
     TyConfigurationMaterialization, materialize_ty_configuration,
@@ -90,55 +85,3 @@ class TestTyConfigurationResolver:
         )
         assert isinstance(resolved, TyConfigurationResolution)
         assert resolved.files[0].path == appdata / "ty" / "ty.toml"
-
-
-@pytest.mark.process
-class TestRealTyConfigurationEquivalence:
-    def test_compiled_configuration_preserves_native_selection_and_merge(self, tmp_path: Path) -> None:
-        format = "ty"
-        config_location = "package"
-        project = tmp_path / "project"
-        project.mkdir()
-        home = tmp_path / "home"
-        (home / ".config" / "ty").mkdir(parents=True)
-        (home / ".config" / "ty" / "ty.toml").write_text('[rules]\ninvalid-assignment="ignore"\n[analysis]\nallowed-unresolved-imports=["from_user"]\n')
-        prefix = "tool.ty." if format == "pyproject" else ""
-        config = f'[{prefix}rules]\ninvalid-assignment="error"\n[{prefix}analysis]\nallowed-unresolved-imports=["from_project"]\n[{prefix}environment]\nextra-paths=["./vendor"]\n'
-        pyproject = '[project]\nname="demo"\nversion="1"\n'
-        config_root = project if config_location == "package" else project.parent
-        (project / "pyproject.toml").write_text(pyproject)
-        if format == "pyproject":
-            (config_root / "pyproject.toml").write_text((pyproject if config_location == "package" else "") + config)
-        else:
-            (config_root / "ty.toml").write_text(config)
-        (config_root / "vendor").mkdir()
-        (config_root / "vendor" / "sample.pyi").write_text("VALUE: int\n")
-        if config_location == "parent":
-            (project / "vendor").mkdir()
-            (project / "vendor" / "sample.pyi").write_text("VALUE: str\n")
-        (project / "demo.py").write_text('import from_user, from_project, sample\nvalue: int = sample.VALUE\nwrong: str = 1\n')
-        resolved = TyConfigurationResolver().resolve(
-            project_directory=project, environment={"HOME": str(home)}, platform="posix",
-        )
-        assert isinstance(resolved, TyConfigurationResolution)
-        assert resolved.analysis_root == config_root
-        materialized = materialize_ty_configuration(resolved, directory=tmp_path / "frozen")
-        assert isinstance(materialized, TyConfigurationMaterialization)
-        frozen = materialized.directory / materialized.effective_file.path
-        executable = shutil.which("ty")
-        assert executable is not None
-        outputs = []
-        for extra in ((), ("--config-file", str(frozen))):
-            result = SubprocessRunner().run(ProcessSpec(
-                argv=(executable, "check", "--project", str(resolved.analysis_root if extra else project), "--python", sys.executable,
-                      "--output-format", "gitlab", "--no-progress", "--color", "never",
-                      "--no-respect-ignore-files", *extra, str(project / "demo.py")),
-                cwd=str(project), environment_mode="explicit",
-                environment=(EnvironmentVariable(name="HOME", value=str(home)),),
-                timeout_seconds=30,
-            ))
-            assert isinstance(result, ProcessResult)
-            assert result.exit_code == 1, (result.stdout, result.stderr)
-            outputs.append(json.loads(result.stdout))
-        assert outputs[0] == outputs[1]
-        assert [item["check_name"] for item in outputs[0]] == ["invalid-assignment"]

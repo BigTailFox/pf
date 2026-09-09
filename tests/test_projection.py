@@ -501,7 +501,7 @@ class TestReportProjection:
         selected = tuple(
             requirement
             for requirement in requirements
-            if ">=" in str(requirement.specifier)
+            if any(spec.operator == ">=" for spec in requirement.specifier)
         )
         assert len(selected) == 2
         assert all(requirement.extras == {"socks"} for requirement in selected)

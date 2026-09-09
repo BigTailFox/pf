@@ -90,8 +90,8 @@ class TestExecutionFailureQualification:
             }
 
     @pytest.mark.qualification
-    @pytest.mark.parametrize("operation", ["resolve", "install"])
-    @pytest.mark.parametrize("write_bytecode", [True, False])
+    @pytest.mark.parametrize("operation", ["resolve", "install"], ids=("resolve", "install"))
+    @pytest.mark.parametrize("write_bytecode", [True, False], ids=("bytecode", "no-bytecode"))
     def test_replay_searches_to_full_pass_after_execution_rejection(
         self, replay, operation, write_bytecode
     ):

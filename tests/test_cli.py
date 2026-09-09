@@ -65,8 +65,16 @@ from pf.schemas.report import (
     IncompleteReportResult,
     ProjectEditResult,
 )
+from pf.project import ProjectLoader
+from pf.snapshot import SnapshotBuilder
 from pf.terminal import TerminalPresenter
-from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
+from pf.verification import CheckCellOperations, VerificationRunner
+from pf.workflow import (
+    CheckCommandWorkflow,
+    ExplainCommandResult,
+    MergeCommandResult,
+    SearchCommandResult,
+)
 
 
 class NeverCheck:
@@ -121,34 +129,31 @@ def make_context(
     apply_workflow: ApplyWorkflowProtocol | None = None,
     run_logs: RunLogStore | None = None,
 ) -> CliContext:
-    context = CliContext(
-        presenter=presenter,
-        run_logs=(
-            run_logs if run_logs is not None else cast(RunLogStore, NoOpRunLogs())
+    return CliContext.compose(
+        presenter,
+        run_logs if run_logs is not None else cast(RunLogStore, NoOpRunLogs()),
+        check_workflow=(
+            check_workflow if check_workflow is not None else NeverCalledWorkflow()
+        ),
+        smoke_workflow=(
+            smoke_workflow if smoke_workflow is not None else NeverCalledWorkflow()
+        ),
+        search_workflow=(
+            search_workflow if search_workflow is not None else NeverCalledWorkflow()
+        ),
+        explain_workflow=(
+            explain_workflow if explain_workflow is not None else NeverCalledWorkflow()
+        ),
+        diagnose_workflow=(
+            diagnose_workflow if diagnose_workflow is not None else NeverCalledWorkflow()
+        ),
+        merge_workflow=(
+            merge_workflow if merge_workflow is not None else NeverCalledWorkflow()
+        ),
+        apply_workflow=(
+            apply_workflow if apply_workflow is not None else NeverCalledWorkflow()
         ),
     )
-    context._check_workflow = (
-        check_workflow if check_workflow is not None else NeverCalledWorkflow()
-    )
-    context._smoke_workflow = (
-        smoke_workflow if smoke_workflow is not None else NeverCalledWorkflow()
-    )
-    context._search_workflow = (
-        search_workflow if search_workflow is not None else NeverCalledWorkflow()
-    )
-    context._explain_workflow = (
-        explain_workflow if explain_workflow is not None else NeverCalledWorkflow()
-    )
-    context._diagnose_workflow = (
-        diagnose_workflow if diagnose_workflow is not None else NeverCalledWorkflow()
-    )
-    context._merge_workflow = (
-        merge_workflow if merge_workflow is not None else NeverCalledWorkflow()
-    )
-    context._apply_workflow = (
-        apply_workflow if apply_workflow is not None else NeverCalledWorkflow()
-    )
-    return context
 
 
 def minimal_report() -> ValidatedReport:
@@ -341,13 +346,6 @@ class TestCliInterface:
         stdout = module_help.stdout
         assert stdout.index("Verify") < stdout.index("Find and apply floors")
         assert stdout.index("smoke") < stdout.index("check")
-
-    @pytest.mark.process
-    def test_module_help_caps_the_outer_canvas_at_120_columns(
-        self,
-        module_help: subprocess.CompletedProcess[str],
-    ) -> None:
-        assert module_help.returncode == 0, module_help.stderr
         assert max(map(len, module_help.stdout.splitlines())) <= 120
 
     @pytest.mark.process
@@ -432,10 +430,13 @@ class TestCliInterface:
         assert "Try 'pf search --help'" in result.stderr
         assert "Traceback" not in result.stderr
 
-    @pytest.mark.process
-    def test_unknown_package_is_a_configuration_error(self, tmp_path: Path) -> None:
+    def test_unknown_package_is_a_configuration_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         (tmp_path / "src" / "demo").mkdir(parents=True)
-        (tmp_path / "src" / "demo" / "__init__.py").write_text(
+        (tmp_path / "src/demo" / "__init__.py").write_text(
             "VALUE = 1\n", encoding="utf-8"
         )
         (tmp_path / "pyproject.toml").write_text(
@@ -457,15 +458,55 @@ class TestCliInterface:
             + "\n",
             encoding="utf-8",
         )
-        result = run_pf_cli("check", "--package", "other", cwd=tmp_path)
+        monkeypatch.chdir(tmp_path)
+        stdout = StringIO()
+        stderr = StringIO()
+        presenter = TerminalPresenter(
+            stdout=Console(file=stdout, force_terminal=False, color_system=None),
+            stderr=Console(file=stderr, force_terminal=False, color_system=None),
+        )
 
-        assert result.returncode == 3
-        assert "configuration:" in result.stderr
-        assert "unknown package selection: other" in result.stderr
-        assert "Known packages: demo" in result.stderr
-        assert "Usage:" not in result.stderr
-        assert "Traceback" not in result.stderr
-        assert "\x1b" not in result.stderr
+        class UnusedChecker:
+            def check(self, **kwargs: object) -> None:
+                raise AssertionError("unknown package must fail during load")
+
+        workflow = CheckCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            checker=cast(CheckCellOperations, UnusedChecker()),
+            verification=VerificationRunner(
+                events=presenter,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
+            events=presenter,
+        )
+        context = CliContext.compose(
+            presenter,
+            cast(RunLogStore, NoOpRunLogs()),
+            root=tmp_path,
+            check_workflow=workflow,
+        )
+        try:
+            create_app(context)(
+                ["check", "--package", "other"],
+                exit_on_error=False,
+                result_action="return_value",
+            )
+            return_code = 0
+        except PfError as error:
+            return_code = context.presenter.render_error(error)
+        finally:
+            context.close()
+
+        assert return_code == 3
+        visible = visible_cli_text(stderr.getvalue())
+        assert "configuration:" in visible
+        assert "unknown package selection: other" in visible
+        assert "Known packages: demo" in visible
+        assert "Usage:" not in visible
+        assert "Traceback" not in visible
+        assert "\x1b" not in stderr.getvalue()
 
     def test_module_entrypoint_reexports_cli_main(self) -> None:
         import pf.__main__ as module
@@ -1190,11 +1231,11 @@ class TestCommandDispatch:
                 events.append("logs")
 
         never = NeverCalledWorkflow()
-        context = CliContext(
+        context = CliContext.compose(
             presenter=cast(TerminalPresenter, Presenter()),
             run_logs=cast(RunLogStore, Logs()),
+            check_workflow=never,
         )
-        context._check_workflow = never
 
         with context:
             pass
@@ -1804,10 +1845,11 @@ class TestDefaultContext:
 
         monkeypatch.setattr("pf.cli.RunLogStore", Logs)
         monkeypatch.setattr("pf.cli.TerminalPresenter", Presenter)
-        monkeypatch.setattr(
-            "pf.cli.CliContext",
-            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("context failed")),
-        )
+
+        def fail_compose(cls, *args: object, **kwargs: object) -> CliContext:
+            raise RuntimeError("context failed")
+
+        monkeypatch.setattr("pf.cli.CliContext.compose", classmethod(fail_compose))
 
         with pytest.raises(RuntimeError, match="context failed"):
             build_context()

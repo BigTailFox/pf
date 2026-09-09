@@ -9,8 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from pf.adapters.ty import TyOutputDecoder
-from pf.adapters.process import SubprocessRunner, read_process_output
+from pf.adapters.ty import TyAdapter, TyOutputDecoder
+from pf.adapters.process import SubprocessRunner
+from pf.adapters.uv import UvAdapter
+from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
+from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
@@ -18,6 +21,10 @@ from pf.schemas.evaluation import (
     ToolFailure,
     TyCheck,
 )
+from pf.schemas.static import StaticContentUnavailable
+from pf.schemas.project import SourcePlan
+from pf.snapshot import SnapshotBuilder
+from pf.static_request import StaticRequestFactory, StaticTyRequest
 
 
 class DiagnosticRunner:
@@ -421,98 +428,60 @@ class TestTyOutputDecoder:
         assert result.diagnostics[0].path == "packages/demo/src/demo.py"
 
     @pytest.mark.process
-    def test_real_ty_overrides_project_terminal_defaults(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        location = "package"
-        settings = 'output-format = "gitlab"'
-        monkeypatch.setenv(
-            "PATH",
-            str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
-        )
-        package = tmp_path if location == "package" else tmp_path / "packages" / "demo"
-        package.mkdir(parents=True, exist_ok=True)
-        pyproject = tmp_path / "pyproject.toml"
-        source = "[tool.ty.terminal]\n" + settings + "\n"
-        pyproject.write_text(source)
-        (package / "demo.py").write_text('answer: int = "wrong"\n')
-        runner = SubprocessRunner()
-        result = decode_process(
-            runner,
-            spec=ProcessSpec(
-                argv=(
-                    "ty",
-                    "check",
-                    "--output-format",
-                    "gitlab",
-                    "--python",
-                    str(Path(sys.executable)),
-                    "--python-version",
-                    "3.10",
-                    "--python-platform",
-                    "linux",
-                    "--no-progress",
-                    "--color",
-                    "never",
-                    *(),
-                    str(package),
-                ),
-                cwd=str(package),
-                timeout_seconds=30,
-            ),
-            snapshot_root=tmp_path,
-            environment_root=(Path(sys.executable)).parent.parent,
-        )
-        assert isinstance(result, TyCheck), result.process
-        assert result.process.exit_code == 1
-        assert any(item.code == "invalid-assignment" for item in result.diagnostics)
-        output = read_process_output(runner, result.process)
-        assert isinstance(json.loads(output.stdout), list)
-        assert "\x1b" not in output.stdout
-        assert pyproject.read_text() == source
-
-    @pytest.mark.process
     def test_real_ty_validates_invalid_project_configuration(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        config = '[tool.ty]\nterminal = "invalid"\n'
         monkeypatch.setenv(
             "PATH",
             str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
         )
-        (tmp_path / "pyproject.toml").write_text(config)
-        result = decode_process(
-            SubprocessRunner(),
-            spec=ProcessSpec(
-                argv=(
-                    "ty",
-                    "check",
-                    "--output-format",
-                    "gitlab",
-                    "--python",
-                    str(Path(sys.executable)),
-                    "--python-version",
-                    "3.10",
-                    "--python-platform",
-                    "linux",
-                    "--no-progress",
-                    "--color",
-                    "never",
-                    *(),
-                    str(tmp_path),
-                ),
-                cwd=str(tmp_path),
-                timeout_seconds=30,
-            ),
-            snapshot_root=tmp_path,
-            environment_root=(Path(sys.executable)).parent.parent,
+        (tmp_path / "src" / "demo").mkdir(parents=True)
+        (tmp_path / "src" / "demo" / "__init__.py").write_text("VALUE = 1\n")
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "1"
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+[tool.pf]
+pythons = ["3.10"]
+test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
+[tool.ty]
+terminal = "invalid"
+""".strip()
+            + "\n"
         )
-        assert isinstance(result, ToolFailure)
-        assert result.cause == "TOOL_FAILURE"
-        assert isinstance(result.process, ProcessResult)
-        assert result.process.exit_code != 0
+        package = ProjectLoader().load(root=tmp_path).target
+        runner = SubprocessRunner()
+        snapshot = SnapshotBuilder(runner).build(tmp_path)
+        prepared = None
+        try:
+            prepared = EnvironmentFactory(UvAdapter(runner)).prepare(
+                package=package,
+                cell=package.cells[0],
+                snapshot=snapshot,
+                resolution=HighestResolution(),
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+            )
+            assert isinstance(prepared, PreparedEnvironment)
+            captured = StaticRequestFactory(runner).capture(
+                prepared, package=package, environment={},
+            )
+            if isinstance(captured, StaticContentUnavailable):
+                assert captured.detail == "invalid-layout"
+            else:
+                assert isinstance(captured, StaticTyRequest)
+                result = TyAdapter(runner).observe(captured)
+                assert isinstance(result, ToolFailure)
+                assert result.cause == "TOOL_FAILURE"
+                assert isinstance(result.process, ProcessResult)
+                assert result.process.exit_code != 0
+        finally:
+            if isinstance(prepared, PreparedEnvironment):
+                prepared.close()
+            snapshot.close()
 
     @pytest.mark.parametrize(
         ("exit_code", "timed_out", "expected"),

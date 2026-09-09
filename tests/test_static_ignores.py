@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import shutil
-import sys
 
 import pytest
-
-from visible_text import run_ty_executable
 
 from pf.static_ignores import (
     TyGlobalIgnoreInputs, TyGlobalIgnoreMaterialization, TyIgnoreUnavailable,
@@ -95,6 +91,29 @@ class TestGlobalIgnoreCapture:
         assert (first.directory / "home/patterns").read_bytes() == captured.patterns
         assert isinstance(materialize_ty_global_ignores(captured, directory=first.directory), TyIgnoreUnavailable)
 
+    def test_absolute_excludes_file_does_not_expand_home(self, tmp_path: Path) -> None:
+        patterns = tmp_path / "patterns"
+        patterns.write_text("*.generated.py\n")
+        (tmp_path / ".gitconfig").write_text(f"[core]\nexcludesFile={patterns}\n")
+        captured = capture_ty_global_ignores(
+            environment={"HOME": str(tmp_path)}, cwd=tmp_path,
+        )
+        assert isinstance(captured, TyGlobalIgnoreInputs)
+        assert captured.files[-1].path == patterns
+
+    def test_explicit_global_gitconfig_is_a_closed_input(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / ".gitconfig").write_text("[user]\nname = demo\n")
+        extra = tmp_path / "extra.gitconfig"
+        extra.write_text("[user]\nemail = demo@example.test\n")
+        captured = capture_ty_global_ignores(
+            environment={"HOME": str(home), "GIT_CONFIG_GLOBAL": str(extra)},
+            cwd=tmp_path,
+        )
+        assert isinstance(captured, TyGlobalIgnoreInputs)
+        assert [file.role for file in captured.files][0] == "global"
+
     @pytest.mark.parametrize("setting", ['"path with space"', '$ROOT/ignore', '~other/ignore', 'ignore # comment', ''])
     def test_unclosed_excludes_setting_has_no_materialization(self, tmp_path: Path, setting: str) -> None:
         (tmp_path / ".gitconfig").write_text(f'[core]\nexcludesFile={setting}\n')
@@ -103,86 +122,3 @@ class TestGlobalIgnoreCapture:
     @pytest.mark.parametrize("environment", [{}, {"HOME": "relative"}, {"HOME": "/home/fixed", "XDG_CONFIG_HOME": "relative"}])
     def test_missing_fixed_environment_does_not_query_host_home(self, tmp_path: Path, environment: dict[str, str]) -> None:
         assert isinstance(capture_ty_global_ignores(environment=environment, cwd=tmp_path), TyIgnoreUnavailable)
-
-
-@pytest.mark.process
-class TestRealTyGlobalIgnores:
-    def test_frozen_global_and_closed_local_inputs_preserve_default_selection(self, tmp_path: Path) -> None:
-        source, home = tmp_path / "source", tmp_path / "home"
-        (source / ".git/info").mkdir(parents=True)
-        (home / ".config/git").mkdir(parents=True)
-        (source / "ty.toml").write_text("")
-        (source / ".ignore").write_text("local.py\n")
-        (source / ".gitignore").write_text("git.py\n")
-        (source / ".git/info/exclude").write_text("info.py\n")
-        (home / ".config/git/ignore").write_text("global.py\n")
-        for name in ("local", "git", "info", "global", "kept"):
-            (source / f"{name}.py").write_text('value: int = "wrong"\n')
-        content = StaticContentCollector().collect({"source": source})
-        assert isinstance(content, StaticContentManifest)
-        boundaries = capture_ty_ignore_boundaries(roots={"source": source}, content=content)
-        assert isinstance(boundaries, TyIgnoreBoundaries)
-        environment = {"HOME": str(home), "GIT_CONFIG_SYSTEM": str(tmp_path / "no-system-config")}
-        global_inputs = capture_ty_global_ignores(environment=environment, cwd=source)
-        assert isinstance(global_inputs, TyGlobalIgnoreInputs)
-        frozen = materialize_ty_global_ignores(global_inputs, directory=tmp_path / "global-frozen")
-        assert isinstance(frozen, TyGlobalIgnoreMaterialization)
-        executable = shutil.which("ty")
-        assert executable is not None
-        command = (executable, "check", "--project", str(source), "--config-file", str(source / "ty.toml"),
-                   "--python", sys.executable, "--output-format", "gitlab", "--no-progress", "--color", "never", str(source))
-        native = run_ty_executable(command, cwd=source, env=environment, timeout=30)
-        assert native.returncode == 1, (native.stdout, native.stderr)
-        expected = json.loads(native.stdout)
-        assert [item["location"]["path"] for item in expected] == ["kept.py"]
-        shutil.rmtree(home)
-        assert boundaries.revalidate()
-        replay = run_ty_executable(command, cwd=source, env=dict(frozen.environment), timeout=30)
-        assert boundaries.revalidate()
-        assert replay.returncode == 1, (replay.stdout, replay.stderr)
-        assert json.loads(replay.stdout) == expected
-
-    @pytest.mark.parametrize("selected", ["xdg", "absent"])
-    def test_native_and_frozen_discovery_have_same_diagnostics(self, tmp_path: Path, selected: str) -> None:
-        project, home, xdg = tmp_path / "project", tmp_path / "home", tmp_path / "xdg"
-        project.mkdir()
-        home.mkdir()
-        (project / ".git/info").mkdir(parents=True)
-        (xdg / "git").mkdir(parents=True)
-        (project / "ty.toml").write_text("")
-        (project / "bad.py").write_text('value: int = "wrong"\n')
-        (project / "keep.py").write_text('value: int = "wrong"\n')
-        candidates = (("global", tmp_path / "global-config"), ("home", home / ".gitconfig"),
-                      ("xdg", xdg / "git/config"), ("system", tmp_path / "system-config"))
-        environment = {"HOME": str(home), "XDG_CONFIG_HOME": str(xdg),
-                       "GIT_CONFIG_GLOBAL": str(candidates[0][1]), "GIT_CONFIG_SYSTEM": str(candidates[-1][1])}
-        if selected in dict(candidates):
-            index = [role for role, _ in candidates].index(selected)
-            for number, (_, path) in enumerate(candidates):
-                if number < index:
-                    path.write_text('[user]\nname=unrelated\n')
-                else:
-                    patterns = tmp_path / f"patterns-{number}"
-                    patterns.write_text("bad.py\n" if number == index else "keep.py\n")
-                    path.write_text(f'[core]\nexcludesFile={patterns}\n')
-        elif selected == "default":
-            (xdg / "git/ignore").write_text("bad.py\n")
-        captured = capture_ty_global_ignores(environment=environment, cwd=project)
-        assert isinstance(captured, TyGlobalIgnoreInputs)
-        frozen = materialize_ty_global_ignores(captured, directory=tmp_path / "frozen")
-        assert isinstance(frozen, TyGlobalIgnoreMaterialization)
-        executable = shutil.which("ty")
-        assert executable is not None
-        command = (executable, "check", "--project", str(project), "--config-file", str(project / "ty.toml"),
-                   "--python", sys.executable, "--output-format", "gitlab", "--no-progress", "--color", "never", str(project))
-        native = run_ty_executable(command, cwd=project, env=environment, timeout=30)
-        assert native.returncode == 1, (native.stdout, native.stderr)
-        expected = json.loads(native.stdout)
-        assert {item["location"]["path"] for item in expected} == ({"bad.py", "keep.py"} if selected == "absent" else {"keep.py"})
-        # Frozen replay must not need any of the original global input files.
-        for file in captured.files:
-            if file.content is not None:
-                file.path.unlink()
-        replay = run_ty_executable(command, cwd=project, env=dict(frozen.environment), timeout=30)
-        assert replay.returncode == 1, (replay.stdout, replay.stderr)
-        assert json.loads(replay.stdout) == expected

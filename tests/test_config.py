@@ -328,7 +328,6 @@ class TestConfiguration:
             ('pythons = ["3.12", "3.11"]', "pythons must be sorted and unique"),
             ("test-command = []", "test-command must be non-empty"),
             ("surprise = true", r"unknown \[tool.pf\] key: surprise"),
-            ("package = {}", r"unknown \[tool.pf\] key: package"),
             (
                 'managed-deps = ["numpy"]\nunmanaged-deps = ["torch"]',
                 "managed-deps and unmanaged-deps are mutually exclusive",

@@ -186,6 +186,23 @@ class TestConfiguredVerifierProgress:
         assert observed == [StageProgress(completed=3, total=8, unit="tests")]
 
 
+def _write_progress(
+    directory: Path, *, nonce: str, completed: int, total: int
+) -> None:
+    payload = _canonical(
+        {
+            "completed": completed,
+            "protocol": "pf-pytest-progress-v1",
+            "run_nonce": nonce,
+            "total": total,
+            "unit": "tests",
+        }
+    )
+    temporary = directory / "progress.json.tmp"
+    temporary.write_text(payload, encoding="utf-8")
+    temporary.replace(directory / "progress.json")
+
+
 class TestPytestProgressMonitor:
     def test_stop_invalidates_a_monitor_with_a_stubborn_worker(
         self,
@@ -208,14 +225,10 @@ class TestPytestProgressMonitor:
     def test_start_stop_contains_progress_consumer_failure(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         consumed = Event()
         calls = 0
-
-        def read_snapshot(path: Path, *, nonce: str) -> StageProgress:
-            del path, nonce
-            return StageProgress(completed=1, total=2, unit="tests")
+        nonce = "0" * 32
 
         def consume(progress: StageProgress | None) -> None:
             nonlocal calls
@@ -223,14 +236,13 @@ class TestPytestProgressMonitor:
             consumed.set()
             raise KeyboardInterrupt
 
-        monkeypatch.setattr("pf.adapters.pytest_progress._read_progress", read_snapshot)
         monitor = PytestProgressMonitor(
             tmp_path,
-            nonce="0" * 32,
+            nonce=nonce,
             consume=consume,
         )
-
         monitor.start()
+        _write_progress(tmp_path, nonce=nonce, completed=1, total=2)
         assert consumed.wait(timeout=1)
         monitor.stop()
 
@@ -239,71 +251,65 @@ class TestPytestProgressMonitor:
     def test_start_stop_freezes_last_value_after_regression(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         nonce = "0" * 32
         first = StageProgress(completed=3, total=8, unit="tests")
-        regressed = StageProgress(completed=2, total=8, unit="tests")
         observed: list[StageProgress | None] = []
-        regression_read = Event()
-        read_count = 0
+        first_seen = Event()
 
-        def read_snapshot(path: Path, *, nonce: str) -> StageProgress:
-            nonlocal read_count
-            del path, nonce
-            read_count += 1
-            if read_count == 1:
-                return first
-            regression_read.set()
-            return regressed
+        def consume(progress: StageProgress | None) -> None:
+            observed.append(progress)
+            first_seen.set()
 
-        monkeypatch.setattr("pf.adapters.pytest_progress._read_progress", read_snapshot)
         monitor = PytestProgressMonitor(
             tmp_path,
             nonce=nonce,
-            consume=observed.append,
+            consume=consume,
         )
-
         monitor.start()
-        assert regression_read.wait(timeout=1)
+        _write_progress(tmp_path, nonce=nonce, completed=3, total=8)
+        assert first_seen.wait(timeout=1)
+        first_seen.clear()
+        _write_progress(tmp_path, nonce=nonce, completed=2, total=8)
+        assert not first_seen.wait(timeout=0.5)
         monitor.stop()
 
         assert observed == [first]
 
     @pytest.mark.parametrize(
-        "failed_read",
-        (OSError("transient atomic snapshot read"), None),
-        ids=("os-error", "temporarily-missing"),
+        "fault",
+        ("os-error", "temporarily-missing"),
     )
     def test_start_stop_freezes_last_value_after_read_failure(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        failed_read: OSError | None,
+        fault: str,
     ) -> None:
+        nonce = "0" * 32
         first = StageProgress(completed=320, total=842, unit="tests")
-        failed = Event()
-        snapshots: list[StageProgress | OSError | None] = [first, failed_read]
-
-        def read_snapshot(path: Path, *, nonce: str) -> StageProgress | None:
-            del path, nonce
-            snapshot = snapshots.pop(0)
-            if not snapshots:
-                failed.set()
-            if isinstance(snapshot, OSError):
-                raise snapshot
-            return snapshot
-
-        monkeypatch.setattr("pf.adapters.pytest_progress._read_progress", read_snapshot)
         observed: list[StageProgress | None] = []
+        first_seen = Event()
+
+        def consume(progress: StageProgress | None) -> None:
+            observed.append(progress)
+            first_seen.set()
+
         monitor = PytestProgressMonitor(
             tmp_path,
-            nonce="0" * 32,
-            consume=observed.append,
+            nonce=nonce,
+            consume=consume,
         )
-
         monitor.start()
-        assert failed.wait(timeout=1)
+        _write_progress(tmp_path, nonce=nonce, completed=320, total=842)
+        assert first_seen.wait(timeout=1)
+        first_seen.clear()
+        progress_path = tmp_path / "progress.json"
+        if fault == "temporarily-missing":
+            progress_path.unlink()
+        else:
+            progress_path.unlink()
+            progress_path.mkdir()
+        assert not first_seen.wait(timeout=0.5)
         monitor.stop()
 
         assert observed == [first]

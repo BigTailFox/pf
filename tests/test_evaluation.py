@@ -6,8 +6,7 @@ from pf.static_cache import RunTyFactRef
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Lock
-import time
+from threading import Event, Lock
 
 import pytest
 
@@ -481,6 +480,8 @@ class TestStagePermitPools:
         active = 0
         maximum_active = 0
         calls: list[dict[str, object]] = []
+        entered = Event()
+        release = Event()
 
         class BlockingTy:
             def observe(self, request, *, cancellation=None) -> TyCheck:
@@ -489,7 +490,8 @@ class TestStagePermitPools:
                     active += 1
                     maximum_active = max(maximum_active, active)
                     calls.append({"request": request})
-                time.sleep(0.05)
+                entered.set()
+                assert release.wait(timeout=1)
                 with lock:
                     active -= 1
                 return empty_check()
@@ -506,10 +508,23 @@ class TestStagePermitPools:
         assert isinstance(other, PreparedEnvironment)
         try:
             with TyCheckCache() as other_cache, ThreadPoolExecutor(max_workers=2) as executor:
-                captures = tuple(executor.map(
-                    lambda pair: collect_highest(static, pair[0], run_cache=pair[1], package=project.package),
-                    ((prepared, run_cache), (other, other_cache)),
-                ))
+                first = executor.submit(
+                    collect_highest,
+                    static,
+                    prepared,
+                    run_cache=run_cache,
+                    package=project.package,
+                )
+                second = executor.submit(
+                    collect_highest,
+                    static,
+                    other,
+                    run_cache=other_cache,
+                    package=project.package,
+                )
+                assert entered.wait(timeout=1)
+                release.set()
+                captures = (first.result(timeout=2), second.result(timeout=2))
             assert all(isinstance(item, RunTyFactRef) for item in captures)
             assert maximum_active == 1
             assert len(calls) == 2
@@ -537,6 +552,8 @@ class TestStagePermitPools:
         active = 0
         maximum_active = 0
         requests: list[VerifierRequest] = []
+        entered = Event()
+        release = Event()
 
         class BlockingVerifier:
             def run(
@@ -550,7 +567,8 @@ class TestStagePermitPools:
                     active += 1
                     maximum_active = max(maximum_active, active)
                     requests.append(request)
-                time.sleep(0.05)
+                entered.set()
+                assert release.wait(timeout=1)
                 with lock:
                     active -= 1
                 return VerifierRun(
@@ -572,16 +590,21 @@ class TestStagePermitPools:
         environments = (prepared, other)
         try:
             with ThreadPoolExecutor(max_workers=2) as executor:
-                runs = tuple(
-                    executor.map(
-                        lambda environment: runtime.evaluate(
-                            environment,
-                            run_cache=run_cache, package=project.package,
-
-                        ),
-                        environments,
-                    )
+                first = executor.submit(
+                    runtime.evaluate,
+                    prepared,
+                    run_cache=run_cache,
+                    package=project.package,
                 )
+                second = executor.submit(
+                    runtime.evaluate,
+                    other,
+                    run_cache=run_cache,
+                    package=project.package,
+                )
+                assert entered.wait(timeout=1)
+                release.set()
+                runs = (first.result(timeout=2), second.result(timeout=2))
 
             assert all(run.evaluation.status == "PASS" for run in runs)
             assert maximum_active == 1

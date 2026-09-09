@@ -45,6 +45,10 @@ def static_request(tmp_path_factory):
     project = root / "project"
     home = root / "home"
     home.mkdir()
+    stubs = root / "stubs"
+    stubs.mkdir()
+    (home / ".config/ty").mkdir(parents=True)
+    (home / ".config/ty/ty.toml").write_text('[environment]\nextra-paths=["$STUBS"]\n')
     (project / "src/demo").mkdir(parents=True)
     (project / "src/demo/__init__.py").write_text("VALUE = 1\n")
     (project / "pyproject.toml").write_text('''
@@ -72,9 +76,16 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         executable = shutil.which("ty")
         assert executable is not None
         request = StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
-            prepared, package=package,  environment={"HOME": str(home), "GIT_CONFIG_SYSTEM": str(root / "no-system-config")},
+            prepared, package=package,  environment={
+                "HOME": str(home),
+                "GIT_CONFIG_SYSTEM": str(root / "no-system-config"),
+                "STUBS": str(stubs),
+            },
         )
         assert isinstance(request, StaticTyRequest), request
+        bound = {item.name: item.value for item in request.spec.environment}
+        assert bound["STUBS"] != str(stubs)
+        assert Path(bound["STUBS"]).is_dir()
         yield request
     finally:
         if isinstance(prepared, PreparedEnvironment):

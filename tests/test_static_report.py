@@ -220,7 +220,7 @@ def scripted_uncollected_report(tmp_path_factory):
 
 class TestStaticReport:
     @pytest.mark.process
-    def test_search_workflow_persists_its_fresh_run_scope(self, actual_report):
+    def test_search_workflow_writes_a_fresh_scope_that_roundtrips(self, actual_report, tmp_path):
         package, previous, root, coordinator = actual_report
         class Events:
             def consume(self, event):
@@ -238,6 +238,20 @@ class TestStaticReport:
         assert scope.scope_ref != previous.static_scopes[0].scope_ref
         assert len(scope.facts) == len(scope.consumers) == len(scope.passes) == 1
         assert restored.result.status == "complete"
+        path = tmp_path / "report.json"
+        store.write(path, restored)
+        original = path.read_bytes()
+        schema = json.loads((Path(__file__).parents[1] / "docs/schemas/package-floor-v1.schema.json").read_text())
+        Draft202012Validator(schema).validate(json.loads(original))
+        reread = store.read(path)
+        store.write(path, reread)
+        assert path.read_bytes() == original
+        assert_interned_static_audit(json.loads(original)["evidence"])
+        replay_scope, = reread.static_scopes
+        assert len(replay_scope.facts) == len(replay_scope.consumers) == len(replay_scope.passes) == 1
+        cell_result = reread.cell_results[0]
+        assert isinstance(cell_result, CellSuccess)
+        assert replay_scope.passes[0].evidence.proposal_id == cell_result.baseline.proposal.proposal_id
 
     def test_uncollected_highest_keeps_full_dynamic_pass(self, scripted_uncollected_report, tmp_path):
         _, report = scripted_uncollected_report
@@ -254,31 +268,6 @@ class TestStaticReport:
         ReportStore().write(path, report)
         schema = json.loads((Path(__file__).parents[1] / "docs/schemas/package-floor-v1.schema.json").read_text())
         Draft202012Validator(schema).validate(json.loads(path.read_text()))
-
-    @pytest.mark.process
-    def test_real_scope_survives_run_close_and_byte_stable_report_roundtrip(self, actual_report, tmp_path):
-        _, report, _root, _coordinator = actual_report
-        path = tmp_path / "report.json"
-        store = ReportStore()
-        store.write(path, report)
-        original = path.read_bytes()
-        schema = json.loads((Path(__file__).parents[1] / "docs/schemas/package-floor-v1.schema.json").read_text())
-        Draft202012Validator(schema).validate(json.loads(original))
-        restored = store.read(path)
-        store.write(path, restored)
-        assert path.read_bytes() == original
-        assert_interned_static_audit(json.loads(original)["evidence"])
-        scope, = restored.static_scopes
-        assert len(scope.facts) == len(scope.consumers) == len(scope.passes) == len(scope.comparisons) == 1
-        comparison = scope.comparisons[0]
-        replay = scope.compare(scope_ref=scope.scope_ref, subject_ref=comparison.subject_ref,
-                               reference_ref=comparison.reference_ref, context=comparison.context,
-                               guidance=comparison.guidance, anchor_pass_ref=comparison.anchor_pass_ref)
-        assert replay.result == comparison.result
-        assert replay.identity == comparison.identity
-        result = restored.cell_results[0]
-        assert isinstance(result, CellSuccess)
-        assert scope.passes[0].evidence.proposal_id == result.baseline.proposal.proposal_id
 
     @pytest.mark.parametrize("mutation", ("root", "anchor", "comparison", "cell-null", "missing-nullable"))
     def test_reader_rejects_broken_scope_authority(self, scripted_report, tmp_path, mutation):

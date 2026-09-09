@@ -190,23 +190,43 @@ def _attempt(*, harness=False):
 
 
 class TestOperationBinding:
-    @pytest.mark.parametrize(("stage", "harness", "project", "environment"), [
-        ("create-environment", False, False, False),
-        ("create-environment", True, False, False),
-        ("inspect-interpreter", False, False, False),
-        ("inspect-interpreter", True, False, False),
-        ("resolve-project", False, False, False),
-        ("resolve-project", True, False, False),
-        ("resolve-environment", True, True, False),
-        ("install-project", False, True, False),
-        ("install-environment", True, True, True),
-        ("inspect", False, True, False),
-        ("inspect", True, True, True),
-        ("inspect-project-plan", False, True, False),
-        ("inspect-environment-plan", True, True, True),
-        ("proposal-vector", False, True, False),
-        ("proposal-vector", True, True, True),
-    ])
+    @pytest.mark.parametrize(
+        ("stage", "harness", "project", "environment"),
+        [
+            ("create-environment", False, False, False),
+            ("create-environment", True, False, False),
+            ("inspect-interpreter", False, False, False),
+            ("inspect-interpreter", True, False, False),
+            ("resolve-project", False, False, False),
+            ("resolve-project", True, False, False),
+            ("resolve-environment", True, True, False),
+            ("install-project", False, True, False),
+            ("install-environment", True, True, True),
+            ("inspect", False, True, False),
+            ("inspect", True, True, True),
+            ("inspect-project-plan", False, True, False),
+            ("inspect-environment-plan", True, True, True),
+            ("proposal-vector", False, True, False),
+            ("proposal-vector", True, True, True),
+        ],
+        ids=(
+            "create-environment-no-harness-no-plans",
+            "create-environment-harness-no-plans",
+            "inspect-interpreter-no-harness-no-plans",
+            "inspect-interpreter-harness-no-plans",
+            "resolve-project-no-harness-no-plans",
+            "resolve-project-harness-no-plans",
+            "resolve-environment-harness-project-only",
+            "install-project-no-harness-project-only",
+            "install-environment-harness-both-plans",
+            "inspect-no-harness-project-only",
+            "inspect-harness-both-plans",
+            "inspect-project-plan-no-harness-project-only",
+            "inspect-environment-plan-harness-both-plans",
+            "proposal-vector-no-harness-project-only",
+            "proposal-vector-harness-both-plans",
+        ),
+    )
     def test_only_committed_plans_belong_to_operation(self, stage, harness, project, environment):
         project_digest = "b" * 64 if project else None
         environment_digest = "c" * 64 if environment else None
@@ -226,11 +246,23 @@ class TestOperationBinding:
                     attribution=Unattributed(),
                 )
 
-    @pytest.mark.parametrize(("stage", "harness"), [
-        ("resolve-environment", False), ("install-environment", False),
-        ("inspect-environment-plan", False), ("install-project", True),
-        ("inspect-project-plan", True),
-    ])
+    @pytest.mark.parametrize(
+        ("stage", "harness"),
+        [
+            ("resolve-environment", False),
+            ("install-environment", False),
+            ("inspect-environment-plan", False),
+            ("install-project", True),
+            ("inspect-project-plan", True),
+        ],
+        ids=(
+            "resolve-environment-no-harness",
+            "install-environment-no-harness",
+            "inspect-environment-plan-no-harness",
+            "install-project-harness",
+            "inspect-project-plan-harness",
+        ),
+    )
     def test_operation_must_match_harness_branch(self, stage, harness):
         with pytest.raises(ValueError, match="harness"):
             validate_operation_binding(attempt=_attempt(harness=harness), stage=stage,

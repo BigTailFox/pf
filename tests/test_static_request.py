@@ -5,9 +5,6 @@ from pf.cancellation import Cancellation
 from pathlib import Path
 import shutil
 import sys
-import base64
-import hashlib
-import tempfile
 import copy
 
 import pytest
@@ -24,7 +21,6 @@ from pf.project import ProjectLoader
 from pf.schemas.evaluation import TyCheck
 from pf.schemas.project import SourcePlan
 from pf.schemas.static import StaticContentUnavailable
-from pf.schemas.static import StaticTextLiteral, StaticTextRoot
 from pf.schemas.ty_fact import TyFactDocument
 from pf.schemas.static_preparation import StaticPreparationEvidence
 from pf.schemas.static_consumer import StaticConsumerEvidence
@@ -39,64 +35,17 @@ class RecordingRunner(SubprocessRunner):
         super().__init__()
         self.ty_checks = 0
 
-    def run(self, spec, *, cancellation: Cancellation | None = None):
-        if cancellation is not None:
-            cancellation.raise_if_cancelled()
-        if len(spec.argv) > 1 and spec.argv[1] == "check" and Path(spec.argv[0]).name == "ty":
-            self.ty_checks += 1
-        return super().run(spec, cancellation=cancellation)
 
+class CountingTy(TyAdapter):
+    def __init__(self, runner: RecordingRunner) -> None:
+        super().__init__(runner)
+        self._recording = runner
 
-def relocated_prepared(prepared: PreparedEnvironment, request: StaticTyRequest) -> PreparedEnvironment:
-    """Rebuild the same captured installation, changing only verified paths.
-
-    This fixture does not claim a fresh uv build has identical installed bytes.
-    RECORD is regenerated from its verified references; uv_cache remains exact.
-    """
-    temporary = tempfile.TemporaryDirectory(prefix="pf-relocated-longer-")
-    destination = Path(temporary.name)
-    old_roots = dict(request.roots)
-    new_roots = {**old_roots, "snapshot": destination / "source", "environment": destination / "environment"}
-    try:
-        for name in ("snapshot", "environment"):
-            shutil.copytree(old_roots[name], new_roots[name], symlinks=True)
-        entries = {entry.location: entry for manifest in (request.subject.source.content, request.subject.target.content,
-                                                         request.subject.installed_world.content) for entry in manifest.entries}
-
-        def render(entry, roots):
-            if entry.relocation is None:
-                return (old_roots[entry.location.root] / entry.location.path).read_bytes()
-            parts = []
-            for part in entry.relocation.parts:
-                if isinstance(part, StaticTextLiteral):
-                    parts.append(part.text)
-                elif isinstance(part, StaticTextRoot):
-                    parts.append(roots[part.root].as_uri() if part.encoding == "file-uri" else str(roots[part.root]))
-                else:
-                    data = render(entries[part.location], roots)
-                    parts.append(str(len(data)) if part.column == "size" else "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode())
-            return "".join(parts).encode()
-
-        for location, entry in entries.items():
-            if location.root not in {"snapshot", "environment"}:
-                continue
-            path = new_roots[location.root] / location.path
-            if entry.link_target is not None:
-                path.unlink()
-                path.symlink_to(new_roots[entry.link_target.root] / entry.link_target.path)
-            elif entry.relocation is not None:
-                assert path.read_bytes() == render(entry, old_roots)
-                path.write_bytes(render(entry, new_roots))
-        return PreparedEnvironment(attempt=prepared.attempt, proposal=prepared.proposal, source_plan=prepared.source_plan,
-                                   proposal_root=new_roots["snapshot"], package_root=new_roots["snapshot"] / prepared.package_root.relative_to(prepared.proposal_root),
-                                   environment_root=new_roots["environment"], interpreter=new_roots["environment"] / prepared.interpreter.relative_to(prepared.environment_root),
-                                   project_plan=prepared.project_plan, environment_plan=prepared.environment_plan,
-                                   environment_identity=prepared.environment_identity, harness_baseline=prepared.harness_baseline,
-                                   selected_candidates=prepared.selected_candidates,
-                                   temporary_directory=temporary)
-    except BaseException:
-        temporary.cleanup()
-        raise
+    def observe(self, request, *, cancellation: Cancellation | None = None):
+        observed = super().observe(request, cancellation=cancellation)
+        if not isinstance(observed, StaticContentUnavailable):
+            self._recording.ty_checks += 1
+        return observed
 
 
 def run_complete_prepared_request(
@@ -134,7 +83,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
         snapshot = SnapshotBuilder(runner).build(project)
         prepared = None
         cache = TyCheckCache()
-        static = StaticEvaluator(TyAdapter(runner), requests=StaticRequestFactory(runner))
+        static = StaticEvaluator(CountingTy(runner), requests=StaticRequestFactory(runner))
         try:
             prepared = EnvironmentFactory(UvAdapter(runner)).prepare(package=package, cell=package.cells[0], snapshot=snapshot,
                                                                      resolution=HighestResolution(), source_plan=source_plan)
@@ -205,7 +154,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             encoded = document.model_dump_json()
             assert runner.ty_checks == 1
             if relocate:
-                moved = relocated_prepared(prepared, request)
+                moved = prepared.relocate_to(request)
                 prepared.close()
                 prepared = moved
                 restored_request = StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
@@ -218,7 +167,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
                 assert runner.ty_checks == 1
                 request = restored_request
             elif not external_stub:
-                rebuilt = relocated_prepared(prepared, request)
+                rebuilt = prepared.relocate_to(request)
                 (prepared.environment_root / "changed.txt").write_text("external mutation")
                 assert isinstance(static.collect(prepared, request, run_cache=cache), StaticContentUnavailable)
                 assert not prepared.inputs_valid
@@ -271,20 +220,6 @@ class TestRealStaticRequest:
     def test_complete_prepared_request_observes_and_survives_environment_close(self, tmp_path: Path) -> None:
         run_complete_prepared_request(
             tmp_path, external_stub=False, relocate=False, resolution_kind="highest",
-        )
-
-
-@pytest.mark.qualification
-class TestRealStaticRequestQualification:
-    @pytest.mark.parametrize("resolution_kind", ["lowest-direct", "exact-vector"])
-    def test_other_resolutions_observe_and_cache(self, tmp_path: Path, resolution_kind: str) -> None:
-        run_complete_prepared_request(
-            tmp_path, external_stub=False, relocate=False, resolution_kind=resolution_kind,
-        )
-
-    def test_external_stub_is_frozen_in_the_captured_subject(self, tmp_path: Path) -> None:
-        run_complete_prepared_request(
-            tmp_path, external_stub=True, relocate=False, resolution_kind="highest",
         )
 
     def test_relocation_reuses_the_run_cache(self, tmp_path: Path) -> None:
@@ -479,20 +414,6 @@ class TestNonemptyStaticPreparation:
     def test_registry_selection_and_external_harness_round_trip(self, tmp_path: Path) -> None:
         run_nonempty_static_preparation(
             tmp_path, resolution_kind="highest", secondary_managed=False,
-        )
-
-
-@pytest.mark.qualification
-class TestNonemptyStaticPreparationQualification:
-    @pytest.mark.parametrize(
-        "resolution_kind,secondary_managed",
-        [("lowest-direct", False), ("exact-vector", False), ("exact-vector", True)],
-    )
-    def test_other_resolutions_and_managed_harness_round_trip(
-        self, tmp_path: Path, resolution_kind: str, secondary_managed: bool,
-    ) -> None:
-        run_nonempty_static_preparation(
-            tmp_path, resolution_kind=resolution_kind, secondary_managed=secondary_managed,
         )
 
 

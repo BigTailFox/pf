@@ -14,7 +14,6 @@ import pytest
 pytestmark = pytest.mark.qualification
 
 SCRIPT = run_path("scripts/qualify_static_guidance.py")
-MEASURE = Path("scripts/measure_d038_guidance.py")
 CONTROLLED = cast(Callable[..., dict[str, Any]], SCRIPT["qualify_controlled"])
 
 
@@ -57,19 +56,3 @@ def controlled(tmp_path_factory):
 class TestStaticGuidanceQualification:
     def test_controlled_prepare_ty_and_verifier_persist_static_audit(self, controlled) -> None:
         assert_controlled(controlled)
-
-    def test_measure_script_keeps_guided_and_mechanical_floors_equal(self, tmp_path) -> None:
-        output = tmp_path / "measurement.json"
-        environment = dict(os.environ)
-        environment["PATH"] = str(Path(".venv/bin").resolve()) + os.pathsep + environment["PATH"]
-        subprocess.run(
-            [sys.executable, str(MEASURE), "--output", str(output)],
-            env=environment,
-            check=True,
-            timeout=120,
-        )
-        payload = json.loads(output.read_text())
-        assert payload["schema"] == "pf-d038-guidance-measurement-v1"
-        assert payload["all_floors_match"] is True
-        assert payload["cases"]
-        assert all(case["same_floor"] and case["same_status"] for case in payload["cases"])

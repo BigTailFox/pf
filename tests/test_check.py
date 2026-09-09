@@ -3,8 +3,7 @@ from __future__ import annotations
 from pf.static_cache import TyCheckCache
 
 from pathlib import Path
-from threading import Lock
-import time
+from threading import Barrier, Lock
 from typing import Literal, cast
 
 import pytest
@@ -175,13 +174,17 @@ platforms = ["x86_64-unknown-linux-gnu"]
 
 
 class TestCompatibilityChecker:
-    @pytest.mark.parametrize("test_command", (False, True))
+    @pytest.mark.parametrize("test_command", (False, True), ids=("default-command", "explicit-command"))
+    @pytest.mark.parametrize("test_group", (False, True), ids=("missing-group", "empty-group"))
     def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
         self, run_cache,
         tmp_path: Path,
         test_command: bool,
+        test_group: bool,
     ) -> None:
-        package, snapshot = write_check_project(tmp_path, test_command=test_command)
+        package, snapshot = write_check_project(
+            tmp_path, test_command=test_command, test_group=test_group,
+        )
         assert package.config.test.command == ("pytest",)
         events = Events()
         assembly = evaluation_assembly(highest=(), lowest=(), events=events)
@@ -453,6 +456,7 @@ class TestCheckWorkflow:
             (True, False, "aarch64-apple-darwin", "no configured cell matches"),
             (True, True, "aarch64-apple-darwin", "no configured cell matches"),
         ),
+        ids=("missing-group-foreign-host", "empty-group-foreign-host"),
     )
     def test_check_rejects_an_incomplete_execution_contract(
         self,
@@ -711,6 +715,7 @@ class TestCheckWorkflow:
         active = 0
         maximum_active = 0
         seen: list[str] = []
+        arrived = Barrier(2)
 
         class Checker:
             def check(
@@ -726,7 +731,7 @@ class TestCheckWorkflow:
                     active += 1
                     maximum_active = max(maximum_active, active)
                     seen.append(cell.python_minor)
-                time.sleep(0.05)
+                arrived.wait(timeout=1)
                 with lock:
                     active -= 1
                 return indeterminate_outcome(cell)

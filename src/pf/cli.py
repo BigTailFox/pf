@@ -132,6 +132,42 @@ class CliContext:
     def __exit__(self, *_: object) -> None:
         self.close()
 
+    @classmethod
+    def compose(
+        cls,
+        presenter: TerminalPresenter,
+        run_logs: RunLogStore,
+        *,
+        root: Path | None = None,
+        check_workflow: CheckWorkflow | None = None,
+        smoke_workflow: SmokeWorkflow | None = None,
+        search_workflow: SearchWorkflow | None = None,
+        explain_workflow: ExplainWorkflow | None = None,
+        diagnose_workflow: DiagnoseWorkflow | None = None,
+        merge_workflow: MergeWorkflow | None = None,
+        apply_workflow: ApplyWorkflow | None = None,
+    ) -> "CliContext":
+        context = cls(
+            presenter=presenter,
+            run_logs=run_logs,
+            root=Path.cwd() if root is None else root,
+        )
+        if check_workflow is not None:
+            context._check_workflow = check_workflow
+        if smoke_workflow is not None:
+            context._smoke_workflow = smoke_workflow
+        if search_workflow is not None:
+            context._search_workflow = search_workflow
+        if explain_workflow is not None:
+            context._explain_workflow = explain_workflow
+        if diagnose_workflow is not None:
+            context._diagnose_workflow = diagnose_workflow
+        if merge_workflow is not None:
+            context._merge_workflow = merge_workflow
+        if apply_workflow is not None:
+            context._apply_workflow = apply_workflow
+        return context
+
     def close(self) -> None:
         if self._closed:
             return
@@ -668,7 +704,7 @@ def build_context() -> CliContext:
     presenter: TerminalPresenter | None = None
     try:
         presenter = TerminalPresenter(logs=logs, root=root)
-        return CliContext(presenter=presenter, run_logs=logs, root=root)
+        return CliContext.compose(presenter, logs, root=root)
     except BaseException:
         if presenter is not None:
             presenter.close(abandon_pending=True)

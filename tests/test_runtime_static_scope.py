@@ -55,8 +55,8 @@ class TestRuntimeStaticPassRegistration:
         assert restored.model_dump_json() == saved
         assert restored.passes[0].evidence == passed.evidence
 
-    @pytest.mark.parametrize("unavailable", [False, True])
-    @pytest.mark.parametrize("foreign", [False, True])
+    @pytest.mark.parametrize("unavailable", [False, True], ids=("ty-available", "ty-unavailable"))
+    @pytest.mark.parametrize("foreign", [False, True], ids=("same-cache", "foreign-cache"))
     def test_static_availability_or_foreign_ref_does_not_change_pass(self, tmp_path, unavailable, foreign):
         project = evaluation_project(tmp_path, dependency=None)
         assembly = evaluation_assembly(

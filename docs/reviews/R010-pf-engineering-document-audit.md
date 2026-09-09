@@ -51,9 +51,9 @@ D006 的旧“完整评估”描述是消费方越界，本轮已修正；代码
 [coordinator 测试](../../tests/test_search_coordinator.py)覆盖空候选只有 highest preparation；
 [terminal 测试](../../tests/test_terminal.py)反而把该过度措辞锁定为期望。
 
-**修复归属与验收：** D006/TerminalPresenter。统一使用“未得到可应用 floor”的有限结论，覆盖
-search completion、explain、empty-candidate 与二分终止，并保持 reason/退出码不变。
-对应更新文案测试；无需改变 CoordinateSearch 或增加穷举。R006 的历史 reason-aware 完成状态不覆盖本项。
+**代码状态（2026-09-09）：** P044/D041 已把 terminal 文案改为有限结论
+「No applicable floor was found in the configured search space under PF's search rules.」
+reason 与退出码不变。本项关闭；§2 仅剩 §2.2。
 
 ### 2.2 P2 Journal reader 接受 Role 错配与冲突条目
 

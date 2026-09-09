@@ -3943,8 +3943,8 @@ class TestSearchRendering:
 
         exhausted_output = visible_cli_text(exhausted_stderr.getvalue())
         assert (
-            "The configured search space was fully evaluated, but no compatible "
-            "version combination was found." in exhausted_output
+            "No applicable floor was found in the configured search space under "
+            "PF's search rules." in exhausted_output
         )
         assert "full test command failed" not in exhausted_output
         indeterminate_output = visible_cli_text(indeterminate_stderr.getvalue())

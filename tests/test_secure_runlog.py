@@ -15,6 +15,12 @@ from pf._secure_runlog import (
     secure_log_directory,
 )
 
+pytestmark = pytest.mark.infra
+
+
+def windows_log_adapter(**kwargs):
+    return WindowsDirectoryAdapter(**kwargs)
+
 
 class TestSecureLogDirectory:
     def test_secure_log_directory_selects_the_windows_adapter(

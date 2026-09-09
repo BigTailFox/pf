@@ -5,8 +5,11 @@ from pf.errors import MaterializationIntegrityError
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+import base64
+import hashlib
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import threading
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -72,6 +75,7 @@ from pf.schemas.project import (
     selected_candidate_evidence_digest,
 )
 from pf.snapshot import SourceSnapshot, cleanup_temporary_directory
+from pf.schemas.static import StaticSubject, StaticTextLiteral, StaticTextRoot
 
 
 if TYPE_CHECKING:
@@ -102,6 +106,14 @@ ResolutionRequest = HighestResolution | LowestDirectResolution | ExactSelection
 
 class StageConsumer(Protocol):
     def consume(self, event: CellStageEvent) -> None: ...
+
+
+class RelocatableStaticRequest(Protocol):
+    @property
+    def roots(self) -> tuple[tuple[str, Path], ...]: ...
+
+    @property
+    def subject(self) -> StaticSubject: ...
 
 
 def emit_cell_stage(
@@ -315,6 +327,91 @@ class PreparedEnvironment:
             if self._closed or self._operation == "static":
                 raise RuntimeError("cannot mark an unavailable environment tested")
             self._tested = True
+
+    def relocate_to(self, request: "RelocatableStaticRequest") -> "PreparedEnvironment":
+        """Rebuild this captured installation at new snapshot and environment roots.
+
+        RECORD is regenerated from its verified references; uv_cache remains exact.
+        This does not claim a fresh uv build has identical installed bytes.
+        """
+        temporary = tempfile.TemporaryDirectory(prefix="pf-relocated-longer-")
+        destination = Path(temporary.name)
+        old_roots = dict(request.roots)
+        new_roots = {
+            **old_roots,
+            "snapshot": destination / "source",
+            "environment": destination / "environment",
+        }
+        try:
+            for name in ("snapshot", "environment"):
+                shutil.copytree(old_roots[name], new_roots[name], symlinks=True)
+            entries = {
+                entry.location: entry
+                for manifest in (
+                    request.subject.source.content,
+                    request.subject.target.content,
+                    request.subject.installed_world.content,
+                )
+                for entry in manifest.entries
+            }
+
+            def render(entry, roots):
+                if entry.relocation is None:
+                    return (old_roots[entry.location.root] / entry.location.path).read_bytes()
+                parts = []
+                for part in entry.relocation.parts:
+                    if isinstance(part, StaticTextLiteral):
+                        parts.append(part.text)
+                    elif isinstance(part, StaticTextRoot):
+                        parts.append(
+                            roots[part.root].as_uri()
+                            if part.encoding == "file-uri"
+                            else str(roots[part.root])
+                        )
+                    else:
+                        data = render(entries[part.location], roots)
+                        parts.append(
+                            str(len(data))
+                            if part.column == "size"
+                            else "sha256="
+                            + base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+                            .rstrip(b"=")
+                            .decode()
+                        )
+                return "".join(parts).encode()
+
+            for location, entry in entries.items():
+                if location.root not in {"snapshot", "environment"}:
+                    continue
+                path = new_roots[location.root] / location.path
+                if entry.link_target is not None:
+                    path.unlink()
+                    path.symlink_to(
+                        new_roots[entry.link_target.root] / entry.link_target.path
+                    )
+                elif entry.relocation is not None:
+                    assert path.read_bytes() == render(entry, old_roots)
+                    path.write_bytes(render(entry, new_roots))
+            return PreparedEnvironment(
+                attempt=self.attempt,
+                proposal=self.proposal,
+                source_plan=self.source_plan,
+                proposal_root=new_roots["snapshot"],
+                package_root=new_roots["snapshot"]
+                / self.package_root.relative_to(self.proposal_root),
+                environment_root=new_roots["environment"],
+                interpreter=new_roots["environment"]
+                / self.interpreter.relative_to(self.environment_root),
+                project_plan=self.project_plan,
+                environment_plan=self.environment_plan,
+                environment_identity=self.environment_identity,
+                harness_baseline=self.harness_baseline,
+                selected_candidates=self.selected_candidates,
+                temporary_directory=temporary,
+            )
+        except BaseException:
+            temporary.cleanup()
+            raise
 
     def close(self) -> None:
         with self._use_lock:

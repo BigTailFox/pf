@@ -14,13 +14,16 @@ import pytest
 
 from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.uv import RegistryAccess, UvAdapter
-from pf.environment import HighestResolution, LowestDirectResolution
+from pf.environment import ExactSelection, HighestResolution, LowestDirectResolution
 from pf.errors import InfrastructureError
 from pf.harness import original_harness, relax_harness
 from pf.project import ProjectLoader
 from pf.resolution import (
+    NativeResolutionPlan,
+    ResolutionArtifact,
     ResolutionContext,
     ResolutionFailure,
+    ResolutionPackage,
     ResolutionPlan,
     ResolutionRunContext,
 )
@@ -38,11 +41,13 @@ from pf.schemas.evaluation import (
     classify_operation_failure,
 )
 from pf.schemas.project import (
+    AvailableArtifact,
     Cell,
     DependencySourceRoute,
     HarnessBaseline,
     HarnessSatisfaction,
     InterpreterIdentity,
+    SelectedCandidate,
     SourceIdentity,
     SourcePlan,
     StaticWorkspaceMemberVersion,
@@ -200,6 +205,143 @@ class TestUvAdapter:
             assert "--no-binary" not in argv
         else:
             assert argv[argv.index(flag) + 1] == ":all:"
+
+    def test_exact_selection_pins_are_written_as_direct_url_requirements(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=("docs",),
+        )
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-28T00:00:00+00:00",
+            ),
+            cell=cell,
+            source_plan_identity="source-plan",
+            uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython", version="3.11.15", abi="test"
+            ),
+        )
+        locator = "https://files.example/idna-3.10-py3-none-any.whl"
+        digest = "a" * 64
+        UvAdapter(RecordingRunner()).resolve_project(
+            package=tmp_path,
+            package_name="demo",
+            interpreter=Path(sys.executable),
+            cell=cell,
+            resolution=ExactSelection(
+                selection=(
+                    SelectedCandidate(
+                        dependency="idna",
+                        version="3.10",
+                        artifact=AvailableArtifact(
+                            filename="idna-3.10-py3-none-any.whl",
+                            kind="wheel",
+                            content_hash=f"sha256:{digest}",
+                            locator=locator,
+                            python_minors=("3.11",),
+                            targets=("x86_64-unknown-linux-gnu",),
+                        ),
+                    ),
+                ),
+                harness_baseline=HarnessBaseline.from_evidence(
+                    cell=cell, declaration_ids=(), observations=(),
+                ),
+            ),
+            request_digest="request",
+            work_directory=tmp_path,
+            artifact_policy="wheel",
+            timeout_seconds=30,
+            **resolution_request(context, SourcePlan(source_mode="SEARCH", routes=())),
+        )
+
+        requirements = (tmp_path / "project-requirements.in").read_text(encoding="utf-8")
+        assert "-e .[docs]" in requirements
+        assert f"idna @ {locator}#sha256={digest}" in requirements
+
+    def test_url_project_packages_are_written_as_direct_url_constraints(
+        self, tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+        cell = Cell(
+            package="demo",
+            target="x86_64-unknown-linux-gnu",
+            python_minor="3.11",
+            extra_surface=(),
+        )
+        context = ResolutionContext.from_inputs(
+            run=ResolutionRunContext(
+                uv_version="0.12.5",
+                release_cutoff="2026-08-28T00:00:00+00:00",
+            ),
+            cell=cell,
+            source_plan_identity="source-plan",
+            uv_project_configuration_identity="uv-config",
+            interpreter=InterpreterIdentity(
+                implementation="cpython", version="3.11.15", abi="test"
+            ),
+        )
+        locator = "https://example.test/demo-dep-1-py3-none-any.whl"
+        digest = "b" * 64
+        artifact = ResolutionArtifact(
+            filename="demo-dep-1-py3-none-any.whl",
+            kind="wheel",
+            locator=locator,
+            content_hash=f"sha256:{digest}",
+        )
+        source_plan = SourcePlan(source_mode="SEARCH", routes=())
+        project = ResolutionPlan.from_evidence(
+            kind="project",
+            request_digest="project-request",
+            context=context,
+            packages=(
+                ResolutionPackage(
+                    name="demo-dep",
+                    version="1",
+                    source=SourceIdentity(
+                        kind="url",
+                        locator=locator,
+                        content_hash=f"sha256:{digest}",
+                    ),
+                    available_artifacts=(artifact,),
+                    selected_artifact=artifact,
+                ),
+            ),
+            direct_harness=(),
+            native=NativeResolutionPlan.from_content('lock-version = "1.0"\n'),
+            process=process_result(),
+        )
+        UvAdapter(RecordingRunner()).resolve_environment(
+            package=tmp_path,
+            package_name="demo",
+            interpreter=Path(sys.executable),
+            cell=cell,
+            resolution=HighestResolution(),
+            request_digest="environment-request",
+            project_plan=project,
+            harness=(),
+            work_directory=tmp_path,
+            artifact_policy="wheel",
+            timeout_seconds=30,
+            **resolution_request(
+                context, source_plan, stage="resolve-environment", project=project,
+            ),
+        )
+        assert (tmp_path / "project-constraints.in").read_text(encoding="utf-8") == (
+            f"demo-dep @ {locator}#sha256={digest}\n"
+        )
 
     def test_default_executable_comes_from_the_uv_runtime_dependency(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

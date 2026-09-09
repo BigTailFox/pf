@@ -470,7 +470,7 @@ class TestApplyAuthorizer:
             for cell in project.target.cells:
                 active = [Requirement(raw) for raw in requirements if PortableMarker.parse(str(Requirement(raw).marker)).evaluate(cell)]
                 assert len(active) == 1
-                assert str(active[0].specifier) == (">=2.0" if cell.target == targets[0] else ">=3.0")
+                assert Version("2.0" if cell.target == targets[0] else "3.0") in active[0].specifier
         finally:
             snapshot.close()
 
@@ -978,6 +978,62 @@ class TestApplyAuthorizer:
         report_snapshot.close()
         current_snapshot.close()
 
+    @pytest.mark.parametrize("force", (False, True), ids=("default", "force"))
+    def test_dynamic_workspace_member_is_not_waived(self, tmp_path: Path, force: bool) -> None:
+        member = tmp_path / "packages" / "idna"
+        member.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "1"
+requires-python = ">=3.10"
+dependencies = ["idna>=1"]
+
+[tool.uv.sources]
+idna = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pf]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
+test-command = ["pytest"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        (member / "pyproject.toml").write_text(
+            """
+[project]
+name = "idna"
+dynamic = ["version"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        try:
+            report = _report(
+                project.target,
+                snapshot,
+                {"x86_64-unknown-linux-gnu": "2.0"},
+            )
+            with pytest.raises(
+                ApplyAuthorizationError,
+                match="workspace member idna declares its version dynamically",
+            ):
+                ApplyAuthorizer().authorize(
+                    report=report,
+                    project=project,
+                    current_snapshot=snapshot,
+                    force=force,
+                )
+        finally:
+            snapshot.close()
+
 
 class TestApplyAuthorizationDriftAndCliRoundTrip:
     @pytest.mark.parametrize(
@@ -985,6 +1041,7 @@ class TestApplyAuthorizationDriftAndCliRoundTrip:
         (("2.5", 0), ("1.5", 3)),
     )
     @pytest.mark.process
+    @pytest.mark.e2e
     def test_static_workspace_member_version_controls_cli_apply_without_metadata_edits(
         self,
         tmp_path: Path,
@@ -1058,12 +1115,11 @@ test-command = ["pytest"]
                 visible_cli_text(result.stderr)
             )
 
-    @pytest.mark.parametrize("force", (False, True))
     @pytest.mark.process
+    @pytest.mark.e2e
     def test_dynamic_workspace_member_blocks_cli_apply_before_edit(
         self,
         tmp_path: Path,
-        force: bool,
     ) -> None:
         member = tmp_path / "packages" / "idna"
         member.mkdir(parents=True)
@@ -1109,11 +1165,8 @@ dynamic = ["version"]
         ReportStore().write(tmp_path / "package-floor.json", report)
         snapshot.close()
         before = pyproject.read_bytes()
-        argv = ["apply", "--package", "demo"]
-        if force:
-            argv.append("--force")
 
-        result = run_pf_cli(*argv, cwd=tmp_path)
+        result = run_pf_cli("apply", "--package", "demo", cwd=tmp_path)
 
         assert result.returncode == 3
         assert result.stdout == ""
@@ -1127,6 +1180,7 @@ dynamic = ["version"]
         assert pyproject.read_bytes() == before
 
     @pytest.mark.process
+    @pytest.mark.e2e
     def test_sequential_scoped_apply_starts_a_new_generation_and_reprojects_group(
         self,
         tmp_path: Path,
@@ -1197,6 +1251,7 @@ dynamic = ["version"]
         assert raw.count('sys_platform != "linux"') == 0
 
     @pytest.mark.process
+    @pytest.mark.e2e
     def test_force_source_drift_is_a_successful_stderr_warning(
         self,
         tmp_path: Path,

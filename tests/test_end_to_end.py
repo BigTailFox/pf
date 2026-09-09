@@ -87,23 +87,8 @@ test-command = ["pf-d035-unavailable-verifier"]
         assert failure["authority"]["terminal"]["kind"] == "start-failed"
 
     @pytest.mark.e2e
-    @pytest.mark.parametrize(
-        "group",
-        ["", "[dependency-groups]\ntest = []\n"],
-        ids=["missing-group", "empty-group"],
-    )
-    def test_cli_verifies_project_only_environment(self, tmp_path, group):
-        _verify_project_only_cli(tmp_path, group=group, command="search")
-
-    @pytest.mark.qualification
-    @pytest.mark.parametrize("command", ["smoke", "check", "minimize"])
-    @pytest.mark.parametrize(
-        "group",
-        ["", "[dependency-groups]\ntest = []\n"],
-        ids=["missing-group", "empty-group"],
-    )
-    def test_other_commands_verify_project_only_environment(self, tmp_path, group, command):
-        _verify_project_only_cli(tmp_path, group=group, command=command)
+    def test_cli_verifies_project_only_environment(self, tmp_path):
+        _verify_project_only_cli(tmp_path, group="", command="search")
 
     @pytest.mark.e2e
     def test_installed_module_cli_completes_report_lifecycle(

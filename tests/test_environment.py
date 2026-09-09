@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast, Literal
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 import pytest
 import tomli
 
@@ -995,7 +996,7 @@ test-command = ["python", "-c", "pass"]
 
         assert isinstance(prepared, PreparedEnvironment)
         assert uv.requirement is not None
-        assert str(uv.requirement.specifier) == "<4,==3.1"
+        assert uv.requirement.specifier == SpecifierSet("<4,==3.1")
         assert (root / "pyproject.toml").read_text(encoding="utf-8") == original
         prepared.close()
         snapshot.close()
@@ -1327,13 +1328,13 @@ test-command = ["python", "-c", "pass"]
         )
 
         assert isinstance(prepared, PreparedEnvironment)
-        assert [str(Requirement(raw).specifier) for raw in uv.dependencies] == [
-            ">=3",
-            "==2.1",
+        assert [Requirement(raw).specifier for raw in uv.dependencies] == [
+            SpecifierSet(">=3"),
+            SpecifierSet("==2.1"),
         ]
-        assert [str(Requirement(raw).specifier) for raw in uv.optional] == [
-            ">=2",
-            "==2024.2",
+        assert [Requirement(raw).specifier for raw in uv.optional] == [
+            SpecifierSet(">=2"),
+            SpecifierSet("==2024.2"),
         ]
         assert uv.sibling == sibling_pyproject
         assert (root / "pyproject.toml").read_text(encoding="utf-8") == root_pyproject

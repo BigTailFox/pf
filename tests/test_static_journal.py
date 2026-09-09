@@ -26,6 +26,22 @@ from pf.static_request import StaticRequestFactory
 from pf.verification import SmokeVerificationRun, VerificationRunner
 from test_static_report import assert_interned_static_audit
 
+FROZEN_ADMITTED_JOURNAL = (
+    Path(__file__).resolve().parent / "fixtures" / "admitted-static-journal.json"
+)
+
+
+def _write_frozen_journal(tmp_path: Path):
+    from pf.schemas.journal import VerificationJournal
+
+    payload = json.loads(FROZEN_ADMITTED_JOURNAL.read_text(encoding="utf-8"))
+    document = dict(payload)
+    document["schema_version"] = document.pop("schema")
+    journal = VerificationJournal.model_validate(document)
+    store = RunLogStore(root=tmp_path, run_id=journal.run_id)
+    path = store.write_journal(journal)
+    return store, journal, path
+
 
 @pytest.fixture(scope="module")
 def actual_static_journal(tmp_path_factory):
@@ -204,13 +220,10 @@ class TestStaticJournal:
             "dangling-fact", "unused-fact", "embedded-fact",
         ],
     )
-    @pytest.mark.process
     def test_reader_rejects_invalid_static_scope_evidence(
-        self, actual_static_journal, tmp_path: Path, mutation
+        self, tmp_path: Path, mutation
     ):
-        _, journal, _, _ = actual_static_journal
-        store = RunLogStore(root=tmp_path, run_id=journal.run_id)
-        path = store.write_journal(journal)
+        store, journal, path = _write_frozen_journal(tmp_path)
         document = json.loads(path.read_text())
         if mutation == "scope-run":
             document["static_scopes"][0]["run_id"] = "another-run"
@@ -248,25 +261,19 @@ class TestStaticJournal:
         assert caught.value.reason == "invalid-static-evidence"
 
     @pytest.mark.parametrize("content", ["[]", "{invalid-json"])
-    @pytest.mark.process
     def test_reader_rejects_an_undecodable_contract(
-        self, actual_static_journal, tmp_path: Path, content
+        self, tmp_path: Path, content
     ):
-        _, journal, _, _ = actual_static_journal
-        store = RunLogStore(root=tmp_path, run_id=journal.run_id)
-        path = store.write_journal(journal)
+        store, journal, path = _write_frozen_journal(tmp_path)
         path.write_text(content)
         with pytest.raises(JournalReadError) as caught:
             store.read_journal(journal.run_id)
         assert caught.value.reason == "unsupported-journal-contract"
 
-    @pytest.mark.process
     def test_reader_rejects_an_unsupported_contract(
-        self, actual_static_journal, tmp_path: Path
+        self, tmp_path: Path
     ):
-        _, journal, _, _ = actual_static_journal
-        store = RunLogStore(root=tmp_path, run_id=journal.run_id)
-        path = store.write_journal(journal)
+        store, journal, path = _write_frozen_journal(tmp_path)
         document = json.loads(path.read_text())
         document["schema"] = "unsupported-journal-contract"
         path.write_text(json.dumps(document))

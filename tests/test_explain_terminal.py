@@ -206,7 +206,7 @@ class TestExplainCellCards:
             (
                 "NO_PASS_IN_SEARCH_SPACE",
                 "1 no floor · 1 total",
-                "no compatible version combination was found",
+                "No applicable floor was found",
             ),
             (
                 "NON_MONOTONIC",

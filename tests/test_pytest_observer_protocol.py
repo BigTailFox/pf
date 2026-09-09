@@ -11,7 +11,7 @@ import pytest
 from pf.adapters import test_command as test_command_module
 from pf.adapters import pytest_observer as pytest_observer_module
 from pf.adapters.process import ProcessRunner
-from pf.adapters.pytest_observer import read_pytest_observer_detail
+from pf.adapters.pytest_observer import read_pytest_observer, read_pytest_observer_detail
 from pf.adapters.test_command import ConfiguredVerifier
 from pf.schemas.evaluation import (
     EnvironmentVariable,
@@ -127,6 +127,9 @@ def _assert_summary_omitted(run: VerifierRun) -> None:
 
 
 class TestPytestObserverArtifactProtocol:
+    def test_reader_treats_an_empty_directory_as_omitted(self, tmp_path: Path) -> None:
+        assert read_pytest_observer(tmp_path, nonce="unused") is None
+
     def test_configured_verifier_returns_runtime_pytest_failure_detail(
         self,
         tmp_path: Path,

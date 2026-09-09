@@ -81,8 +81,8 @@ cache_dir = "tests/.cache/pytest"
 required_plugins = ["pytest-cov>=7.1", "pytest-env>=1.0", "pytest-testmon>=2.2"]
 markers = [
     "process: real uv/ty/nested pytest/pf subprocess; excluded from the daily and bootstrap lanes",
-    "e2e: installed multi-command product path; subset of process",
-    "qualification: real-process qualification replay; excluded from the default gate",
+    "e2e: real subprocess executing a product command (smoke/check/search/minimize/apply/explain/diagnose/merge); subset of process",
+    "qualification: qualify_*.py tool protocol/version matrix; credential refresh only",
     "infra: repository test/docs infrastructure; excluded from the bootstrap contract",
 ]
 

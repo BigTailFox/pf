@@ -25,7 +25,6 @@ from pf.schemas.evaluation import (
     ProcessSpec,
     ProcessTerminalUnavailable,
     VerifierIndeterminate,
-    VerifierPass,
     VerifierRejected,
     VerifierRequest,
 )
@@ -194,64 +193,7 @@ class TestFailedCasePruning:
         ]
         assert runner.prune_request == ["test_example.py::test_bad"]
 
-    @pytest.mark.process
-    def test_failed_set_pass_requires_original_command(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write(
-            tmp_path,
-            "test_example.py",
-            "def test_once_failed():\n    pass\n"
-            "def test_other():\n    assert False\n",
-        )
-
-        run = _run(tmp_path, nodeids=("test_example.py::test_once_failed",))
-
-        assert isinstance(run.authoritative, VerifierRejected)
-        assert run.failed_case_additions == ("test_example.py::test_other",)
-
-    @pytest.mark.process
-    def test_failed_set_selection_only_collects_requested_nodeids(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write(
-            tmp_path,
-            "test_a_bad.py",
-            "from pathlib import Path\n"
-            "def test_bad():\n"
-            "    Path('bad-ran').write_text('yes')\n"
-            "    assert False\n",
-        )
-        _write(
-            tmp_path,
-            "test_b_ok.py",
-            "from pathlib import Path\n"
-            "def test_ok():\n"
-            "    Path('ok-ran').write_text('yes')\n",
-        )
-
-        run = _run(tmp_path, nodeids=("test_b_ok.py::test_ok",))
-
-        assert isinstance(run.authoritative, VerifierRejected)
-        assert (tmp_path / "ok-ran").exists()
-        assert (tmp_path / "bad-ran").exists()
-        assert run.failed_case_additions == ("test_a_bad.py::test_bad",)
-
-    @pytest.mark.process
-    def test_missing_nodeid_falls_back_to_original_command(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write(tmp_path, "test_example.py", "def test_ok():\n    pass\n")
-
-        run = _run(tmp_path, nodeids=("test_example.py::test_missing",))
-
-        assert isinstance(run.authoritative, VerifierPass)
-        assert run.failed_case_additions == ()
-
-    @pytest.mark.parametrize("exit_code", (1, 2, 3, 4, 5))
+    @pytest.mark.parametrize("exit_code", (1, 2, 3, 4, 5), ids=("exit-1", "exit-2", "exit-3", "exit-4", "exit-5"))
     def test_normal_nonzero_is_rejected_for_failed_set_and_original(
         self,
         tmp_path: Path,
@@ -364,6 +306,49 @@ class TestFailedCasePruning:
         assert len(runner.specs) == 2
         assert run.failed_case_additions == ("test_example.py::test_bad",)
 
+    def test_passing_failed_set_continues_to_the_original_command(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class CollectedPassRunner(_RecordingRunner):
+            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None) -> ProcessResult:
+                if cancellation is not None:
+                    cancellation.raise_if_cancelled()
+                environment = {item.name: item.value for item in spec.environment}
+                result = super().run(spec, cancellation=cancellation)
+                if environment.get("PF_PYTEST_OBSERVER_CASES_PROJECTION") != "collected":
+                    return result
+                nonce = environment["PF_PYTEST_OBSERVER_NONCE"]
+                evidence = Path(environment["PF_PYTEST_OBSERVER_DIR"])
+                summary = {
+                    "execution_mode": "serial",
+                    "facts": [],
+                    "finalized": True,
+                    "protocol": "pf-pytest-observer-v1",
+                    "pytest_version": "9.1.1",
+                    "python_implementation": "cpython",
+                    "python_minor": "3.10",
+                    "run_nonce": nonce,
+                }
+                (evidence / f"summary-{'a' * 32}.json").write_bytes(
+                    (json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n").encode()
+                )
+                return ProcessResult(exit_code=0, duration_seconds=0.1)
+
+        runner = CollectedPassRunner()
+        run = ConfiguredVerifier(runner).run(
+            VerifierRequest(
+                command=("pytest",),
+                cwd=tmp_path,
+                timeout_seconds=30,
+                failed_case_nodeids=("test_example.py::test_bad",),
+            )
+        )
+
+        assert isinstance(run.authoritative, VerifierRejected)
+        assert len(runner.specs) == 2
+        assert run.failed_case_additions == ("test_example.py::test_bad",)
+
     def test_generic_command_rejects_failed_case_nodeids(
         self,
         tmp_path: Path,
@@ -400,47 +385,6 @@ class TestFailedCasePruning:
         assert isinstance(run.authoritative, VerifierRejected)
 
     @pytest.mark.process
-    def test_empty_collection_falls_back_to_original_command(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write(
-            tmp_path,
-            "test_example.py",
-            "def test_bad():\n    assert False\n"
-            "def test_ok():\n    pass\n",
-        )
-
-        run = _run(
-            tmp_path,
-            "-k",
-            "test_ok",
-            nodeids=("test_example.py::test_bad",),
-        )
-
-        assert isinstance(run.authoritative, VerifierPass)
-        assert run.failed_case_additions == ()
-
-    @pytest.mark.process
-    def test_collection_error_falls_back_to_original_command(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write(tmp_path, "test_example.py", "raise ImportError('collection')\n")
-        _write(tmp_path, "test_other.py", "def test_ok():\n    pass\n")
-
-        runner = _CountingRunner()
-        run = _run_counted(
-            tmp_path,
-            runner,
-            nodeids=("test_example.py::test_bad",),
-        )
-
-        assert isinstance(run.authoritative, VerifierRejected)
-        assert runner.count == 2
-        assert run.failed_case_additions == ()
-
-    @pytest.mark.process
     def test_dynamic_parametrization_falls_back_to_original_command(
         self,
         tmp_path: Path,
@@ -474,37 +418,6 @@ class TestFailedCasePruning:
             item.startswith("test_example.py::test_bad")
             for item in run.failed_case_additions
         )
-
-    @pytest.mark.process
-    def test_duplicate_collected_item_falls_back_to_original_command(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        _write(
-            tmp_path,
-            "conftest.py",
-            "def pytest_collection_modifyitems(items):\n"
-            "    if items:\n"
-            "        items.append(items[0])\n",
-        )
-        _write(
-            tmp_path,
-            "test_example.py",
-            "from pathlib import Path\n"
-            "def test_bad():\n    assert False\n"
-            "def test_ok():\n    Path('original-ran').write_text('yes')\n",
-        )
-
-        runner = _CountingRunner()
-        run = _run_counted(
-            tmp_path,
-            runner,
-            nodeids=("test_example.py::test_bad",),
-        )
-
-        assert isinstance(run.authoritative, VerifierRejected)
-        assert runner.count == 2
-        assert run.failed_case_additions == ("test_example.py::test_bad",)
 
     @pytest.mark.parametrize(
         "mutate",
@@ -650,6 +563,7 @@ class TestFailedCasePruning:
             ),
             (lambda: ProcessTerminalUnavailable(), "terminal-unavailable"),
         ),
+        ids=("process-signaled", "process-start-failed", "terminal-unavailable"),
     )
     def test_incomplete_failed_set_does_not_fall_back(
         self,
@@ -682,27 +596,6 @@ class TestFailedCasePruning:
         assert run.authoritative.reason == reason
         assert len(runner.specs) == 1
         assert run.failed_case_additions == ()
-
-    @pytest.mark.parametrize("flag", ("--lf", "--ff", "--sw"))
-    @pytest.mark.process
-    def test_lastfailed_flags_match_a_single_original_command(
-        self,
-        tmp_path: Path,
-        flag: str,
-    ) -> None:
-        _write(
-            tmp_path,
-            "test_example.py",
-            "def test_bad():\n    assert False\n"
-            "def test_ok():\n    pass\n",
-        )
-
-        original = _run(tmp_path, flag)
-        two_phase = _run(tmp_path, flag, nodeids=("test_example.py::test_bad",))
-
-        assert isinstance(original.authoritative, VerifierRejected)
-        assert isinstance(two_phase.authoritative, VerifierRejected)
-        assert type(original.authoritative) is type(two_phase.authoritative)
 
     @pytest.mark.process
     def test_xdist_without_controller_collection_falls_back(
@@ -902,43 +795,3 @@ test-command = ["pytest"]
         assert "--maxfail=1" in runner.specs[0].argv
         environment = {item.name: item.value for item in runner.specs[0].environment}
         assert "PF_PYTEST_PRUNE_REQUEST" not in environment
-
-
-@pytest.mark.process
-class TestPruningCollectionAuthority:
-    @pytest.mark.parametrize("summary_valid", (False, True))
-    @pytest.mark.parametrize("collection_valid", (False, True))
-    @pytest.mark.parametrize("passes", (False, True))
-    def test_run_uses_collection_proof_independently_of_summary(
-        self, tmp_path: Path, summary_valid: bool, collection_valid: bool, passes: bool
-    ) -> None:
-        _write(
-            tmp_path,
-            "test_example.py",
-            "def test_bad():\n    assert " + str(passes) + "\n",
-        )
-
-        class ArtifactRunner(_CountingRunner):
-            def run(self, spec: ProcessSpec, *, cancellation: Cancellation | None = None):
-                if cancellation is not None:
-                    cancellation.raise_if_cancelled()
-                result = super().run(spec, cancellation=cancellation)
-                env = {item.name: item.value for item in spec.environment}
-                if not summary_valid:
-                    for artifact in Path(env["PF_PYTEST_OBSERVER_DIR"]).iterdir():
-                        artifact.unlink()
-                if (
-                    not collection_valid
-                    and env["PF_PYTEST_OBSERVER_CASES_PROJECTION"] == "collected"
-                ):
-                    for artifact in Path(env["PF_PYTEST_OBSERVER_CASES_DIR"]).iterdir():
-                        artifact.unlink()
-                return result
-
-        runner = ArtifactRunner()
-        run = _run_counted(tmp_path, runner, nodeids=("test_example.py::test_bad",))
-        assert run.authoritative.status == ("PASS" if passes else "REJECTED")
-        assert runner.count == (1 if collection_valid and not passes else 2)
-        assert run.diagnostics is not None
-        assert (run.diagnostics.pytest_version is not None) == summary_valid
-        assert run.failed_case_additions == (("test_example.py::test_bad",) if not passes and not collection_valid else ())

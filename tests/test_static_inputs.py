@@ -20,7 +20,6 @@ pytestmark = pytest.mark.process
 
 class TestPreparedStaticInputs:
     def test_real_prepare_captures_installed_source_and_interpreter_closures(self, tmp_path: Path) -> None:
-        with_dependency = False
         (tmp_path / "src" / "demo").mkdir(parents=True)
         (tmp_path / "src" / "demo" / "__init__.py").write_text("VALUE = 1\n")
         (tmp_path / "pyproject.toml").write_text('''
@@ -34,9 +33,6 @@ build-backend = "uv_build"
 pythons = ["3.10"]
 test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
 ''')
-        if with_dependency:
-            pyproject = tmp_path / "pyproject.toml"
-            pyproject.write_text(pyproject.read_text().replace('version = "1"', 'version = "1"\ndependencies = ["idna==3.10"]'))
         package = ProjectLoader().load(root=tmp_path).target
         source_plan = SourcePlan.for_package(package, "SEARCH")
         runner = SubprocessRunner()
@@ -64,11 +60,6 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             assert demo.source_mapping.root == "snapshot"
             assert any("METADATA" in path.path for path in demo.files)
             assert {node.name for node in captured.installed_world.nodes} == {node.name for node in prepared.proposal.resolved_graph}
-            if with_dependency:
-                idna = next(node for node in captured.installed_world.nodes if node.name == "idna")
-                assert idna.version == "3.10"
-                assert idna.install_mode == "wheel"
-                assert idna.source.kind == "registry"
             assert all(root.root == "environment" for root in captured.import_roots)
             wrong_source = StaticInputsAdapter(runner).capture(
                 prepared, package=package, source_plan=SourcePlan.for_package(package, "DEVELOPMENT"),
