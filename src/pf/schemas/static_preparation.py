@@ -8,9 +8,13 @@ from pf.resolution import ResolutionPlanEvidence, environment_identity_digest, r
 from pf.harness import active_harness_requirements, original_harness, relax_harness
 from pf.schemas.base import FrozenSchema
 from pf.schemas.evaluation import Attempt
-from pf.schemas.project import Proposal, HarnessBaseline, HarnessRequirement, SelectedCandidate, VersionPin, RequirementDeclaration, selected_candidate_evidence_digest
+from pf.schemas.project import (
+    Proposal, HarnessBaseline, HarnessRequirement, SelectedCandidate, VersionPin,
+    RequirementDeclaration, SourcePlan, selected_candidate_evidence_digest,
+)
 from pf.schemas.policy import ExecutionPolicy
-from pf.schemas.static import StaticSubject
+from pf.schemas.static import StaticContentUnavailable, StaticSubject, StaticSubjectCell
+from pf.static_projection import resolution_projection, subject_interpreter
 
 
 class StaticPreparationEvidence(FrozenSchema):
@@ -25,6 +29,7 @@ class StaticPreparationEvidence(FrozenSchema):
     execution_policy: ExecutionPolicy
     declarations: tuple[RequirementDeclaration, ...]
     selected_test_group: str | None
+    source_plan: SourcePlan
 
     @model_validator(mode="after")
     def validate_preparation(self) -> StaticPreparationEvidence:
@@ -49,16 +54,22 @@ class StaticPreparationEvidence(FrozenSchema):
             raise ValueError("static preparation Proposal must bind its Attempt")
         if not (
             proposal.snapshot_digest == attempt.source_snapshot_digest
-            == subject.source.snapshot_identity
+            == subject.source_snapshot_digest
         ):
             raise ValueError("static preparation source snapshot mismatch")
-        if not (proposal.cell == attempt.cell == subject.target.cell):
+        if not (
+            StaticSubjectCell.from_cell(proposal.cell)
+            == StaticSubjectCell.from_cell(attempt.cell)
+            == subject.cell
+        ):
             raise ValueError("static preparation Cell mismatch")
         if proposal.policy_identity != attempt.execution_policy_identity:
             raise ValueError("static preparation execution policy mismatch")
-        if proposal.interpreter != subject.target.interpreter:
+        if proposal.interpreter is None:
             raise ValueError("static preparation interpreter mismatch")
-        if subject.source.source_plan.identity != attempt.source_plan_identity:
+        if subject.interpreter != subject_interpreter(proposal.interpreter, proposal.cell):
+            raise ValueError("static preparation interpreter mismatch")
+        if self.source_plan.identity != attempt.source_plan_identity:
             raise ValueError("static preparation SourcePlan mismatch")
         if self.project_plan.kind != "project" or (
             self.environment_plan is not None and self.environment_plan.kind != "environment"
@@ -91,11 +102,6 @@ class StaticPreparationEvidence(FrozenSchema):
             graph=proposal.resolved_graph,
         ):
             raise ValueError("static preparation Proposal identity mismatch")
-        installed = {node.name: node for node in subject.installed_world.nodes}
-        if {name: node.version for name, node in installed.items()} != {
-            node.name: node.version for node in proposal.resolved_graph
-        }:
-            raise ValueError("static preparation installed graph mismatch")
         selected_plan = self.environment_plan or self.project_plan
         if self.environment_plan is not None:
             resolved = {node.name: node for node in self.environment_plan.packages}
@@ -106,30 +112,16 @@ class StaticPreparationEvidence(FrozenSchema):
                 for node in self.project_plan.packages
             ):
                 raise ValueError("static preparation environment changed project selections")
-        for node in selected_plan.packages:
-            actual = installed.get(node.name)
-            if actual is None or (
-                actual.version != node.version or actual.source != node.source
-                or actual.dependencies != node.dependencies
-                or (actual.artifact.model_dump(mode="json") if actual.artifact else None)
-                != (node.selected_artifact.model_dump(mode="json") if node.selected_artifact else None)
-            ):
-                raise ValueError("static preparation installed plan projection mismatch")
-        if set(installed) - {node.name for node in selected_plan.packages} - {proposal.cell.package}:
-            raise ValueError("static preparation contains unplanned installed packages")
-        root = installed.get(proposal.cell.package)
-        if root is not None and root.name not in {node.name for node in selected_plan.packages}:
-            mapping = next((item.source for item in subject.source.packages
-                            if item.package == root.name), None)
-            if mapping is None or root.source_mapping != mapping:
-                raise ValueError("static preparation project source mapping mismatch")
+        projected = resolution_projection(selected_plan.packages)
+        if isinstance(projected, StaticContentUnavailable) or projected != subject.resolution_projection:
+            raise ValueError("static preparation resolution projection mismatch")
         names = tuple(pin.name for pin in proposal.managed_vector)
         if names != tuple(sorted(set(names))):
             raise ValueError("static preparation managed vector must be sorted and unique")
         vector = {pin.name: pin.version for pin in proposal.managed_vector}
+        resolved = {node.name: node.version for node in proposal.resolved_graph}
         if len(vector) != len(proposal.managed_vector) or any(
-            name not in installed or installed[name].version != version
-            for name, version in vector.items()
+            resolved.get(name) != version for name, version in vector.items()
         ):
             raise ValueError("static preparation managed vector mismatch")
         if attempt.requested_managed_vector is not None and (
@@ -158,7 +150,7 @@ class StaticPreparationEvidence(FrozenSchema):
                 raise ValueError("static preparation harness baseline identity mismatch")
             harness = relax_harness(
                 self.harness_requirements, self.harness_baseline,
-                project_plan=self.project_plan, source_plan=subject.source.source_plan,
+                project_plan=self.project_plan, source_plan=self.source_plan,
             ).requirements
         if attempt.requested_resolution == "exact-vector":
             if self.selected_candidates is None or (

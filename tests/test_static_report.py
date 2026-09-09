@@ -34,6 +34,7 @@ from pf.verification import SearchVerificationRun, VerificationRunner
 
 
 def assert_interned_static_audit(container) -> None:
+    """Journal intern shape until S4; public reports no longer carry these tables."""
     facts = container["static_facts"]
     comparisons = container["static_comparisons"]
     contents = container.get("static_contents", [])
@@ -62,6 +63,36 @@ def assert_interned_static_audit(container) -> None:
     for item in facts:
         assert "observation" not in item
         assert "subject_identity" in item
+
+
+INTERN_FIELDS = (
+    "static_contents",
+    "static_subjects",
+    "static_facts",
+    "static_comparisons",
+    "static_scopes",
+)
+
+
+def assert_report_has_no_static_intern(document: dict) -> None:
+    evidence = document["evidence"]
+    assert all(name not in evidence for name in INTERN_FIELDS)
+    assert all(name not in document for name in INTERN_FIELDS)
+
+
+def public_selection_reasons(report) -> list:
+    reasons = []
+    for result in report.cell_results:
+        search = getattr(result, "search", None) or getattr(result, "coordinate_failure", None)
+        if search is None:
+            continue
+        for observation in search.observations:
+            if observation.dependency is None:
+                assert observation.selection_reason is None
+            else:
+                assert observation.selection_reason is not None
+            reasons.append(observation.selection_reason)
+    return reasons
 
 
 def _scripted_search_report(root, *, unavailable=False, source="VALUE = 1\n", project_only=False):
@@ -133,7 +164,6 @@ def _scripted_search_report(root, *, unavailable=False, source="VALUE = 1\n", pr
                 source_plan=project.source_plan,
                 source_snapshot=project.snapshot.identity,
                 cell_results=(result,),
-                static_scopes=(scope,),
             )
         return project.package, report
     finally:
@@ -202,7 +232,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
     with pytest.raises(ValueError, match="closed"):
         caches[0].snapshot(package.cells[0])
     report = PackageReportBuilder().build(package=package, source_plan=plan, source_snapshot=identity,
-                                        cell_results=run.cell_results, static_scopes=run.static_scopes)
+                                        cell_results=run.cell_results)
     return package, report, root, coordinator
 
 
@@ -220,7 +250,7 @@ def scripted_uncollected_report(tmp_path_factory):
 
 class TestStaticReport:
     @pytest.mark.process
-    def test_search_workflow_writes_a_fresh_scope_that_roundtrips(self, actual_report, tmp_path):
+    def test_search_workflow_writes_a_report_without_static_intern(self, actual_report, tmp_path):
         package, previous, root, coordinator = actual_report
         class Events:
             def consume(self, event):
@@ -234,100 +264,71 @@ class TestStaticReport:
             reports=store, report_builder=PackageReportBuilder(), events=events,
         ).run(SearchRequest(root=str(root)))
         restored = store.read(root / result.report_path)
-        scope, = restored.static_scopes
-        assert scope.scope_ref != previous.static_scopes[0].scope_ref
-        assert len(scope.facts) == len(scope.consumers) == len(scope.passes) == 1
         assert restored.result.status == "complete"
+        assert isinstance(restored.cell_results[0], CellSuccess)
+        public_selection_reasons(restored)
         path = tmp_path / "report.json"
         store.write(path, restored)
         original = path.read_bytes()
         schema = json.loads((Path(__file__).parents[1] / "docs/schemas/package-floor-v1.schema.json").read_text())
         Draft202012Validator(schema).validate(json.loads(original))
+        assert_report_has_no_static_intern(json.loads(original))
         reread = store.read(path)
         store.write(path, reread)
         assert path.read_bytes() == original
-        assert_interned_static_audit(json.loads(original)["evidence"])
-        replay_scope, = reread.static_scopes
-        assert len(replay_scope.facts) == len(replay_scope.consumers) == len(replay_scope.passes) == 1
-        cell_result = reread.cell_results[0]
-        assert isinstance(cell_result, CellSuccess)
-        assert replay_scope.passes[0].evidence.proposal_id == cell_result.baseline.proposal.proposal_id
+        assert previous.result.status == "complete"
 
     def test_uncollected_highest_keeps_full_dynamic_pass(self, scripted_uncollected_report, tmp_path):
         _, report = scripted_uncollected_report
-        scope, = report.static_scopes
-        assert scope.highest_uncollected is not None
-        assert scope.highest_uncollected.unavailable.detail == "unreadable-content"
-        assert scope.highest_reference_ref is None
-        assert scope.facts == scope.consumers == scope.passes == scope.processes == ()
         result = report.cell_results[0]
         assert isinstance(result, CellSuccess)
         assert result.final_evaluation.verifier.status == "PASS"
         assert report.result.status == "complete"
+        public_selection_reasons(report)
         path = tmp_path / "uncollected.json"
         ReportStore().write(path, report)
+        document = json.loads(path.read_text())
         schema = json.loads((Path(__file__).parents[1] / "docs/schemas/package-floor-v1.schema.json").read_text())
-        Draft202012Validator(schema).validate(json.loads(path.read_text()))
+        Draft202012Validator(schema).validate(document)
+        assert_report_has_no_static_intern(document)
 
-    @pytest.mark.parametrize("mutation", ("root", "anchor", "comparison", "cell-null", "missing-nullable"))
-    def test_reader_rejects_broken_scope_authority(self, scripted_report, tmp_path, mutation):
+    @pytest.mark.parametrize("field", INTERN_FIELDS)
+    def test_reader_rejects_old_intern_tables(self, scripted_report, tmp_path, field):
         _, report = scripted_report
         path = tmp_path / "report.json"
         ReportStore().write(path, report)
         document = json.loads(path.read_text())
-        scope = document["evidence"]["static_scopes"][0]
-        if mutation == "root":
-            scope["highest_reference_ref"] = "missing"
-        elif mutation == "anchor":
-            scope["passes"][0]["evidence"]["proposal_id"] = "foreign"
-        elif mutation == "comparison":
-            scope["comparisons"][0]["reference_ref"] = "missing"
-        elif mutation == "cell-null":
-            scope["cell"] = None
-        else:
-            del scope["highest_uncollected"]
+        document["evidence"][field] = []
         path.write_text(json.dumps(document))
         with pytest.raises(ConfigurationError):
             ReportStore().read(path)
 
-    def test_builder_rejects_valid_scope_from_another_source_context(self, tmp_path_factory):
-        package, report = _scripted_search_report(
-            tmp_path_factory.mktemp("scripted-scope"), project_only=True, source="VALUE = 1\n",
+    def test_update_path_treats_intern_existing_as_absent(self, scripted_report, tmp_path):
+        package, report = scripted_report
+        path = tmp_path / "stale-intern.json"
+        store = ReportStore()
+        store.write(path, report)
+        document = json.loads(path.read_text())
+        document["evidence"]["static_scopes"] = []
+        path.write_text(json.dumps(document))
+        replacement = PackageReportBuilder().build(
+            package=package,
+            source_plan=report.source_plan,
+            source_snapshot=report.source_snapshot,
+            cell_results=report.cell_results,
         )
-        _, foreign = _scripted_search_report(
-            tmp_path_factory.mktemp("scripted-foreign"), project_only=True, source="VALUE = 2\n",
-        )
-        with pytest.raises(ConfigurationError, match="scope input context"):
-            PackageReportBuilder().build(package=package, source_plan=report.source_plan,
-                                        source_snapshot=report.source_snapshot, cell_results=report.cell_results,
-                                        static_scopes=foreign.static_scopes)
+        update = store.update_path(path, replacement)
+        assert update.replace_generation is True
+        assert_report_has_no_static_intern(json.loads(path.read_text()))
 
-    def test_merge_renames_colliding_local_scope_without_joining_membership(
-        self, scripted_report, tmp_path,
-    ):
+    def test_merge_keeps_cell_results_without_static_tables(self, scripted_report, tmp_path):
         _, report = scripted_report
         merged = ReportStore().merge((report, report))
-        first, second = merged.static_scopes
-        assert first.scope_ref != second.scope_ref
-        assert first.comparisons[0].identity == second.comparisons[0].identity
-        assert first.facts == second.facts
-        comparison = second.comparisons[0]
-        with pytest.raises(ValueError):
-            second.compare(scope_ref=first.scope_ref, subject_ref=comparison.subject_ref,
-                           reference_ref=comparison.reference_ref, context=comparison.context,
-                           guidance=comparison.guidance)
+        assert merged.cell_results == report.cell_results
         path = tmp_path / "merged.json"
         ReportStore().write(path, merged)
         document = json.loads(path.read_text())
-        assert_interned_static_audit(document["evidence"])
-        assert len(document["evidence"]["static_facts"]) == len({
-            member.observation.fact_identity for member in report.static_scopes[0].facts
-        })
-        assert len(document["evidence"]["static_scopes"]) == 2
-        assert (
-            [member["observation_identity"] for member in document["evidence"]["static_scopes"][0]["facts"]]
-            == [member["observation_identity"] for member in document["evidence"]["static_scopes"][1]["facts"]]
-        )
+        assert_report_has_no_static_intern(document)
 
     @pytest.mark.parametrize("mutation", ("regions", "witnesses", "runtime-interface-missing"))
     def test_reader_rejects_retired_static_authority_fields(self, scripted_report, tmp_path, mutation):
@@ -346,54 +347,13 @@ class TestStaticReport:
             ReportStore().read(path)
         assert caught.value.reason in {None, "unsupported-report-contract", "invalid-static-evidence"}
 
-    @pytest.mark.parametrize(
-        "mutation",
-        (
-            "dangling-fact",
-            "unused-fact",
-            "fact-identity",
-            "unused-content",
-            "dangling-subject",
-            "unused-subject",
-            "dangling-content",
-            "consumer-subject-mismatch",
-            "unused-comparison",
-        ),
-    )
-    def test_reader_rejects_broken_static_intern(self, scripted_report, tmp_path, mutation):
-        _, report = scripted_report
-        path = tmp_path / "report.json"
-        ReportStore().write(path, report)
-        document = json.loads(path.read_text())
-        evidence = document["evidence"]
-        if mutation == "dangling-fact":
-            evidence["static_scopes"][0]["facts"][0]["observation_identity"] = "0" * 64
-        elif mutation == "unused-fact":
-            evidence["static_facts"].append(evidence["static_facts"][0])
-        elif mutation == "fact-identity":
-            evidence["static_facts"][0]["identity"] = "0" * 64
-        elif mutation == "unused-content":
-            evidence["static_contents"].append(evidence["static_contents"][0])
-        elif mutation == "unused-subject":
-            evidence["static_subjects"].append(evidence["static_subjects"][0])
-        elif mutation == "dangling-content":
-            evidence["static_subjects"][0]["source"]["content_identity"] = "0" * 64
-        elif mutation == "consumer-subject-mismatch":
-            evidence["static_scopes"][0]["consumers"][0]["subject_identity"] = "0" * 64
-        elif mutation == "unused-comparison":
-            evidence["static_comparisons"].append(evidence["static_comparisons"][0])
-        else:
-            evidence["static_facts"][0]["subject_identity"] = "0" * 64
-        path.write_text(json.dumps(document))
-        with pytest.raises(ConfigurationError):
-            ReportStore().read(path)
-
-    def test_update_retains_replacement_scope(self, scripted_report):
+    def test_update_retains_replacement_cells(self, scripted_report):
         package, report = scripted_report
-        scope = report.static_scopes[0].model_copy(update={"scope_ref": "replacement"})
-        replacement = PackageReportBuilder().build(package=package, source_plan=report.source_plan,
-                                                  source_snapshot=report.source_snapshot,
-                                                  cell_results=report.cell_results, static_scopes=(scope,))
+        replacement = PackageReportBuilder().build(
+            package=package,
+            source_plan=report.source_plan,
+            source_snapshot=report.source_snapshot,
+            cell_results=report.cell_results,
+        )
         updated = ReportStore().update(report, replacement)
-        assert tuple(item.scope_ref for item in updated.static_scopes) == ("replacement",)
         assert updated.cell_results == report.cell_results

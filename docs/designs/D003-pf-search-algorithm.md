@@ -2,13 +2,14 @@
 
 - **状态：** 现行
 - **算法版本：** `direct-first-coordinate-guidance-v1`
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 - **产品输入与结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **静态事实与比较：** [D004](D004-pf-ty-enhancement.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
-  [D038](../archived/designs/D038-pf-static-guidance-authority.md)
+  [D038](../archived/designs/D038-pf-static-guidance-authority.md)、
+  [D043](../archived/designs/D043-pf-static-subject-v2.md)
 
 本文是单个 package/cell 的坐标搜索、直接证据 fast path、局部静态 guidance、oracle
 continuation、不变量与终止条件的唯一所有者。候选冻结由
@@ -71,7 +72,7 @@ lo/hi 展示为已确认的通过/拒绝范围。
 7. 每次提交只严格降低一个坐标；每个 sweep 按规范依赖顺序覆盖全部坐标。
 8. 静态探测、oracle 探测和 test 共享同一 cell/snapshot/execution context；GuidancePolicy 改变不单独改变动态身份。
 9. 非单调判断只读取相同 Slice 中的直接 runtime observation，不读取静态 hint。
-10. 同一 Run/Cell 的等价静态投影只执行一次 ty；精确动态 Proposal 的完整 Evaluation 在一次 search 内最多执行一次。物化重建、ty 去重与精确动态复用是三条独立规则。
+10. 同一 Run/Cell 的等价静态投影只执行一次 ty；精确动态 Proposal 的完整 Evaluation 在一次 search 内最多执行一次。物化重建经 Run-owned `reprepare`（不重新 resolve、不分配 Attempt、不做 verifier），ty 去重与精确动态复用是三条独立规则。
 11. `CandidateSnapshot` 只冻结 target 受管 project direct dependency 的 registry 搜索候选；workspace member 自身依赖、harness 与任意 transitive distribution 完全属于 uv resolution，不建立 PF catalog、coordinate 或 floor。
 12. 一次 Verification Run 固定精确 uv profile、唯一 SEARCH SourcePlan 对象、release cutoff 与共享 cache；baseline、CandidateSnapshot freeze 与全部 exact probe 由 Runner 注入并消费该对象及其 identity。相同 project/environment resolution input 最多解析一次；PF 直接观察的 source 访问失败、registry artifact 不闭合或 managed coordinate 泄漏到 local/workspace source 仍为 Indeterminate，不回退到 development route，也不把 cache miss 解释为候选不存在。后端自由文本不等于这些直接事实，未知正常非零按 D005 拒绝 Attempt。
 13. 搜索产生的每个完整向量都必须属于各坐标 `S[d]`；越界在 prepare/Attempt 前形成 Cell-scope `INTERNAL_INVARIANT`，不能回退为自由解析。
@@ -142,17 +143,22 @@ record_direct_bound(...)
 ```
 
 只读 lookup 不 prepare、ty 或 verifier。`evaluate_in_slice` 必须返回直接 Probe evidence，
-不能返回静态比较结果。`open_static_slice` 至多每个坐标一次；失败或不可用返回 NO_HINT。
-坐标结束时关闭未消费物化环境，保留完整结果和 Run-owned 原始静态事实。
+不能返回静态比较结果。`open_static_slice` 要求上端已有直接 runtime PASS；lookup 命中则不再
+prepare；未命中则 `reprepare` 后 collect。至多每个坐标一次；失败或不可用返回 `NO_HINT`，
+不改写 `S_hi`，不产生 Failure ID。`record_pass` 不要求静态 consumer。坐标结束时关闭未消费
+物化环境，保留完整结果和 Run-owned 原始静态事实。
 
-`SearchProbeRequest` 把以下事实绑定在同一次实际 probe 上：
+`SearchProbeRequest` 只表示坐标 probe，`selection_reason` required 非空：
 
 ```text
 vector
 active_dependency
 candidate_version
 lower_version / upper_version / candidate_count
-selection_reason
+selection_reason =
+    mechanical-lowest | mechanical-midpoint | history
+  | static-suspect | static-clean-neighbor
+  | direct-existing | external-hint | current-upper
 ```
 
 `candidate_version` 必须等于 `vector[active_dependency]`，并位于非空窗口内。窗口是本次
@@ -266,10 +272,14 @@ threshold 固定后，probe 顺序确定。有限单调 oracle 上，任意静�
 成功 `CellSuccess` 保存：
 
 - frozen baseline、原 highest baseline direct PASS 与含 baseline selection 的 CandidateSnapshot；
-- 直接 runtime-backed observations 与 oracle 选择时序；
-- 静态阶段、omission、direct-bound skip 与 hint 端点审计；
+- 直接 runtime-backed observations 与每条公开 `ProbeObservation` 的 `selection_reason`
+  （`dependency=None` 的 baseline/final 为 `null`；坐标观察为上列枚举；去重保存首次进入该
+  Slice 观察集合的原因）；
 - Rejection/Indeterminate 的 FailureRecord；
 - 最终向量、该向量自身的 PassEvaluation、坐标边界和 sweep 数。
+
+公开报告不 intern 静态表、hint 端点、omission 或 TyCheck。`selection_reason` 是生成轨迹，
+不是 authority，不能改变 PASS / boundary / Failure。
 
 起点 observation 复用真实 highest Attempt、Proposal 与 PassEvaluation，vector 从该 Proposal 展开；Cell validator
 要求它等于当前结果的 baseline roots。若 final 等于 `B`，复用同一 baseline direct PASS；否则 final vector、

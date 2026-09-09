@@ -36,10 +36,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.journal import VerificationJournal
 from pf.schemas.apply import ApplyCommandResult, AuthorizedWorkspaceApply
 from pf.report import PackageReportBuilder, ReportStore, ValidatedReport
-from pf.static_association import (
-    DiagnoseStaticAssociation,
-    diagnose_static_associations,
-)
+from pf.static_association import DiagnoseStaticAssociation
 from pf.schemas.project import (
     ProjectPlan,
     SourcePlan,
@@ -309,7 +306,6 @@ class SearchCommandWorkflow:
                 source_plan=source_plan,
                 source_snapshot=snapshot.identity,
                 cell_results=results,
-                static_scopes=run.static_scopes,
             )
             update = self._reports.update_path(report_path, report)
             report = update.report
@@ -333,12 +329,6 @@ class SearchCommandWorkflow:
                     replace_generation=update.replace_generation,
                     remove_failure_ids=update.removed_failure_ids,
                 )
-                for scope in report.static_scopes:
-                    self._logs.index_report_static(
-                        report.report_generation_id,
-                        scope,
-                        replace_generation=update.replace_generation,
-                    )
             return SearchCommandResult(
                 report=report,
                 report_path=project.report_path,
@@ -423,14 +413,6 @@ class DiagnosisLogLocator(Protocol):
 
     def lookup_run(self, run_id: str, failure_id: str) -> Path | None: ...
 
-    def lookup_static(
-        self, run_id: str, scope_ref: str, producer_ref: str,
-    ) -> Path | None: ...
-
-    def lookup_report_static(
-        self, report_generation_id: str, scope_ref: str, producer_ref: str,
-    ) -> Path | None: ...
-
     def read_latest_journal(self, package: str) -> VerificationJournal | None: ...
 
     def read_tail(self, path: Path) -> tuple[str, ...]: ...
@@ -454,32 +436,6 @@ class FailureDiagnosis:
     def __post_init__(self) -> None:
         if self.source == "report" and self.source_path is None:
             raise ValueError("report diagnosis requires source_path")
-
-
-def _with_static_logs(
-    associations: tuple[DiagnoseStaticAssociation, ...],
-    *,
-    logs: DiagnosisLogLocator,
-    source: Literal["report", "journal"],
-    generation_or_run: str,
-) -> tuple[DiagnoseStaticAssociation, ...]:
-    located: list[DiagnoseStaticAssociation] = []
-    for item in associations:
-        path = None
-        if item.producer_ref is not None:
-            path = (
-                logs.lookup_report_static(
-                    generation_or_run, item.scope_ref, item.producer_ref,
-                )
-                if source == "report"
-                else logs.lookup_static(
-                    generation_or_run, item.scope_ref, item.producer_ref,
-                )
-            )
-        located.append(
-            item.model_copy(update={"log_path": None if path is None else path.as_posix()})
-        )
-    return tuple(located)
 
 
 class DiagnoseCommandWorkflow:
@@ -542,15 +498,6 @@ class DiagnoseCommandWorkflow:
                         ),
                         source="report",
                         source_path=report_path.relative_to(root.resolve()).as_posix(),
-                        static_associations=_with_static_logs(
-                            diagnose_static_associations(
-                                failure, report.static_scopes,
-                                proposal_id=context.proposal_id,
-                            ),
-                            logs=self._logs,
-                            source="report",
-                            generation_or_run=report.report_generation_id,
-                        ),
                     )
         journal = self._logs.read_latest_journal(location.name)
         if journal is not None:
@@ -576,15 +523,6 @@ class DiagnoseCommandWorkflow:
                     source="journal",
                     verification_role=item.role,
                     command=journal.command,
-                    static_associations=_with_static_logs(
-                        diagnose_static_associations(
-                            item.failure,
-                            tuple(member.scope for member in journal.static_scopes),
-                        ),
-                        logs=self._logs,
-                        source="journal",
-                        generation_or_run=journal.run_id,
-                    ),
                 )
         raise DiagnoseNotFoundError(
             failure_id=request.failure_id,

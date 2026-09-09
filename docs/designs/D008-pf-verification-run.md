@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v3`
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -97,12 +97,15 @@ prepare(highest, original harness, DEVELOPMENT)
    prepare(highest, original harness, SEARCH) -> capture S_hi/HarnessBaseline -> close
 
 2. declaration
-   仅当步骤 1 得到合法 S_hi
+   仅当步骤 1 prepare 成功
    prepare(lowest-direct, relaxed harness, captured HarnessBaseline, SEARCH)
    -> full evaluate relative to S_hi -> close
 ```
 
-步骤 1 的 static diagnostics 构成 baseline，不是 failure。步骤 1 未成功时不得启动步骤 2，也不能把结果描述为“declared lower bounds failed”；它只说明未能捕获 baseline。步骤 2 不进入 CoordinateSearch。
+步骤 1 **prepare** 失败 → 不进入 declaration，也不能把结果描述为“declared lower bounds
+failed”；它只说明未能准备 highest。步骤 1 prepare 成功后，无论静态 capture 以何种
+`StaticContentUnavailable` 结束，都继续 lowest-direct；GLOBAL 比较为 UNAVAILABLE。步骤 1
+的 static diagnostics 构成 baseline，不是 failure。步骤 2 不进入 CoordinateSearch。
 
 ### 3.3 Search
 
@@ -144,16 +147,20 @@ Scheduler只理解`ScheduledCellTask`, worker, deadline callback, resolved posit
 的Cell不调用started。它不导入Evaluation、Failure、Role、Journal、CellResult或terminal facts。结果按
 target/Python/extra规范排序，completion保留真实完成顺序；单Cell内probe串行。
 
-当Cell完成时，Runner先做typed projection，再合并buffered与terminal failures，写当前完整Journal并写
-`journal:<run-id>` Process Log associations；两者都成功才让`CellCompletedEvent.diagnose_available`为true。
-`logs=None`永远false。写入失败仍发布false completion，Scheduler收尾后以InfrastructureError结束Run；
+当Cell完成时，Runner先做typed projection，再合并buffered与terminal failures，按
+cache→Journal→latest 提交：先原子写完整 ty-cache snapshot，再写 Journal（`static_membership`
+若引用 fact，该 fact 必须已在 ty-cache），最后更新 latest / diagnose index。ty-cache 写失败则
+本次不写 Journal、不更新 latest；Journal 写失败允许留下无引用 sidecar、不更新 latest；latest
+失败时 Journal 仍可按 run-id 读，不得宣称 `diagnose_available`。`diagnose_available` 只要求
+Journal + 该 Failure 的 verifier Process Log association，不要求 ty-cache。`logs=None`永远false。
+写入失败仍发布false completion，Scheduler收尾后以InfrastructureError结束Run；
 final persist failure也不能被typed command result吞掉。同failure ID对应不同portable entry时fail closed。
 
 Workflow继续拥有project load、snapshot build/close、SourcePlan构造、status与typed聚合；Search还拥有
 post-run source drift、report build/update与report-generation association replacement。Runner不关闭、
 materialize或重建snapshot，也不拥有report ID。
 
-`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。capture 前创建 Run ty cache。Journal v3 独立静态审计区不计失败；Diagnosis Index 用 typed producer keys 关联静态日志。diagnose 只展示与 Failure 合法关联的静态材料。
+`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。capture 前创建 Run ty cache。Journal v3 的 `static_membership` 不计失败，只供 Run 内重建，不供 diagnose。Diagnosis Index 只关联 Failure 到 verifier Process Log。diagnose 只展示 Failure 权威，不读 ty-cache、不渲染静态。
 
 ## 5. Activity 与 completion
 
@@ -236,45 +243,50 @@ schema = verification-journal-v3
 run_id
 command = smoke | check | search
 source_snapshot_digest
-package_policies[]
+package_policies[]          # 按 package 唯一、升序
   package
   execution_policy_identity
-entries[]
+entries[]                   # 按 (package, cell canonical, failure_id) 升序
   package
   Cell
   Role
-  Attempt?       CellFailureScope 时省略
+  Attempt?                  # CellFailureScope 时省略
   FailureRecord v3 authority
-static_contents[] / static_subjects[] / static_facts[] / static_comparisons[]
-static_scopes[]
-  run_id
-  scope
-    scope_ref / Cell
-    processes[] / facts[] / consumers[] / passes[] / comparisons[]
-    highest_reference_ref | highest_uncollected
+static_membership[]         # required，可空；按 Cell canonical 升序
+  cell
+  highest:
+      { kind=collected, subject_identity, cache_identity, fact_identity }
+    | { kind=uncollected, detail }
 ```
 
-磁盘上的静态审计与报告相同：原始内容、subject、TyCheck 与比较 intern 到文档级 table；
-scope 只保留 membership。Writer/reader 拒绝嵌入完整 subject 的旧 intern 形状。
+名称保持 `verification-journal-v3`。下列旧形状一律非法，reader 不得 resolve、inflate 或忽略后继续：
+顶层 `static_contents` / `static_subjects` / `static_facts` / `static_comparisons` /
+`static_scopes`；任何 fact / comparison 成员携带完整 observation 载荷。
+
+`collected` 的三个 identity 必须能在同 Run 的 ty-cache 中按 `TyCheckKey` 找到对应
+`document`，且 `document.fact.identity = fact_identity`。这项跨文件闭合由 writer admission
+和显式 Run 内 static-audit seam 验证。普通 Journal decode（含 diagnose 回退）只验证 Journal
+自身结构、字面量、排序和唯一性，不得打开 ty-cache，也不得因 ty-cache 缺失或损坏而使一个
+本来合法的 `FailureRecord` 不可读。
 
 磁盘字段为 `schema`；内存 `VerificationJournal` 字段为 `schema_version`，由 RunLogStore 编解码。
+ty-cache 路径为 `.pf/logs/<run-id>/ty-cache.json`，外层 `schema = pf-ty-cache-v1`，含
+`run_id` 与按 `(subject_identity, cache_identity)` 升序唯一的 `entries[]`。条目落盘完整
+`TyFactDocument`。ty-cache 不是 Process Log，不绑定 Failure ID，不进入报告。
 
-每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、scope、Attempt、source digest与该policy必须闭合；同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。
+每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、Attempt、source digest与该policy必须闭合；同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。Cell canonical：`(package, python_minor, target, extra_surface)`。
 
 Journal 不保存 stdout/stderr、完整 Evaluation、`RuntimeEvaluationRun` diagnostics、absolute path
 或 report refs。对于同一 Failure ID，其展开后的 `FailureAuthority` 必须与 D014 report 完全
 一致。Process 原文在 D007 Process Log；search 的完整 portable evidence 在 D014 report。
 Writer 与 reader 仅接受 V3，不保留历史 reader。`schemas/journal.py` 拥有 Journal 模型；
 RunLogStore 拒绝与自身 run_id 不同的写入。无法解码或不支持的 contract 返回
-`JournalReadError(reason="unsupported-journal-contract")`；非法静态 scope、引用、比较或
-Run/Cell/source/policy 关联返回 `invalid-static-evidence`，不能静默当作没有 Journal。
+`JournalReadError(reason="unsupported-journal-contract")`；旧 intern 或非法 membership 返回
+`invalid-static-evidence`，不能静默当作没有 Journal。
 
-静态审计独立于 Failure entries，不增加兼容性失败计数。每个 scope 绑定 Journal 的 run_id、
-唯一 Cell 与该包的执行策略/源码；raw producer、consumer、PASS 和 comparison 的闭包由共享
-静态模型复证。最高输入不可采集时保留实际 Attempt/Proposal 与原因，不补造 raw fact/process。
-Run 收尾先 stop/drain，保存全部已完成 scope，再关闭 cache；操作异常也执行此收尾。
-即使没有 Failure，仍保存该 Run 的静态审计。Journal 是完整审计文档，读取必须覆盖 writer
-保存的全部 scope，不能沿用小型元数据的大小上限将已写入文档当成不存在。
+`static_membership` 独立于 Failure entries，不增加兼容性失败计数。即使没有 Failure，仍保存
+该 Run 的 membership。Journal 是完整审计文档，读取必须覆盖 writer 保存的全部 membership 与
+entries，不能沿用小型元数据的大小上限将已写入文档当成不存在。
 
 ## 8. Diagnosis Index 与 report association
 
@@ -283,16 +295,13 @@ Run 收尾先 stop/drain，保存全部已完成 scope，再关闭 cache；操�
 ```text
 latest_journal[package] = run_id
 (run_id, failure_id) -> relative Process Log
-(run_id, scope_ref, process_ref) -> static scope member Process Log
 (report_generation_id, failure_id) -> relative Process Log
 ```
 
 不得扫描 run directories 或按 output text 猜 locator。新 Verification Run 替换对应 package 的 `latest_journal`。
-静态 process association 使用独立索引命名空间，按已准入 scope 的 process member 解析；
-不伪装成 Failure ID，也不把 producer 日志改挂到命中同一事实的 consumer。重写同一 Run 的
-portable Journal 时保留已有静态日志关联；导入另一目录的 portable 数据可以没有本机日志。
+删除 Index 的静态/Failure 交叉映射与 report-side 静态 association。
 
-Search 必须先成功更新单target report path，再用该`ReportUpdate`更新report-side associations：
+Search 必须先成功更新单target report path，再用该`ReportUpdate`更新report-side Failure associations：
 
 - generation replacement 时整体替换；
 - 同 generation update 移除旧 Failure IDs、添加本次可关联 records；
@@ -305,8 +314,8 @@ Association/locator 不进入 report，缺失不改变 Failure evidence。
 `pf diagnose FAILURE_ID [--package PACKAGE]`只查一个canonical Failure ID，并按顺序读取：
 
 ```text
-1. 选中 package 的可读 Schema 1 `package-floor.json`（若存在）；
-2. 仅当报告不存在、不可读/非法、或没有该 ID 时，该 package 的 latest Verification Journal（若存在）。
+1. 选中 package 的可读 Schema 1 `package-floor.json`（若存在）→ 只展示报告 Failure；不读 Journal；不读 ty-cache；不渲染静态
+2. 仅当报告不存在、不可读/非法、或没有该 ID 时，该 package 的 latest Verification Journal（若存在）→ 只展示 Journal Failure；不读 ty-cache；不渲染静态
 ```
 
 可读报告命中后不读取Journal。两处都没有该ID时形成D001的typed配置错误，不遍历历史runs，也不枚举、合并或排序多个Failure。Journal/Index缺失只使本地log link不可用，不削弱报告中的portable authority。不可读报告不是一次命中，不能阻止 Journal 诊断最近一次 run。

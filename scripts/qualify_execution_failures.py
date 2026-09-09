@@ -290,7 +290,7 @@ def qualify_case(root: Path, *, operation: str, write_bytecode: bool) -> dict:
                     assert final_comparison.result.state == "STATIC_UNCHANGED"
                 global_comparison = final_comparison.result.model_dump(mode="json")
                 static_unavailable_detail = None
-            report = PackageReportBuilder().build(package=package, source_plan=source_plan, source_snapshot=snapshot.identity, cell_results=(result,), static_scopes=(static_scope,))
+            report = PackageReportBuilder().build(package=package, source_plan=source_plan, source_snapshot=snapshot.identity, cell_results=(result,))
             path = root / "package-floor.json"
             ReportStore().write(path, report)
             assert ReportStore().read(path) == report

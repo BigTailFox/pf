@@ -681,7 +681,7 @@ class TestDiagnoseWorkflow:
         )
         logs.write_journal(
             VerificationJournal(
-                static_scopes=(),
+                static_membership=(),
                 run_id="diagnose-tail",
                 command="check",
                 source_snapshot_digest="snapshot",
@@ -1001,7 +1001,7 @@ class TestDiagnoseWorkflow:
         logs = RunLogStore(root=tmp_path, run_id="check-run")
         logs.write_journal(
             VerificationJournal(
-                static_scopes=(),
+                static_membership=(),
                 run_id="check-run",
                 command="check",
                 source_snapshot_digest="snapshot",
@@ -1070,7 +1070,7 @@ class TestDiagnoseWorkflow:
         logs = RunLogStore(root=tmp_path, run_id="search-run")
         logs.write_journal(
             VerificationJournal(
-                static_scopes=(),
+                static_membership=(),
                 run_id="search-run",
                 command="search",
                 source_snapshot_digest="snapshot",
@@ -1134,7 +1134,7 @@ class TestDiagnoseWorkflow:
         logs = RunLogStore(root=tmp_path, run_id="check-capture")
         logs.write_journal(
             VerificationJournal(
-                static_scopes=(),
+                static_membership=(),
                 run_id="check-capture",
                 command="check",
                 source_snapshot_digest="snapshot",

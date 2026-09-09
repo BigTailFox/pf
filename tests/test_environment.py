@@ -1976,3 +1976,91 @@ marker = 'python_full_version < "3.10.0" or implementation_name != "cpython"'
             assert uv.root is not None and not uv.root.exists()
         finally:
             snapshot.close()
+
+
+class TestReprepareRecipe:
+    def test_reprepare_rebuilds_without_resolve_or_new_attempt(self, tmp_path: Path) -> None:
+        from evaluation_fixtures import evaluation_assembly, evaluation_project
+
+        project = evaluation_project(tmp_path, dependency=None)
+        assembly = evaluation_assembly(highest=())
+        first = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0],
+            snapshot=project.snapshot, resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(first, PreparedEnvironment)
+        resolves = list(assembly.uv.resolutions)
+        attempt_id = first.attempt.attempt_id
+        proposal = first.proposal
+        first.close()
+        rebuilt = assembly.environments.reprepare(
+            proposal, project.snapshot, project.source_plan,
+        )
+        assert isinstance(rebuilt, PreparedEnvironment)
+        try:
+            assert rebuilt.attempt.attempt_id == attempt_id
+            assert rebuilt.proposal == proposal
+            assert assembly.uv.resolutions == resolves
+            assert rebuilt.environment_root.exists()
+        finally:
+            rebuilt.close()
+            project.snapshot.close()
+
+    def test_reprepare_install_failure_is_unavailable_not_prepare_failure(self, tmp_path: Path) -> None:
+        from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
+        from pf.schemas.evaluation import ExecutionFailure, NormalExit, OperationFailureResult, Unattributed
+        from pf.schemas.static import StaticContentUnavailable
+
+        project = evaluation_project(tmp_path, dependency=None)
+        assembly = evaluation_assembly(highest=())
+        first = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0],
+            snapshot=project.snapshot, resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(first, PreparedEnvironment)
+        proposal = first.proposal
+        first.close()
+        assembly.uv.install_failure = OperationFailureResult(
+            stage="install-project",
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
+            process=successful_process(exit_code=2),
+        )
+        rebuilt = assembly.environments.reprepare(
+            proposal, project.snapshot, project.source_plan,
+        )
+        assert isinstance(rebuilt, StaticContentUnavailable)
+        assert rebuilt.detail == "unreadable-content"
+        project.snapshot.close()
+
+    def test_missing_or_mismatched_recipe_is_unavailable(self, tmp_path: Path) -> None:
+        from evaluation_fixtures import evaluation_assembly, evaluation_project
+        from pf.schemas.static import StaticContentUnavailable
+
+        project = evaluation_project(tmp_path, dependency=None)
+        assembly = evaluation_assembly(highest=())
+        first = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0],
+            snapshot=project.snapshot, resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(first, PreparedEnvironment)
+        proposal = first.proposal
+        first.close()
+        other = evaluation_assembly(highest=())
+        assert isinstance(
+            other.environments.reprepare(proposal, project.snapshot, project.source_plan),
+            StaticContentUnavailable,
+        )
+        foreign = proposal.model_copy(update={"snapshot_digest": "f" * 64})
+        assert isinstance(
+            assembly.environments.reprepare(foreign, project.snapshot, project.source_plan),
+            StaticContentUnavailable,
+        )
+        assembly.environments.close()
+        assert isinstance(
+            assembly.environments.reprepare(proposal, project.snapshot, project.source_plan),
+            StaticContentUnavailable,
+        )
+        project.snapshot.close()

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pf.schemas.static_scope import StaticScopeEvidence, intern_static_scopes, resolve_static_scopes
-
 from dataclasses import dataclass, field
 import json
 import os
@@ -263,7 +261,6 @@ class ValidatedReport:
     requirement_declarations: tuple[RequirementDeclaration, ...]
     target_cells: tuple[Cell, ...]
     cell_results: tuple[CellResult, ...]
-    static_scopes: tuple[StaticScopeEvidence, ...]
     projection_evidence: tuple[ProjectionEvidence, ...]
     result: CompleteReportResult | IncompleteReportResult
     failure_records: tuple[FailureRecord, ...]
@@ -372,16 +369,10 @@ class PackageReportBuilder:
         source_plan: SourcePlan,
         source_snapshot: SourceSnapshotIdentity,
         cell_results: tuple[CellResult, ...],
-        static_scopes: tuple[StaticScopeEvidence, ...] = (),
         _generator: GeneratorIdentity | None = None,
         _policy_identity: str | None = None,
         _execution_policy: ExecutionPolicy | None = None,
     ) -> ValidatedReport:
-        ordered_static_scopes = tuple(sorted(static_scopes, key=lambda scope: scope.scope_ref))
-        try:
-            interned = intern_static_scopes(ordered_static_scopes)
-        except ValueError as error:
-            raise ConfigurationError(f"invalid static evidence: {error}") from error
         if source_plan.source_mode != "SEARCH":
             raise ConfigurationError("report source plan must use SEARCH mode")
         if source_plan.routes != package.source_routes:
@@ -881,11 +872,6 @@ class PackageReportBuilder:
                 ),
             ),
             evidence=ReportEvidenceV1(
-                static_contents=interned.contents,
-                static_subjects=interned.subjects,
-                static_facts=interned.facts,
-                static_comparisons=interned.comparisons,
-                static_scopes=interned.scopes,
                 resolution_graphs=wire_graphs,
                 attempts=wire_attempts,
                 proposals=wire_proposals,
@@ -947,6 +933,7 @@ class PackageReportBuilder:
             dependency=observation.dependency,
             candidate_version=observation.candidate_version,
             evidence=wire_evidence,
+            selection_reason=observation.selection_reason,
         )
 
     @classmethod
@@ -1763,23 +1750,15 @@ class ReportStore:
             ("identity", "execution_policy", "resolution", "timeout_seconds"),
             ("evidence", "failures", "*", "authority", "terminal"),
             ("evidence", "failures", "*", "authority", "attribution", "request_binding", "project_plan_digest"),
-            ("evidence", "failures", "*", "authority", "attribution", "request_binding", "environment_plan_digest"),
+                ("evidence", "failures", "*", "authority", "attribution", "request_binding", "environment_plan_digest"),
             ("evidence", "proposals", "*", "environment_plan_digest"),
             ("inputs", "search_policy", "bindings", "*", "requested_space"),
             ("inputs", "candidate_snapshots", "*", "series_inventory_ref"),
+            ("cell_results", "*", "search", "observations", "*", "selection_reason"),
+            ("cell_results", "*", "coordinate_failure", "observations", "*", "selection_reason"),
         }
 
         def contains_null(value: object, path: tuple[str, ...] = ()) -> bool:
-            # The scoped static protocol preserves its complete nullable preimages,
-            # as in Journal; its typed schema and canonical replay validate them.
-            if path in {
-                ("evidence", "static_contents"),
-                ("evidence", "static_subjects"),
-                ("evidence", "static_facts"),
-                ("evidence", "static_comparisons"),
-                ("evidence", "static_scopes"),
-            }:
-                return False
             if value is None:
                 return path not in required_nullable
             if isinstance(value, dict):
@@ -2646,6 +2625,7 @@ class ReportStore:
                         )
                     ),
                     evidence=evidence,
+                    selection_reason=observation_record.selection_reason,
                 )
                 referenced_attempt_ids.add(attempt.attempt_id)
                 if proposal is not None:
@@ -3036,108 +3016,6 @@ class ReportStore:
             for proposal in proposal_by_id.values()
             if proposal.attempt_id is not None
         )
-        scope_refs = tuple(scope.scope_ref for scope in wire.evidence.static_scopes)
-        if scope_refs != tuple(sorted(set(scope_refs))):
-            raise ConfigurationError(
-                "invalid v1 report: static scopes must be sorted and unique",
-                reason="invalid-static-evidence",
-            )
-        result_cells = {result.cell for result in resolved_results}
-        for scope in wire.evidence.static_scopes:
-            if scope.cell not in result_cells or (
-                scope.highest_reference_ref is None and scope.highest_uncollected is None
-            ):
-                raise ConfigurationError(
-                    "invalid v1 report: static scope requires its Cell and highest root",
-                    reason="invalid-static-evidence",
-                )
-            attempts = [member.preparation.attempt for member in scope.consumers]
-            attempts.extend(item.attempt for item in scope.omissions)
-            attempts.extend(item.attempt for item in scope.skips)
-            attempts.extend(item.attempt for item in scope.selections)
-            for omitted in scope.omissions:
-                dynamic = evaluation_by_proposal.get(omitted.proposal.proposal_id)
-                if not isinstance(dynamic, PassEvaluation) or dynamic.proposal != omitted.proposal:
-                    raise ConfigurationError(
-                        "invalid v1 report: omitted guidance requires its direct dynamic upper PASS",
-                        reason="invalid-static-evidence",
-                    )
-            for skip in scope.skips:
-                dynamic = evaluation_by_proposal.get(skip.proposal.proposal_id)
-                interned = attempt_by_id.get(skip.attempt.attempt_id)
-                if (
-                    interned != skip.attempt
-                    or not isinstance(dynamic, PassEvaluation)
-                    or dynamic.proposal != skip.proposal
-                ):
-                    raise ConfigurationError(
-                        "invalid v1 report: direct-bound skip requires its dynamic floor PASS",
-                        reason="invalid-static-evidence",
-                    )
-                if skip.predecessor_failure_id is not None:
-                    failure = failure_by_id.get(skip.predecessor_failure_id)
-                    if (
-                        failure is None
-                        or failure.disposition != "REJECTED"
-                        or not isinstance(failure.scope, AttemptFailureScope)
-                    ):
-                        raise ConfigurationError(
-                            "invalid v1 report: direct-bound skip requires its predecessor rejection",
-                            reason="invalid-static-evidence",
-                        )
-            for selection in scope.selections:
-                interned = attempt_by_id.get(selection.attempt.attempt_id)
-                if interned != selection.attempt:
-                    raise ConfigurationError(
-                        "invalid v1 report: oracle selection requires its dynamic Attempt",
-                        reason="invalid-static-evidence",
-                    )
-                if selection.status == "PASS":
-                    dynamic = evaluation_by_proposal.get(selection.proposal_id)
-                    if not isinstance(dynamic, PassEvaluation) or dynamic.proposal.proposal_id != selection.proposal_id:
-                        raise ConfigurationError(
-                            "invalid v1 report: oracle selection PASS requires its dynamic evaluation",
-                            reason="invalid-static-evidence",
-                        )
-                else:
-                    failure = failure_by_id.get(selection.failure_id)
-                    if (
-                        failure is None
-                        or failure.disposition != selection.status
-                        or not isinstance(failure.scope, AttemptFailureScope)
-                        or failure.scope.attempt != selection.attempt
-                    ):
-                        raise ConfigurationError(
-                            "invalid v1 report: oracle selection requires its dynamic FailureRecord",
-                            reason="invalid-static-evidence",
-                        )
-            if scope.highest_uncollected is not None:
-                attempts.append(scope.highest_uncollected.attempt)
-            if any(attempt.identity.source_snapshot_digest != source_snapshot.digest
-                   or attempt.identity.execution_policy_identity != wire.identity.execution_policy.identity
-                   or attempt.identity.source_plan_identity != source_plan.identity for attempt in attempts):
-                raise ConfigurationError(
-                    "invalid v1 report: static scope input context mismatch",
-                    reason="invalid-static-evidence",
-                )
-            consumers = {member.ref: member for member in scope.consumers}
-            for member in scope.consumers:
-                proposal = member.preparation.proposal
-                dynamic = proposal_by_id.get(proposal.proposal_id)
-                if dynamic is not None and dynamic != proposal:
-                    raise ConfigurationError(
-                        "invalid v1 report: static consumer Proposal mismatch",
-                        reason="invalid-static-evidence",
-                    )
-            for passed in scope.passes:
-                proposal = consumers[passed.consumer_ref].preparation.proposal
-                dynamic = evaluation_by_proposal.get(proposal.proposal_id)
-                if not isinstance(dynamic, PassEvaluation) or dynamic.proposal != proposal or dynamic.verifier != passed.evidence.verifier:
-                    raise ConfigurationError(
-                        "invalid v1 report: static anchor requires its direct dynamic PASS",
-                        reason="invalid-static-evidence",
-                    )
-
         ordered_result_keys = tuple(
             cell_identity(result.cell) for result in resolved_results
         )
@@ -3300,7 +3178,6 @@ class ReportStore:
                 for result in wire.cell_results
                 for reference in result.failure_refs
             ),
-            static_scopes=_resolve_report_static_scopes(wire),
             _wire=wire,
         )
 
@@ -3324,10 +3201,9 @@ class ReportStore:
                 cell_results[key] = result
         if not cell_results:
             return first
-        return self._reintern(
+        return self._rebuild(
             first,
             tuple(cell_results[key] for key in sorted(cell_results)),
-            _localize_static_scopes(tuple(scope for report in reports for scope in report.static_scopes)),
         )
 
     def update(
@@ -3350,12 +3226,9 @@ class ReportStore:
         final_by_cell.update(
             {self._cell_key(result.cell): result for result in replacement.cell_results}
         )
-        return self._reintern(
+        return self._rebuild(
             existing,
             tuple(final_by_cell[key] for key in sorted(final_by_cell)),
-            _localize_static_scopes(tuple(scope for scope in existing.static_scopes
-                                         if self._cell_key(scope.cell) not in replaced_keys)
-                                   + replacement.static_scopes),
         )
 
     def update_path(
@@ -3408,10 +3281,9 @@ class ReportStore:
         )
 
     @staticmethod
-    def _reintern(
+    def _rebuild(
         generation: ValidatedReport,
         cell_results: tuple[CellResult, ...],
-        static_scopes: tuple[StaticScopeEvidence, ...],
     ) -> ValidatedReport:
         package = PackagePlan(
             name=generation.package.name,
@@ -3428,14 +3300,13 @@ class ReportStore:
             source_plan=generation.source_plan,
             source_snapshot=generation.source_snapshot,
             cell_results=cell_results,
-            static_scopes=static_scopes,
             _generator=generation.generator,
             _policy_identity=generation.policy_identity,
             _execution_policy=generation.execution_policy,
         )
         if rebuilt.report_generation_id != generation.report_generation_id:
             raise ConfigurationError(
-                "report generation identity changed while reinterning roots"
+                "report generation identity changed while rebuilding roots"
             )
         return rebuilt
 
@@ -3486,40 +3357,3 @@ class ReportStore:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-
-
-def _resolve_report_static_scopes(wire: PackageFloorReportV1Wire) -> tuple[StaticScopeEvidence, ...]:
-    try:
-        return resolve_static_scopes(
-            wire.evidence.static_facts,
-            wire.evidence.static_comparisons,
-            wire.evidence.static_scopes,
-            contents=wire.evidence.static_contents,
-            subjects=wire.evidence.static_subjects,
-        )
-    except (ValueError, ValidationError) as error:
-        raise ConfigurationError(
-            "invalid v1 report: static evidence is not closed",
-            reason="invalid-static-evidence",
-        ) from error
-
-
-def _localize_static_scopes(scopes: tuple[StaticScopeEvidence, ...]) -> tuple[StaticScopeEvidence, ...]:
-    """Keep each input document's membership separate when local names collide."""
-    reserved = {scope.scope_ref for scope in scopes}
-    used: set[str] = set()
-    result = []
-    for scope in scopes:
-        reference = scope.scope_ref
-        if reference in used:
-            suffix = 2
-            while f"{reference}-{suffix}" in reserved or f"{reference}-{suffix}" in used:
-                suffix += 1
-            reference = f"{reference}-{suffix}"
-            scope = StaticScopeEvidence.model_validate({
-                **{name: getattr(scope, name) for name in StaticScopeEvidence.model_fields},
-                "scope_ref": reference,
-            })
-        used.add(reference)
-        result.append(scope)
-    return tuple(sorted(result, key=lambda scope: scope.scope_ref))

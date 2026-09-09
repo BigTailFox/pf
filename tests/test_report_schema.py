@@ -1507,6 +1507,7 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                 "attempt_ref": case.final_attempt.attempt_id,
                 "status": "PASS",
             },
+            "selection_reason": "mechanical-lowest",
         }
         assert "vector" not in observation
         baseline_observation = case.document["cell_results"][0]["search"][
@@ -1518,6 +1519,7 @@ class TestCompleteReportEvidence(_CompleteReportCase):
                 "attempt_ref": case.baseline_attempt.attempt_id,
                 "status": "PASS",
             },
+            "selection_reason": None,
         }
         assert case.document["cell_results"][0]["final_proposal_ref"] == (
             case.final_proposal.proposal_id
@@ -1603,7 +1605,7 @@ class TestCompleteReportEvidence(_CompleteReportCase):
         assert terminal["failure_ref"] == case.test_failure.failure_id
         assert "test" not in terminal
         journal = VerificationJournal(
-            static_scopes=(),
+            static_membership=(),
             run_id="same-authority",
             command="search",
             source_snapshot_digest=case.test_failure.scope.attempt.identity.source_snapshot_digest,

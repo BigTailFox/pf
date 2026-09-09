@@ -2,13 +2,14 @@
 
 - **状态：** 现行
 - **策略版本：** `static-guidance-v1`
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
 - **失败与诊断：** [D005](D005-pf-failure-and-diagnose.md)
 - **已归并决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
-  [D038](../archived/designs/D038-pf-static-guidance-authority.md)
+  [D038](../archived/designs/D038-pf-static-guidance-authority.md)、
+  [D043](../archived/designs/D043-pf-static-subject-v2.md)
 
 本文是 PF 中 `ty` 运行、诊断身份、规范静态投影、原始 TyCheck/Unavailable、Run 内缓存、
 `S_hi` / `S_slice` 比较准入和 GuidancePolicy 的唯一契约。静态事实不决定 compatibility
@@ -38,8 +39,9 @@ baseline；全局比较保持不可用，局部比较独立判定。
 
 每个坐标需要静态 guidance 时，从直接 PASS 上端 `U` 冻结 `S_slice`。通常 `U=current`；若
 predecessor 的真实 PASS 已提供更低上端，则用该上端的精确 Proposal。`S_slice` 保存该
-Proposal 的完整 ty diagnostics，而不是相对 `S_hi` 的增量。没有合格完整观察时返回
-NO_HINT(`anchor-unavailable`)。
+Proposal 的完整 ty diagnostics，而不是相对 `S_hi` 的增量。上端环境已 `tested` 并 close
+后，未命中 cache 则经 Run-owned `reprepare` 重建再 collect；失败返回
+NO_HINT(`anchor-unavailable`)，不改写 `S_hi`。
 
 ```text
 global_delta(P) = diagnostics(P) ⊖ diagnostics(S_hi)
@@ -125,12 +127,64 @@ identity = external | normalized-path | code
 
 `TyCheck.diagnostics` 按 identity，并以 severity/message 稳定打破相同 identity 的排序，保留重复项。
 
-## 6. 静态请求与六组输入
+## 6. 静态请求与 `static-subject-v2`
 
 `StaticRequestFactory` 从已复证的 ExecutionSubject 形成规范 `StaticSubject`。缓存 key 使用实际
-静态对象的规范投影，不依赖完整动态 Proposal identity。六组输入与采集子身份变化必须改变投影
-或拒绝未闭合外部输入；相同 sdist 的不同安装内容相互隔离；合法路径重定位与不同 Proposal 的
-同投影可以命中同一原始事实。
+静态对象的规范投影，不依赖完整动态 Proposal identity。合法路径重定位与不同 Proposal 的同投影
+可以命中同一原始事实。
+
+`projection = static-subject-v2`。Identity 域 `pf:static-subject:v2`。`StaticSubject.identity`
+是下列完整预像的 digest，不能再取子集：
+
+```text
+{
+  "projection": "static-subject-v2",
+  "source_snapshot_digest": "<64 hex>",
+  "cell": { "package", "python_minor", "target", "extra_surface" },
+  "interpreter": { "implementation", "abi" },
+  "resolution_projection": [ ResolutionBinding, ... ]
+}
+```
+
+`resolution_projection` 按 canonical name 排序。`interpreter.python_minor` 必须等于
+`cell.python_minor`，不重复写入。不进入预像：补丁号、venv 路径、process environment、图
+edges、request/plan/graph digest、attempt/proposal id、安装后 RECORD / 文件树。
+
+`ResolutionBinding` 取自该 Proposal 实际使用的 plan（有 harness 则为 environment，否则
+project）中的 `ResolutionPackage`：
+
+```text
+{
+  "name": "<canonical>",
+  "version": "<normalized> | null",
+  "source": SourceIdentity,
+  "artifact":
+      { "kind": "selected", "content_hash": "sha256:<64 hex>" }
+    | { "kind": "available-set", "digest": "<64 hex>" }
+    | { "kind": "source-tree" }
+}
+```
+
+普通 registry 包的 `selected_artifact` 为 `None`，只填 `available_artifacts`。`available-set`
+digest 为 `sha256("pf:resolution-artifacts:v1\0" + canonical_identity_json(sorted unique
+[(kind, filename, content_hash), ...]))`，triple 编成 JSON 数组。只哈希 `kind` /
+`filename` / `content_hash`，不含 locator。同一 artifact 输入集合视为可互换。
+
+| 情况 | `artifact` | 不能形成时 |
+| --- | --- | --- |
+| 已有 `selected_artifact.content_hash` | `selected` | hash 非法 |
+| registry / url 且 `selected_artifact is None`，`available_artifacts` 非空且每项有 hash | `available-set` | 任一项缺 hash → `resolution-artifact-unbound` |
+| path / workspace / 项目自身 | `source-tree`；隔离靠 snapshot digest + `source.locator` | locator 缺失或越出快照 |
+| git | `source-tree`；`source.commit` 必填 | 无 commit → `resolution-artifact-unbound` |
+| registry/url 且 available 与 selected 皆空 | — | `resolution-artifact-unbound` |
+
+构造 subject 不再走文件树采集器。inspect 只核 interpreter identity 与诊断前缀；name/version
+复用 [D012](D012-pf-harness-relaxation.md)。`revalidate` 只查 lease / `tested` / 前缀 / 根存在，
+不整树再散列。内存 subject 与观测策略不携带 content manifest，不读 RECORD 编身份。
+
+只承认快照内 ty 配置。宿主用户配置存在、`TY_CONFIG_FILE` 指向快照外、向父目录走查离开
+snapshot 副本、或 argv / 快照内配置引用未冻结的快照外根 → `snapshot_ty_config.kind=unavailable`
+（`undeclared-analysis-root`），不启动 ty。快照内 `TY_CONFIG_FILE` 合法，且为物化最高优先级。
 
 ## 7. StaticEvaluator 与 Run cache
 
@@ -142,6 +196,9 @@ identity = external | normalized-path | code
 不缓存某次 guidance 解释。lookup 只读；collect 才原子加入或启动，只有 owner 占 ty permit。
 等待者不占 permit。cached unavailable 不是 CacheMiss，也不产生兼容性 disposition。
 prepare 失败、缺 baseline/anchor 与 context-mismatch 不进入原始 negative cache。
+`TyCheckKey = (StaticSubject.identity, TyObservationPolicy.cache_identity)`。
+`TyCheckFact.observation_policy_identity` 绑定完整 generation identity。搜索主路径只用内存
+cache，不从 sidecar 恢复 oracle。
 
 物化环境释放不清除原始事实。关闭环境后仍可 lookup/compare；重建并复证同投影时不重跑 ty。
 不同 Proposal 不能共享动态 authority。capture 前 cache 已存在；跨 Run/Cell 与已关闭 refs
@@ -175,14 +232,18 @@ TyCheck（若有），只运行一次完整 test-command。
 
 ## 10. Schema、cache 与报告
 
-公共证据至少保留原始 TyCheck/Unavailable、GLOBAL/SLICE 比较、producer/consumer 关联、
-anchor PASS ref 与 GuidancePolicy。这些事实 intern 到文档级 table，scope 只保留 membership。
-静态 refs 无兼容性权限。Failure 的 execution/selection 辅助关联不进入 Failure ID。
+公开报告不保存 TyCheck、比较或静态 intern 表。Run 内原始静态事实落在
+`.pf/logs/<run-id>/ty-cache.json`（外层 `pf-ty-cache-v1`），由 `RunLogStore` 编解码；完整
+`TyFactDocument` 含 §6 subject 与 §11 完整观测预像。静态 refs 无兼容性权限。Failure 的
+execution/selection 辅助关联不进入 Failure ID。比较准入：两端 `source_snapshot_digest`、
+`snapshot_ty_config`（含 unavailable union）、`host_config` 与 `cache_identity` 相等；不同
+`TyCheckKey` 不得 COMPARED。GLOBAL / SLICE 仍看 `S_hi` 状态、anchor PASS、窗口与固定坐标。
+`admit_harness_relation` 保留。
 
 概念 cache key：
 
 ```text
-TyCheckKey        = (StaticSubjectIdentity, TyObservationPolicy)
+TyCheckKey        = (StaticSubject.identity, TyObservationPolicy.cache_identity)
 StaticCompareKey  = (subject fact, reference fact, context, GuidancePolicy)
 TestEvaluationKey = (proposal_id, execution policy identity)
 ```
@@ -196,7 +257,51 @@ cache hit / negative hit 不生成新 ty stage 或复制耗时。
 
 本文件独占 GuidancePolicy / TyObservation 子身份；ExecutionPolicy 与 SearchDerivationPolicy 分开。
 报告 identity 的三类字段、generation 与 apply 比较由 [D014 §1.1](D014-pf-report-schema.md#11-identity) 拥有。
-ty args/timeout/tool version/内容 identity 只进入本节采集子对象，不进入 ExecutionPolicy 或 Attempt identity。
+ty args/timeout/`tool_version` 只进入本节采集子对象，不进入 ExecutionPolicy 或 Attempt identity。
+D014 `guidance_policy_identity` 等于 `GuidancePolicy.identity`，禁止写成观测 digest。
+
+观测策略升版：`rules = ty-observation-v2`，`analysis_scope = explicit-static-subject-v2`。
+`args` 与 `timeout_seconds` 在观测策略顶层（后者 required-nullable）。删除嵌套 `TyConfig`、
+`tool_content` 与 `executable`。`host_config = reject-undeclared-v1`。
+
+```text
+tool_version =
+    { "kind": "distribution", "name": "ty", "version": "<PEP 440>" }
+  | { "kind": "unavailable" }
+
+snapshot_ty_config =
+    { "kind": "materialized", "digest": "<64 hex>" }
+  | { "kind": "unavailable", "reason": "configuration-..." | "undeclared-analysis-root" }
+```
+
+`tool_version.version` 来自宿主 `importlib.metadata.version("ty")`，不把 `ty --version` 原文
+写入 digest。元数据 available 时规范解析 `ty --version`，必须相等，否则该次 collect
+unavailable，不启动 ty。元数据 unavailable 时不 collect，报告身份用 `kind=unavailable`。
+一次 Run 至多读一次元数据、至多一次 `--version`。
+
+`materialized` 才允许启动 ty。`digest = sha256("pf:ty-config:v2\0" + effective_config_bytes)`，
+只哈希实际 `--config-file` 字节。effective TOML 只含快照内合并结果，不含 PF-owned CLI
+overrides。`unavailable` 仍进入完整观测预像。
+
+三层 digest 不得合并。完整观测预像含 `timeout_seconds` 与 `snapshot_ty_config` union；cache
+子集去掉 `timeout_seconds`：
+
+```text
+TyObservationPolicy.identity
+  = sha256("pf:ty-observation-policy:v2\0" + complete observation preimage)
+TyObservationPolicy.cache_identity
+  = sha256("pf:ty-observation-cache:v2\0" + cache subset)
+GuidancePolicy.identity
+  = sha256("pf:guidance-policy:v1\0" + complete GuidancePolicy preimage)
+```
+
+`GuidancePolicy` 预像含完整观测预像、`observation_identity`、`comparison =
+multiset-subtraction`、`fingerprint`、`anchors`、`bisection`、`authority = advisory-v1`、
+`unavailable = no-hint-fallback-v1`。改变 subtraction / anchor / hint / fallback 必须改变
+`guidance_policy_identity`。
+
+命令开始时固定一份完整 `TyObservationPolicy` 与 `GuidancePolicy`（两处 union 均可为
+unavailable）。其后任何静态失败不得让「无法构造 `guidance_policy_identity`」。
 
 ```text
 policy             = static-guidance-v1
@@ -220,4 +325,5 @@ final_verification = direct-test-command-pass
 6. 截断、坏 JSON 或未闭合输入不能形成 compatibility boundary。
 
 非目标包括要求仓库 type-clean、解析 message、静态 floor、跨运行 baseline/evaluation cache、
-以及用 CFG/reachability 分析恢复孤立接口缺失的拒绝权限。
+用安装后文件树隔离同一 artifact 集合、把宿主 ty 配置读进 digest、以及用 CFG/reachability
+分析恢复孤立接口缺失的拒绝权限。

@@ -1564,6 +1564,18 @@ class CacheConflict(FrozenSchema):
     observed_statuses: tuple[str, str]
 
 
+CoordinateSelectionReason = Literal[
+    "mechanical-lowest",
+    "mechanical-midpoint",
+    "history",
+    "static-suspect",
+    "static-clean-neighbor",
+    "direct-existing",
+    "external-hint",
+    "current-upper",
+]
+
+
 class SearchProbeRequest(FrozenSchema):
     """One exact active-coordinate probe and its unresolved candidate window."""
 
@@ -1573,7 +1585,7 @@ class SearchProbeRequest(FrozenSchema):
     lower_version: str
     upper_version: str
     candidate_count: int = Field(gt=0, strict=True)
-    selection_reason: Literal["mechanical", "history", "static-suspect", "static-clean-neighbor"] = "mechanical"
+    selection_reason: CoordinateSelectionReason = "mechanical-lowest"
     static_search_ref: str | None = None
 
     @model_validator(mode="after")

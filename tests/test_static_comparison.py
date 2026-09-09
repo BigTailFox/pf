@@ -92,12 +92,38 @@ class TestScriptedStaticComparison:
             anchor = SliceAnchorPass.from_run(proposal=highest.proposal, run=run)
             selection = selected_candidates_for_prepared(highest)
             assert_global_comparison_contract(reference, reference)
-            from pf.schemas.policy import GuidancePolicy
-            from pf.schemas.static_comparison import (
-                SliceComparisonContext,
-                StaticCompared,
-                StaticComparisonDocument,
+            from pf.policy import guidance_policy
+            from pf.schemas.config import EffectiveConfig
+            from pf.schemas.policy import (
+                GuidancePolicy, SnapshotTyConfigMaterialized, TyToolVersionDistribution,
             )
+            from pf.schemas.static_comparison import (
+                GlobalComparisonContext, SliceComparisonContext, StaticCompared,
+                StaticComparisonDocument, StaticUncompared,
+            )
+            from pf.ty_fact import ty_fact_document
+
+            other_policy = guidance_policy(
+                EffectiveConfig(),
+                tool_version=TyToolVersionDistribution(version="2.0.0"),
+                snapshot_ty_config=SnapshotTyConfigMaterialized(digest="d" * 64),
+            ).observation
+            other = StaticConsumerEvidence(
+                preparation=reference.preparation,
+                observation=ty_fact_document(
+                    reference.preparation.subject, other_policy,
+                    TyCheck(process=reference_process, diagnostics=()),
+                ),
+            )
+            mismatched = StaticComparisonDocument.compare(
+                context=GlobalComparisonContext(
+                    highest_proposal_id=reference.preparation.proposal.proposal_id,
+                ),
+                subject=other, reference=reference, guidance=GuidancePolicy(
+                    observation=other_policy, observation_identity=other_policy.identity,
+                ),
+            )
+            assert mismatched.result == StaticUncompared(reason="context-mismatch")
 
             guidance = GuidancePolicy(
                 observation=reference.observation.observation_policy,

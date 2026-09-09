@@ -1,10 +1,11 @@
-"""Freeze ty configuration selection without consulting an implicit environment."""
+"""Freeze snapshot ty configuration without consulting host user files."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import os
 import re
@@ -13,13 +14,15 @@ from typing import Literal
 import tomli
 import tomlkit
 
-from pf.schemas.static import StaticContentManifest, StaticContentPath, StaticContentUnavailable
-from pf.static_subject import StaticContentCollector
+from pf.schemas.policy import (
+    SnapshotTyConfig, SnapshotTyConfigMaterialized, SnapshotTyConfigUnavailable,
+)
+from pf.schemas.static import StaticContentUnavailable
 
 
 @dataclass(frozen=True)
 class TyConfigurationFile:
-    role: Literal["user", "project", "explicit"]
+    role: Literal["project", "explicit"]
     path: Path
     content: str
     format: Literal["pyproject", "ty"]
@@ -30,85 +33,105 @@ class TyConfigurationResolution:
     files: tuple[TyConfigurationFile, ...]
     effective_toml: str
     analysis_root: Path
-    # Record every actual presence/absence query. Later materialization uses the
-    # captured text, so original host files are not inputs to the ty subprocess.
     queried_paths: tuple[Path, ...]
 
 
 @dataclass(frozen=True)
 class TyConfigurationUnavailable:
     reason: Literal["static-subject-unavailable"] = "static-subject-unavailable"
-    detail: Literal["configuration-context-unavailable", "configuration-unreadable"] = "configuration-unreadable"
+    detail: Literal[
+        "configuration-context-unavailable",
+        "configuration-unreadable",
+        "undeclared-analysis-root",
+    ] = "configuration-unreadable"
 
 
 @dataclass(frozen=True)
 class TyConfigurationMaterialization:
     directory: Path
-    effective_file: StaticContentPath
-    files_in_precedence_order: tuple[StaticContentPath, ...]
-    content: StaticContentManifest
+    effective_file: Path
+    digest: str
+    content: bytes
+
+
+def ty_config_digest(effective_config_bytes: bytes) -> str:
+    return hashlib.sha256(b"pf:ty-config:v2\0" + effective_config_bytes).hexdigest()
+
+
+def snapshot_ty_config_from_resolution(
+    resolution: TyConfigurationResolution | TyConfigurationUnavailable,
+    *,
+    directory: Path,
+) -> tuple[SnapshotTyConfig, TyConfigurationMaterialization | None]:
+    if isinstance(resolution, TyConfigurationUnavailable):
+        return SnapshotTyConfigUnavailable(reason=resolution.detail), None
+    materialized = materialize_ty_configuration(resolution, directory=directory)
+    if isinstance(materialized, TyConfigurationUnavailable):
+        return SnapshotTyConfigUnavailable(reason=materialized.detail), None
+    return SnapshotTyConfigMaterialized(digest=materialized.digest), materialized
 
 
 def materialize_ty_configuration(
     resolution: TyConfigurationResolution, *, directory: Path,
 ) -> TyConfigurationMaterialization | TyConfigurationUnavailable:
-    """Write captured inputs into a new caller-owned directory.
-
-    No original configuration is reopened. The caller retains and cleans the
-    directory with its prepared environment, including partial writes on error.
-    """
+    """Write one effective TOML. Digest hashes the exact --config-file bytes."""
     try:
         directory.mkdir()
-        files = []
-        for index, file in enumerate(resolution.files):
-            name = f"input-{index:03d}-{file.role}.toml"
-            (directory / name).write_text(file.content, encoding="utf-8")
-            files.append(StaticContentPath(root="configuration", path=name))
-        effective = StaticContentPath(root="configuration", path="effective.ty.toml")
-        (directory / effective.path).write_text(resolution.effective_toml, encoding="utf-8")
-        content = StaticContentCollector().collect({"configuration": directory})
-        if isinstance(content, StaticContentUnavailable):
+        effective = directory / "effective.ty.toml"
+        content = resolution.effective_toml.encode("utf-8")
+        effective.write_bytes(content)
+        written = effective.read_bytes()
+        if written != content:
             return TyConfigurationUnavailable()
-        return TyConfigurationMaterialization(directory, effective, tuple(files), content)
+        return TyConfigurationMaterialization(
+            directory, effective, ty_config_digest(written), written,
+        )
     except OSError:
         return TyConfigurationUnavailable()
 
 
 class TyConfigurationResolver:
-    """Resolve explicit, project and user configuration in documented precedence."""
+    """Resolve snapshot-only configuration. Host user files are fail-closed."""
 
     def resolve(
         self, *, project_directory: Path, environment: Mapping[str, str],
         platform: Literal["posix", "windows"],
+        snapshot_root: Path | None = None,
     ) -> TyConfigurationResolution | TyConfigurationUnavailable:
         queried: list[Path] = []
         try:
             if not project_directory.is_absolute():
                 return TyConfigurationUnavailable(detail="configuration-context-unavailable")
+            root = snapshot_root if snapshot_root is not None else project_directory
+            if not root.is_absolute():
+                return TyConfigurationUnavailable(detail="configuration-context-unavailable")
+            try:
+                project_directory.resolve().relative_to(root.resolve())
+            except ValueError:
+                return TyConfigurationUnavailable(detail="undeclared-analysis-root")
+            host = self._host_user_config(environment, platform)
+            if host is None:
+                return TyConfigurationUnavailable(detail="configuration-context-unavailable")
+            queried.append(host)
+            if self._exists(host):
+                return TyConfigurationUnavailable(detail="undeclared-analysis-root")
             if "TY_CONFIG_FILE" in environment:
                 path = self._expand(environment["TY_CONFIG_FILE"], environment)
                 if not path.is_absolute():
                     path = project_directory / path
                 queried.append(path)
+                if not self._inside(path, root):
+                    return TyConfigurationUnavailable(detail="undeclared-analysis-root")
                 file, settings = self._read(path, "explicit", "ty")
-                return TyConfigurationResolution((file,), tomlkit.dumps(settings), project_directory, tuple(queried))
-            if platform == "windows":
-                base = environment.get("APPDATA")
-            else:
-                base = environment.get("XDG_CONFIG_HOME")
-                if base is None and environment.get("HOME"):
-                    base = str(Path(environment["HOME"]) / ".config")
-            if not base or not Path(base).is_absolute():
-                return TyConfigurationUnavailable(detail="configuration-context-unavailable")
-            user_path = Path(base) / "ty" / "ty.toml"
+                return TyConfigurationResolution(
+                    (file,), tomlkit.dumps(settings or {}), project_directory, tuple(queried),
+                )
             files: list[TyConfigurationFile] = []
             effective: dict = {}
             analysis_root = project_directory
-            queried.append(user_path)
-            if self._exists(user_path):
-                file, effective = self._read(user_path, "user", "ty")
-                files.append(file)
             for directory in (project_directory, *project_directory.parents):
+                if not self._inside(directory, root):
+                    return TyConfigurationUnavailable(detail="undeclared-analysis-root")
                 ty_path = directory / "ty.toml"
                 queried.append(ty_path)
                 if self._exists(ty_path):
@@ -117,17 +140,45 @@ class TyConfigurationResolver:
                     path = directory / "pyproject.toml"
                     queried.append(path)
                     if not self._exists(path):
+                        if directory == root:
+                            break
                         continue
                     file, settings = self._read(path, "project", "pyproject")
                     if settings is None:
+                        if directory == root:
+                            break
                         continue
                 files.append(file)
-                effective = self._merge(effective, settings)
+                effective = self._merge(effective, settings or {})
                 analysis_root = directory
                 break
-            return TyConfigurationResolution(tuple(files), tomlkit.dumps(effective), analysis_root, tuple(queried))
+            return TyConfigurationResolution(
+                tuple(files), tomlkit.dumps(effective), analysis_root, tuple(queried),
+            )
         except (OSError, UnicodeError, ValueError, TypeError):
             return TyConfigurationUnavailable()
+
+    @staticmethod
+    def _host_user_config(
+        environment: Mapping[str, str], platform: Literal["posix", "windows"],
+    ) -> Path | None:
+        if platform == "windows":
+            base = environment.get("APPDATA")
+        else:
+            base = environment.get("XDG_CONFIG_HOME")
+            if base is None and environment.get("HOME"):
+                base = str(Path(environment["HOME"]) / ".config")
+        if not base or not Path(base).is_absolute():
+            return None
+        return Path(base) / "ty" / "ty.toml"
+
+    @staticmethod
+    def _inside(path: Path, snapshot_root: Path) -> bool:
+        try:
+            path.resolve().relative_to(snapshot_root.resolve())
+        except ValueError:
+            return False
+        return True
 
     @staticmethod
     def _exists(path: Path) -> bool:
@@ -143,7 +194,9 @@ class TyConfigurationResolver:
             before = os.fstat(stream.fileno())
             content = stream.read()
             after = os.fstat(stream.fileno())
-        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+            after.st_size, after.st_mtime_ns, after.st_ctime_ns,
+        ):
             raise ValueError("configuration changed during capture")
         document = tomli.loads(content)
         if format == "pyproject":
@@ -185,3 +238,13 @@ class TyConfigurationResolver:
             return environment[name]
 
         return Path(re.sub(r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)", replace, value))
+
+
+def configuration_unavailable(
+    detail: Literal[
+        "configuration-context-unavailable",
+        "configuration-unreadable",
+        "undeclared-analysis-root",
+    ],
+) -> StaticContentUnavailable:
+    return StaticContentUnavailable(detail=detail)

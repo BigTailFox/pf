@@ -124,7 +124,7 @@ def assert_selection_identity_is_dynamic_only(scope):
 def assert_guidance_journal_roundtrip(tmp_path, project, result, scope):
     from pf.runlog import RunLogStore
     from pf.schemas.journal import (VerificationJournal, VerificationJournalEntry,
-                                    VerificationPackagePolicy, JournalStaticScope)
+                                    VerificationPackagePolicy)
     from pf.schemas.evaluation import AttemptFailureScope
     logs = RunLogStore(root=tmp_path, run_id="guided")
     journal = VerificationJournal(
@@ -135,10 +135,45 @@ def assert_guidance_journal_roundtrip(tmp_path, project, result, scope):
             package=project.package.name, cell=project.package.cells[0], role="probe", failure=failure,
             attempt=failure.scope.attempt if isinstance(failure.scope, AttemptFailureScope) else None,
         ) for failure in result.failure_records),
-        static_scopes=(JournalStaticScope(run_id=logs.run_id, scope=scope),),
+        static_membership=(),
     )
     logs.write_journal(journal)
     assert logs.read_journal(logs.run_id) == journal
+
+
+def assert_public_selection_reasons(report) -> None:
+    from pf.schemas.report import CellSearchFailure, CellSuccess
+
+    intern_fields = {
+        "static_contents",
+        "static_subjects",
+        "static_facts",
+        "static_comparisons",
+        "static_scopes",
+    }
+    evidence = report._wire.model_dump(mode="json")["evidence"]
+    assert intern_fields.isdisjoint(evidence)
+    for result in report.cell_results:
+        searches = []
+        if isinstance(result, CellSuccess):
+            searches.append(result.search)
+        elif isinstance(result, (CellSearchFailure, CellIndeterminate)) and result.coordinate_failure is not None:
+            searches.append(result.coordinate_failure)
+        for search in searches:
+            for observation in search.observations:
+                if observation.dependency is None:
+                    assert observation.selection_reason is None
+                else:
+                    assert observation.selection_reason in {
+                        "mechanical-lowest",
+                        "mechanical-midpoint",
+                        "history",
+                        "static-suspect",
+                        "static-clean-neighbor",
+                        "direct-existing",
+                        "external-hint",
+                        "current-upper",
+                    }
 
 
 class TestSearchCoordinator:
@@ -180,7 +215,17 @@ class TestSearchCoordinator:
             assert omitted.window == ("1", "2", "3")
             assert omitted.observed_pass_refs == ()
             assert len(scope.facts) == 2 and len(scope.passes) == 1
-            assert all(item.request.selection_reason in {"mechanical", "history"} for item in scope.selections)
+            assert all(
+                item.request.selection_reason in {
+                    "mechanical-lowest",
+                    "mechanical-midpoint",
+                    "history",
+                    "current-upper",
+                    "direct-existing",
+                    "external-hint",
+                }
+                for item in scope.selections
+            )
             assert all(item.request.static_search_ref is None for item in scope.selections)
             skip = assert_direct_bound_skip(scope, floor="2", predecessor="1")
             assert skip.observed_search_refs == ()
@@ -188,16 +233,16 @@ class TestSearchCoordinator:
             assert type(scope).model_validate_json(scope.model_dump_json()) == scope
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
-                source_snapshot=project.snapshot.identity, cell_results=(result,), static_scopes=(scope,),
+                source_snapshot=project.snapshot.identity, cell_results=(result,),
             )
             store = ReportStore()
             path = tmp_path / "omitted-guidance.json"
             store.write(path, report)
             original = path.read_bytes()
             restored = store.read(path)
-            assert restored.static_scopes[0].omissions == scope.omissions
-            assert restored.static_scopes[0].selections == scope.selections
-            assert restored.static_scopes[0].skips == scope.skips
+            assert "static_scopes" not in restored._wire.model_dump(mode="json")
+            assert "static_contents" not in restored._wire.model_dump(mode="json")
+            assert_public_selection_reasons(restored)
             assert_guidance_journal_roundtrip(tmp_path, project, result, scope)
             store.write(path, restored)
             assert path.read_bytes() == original
@@ -318,16 +363,14 @@ class TestSearchCoordinator:
                 assert all(item.request.static_search_ref is None for item in scope.selections)
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
-                source_snapshot=project.snapshot.identity, cell_results=(result,), static_scopes=(scope,),
+                source_snapshot=project.snapshot.identity, cell_results=(result,),
             )
             path = tmp_path / "guided-report.json"
             store = ReportStore()
             store.write(path, report)
             original = path.read_bytes()
             restored = store.read(path)
-            assert restored.static_scopes[0].searches == scope.searches
-            assert restored.static_scopes[0].selections == scope.selections
-            assert restored.static_scopes[0].skips == scope.skips
+            assert_public_selection_reasons(restored)
             assert_guidance_journal_roundtrip(tmp_path, project, result, scope)
             store.write(path, restored)
             assert path.read_bytes() == original
@@ -479,13 +522,13 @@ class TestSearchCoordinator:
             assert_selection_identity_is_dynamic_only(scope)
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
-                source_snapshot=project.snapshot.identity, cell_results=(result,), static_scopes=(scope,),
+                source_snapshot=project.snapshot.identity, cell_results=(result,),
             )
             store = ReportStore()
             path = tmp_path / "clean-neighbor.json"
             store.write(path, report)
             restored = store.read(path)
-            assert restored.static_scopes[0].selections == scope.selections
+            assert_public_selection_reasons(restored)
             assert_guidance_journal_roundtrip(tmp_path, project, result, scope)
             failure_id = next(
                 item.failure_id for item in scope.selections
@@ -524,18 +567,7 @@ class TestSearchCoordinator:
                 discovery=ProjectDiscovery(), reports=ReportStore(), logs=logs,
             ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
             assert logs.journal_reads == []
-            assert [item.path for item in diagnosis.static_associations] == ["execution", "selection"]
-            execution, selection = diagnosis.static_associations
-            assert execution.fact_kind == "ty-check" and execution.diagnostic_count == 1
-            assert any(item.kind == "SLICE" and item.state == "STATIC_REGRESSION" for item in execution.comparisons)
-            assert selection.selection_reason == "static-suspect"
-            assert selection.static_search_ref == search.ref
-            assert any(item.state == "STATIC_REGRESSION" for item in selection.comparisons)
-            highest_self = {
-                item.identity for item in scope.comparisons
-                if item.subject_ref == item.reference_ref == scope.highest_reference_ref
-            }
-            assert highest_self.isdisjoint({item.identity for item in execution.comparisons})
+            assert diagnosis.static_associations == ()
             with pytest.raises(DiagnoseNotFoundError):
                 DiagnoseCommandWorkflow(
                     discovery=ProjectDiscovery(), reports=ReportStore(), logs=logs,
@@ -547,11 +579,7 @@ class TestSearchCoordinator:
                 root=tmp_path,
             ).render_diagnose(diagnosis) == 0
             rendered = visible_cli_text(stdout.getvalue())
-            assert "Related static evidence" in rendered
-            assert "probed as static-suspect" in rendered
-            assert "not the compatibility result" in rendered
-            assert "SLICE vs S_slice:" in rendered
-            assert "static process log is unavailable" in rendered
+            assert "Related static evidence" not in rendered
             (tmp_path / "package-floor.json").unlink()
             from pf.runlog import RunLogStore
             journaled = DiagnoseCommandWorkflow(
@@ -559,7 +587,7 @@ class TestSearchCoordinator:
                 logs=RunLogStore(root=tmp_path, run_id="guided"),
             ).run(DiagnoseRequest(root=tmp_path.as_posix(), failure_id=failure_id))
             assert journaled.source == "journal"
-            assert [item.path for item in journaled.static_associations] == ["execution", "selection"]
+            assert journaled.static_associations == ()
         finally:
             project.snapshot.close()
 
@@ -638,7 +666,7 @@ class TestSearchCoordinator:
             assert all(item.fact_kind != "ty-check" for item in associations)
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
-                source_snapshot=project.snapshot.identity, cell_results=(result,), static_scopes=(scope,),
+                source_snapshot=project.snapshot.identity, cell_results=(result,),
             )
             path = tmp_path / "prepare-unavailable.json"
             store = ReportStore()
@@ -872,7 +900,6 @@ class TestSearchCoordinator:
             source_plan=project.source_plan,
             source_snapshot=project.snapshot.identity,
             cell_results=(result,),
-            static_scopes=(scope,),
         )
         path = tmp_path / "package-floor.json"
         store = ReportStore()
@@ -882,7 +909,7 @@ class TestSearchCoordinator:
         original_bytes = path.read_bytes()
         store.write(path, restored)
         assert path.read_bytes() == original_bytes
-        assert restored.static_scopes == (scope,)
+        assert_public_selection_reasons(restored)
         comparisons = {
             scope.consumer(item.subject_ref).preparation.proposal.proposal_id: item
             for item in scope.comparisons

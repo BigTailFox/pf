@@ -22,9 +22,8 @@ from pf.schemas.evaluation import (
     ProcessSpec,
     ProcessTerminalUnavailable,
 )
-from pf.schemas.journal import VerificationJournal
-from pf.schemas.static_scope import StaticScopeEvidence
-from pf.static_association import static_producer_log_associations
+from pf.schemas.journal import VerificationJournal, admit_static_membership
+from pf.schemas.ty_cache import TyCacheDocument
 
 
 class RunLogStore:
@@ -34,6 +33,7 @@ class RunLogStore:
     _INDEX_LIMIT = 8 * 1024 * 1024
     _INDEX_NAME = "diagnosis-index.json"
     _JOURNAL_NAME = "journal.json"
+    _TY_CACHE_NAME = "ty-cache.json"
     _LATEST_JOURNAL_KEY = "__latest_journal__"
     _STDOUT_SECTION = "--- stdout ---"
     _STDERR_SECTION = "--- stderr ---"
@@ -142,11 +142,97 @@ class RunLogStore:
     def run_id(self) -> str:
         return self._run_id
 
-    def write_journal(self, journal: VerificationJournal) -> Path:
+    def write_ty_cache(self, cache: TyCacheDocument) -> Path:
+        """Atomically write this run's ty-cache snapshot. Does not publish latest."""
+        try:
+            if not isinstance(cache, TyCacheDocument) or cache.run_id != self.run_id:
+                raise ValueError("ty-cache must match this writer Run")
+            with self._lock:
+                self._ensure_run()
+                payload = cache.model_dump(mode="json")
+                payload["schema"] = payload.pop("schema_version")
+                content = (
+                    json.dumps(
+                        payload,
+                        sort_keys=True,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+                self._directory.write_run_text(self._TY_CACHE_NAME, content)
+            return self._run_root / self._TY_CACHE_NAME
+        except (OSError, NotImplementedError, ValueError, ValidationError) as error:
+            raise InfrastructureError(
+                "could not write PF ty-cache",
+                detail=str(error),
+            ) from error
+
+    def read_ty_cache(self, run_id: str) -> TyCacheDocument:
+        """Read a Run-local ty-cache. Diagnose must not call this."""
+        if re.fullmatch(r"[A-Za-z0-9._-]+", run_id) is None:
+            raise JournalReadError(run_id=run_id, reason="unsupported-journal-contract")
+        try:
+            content = self._directory.read_run_text(run_id, self._TY_CACHE_NAME, None)
+        except (OSError, ValueError) as error:
+            raise InfrastructureError(
+                "could not read PF ty-cache",
+                detail=str(error),
+            ) from error
+        try:
+            document = json.loads(content)
+        except (ValueError, json.JSONDecodeError) as error:
+            raise InfrastructureError(
+                "could not read PF ty-cache",
+                detail=str(error),
+            ) from error
+        if not isinstance(document, dict):
+            raise InfrastructureError("could not read PF ty-cache", detail="ty-cache is not an object")
+        schema = document.pop("schema", None)
+        document["schema_version"] = schema
+        try:
+            cache = TyCacheDocument.model_validate(document)
+        except ValidationError as error:
+            raise InfrastructureError(
+                "could not read PF ty-cache",
+                detail=str(error),
+            ) from error
+        if cache.run_id != run_id:
+            raise InfrastructureError(
+                "could not read PF ty-cache",
+                detail="ty-cache run_id does not match its directory",
+            )
+        return cache
+
+    def audit_static_membership(self, journal: VerificationJournal) -> None:
+        """Writer/audit seam: membership must close against this Run's ty-cache."""
+        admit_static_membership(journal, self.read_ty_cache(journal.run_id))
+
+    def persist_run(
+        self,
+        journal: VerificationJournal,
+        cache: TyCacheDocument,
+    ) -> None:
+        """Write cache, then Journal, then latest. Partial failure does not claim diagnose."""
+        self.write_ty_cache(cache)
+        self.write_journal(journal, publish_latest=False, admit_cache=cache)
+        self.publish_latest(journal)
+
+    def write_journal(
+        self,
+        journal: VerificationJournal,
+        *,
+        publish_latest: bool = True,
+        admit_cache: TyCacheDocument | None = None,
+    ) -> Path:
         """Write this run's Verification Journal and index its failure locators."""
         try:
             if not isinstance(journal, VerificationJournal) or journal.run_id != self.run_id:
                 raise ValueError("verification journal must match this v3 writer Run")
+            collected = any(member.highest.kind == "collected" for member in journal.static_membership)
+            if collected:
+                cache = admit_cache if admit_cache is not None else self.read_ty_cache(journal.run_id)
+                admit_static_membership(journal, cache)
             with self._lock:
                 self._ensure_run()
                 payload = journal.model_dump(mode="json")
@@ -172,25 +258,23 @@ class RunLogStore:
                 located,
                 replace_generation=True,
             )
-            for member in journal.static_scopes:
-                static_logs = tuple(
-                    (ref, process)
-                    for ref, process in static_producer_log_associations(member.scope)
-                    if self.reference_for(process) is not None
-                )
-                self.replace_associations(
-                    f"journal-static:{journal.run_id}:{member.scope.scope_ref}",
-                    static_logs, replace_generation=False,
-                )
-            self._write_latest_journal(
-                {package: journal.run_id for package in journal.packages}
-            )
+            if publish_latest:
+                self.publish_latest(journal)
             return self._run_root / self._JOURNAL_NAME
-        except (OSError, NotImplementedError, ValueError) as error:
+        except (OSError, NotImplementedError, ValueError, InfrastructureError) as error:
+            if isinstance(error, InfrastructureError):
+                raise
             raise InfrastructureError(
                 "could not write PF verification journal",
                 detail=str(error),
             ) from error
+
+    def publish_latest(self, journal: VerificationJournal) -> None:
+        if journal.run_id != self.run_id:
+            raise ValueError("verification journal must match this v3 writer Run")
+        self._write_latest_journal(
+            {package: journal.run_id for package in journal.packages}
+        )
 
     def read_latest_journal(self, package: str) -> VerificationJournal | None:
         run_id = self.latest_journal_id(package)
@@ -235,6 +319,7 @@ class RunLogStore:
             static_error = any(
                 item["type"] == "invalid-static-evidence"
                 or item["loc"][:1] in {
+                    ("static_membership",),
                     ("static_scopes",),
                     ("static_contents",),
                     ("static_subjects",),
@@ -248,69 +333,6 @@ class RunLogStore:
         if journal.run_id != run_id:
             raise JournalReadError(run_id=run_id, reason="unsupported-journal-contract")
         return journal
-
-    def lookup_static(self, run_id: str, scope_ref: str, producer_ref: str) -> Path | None:
-        """Resolve a typed producer fact of an admitted Journal static scope."""
-        return self.lookup(f"journal-static:{run_id}:{scope_ref}", producer_ref)
-
-    def lookup_report_static(
-        self, report_generation_id: str, scope_ref: str, producer_ref: str,
-    ) -> Path | None:
-        """Resolve a typed producer fact of a report-side static scope."""
-        return self.lookup(f"report-static:{report_generation_id}:{scope_ref}", producer_ref)
-
-    def index_report_static(
-        self,
-        report_generation_id: str,
-        scope: StaticScopeEvidence,
-        *,
-        replace_generation: bool = True,
-    ) -> None:
-        """Publish typed producer locators for one report-side static scope.
-
-        Live process objects reuse this Run's recorded locators. Portable
-        journal scopes reuse the already-written journal-static keys.
-        Associations without a recorded log are omitted, matching Journal
-        write filtering.
-        """
-        associations = static_producer_log_associations(scope)
-        dest = f"report-static:{report_generation_id}:{scope.scope_ref}"
-        source = f"journal-static:{self.run_id}:{scope.scope_ref}"
-        try:
-            with self._lock:
-                located: dict[str, str] = {}
-                for producer_ref, process in associations:
-                    relative = self._relative_reference(process)
-                    if relative is not None:
-                        located[producer_ref] = relative
-                entries = self._read_index_entries()
-                journal_logs = entries.get(source, {})
-                for producer_ref, _process in associations:
-                    if producer_ref in located:
-                        continue
-                    relative = journal_logs.get(producer_ref)
-                    if not isinstance(relative, str):
-                        continue
-                    self._validate_relative_locator(relative)
-                    located[producer_ref] = relative
-                if located:
-                    self._ensure_run()
-                self._update_entries(
-                    entries,
-                    dest,
-                    located,
-                    replace_generation=replace_generation,
-                    remove_failure_ids=(),
-                )
-                self._directory.write_logs_text(
-                    self._INDEX_NAME,
-                    self._index_content(entries),
-                )
-        except (OSError, NotImplementedError, ValueError) as error:
-            raise InfrastructureError(
-                "could not write PF diagnosis index",
-                detail=str(error),
-            ) from error
 
     def lookup_run(self, run_id: str, failure_id: str) -> Path | None:
         return self.lookup(f"journal:{run_id}", failure_id)

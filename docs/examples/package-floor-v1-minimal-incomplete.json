@@ -5,12 +5,7 @@
     "evaluations": [],
     "failures": [],
     "proposals": [],
-    "resolution_graphs": [],
-    "static_comparisons": [],
-    "static_contents": [],
-    "static_facts": [],
-    "static_scopes": [],
-    "static_subjects": []
+    "resolution_graphs": []
   },
   "identity": {
     "execution_policy": {
@@ -50,14 +45,14 @@
       "name": "pf",
       "version": "0.3.0"
     },
-    "guidance_policy_identity": "efb23cb3ec88ed638a7ab73eee5a8136e9e583ac9aba6c29d1b861b39a8f3c63",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
     "package": {
       "name": "demo",
       "pyproject_path": "pyproject.toml"
     },
-    "policy_identity": "1a0a12f878a5e25f638aab48c3b6d252f693c86b26cc13decd866fcd39fa453a",
-    "report_generation_id": "8987182afc0ef966e696d1808cfb616600f8b9e4ba72137a626b26d05edbbcc2",
-    "search_derivation_identity": "efef7b09e9c81c3f21924d55126190467f2d9e0ccd288e7909688cf4bee25ab4",
+    "policy_identity": "fd39c1ea8d4e805b98d515501efb086d91bb5b24cb91891015d38816707024d3",
+    "report_generation_id": "9969a7b9bffa93f551851f9db009db8a010e8cdc71d7f0d13c903631d7322f22",
+    "search_derivation_identity": "3f7ea733fb76e96df406efae8e1a2d8d5e927942f68296f1149d2f966adb3eaf",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
       "entries": [],

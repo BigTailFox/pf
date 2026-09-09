@@ -24,21 +24,37 @@ from pf.snapshot import SnapshotBuilder
 from pf.static_cache import CacheMiss, RunTyFactRef
 from pf.static_request import StaticRequestFactory
 from pf.verification import SmokeVerificationRun, VerificationRunner
-from test_static_report import assert_interned_static_audit
+from pf.errors import InfrastructureError
+from pf.schemas.journal import (
+    VerificationJournal,
+    VerificationPackagePolicy,
+    admit_static_membership,
+)
 
-FROZEN_ADMITTED_JOURNAL = (
-    Path(__file__).resolve().parent / "fixtures" / "admitted-static-journal.json"
+INTERN_FIELDS = (
+    "static_contents",
+    "static_subjects",
+    "static_facts",
+    "static_comparisons",
+    "static_scopes",
 )
 
 
-def _write_frozen_journal(tmp_path: Path):
-    from pf.schemas.journal import VerificationJournal
-
-    payload = json.loads(FROZEN_ADMITTED_JOURNAL.read_text(encoding="utf-8"))
-    document = dict(payload)
-    document["schema_version"] = document.pop("schema")
-    journal = VerificationJournal.model_validate(document)
-    store = RunLogStore(root=tmp_path, run_id=journal.run_id)
+def _write_current_journal(tmp_path: Path):
+    store = RunLogStore(root=tmp_path, run_id="current-journal")
+    journal = VerificationJournal(
+        run_id=store.run_id,
+        command="smoke",
+        source_snapshot_digest="e91f3a54af54b8970f89b69b74a98cccf621f0cd7e6027d3996f49d3e8bacd81",
+        package_policies=(
+            VerificationPackagePolicy(
+                package="demo",
+                execution_policy_identity="d02a58ef756e371f8feec239e6570eb88b7f3938a72423a6b0949409a2e01fa6",
+            ),
+        ),
+        entries=(),
+        static_membership=(),
+    )
     path = store.write_journal(journal)
     return store, journal, path
 
@@ -117,144 +133,56 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('ver
         )
         journal = logs.read_latest_journal(package.name)
         assert journal is not None
-        scope = journal.static_scopes[0].scope
-        policy = scope.facts[0].observation.observation_policy
-        assert isinstance(
-            caches[0].lookup(scope.consumers[0].preparation.subject, policy), CacheMiss
-        )
-        yield logs, journal, outcomes, events
+        assert journal.static_membership[0].highest.kind == "collected"
+        cache = logs.read_ty_cache(journal.run_id)
+        admit_static_membership(journal, cache)
+        yield logs, journal, outcomes, events, caches
     finally:
         snapshot.close()
 
 
 class TestStaticJournal:
     @pytest.mark.process
-    def test_real_pass_persists_raw_comparison_and_pass_after_run_close(
+    def test_real_pass_persists_membership_and_ty_cache(
         self, actual_static_journal, tmp_path: Path, record_property
     ):
-        logs, journal, outcomes, events = actual_static_journal
+        logs, journal, outcomes, events, caches = actual_static_journal
         assert all(outcome.status == "PASS" for outcome in outcomes)
         assert journal.schema_version == "verification-journal-v3"
         assert journal.entries == ()
-        assert len(journal.static_scopes) == 1
-        membership = journal.static_scopes[0]
-        assert membership.run_id == journal.run_id
-        scope = membership.scope
-        assert (
-            len(scope.facts)
-            == len(scope.consumers)
-            == len(scope.passes)
-            == len(scope.comparisons)
-            == 1
-        )
-        assert len(scope.processes) == 2
-        comparison = scope.comparisons[0]
-        replay = scope.compare(
-            scope_ref=scope.scope_ref,
-            subject_ref=comparison.subject_ref,
-            reference_ref=comparison.reference_ref,
-            context=comparison.context,
-            guidance=comparison.guidance,
-            anchor_pass_ref=comparison.anchor_pass_ref,
-        )
-        assert replay.identity == comparison.identity
-        assert replay.result == comparison.result
+        assert len(journal.static_membership) == 1
+        member = journal.static_membership[0]
+        assert member.highest.kind == "collected"
+        cache = logs.read_ty_cache(journal.run_id)
+        assert cache.schema_version == "pf-ty-cache-v1"
+        assert cache.run_id == journal.run_id
+        admit_static_membership(journal, cache)
+        document = json.loads((logs._run_root / "journal.json").read_text())
+        assert all(name not in document for name in INTERN_FIELDS)
         assert (
             next(
                 event for event in events if isinstance(event, CellCompletedEvent)
             ).outcome.status
             == "PASS"
         )
-        # Rewriting admitted portable evidence preserves this Run's typed producer logs.
         logs.write_journal(journal)
-        from pf.static_association import static_producer_log_associations
-        associations = static_producer_log_associations(scope)
-        assert associations
-        for producer_ref, _process in associations:
-            path = logs.lookup_static(journal.run_id, scope.scope_ref, producer_ref)
-            assert path is not None
-            assert producer_ref.startswith(("ty-check:", "ty-check-unavailable:", "static-prepare:"))
-            assert logs.read_tail(path) == (
-                ("[]",) if producer_ref.startswith("ty-check:") else ("verified demo",)
-            )
-        assert all(
-            logs.lookup_static(journal.run_id, scope.scope_ref, record.ref) is None
-            for record in scope.processes
-        )
         copy = RunLogStore(root=tmp_path, run_id=journal.run_id)
+        copy.write_ty_cache(cache)
         path = copy.write_journal(journal)
         first = path.read_bytes()
         restored = copy.read_latest_journal(journal.packages[0])
-        assert restored == journal
         assert restored is not None
+        assert restored == journal
         copy.write_journal(restored)
         assert path.read_bytes() == first
-        assert_interned_static_audit(json.loads(first))
         record_property("journal_bytes", len(first))
+        assert isinstance(caches[0].lookup(cache.entries[0].document.subject, cache.entries[0].document.observation_policy), CacheMiss)
 
-    @pytest.mark.process
-    def test_report_side_index_resolves_typed_producer_logs(
-        self, actual_static_journal, tmp_path: Path,
-    ):
-        from pf.static_association import static_producer_log_associations
-
-        logs, journal, _, _ = actual_static_journal
-        logs.write_journal(journal)
-        scope = journal.static_scopes[0].scope
-        associations = static_producer_log_associations(scope)
-        assert associations
-        assert all(logs.reference_for(process) is None for _ref, process in associations)
-        logs.index_report_static("generation", scope, replace_generation=True)
-        for producer_ref, _process in associations:
-            path = logs.lookup_report_static("generation", scope.scope_ref, producer_ref)
-            journal_path = logs.lookup_static(journal.run_id, scope.scope_ref, producer_ref)
-            assert path is not None
-            assert path == journal_path
-            assert logs.read_tail(path) is not None
-        assert logs.lookup_report_static("generation", scope.scope_ref, "ty-check:missing") is None
-
-    @pytest.mark.parametrize(
-        "mutation",
-        [
-            "scope-run", "snapshot", "policy", "consumer", "comparison", "duplicate-cell",
-            "dangling-fact", "unused-fact", "embedded-fact",
-        ],
-    )
-    def test_reader_rejects_invalid_static_scope_evidence(
-        self, tmp_path: Path, mutation
-    ):
-        store, journal, path = _write_frozen_journal(tmp_path)
+    @pytest.mark.parametrize("field", INTERN_FIELDS)
+    def test_reader_rejects_old_intern_tables(self, tmp_path: Path, field):
+        store, journal, path = _write_current_journal(tmp_path)
         document = json.loads(path.read_text())
-        if mutation == "scope-run":
-            document["static_scopes"][0]["run_id"] = "another-run"
-        elif mutation == "snapshot":
-            document["source_snapshot_digest"] = "another-snapshot"
-        elif mutation == "policy":
-            document["package_policies"][0]["execution_policy_identity"] = (
-                "another-policy"
-            )
-        elif mutation == "consumer":
-            document["static_scopes"][0]["scope"]["comparisons"][0]["subject_ref"] = (
-                "another-consumer"
-            )
-        elif mutation == "comparison":
-            document["static_scopes"][0]["scope"]["comparisons"][0]["identity"] = (
-                "0" * 64
-            )
-        elif mutation == "dangling-fact":
-            document["static_scopes"][0]["scope"]["facts"][0]["observation_identity"] = (
-                "0" * 64
-            )
-        elif mutation == "unused-fact":
-            document["static_facts"].append(document["static_facts"][0])
-        elif mutation == "embedded-fact":
-            document["static_scopes"][0]["scope"]["facts"][0]["observation"] = {
-                "subject_identity": document["static_facts"][0]["subject_identity"],
-                "fact": document["static_facts"][0]["fact"],
-            }
-            del document["static_scopes"][0]["scope"]["facts"][0]["observation_identity"]
-        else:
-            document["static_scopes"].append(document["static_scopes"][0])
+        document[field] = []
         path.write_text(json.dumps(document))
         with pytest.raises(JournalReadError) as caught:
             store.read_journal(journal.run_id)
@@ -264,7 +192,7 @@ class TestStaticJournal:
     def test_reader_rejects_an_undecodable_contract(
         self, tmp_path: Path, content
     ):
-        store, journal, path = _write_frozen_journal(tmp_path)
+        store, journal, path = _write_current_journal(tmp_path)
         path.write_text(content)
         with pytest.raises(JournalReadError) as caught:
             store.read_journal(journal.run_id)
@@ -273,7 +201,7 @@ class TestStaticJournal:
     def test_reader_rejects_an_unsupported_contract(
         self, tmp_path: Path
     ):
-        store, journal, path = _write_frozen_journal(tmp_path)
+        store, journal, path = _write_current_journal(tmp_path)
         document = json.loads(path.read_text())
         document["schema"] = "unsupported-journal-contract"
         path.write_text(json.dumps(document))
@@ -281,16 +209,28 @@ class TestStaticJournal:
             store.read_latest_journal(journal.packages[0])
         assert caught.value.reason == "unsupported-journal-contract"
 
+    def test_ordinary_journal_read_does_not_open_ty_cache(self, tmp_path: Path):
+        store, journal, _path = _write_current_journal(tmp_path)
+
+        def boom(run_id):
+            raise AssertionError("diagnose reader must not open ty-cache")
+
+        store.read_ty_cache = boom  # type: ignore[method-assign]
+        restored = store.read_journal(journal.run_id)
+        assert restored == journal
+        assert store.latest_journal_id("demo") == journal.run_id
+
     def test_many_observations_round_trip_in_one_scope(
         self, tmp_path: Path, record_property
     ):
         from evaluation_fixtures import evaluation_assembly, evaluation_project
         from pf.environment import HighestResolution, PreparedEnvironment
         from pf.schemas.journal import (
-            JournalStaticScope,
             VerificationJournal,
             VerificationPackagePolicy,
+            static_membership_from_scope,
         )
+        from pf.schemas.ty_cache import ty_cache_from_documents
         from pf.schemas.ty_fact import TyCheckFact
         from pf.static_cache import TyCheckCache
         from scripted_static import ScriptedStaticRequests
@@ -327,7 +267,8 @@ class TestStaticJournal:
                     assert isinstance(fact, RunTyFactRef)
                     assert isinstance(fact.observation.fact, TyCheckFact)
                 scope = cache.snapshot(prepared.proposal.cell)
-                assert len(scope.facts) == 12
+                assert len(scope.facts) == 1
+                member = static_membership_from_scope(scope)
                 journal = VerificationJournal(
                     run_id=store.run_id,
                     command="check",
@@ -339,12 +280,15 @@ class TestStaticJournal:
                             execution_policy_identity=prepared.proposal.policy_identity,
                         ),
                     ),
-                    static_scopes=(JournalStaticScope(run_id=store.run_id, scope=scope),),
+                    static_membership=() if member is None else (member,),
                 )
-                path = store.write_journal(journal)
+                ty_cache = ty_cache_from_documents(run_id=store.run_id, documents=cache.documents())
+                store.persist_run(journal, ty_cache)
+                path = store._run_root / "journal.json"
             restored = store.read_latest_journal(project.package.name)
             assert restored is not None
             assert restored.model_dump(mode="json") == journal.model_dump(mode="json")
+            admit_static_membership(restored, store.read_ty_cache(store.run_id))
             record_property("multiple_observation_journal_bytes", path.stat().st_size)
         finally:
             prepared.close()
@@ -438,27 +382,85 @@ class TestStaticJournal:
             journal = logs.read_latest_journal(project.package.name)
             assert journal is not None
             assert journal.entries == ()
-            assert len(journal.static_scopes) == 1
-            scope = journal.static_scopes[0].scope
+            assert len(journal.static_membership) == 1
+            member = journal.static_membership[0]
             if scenario == "input-unavailable":
-                assert scope.highest_uncollected is not None
-                assert (
-                    scope.highest_uncollected.unavailable.detail == "unreadable-content"
-                )
-                assert scope.facts == scope.processes == scope.passes == ()
+                assert member.highest.kind == "uncollected"
+                assert member.highest.detail == "unreadable-content"
+                cache = logs.read_ty_cache(journal.run_id)
+                assert cache.entries == ()
             else:
-                assert len(scope.facts) == len(scope.passes) == 1
-                assert scope.facts[0].observation.fact.kind == (
+                assert member.highest.kind == "collected"
+                cache = logs.read_ty_cache(journal.run_id)
+                admit_static_membership(journal, cache)
+                assert cache.entries[0].document.fact.kind == (
                     "ty-check-unavailable"
                     if scenario == "ty-unavailable"
                     else "ty-check"
                 )
                 assert isinstance(
                     caches[0].lookup(
-                        scope.facts[0].observation.subject,
-                        scope.facts[0].observation.observation_policy,
+                        cache.entries[0].document.subject,
+                        cache.entries[0].document.observation_policy,
                     ),
                     CacheMiss,
                 )
         finally:
             project.snapshot.close()
+
+    def _empty_artifacts(self, tmp_path: Path, run_id: str):
+        from pf.schemas.ty_cache import TyCacheDocument
+
+        journal = VerificationJournal(
+            run_id=run_id,
+            command="smoke",
+            source_snapshot_digest="e91f3a54af54b8970f89b69b74a98cccf621f0cd7e6027d3996f49d3e8bacd81",
+            package_policies=(
+                VerificationPackagePolicy(
+                    package="demo",
+                    execution_policy_identity="d02a58ef756e371f8feec239e6570eb88b7f3938a72423a6b0949409a2e01fa6",
+                ),
+            ),
+            entries=(),
+            static_membership=(),
+        )
+        return journal, TyCacheDocument(run_id=run_id, entries=())
+
+    def test_cache_write_failure_does_not_commit_journal_or_latest(self, tmp_path: Path):
+        class Broken(RunLogStore):
+            def write_ty_cache(self, cache):
+                raise InfrastructureError("could not write PF ty-cache", detail="injected")
+
+        broken = Broken(root=tmp_path, run_id="cache-fail")
+        journal, cache = self._empty_artifacts(tmp_path, broken.run_id)
+        with pytest.raises(InfrastructureError):
+            broken.persist_run(journal, cache)
+        assert not (broken._run_root / "journal.json").exists()
+        assert broken.latest_journal_id("demo") is None
+
+    def test_journal_write_failure_leaves_cache_without_latest(self, tmp_path: Path):
+        class Broken(RunLogStore):
+            def write_journal(self, journal, **kwargs):
+                raise InfrastructureError("could not write PF verification journal", detail="injected")
+
+        broken = Broken(root=tmp_path, run_id="journal-fail")
+        journal, cache = self._empty_artifacts(tmp_path, broken.run_id)
+        with pytest.raises(InfrastructureError):
+            broken.persist_run(journal, cache)
+        assert (broken._run_root / "ty-cache.json").exists()
+        assert not (broken._run_root / "journal.json").exists()
+        assert broken.latest_journal_id("demo") is None
+
+    def test_latest_failure_keeps_journal_readable_by_run_id(self, tmp_path: Path):
+        class Broken(RunLogStore):
+            def publish_latest(self, journal):
+                raise InfrastructureError("could not write PF diagnosis index", detail="injected")
+
+        broken = Broken(root=tmp_path, run_id="latest-fail")
+        journal, cache = self._empty_artifacts(tmp_path, broken.run_id)
+        with pytest.raises(InfrastructureError):
+            broken.persist_run(journal, cache)
+        restored = broken.read_journal(broken.run_id)
+        assert restored is not None
+        assert restored.run_id == broken.run_id
+        assert broken.latest_journal_id("demo") is None

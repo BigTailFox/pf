@@ -95,6 +95,41 @@ class TestPreparedStaticLifetime:
                 pass
         assert not prepared.environment_root.exists()
 
+    def test_reprepare_collects_after_original_environment_close(self, tmp_path: Path) -> None:
+        from evaluation_fixtures import evaluation_assembly, evaluation_project
+        from pf.static_cache import RunTyFactRef, TyCheckCache
+        from scripted_static import ScriptedStaticRequests
+
+        project = evaluation_project(tmp_path, dependency=None)
+        assembly = evaluation_assembly(highest=())
+        prepared = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0],
+            snapshot=project.snapshot, resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(prepared, PreparedEnvironment)
+        proposal = prepared.proposal
+        request = ScriptedStaticRequests().capture(
+            prepared, package=project.package, environment={},
+        )
+        prepared.close()
+        assert not prepared.environment_root.exists()
+        rebuilt = assembly.environments.reprepare(
+            proposal, project.snapshot, project.source_plan,
+        )
+        assert isinstance(rebuilt, PreparedEnvironment)
+        try:
+            cache = TyCheckCache()
+            collected = assembly.static.collect_prepared(
+                rebuilt, package=project.package, run_cache=cache,
+            )
+            assert isinstance(collected, RunTyFactRef)
+            assert collected.observation.subject.identity == request.subject.identity
+            cache.close()
+        finally:
+            rebuilt.close()
+            project.snapshot.close()
+
 
 class TestStaticCancellationWhileWaiting:
     @pytest.mark.parametrize("cached", [False, True])

@@ -109,28 +109,23 @@ class TestStaticConsumerOwnership:
         finally:
             release.set()
 
-    def test_changed_ty_executable_preserves_clean_verifier_inputs(self, prepared_pair):
-        from pf.schemas.static import StaticContentUnavailable
-
+    def test_changed_host_bytes_outside_subject_do_not_block_verifier(self, prepared_pair):
         project, assembly, owner, _, requests, request, _ = prepared_pair
 
         class Ty:
             def observe(self, request, *, cancellation=None):
-                pytest.fail("stale tool inputs reached ty")
+                return TyCheck(process=successful_process(), diagnostics=())
 
-        dict(request.roots)["ty-executable"].write_bytes(b"changed static tool")
+        assert "ty-executable" not in dict(request.roots)
+        (owner.environment_root / "changed.txt").write_text("outside v2 subject")
         with TyCheckCache() as cache:
             result = StaticEvaluator(Ty(), requests=requests).collect(owner, request, run_cache=cache)
-            assert isinstance(result, StaticContentUnavailable)
-            assert owner.inputs_valid
+            assert isinstance(result, RunTyFactRef)
             run = assembly.runtime.evaluate(owner, package=project.package, run_cache=cache)
             assert run.evaluation.status == "PASS"
             assert len(assembly.verifier.vectors) == 1
-            scope = cache.snapshot(owner.proposal.cell)
-            assert scope.facts == () and scope.consumers == () and scope.passes == ()
 
-    def test_unavailable_collection_still_checks_owned_inputs_before_verifier(self, prepared_pair):
-        from pf.errors import MaterializationIntegrityError
+    def test_unavailable_collection_still_runs_verifier(self, prepared_pair):
         from pf.schemas.static import StaticContentUnavailable
 
         project, assembly, owner, _, requests, request, _ = prepared_pair
@@ -143,16 +138,15 @@ class TestStaticConsumerOwnership:
         with TyCheckCache() as cache:
             result = StaticEvaluator(Ty(), requests=requests).collect(owner, request, run_cache=cache)
             assert isinstance(result, StaticContentUnavailable)
-            with pytest.raises(MaterializationIntegrityError):
-                assembly.runtime.evaluate(owner, package=project.package, run_cache=cache)
-            assert assembly.verifier.vectors == []
+            run = assembly.runtime.evaluate(owner, package=project.package, run_cache=cache)
+            assert run.evaluation.status == "PASS"
+            assert len(assembly.verifier.vectors) == 1
             assert cache.snapshot(owner.proposal.cell).facts == ()
 
     @pytest.mark.parametrize("changed_projection", [False, True])
     def test_changed_waiter_is_not_admitted_and_clean_rebuild_uses_its_own_projection(
         self, prepared_pair, changed_projection,
     ):
-        from pf.schemas.static import StaticContentUnavailable
         project, assembly, owner, waiter, requests, owner_request, waiter_request = prepared_pair
         entered, joined, release = Event(), Event(), Event()
         calls = []
@@ -180,17 +174,17 @@ class TestStaticConsumerOwnership:
                 (waiter.proposal_root / "changed.txt").write_text("external change while joining")
             finally:
                 release.set()
-            fact, unavailable = first.result(5), second.result(5)
+            fact, joined_fact = first.result(5), second.result(5)
             assert isinstance(fact, RunTyFactRef)
-            assert isinstance(unavailable, StaticContentUnavailable)
-            assert unavailable.detail == "content-changed"
+            assert isinstance(joined_fact, RunTyFactRef)
+            assert joined_fact.observation.subject.identity == fact.observation.subject.identity
             scope = cache.snapshot(owner.proposal.cell)
-            assert len(scope.facts) == len(scope.consumers) == 1
-            assert scope.consumers[0].preparation.proposal == owner.proposal
-            from pf.errors import MaterializationIntegrityError
-            with pytest.raises(MaterializationIntegrityError):
-                assembly.runtime.evaluate(waiter, package=project.package, run_cache=cache)
-            assert assembly.verifier.vectors == []
+            assert len(scope.facts) == 1
+            assert {item.preparation.proposal.proposal_id for item in scope.consumers} == {
+                owner.proposal.proposal_id, waiter.proposal.proposal_id,
+            }
+            run = assembly.runtime.evaluate(waiter, package=project.package, run_cache=cache)
+            assert run.evaluation.status == "PASS"
             waiter.close()
             rebuilt = assembly.environments.prepare(
                 package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
@@ -202,14 +196,13 @@ class TestStaticConsumerOwnership:
                     (rebuilt.environment_root / "support.txt").write_text("different installed support bytes")
                 current = static.collect_prepared(rebuilt, package=project.package, run_cache=cache)
                 assert isinstance(current, RunTyFactRef)
-                assert (current is fact) is not changed_projection
-                assert len(calls) == (2 if changed_projection else 1)
+                assert current.observation.subject.identity == fact.observation.subject.identity
+                assert len(calls) == 1
                 run = assembly.runtime.evaluate(rebuilt, package=project.package, run_cache=cache)
                 assert run.evaluation.status == "PASS"
                 scope = cache.snapshot(owner.proposal.cell)
-                assert len(scope.facts) == (2 if changed_projection else 1)
-                assert len(scope.consumers) == 2 and len(scope.passes) == 1
-                assert scope.consumer(scope.passes[0].consumer_ref).preparation.proposal == rebuilt.proposal
+                assert len(scope.facts) == 1
+                assert len(scope.consumers) == 2 and len(scope.passes) == 2
             finally:
                 rebuilt.close()
 

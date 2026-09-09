@@ -84,25 +84,14 @@ def _project_name(root: Path) -> str:
 
 def _check_document(result, *, root: Path, logs: RunLogStore) -> dict[str, object]:
     journal = logs.read_latest_journal(_project_name(root))
-    static_scopes = []
+    static_membership = []
     if journal is not None:
-        static_scopes = [
+        static_membership = [
             {
-                "scope_ref": member.scope.scope_ref,
-                "cell": _cell_key(member.scope.cell),
-                "facts": len(member.scope.facts),
-                "comparisons": len(member.scope.comparisons),
-                "searches": len(member.scope.searches),
-                "producer_kinds": sorted({
-                    fact.observation.fact.kind for fact in member.scope.facts
-                }),
-                "highest_uncollected": (
-                    None
-                    if member.scope.highest_uncollected is None
-                    else member.scope.highest_uncollected.unavailable.model_dump(mode="json")
-                ),
+                "cell": _cell_key(member.cell),
+                "highest": member.highest.model_dump(mode="json"),
             }
-            for member in journal.static_scopes
+            for member in journal.static_membership
         ]
     outcomes = []
     for outcome in getattr(result, "outcomes", ()):
@@ -133,7 +122,7 @@ def _check_document(result, *, root: Path, logs: RunLogStore) -> dict[str, objec
         "root": str(root),
         "run_id": _run_id(logs),
         "outcomes": outcomes,
-        "static_journal": static_scopes,
+        "static_journal": static_membership,
         "kind": type(result).__name__,
     }
 
@@ -186,18 +175,7 @@ def _search_document(result, *, root: Path, logs: RunLogStore) -> dict[str, obje
         "guidance_policy_identity": report.guidance_policy_identity,
         "search_derivation_identity": report.search_derivation_identity,
         "cells": cells,
-        "static_scopes": [
-            {
-                "scope_ref": scope.scope_ref,
-                "facts": len(scope.facts),
-                "comparisons": len(scope.comparisons),
-                "searches": len(scope.searches),
-                "omissions": len(scope.omissions),
-                "skips": len(scope.skips),
-                "selections": len(scope.selections),
-            }
-            for scope in report.static_scopes
-        ],
+        "static_membership": [],
     }
 
 

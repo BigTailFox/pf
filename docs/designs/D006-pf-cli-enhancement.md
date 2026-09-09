@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -131,11 +131,7 @@ search 卡片的 primary failure 与结构化 detail 只取该 Cell 终止时收
 
 普通 Cell 不展示 baseline `ty` warning、stdout/stderr tail、Process Log link、cause/status Enum 或全部 Failures。若应有的 Journal/Index 写入失败使 diagnose 不可用，才回退到对应 Process Log link；没有日志则显示 `Detailed diagnosis unavailable.`。
 
-`PytestFailureDetail` 只展示 `FAILED <nodeid>`、非 call phase 和数量，并以 dim 与 Reason 区分。最终 summary 只依据动态结果；ty diagnostic 或不可用不把动态 PASS 显示成失败。diagnose 若展示静态关联，须标明 GLOBAL vs S_hi 与 SLICE vs S_slice，并写明这些事实解释探测路径，不是兼容性结论。静态单行格式为：
-
-```text
-path[:line[:column]] [check_name] single-line message
-```
+`PytestFailureDetail` 只展示 `FAILED <nodeid>`、非 call phase 和数量，并以 dim 与 Reason 区分。最终 summary 只依据动态结果；ty diagnostic 或不可用不把动态 PASS 显示成失败。`diagnose` 只渲染 Failure 权威，不读 ty-cache、不展示静态 association。
 
 每个 Cell 独立展示，不跨 Cell 聚合。TTY completion 立即从 active Cell 区移入 setup
 首部下方的 pinned 完成区；命令 outcome 确定后与首部一起固结，不得改变两者顺序。

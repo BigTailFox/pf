@@ -7,77 +7,56 @@ import shutil
 
 import pytest
 
+from pf.adapters.uv_lock import parse_uv_pylock
+from pf.resolution import ResolutionPackage
+from pf.schemas.base import canonical_identity_json
+from pf.schemas.policy import (
+    SnapshotTyConfigMaterialized, SnapshotTyConfigUnavailable,
+    TyToolVersionDistribution, TyToolVersionUnavailable,
+)
+from pf.schemas.project import Cell, InterpreterIdentity, SourceIdentity
 from pf.schemas.static import StaticContentManifest, StaticContentUnavailable, StaticSubject
+from pf.static_projection import (
+    available_set_digest, available_set_preimage,
+    static_subject as build_static_subject,
+)
+from pf.static_request import may_start_ty
 from pf.static_subject import StaticContentCollector, ty_check_key
 from pf.policy import guidance_policy
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.evaluation import ProcessResult, ProcessTerminalUnavailable, ToolFailure, TyCheck, TyDiagnostic
 from pf.schemas.ty_fact import TyCheckFact, TyCheckUnavailable, TyFactDocument
 from pf.ty_fact import ty_fact_document
+from test_uv_lock import REGISTRY_LOCK
 
 
 @pytest.fixture
-def static_subject(tmp_path: Path) -> StaticSubject:
-    for name in ("snapshot", "interpreter", "environment"):
-        (tmp_path / name).mkdir()
-    (tmp_path / "snapshot" / "pyproject.toml").write_bytes(b"[project]\nname='demo'\nversion='1'\n")
-    (tmp_path / "snapshot" / "demo.py").write_bytes(b"x = 1\n")
-    (tmp_path / "interpreter" / "python").write_bytes(b"interpreter bytes")
-    (tmp_path / "interpreter" / "lib").mkdir()
-    (tmp_path / "interpreter" / "lib" / "builtins.pyi").write_bytes(b"class object: ...")
-    (tmp_path / "environment" / "demo.pyi").write_bytes(b"x: int\n")
-    collector = StaticContentCollector()
-    manifests = {}
-    for name in ("snapshot", "interpreter", "environment"):
-        content = collector.collect({name: tmp_path / name})
-        assert isinstance(content, StaticContentManifest)
-        manifests[name] = content.model_dump(mode="json")
+def static_subject() -> StaticSubject:
+    cell = Cell(
+        package="demo", target="x86_64-unknown-linux-gnu",
+        python_minor="3.10", extra_surface=(),
+    )
+    interpreter = InterpreterIdentity(implementation="cpython", version="3.10.19", abi="cp310")
+    packages = (
+        ResolutionPackage(
+            name="demo", version="1",
+            source=SourceIdentity(kind="path", locator="."),
+        ),
+    )
+    subject = build_static_subject(
+        source_snapshot_digest="a" * 64, cell=cell, interpreter=interpreter, packages=packages,
+    )
+    assert isinstance(subject, StaticSubject)
+    return subject
 
-    def ref(root, path="."):
-        return {"root": root, "path": path}
 
-    return StaticSubject.model_validate({
-        "projection": "static-subject-v1",
-        "source": {
-            "snapshot_identity": "a" * 64, "content": manifests["snapshot"],
-            "packages": [{"package": "demo", "source": ref("snapshot")}],
-            "source_plan": {"source_mode": "SEARCH", "routes": []},
-        },
-        "target": {
-            "cell": {"package": "demo", "target": "x86_64-unknown-linux-gnu", "python_minor": "3.10", "extra_surface": []},
-            "interpreter": {"implementation": "cpython", "version": "3.10.19", "abi": "cp310"},
-            "content": manifests["interpreter"], "executable": ref("interpreter", "python"),
-            "stdlib_roots": [ref("interpreter", "lib")],
-        },
-        "installed_world": {
-            "content": manifests["environment"], "support_files": [],
-            "nodes": [{
-                "name": "demo", "version": "1", "source": {"kind": "path", "locator": "."},
-                "artifact": None, "dependencies": [], "install_mode": "source",
-                "source_mapping": None, "files": [ref("environment", "demo.pyi")],
-            }],
-        },
-        "analysis_layout": {
-            "project_root": ref("snapshot"),
-            "targets": [ref("snapshot")], "cwd": ref("snapshot"),
-            "import_roots": [ref("snapshot"), ref("environment")],
-            "type_roots": [ref("interpreter", "lib")],
-            "root_placements": [
-                {"root": root, "location": ref("materialization", root)}
-                for root in ("environment", "interpreter", "snapshot")
-            ],
-        },
-        "configuration": {
-            "content": manifests["snapshot"],
-            "effective_file": ref("snapshot", "pyproject.toml"),
-            "files_in_precedence_order": [ref("snapshot", "pyproject.toml")],
-            "discovery_boundaries": [ref("snapshot")], "external_roots": [],
-        },
-        "process_context": {
-            "environment": [{"name": "LANG", "value_digest": "b" * 64, "logical_paths": []}],
-            "filesystem_case": "sensitive", "environment_case": "sensitive",
-        },
-    })
+def _observation_policy(**overrides):
+    payload = {
+        "tool_version": TyToolVersionDistribution(version="0.0.74"),
+        "snapshot_ty_config": SnapshotTyConfigMaterialized(digest="c" * 64),
+    }
+    payload.update(overrides)
+    return guidance_policy(EffectiveConfig(), **payload).observation
 
 
 class TestStaticContentCollector:
@@ -191,21 +170,17 @@ class TestStaticContentManifestAdmission:
 
 
 class TestStaticSubjectIdentity:
-    @pytest.mark.parametrize("group", ["source", "target", "installed_world", "analysis_layout", "configuration", "process_context"])
-    def test_each_input_group_changes_identity(self, static_subject, group) -> None:
+    @pytest.mark.parametrize("field", ["source_snapshot_digest", "cell", "interpreter", "resolution_projection"])
+    def test_each_preimage_field_changes_identity(self, static_subject, field) -> None:
         document = static_subject.model_dump(mode="json")
-        if group == "source":
-            document[group]["snapshot_identity"] = "c" * 64
-        elif group == "target":
-            document[group]["interpreter"]["version"] = "3.10.20"
-        elif group == "installed_world":
-            document[group]["content"]["entries"][-1]["content_digest"] = "d" * 64
-        elif group == "analysis_layout":
-            document[group]["import_roots"].reverse()
-        elif group == "configuration":
-            document[group]["files_in_precedence_order"].insert(0, {"root": "snapshot", "path": "demo.py"})
+        if field == "source_snapshot_digest":
+            document[field] = "c" * 64
+        elif field == "cell":
+            document[field]["python_minor"] = "3.11"
+        elif field == "interpreter":
+            document[field]["abi"] = "cp311"
         else:
-            document[group]["environment"][0]["value_digest"] = "e" * 64
+            document[field] = []
         changed = StaticSubject.model_validate(document)
         assert changed.identity != static_subject.identity
 
@@ -218,58 +193,102 @@ class TestStaticSubjectIdentity:
         projected = static_subject.model_dump(mode="json", exclude_none=True)
         assert StaticSubject.model_validate(projected) == static_subject
 
-    def test_key_uses_static_inputs_and_collection_policy(self, static_subject) -> None:
-        config = EffectiveConfig()
+    def test_key_uses_subject_and_cache_identity(self, static_subject) -> None:
         static = guidance_policy(
-            config, tool_version="1", tool_content=static_subject.target.content,
-            executable=static_subject.target.executable,
+            EffectiveConfig(),
+            tool_version=TyToolVersionDistribution(version="1.0.0"),
+            snapshot_ty_config=SnapshotTyConfigMaterialized(digest="c" * 64),
         )
         key = ty_check_key(static_subject, static.observation)
         changed = guidance_policy(
-            EffectiveConfig.model_validate({"test": {"timeout_seconds": 41}}),
-            tool_version="1", tool_content=static_subject.target.content,
-            executable=static_subject.target.executable,
+            EffectiveConfig.model_validate({"ty": {"timeout_seconds": 41}}),
+            tool_version=TyToolVersionDistribution(version="1.0.0"),
+            snapshot_ty_config=SnapshotTyConfigMaterialized(digest="c" * 64),
         )
         assert key == ty_check_key(static_subject, changed.observation)
         assert key.subject_identity == static_subject.identity
-        assert key.observation_policy_identity == static.observation_identity
+        assert key.cache_identity == static.observation.cache_identity
+        assert static.observation.identity != changed.observation.identity
 
 
 class TestStaticSubjectAdmission:
-    @pytest.mark.parametrize("fault", ["missing-version", "unknown-version", "missing-group", "unknown-field", "conflicting-content", "dangling-path", "missing-node-file", "unclosed-graph", "wrong-python", "environment-case"])
+    @pytest.mark.parametrize("fault", [
+        "missing-version", "unknown-version", "missing-field", "unknown-field",
+        "unsorted-projection", "interpreter-version-leaked",
+    ])
     def test_reader_rejects_incomplete_or_inconsistent_inputs(self, static_subject, fault) -> None:
         document = static_subject.model_dump(mode="json")
         if fault == "missing-version":
-            document.pop("projection")
+            document.pop("source_snapshot_digest")
         elif fault == "unknown-version":
-            document["projection"] = "static-subject-future"
-        elif fault == "missing-group":
-            document.pop("process_context")
+            document["projection"] = "static-subject-v1"
+        elif fault == "missing-field":
+            document.pop("resolution_projection")
         elif fault == "unknown-field":
             document["proposal_id"] = "cannot-substitute-for-projection"
-        elif fault == "conflicting-content":
-            document["configuration"]["content"]["entries"][-1]["content_digest"] = "f" * 64
-        elif fault == "dangling-path":
-            document["analysis_layout"]["targets"] = [{"root": "external", "path": "."}]
-        elif fault == "missing-node-file":
-            document["installed_world"]["nodes"][0]["files"] = [{"root": "environment", "path": "missing.pyi"}]
-        elif fault == "unclosed-graph":
-            document["installed_world"]["nodes"][0]["dependencies"] = ["missing"]
-        elif fault == "wrong-python":
-            document["target"]["interpreter"]["version"] = "3.11.1"
+        elif fault == "unsorted-projection":
+            document["resolution_projection"] = list(reversed(document["resolution_projection"]))
+            document["resolution_projection"].append(document["resolution_projection"][0])
         else:
-            document["process_context"]["environment_case"] = "insensitive"
-            document["process_context"]["environment"].append({"name": "lang", "value_digest": "c" * 64, "logical_paths": []})
+            document["interpreter"]["version"] = "3.10.19"
         with pytest.raises(ValueError):
             StaticSubject.model_validate(document)
+
+
+class TestAvailableSetGolden:
+    def test_canonical_identity_json_encodes_triples_as_arrays(self) -> None:
+        triples = (
+            ("wheel", "requests-2.32.5-py3-none-any.whl", "sha256:" + "a" * 64),
+            ("sdist", "requests-2.32.5.tar.gz", "sha256:" + "b" * 64),
+            ("wheel", "requests-2.32.5-py3-none-any.whl", "sha256:" + "a" * 64),
+        )
+        preimage = available_set_preimage(triples)
+        encoded = canonical_identity_json(preimage)
+        assert encoded == (
+            b'[["sdist","requests-2.32.5.tar.gz","sha256:' + b"b" * 64
+            + b'"],["wheel","requests-2.32.5-py3-none-any.whl","sha256:' + b"a" * 64
+            + b'"]]'
+        )
+        assert available_set_digest(triples) == hashlib.sha256(
+            b"pf:resolution-artifacts:v1\0" + encoded
+        ).hexdigest()
+
+
+class TestRegistryPlanSubject:
+    def test_ordinary_registry_plan_forms_available_set_and_may_start_ty(self) -> None:
+        packages = parse_uv_pylock(
+            REGISTRY_LOCK, python_version="3.11.0", target="x86_64-unknown-linux-gnu",
+        )
+        assert packages[0].selected_artifact is None
+        assert packages[1].name == "urllib3"
+        cell = Cell(
+            package="demo", target="x86_64-unknown-linux-gnu",
+            python_minor="3.11", extra_surface=(),
+        )
+        interpreter = InterpreterIdentity(
+            implementation="cpython", version="3.11.0", abi="cp311",
+        )
+        subject = build_static_subject(
+            source_snapshot_digest="d" * 64, cell=cell, interpreter=interpreter,
+            packages=packages,
+        )
+        assert isinstance(subject, StaticSubject)
+        assert {item.artifact.kind for item in subject.resolution_projection} == {"available-set"}
+        policy = _observation_policy()
+        assert may_start_ty(policy)
+        assert not may_start_ty(policy, tool_version_matches=False)
+        assert not may_start_ty(_observation_policy(
+            snapshot_ty_config=SnapshotTyConfigUnavailable(reason="undeclared-analysis-root"),
+        ))
+        assert not may_start_ty(_observation_policy(tool_version=TyToolVersionUnavailable()))
+        assert "RECORD" not in subject.model_dump_json()
 
 
 class TestRawTyFactCodec:
     @staticmethod
     def observation_policy(subject):
-        return guidance_policy(EffectiveConfig(), tool_version="0.0.74",
-                               tool_content=subject.target.content,
-                               executable=subject.target.executable).observation
+        del subject
+        return _observation_policy()
 
     def test_complete_fact_preserves_multiplicity_and_round_trips_without_files(self, static_subject, tmp_path) -> None:
         diagnostic = TyDiagnostic(identity="snapshot|demo.py|1|invalid-assignment", origin="snapshot",
@@ -328,9 +347,9 @@ class TestRawTyFactCodec:
         outcome = ToolFailure(cause="TOOL_FAILURE", stage="ty", process=ProcessResult(exit_code=2, duration_seconds=1))
         document = ty_fact_document(static_subject, self.observation_policy(static_subject), outcome).model_dump(mode="json")
         if fault == "subject":
-            document["subject"]["process_context"]["environment"][0]["value_digest"] = "f" * 64
+            document["subject"]["source_snapshot_digest"] = "f" * 64
         elif fault == "policy":
-            document["observation_policy"]["tool_version"] = "different-tool"
+            document["observation_policy"]["tool_version"] = {"kind": "unavailable"}
         elif fault == "fact":
             document["fact_identity"] = "f" * 64
         else:

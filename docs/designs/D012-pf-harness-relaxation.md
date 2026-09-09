@@ -1,7 +1,7 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 - **适用范围：** smoke/check/search 各角色的环境准备；relaxation 仅适用于 declaration/probe
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -263,13 +263,21 @@ UvOperations.resolve_project(..., interpreter: Path, request_binding: OperationR
 UvOperations.resolve_environment(..., interpreter: Path, request_binding: OperationRequestBinding) -> ResolutionOutcome
 UvOperations.install_resolution(plan, request_binding: OperationRequestBinding, ...) -> InstallOutcome
 EnvironmentFactory.prepare(...) -> PreparedEnvironment | PrepareFailure
+EnvironmentFactory.reprepare(proposal, snapshot, source_plan)
+    -> PreparedEnvironment | StaticContentUnavailable
 ```
 
 `EnvironmentFactory` 在 project plan 成功且 active external IDs 非空时把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 execution / guidance / search 三类 identity 拥有。
 
-`EnvironmentFactory.prepare` 是上层唯一环境准备入口；active IDs 分支、harness relaxation、project/optional environment resolution、一次 installation 和 graph 复证都隐藏在其内。
+`EnvironmentFactory.prepare` 是首次环境准备入口；active IDs 分支、harness relaxation、project/optional environment resolution、一次 installation 和 graph 复证都隐藏在其内。
 调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public
-interface。
+interface。首次 prepare 成功时按 `proposal_id` 登记私有不可变 `ReprepareRecipe`（plan /
+digest / snapshot identity）；关闭 `PreparedEnvironment` 不删除 recipe。
+
+`reprepare` 只按 recipe 重建并核对 identity / digest，安装缓存的既有 plan 后 inspect
+name/version；不得重新 resolve、分配 Attempt 或调用 verifier。recipe 缺失、核对失败、安装
+或 inspect 失败返回 `StaticContentUnavailable`，不调用 `record_prepare`。安装复证仍是
+name/version，不枚举 `distribution.files`。
 
 Factory 在调用前从当前 Attempt、stage 和已通过检查的 plan digests 建立 request binding；Adapter
 不得创造 Attempt，只为 qualified UNSAT 回传该 binding。producer 校验运行期 context 的 uv

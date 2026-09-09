@@ -27,12 +27,12 @@ from pf.schemas.static import (
 @dataclass(frozen=True)
 class TyCheckKey:
     subject_identity: str
-    observation_policy_identity: str
+    cache_identity: str
 
 
 def ty_check_key(subject: StaticSubject, observation: TyObservationPolicy) -> TyCheckKey:
     """Project a validated static request, independent of any dynamic Proposal."""
-    return TyCheckKey(subject.identity, observation.identity)
+    return TyCheckKey(subject.identity, observation.cache_identity)
 
 
 class StaticContentCollector:

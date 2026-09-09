@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pf.adapters.ty import TyAdapter, TyOutputDecoder
+from pf.adapters.ty import TyOutputDecoder
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.uv import UvAdapter
 from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
@@ -24,7 +24,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.static import StaticContentUnavailable
 from pf.schemas.project import SourcePlan
 from pf.snapshot import SnapshotBuilder
-from pf.static_request import StaticRequestFactory, StaticTyRequest
+from pf.static_request import StaticRequestFactory
 
 
 class DiagnosticRunner:
@@ -469,15 +469,8 @@ terminal = "invalid"
             captured = StaticRequestFactory(runner).capture(
                 prepared, package=package, environment={},
             )
-            if isinstance(captured, StaticContentUnavailable):
-                assert captured.detail == "invalid-layout"
-            else:
-                assert isinstance(captured, StaticTyRequest)
-                result = TyAdapter(runner).observe(captured)
-                assert isinstance(result, ToolFailure)
-                assert result.cause == "TOOL_FAILURE"
-                assert isinstance(result.process, ProcessResult)
-                assert result.process.exit_code != 0
+            assert isinstance(captured, StaticContentUnavailable)
+            assert captured.detail == "configuration-context-unavailable"
         finally:
             if isinstance(prepared, PreparedEnvironment):
                 prepared.close()

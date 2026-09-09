@@ -122,7 +122,7 @@ class TyCheckCache:
         with self._condition:
             return (
                 self._accepting and not self._closed
-                and ref.observation.subject.target.cell == subject.target.cell
+                and ref.observation.subject.cell == subject.cell
                 and self._completed.get(ty_check_key(ref.observation.subject,
                                                 ref.observation.observation_policy)) is ref
             )
@@ -276,13 +276,23 @@ class TyCheckCache:
             self._passes.append(result)
             return result
 
+    def documents(self) -> tuple[TyFactDocument, ...]:
+        """Completed Run-local fact documents for ty-cache persistence."""
+        with self._condition:
+            if self._closed:
+                raise ValueError("static cache is closed")
+            return tuple(item.observation for item in self._completed.values())
+
     def snapshot(self, cell: Cell) -> StaticScopeEvidence:
         """Portable completed facts, including elected producer and consumers."""
         with self._condition:
             if self._closed:
                 raise ValueError("static cache is closed")
             facts = {fact: f"fact-{i}" for i, fact in enumerate(self._completed.values())
-                     if fact.observation.subject.target.cell == cell}
+                     if fact.observation.subject.cell.package == cell.package
+                     and fact.observation.subject.cell.python_minor == cell.python_minor
+                     and fact.observation.subject.cell.target == cell.target
+                     and fact.observation.subject.cell.extra_surface == cell.extra_surface}
             consumers = {item: f"consumer-{i}" for i, item in enumerate(self._consumers.values())
                          if item.preparation.proposal.cell == cell}
             highest = self._highest.get(cell.model_dump_json())

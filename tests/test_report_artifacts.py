@@ -133,10 +133,9 @@ class TestReportArtifacts:
             ("StructuredOperationFailureAuthority", "terminal"),
             ("ExecutionPolicy", "verifier_timeout_seconds"),
             ("ResolutionConfig", "timeout_seconds"),
+            ("ProbeObservationV1", "selection_reason"),
         }
-        scope_schema = schema["$defs"]["Scope_StaticScopeWire"]
-        assert set(scope_schema["properties"]) == set(scope_schema["required"])
-        assert ("Scope_StaticScopeWire", "highest_uncollected") in nullable_fields
+        assert all(not name.startswith("Scope_") for name, _field in compact_nullable)
         for name, field in nullable_fields:
             assert field in schema["$defs"][name]["required"]
 

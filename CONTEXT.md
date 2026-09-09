@@ -1,7 +1,7 @@
 # PF Domain
 
 - **状态：** 现行
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-09
 
 PF 为 Python 分发包在明确运行环境与验证策略下寻找可验证的直接依赖下界。本页只固定现行术语；行为规则见 [工程文档索引](docs/README.md)。
 
@@ -144,9 +144,15 @@ _Avoid_: requested_resolution, Attempt kind
 
 **Verification Journal**
 
-一次 Verification Run 写入本机的 FailureRecord 与独立静态审计区；静态审计不计失败，不是 floor 报告。
+一次 Verification Run 写入本机的 FailureRecord 与轻量 `static_membership`；membership 不计失败，只供 Run 内重建，不是 floor 报告，也不供 diagnose。
 
-_Avoid_: package-floor.json, Diagnosis Index
+_Avoid_: package-floor.json, ty-cache, Diagnosis Index
+
+**ty-cache**
+
+同一次 Verification Run 落在 `.pf/logs/<run-id>/ty-cache.json` 的原始 `TyFactDocument` sidecar（外层 `pf-ty-cache-v1`）；只服务 Run 内静态 lookup，不是 Process Log，不进入公开报告，不服务 `diagnose`。
+
+_Avoid_: Verification Journal, package-floor.json, Process Log
 
 **Process Log**
 
@@ -169,9 +175,9 @@ _Avoid_: head/tail, summary
 
 **Diagnosis Index**
 
-项目本地 `.pf/logs` 中把 FailureRecord 与静态 producer fact 关联到相对 Process Log 路径的非证据索引。
+项目本地 `.pf/logs` 中把 FailureRecord 关联到相对 verifier Process Log 路径的非证据索引；不索引静态 fact。
 
-_Avoid_: Report field, run ID, CLI selector
+_Avoid_: Report field, run ID, CLI selector, ty-cache
 
 **Static Probe**
 

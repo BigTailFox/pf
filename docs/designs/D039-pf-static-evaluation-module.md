@@ -6,7 +6,7 @@
 - **目标 owner：** [D002](D002-pf-implementation.md)、[D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **验收标准：** [§9](#9-验收标准)
 - **来源：** [R011](../reviews/R011-pf-architecture-review.md) §3–§6
-- **关联：** [D003](D003-pf-search-algorithm.md) 只改 StaticSlice 的提供方指针；[D012](D012-pf-harness-relaxation.md) 保留 harness 变换；[D014](D014-pf-report-schema.md) 保留 Schema 1 字段，改离线复算调用点
+- **关联：** [D003](D003-pf-search-algorithm.md) 只改 StaticSlice 的提供方指针；[D012](D012-pf-harness-relaxation.md) 保留 harness 变换；[D014](D014-pf-report-schema.md) 公开报告无静态 intern 表；比较重放在夹具或 Run ty-cache 的 `TyFactDocument` 上。[D043](../archived/designs/D043-pf-static-subject-v2.md) 已吸收的五表删除、`selection_reason` 与 v2 identity 字节不在本文件 AC10 范围内
 
 本文定义 R011 的**目标** module interface：把静态采集、Run cache、准入、比较与纯 guidance 收成一个深模块，并把 FrozenSchema 从这些算法中拆出；同一吸收改写 D002 模块地图，并收回 `FailurePolicy` 可选注入。行为语义仍以现行 D003/D004/D005 为准；本文件只改规则住在哪里、调用方必须学习什么。接受前不是现行契约。
 
@@ -43,7 +43,7 @@ R011 要求 §3 与 §4 同一份 Design：先把算法从 schemas 拿回静态 
 | D004 §6–§7、§10 | 规范投影与采集请求是 Evaluator implementation；比较准入、减法、hint 定位的唯一实现在静态 module，不在 FrozenSchema 里 |
 | D005 §5 | `classify` / `record_prepare` / `record_evaluation` 规则不变。编排器内部构造 `FailurePolicy`，与 `VerificationRunner` 一致；它不是可替换 seam |
 
-**保持不变：** D001 命令与退出码；D003 两阶段搜索与「静态无 compatibility disposition」；D004 的 `S_hi`/`S_slice`、多重集减法、Run 内原始 TyCheck 缓存、lookup 只读 / collect 占 permit；D005 的 cause/disposition/authority；D008 Run/Journal 时序；D012 original/relaxed 变换本身；D014 Schema 1 字段集合与 identity 字节。D038 已归档，不把静态拒绝权限改回去。
+**保持不变：** D001 命令与退出码；D003 两阶段搜索与「静态无 compatibility disposition」；D004 的 `S_hi`/`S_slice`、多重集减法、Run 内原始 TyCheck 缓存、lookup 只读 / collect 占 permit；D005 的 cause/disposition/authority；D008 Run/Journal 时序；D012 original/relaxed 变换本身。D014 Schema 1 字段集合与 identity 字节在 D043 已吸收的五表删除、`selection_reason` 与 v2 subject/policy identity 之外保持不变。D038 已归档，不把静态拒绝权限改回去。
 
 **本文件不覆盖：** R006/R008/R010 开放项；按行数拆 `report.py` / `schemas/evaluation.py`；把 Check/Smoke/Search 收成评价 facade。
 
@@ -160,20 +160,13 @@ FrozenSchema 只保存不可变记录与结构/identity 闭合。比较减法、
 | `schemas.static_preparation` 调用 `original_harness` / `relax_harness` / `active_harness_requirements` | 构造该记录的 prepare/D012 路径负责变换；schema 核对已保存字段的结构关系与 identity 字符串，不再生 harness |
 | `schemas.policy` 调用 `validate_ty_args` | `ConfigLoader` 与静态 request 装配在写入前资格化；policy 记录只保存已资格化的 args 投影 |
 
-离线读入链（必须改调用点，禁止只搬前四行而留下这条）：
+离线读入链：公开报告不再含五张静态 intern 表，ReportStore 不 inflate scopes。Journal 只保存
+`static_membership`，普通 decode 不打开 ty-cache、不调用 `resolve_static_scopes`。比较重放只在
+测试夹具或 Run ty-cache 的 `TyFactDocument` 上，经静态 module 的 admission 执行，不经报告 /
+Journal validator。
 
-```text
-ReportEvidenceV1.validate_interned_static_audit
-    -> resolve_static_scopes
-        -> 构造 StaticScopeEvidence
-            -> validate_closure 重放 compare
-            -> search.validate_in_scope 重放 locate_static_hint
-
-VerificationJournal validator（schemas/journal.py）同样调用 resolve_static_scopes
-report.py _resolve_report_static_scopes 是 ReportStore 的第二条入口
-```
-
-`resolve_static_scopes` / `intern_static_scopes` 的 intern inflate 可以保留为结构闭合；**进入 FrozenSchema `model_validator` 的 derive/hint 重放必须离开**。ReportStore 与 RunLogStore 在 inflate 之后调用静态 module 的 admission，拒绝漂移。`StaticComparisonDocument` 不再于 `model_validator` 里执行 subtraction。
+**进入 FrozenSchema `model_validator` 的 derive/hint 重放必须离开**。`StaticComparisonDocument`
+不再于 `model_validator` 里执行 subtraction。
 
 这样 schemas 不再依赖 domain 算法，也不再出现 `static_search` → `static_guidance` → `static_comparison` 的往返，也不再经 `static_scope` 间接重放。
 
@@ -262,13 +255,13 @@ failure.py                    FailurePolicy；编排器内部构造
 | AC1 | `src/pf` 中 cli/check/baseline/search/verification/workflow/coordinate_search/report/runlog 只进口 §3.1 公开静态名字与 schema 记录，不进口 §3.1 禁止清单。ReportStore/Journal 进口离线 admission，不进口 schema 重放 | import 扫描；失败即未完成 |
 | AC2 | 生产构造 `StaticEvaluator` 不出现 `StaticRequestFactory`；request 装配在 module 内 | `cli.py` 与产品测试装配 |
 | AC3 | SearchCoordinator 不再定义手写 slice，不进口 cache ref 去构造 `StaticPoint`；`open_slice` 接收该坐标 `CandidateSnapshot`；`open_static_slice` 返回静态 module 的 adapter | `search.py` 与 Search/CoordinateSearch 测试；hint 语义与现行 D003/D004 一致 |
-| AC4 | `src/pf/schemas/` 满足 §4.2：禁入 harness/static_*/ty_options/resolution 算法进口；§4.2 表内既有例外不报失败；`static_scope` / report / journal validator 不重放 compare 或 `locate_static_hint` | import 扫描 + validator 调用点；比较/搜索审计正反例改走静态 admission |
+| AC4 | `src/pf/schemas/` 满足 §4.2：禁入 harness/static_*/ty_options/resolution 算法进口；§4.2 表内既有例外不报失败；report / journal validator 不 inflate 静态 intern、不重放 compare 或 `locate_static_hint` | import 扫描 + validator 调用点；比较重放改走夹具或 Run ty-cache 上的静态 admission |
 | AC5 | 准入、减法、`locate_static_hint` 各只有一处实现；在线 `compare` 与离线 admission 共用 | 改算法一处则两边同时变化的语义测试（经 `compare` / 离线 admission，不经 schema validator） |
 | AC6 | 吸收后 D002 §3 是与代码一致的 module 地图：静态一个 module、有 `cancellation.py`、无虚构的 `src/pf/static.py`、保留 `schemas/static.py` 记录、不把静态叶子/`ty_fact`/`ty_options` 写成独立 module；§4 含 policy/journal/static_* 且禁止向上执行算法 | owner 正文与索引；与静态加深同一 Plan 吸收 |
 | AC7 | 吸收后 D002 §11 与 D004 §6–§7 描述 §3 表面；叶子测试不再作为产品契约。Plan 首切片的逐文件去向表覆盖 §5.2 所列 tests，AC 按表核对 | owner 正文；去向表；产品测试进口 |
 | AC8 | lookup 只读、collect 占 permit、同 key 单次 ty、GLOBAL/SLICE 准入、无静态 disposition、Run 作用域 cache 均保持 | 现行公开语义测试迁移到新表面后仍成立，不靠叶子文件；去向表中「改写」项有对应公开断言 |
 | AC9 | `TyCheckCache` 仍由 VerificationRunner 构造并显式传入；cli/check 不装配 cache 内部类型；不出现跨 Run 隐式共享 | Runner/Check/Search 装配测试 |
-| AC10 | Schema 1 字段集合不变；identity digest 字节不变；生成投影 `--check` 通过 | `generate_report_schema.py --check`、既有 report round-trip |
+| AC10 | Schema 1 字段集合与 identity digest 字节在 D043 已吸收范围之外不变：不涵盖五表删除、`ProbeObservation.selection_reason` 与 v2 subject/policy identity 字节；生成投影 `--check` 通过 | `generate_report_schema.py --check`、现行报告 round-trip |
 | AC11 | 生产路径无 static witness/region/compatibility 拒绝；静态失败最多 NO_HINT | 现行 D003/D004 权威测试，无回归 |
 | AC12 | Check / Highest / Search / `_ProposalRunner` 不再接受 `failures=`；内部构造 `FailurePolicy`。D005 分类规则不变。产品编排测试不注入假 policy | 构造器扫描；Check/Highest/Search 公开 outcome；`ConfiguredVerifier` / `UvOperations` / workflow Protocol 仍在 |
 

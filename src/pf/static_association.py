@@ -4,7 +4,12 @@ from __future__ import annotations
 from typing import Literal
 
 from pf.schemas.base import FrozenSchema
-from pf.schemas.evaluation import AttemptFailureScope, FailureRecord, ProcessObservation
+from pf.schemas.evaluation import (
+    AttemptFailureScope,
+    CoordinateSelectionReason,
+    FailureRecord,
+    ProcessObservation,
+)
 from pf.schemas.static_comparison import SliceComparisonContext
 from pf.schemas.static_scope import StaticScopeEvidence
 from pf.schemas.ty_fact import TyCheckFact
@@ -25,7 +30,7 @@ class DiagnoseStaticAssociation(FrozenSchema):
     fact_kind: Literal["ty-check", "ty-check-unavailable"] | None = None
     diagnostic_count: int = 0
     comparisons: tuple[AssociatedComparison, ...] = ()
-    selection_reason: Literal["mechanical", "history", "static-suspect", "static-clean-neighbor"] | None = None
+    selection_reason: CoordinateSelectionReason | None = None
     static_search_ref: str | None = None
     producer_ref: str | None = None
     log_path: str | None = None

@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-from pf.schemas.static_scope import (
-    InternedStaticComparison,
-    InternedStaticContent,
-    InternedStaticFact,
-    InternedStaticSubject,
-    StaticScopeWire,
-)
-
 import hashlib
 from typing import Annotated, Literal, Union
 
@@ -18,6 +10,7 @@ from pf.schemas.base import FrozenSchema, canonical_identity_json
 from pf.schemas.policy import ExecutionPolicy
 from pf.schemas.evaluation import (
     Attempt,
+    CoordinateSelectionReason,
     AttemptFailureScope,
     BaselineIndeterminate,
     BaselineRejection,
@@ -404,6 +397,15 @@ class ProbeObservation(FrozenSchema):
     candidate_version: str | None
     vector: tuple[VersionPin, ...]
     evidence: ProbeEvidence
+    selection_reason: CoordinateSelectionReason | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_coordinate_selection_reason(cls, value: object) -> object:
+        if isinstance(value, dict) and value.get("dependency") is not None:
+            if "selection_reason" not in value:
+                value = {**value, "selection_reason": "mechanical-lowest"}
+        return value
 
     @model_validator(mode="after")
     def validate_attempt(self) -> "ProbeObservation":
@@ -429,6 +431,11 @@ class ProbeObservation(FrozenSchema):
         ):
             raise ValueError(
                 "probe observation candidate must match its vector coordinate"
+            )
+        if (self.dependency is None) != (self.selection_reason is None):
+            raise ValueError(
+                "probe observation selection reason must be null exactly when "
+                "dependency is absent"
             )
         return self
 
@@ -1138,35 +1145,11 @@ TerminalEvaluationV1 = Annotated[
 
 
 class ReportEvidenceV1(FrozenSchema):
-    static_contents: tuple[InternedStaticContent, ...] = ()
-    static_subjects: tuple[InternedStaticSubject, ...] = ()
-    static_facts: tuple[InternedStaticFact, ...] = ()
-    static_comparisons: tuple[InternedStaticComparison, ...] = ()
-    static_scopes: tuple[StaticScopeWire, ...]
     resolution_graphs: tuple[ResolutionGraphV1, ...]
     attempts: tuple[AttemptV1, ...]
     proposals: tuple[ProposalV1, ...]
     evaluations: tuple[TerminalEvaluationV1, ...]
     failures: tuple[FailureRecordV1, ...]
-
-    @model_validator(mode="after")
-    def validate_interned_static_audit(self) -> ReportEvidenceV1:
-        from pf.schemas.static_scope import resolve_static_scopes
-        resolve_static_scopes(
-            self.static_facts, self.static_comparisons, self.static_scopes,
-            contents=self.static_contents, subjects=self.static_subjects,
-        )
-        return self
-
-    @model_serializer(mode="wrap")
-    def preserve_static_scope_facts(self, handler):
-        result = handler(self)
-        result["static_contents"] = [item.model_dump(mode="json") for item in self.static_contents]
-        result["static_subjects"] = [item.model_dump(mode="json") for item in self.static_subjects]
-        result["static_facts"] = [item.model_dump(mode="json") for item in self.static_facts]
-        result["static_comparisons"] = [item.model_dump(mode="json") for item in self.static_comparisons]
-        result["static_scopes"] = [scope.model_dump(mode="json") for scope in self.static_scopes]
-        return result
 
 
 class BaselineRefsV1(FrozenSchema):
@@ -1204,6 +1187,24 @@ class ProbeObservationV1(FrozenSchema):
     dependency: str | None = None
     candidate_version: str | None = None
     evidence: DirectEvidenceV1
+    selection_reason: CoordinateSelectionReason | None = Field(
+        json_schema_extra={"x-pf-preserve-null": True},
+    )
+
+    @model_validator(mode="after")
+    def validate_selection_reason(self) -> ProbeObservationV1:
+        if (self.dependency is None) != (self.selection_reason is None):
+            raise ValueError(
+                "probe observation selection reason must be null exactly when "
+                "dependency is absent"
+            )
+        return self
+
+    @model_serializer(mode="wrap")
+    def emit_required_nullable_selection_reason(self, handler):
+        result = handler(self)
+        result["selection_reason"] = self.selection_reason
+        return result
 
 
 class CoordinateBoundaryV1(FrozenSchema):

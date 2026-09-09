@@ -291,6 +291,8 @@ class StaticContentUnavailable(FrozenSchema):
         "unreadable-content", "unsupported-file-kind", "unclosed-symlink",
         "content-changed", "invalid-layout",
         "inspection-unavailable", "installed-input-mismatch",
+        "undeclared-analysis-root", "resolution-artifact-unbound",
+        "configuration-context-unavailable", "configuration-unreadable",
     ]
 
 
@@ -485,40 +487,96 @@ class StaticProcessContext(FrozenSchema):
         return self
 
 
-class StaticSubject(FrozenSchema):
-    projection: Literal["static-subject-v1"]
-    source: StaticSourceInput
-    target: StaticTargetInput
-    installed_world: StaticInstalledWorld
-    analysis_layout: StaticAnalysisLayout
-    configuration: StaticConfigurationInput
-    process_context: StaticProcessContext
+class StaticSubjectCell(FrozenSchema):
+    package: str
+    python_minor: str
+    target: str
+    extra_surface: tuple[str, ...]
+
+    @field_validator("package")
+    @classmethod
+    def canonical_package(cls, value: str) -> str:
+        if not is_canonical_distribution_name(value):
+            raise ValueError("static subject package must be canonical")
+        return value
 
     @model_validator(mode="after")
-    def validate_closure(self) -> StaticSubject:
-        entries: dict[StaticContentPath, StaticContentEntry] = {}
-        for manifest in (
-            self.source.content, self.target.content,
-            self.installed_world.content, self.configuration.content,
-        ):
-            for entry in manifest.entries:
-                prior = entries.get(entry.location)
-                if prior is not None and prior != entry:
-                    raise ValueError("static content groups contain conflicting facts")
-                entries[entry.location] = entry
-        layout = self.analysis_layout
-        refs = (layout.cwd, layout.project_root, *layout.targets, *layout.import_roots, *layout.type_roots)
-        refs += tuple(path for item in self.process_context.environment for path in item.logical_paths)
-        if not set(refs) <= entries.keys():
-            raise ValueError("static analysis or process path is outside content closure")
-        if {item.root for item in layout.root_placements} != {path.root for path in entries}:
-            raise ValueError("static root placements must cover the complete content layout")
-        if self.target.cell.package not in {item.package for item in self.source.packages}:
-            raise ValueError("static source mapping must contain the target package")
+    def validate_cell(self) -> StaticSubjectCell:
+        if self.extra_surface != tuple(sorted(set(self.extra_surface))):
+            raise ValueError("static subject extra surface must be sorted and unique")
+        return self
+
+    @classmethod
+    def from_cell(cls, cell: Cell) -> StaticSubjectCell:
+        return cls(
+            package=cell.package, python_minor=cell.python_minor,
+            target=cell.target, extra_surface=cell.extra_surface,
+        )
+
+
+class StaticSubjectInterpreter(FrozenSchema):
+    implementation: Literal["cpython"]
+    abi: str
+
+
+class ResolutionArtifactSelected(FrozenSchema):
+    kind: Literal["selected"] = "selected"
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+class ResolutionArtifactAvailableSet(FrozenSchema):
+    kind: Literal["available-set"] = "available-set"
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ResolutionArtifactSourceTree(FrozenSchema):
+    kind: Literal["source-tree"] = "source-tree"
+
+
+ResolutionBindingArtifact = Annotated[
+    Union[ResolutionArtifactSelected, ResolutionArtifactAvailableSet, ResolutionArtifactSourceTree],
+    Field(discriminator="kind"),
+]
+
+
+class ResolutionBinding(FrozenSchema):
+    name: str
+    version: str | None = Field(json_schema_extra={"x-pf-preserve-null": True})
+    source: SourceIdentity
+    artifact: ResolutionBindingArtifact
+
+    @model_serializer(mode="wrap")
+    def serialize_required_nulls(self, handler):
+        result = handler(self)
+        if self.version is None:
+            result["version"] = None
+        return result
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> ResolutionBinding:
+        if not is_canonical_distribution_name(self.name):
+            raise ValueError("resolution binding name must be canonical")
+        if self.version is not None and str(Version(self.version)) != self.version:
+            raise ValueError("resolution binding version must be normalized")
+        return self
+
+
+class StaticSubject(FrozenSchema):
+    projection: Literal["static-subject-v2"] = "static-subject-v2"
+    source_snapshot_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cell: StaticSubjectCell
+    interpreter: StaticSubjectInterpreter
+    resolution_projection: tuple[ResolutionBinding, ...]
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> StaticSubject:
+        names = tuple(item.name for item in self.resolution_projection)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("resolution projection must be sorted and unique by name")
         return self
 
     @property
     def identity(self) -> str:
         return hashlib.sha256(
-            b"pf:static-subject:v1\0" + canonical_identity_json(self.model_dump(mode="json"))
+            b"pf:static-subject:v2\0" + canonical_identity_json(self.model_dump(mode="json"))
         ).hexdigest()

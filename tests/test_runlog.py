@@ -272,7 +272,7 @@ class TestRunLogStoreJournal:
     ) -> None:
         store = RunLogStore(root=tmp_path, run_id="journal-v3")
         journal = VerificationJournal(
-            static_scopes=(),
+            static_membership=(),
             run_id="journal-v3",
             command="search",
             source_snapshot_digest="snapshot",

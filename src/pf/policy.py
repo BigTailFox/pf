@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import hashlib
-from importlib.metadata import version as distribution_version
 import json
 
 from pf.failure import FailurePolicy
 from pf.schemas.config import EffectiveConfig
 from pf.schemas.policy import (
     ExecutionPolicy, GuidancePolicy, SearchDerivationPolicy, TyObservationPolicy,
+    SnapshotTyConfig, SnapshotTyConfigUnavailable, TyToolVersion,
 )
-from pf.schemas.static import StaticContentManifest, StaticContentPath
+from pf.ty_version import read_ty_tool_version
 
 
 TY_DIAGNOSTIC_POLICY = {
@@ -63,14 +63,15 @@ def execution_policy(config: EffectiveConfig) -> ExecutionPolicy:
 def guidance_policy(
     config: EffectiveConfig,
     *,
-    tool_version: str,
-    tool_content: StaticContentManifest,
-    executable: StaticContentPath,
+    tool_version: TyToolVersion,
+    snapshot_ty_config: SnapshotTyConfig,
 ) -> GuidancePolicy:
-    """Bind exact tool inputs without introducing a verifier dependency."""
+    """Bind the complete generation observation without a verifier dependency."""
     observation = TyObservationPolicy(
-        tool_version=tool_version, tool_content=tool_content,
-        executable=executable, config=config.ty,
+        tool_version=tool_version,
+        args=config.ty.args,
+        timeout_seconds=config.ty.timeout_seconds,
+        snapshot_ty_config=snapshot_ty_config,
     )
     return GuidancePolicy(observation=observation, observation_identity=observation.identity)
 
@@ -94,13 +95,21 @@ def _digest(domain: str, document: object) -> str:
     return hashlib.sha256(f"{domain}\0{canonical}".encode()).hexdigest()
 
 
-def guidance_policy_identity(config: EffectiveConfig) -> str:
-    """Identify guidance rules independently of ExecutionPolicy and candidate DSL."""
-    return _digest("pf:guidance-policy-identity:v1", {
-        "ty": config.ty.model_dump(mode="json"),
-        "tool_versions": {"ty": distribution_version("ty")},
-        "ty_diagnostic_policy": TY_DIAGNOSTIC_POLICY,
-    })
+def guidance_policy_identity(
+    config: EffectiveConfig,
+    *,
+    tool_version: TyToolVersion | None = None,
+    snapshot_ty_config: SnapshotTyConfig | None = None,
+) -> str:
+    """Identify guidance as GuidancePolicy.identity."""
+    return guidance_policy(
+        config,
+        tool_version=tool_version if tool_version is not None else read_ty_tool_version(),
+        snapshot_ty_config=(
+            snapshot_ty_config if snapshot_ty_config is not None
+            else SnapshotTyConfigUnavailable(reason="configuration-context-unavailable")
+        ),
+    ).identity
 
 
 def search_derivation_identity(config: EffectiveConfig, *, small_threshold: int = 8) -> str:

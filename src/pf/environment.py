@@ -5,8 +5,6 @@ from pf.errors import MaterializationIntegrityError
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-import base64
-import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -75,7 +73,7 @@ from pf.schemas.project import (
     selected_candidate_evidence_digest,
 )
 from pf.snapshot import SourceSnapshot, cleanup_temporary_directory
-from pf.schemas.static import StaticSubject, StaticTextLiteral, StaticTextRoot
+from pf.schemas.static import StaticContentUnavailable, StaticSubject
 
 
 if TYPE_CHECKING:
@@ -102,6 +100,22 @@ class ExactSelection:
 
 
 ResolutionRequest = HighestResolution | LowestDirectResolution | ExactSelection
+
+
+@dataclass(frozen=True)
+class ReprepareRecipe:
+    """Run-owned rebuild inputs. Not part of Proposal, report, or identity."""
+
+    package: PackagePlan
+    project_plan: ResolutionPlan
+    environment_plan: ResolutionPlan | None
+    snapshot_digest: str
+    source_plan_identity: str
+    attempt: Attempt
+    proposal: Proposal
+    environment_identity: EnvironmentIdentity
+    harness_baseline: HarnessBaseline
+    selected_candidates: tuple[SelectedCandidate, ...] | None
 
 
 class StageConsumer(Protocol):
@@ -345,53 +359,6 @@ class PreparedEnvironment:
         try:
             for name in ("snapshot", "environment"):
                 shutil.copytree(old_roots[name], new_roots[name], symlinks=True)
-            entries = {
-                entry.location: entry
-                for manifest in (
-                    request.subject.source.content,
-                    request.subject.target.content,
-                    request.subject.installed_world.content,
-                )
-                for entry in manifest.entries
-            }
-
-            def render(entry, roots):
-                if entry.relocation is None:
-                    return (old_roots[entry.location.root] / entry.location.path).read_bytes()
-                parts = []
-                for part in entry.relocation.parts:
-                    if isinstance(part, StaticTextLiteral):
-                        parts.append(part.text)
-                    elif isinstance(part, StaticTextRoot):
-                        parts.append(
-                            roots[part.root].as_uri()
-                            if part.encoding == "file-uri"
-                            else str(roots[part.root])
-                        )
-                    else:
-                        data = render(entries[part.location], roots)
-                        parts.append(
-                            str(len(data))
-                            if part.column == "size"
-                            else "sha256="
-                            + base64.urlsafe_b64encode(hashlib.sha256(data).digest())
-                            .rstrip(b"=")
-                            .decode()
-                        )
-                return "".join(parts).encode()
-
-            for location, entry in entries.items():
-                if location.root not in {"snapshot", "environment"}:
-                    continue
-                path = new_roots[location.root] / location.path
-                if entry.link_target is not None:
-                    path.unlink()
-                    path.symlink_to(
-                        new_roots[entry.link_target.root] / entry.link_target.path
-                    )
-                elif entry.relocation is not None:
-                    assert path.read_bytes() == render(entry, old_roots)
-                    path.write_bytes(render(entry, new_roots))
             return PreparedEnvironment(
                 attempt=self.attempt,
                 proposal=self.proposal,
@@ -434,6 +401,7 @@ class EnvironmentFactory:
         self._events = events
         self._plan_lock = threading.Lock()
         self._plans: dict[tuple[str, str], ResolutionOutcome] = {}
+        self._recipes: dict[str, ReprepareRecipe] = {}
 
     def prepare(
         self,
@@ -832,7 +800,7 @@ class EnvironmentFactory:
                 policy_identity=policy_identity,
                 interpreter=interpreter_result.interpreter,
             )
-            return PreparedEnvironment(
+            prepared = PreparedEnvironment(
                 attempt=attempt,
                 proposal=proposal,
                 source_plan=source_plan,
@@ -847,11 +815,156 @@ class EnvironmentFactory:
                 selected_candidates=(resolution.selection if isinstance(resolution, ExactSelection) else None),
                 temporary_directory=temporary_directory,
             )
+            self._register_recipe(prepared, package=package, snapshot=snapshot)
+            return prepared
         except Exception as error:
             cleanup_temporary_directory(temporary_directory)
             if isinstance(error, (ConfigurationError, InfrastructureError)):
                 raise
             raise InfrastructureError("environment preparation failed", detail=str(error)) from error
+
+    def close(self) -> None:
+        """Release Run-owned recipes and cached resolution outcomes."""
+        with self._plan_lock:
+            self._recipes.clear()
+            self._plans.clear()
+
+    def _register_recipe(
+        self,
+        prepared: PreparedEnvironment,
+        *,
+        package: PackagePlan,
+        snapshot: SourceSnapshot,
+    ) -> None:
+        with self._plan_lock:
+            self._recipes[prepared.proposal.proposal_id] = ReprepareRecipe(
+                package=package,
+                project_plan=prepared.project_plan,
+                environment_plan=prepared.environment_plan,
+                snapshot_digest=snapshot.identity.digest,
+                source_plan_identity=prepared.source_plan.identity,
+                attempt=prepared.attempt,
+                proposal=prepared.proposal,
+                environment_identity=prepared.environment_identity,
+                harness_baseline=prepared.harness_baseline,
+                selected_candidates=prepared.selected_candidates,
+            )
+
+    def reprepare(
+        self,
+        proposal: Proposal,
+        snapshot: SourceSnapshot,
+        source_plan: SourcePlan,
+    ) -> PreparedEnvironment | StaticContentUnavailable:
+        """Rebuild a previously prepared Proposal without resolving or a new Attempt."""
+        with self._plan_lock:
+            recipe = self._recipes.get(proposal.proposal_id)
+        if recipe is None:
+            return StaticContentUnavailable(detail="invalid-layout")
+        environment_digest = (
+            recipe.environment_plan.semantic_digest if recipe.environment_plan is not None else None
+        )
+        if (
+            recipe.proposal != proposal
+            or recipe.snapshot_digest != snapshot.identity.digest
+            or recipe.source_plan_identity != source_plan.identity
+            or proposal.snapshot_digest != snapshot.identity.digest
+            or proposal.project_plan_digest != recipe.project_plan.semantic_digest
+            or proposal.environment_plan_digest != environment_digest
+        ):
+            return StaticContentUnavailable(detail="installed-input-mismatch")
+        package = recipe.package
+        cell = proposal.cell
+        temporary_directory = tempfile.TemporaryDirectory(prefix="pf-reprepare-")
+        runtime_root = Path(temporary_directory.name)
+        proposal_root = runtime_root / "source"
+        environment_root = runtime_root / "environment"
+        try:
+            snapshot.materialize(proposal_root)
+            package_root = proposal_root / Path(package.pyproject_path).parent
+            emit_cell_stage(self._events, cell, "preparing environment")
+            create = self._uv.create_environment(
+                environment=environment_root,
+                python_minor=cell.python_minor,
+                cwd=proposal_root,
+                timeout_seconds=package.config.resolution.timeout_seconds,
+            )
+            if not isinstance(create, ToolSuccess) or create.stage != "create-environment":
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="unreadable-content")
+            interpreter = self._interpreter(environment_root)
+            interpreter_result = self._uv.inspect_interpreter(
+                interpreter=interpreter,
+                cwd=package_root,
+                timeout_seconds=package.config.resolution.timeout_seconds,
+            )
+            if not isinstance(interpreter_result, InterpreterSuccess):
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="inspection-unavailable")
+            if interpreter_result.interpreter != proposal.interpreter:
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="installed-input-mismatch")
+            final_plan = recipe.environment_plan or recipe.project_plan
+            emit_cell_stage(self._events, cell, f"installing {final_plan.kind} plan")
+            install = self._uv.install_resolution(
+                plan=final_plan,
+                request_binding=OperationRequestBinding(
+                    attempt_id=recipe.attempt.attempt_id,
+                    stage="install-project" if final_plan.kind == "project" else "install-environment",
+                    project_plan_digest=recipe.project_plan.semantic_digest,
+                    environment_plan_digest=environment_digest,
+                ),
+                interpreter=interpreter,
+                cwd=package_root,
+                work_directory=runtime_root,
+                timeout_seconds=package.config.resolution.timeout_seconds,
+            )
+            if isinstance(install, InstallFailure) or not isinstance(install, InstalledResolution):
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="unreadable-content")
+            if install.plan_digest != final_plan.digest:
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="installed-input-mismatch")
+            graph = self._uv.inspect_environment(
+                interpreter=interpreter,
+                cwd=package_root,
+                timeout_seconds=package.config.resolution.timeout_seconds,
+            )
+            if isinstance(graph, OperationFailureResult):
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="inspection-unavailable")
+            installed = {node.name: node.version for node in graph.nodes}
+            expected = {
+                item.name: item.version
+                for item in final_plan.packages
+                if item.version is not None
+            }
+            expected_names = set(expected) | {package.name}
+            if set(installed) != expected_names or any(
+                installed.get(name) != version for name, version in expected.items()
+            ):
+                cleanup_temporary_directory(temporary_directory)
+                return StaticContentUnavailable(detail="installed-input-mismatch")
+            return PreparedEnvironment(
+                attempt=recipe.attempt,
+                proposal=recipe.proposal,
+                source_plan=source_plan,
+                proposal_root=proposal_root,
+                package_root=package_root,
+                environment_root=environment_root,
+                interpreter=interpreter,
+                project_plan=recipe.project_plan,
+                environment_plan=recipe.environment_plan,
+                environment_identity=recipe.environment_identity,
+                harness_baseline=recipe.harness_baseline,
+                selected_candidates=recipe.selected_candidates,
+                temporary_directory=temporary_directory,
+            )
+        except Exception as error:
+            cleanup_temporary_directory(temporary_directory)
+            if isinstance(error, (ConfigurationError, InfrastructureError)):
+                raise
+            return StaticContentUnavailable(detail="unreadable-content")
 
     def _resolve_once(
         self,

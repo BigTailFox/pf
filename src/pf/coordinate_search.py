@@ -8,7 +8,7 @@ from packaging.version import Version
 
 from pf.errors import ConfigurationError
 from pf.static_guidance import StaticGuidanceEvaluator, StaticHint, locate_static_hint
-from pf.schemas.evaluation import SearchProbeRequest
+from pf.schemas.evaluation import CoordinateSelectionReason, SearchProbeRequest
 from pf.schemas.project import CandidateSnapshot, VersionPin
 from pf.schemas.report import (
     CoordinateBoundary,
@@ -215,7 +215,10 @@ class _CoordinateRun:
                 request = self._probe_request(self._vector(vector), dependency=dependency, window=versions)
                 existing = self._evaluator.lookup_direct_in_slice(request)
                 if existing is not None:
-                    self._probe(vector, dependency=dependency, window=versions, direct=existing)
+                    self._probe(
+                        vector, dependency=dependency, window=versions, direct=existing,
+                        selection_reason="direct-existing",
+                    )
                     if isinstance(existing, ProbePass):
                         passes.append((version, existing))
             if passes:
@@ -228,6 +231,7 @@ class _CoordinateRun:
             current_evidence = self._probe(
                 search_current, dependency=dependency,
                 window=[current_version], direct=current_direct,
+                selection_reason="current-upper",
             )
             if self._status(current_evidence) != "PASS":
                 self._stop("NONDETERMINISTIC", dependency=dependency)
@@ -380,12 +384,18 @@ class _CoordinateRun:
             probe_hint = Version(static_hint.suspect.version)
         else:
             static_hint = None
+        if static_hint is not None:
+            guided_reason: CoordinateSelectionReason = "static-suspect"
+        elif hint is not None:
+            guided_reason = "external-hint"
+        else:
+            guided_reason = "mechanical-lowest"
         hint_evidence = self._probe_version(
             current,
             dependency,
             probe_hint,
             window=versions,
-            selection_reason="static-suspect" if static_hint is not None else "mechanical",
+            selection_reason=guided_reason,
             static_search_ref=static_search_ref if static_hint is not None else None,
         )
         if self._status(hint_evidence) == "PASS":
@@ -441,6 +451,7 @@ class _CoordinateRun:
                     dependency,
                     current_version,
                     window=current_window,
+                    selection_reason="current-upper",
                 )
                 if current_version in points
                 else self._probe(current, dependency=None)
@@ -484,6 +495,7 @@ class _CoordinateRun:
                             dependency,
                             version,
                             window=points[index : candidate_high + 1],
+                            selection_reason="mechanical-lowest",
                         )
                     )
                     == "PASS"
@@ -501,6 +513,7 @@ class _CoordinateRun:
                         window=points[
                             low_index : min(high_index, len(points) - 1) + 1
                         ],
+                        selection_reason="mechanical-midpoint",
                     )
                 )
                 == "PASS"
@@ -517,7 +530,7 @@ class _CoordinateRun:
         version: Version,
         *,
         window: list[Version],
-        selection_reason: Literal["mechanical", "history", "static-suspect", "static-clean-neighbor"] = "mechanical",
+        selection_reason: CoordinateSelectionReason = "mechanical-lowest",
         static_search_ref: str | None = None,
     ) -> ProbeEvidence:
         vector = dict(current)
@@ -532,27 +545,36 @@ class _CoordinateRun:
         dependency: str | None,
         window: list[Version] | None = None,
         direct: ProbeEvidence | None = None,
-        selection_reason: Literal["mechanical", "history", "static-suspect", "static-clean-neighbor"] = "mechanical",
+        selection_reason: CoordinateSelectionReason = "mechanical-lowest",
         static_search_ref: str | None = None,
     ) -> ProbeEvidence:
         vector = self._vector(versions)
         key = tuple((pin.name, pin.version) for pin in vector)
         evidence = direct
+        looked_up = False
         if evidence is None and dependency is not None and isinstance(self._evaluator, DirectEvidenceLookup):
             evidence = self._evaluator.lookup_direct_in_slice(
                 self._probe_request(vector, dependency=dependency, window=window),
             )
+            looked_up = evidence is not None
+        effective_reason: CoordinateSelectionReason | None
+        if dependency is None:
+            effective_reason = None
+        elif looked_up:
+            effective_reason = "direct-existing"
+        else:
+            effective_reason = selection_reason
         if evidence is not None and dependency is not None and isinstance(self._evaluator, DirectEvidenceConsumer):
             self._evaluator.consume_direct_in_slice(
                 self._probe_request(vector, dependency=dependency, window=window).model_copy(update={
-                    "selection_reason": selection_reason, "static_search_ref": static_search_ref,
+                    "selection_reason": effective_reason, "static_search_ref": static_search_ref,
                 }), evidence,
             )
         if evidence is None:
             if dependency is not None and isinstance(self._evaluator, RuntimeBackedVectorEvaluator):
                 evidence = self._evaluator.evaluate_in_slice(
                     self._probe_request(vector, dependency=dependency, window=window).model_copy(update={
-                        "selection_reason": selection_reason, "static_search_ref": static_search_ref,
+                        "selection_reason": effective_reason, "static_search_ref": static_search_ref,
                     }),
                 )
             else:
@@ -565,6 +587,7 @@ class _CoordinateRun:
             vector=vector,
             key=key,
             evidence=evidence,
+            selection_reason=effective_reason,
         )
         self._check_terminal(evidence, dependency=dependency)
         self._record_runtime_status(
@@ -602,6 +625,7 @@ class _CoordinateRun:
         vector: tuple[VersionPin, ...],
         key: tuple[tuple[str, str], ...],
         evidence: ProbeEvidence,
+        selection_reason: CoordinateSelectionReason | None,
     ) -> None:
         observation_key = (dependency, key, evidence.status)
         if observation_key not in self._observation_keys:
@@ -614,6 +638,7 @@ class _CoordinateRun:
                     ),
                     vector=vector,
                     evidence=evidence,
+                    selection_reason=None if dependency is None else selection_reason,
                 )
             )
 

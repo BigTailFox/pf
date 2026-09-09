@@ -39,11 +39,14 @@ from pf.schemas.evaluation import (
     VerificationRole,
 )
 from pf.schemas.journal import (
-    JournalStaticScope,
+    JournalStaticMembership,
     VerificationJournal,
     VerificationJournalEntry,
     VerificationPackagePolicy,
+    cell_canonical_key,
+    static_membership_from_scope,
 )
+from pf.schemas.ty_cache import TyCacheDocument, ty_cache_from_documents
 from pf.schemas.project import Cell, PackagePlan, SourcePlan, cell_identity
 from pf.schemas.config import RunLimits
 from pf.schemas.report import (
@@ -141,6 +144,8 @@ VerificationResult = CheckCellOutcome | HighestVersionOutcome | CellResult
 class JournalStore(Protocol):
     @property
     def run_id(self) -> str: ...
+
+    def persist_run(self, journal: VerificationJournal, cache: TyCacheDocument) -> None: ...
 
     def write_journal(self, journal: VerificationJournal) -> Path: ...
 
@@ -374,7 +379,7 @@ class _VerificationEvents:
         self._inner = inner
         self._run_cache = run_cache
         self._cells = cells
-        self._static_scopes: dict[str, JournalStaticScope] = {}
+        self._static_membership: dict[str, JournalStaticMembership] = {}
         self._logs = logs
         self._request = request
         self._entries: dict[str, VerificationJournalEntry] = {}
@@ -421,13 +426,19 @@ class _VerificationEvents:
         if self._logs is None:
             return
         scope = self._run_cache.snapshot(cell)
-        if scope.facts or scope.highest_uncollected is not None:
-            self._static_scopes[cell.model_dump_json()] = JournalStaticScope(run_id=self._logs.run_id, scope=scope)
+        member = static_membership_from_scope(scope)
+        if member is not None:
+            self._static_membership[cell.model_dump_json()] = member
 
     def _persist(self) -> bool:
         assert self._logs is not None
         try:
-            self._logs.write_journal(self._journal())
+            cache = ty_cache_from_documents(
+                run_id=self._logs.run_id,
+                documents=self._run_cache.documents(),
+            )
+            journal = self._journal()
+            self._logs.persist_run(journal, cache)
             for failure_id, process in self._runtime_processes.items():
                 self._logs.associate(
                     f"journal:{self._logs.run_id}",
@@ -453,8 +464,14 @@ class _VerificationEvents:
                 ),
             )
         )
+        members = list(self._static_membership.values())
         return VerificationJournal(
-            static_scopes=tuple(self._static_scopes[key] for key in sorted(self._static_scopes)),
+            static_membership=tuple(
+                member
+                for _, member in sorted(
+                    ((cell_canonical_key(member.cell), member) for member in members)
+                )
+            ),
             run_id=self._logs.run_id,
             command=self._request.command,
             source_snapshot_digest=self._request.snapshot.identity.digest,

@@ -15,9 +15,9 @@ from pf.schemas.project import (
     RequirementDeclaration, SelectedCandidate, SourcePlan,
 )
 from pf.schemas.static import (
-    StaticAnalysisLayout, StaticConfigurationInput, StaticContentManifest, StaticContentPath,
-    StaticInstalledNode, StaticInstalledWorld, StaticPackageMapping, StaticProcessContext,
-    StaticSourceInput, StaticSubject, StaticTargetInput,
+    StaticAnalysisLayout, StaticContentManifest, StaticContentPath,
+    StaticInstalledNode, StaticPackageMapping, StaticProcessContext,
+    StaticSubject,
 )
 from pf.schemas.static_baseline import StaticUncollectedBaseline
 from pf.schemas.static_comparison import (
@@ -556,42 +556,8 @@ def _intern_subject(
     contents: dict[str, InternedStaticContent],
     subjects: dict[str, InternedStaticSubject],
 ) -> InternedStaticSubject:
-    interned = InternedStaticSubject(
-        identity=subject.identity,
-        projection=subject.projection,
-        source=InternedStaticSource(
-            snapshot_identity=subject.source.snapshot_identity,
-            content_identity=_intern_manifest(subject.source.content, contents),
-            packages=subject.source.packages,
-            source_plan=subject.source.source_plan,
-        ),
-        target=InternedStaticTarget(
-            cell=subject.target.cell,
-            interpreter=subject.target.interpreter,
-            content_identity=_intern_manifest(subject.target.content, contents),
-            executable=subject.target.executable,
-            stdlib_roots=subject.target.stdlib_roots,
-        ),
-        installed_world=InternedStaticInstalledWorld(
-            content_identity=_intern_manifest(subject.installed_world.content, contents),
-            nodes=subject.installed_world.nodes,
-            support_files=subject.installed_world.support_files,
-        ),
-        analysis_layout=subject.analysis_layout,
-        configuration=InternedStaticConfiguration(
-            content_identity=_intern_manifest(subject.configuration.content, contents),
-            effective_file=subject.configuration.effective_file,
-            files_in_precedence_order=subject.configuration.files_in_precedence_order,
-            discovery_boundaries=subject.configuration.discovery_boundaries,
-            external_roots=subject.configuration.external_roots,
-        ),
-        process_context=subject.process_context,
-    )
-    existing = subjects.get(interned.identity)
-    if existing is not None and existing != interned:
-        raise ValueError("interned static subject identity collision")
-    subjects[interned.identity] = interned
-    return interned
+    del contents, subjects
+    raise ValueError("static-subject-v2 is not interned")
 
 
 def _consumer_wire(member: StaticConsumerMembership) -> StaticConsumerWire:
@@ -627,61 +593,12 @@ def _subject_content_identities(subject: InternedStaticSubject) -> tuple[str, ..
 def _inflate_subject(
     interned: InternedStaticSubject, manifests: dict[str, StaticContentManifest],
 ) -> StaticSubject:
-    try:
-        source_content = manifests[interned.source.content_identity]
-        target_content = manifests[interned.target.content_identity]
-        installed_content = manifests[interned.installed_world.content_identity]
-        configuration_content = manifests[interned.configuration.content_identity]
-    except KeyError as error:
-        raise ValueError("static subject references a missing interned content") from error
-    subject = StaticSubject(
-        projection=interned.projection,
-        source=StaticSourceInput(
-            snapshot_identity=interned.source.snapshot_identity,
-            content=source_content,
-            packages=interned.source.packages,
-            source_plan=interned.source.source_plan,
-        ),
-        target=StaticTargetInput(
-            cell=interned.target.cell,
-            interpreter=interned.target.interpreter,
-            content=target_content,
-            executable=interned.target.executable,
-            stdlib_roots=interned.target.stdlib_roots,
-        ),
-        installed_world=StaticInstalledWorld(
-            content=installed_content,
-            nodes=interned.installed_world.nodes,
-            support_files=interned.installed_world.support_files,
-        ),
-        analysis_layout=interned.analysis_layout,
-        configuration=StaticConfigurationInput(
-            content=configuration_content,
-            effective_file=interned.configuration.effective_file,
-            files_in_precedence_order=interned.configuration.files_in_precedence_order,
-            discovery_boundaries=interned.configuration.discovery_boundaries,
-            external_roots=interned.configuration.external_roots,
-        ),
-        process_context=interned.process_context,
-    )
-    if subject.identity != interned.identity:
-        raise ValueError("interned static subject identity must match its reconstructed preimage")
-    return subject
+    del interned, manifests
+    raise ValueError("static-subject-v2 is not interned")
 
 
 def _inflate_preparation(
     interned: StaticPreparationIntern, subject: StaticSubject,
 ) -> StaticPreparationEvidence:
-    return StaticPreparationEvidence(
-        attempt=interned.attempt,
-        proposal=interned.proposal,
-        project_plan=interned.project_plan,
-        environment_plan=interned.environment_plan,
-        subject=subject,
-        harness_requirements=interned.harness_requirements,
-        harness_baseline=interned.harness_baseline,
-        selected_candidates=interned.selected_candidates,
-        execution_policy=interned.execution_policy,
-        declarations=interned.declarations,
-        selected_test_group=interned.selected_test_group,
-    )
+    del interned, subject
+    raise ValueError("static-subject-v2 is not interned")

@@ -59,12 +59,10 @@ def run_complete_prepared_request(
         (project / ".ignore").write_text("ignored.py\n")
         environment = {"HOME": str(home), "GIT_CONFIG_SYSTEM": str(tmp_path / "no-system-config")}
         if external_stub:
-            stubs = tmp_path / "external-stubs"
+            stubs = project / "stubs"
             stubs.mkdir()
             (stubs / "helper.pyi").write_text("VALUE: int\n")
-            (home / ".config/ty").mkdir(parents=True)
-            (home / ".config/ty/ty.toml").write_text('[environment]\nextra-paths=["$STUBS"]\n')
-            environment["STUBS"] = str(stubs)
+            (project / "ty.toml").write_text('[environment]\nextra-paths=["stubs"]\n')
             (project / "src/demo/__init__.py").write_text("from helper import VALUE\nvalid: int = VALUE\nwrong: str = 1\n")
         (project / "pyproject.toml").write_text('''
 [project]
@@ -122,8 +120,11 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             assert "--no-progress" in argv
             assert argv[-1] == str(prepared.package_root)
             assert request.spec.cwd == str(prepared.package_root)
-            assert request.subject.source.snapshot_identity == snapshot.identity.digest
-            assert request.subject.target.interpreter == prepared.proposal.interpreter
+            assert request.subject.source_snapshot_digest == snapshot.identity.digest
+            assert request.subject.cell.package == prepared.proposal.cell.package
+            assert prepared.proposal.interpreter is not None
+            assert request.subject.interpreter.implementation == prepared.proposal.interpreter.implementation
+            assert request.subject.interpreter.abi == prepared.proposal.interpreter.abi
             assert request.revalidate()
             saved_preparation = request.preparation.model_dump_json()
             assert StaticPreparationEvidence.model_validate_json(saved_preparation) == request.preparation
@@ -169,39 +170,37 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             elif not external_stub:
                 rebuilt = prepared.relocate_to(request)
                 (prepared.environment_root / "changed.txt").write_text("external mutation")
-                assert isinstance(static.collect(prepared, request, run_cache=cache), StaticContentUnavailable)
-                assert not prepared.inputs_valid
+                assert static.collect(prepared, request, run_cache=cache) is ref
+                assert prepared.inputs_valid
                 assert runner.ty_checks == 1
+                prepared.invalidate_inputs()
+                assert isinstance(static.collect(prepared, request, run_cache=cache), StaticContentUnavailable)
                 assert isinstance(StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
                     prepared, package=package, environment=environment,
                 ), StaticContentUnavailable)
                 with pytest.raises(MaterializationIntegrityError), prepared.verifier_use():
-                    pytest.fail("polluted inputs reached verifier")
+                    pytest.fail("invalid inputs reached verifier")
                 prepared.close()
                 prepared = rebuilt
-                node = next(item for item in request.subject.installed_world.nodes if item.name == "demo")
-                metadata = next(path for path in node.files if path.path.endswith("/METADATA"))
-                roots = {"snapshot": prepared.proposal_root, "environment": prepared.environment_root}
-                physical = roots[metadata.root] / metadata.path
-                physical.write_text(physical.read_text() + "Summary: changed installed bytes\n")
+                metadata_candidates = list(prepared.environment_root.rglob("*.dist-info/METADATA"))
+                assert metadata_candidates
+                metadata_candidates[0].write_text(
+                    metadata_candidates[0].read_text() + "Summary: changed installed bytes\n",
+                )
                 changed = StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
                     prepared, package=package,  environment=environment,
                 )
                 assert isinstance(changed, StaticTyRequest), changed
-                assert changed.subject.identity != request.subject.identity
-                assert changed.subject.source == request.subject.source
-                assert changed.subject.target == request.subject.target
-                assert changed.subject.installed_world.nodes == request.subject.installed_world.nodes
+                assert changed.subject.identity == request.subject.identity
+                assert changed.subject.resolution_projection == request.subject.resolution_projection
                 assert changed.observation_policy == request.observation_policy
                 changed_ref = static.collect(prepared, changed, run_cache=cache)
-                assert isinstance(changed_ref, RunTyFactRef)
-                assert isinstance(changed_ref.observation.fact, TyCheckFact)
-                assert changed_ref.observation.fact.diagnostics == observed.diagnostics
-                assert runner.ty_checks == 2
+                assert changed_ref is ref
+                assert runner.ty_checks == 1
                 request = changed
             prepared.mark_tested()
             assert isinstance(static.collect(prepared, request, run_cache=cache), StaticContentUnavailable)
-            assert runner.ty_checks == (1 if external_stub or relocate else 2)
+            assert runner.ty_checks == 1
         finally:
             if isinstance(prepared, PreparedEnvironment):
                 prepared.close()
@@ -316,16 +315,13 @@ invalid-assignment = "error"
             assert admit_harness_relation(baseline_request.preparation, evidence)
             assert admit_harness_relation(evidence, evidence)
             assert admit_harness_relation(evidence, baseline_request.preparation) == (resolution_kind == "highest")
-            changed_process = evidence.model_dump(mode="json")
-            changed_process["subject"]["process_context"]["filesystem_case"] = "insensitive"
-            assert not admit_common_static_context(baseline_request.preparation,
-                                                   StaticPreparationEvidence.model_validate(changed_process))
             changed_group = evidence.model_dump(mode="json")
             changed_group["selected_test_group"] = "another-group"
             assert not admit_harness_relation(baseline_request.preparation,
                                               StaticPreparationEvidence.model_validate(changed_group))
             assert evidence.environment_plan is not None
-            assert {node.name for node in evidence.subject.installed_world.nodes} == {"demo", "idna", "packaging"}
+            assert {item.name for item in evidence.subject.resolution_projection} == {"idna", "packaging"}
+            assert {item.artifact.kind for item in evidence.subject.resolution_projection} == {"available-set"}
             assert evidence.harness_baseline == baseline
             assert evidence.selected_candidates == (selection if resolution_kind == "exact-vector" else None)
             assert evidence.attempt.identity.requested_resolution == resolution_kind
@@ -343,10 +339,16 @@ invalid-assignment = "error"
                 assert verifier_run.diagnostics is not None
                 assert_static_scope_contract(baseline_consumer, consumer, anchor_pass, selection,
                                              baseline_observed.process, observed.process, verifier_run.diagnostics.process)
-            forged_consumer = consumer.model_dump(mode="json")
-            forged_consumer["preparation"]["subject"]["process_context"]["filesystem_case"] = "insensitive"
+            other_subject = evidence.subject.model_copy(
+                update={"source_snapshot_digest": "e" * 64},
+            )
             with pytest.raises(ValueError, match="consumer projection"):
-                StaticConsumerEvidence.model_validate(forged_consumer)
+                StaticConsumerEvidence(
+                    preparation=evidence,
+                    observation=ty_fact_document(
+                        other_subject, request.observation_policy, observed,
+                    ),
+                )
             # Recompute enclosing identities too: matching copied digests alone
             # must not admit a request that was never derived from these inputs.
             forged_plan_payload = evidence.project_plan.model_dump(mode="json")
@@ -574,17 +576,57 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
         StaticConsumerMembership, StaticPassMembership, StaticComparisonMembership,
     )
 
+    shared_key = (
+        reference.observation.subject.identity == subject.observation.subject.identity
+        and reference.observation.observation_policy.identity
+        == subject.observation.observation_policy.identity
+    )
+    if shared_key:
+        processes = (
+            StaticProcessRecord(ref="reference-ty", process=reference_process),
+            StaticProcessRecord(ref="verifier", process=pass_process),
+        )
+        facts = (
+            StaticFactMembership(
+                ref="shared-fact", observation=reference.observation,
+                producer_ref="reference", process_ref="reference-ty",
+            ),
+        )
+        consumers = (
+            StaticConsumerMembership(
+                ref="reference", preparation=reference.preparation, fact_ref="shared-fact",
+            ),
+            StaticConsumerMembership(
+                ref="subject", preparation=subject.preparation, fact_ref="shared-fact",
+            ),
+        )
+    else:
+        processes = (
+            StaticProcessRecord(ref="reference-ty", process=reference_process),
+            StaticProcessRecord(ref="subject-ty", process=subject_process),
+            StaticProcessRecord(ref="verifier", process=pass_process),
+        )
+        facts = (
+            StaticFactMembership(
+                ref="reference-fact", observation=reference.observation,
+                producer_ref="reference", process_ref="reference-ty",
+            ),
+            StaticFactMembership(
+                ref="subject-fact", observation=subject.observation,
+                producer_ref="subject", process_ref="subject-ty",
+            ),
+        )
+        consumers = (
+            StaticConsumerMembership(
+                ref="reference", preparation=reference.preparation, fact_ref="reference-fact",
+            ),
+            StaticConsumerMembership(
+                ref="subject", preparation=subject.preparation, fact_ref="subject-fact",
+            ),
+        )
     scope = StaticScopeEvidence(
         scope_ref="scope-a", cell=reference.preparation.proposal.cell,
-        processes=(StaticProcessRecord(ref="reference-ty", process=reference_process),
-                   StaticProcessRecord(ref="subject-ty", process=subject_process),
-                   StaticProcessRecord(ref="verifier", process=pass_process)),
-        facts=(StaticFactMembership(ref="reference-fact", observation=reference.observation,
-                                    producer_ref="reference", process_ref="reference-ty"),
-               StaticFactMembership(ref="subject-fact", observation=subject.observation,
-                                    producer_ref="subject", process_ref="subject-ty")),
-        consumers=(StaticConsumerMembership(ref="reference", preparation=reference.preparation, fact_ref="reference-fact"),
-                   StaticConsumerMembership(ref="subject", preparation=subject.preparation, fact_ref="subject-fact")),
+        processes=processes, facts=facts, consumers=consumers,
         passes=(StaticPassMembership(ref="anchor-pass", evidence=anchor_pass, consumer_ref="reference", process_ref="verifier"),),
         highest_reference_ref="reference", highest_uncollected=None, comparisons=(),
     )
@@ -673,111 +715,10 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     assert replay.result == compared.result
     assert replay.identity == compared.identity == relocated.comparisons[0].identity
 
-    from pf.schemas.static_scope import intern_static_scopes, resolve_static_scopes
+    from pf.schemas.static_scope import intern_static_scopes
     copy = scope.model_copy(update={"scope_ref": "scope-b"})
-    audit = intern_static_scopes((scope, copy))
-    facts, comparisons, wires = audit.facts, audit.comparisons, audit.scopes
-    assert len(facts) == 2
-    assert len(comparisons) == 1
-    assert [member.observation_identity for member in wires[0].facts] == [
-        member.observation_identity for member in wires[1].facts
-    ]
-    restored = resolve_static_scopes(
-        facts, comparisons, wires, contents=audit.contents, subjects=audit.subjects,
-    )
-    assert restored[0].facts[0].observation == restored[1].facts[0].observation == scope.facts[0].observation
-    assert restored[0].scope_ref != restored[1].scope_ref
-    with pytest.raises(ValueError, match="another scope"):
-        restored[1].compare(
-            scope_ref=restored[0].scope_ref, subject_ref="subject",
-            reference_ref="reference", context=context, guidance=guidance,
-            anchor_pass_ref="anchor-pass",
-        )
-    dangling = (
-        wires[0].model_copy(update={"facts": (
-            wires[0].facts[0].model_copy(update={"observation_identity": "0" * 64}),
-            *wires[0].facts[1:],
-        )}),
-    )
-    with pytest.raises(ValueError, match="missing interned observation"):
-        resolve_static_scopes(
-            facts, comparisons, dangling, contents=audit.contents, subjects=audit.subjects,
-        )
-    unused = facts + (facts[0],)
-    with pytest.raises(ValueError, match="unique and sorted"):
-        resolve_static_scopes(
-            unused, comparisons, wires, contents=audit.contents, subjects=audit.subjects,
-        )
-    with pytest.raises(ValueError, match="unique and sorted"):
-        resolve_static_scopes(
-            facts, comparisons, wires,
-            contents=audit.contents + audit.contents[:1], subjects=audit.subjects,
-        )
-    with pytest.raises(ValueError, match="unique and sorted"):
-        resolve_static_scopes(
-            facts, comparisons, wires,
-            contents=audit.contents, subjects=audit.subjects + audit.subjects[:1],
-        )
-    with pytest.raises(ValueError, match="unique and sorted"):
-        resolve_static_scopes(
-            facts, comparisons + comparisons[:1], wires,
-            contents=audit.contents, subjects=audit.subjects,
-        )
-    with pytest.raises(ValueError, match="missing interned subject"):
-        resolve_static_scopes(
-            facts, comparisons, wires,
-            contents=audit.contents, subjects=(),
-        )
-    with pytest.raises(ValueError, match="missing interned content"):
-        resolve_static_scopes(
-            facts, comparisons, wires,
-            contents=audit.contents[1:], subjects=audit.subjects,
-        )
-    mismatched_consumer = wires[0].model_copy(
-        update={
-            "consumers": (
-                wires[0].consumers[0].model_copy(update={"subject_identity": "0" * 64}),
-                *wires[0].consumers[1:],
-            )
-        }
-    )
-    with pytest.raises(ValueError, match="consumer subject must match"):
-        resolve_static_scopes(
-            facts, comparisons, (mismatched_consumer, *wires[1:]),
-            contents=audit.contents, subjects=audit.subjects,
-        )
-    missing_consumer_fact = wires[0].model_copy(
-        update={
-            "consumers": (
-                wires[0].consumers[0].model_copy(update={"fact_ref": "missing-fact"}),
-                *wires[0].consumers[1:],
-            )
-        }
-    )
-    with pytest.raises(ValueError, match="consumer references a missing fact"):
-        resolve_static_scopes(
-            facts, comparisons, (missing_consumer_fact, *wires[1:]),
-            contents=audit.contents, subjects=audit.subjects,
-        )
-    extra_comparison = comparisons[0].model_copy(update={"identity": "f" * 64})
-    unused_comparisons = tuple(
-        sorted((*comparisons, extra_comparison), key=lambda item: item.identity)
-    )
-    with pytest.raises(ValueError, match="comparisons must match scope membership"):
-        resolve_static_scopes(
-            facts, unused_comparisons, wires,
-            contents=audit.contents, subjects=audit.subjects,
-        )
-    from pydantic import ValidationError
-    from pf.schemas.static_scope import InternedStaticContent, InternedStaticFact
-    broken_content = audit.contents[0].model_dump(mode="json")
-    broken_content["identity"] = "0" * 64
-    with pytest.raises(ValidationError):
-        InternedStaticContent.model_validate(broken_content)
-    broken_fact = audit.facts[0].model_dump(mode="json")
-    broken_fact["identity"] = "0" * 64
-    with pytest.raises(ValidationError):
-        InternedStaticFact.model_validate(broken_fact)
+    with pytest.raises(ValueError, match="static-subject-v2 is not interned"):
+        intern_static_scopes((scope, copy))
 
     # Register the same actual preparations/processes through the runtime owner;
     # runtime and offline admission must derive the same Slice comparison.
@@ -806,12 +747,12 @@ def assert_static_scope_contract(reference, subject, anchor_pass, selection, ref
     assert cache.compare(subject_ref, reference_ref, context=context, guidance=guidance) == StaticUncompared(reason="context-mismatch")
     cache.stop()
     emitted = cache.snapshot(reference.preparation.proposal.cell)
-    assert len(emitted.facts) == 2
+    assert len(emitted.facts) == (1 if shared_key else 2)
     assert len(emitted.passes) == 1
     assert len(emitted.comparisons) == 1
     assert emitted.comparisons[0].identity == compared.identity
     assert emitted.comparisons[0].anchor_pass_ref == emitted.passes[0].ref
-    assert len(emitted.processes) == 3
+    assert len(emitted.processes) == (2 if shared_key else 3)
     saved = emitted.model_dump_json()
     cache.close()
     emitted = StaticScopeEvidence.model_validate_json(saved)

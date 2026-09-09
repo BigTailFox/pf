@@ -7,81 +7,106 @@ import tomli
 
 from pf.static_configuration import (
     TyConfigurationResolution, TyConfigurationResolver, TyConfigurationUnavailable,
-    TyConfigurationMaterialization, materialize_ty_configuration,
+    TyConfigurationMaterialization, materialize_ty_configuration, ty_config_digest,
 )
 
 
 class TestTyConfigurationResolver:
-    def test_project_selection_skips_unconfigured_pyproject_and_merges_user_arrays(self, tmp_path: Path) -> None:
+    def test_host_user_config_is_undeclared_analysis_root(self, tmp_path: Path) -> None:
         user = tmp_path / "home" / ".config" / "ty"
         user.mkdir(parents=True)
-        (user / "ty.toml").write_text('[rules]\ninvalid-assignment="ignore"\n[analysis]\nallowed-unresolved-imports=["from_user"]\n')
-        project = tmp_path / "workspace" / "member"
-        project.mkdir(parents=True)
-        (project / "pyproject.toml").write_text('[project]\nname="demo"\nversion="1"\n')
-        (project.parent / "pyproject.toml").write_text('[tool.ty.rules]\ninvalid-assignment="error"\n[tool.ty.analysis]\nallowed-unresolved-imports=["from_project"]\n')
+        (user / "ty.toml").write_text('[rules]\ninvalid-assignment="ignore"\n')
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "ty.toml").write_text('[rules]\ninvalid-assignment="error"\n')
         resolved = TyConfigurationResolver().resolve(
-            project_directory=project, environment={"HOME": str(tmp_path / "home")}, platform="posix",
+            project_directory=project,
+            environment={"HOME": str(tmp_path / "home")},
+            platform="posix",
+            snapshot_root=project,
         )
-        assert isinstance(resolved, TyConfigurationResolution)
-        assert [file.role for file in resolved.files] == ["user", "project"]
-        assert resolved.files[-1].path == project.parent / "pyproject.toml"
-        assert resolved.analysis_root == project.parent
-        settings = tomli.loads(resolved.effective_toml)
-        assert settings["rules"]["invalid-assignment"] == "error"
-        assert settings["analysis"]["allowed-unresolved-imports"] == ["from_user", "from_project"]
-        assert project / "ty.toml" in resolved.queried_paths
-        assert project / "pyproject.toml" in resolved.queried_paths
+        assert resolved == TyConfigurationUnavailable(detail="undeclared-analysis-root")
 
-    def test_ty_file_takes_precedence_and_capture_is_independent_of_later_host_edits(self, tmp_path: Path) -> None:
+    def test_ty_file_inside_snapshot_materializes_without_owned_overrides(self, tmp_path: Path) -> None:
         project = tmp_path / "project"
         project.mkdir()
         (project / "ty.toml").write_text('[rules]\ninvalid-assignment="warn"\n')
         (project / "pyproject.toml").write_text('[tool.ty.rules]\ninvalid-assignment="ignore"\n')
         resolved = TyConfigurationResolver().resolve(
-            project_directory=project, environment={"HOME": str(tmp_path / "home")}, platform="posix",
+            project_directory=project,
+            environment={"HOME": str(tmp_path / "home")},
+            platform="posix",
+            snapshot_root=project,
         )
         assert isinstance(resolved, TyConfigurationResolution)
-        assert resolved.files[-1].format == "ty"
-        (project / "ty.toml").unlink()
+        assert [file.role for file in resolved.files] == ["project"]
         assert tomli.loads(resolved.effective_toml)["rules"]["invalid-assignment"] == "warn"
-        assert 'invalid-assignment="warn"' in resolved.files[-1].content
         first = materialize_ty_configuration(resolved, directory=tmp_path / "frozen-first")
         second = materialize_ty_configuration(resolved, directory=tmp_path / "frozen-second")
         assert isinstance(first, TyConfigurationMaterialization)
         assert isinstance(second, TyConfigurationMaterialization)
-        assert first.content == second.content
-        assert first.content.identity == second.content.identity
-        assert (first.directory / first.effective_file.path).read_text() == resolved.effective_toml
-        assert materialize_ty_configuration(resolved, directory=first.directory) == TyConfigurationUnavailable()
+        assert first.digest == second.digest == ty_config_digest(first.content)
+        assert first.content == resolved.effective_toml.encode("utf-8")
+        assert "--python" not in first.content.decode()
+        assert "adapter-cli-overrides" not in first.content.decode()
 
-    def test_explicit_environment_configuration_uses_only_bound_expansion(self, tmp_path: Path, monkeypatch) -> None:
-        config = tmp_path / "explicit.toml"
+    def test_snapshot_ty_config_file_is_highest_priority(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        config = project / "explicit.toml"
         config.write_text('[rules]\ninvalid-assignment="ignore"\n')
-        monkeypatch.setenv("PF_CONFIG_ROOT", "/unregistered-host-value")
+        (project / "ty.toml").write_text('[rules]\ninvalid-assignment="warn"\n')
         resolved = TyConfigurationResolver().resolve(
-            project_directory=tmp_path,
-            environment={"TY_CONFIG_FILE": "${PF_CONFIG_ROOT}/explicit.toml", "PF_CONFIG_ROOT": str(tmp_path)},
+            project_directory=project,
+            environment={"HOME": str(tmp_path / "home"), "TY_CONFIG_FILE": str(config)},
             platform="posix",
+            snapshot_root=project,
         )
         assert isinstance(resolved, TyConfigurationResolution)
-        assert len(resolved.files) == 1
         assert resolved.files[0].role == "explicit"
-        assert resolved.files[0].path == config
-        assert resolved.queried_paths == (config,)
+        assert tomli.loads(resolved.effective_toml)["rules"]["invalid-assignment"] == "ignore"
 
-    @pytest.mark.parametrize("environment", [{}, {"TY_CONFIG_FILE": "$UNBOUND/ty.toml"}, {"TY_CONFIG_FILE": ""}, {"XDG_CONFIG_HOME": "relative"}])
-    def test_missing_explicit_context_does_not_fall_back_to_host_environment(self, tmp_path, environment) -> None:
+    def test_ty_config_file_outside_snapshot_is_undeclared(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        outside = tmp_path / "outside.toml"
+        outside.write_text('[rules]\ninvalid-assignment="ignore"\n')
+        resolved = TyConfigurationResolver().resolve(
+            project_directory=project,
+            environment={"HOME": str(tmp_path / "home"), "TY_CONFIG_FILE": str(outside)},
+            platform="posix",
+            snapshot_root=project,
+        )
+        assert resolved == TyConfigurationUnavailable(detail="undeclared-analysis-root")
+
+    def test_parent_walk_does_not_read_ty_config_outside_snapshot(self, tmp_path: Path) -> None:
+        snapshot = tmp_path / "snapshot"
+        project = snapshot / "member"
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text('[project]\nname="demo"\n')
+        (tmp_path / "ty.toml").write_text('[rules]\ninvalid-assignment="error"\n')
+        resolved = TyConfigurationResolver().resolve(
+            project_directory=project,
+            environment={"HOME": str(tmp_path / "home")},
+            platform="posix",
+            snapshot_root=snapshot,
+        )
+        assert isinstance(resolved, TyConfigurationResolution)
+        assert "invalid-assignment" not in resolved.effective_toml
+
+    @pytest.mark.parametrize("environment", [{}, {"TY_CONFIG_FILE": "$UNBOUND/ty.toml"}, {"XDG_CONFIG_HOME": "relative"}])
+    def test_missing_host_probe_context_does_not_fall_back(self, tmp_path, environment) -> None:
         assert isinstance(TyConfigurationResolver().resolve(
             project_directory=tmp_path, environment=environment, platform="posix",
+            snapshot_root=tmp_path,
         ), TyConfigurationUnavailable)
 
-    def test_windows_user_configuration_uses_explicit_appdata(self, tmp_path) -> None:
+    def test_windows_user_configuration_presence_is_undeclared(self, tmp_path) -> None:
         appdata = tmp_path / "appdata"
         (appdata / "ty").mkdir(parents=True)
         (appdata / "ty" / "ty.toml").write_text('[rules]\ninvalid-assignment="warn"\n')
         resolved = TyConfigurationResolver().resolve(
-            project_directory=tmp_path, environment={"APPDATA": str(appdata)}, platform="windows",
+            project_directory=tmp_path, environment={"APPDATA": str(appdata)},
+            platform="windows", snapshot_root=tmp_path,
         )
-        assert isinstance(resolved, TyConfigurationResolution)
-        assert resolved.files[0].path == appdata / "ty" / "ty.toml"
+        assert resolved == TyConfigurationUnavailable(detail="undeclared-analysis-root")

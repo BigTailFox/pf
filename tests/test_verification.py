@@ -852,6 +852,9 @@ class TestVerificationRunnerProjection:
         class Logs:
             run_id = "check-run"
 
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
+
             def write_journal(self, journal: VerificationJournal) -> Path:
                 journals.append(journal)
                 return tmp_path / "journal.json"
@@ -891,6 +894,9 @@ class TestVerificationRunnerProjection:
 
         class Logs:
             run_id = "smoke-run"
+
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
 
             def write_journal(self, journal: VerificationJournal) -> Path:
                 journals.append(journal)
@@ -937,6 +943,9 @@ class TestVerificationRunnerProjection:
 
         class Logs:
             run_id = "search-run"
+
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
 
             def write_journal(self, journal: VerificationJournal) -> Path:
                 journals.append(journal)
@@ -996,6 +1005,9 @@ class TestVerificationRunnerDurability:
         class Logs:
             run_id = "passing-check"
 
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
+
             def write_journal(self, journal: VerificationJournal) -> Path:
                 journals.append(journal)
                 return tmp_path / "journal.json"
@@ -1042,6 +1054,9 @@ class TestVerificationRunnerDurability:
         class Logs:
             run_id = "empty-search"
 
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
+
             def write_journal(self, journal: VerificationJournal) -> Path:
                 journals.append(journal)
                 return tmp_path / "journal.json"
@@ -1082,6 +1097,9 @@ class TestVerificationRunnerDurability:
 
         class FailingLogs:
             run_id = "empty-search"
+
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
 
             def write_journal(self, journal: VerificationJournal) -> Path:
                 raise InfrastructureError("could not finalize verification journal")
@@ -1125,6 +1143,9 @@ class TestVerificationRunnerDurability:
 
         class Logs:
             run_id = "verification-run"
+
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
 
             def write_journal(self, journal: VerificationJournal) -> Path:
                 timeline.append(("journal", len(journal.entries)))
@@ -1171,6 +1192,9 @@ class TestVerificationRunnerDurability:
 
         class FailingLogs:
             run_id = "verification-run"
+
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                self.write_journal(journal)
 
             def write_journal(self, journal: VerificationJournal) -> Path:
                 raise InfrastructureError("could not write verification journal")

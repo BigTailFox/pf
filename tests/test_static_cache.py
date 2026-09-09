@@ -269,7 +269,7 @@ class TestRunStaticScope:
             ))
         assert len({comparison.identity for comparison in comparisons}) == len(comparisons)
         changed_policy = type(policy).model_validate({
-            **policy.model_dump(), "config": {**policy.config.model_dump(), "timeout_seconds": 17},
+            **policy.model_dump(mode="json"), "timeout_seconds": 17,
         })
         changed_guidance = GuidancePolicy(observation=changed_policy, observation_identity=changed_policy.identity)
         changed = StaticComparisonDocument.compare(context=context, subject=empty, reference=None, guidance=changed_guidance)

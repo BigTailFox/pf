@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Literal
+from typing import Annotated, Literal, Union
 
-from pydantic import Field, model_validator, model_serializer
+from packaging.version import Version
+from pydantic import Field, field_validator, model_validator, model_serializer
 
 from pf.schemas.base import FrozenSchema, canonical_identity_json
-from pf.schemas.config import ResolutionConfig, SearchConfig, TyConfig
-from pf.schemas.static import StaticContentManifest, StaticContentPath
+from pf.schemas.config import ResolutionConfig, SearchConfig
 from pf.ty_options import validate_ty_args
 
 
@@ -63,37 +63,94 @@ class ExecutionPolicy(FrozenSchema):
         return _identity(b"pf:execution-policy:v1\0", self)
 
 
+class TyToolVersionDistribution(FrozenSchema):
+    kind: Literal["distribution"] = "distribution"
+    name: Literal["ty"] = "ty"
+    version: str = Field(min_length=1)
+
+    @field_validator("version")
+    @classmethod
+    def normalized_version(cls, value: str) -> str:
+        if str(Version(value)) != value:
+            raise ValueError("ty tool version must be a normalized PEP 440 version")
+        return value
+
+
+class TyToolVersionUnavailable(FrozenSchema):
+    kind: Literal["unavailable"] = "unavailable"
+
+
+TyToolVersion = Annotated[
+    Union[TyToolVersionDistribution, TyToolVersionUnavailable],
+    Field(discriminator="kind"),
+]
+
+
+class SnapshotTyConfigMaterialized(FrozenSchema):
+    kind: Literal["materialized"] = "materialized"
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SnapshotTyConfigUnavailable(FrozenSchema):
+    kind: Literal["unavailable"] = "unavailable"
+    reason: Literal[
+        "configuration-context-unavailable",
+        "configuration-unreadable",
+        "undeclared-analysis-root",
+    ]
+
+
+SnapshotTyConfig = Annotated[
+    Union[SnapshotTyConfigMaterialized, SnapshotTyConfigUnavailable],
+    Field(discriminator="kind"),
+]
+
+
 class TyObservationPolicy(FrozenSchema):
-    rules: Literal["ty-observation-v1"] = "ty-observation-v1"
-    tool_version: str = Field(min_length=1)
-    tool_content: StaticContentManifest
-    executable: StaticContentPath
-    config: TyConfig
+    rules: Literal["ty-observation-v2"] = "ty-observation-v2"
+    tool_version: TyToolVersion
+    args: tuple[str, ...] = ()
+    timeout_seconds: int | None = Field(default=600, json_schema_extra={"x-pf-preserve-null": True})
     owned_options: Literal["adapter-cli-overrides"] = "adapter-cli-overrides"
     output_format: Literal["gitlab"] = "gitlab"
     diagnostic_identity: Literal["snapshot-path-line-column-code+external-namespace-path-code"] = "snapshot-path-line-column-code+external-namespace-path-code"
-    analysis_scope: Literal["explicit-closed-static-subject-v1"] = "explicit-closed-static-subject-v1"
+    analysis_scope: Literal["explicit-static-subject-v2"] = "explicit-static-subject-v2"
     process_environment: Literal["explicit-complete-v1"] = "explicit-complete-v1"
     unavailable: Literal["typed-ty-process-and-protocol-v1"] = "typed-ty-process-and-protocol-v1"
     observation: Literal["run-first-observation-v1"] = "run-first-observation-v1"
+    snapshot_ty_config: SnapshotTyConfig
+    host_config: Literal["reject-undeclared-v1"] = "reject-undeclared-v1"
 
     @model_serializer(mode="wrap")
     def serialize_required_nulls(self, handler):
         result = handler(self)
-        if self.config.timeout_seconds is None:
-            result["config"]["timeout_seconds"] = None
+        if self.timeout_seconds is None:
+            result["timeout_seconds"] = None
         return result
 
     @model_validator(mode="after")
     def validate_observation(self) -> TyObservationPolicy:
-        validate_ty_args(self.config.args)
-        if self.tool_content.entry_at(self.executable).kind != "file":
-            raise ValueError("ty executable must be a file in the tool content closure")
+        validate_ty_args(self.args)
+        if self.timeout_seconds is not None and (
+            isinstance(self.timeout_seconds, bool) or self.timeout_seconds <= 0
+        ):
+            raise ValueError("ty timeout must be positive or None")
         return self
+
+    def cache_preimage(self) -> dict:
+        payload = self.model_dump(mode="json")
+        payload.pop("timeout_seconds", None)
+        return payload
 
     @property
     def identity(self) -> str:
-        return _identity(b"pf:ty-observation-policy:v1\0", self)
+        return _identity(b"pf:ty-observation-policy:v2\0", self)
+
+    @property
+    def cache_identity(self) -> str:
+        return hashlib.sha256(
+            b"pf:ty-observation-cache:v2\0" + canonical_identity_json(self.cache_preimage())
+        ).hexdigest()
 
 
 class GuidancePolicy(FrozenSchema):

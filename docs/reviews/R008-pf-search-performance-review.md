@@ -8,7 +8,7 @@
   [E002](../experiments/E002-pf-search-performance.md)（2026-08-28，region/witness 时代）；
   [E006](../experiments/E006-requests-complete-search.md)（2026-09-05–06，仍含 witness）；
   [E009](../experiments/E009-mkdocs-static-guidance.md)（2026-09-08，现行 guidance 权限）；
-  [I002](../investigations/I002-pf-self-search-py310-static-collection.md)（2026-09-09，PF 自搜索 3.10 intern / `unclosed-symlink`）
+  [I002](../archived/investigations/I002-pf-self-search-py310-static-collection.md)（2026-09-09，PF 自搜索 3.10 intern / `unclosed-symlink`）
 - **现行契约所有者：** [D001](../designs/D001-pf.md)、
   [D002](../designs/D002-pf-implementation.md)、
   [D003](../designs/D003-pf-search-algorithm.md)、
@@ -42,7 +42,7 @@ S_hi 在该隔离树不可用。受控 `measure_d038_guidance.py` 在 scripted a
 guided/mechanical 的 floor 全部相同；有的用例 guided 的 verifier 次数还多于 mechanical。
 静态 guidance 目前不是已证实的 pytest 削减杠杆。
 
-**2026-09-09：** [I002](../investigations/I002-pf-self-search-py310-static-collection.md)
+**2026-09-09：** [I002](../archived/investigations/I002-pf-self-search-py310-static-collection.md)
 在 PF 自搜索、单次 `test-command` <20s 的前提下，把 3.10 与 3.11/3.12 的墙钟差归因于
 `S_hi` 采集成功（散列并 intern 解释器/venv 文件树）对 3.11/3.12 `unclosed-symlink` 导致整格
 `anchor-unavailable`。oracle 次数没有差三倍；`json.dumps` 约 0.2s，`ReportStore.read` 在

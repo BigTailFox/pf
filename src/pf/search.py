@@ -48,6 +48,7 @@ from pf.schemas.evaluation import (
     SearchProbeRequest,
     SearchProbeDetailIdentity,
     VerifierRejectedEvaluation,
+    VerifierRun,
     runtime_process_observation,
 )
 from pf.schemas.project import (
@@ -55,6 +56,7 @@ from pf.schemas.project import (
     Cell,
     HarnessBaseline,
     PackagePlan,
+    Proposal,
     SelectedCandidate,
     SourcePlan,
     VersionPin,
@@ -423,16 +425,52 @@ class _ProposalRunner:
         snapshot = next(item for item in self._candidate_snapshots if item.dependency == dependency)
         passed = self._run_cache.find_pass(run.evaluation.proposal)
         if passed is None:
-            self._run_cache.record_omission(StaticPhaseOmission(
-                ref="pending", attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
-                candidates=snapshot, window=versions,
-            ))
-            return None
+            collected = self._inspect_static(vector)
+            runtime = run.runtime
+            if (
+                isinstance(collected, RunStaticConsumerRef)
+                and runtime is not None
+                and runtime.diagnostics is not None
+            ):
+                passed = self._run_cache.record_pass(
+                    collected,
+                    VerifierRun(
+                        authoritative=run.evaluation.verifier,
+                        diagnostics=runtime.diagnostics,
+                    ),
+                )
+            else:
+                self._run_cache.record_omission(StaticPhaseOmission(
+                    ref="pending", attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
+                    candidates=snapshot, window=versions,
+                ))
+                return None
         context = SliceComparisonContext(
             dependency=dependency, fixed_other_coordinates=tuple(pin for pin in vector if pin.name != dependency),
             window=tuple(snapshot.select(version) for version in versions), anchor_pass=passed.evidence,
         )
         return _RunnerStaticSlice(self, passed, context)
+
+    def _collect_via_reprepare(
+        self, proposal: Proposal, *, attempt: Attempt,
+    ) -> RunStaticConsumerRef | StaticProbeUnavailableEvidence:
+        rebuilt = self._environments.reprepare(proposal, self._snapshot, self._source_plan)
+        if isinstance(rebuilt, StaticContentUnavailable):
+            return StaticProbeUnavailableEvidence(
+                attempt=attempt, proposal=proposal, unavailable=rebuilt, failure=None, process=None,
+            )
+        try:
+            result = self._static.collect_prepared(
+                rebuilt, package=self._package, run_cache=self._run_cache,
+            )
+            if isinstance(result, StaticContentUnavailable):
+                return StaticProbeUnavailableEvidence(
+                    attempt=attempt, proposal=proposal, unavailable=result, failure=None, process=None,
+                )
+            assert rebuilt.static_consumer is not None
+            return rebuilt.static_consumer
+        finally:
+            rebuilt.close()
 
     def _inspect_static(
         self, vector: tuple[VersionPin, ...],
@@ -440,7 +478,13 @@ class _ProposalRunner:
         run = self._full_runs.get(self._key(vector))
         if run is not None and run.evaluation is not None:
             consumer = self._run_cache.find_consumer(run.evaluation.proposal)
-            return consumer if consumer is not None else StaticProbeUnavailableEvidence(
+            if consumer is not None:
+                return consumer
+            if isinstance(run.evaluation, PassEvaluation):
+                return self._collect_via_reprepare(
+                    run.evaluation.proposal, attempt=run.evidence.attempt,
+                )
+            return StaticProbeUnavailableEvidence(
                 attempt=run.evidence.attempt, proposal=run.evaluation.proposal,
                 unavailable=StaticContentUnavailable(detail="content-changed"), failure=None, process=None,
             )
@@ -1071,6 +1115,7 @@ class SearchCoordinator:
                         candidate_version=None,
                         vector=vector,
                         evidence=evidence,
+                        selection_reason=None,
                     ),
                 )
             }

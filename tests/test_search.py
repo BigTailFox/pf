@@ -591,6 +591,7 @@ class TestCoordinateSearch:
             lower_version="5",
             upper_version="5",
             candidate_count=1,
+            selection_reason="current-upper",
         )
         assert requests[1] == SearchProbeRequest(
             vector=(VersionPin(name="a", version="3"),),
@@ -599,6 +600,7 @@ class TestCoordinateSearch:
             lower_version="1",
             upper_version="5",
             candidate_count=5,
+            selection_reason="external-hint",
         )
 
     def test_runtime_backed_window_excludes_a_virtual_baseline_sentinel(

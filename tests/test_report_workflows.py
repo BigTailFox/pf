@@ -422,7 +422,7 @@ class TestReportWorkflows:
         logs = RunLogStore(root=tmp_path, run_id="check-run")
         journal_path = logs.write_journal(
             VerificationJournal(
-                static_scopes=(),
+                static_membership=(),
                 run_id="check-run",
                 command="check",
                 source_snapshot_digest="snapshot",

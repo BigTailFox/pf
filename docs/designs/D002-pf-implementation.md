@@ -348,7 +348,7 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 
 | Module | 唯一负责 | 不负责 |
 | --- | --- | --- |
-| `RunLogStore` | secure Process Logs、Verification Journal、Diagnosis Index 与 associations | disposition、报告 authority |
+| `RunLogStore` | secure Process Logs、Verification Journal、`pf-ty-cache-v1` sidecar、Diagnosis Index 与 Failure associations；拥有 ty-cache 编解码、canonical snapshot 与 cache→Journal→latest 原子写入 | disposition、报告 authority、文件树采集器 |
 | `ReportStore` | Schema 1 codec/validation、merge/update、canonical/atomic write；reader 从 wire SourcePlan 查询 identity/effective source | 搜索、source classification 或 apply authority |
 | `PackageReportBuilder` | CellResult roots → interned report/result；dependency group Cell→PEP 508 projection与重求值 | wire I/O、TOML I/O、apply授权 |
 | `ApplyAuthorizer` | report/current plan/snapshot的前置条件、platform scope、dependency state、source waiver与frozen authorized edits | TOML I/O、终端措辞、wire join |
@@ -360,7 +360,7 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 `pyproject_path` 反推这些命令事实。绝对 filesystem path、checkout root 与 display path 不进入
 Schema 1、report identity、Journal 或 merge。Merge 显式 request/result 路径不被 package 默认路径覆盖。
 
-ReportStore的interface与交易语义只见D014；Process Log只见D007，Journal/Index只见D008；apply产品授权只见D001，展示只见D006。
+ReportStore的interface与交易语义只见D014；Process Log只见D007，Journal/Index/ty-cache只见D008；编排器不读文件树采集器。apply产品授权只见D001，展示只见D006。
 
 ## 10. Terminal boundary
 
@@ -386,4 +386,5 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、
-[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D040](../archived/designs/D040-pf-test-lanes.md)、[D041](../archived/designs/D041-pf-repository-test-conformance.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。
+[D038](../archived/designs/D038-pf-static-guidance-authority.md)、[D040](../archived/designs/D040-pf-test-lanes.md)、[D041](../archived/designs/D041-pf-repository-test-conformance.md)、
+[D043](../archived/designs/D043-pf-static-subject-v2.md) 及[归档计划](../archived/plans/)；它们不覆盖本页当前结构。

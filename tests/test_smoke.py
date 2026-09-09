@@ -99,6 +99,9 @@ def attempt_and_proposal(
 class FailingJournal:
     run_id = "fail-run"
 
+    def persist_run(self, journal: VerificationJournal, cache) -> None:
+        self.write_journal(journal)
+
     def write_journal(self, journal: VerificationJournal) -> Path:
         raise InfrastructureError("could not write PF verification journal")
 
