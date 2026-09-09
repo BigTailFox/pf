@@ -38,8 +38,6 @@ def assert_case(record: dict[str, Any]) -> None:
     assert boundary["predecessor_failure_id"] == failure["failure_id"]
     if record["global_comparison"] is None:
         assert record["static_unavailable_detail"]
-    elif record["write_bytecode"]:
-        assert record["global_comparison"] == {"status": "UNCOMPARED", "reason": "context-mismatch"}
     else:
         assert record["global_comparison"]["status"] == "COMPARED"
         assert record["global_comparison"]["state"] == "STATIC_UNCHANGED"

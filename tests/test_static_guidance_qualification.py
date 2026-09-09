@@ -27,7 +27,10 @@ def assert_controlled(record: dict[str, Any]) -> None:
     assert all(item["role"] in {"declaration-capture", "declaration"} for item in record["outcomes"])
     assert record["static_journal"]
     assert any(
-        "ty-check" in item["producer_kinds"] or "ty-check-unavailable" in item["producer_kinds"]
+        item["highest"]["kind"] == "collected"
+        and item["highest"]["subject_identity"]
+        and item["highest"]["cache_identity"]
+        and item["highest"]["fact_identity"]
         for item in record["static_journal"]
     )
     for outcome in record["outcomes"]:

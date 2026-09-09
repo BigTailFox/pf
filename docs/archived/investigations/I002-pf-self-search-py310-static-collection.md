@@ -3,7 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-09（Asia/Shanghai）
 - **性质：** 非规范性调查事实，不定义新契约，不授权实施
-- **证据位置：** [data/I002/](../../investigations/data/I002/)（intern 摘要与 dump/read 计时）；完整 `package-floor-*.json` 留在仓库根、不入库。可变根 `package-floor.json` 不作历史证据链接
+- **证据位置：** [data/I002/](data/I002/)（intern 摘要与 dump/read 计时）；完整 `package-floor-*.json` 留在仓库根、不入库。可变根 `package-floor.json` 不作历史证据链接
 - **代码基线：** `2286197deface02b1e8b0a17244b7ad47ea2d27d`
 - **规范对照：** [D003](../../designs/D003-pf-search-algorithm.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)、[D014](../../designs/D014-pf-report-schema.md)
 - **已归并决策：** [D038](../designs/D038-pf-static-guidance-authority.md)
@@ -35,7 +35,7 @@
 
 ## 3. 三次 search
 
-公开命令均为 `pf search`。完整报告不入库；计数来自 intern 表，见 [summary.json](../../investigations/data/I002/summary.json)。
+公开命令均为 `pf search`。完整报告不入库；计数来自 intern 表，见 [summary.json](data/I002/summary.json)。
 
 | 实验 | Cell | 操作者 TTY | 现存卡片 | 报告 | 字节 / SHA-256 |
 | --- | --- | --- | --- | --- | --- |
@@ -69,7 +69,7 @@ oracle 次数没有差三倍。3.12 单 Cell 报告约 1.8MB，因为没有把�
 
 ## 5. dump / `ReportStore.read` 计时
 
-操作者于 2026-09-09 20:09 在宿主 3.10.16 上对已写出的 intern 报告计时，原始结果见 [dump-read.json](../../investigations/data/I002/dump-read.json)。
+操作者于 2026-09-09 20:09 在宿主 3.10.16 上对已写出的 intern 报告计时，原始结果见 [dump-read.json](data/I002/dump-read.json)。
 
 | 文件 | `json.loads` | `json.dumps(sort_keys)` | `ReportStore.read` |
 | --- | ---: | ---: | ---: |
