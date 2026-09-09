@@ -375,7 +375,7 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 - **`process` / `e2e`：** 经真实 uv/candidate/ty/verifier 装配 Environment/Static/Runtime、Highest、Check 与 Search graph。只有这些车道（外加 `qualification`）可以主张「真实进程已经证明」。
 - **`qualification`：** 工具协议与版本矩阵；不能用 fake、collection 或进程内测试冒充。
 
-需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。
+需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。覆盖率 `fail_under` 只作用于 canonical Python 在各 CI OS 上全量收集结果的并集；单宿主不必执行其他 OS 的平台私有分支。
 
 静态事实从 `StaticEvaluator.lookup/collect/compare` 的 outcome 观察。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
 baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。

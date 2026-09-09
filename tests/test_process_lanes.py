@@ -57,7 +57,11 @@ class TestRepositoryTestLanes:
     def test_ci_jobs_pass_explicit_marker_expressions(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         assert "uv run pytest --no-testmon -m \"not qualification\"" in workflow
-        assert "uv run pytest --no-testmon --cov --cov-report=term-missing -m \"\"" in workflow
+        assert (
+            "uv run pytest --no-testmon --cov --cov-report=term-missing "
+            "--cov-fail-under=0 -m \"\""
+        ) in workflow
+        assert "coverage combine" in workflow
         assert "fail_under = 90" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     def test_e2e_without_process_fails_collection_check(self) -> None:

@@ -57,8 +57,10 @@ uv run pytest --no-testmon -q -m qualification
 # PR 门禁（3.11/3.12）：日常 ∪ process ∪ e2e
 uv run pytest --no-testmon -q -m "not qualification"
 
-# 3.10 覆盖率门禁（含资格；与 CI 一致，fail_under=90）
-uv run pytest --no-testmon --cov=pf --cov-report=term-missing -m ""
+# 本机采集覆盖率（canonical Python 全量；不过 90% 门禁）
+uv run pytest --no-testmon --cov=pf --cov-report=term-missing --cov-fail-under=0 -m ""
 ```
 
 `--no-testmon` 确保本轮全量执行。日常增量执行仍可使用默认 testmon。
+
+覆盖率门禁是 **canonical Python 3.10、全量 `-m ""`、各 CI OS 数据的并集**，`fail_under = 90` 只在合并后的 `coverage report` 上生效。各 OS 的 pytest 只采集（`--cov-fail-under=0`），不按单宿主百分比卡关。增加 Windows / macOS 时把 CI `matrix.os` 扩进去即可，不必改门槛算法。单宿主跑不到的平台私有分支由对应 OS job 补上，不要用 `# pragma: no cover` 或降低 90% 代替。

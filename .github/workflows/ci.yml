@@ -7,10 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -26,8 +27,37 @@ jobs:
       - name: Pytest (testmon disabled)
         if: matrix.python-version != '3.10'
         run: uv run pytest --no-testmon -m "not qualification"
-      - name: Pytest with coverage gate
+      - name: Pytest with coverage data
         if: matrix.python-version == '3.10'
-        run: uv run pytest --no-testmon --cov --cov-report=term-missing -m ""
+        run: uv run pytest --no-testmon --cov --cov-report=term-missing --cov-fail-under=0 -m ""
+      - name: Upload coverage data
+        if: matrix.python-version == '3.10'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: tests/.cache/cov/.coverage*
+          include-hidden-files: true
+          if-no-files-found: error
       - name: Build
         run: uv build
+
+  coverage:
+    needs: test
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.10"
+      - name: Install
+        run: uv sync --group test
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: tests/.cache/cov/incoming
+      - name: Combine coverage and apply fail_under
+        run: |
+          uv run coverage combine $(find tests/.cache/cov/incoming -name '.coverage*')
+          uv run coverage report --show-missing
