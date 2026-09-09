@@ -13,7 +13,6 @@ from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.environment import HighestResolution, PreparedEnvironment
 from pf.evaluation import RuntimeEvaluator
-from pf.project import ProjectLoader
 from pf.schemas.evaluation import (
     NormalExit,
     TyCheck,
@@ -42,7 +41,7 @@ class TestRuntimeStaticPassRegistration:
     @pytest.mark.process
     def test_real_verifier_pass_is_saved_with_its_collected_consumer(self, static_request):
         prepared = static_request.prepared
-        package = ProjectLoader().load(root=prepared.package_root).target
+        package = static_request.package
         runner = SubprocessRunner()
         static = StaticEvaluator(TyAdapter(runner), processes=runner)
         runtime = RuntimeEvaluator(verifier=ConfiguredVerifier(runner))

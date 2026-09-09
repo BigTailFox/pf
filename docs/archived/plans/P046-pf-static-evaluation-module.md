@@ -273,6 +273,7 @@ uv run pytest --no-testmon -q -m "not qualification"
 - 2026-09-10：S1 落地 `tests/test_identity_golden.py`，三组字面 hex 对现行 `pf.resolution` 成立（E1：3 passed）。开始 S2。
 - 2026-09-10：S2 纯化 schemas、`StaticAuditDocument` / `_admit_saved_static_audit` / `admitted_membership`；identity 下放到 `pf.schemas.resolution`。S3 一次切齐 `pf.static` 五方法、Preparation registry + Direct-PASS ledger、删除 `failures=` / RequestFactory 产品缝 / `scripted_static.py` / `StaticContentCollector`。S4 吸收 D002/D003 §5/D004/D008，回填 §5 十四行并归档。
 - 2026-09-10：盲评后修复 F1–F6/F8，F7 记为保留偏差。未标记回归 `uv run pytest --no-testmon -q -m "not qualification"` → 2512 passed, 1 skipped, 8 deselected。
+- 2026-09-10：按用户决定收口三项残留：D002/D003/D004/CONTEXT 吸收 skip/selection 账本；产品 Search 测试改公开 outcome，账本与 `_admit` 伪造迁入 `TestSearchAuditLedger`；夹具与 process/adapter 测试去掉 Factory 装配。
 
 偏差与失败用例（实施时追加）：
 
@@ -296,13 +297,13 @@ uv run pytest --no-testmon -q -m "not qualification"
 - **F4：** ty/verifier process 按对象身份登记 Run owner；跨 Run 写入 `ValueError`。`test_record_runtime_rejects_process_from_another_run` 证明。相同 payload 的另一 process 对象仍可属于另一 Run。
 - **F5：** 删除 `static_admission.py` / `static_guidance.py` 过渡 re-export。baseline / check / evaluation / verification 改 `admitted_membership` / `documents`。`test_static_request` 去掉 RequestFactory argv 形状断言。
 - **F6：** `test_derive_and_hint_have_one_implementation` 要求 evaluator 实际调用 `compare_global` 与 `compare_document`，并证明 derive/hint 单实现；去掉恒真 `or`。
-- **F7：** 保留 `record_phase_skip` / `record_oracle_selection`。Search 写 phase skip / oracle selection 不得直接调 cache 领域方法，故多两个 Evaluator 入口；对 P046「公开五方法」锁记偏差。
+- **F7：** 保留 `record_phase_skip` / `record_oracle_selection`。Search 写 phase skip / oracle selection 不得直接调 cache 领域方法，故多两个 Evaluator 入口。D002/D003/D004/CONTEXT 已写成 Search 账本写入，不是第五个采集方法；账本不是公开事实。
 - **F8：** §5 十四行按本轮命令回填（AC13 现为 `TestRuntimeStaticPassRegistration` 整类 + `test_evaluation.py` → 34 passed, 1 deselected）。
 
-残留（记偏差，不扩公开表面）：
+残留收口（2026-09-10，按用户决定修完，不扩公开表面）：
 
-- Search D003 权威测试（`test_search_coordinator.py`）仍经 `snapshot` 观察 Cell audit 的 searches/skips/selections；`admitted_membership` 只投影 Journal highest。产品调用方不读 snapshot。
-- process 夹具与 adapter 测试仍用 request factory 装配 adapter-facing `StaticTyRequest`（`static_fixtures.static_request`、`test_ty_adapter`、relocate 路径）。这不是产品 Evaluator 形状。
+- 产品 Search 测试只读公开 outcome（`CellResult`、事件、`PackageReport.selection_reason`、`result.search.boundaries`）。searches / skips / selections / hint↔ref / slice 比较 / `_admit` 伪造落在 `tests/test_static_cache.py::TestSearchAuditLedger`。
+- `static_fixtures.static_request` 只 `EnvironmentFactory.prepare`。产品/adapter 测试走 `collect_prepared` / `capture_highest` 或直接持有 `StaticTyRequest`；`relocate_to` 只用 `RelocatableStaticRequest`（`roots` + `subject`）。内部 cache 测试可本地进口 Factory。
 
 ## 8. 文档与生成物
 

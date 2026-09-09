@@ -40,7 +40,6 @@ from pf.baseline import HighestVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
-from pf.static_request import StaticRequestFactory
 from pf.evaluation import RuntimeEvaluator
 from pf.static import StaticEvaluator
 from pf.project import ProjectLoader

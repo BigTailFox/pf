@@ -156,7 +156,7 @@ _Avoid_: Verification Journal, package-floor.json, Process Log, StaticAuditDocum
 
 **Static evaluation module**
 
-`pf.static` 的产品表面：`collect_prepared` / `capture_highest` / `compare_global` / `record_runtime` / `open_slice`。行为见 D002 / D004。
+`pf.static` 的采集表面：`collect_prepared` / `capture_highest` / `compare_global` / `record_runtime` / `open_slice`。Search 另有 `record_phase_skip` / `record_oracle_selection` 写入 Run 内账本，该账本不是公开事实。行为见 D002 / D004。
 
 _Avoid_: StaticRequestFactory, lookup/collect/compare 产品入口
 

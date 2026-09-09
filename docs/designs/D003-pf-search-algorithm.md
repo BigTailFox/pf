@@ -155,7 +155,10 @@ prepared 并 `collect_prepared`，只绑定 consumer，不得替换 runtime owne
 `NO_HINT`，不改写 `S_hi`，不产生 Failure ID，不产生静态 compatibility disposition。
 
 Direct-PASS 按 Proposal 至多一个 runtime owner。`record_runtime` 是直接 runtime PASS 进入
-ledger 的唯一通道。坐标结束时关闭未消费物化环境，保留完整结果和 Run-owned 原始静态事实。
+ledger 的唯一通道。`record_direct_bound` 经 `StaticEvaluator.record_phase_skip` 记账；
+`evaluate_in_slice` 与直接消费经 `record_oracle_selection` 记账。这两本账只在 Run cache，
+不是公开 Search outcome、Journal 或 report。坐标结束时关闭未消费物化环境，保留完整结果和
+Run-owned 原始静态事实。
 
 `SearchProbeRequest` 只表示坐标 probe，`selection_reason` required 非空：
 

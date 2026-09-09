@@ -101,33 +101,17 @@ def threshold_verifier(
     )
 
 
-def assert_direct_bound_skip(scope, *, floor, predecessor, predecessor_required=True):
-    assert scope.skips
-    skip = scope.skips[-1]
-    assert skip.reason == "direct-bound"
-    actual = next(pin.version for pin in skip.proposal.managed_vector if pin.name == skip.candidates.dependency)
-    assert actual == floor
-    assert skip.predecessor == predecessor
+def assert_public_direct_bound(result, *, floor, predecessor, predecessor_required=True):
+    boundary = result.search.boundaries[0]
+    assert boundary.floor == floor
+    assert boundary.predecessor == predecessor
     if predecessor_required:
-        assert skip.predecessor_failure_id
+        assert boundary.predecessor_failure_id
     else:
-        assert skip.predecessor_failure_id is None
-    assert floor in skip.window
-    return skip
+        assert boundary.predecessor_failure_id is None
 
 
-def assert_selection_identity_is_dynamic_only(scope):
-    by_attempt = {}
-    for selection in scope.selections:
-        by_attempt.setdefault(selection.attempt.attempt_id, []).append(selection)
-        assert selection.attempt.identity.execution_policy_identity
-        assert "static-" not in selection.attempt.identity.execution_policy_identity
-    reused = [group for group in by_attempt.values() if len(group) > 1]
-    assert reused
-    assert any(len({item.request.selection_reason for item in group}) > 1 for group in reused)
-
-
-def assert_guidance_journal_roundtrip(tmp_path, project, result, scope):
+def assert_guidance_journal_roundtrip(tmp_path, project, result):
     from pf.runlog import RunLogStore
     from pf.schemas.journal import (VerificationJournal, VerificationJournalEntry,
                                     VerificationPackagePolicy)
@@ -203,26 +187,7 @@ class TestSearchCoordinator:
             assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
             assert [vector[0].version for vector in assembly.ty.vectors] == ["3", "1", "2"]
             assert [vector[0].version for vector in assembly.verifier.vectors] == ["3", "1", "2"]
-            scope = run_cache.snapshot(project.package.cells[0])
-            assert scope.searches
-            assert scope.omissions == ()
-            assert len(scope.facts) == 3 and len(scope.passes) == 2
-            assert all(
-                item.request.selection_reason in {
-                    "mechanical-lowest",
-                    "mechanical-midpoint",
-                    "history",
-                    "current-upper",
-                    "direct-existing",
-                    "external-hint",
-                    "static-suspect",
-                    "static-clean-neighbor",
-                }
-                for item in scope.selections
-            )
-            assert_direct_bound_skip(scope, floor="2", predecessor="1")
-            assert_selection_identity_is_dynamic_only(scope)
-            assert type(scope).model_validate_json(scope.model_dump_json()) == scope
+            assert_public_direct_bound(result, floor="2", predecessor="1")
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
                 source_snapshot=project.snapshot.identity, cell_results=(result,),
@@ -235,7 +200,7 @@ class TestSearchCoordinator:
             assert "static_scopes" not in restored._wire.model_dump(mode="json")
             assert "static_contents" not in restored._wire.model_dump(mode="json")
             assert_public_selection_reasons(restored)
-            assert_guidance_journal_roundtrip(tmp_path, project, result, scope)
+            assert_guidance_journal_roundtrip(tmp_path, project, result)
             store.write(path, restored)
             assert path.read_bytes() == original
             assert all(not root.exists() for root in assembly.uv.environment_roots)
@@ -245,7 +210,6 @@ class TestSearchCoordinator:
     @pytest.mark.parametrize("mode", ["guided", "unavailable", "lower-unchanged", "capture-unavailable", "prepare-unavailable"])
     def test_local_static_phase_guides_real_oracle_and_reuses_prepared_inputs(self, tmp_path, run_cache, mode):
         from pf.schemas.evaluation import TyDiagnostic
-        from pf.schemas.static_comparison import SliceComparisonContext
 
         events = []
         diagnostic = TyDiagnostic(identity="snapshot|src/demo/__init__.py|1|1|example", origin="snapshot",
@@ -296,53 +260,16 @@ class TestSearchCoordinator:
             assert events == [("ty", 3), ("verifier", 3), *expected[mode]]
             assert assembly.uv.resolutions == ["highest", "exact-selection", "exact-selection"]
             assert all(not root.exists() for root in assembly.uv.environment_roots)
-            scope = run_cache.snapshot(project.package.cells[0])
-            local = [item for item in scope.comparisons if isinstance(item.context, SliceComparisonContext)]
-            assert len(local) == (1 if mode == "prepare-unavailable" else
-                                  2 if mode in {"lower-unchanged", "capture-unavailable"} else 3)
+            assert_public_direct_bound(result, floor="2", predecessor="1")
+            reasons = {
+                observation.selection_reason
+                for observation in result.search.observations
+                if observation.selection_reason is not None
+            }
             if mode == "guided":
-                assert {item.result.state for item in local} == {"STATIC_UNCHANGED", "STATIC_REGRESSION"}
-            elif mode == "unavailable":
-                assert any(item.result.status == "UNAVAILABLE" for item in local)
-            elif mode == "lower-unchanged":
-                assert all(item.result.state == "STATIC_UNCHANGED" for item in local)
-            assert len(scope.passes) == 2
-            assert len(scope.searches) == 1
-            audit = scope.searches[0]
-            assert audit.reason == {"guided": None, "unavailable": "static-unavailable",
-                                    "lower-unchanged": "lower-unchanged", "capture-unavailable": "static-unavailable", "prepare-unavailable": "static-unavailable"}[mode]
-            assert (audit.hint is not None) == (mode == "guided")
-            if mode == "capture-unavailable":
-                assert audit.points[-1].comparison_identity is None
-                assert audit.points[-1].unavailable.proposal is not None
-                assert audit.points[-1].unavailable.unavailable.detail == "inspection-unavailable"
-            if mode == "prepare-unavailable":
-                unavailable = audit.points[-1].unavailable
-                assert unavailable.proposal is None
-                assert unavailable.failure.stage == "install-project"
-                assert unavailable.process is not None
-                assert audit.points[-1].comparison_identity is None
-            saved = scope.model_dump_json()
-            assert type(scope).model_validate_json(saved).model_dump_json() == saved
-            skip = assert_direct_bound_skip(scope, floor="2", predecessor="1")
-            assert skip.observed_search_refs == (audit.ref,)
-            assert_selection_identity_is_dynamic_only(scope)
-            if mode == "guided":
-                suspects = [item for item in scope.selections if item.request.selection_reason == "static-suspect"]
-                assert len(suspects) == 1
-                assert suspects[0].request.candidate_version == "2"
-                assert suspects[0].request.static_search_ref == audit.ref
-                assert suspects[0].status == "PASS" and suspects[0].reused is False
-                assert audit.ref in suspects[0].observed_search_refs
-                assert any(
-                    item.reused and item.attempt.attempt_id == suspects[0].attempt.attempt_id
-                    and item.request.selection_reason != "static-suspect"
-                    for item in scope.selections
-                )
-                assert any(item.request.selection_reason == "history" and item.reused for item in scope.selections)
+                assert "static-suspect" in reasons
             else:
-                assert all(not item.request.selection_reason.startswith("static-") for item in scope.selections)
-                assert all(item.request.static_search_ref is None for item in scope.selections)
+                assert not any(reason.startswith("static-") for reason in reasons)
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
                 source_snapshot=project.snapshot.identity, cell_results=(result,),
@@ -353,44 +280,13 @@ class TestSearchCoordinator:
             original = path.read_bytes()
             restored = store.read(path)
             assert_public_selection_reasons(restored)
-            assert_guidance_journal_roundtrip(tmp_path, project, result, scope)
+            assert_guidance_journal_roundtrip(tmp_path, project, result)
             store.write(path, restored)
             assert path.read_bytes() == original
             import json
             from jsonschema import Draft202012Validator
             schema = json.loads(Path("docs/schemas/package-floor-v1.schema.json").read_text())
             assert [error.message for error in Draft202012Validator(schema).iter_errors(json.loads(original))] == []
-            from pf.static.audit import _admit_saved_static_audit
-
-            extra_selection = scope.model_dump(mode="json")
-            extra_selection["searches"][0]["candidates"]["selection"]["unrecognized_rule"] = True
-            with pytest.raises(ValueError):
-                type(scope).model_validate(extra_selection)
-            if mode == "prepare-unavailable":
-                wrong_terminal = scope.model_dump(mode="json")
-                wrong_terminal["searches"][0]["points"][-1]["unavailable"]["process"]["exit_code"] = 0
-                with pytest.raises(ValueError, match="static prepare process"):
-                    type(scope).model_validate(wrong_terminal)
-            forged = scope.model_dump(mode="json")
-            if mode == "guided":
-                forged["searches"][0]["hint"]["suspect_index"] = 1
-            else:
-                forged["searches"][0]["reason"] = "anchor-unavailable"
-            with pytest.raises(ValueError, match="static (hint|search)"):
-                _admit_saved_static_audit(type(scope).model_validate(forged))
-            future = scope.model_dump(mode="json")
-            future["skips"][0]["observed_search_refs"] = [*skip.observed_search_refs, "static-search-99"]
-            with pytest.raises(ValueError, match="completed static search prefix"):
-                _admit_saved_static_audit(type(scope).model_validate(future))
-            if mode == "guided":
-                detached = scope.model_dump(mode="json")
-                index = next(
-                    offset for offset, item in enumerate(detached["selections"])
-                    if item["request"]["selection_reason"] == "static-suspect"
-                )
-                detached["selections"][index]["observed_search_refs"] = []
-                with pytest.raises(ValueError, match="future static search"):
-                    _admit_saved_static_audit(type(scope).model_validate(detached))
         finally:
             project.snapshot.close()
 
@@ -490,20 +386,18 @@ class TestSearchCoordinator:
             assert isinstance(result, CellSuccess)
             assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
             assert events == [("ty", 3), ("verifier", 3), ("ty", 1), ("ty", 2), ("verifier", 1), ("verifier", 2)]
-            scope = run_cache.snapshot(project.package.cells[0])
-            search = scope.searches[0]
-            assert search.hint is not None and search.hint.clean_is_anchor is False
-            suspects = [item for item in scope.selections if item.request.selection_reason == "static-suspect"]
-            cleans = [item for item in scope.selections if item.request.selection_reason == "static-clean-neighbor"]
+            assert_public_direct_bound(result, floor="2", predecessor="1")
+            suspects = [
+                observation for observation in result.search.observations
+                if observation.selection_reason == "static-suspect"
+            ]
+            cleans = [
+                observation for observation in result.search.observations
+                if observation.selection_reason == "static-clean-neighbor"
+            ]
             assert len(suspects) == 1 and len(cleans) == 1
-            assert suspects[0].request.candidate_version == "1"
-            assert suspects[0].status == "REJECTED" and suspects[0].reused is False
-            assert cleans[0].request.candidate_version == "2"
-            assert cleans[0].status == "PASS" and cleans[0].reused is False
-            assert suspects[0].request.static_search_ref == cleans[0].request.static_search_ref == search.ref
-            assert search.ref in suspects[0].observed_search_refs
-            assert_direct_bound_skip(scope, floor="2", predecessor="1")
-            assert_selection_identity_is_dynamic_only(scope)
+            assert suspects[0].candidate_version == "1"
+            assert cleans[0].candidate_version == "2"
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
                 source_snapshot=project.snapshot.identity, cell_results=(result,),
@@ -513,10 +407,10 @@ class TestSearchCoordinator:
             store.write(path, report)
             restored = store.read(path)
             assert_public_selection_reasons(restored)
-            assert_guidance_journal_roundtrip(tmp_path, project, result, scope)
+            assert_guidance_journal_roundtrip(tmp_path, project, result)
             failure_id = next(
-                item.failure_id for item in scope.selections
-                if item.request.selection_reason == "static-suspect"
+                item.failure_id for item in result.failure_records
+                if item.cause == "VERIFIER_EXITED_NONZERO"
             )
             store.write(tmp_path / "package-floor.json", restored)
             from io import StringIO
@@ -575,7 +469,6 @@ class TestSearchCoordinator:
 
     def test_same_ty_key_is_collected_once_and_global_local_deltas_differ(self, tmp_path, run_cache):
         from pf.schemas.evaluation import TyDiagnostic
-        from pf.schemas.static_comparison import SliceComparisonContext
 
         diagnostic = TyDiagnostic(identity="snapshot|src/demo/__init__.py|1|1|example", origin="snapshot",
                                   path="src/demo/__init__.py", line=1, column=1, code="example",
@@ -606,10 +499,6 @@ class TestSearchCoordinator:
             assert isinstance(result, CellSuccess)
             ty_versions = [version for kind, version in events if kind == "ty"]
             assert ty_versions == sorted(set(ty_versions), key=ty_versions.index)
-            scope = run_cache.snapshot(project.package.cells[0])
-            global_ids = {item.identity for item in scope.comparisons if not isinstance(item.context, SliceComparisonContext)}
-            local_ids = {item.identity for item in scope.comparisons if isinstance(item.context, SliceComparisonContext)}
-            assert global_ids and local_ids and global_ids.isdisjoint(local_ids)
             peak = max((sum(states) for _, states in assembly.uv.resolution_root_states), default=0)
             assert peak <= 3
         finally:
@@ -636,11 +525,7 @@ class TestSearchCoordinator:
                 snapshot=project.snapshot, source_plan=project.source_plan,
             )
             assert isinstance(result, CellSuccess)
-            scope = run_cache.snapshot(project.package.cells[0])
-            prepare = next(point.unavailable for search in scope.searches for point in search.points
-                           if point.unavailable is not None and point.unavailable.proposal is None)
-            assert prepare.proposal is None
-            assert_direct_bound_skip(scope, floor="2", predecessor="1")
+            assert_public_direct_bound(result, floor="2", predecessor="1")
             report = PackageReportBuilder().build(
                 package=project.package, source_plan=project.source_plan,
                 source_snapshot=project.snapshot.identity, cell_results=(result,),
@@ -780,9 +665,7 @@ class TestSearchCoordinator:
             for observation in result.search.observations
         )
         assert not assembly.uv.exact_selections
-        scope = run_cache.snapshot(project.package.cells[0])
-        assert_direct_bound_skip(scope, floor="3", predecessor=None, predecessor_required=False)
-        assert scope.skips[-1].window == ("3",)
+        assert_public_direct_bound(result, floor="3", predecessor=None, predecessor_required=False)
 
     @pytest.mark.parametrize("runtime_diagnostics", (False, True))
     @pytest.mark.parametrize("failed_collections", ("none", "capture", "candidates", "all"))
@@ -871,7 +754,6 @@ class TestSearchCoordinator:
         )
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
-        scope = run_cache.snapshot(project.package.cells[0])
         report = PackageReportBuilder().build(
             package=project.package,
             source_plan=project.source_plan,
@@ -887,27 +769,10 @@ class TestSearchCoordinator:
         store.write(path, restored)
         assert path.read_bytes() == original_bytes
         assert_public_selection_reasons(restored)
-        comparisons = {
-            scope.consumer(item.subject_ref).preparation.proposal.proposal_id: item
-            for item in scope.comparisons
-        }
-        final_static = comparisons[result.final_evaluation.proposal.proposal_id]
-        assert final_static.context.kind == "GLOBAL"
-        assert final_static.reference_ref == scope.highest_reference_ref
         if failed_collections in {"candidates", "all"}:
-            assert final_static.result.status == "UNAVAILABLE"
-            assert rejection.evaluation is not None
-            assert comparisons[rejection.evaluation.proposal.proposal_id].result.status == "UNAVAILABLE"
-            assert final_static.result.reason == "exit-code"
             assert failure.authority.kind == "configured-verifier"
             assert any(pin.version == "1" for vector in assembly.verifier.vectors for pin in vector)
             assert any(pin.version == "2" for vector in assembly.verifier.vectors for pin in vector)
-        elif failed_collections == "capture":
-            assert final_static.result.status == "UNCOMPARED"
-            assert final_static.result.reason == "reference-unavailable"
-        else:
-            assert final_static.result.status == "COMPARED"
-            assert final_static.result.state == "STATIC_UNCHANGED"
 
     def test_search_uses_baseline_selection_for_a_narrow_inactive_coordinate(
         self, run_cache,

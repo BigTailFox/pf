@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pf.adapters.ty import TyOutputDecoder
+from pf.adapters.ty import TyAdapter, TyOutputDecoder
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.uv import UvAdapter
 from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
@@ -24,7 +24,7 @@ from pf.schemas.evaluation import (
 from pf.schemas.static import StaticContentUnavailable
 from pf.schemas.project import SourcePlan
 from pf.snapshot import SnapshotBuilder
-from pf.static_request import StaticRequestFactory
+from pf.static import StaticEvaluator, TyCheckCache
 
 
 class DiagnosticRunner:
@@ -466,9 +466,11 @@ terminal = "invalid"
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
             )
             assert isinstance(prepared, PreparedEnvironment)
-            captured = StaticRequestFactory(runner).capture(
-                prepared, package=package, environment={},
-            )
+            monkeypatch.delenv("HOME", raising=False)
+            monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+            static = StaticEvaluator(TyAdapter(runner), processes=runner)
+            with TyCheckCache() as cache:
+                captured = static.collect_prepared(prepared, package=package, run_cache=cache)
             assert isinstance(captured, StaticContentUnavailable)
             assert captured.detail == "configuration-context-unavailable"
         finally:

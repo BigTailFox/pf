@@ -274,6 +274,7 @@ PreparedEnvironment.relocate_to(request) -> PreparedEnvironment
 
 StaticEvaluator.collect_prepared / capture_highest / compare_global
 StaticEvaluator.record_runtime / open_slice
+StaticEvaluator.record_phase_skip / record_oracle_selection
 RuntimeEvaluator.evaluate(prepared, *, package, failed_case_nodeids=())
 HighestVersionVerifier.verify(...) -> HighestVersionOutcome
 CompatibilityChecker.check(...) -> CheckCellOutcome
@@ -395,7 +396,11 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。覆盖率 `fail_under` 只作用于 canonical Python 在各 CI OS 上全量收集结果的并集；单宿主不必执行其他 OS 的平台私有分支。
 
 静态事实从 `StaticEvaluator.collect_prepared` / `capture_highest` / `compare_global` /
-`record_runtime` / `open_slice` 与真实 Check/Highest/Search 的公开 outcome 观察。SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
+`record_runtime` / `open_slice` 与真实 Check/Highest/Search 的公开 outcome 观察。
+`record_phase_skip` / `record_oracle_selection` 只供 Search 写入 Run 内 search/skip/selection
+账本；该账本不是 Journal、report 或 diagnose 事实，产品测试不读取 `TyCheckCache.snapshot`
+上的 searches/skips/selections。账本闭合由内部测试经 snapshot / `_admit` 证明。
+SearchCoordinator tests 使用真实 CoordinateSearch，覆盖
 baseline/candidate 终止、direct/static/oracle 顺序、prepare/full reuse、公开 evidence、diagnostics/events 与 cleanup。
 
 历史设计与证据分别保留在 [D009](../archived/designs/D009-pf-v1-refactor.md)–[D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、

@@ -1,8 +1,7 @@
-"""Prepared static inputs: one real uv/ty capture and a scripted public-seam stand-in."""
+"""Prepared static inputs: one real uv prepare and a scripted public-seam stand-in."""
 from __future__ import annotations
 
-from pathlib import Path
-import shutil
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,7 +19,7 @@ from pf.schemas.static import StaticSubject
 from pf.schemas.static_preparation import StaticPreparationEvidence
 from pf.snapshot import SnapshotBuilder
 from pf.static_projection import static_subject as project_static_subject
-from pf.static_request import StaticRequestFactory, StaticTyRequest
+from pf.static_request import StaticTyRequest
 
 
 class _ScriptedStaticRequest:
@@ -120,16 +119,14 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             source_plan=plan, resolution=HighestResolution(),
         )
         assert isinstance(prepared, PreparedEnvironment)
-        executable = shutil.which("ty")
-        assert executable is not None
-        request = StaticRequestFactory(runner, ty_executable=Path(executable)).capture(
-            prepared, package=package,  environment={
+        yield SimpleNamespace(
+            prepared=prepared,
+            package=package,
+            environment={
                 "HOME": str(home),
                 "GIT_CONFIG_SYSTEM": str(root / "no-system-config"),
             },
         )
-        assert isinstance(request, StaticTyRequest), request
-        yield request
     finally:
         if isinstance(prepared, PreparedEnvironment):
             prepared.close()

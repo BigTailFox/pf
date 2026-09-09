@@ -149,8 +149,21 @@ class TestRunTyCache:
 class TestRunStaticScope:
     @pytest.mark.process
     def test_global_comparison_replays_after_actual_environment_close(self, static_request):
-        preparation = static_request.preparation
-        policy = static_request.observation_policy
+        from pathlib import Path
+        import shutil
+
+        from pf.adapters.process import SubprocessRunner
+        from pf.static_request import StaticRequestFactory, StaticTyRequest
+
+        executable = shutil.which("ty")
+        assert executable is not None
+        captured = StaticRequestFactory(SubprocessRunner(), ty_executable=Path(executable)).capture(
+            static_request.prepared, package=static_request.package,
+            environment=static_request.environment,
+        )
+        assert isinstance(captured, StaticTyRequest)
+        preparation = captured.preparation
+        policy = captured.observation_policy
         from pf.schemas.policy import GuidancePolicy
         from pf.schemas.static_comparison import GlobalComparisonContext, StaticUncompared
         from pf.schemas.static_scope import StaticScopeEvidence
@@ -432,3 +445,195 @@ class TestRunStaticScope:
         assert isinstance(first.lookup(static_subject, policy), CacheMiss)
         assert first.compare(consumer, consumer, context=context, guidance=guidance) == StaticUncompared(reason="context-mismatch")
         second.close()
+
+
+def _direct_bound_skip(scope, *, floor, predecessor):
+    assert scope.skips
+    skip = scope.skips[-1]
+    assert skip.reason == "direct-bound"
+    actual = next(pin.version for pin in skip.proposal.managed_vector if pin.name == skip.candidates.dependency)
+    assert actual == floor
+    assert skip.predecessor == predecessor
+    assert floor in skip.window
+    return skip
+
+
+class TestSearchAuditLedger:
+    def test_guided_search_binds_hint_skip_selection_and_rejects_forged_admission(self, tmp_path, run_cache):
+        from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
+        from pf.schemas.evaluation import NormalExit, TyDiagnostic, VerifierDiagnostics, VerifierPass, VerifierRejected, VerifierRun
+        from pf.schemas.report import CellSuccess
+        from pf.schemas.static_comparison import SliceComparisonContext
+        from pf.static.audit import _admit_saved_static_audit
+
+        diagnostic = TyDiagnostic(
+            identity="snapshot|src/demo/__init__.py|1|1|example", origin="snapshot",
+            path="src/demo/__init__.py", line=1, column=1, code="example",
+            severity="error", message="static suspicion",
+        )
+
+        def ty(vector, call):
+            version = int(vector[0].version)
+            regression = version < 3
+            return TyCheck(
+                process=successful_process(exit_code=1 if regression else 0),
+                diagnostics=(diagnostic,) if regression else (),
+            )
+
+        def verifier(vector, call):
+            version = int(vector[0].version)
+            return VerifierRun(
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0)) if version >= 2
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                ),
+                diagnostics=VerifierDiagnostics(process=successful_process(exit_code=0 if version >= 2 else 1)),
+            )
+
+        project = evaluation_project(tmp_path)
+        assembly = evaluation_assembly(ty_handler=ty, verifier_handler=verifier)
+        try:
+            result = assembly.coordinator.search(
+                run_cache=run_cache, package=project.package, cell=project.package.cells[0],
+                snapshot=project.snapshot, source_plan=project.source_plan,
+            )
+            assert isinstance(result, CellSuccess)
+            scope = run_cache.snapshot(project.package.cells[0])
+            local = [item for item in scope.comparisons if isinstance(item.context, SliceComparisonContext)]
+            global_ids = {
+                item.identity for item in scope.comparisons
+                if not isinstance(item.context, SliceComparisonContext)
+            }
+            local_ids = {item.identity for item in local}
+            assert len(local) == 3
+            assert {item.result.state for item in local} == {"STATIC_UNCHANGED", "STATIC_REGRESSION"}
+            assert global_ids and local_ids and global_ids.isdisjoint(local_ids)
+            assert len(scope.passes) == 2
+            assert len(scope.searches) == 1
+            audit = scope.searches[0]
+            assert audit.reason is None and audit.hint is not None
+            skip = _direct_bound_skip(scope, floor="2", predecessor="1")
+            assert skip.observed_search_refs == (audit.ref,)
+            by_attempt = {}
+            for selection in scope.selections:
+                by_attempt.setdefault(selection.attempt.attempt_id, []).append(selection)
+                assert selection.attempt.identity.execution_policy_identity
+                assert "static-" not in selection.attempt.identity.execution_policy_identity
+            reused = [group for group in by_attempt.values() if len(group) > 1]
+            assert reused
+            assert any(len({item.request.selection_reason for item in group}) > 1 for group in reused)
+            suspects = [item for item in scope.selections if item.request.selection_reason == "static-suspect"]
+            assert len(suspects) == 1
+            assert suspects[0].request.candidate_version == "2"
+            assert suspects[0].request.static_search_ref == audit.ref
+            assert suspects[0].status == "PASS" and suspects[0].reused is False
+            assert audit.ref in suspects[0].observed_search_refs
+            saved = scope.model_dump_json()
+            assert type(scope).model_validate_json(saved).model_dump_json() == saved
+            extra_selection = scope.model_dump(mode="json")
+            extra_selection["searches"][0]["candidates"]["selection"]["unrecognized_rule"] = True
+            with pytest.raises(ValueError):
+                type(scope).model_validate(extra_selection)
+            forged = scope.model_dump(mode="json")
+            forged["searches"][0]["hint"]["suspect_index"] = 1
+            with pytest.raises(ValueError, match="static hint"):
+                _admit_saved_static_audit(type(scope).model_validate(forged))
+            future = scope.model_dump(mode="json")
+            future["skips"][0]["observed_search_refs"] = [*skip.observed_search_refs, "static-search-99"]
+            with pytest.raises(ValueError, match="completed static search prefix"):
+                _admit_saved_static_audit(type(scope).model_validate(future))
+            detached = scope.model_dump(mode="json")
+            index = next(
+                offset for offset, item in enumerate(detached["selections"])
+                if item["request"]["selection_reason"] == "static-suspect"
+            )
+            detached["selections"][index]["observed_search_refs"] = []
+            with pytest.raises(ValueError, match="future static search"):
+                _admit_saved_static_audit(type(scope).model_validate(detached))
+        finally:
+            project.snapshot.close()
+
+    def test_unavailable_search_reason_and_prepare_point_are_admitted(self, tmp_path, run_cache):
+        from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
+        from pf.schemas.evaluation import (
+            ExecutionFailure, NormalExit, OperationFailureResult, Unattributed,
+            TyDiagnostic, VerifierDiagnostics, VerifierPass, VerifierRejected, VerifierRun,
+        )
+        from pf.schemas.project import VersionPin
+        from pf.schemas.report import CellSuccess
+        from pf.static.audit import _admit_saved_static_audit
+
+        diagnostic = TyDiagnostic(
+            identity="snapshot|src/demo/__init__.py|1|1|example", origin="snapshot",
+            path="src/demo/__init__.py", line=1, column=1, code="example",
+            severity="error", message="static suspicion",
+        )
+
+        def ty(vector, call):
+            version = int(vector[0].version)
+            return TyCheck(
+                process=successful_process(exit_code=1 if version < 3 else 0),
+                diagnostics=(diagnostic,) if version < 3 else (),
+            )
+
+        def verifier(vector, call):
+            version = int(vector[0].version)
+            return VerifierRun(
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0)) if version >= 2
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                ),
+                diagnostics=VerifierDiagnostics(process=successful_process(exit_code=0 if version >= 2 else 1)),
+            )
+
+        project = evaluation_project(tmp_path)
+        assembly = evaluation_assembly(ty_handler=ty, verifier_handler=verifier)
+        assembly.uv.install_failures_by_vector[(VersionPin(name="demo-dep", version="1"),)] = OperationFailureResult(
+            failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
+            stage="install-project", process=successful_process(exit_code=2),
+        )
+        try:
+            result = assembly.coordinator.search(
+                run_cache=run_cache, package=project.package, cell=project.package.cells[0],
+                snapshot=project.snapshot, source_plan=project.source_plan,
+            )
+            assert isinstance(result, CellSuccess)
+            scope = run_cache.snapshot(project.package.cells[0])
+            assert len(scope.searches) == 1
+            audit = scope.searches[0]
+            assert audit.reason == "static-unavailable"
+            unavailable = audit.points[-1].unavailable
+            assert unavailable.proposal is None
+            assert unavailable.failure.stage == "install-project"
+            assert unavailable.process is not None
+            assert audit.points[-1].comparison_identity is None
+            skip = _direct_bound_skip(scope, floor="2", predecessor="1")
+            assert skip.observed_search_refs == (audit.ref,)
+            assert all(not item.request.selection_reason.startswith("static-") for item in scope.selections)
+            assert all(item.request.static_search_ref is None for item in scope.selections)
+            wrong_terminal = scope.model_dump(mode="json")
+            wrong_terminal["searches"][0]["points"][-1]["unavailable"]["process"]["exit_code"] = 0
+            with pytest.raises(ValueError, match="static prepare process"):
+                type(scope).model_validate(wrong_terminal)
+            forged = scope.model_dump(mode="json")
+            forged["searches"][0]["reason"] = "anchor-unavailable"
+            with pytest.raises(ValueError, match="static search"):
+                _admit_saved_static_audit(type(scope).model_validate(forged))
+        finally:
+            project.snapshot.close()
+
+    def test_baseline_only_skip_window_is_the_floor(self, tmp_path, run_cache):
+        from evaluation_fixtures import evaluation_assembly, evaluation_project
+        from pf.schemas.report import CellSuccess
+
+        project = evaluation_project(tmp_path / "project", search_space="all")
+        assembly = evaluation_assembly(candidate_versions=("3",))
+        result = assembly.coordinator.search(
+            run_cache=run_cache, package=project.package, cell=project.package.cells[0],
+            snapshot=project.snapshot, source_plan=project.source_plan,
+        )
+        assert isinstance(result, CellSuccess)
+        scope = run_cache.snapshot(project.package.cells[0])
+        skip = _direct_bound_skip(scope, floor="3", predecessor=None)
+        assert skip.predecessor_failure_id is None
+        assert skip.window == ("3",)

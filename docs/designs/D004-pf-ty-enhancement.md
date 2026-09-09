@@ -191,8 +191,10 @@ snapshot 副本、或 argv / 快照内配置引用未冻结的快照外根 → `
 ## 7. StaticEvaluator 与 Run cache
 
 `StaticEvaluator` 拥有 ty 收集、diagnostic identity、多重集 subtraction、fingerprint、
-Preparation registry 与 Direct-PASS ledger。公开方法是 `collect_prepared`、`capture_highest`、
-`compare_global`、`record_runtime` 与 `open_slice`。`compare_global` 不向调用方索取
+Preparation registry 与 Direct-PASS ledger。采集与比较的公开方法是 `collect_prepared`、
+`capture_highest`、`compare_global`、`record_runtime` 与 `open_slice`。Search 另经
+`record_phase_skip` / `record_oracle_selection` 写入 Run 内 search/skip/selection 账本；
+该账本不是 Journal、report 或 diagnose 事实。`compare_global` 不向调用方索取
 `GuidancePolicy`。比较准入、减法与 `locate_static_hint` 的唯一实现在静态 module；
 `compare_global`、`StaticSlice` 与 `_admit_saved_static_audit` 委托同一内部 derive/hint。
 `RuntimeEvaluator` 独占 verifier 调用及动态结果组装，不读 static consumer、不写 Run cache。
