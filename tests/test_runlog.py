@@ -5,7 +5,7 @@ from io import StringIO
 import json
 from pathlib import Path
 import stat
-from typing import TextIO
+from typing import Literal, TextIO
 
 import pytest
 
@@ -24,6 +24,7 @@ from pf.schemas.evaluation import (
     ProcessResult,
     ProcessSpec,
     ProcessTerminalUnavailable,
+    VerificationRole,
 )
 from pf.schemas.journal import (
     VerificationJournal,
@@ -75,19 +76,29 @@ def _cell(package: str) -> Cell:
     )
 
 
+_EXACT_VECTOR = (VersionPin(name="demo-dep", version="1.0.0"),)
+_AttemptRequest = Literal["highest", "lowest-direct", "exact-vector"]
+_HarnessPolicy = Literal["original-harness-v1", "harness-relaxation-v1"]
+_JournalCommand = Literal["smoke", "check", "search"]
+_ATTEMPT_SHAPE: dict[
+    _AttemptRequest,
+    tuple[tuple[VersionPin, ...] | None, _HarnessPolicy, str | None],
+] = {
+    "highest": (None, "original-harness-v1", None),
+    "lowest-direct": (None, "harness-relaxation-v1", "harness-baseline"),
+    "exact-vector": (_EXACT_VECTOR, "harness-relaxation-v1", "harness-baseline"),
+}
+
+
 def _attempt_entry(
     *,
     package: str,
-    role: str,
-    requested_resolution: str,
+    role: VerificationRole,
+    requested_resolution: _AttemptRequest,
     policy: str = "policy",
 ) -> VerificationJournalEntry:
     cell = _cell(package)
-    vector = (
-        (VersionPin(name="demo-dep", version="1.0.0"),)
-        if requested_resolution == "exact-vector"
-        else None
-    )
+    vector, harness_policy, harness_baseline = _ATTEMPT_SHAPE[requested_resolution]
     attempt = Attempt.from_identity(
         AttemptIdentity(
             source_snapshot_digest="snapshot",
@@ -98,14 +109,8 @@ def _attempt_entry(
             source_plan_identity="sources",
             execution_policy_identity=policy,
             resolution_context_digest="context",
-            harness_policy_identity=(
-                "original-harness-v1"
-                if requested_resolution == "highest"
-                else "harness-relaxation-v1"
-            ),
-            harness_baseline_digest=(
-                None if requested_resolution == "highest" else "harness-baseline"
-            ),
+            harness_policy_identity=harness_policy,
+            harness_baseline_digest=harness_baseline,
             selected_candidate_evidence_digest=(
                 selected_candidate_evidence_digest(
                     (
@@ -123,7 +128,7 @@ def _attempt_entry(
                         ),
                     )
                 )
-                if requested_resolution == "exact-vector"
+                if vector is not None
                 else None
             ),
         )
@@ -147,7 +152,7 @@ def _attempt_entry(
 def _journal(
     *,
     run_id: str,
-    command: str,
+    command: _JournalCommand,
     entries: tuple[VerificationJournalEntry, ...],
     policy: str = "policy",
 ) -> VerificationJournal:
@@ -515,9 +520,9 @@ class TestRunLogStoreJournalAdmission:
     def test_run_log_store_reads_legal_command_role_request_journals(
         self,
         tmp_path: Path,
-        command: str,
-        role: str,
-        requested_resolution: str | None,
+        command: _JournalCommand,
+        role: VerificationRole,
+        requested_resolution: _AttemptRequest | None,
     ) -> None:
         store = RunLogStore(root=tmp_path, run_id="role-admit")
         entry = (
@@ -555,9 +560,15 @@ class TestRunLogStoreJournalAdmission:
         with pytest.raises(JournalReadError, match="unsupported-journal-contract"):
             store.read_latest_journal("alpha")
 
+    @pytest.mark.parametrize(
+        "distinct_payload",
+        (False, True),
+        ids=("identical-payload", "distinct-payload"),
+    )
     def test_run_log_store_rejects_conflicting_entries_for_the_same_failure_id(
         self,
         tmp_path: Path,
+        distinct_payload: bool,
     ) -> None:
         store = RunLogStore(root=tmp_path, run_id="role-conflict")
         entry = _attempt_entry(
@@ -570,7 +581,8 @@ class TestRunLogStoreJournalAdmission:
         )
         document = json.loads(path.read_text(encoding="utf-8"))
         duplicate = json.loads(json.dumps(document["entries"][0]))
-        duplicate["failure"]["authority"]["terminal"]["exit_code"] = 2
+        if distinct_payload:
+            duplicate["failure"]["authority"]["terminal"]["exit_code"] = 2
         document["entries"].append(duplicate)
         path.write_text(json.dumps(document), encoding="utf-8")
         with pytest.raises(JournalReadError, match="unsupported-journal-contract"):

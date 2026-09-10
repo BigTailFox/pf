@@ -117,15 +117,10 @@ def assert_guidance_journal_roundtrip(tmp_path, project, result):
         VerificationJournal,
         VerificationJournalEntry,
         VerificationPackagePolicy,
-        cell_canonical_key,
+        journal_entry_sort_key,
+        journal_role_for_failure,
     )
     from pf.schemas.evaluation import AttemptFailureScope
-
-    def journal_role(failure):
-        if not isinstance(failure.scope, AttemptFailureScope):
-            return "probe"
-        requested = failure.scope.attempt.identity.requested_resolution
-        return "baseline" if requested == "highest" else "probe"
 
     logs = RunLogStore(root=tmp_path, run_id="guided")
     entries = tuple(
@@ -134,7 +129,7 @@ def assert_guidance_journal_roundtrip(tmp_path, project, result):
                 VerificationJournalEntry(
                     package=project.package.name,
                     cell=project.package.cells[0],
-                    role=journal_role(failure),
+                    role=journal_role_for_failure(command="search", failure=failure),
                     failure=failure,
                     attempt=(
                         failure.scope.attempt
@@ -144,7 +139,7 @@ def assert_guidance_journal_roundtrip(tmp_path, project, result):
                 )
                 for failure in result.failure_records
             ),
-            key=lambda entry: (*cell_canonical_key(entry.cell), entry.failure.failure_id),
+            key=journal_entry_sort_key,
         )
     )
     journal = VerificationJournal(

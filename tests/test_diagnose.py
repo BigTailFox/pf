@@ -303,6 +303,46 @@ def _verifier_failure(attempt: Attempt, *, exit_code: int = 1) -> FailureRecord:
     )
 
 
+def _write_search_probe_journal(
+    root: Path, *, run_id: str
+) -> tuple[RunLogStore, Path, FailureRecord]:
+    _write_managed_project(root)
+    cell = ProjectLoader().load(root=root).target.cells[0]
+    attempt = _attempt(
+        cell=cell,
+        snapshot_digest="snapshot",
+        vector=(VersionPin(name="demo-dep", version="1.0.0"),),
+        policy_identity="policy",
+        requested_resolution="exact-vector",
+    )
+    failure = _verifier_failure(attempt)
+    logs = RunLogStore(root=root, run_id=run_id)
+    path = logs.write_journal(
+        VerificationJournal(
+            static_membership=(),
+            run_id=run_id,
+            command="search",
+            source_snapshot_digest="snapshot",
+            package_policies=(
+                VerificationPackagePolicy(
+                    package="demo",
+                    execution_policy_identity="policy",
+                ),
+            ),
+            entries=(
+                VerificationJournalEntry(
+                    package="demo",
+                    cell=cell,
+                    role="probe",
+                    attempt=attempt,
+                    failure=failure,
+                ),
+            ),
+        )
+    )
+    return logs, path, failure
+
+
 def _write_success_with_predecessor_report(
     root: Path,
 ) -> tuple[str, str, str]:
@@ -1055,44 +1095,11 @@ class TestDiagnoseWorkflow:
     def test_diagnose_reads_latest_journal_when_floor_report_is_unreadable(
         self, tmp_path: Path
     ) -> None:
-        _write_managed_project(tmp_path)
-        project = ProjectLoader().load(root=tmp_path)
-        cell = project.target.cells[0]
-        attempt = _attempt(
-            cell=cell,
-            snapshot_digest="snapshot",
-            vector=(VersionPin(name="demo-dep", version="1.0.0"),),
-            policy_identity="policy",
-            requested_resolution="exact-vector",
-        )
-        failure = _verifier_failure(attempt)
+        logs, _, failure = _write_search_probe_journal(tmp_path, run_id="search-run")
         (tmp_path / "package-floor.json").write_text(
             '{"schema_version": 2}\n',
             encoding="utf-8",
         )
-        logs = RunLogStore(root=tmp_path, run_id="search-run")
-        journal = VerificationJournal(
-            static_membership=(),
-            run_id="search-run",
-            command="search",
-            source_snapshot_digest="snapshot",
-            package_policies=(
-                VerificationPackagePolicy(
-                    package="demo",
-                    execution_policy_identity="policy",
-                ),
-            ),
-            entries=(
-                VerificationJournalEntry(
-                    package="demo",
-                    cell=cell,
-                    role="probe",
-                    attempt=attempt,
-                    failure=failure,
-                ),
-            ),
-        )
-        logs.write_journal(journal)
 
         diagnosis = DiagnoseCommandWorkflow(
             discovery=ProjectDiscovery(),
@@ -1115,40 +1122,8 @@ class TestDiagnoseWorkflow:
         self,
         tmp_path: Path,
     ) -> None:
-        _write_managed_project(tmp_path)
-        project = ProjectLoader().load(root=tmp_path)
-        cell = project.target.cells[0]
-        attempt = _attempt(
-            cell=cell,
-            snapshot_digest="snapshot",
-            vector=(VersionPin(name="demo-dep", version="1.0.0"),),
-            policy_identity="policy",
-            requested_resolution="exact-vector",
-        )
-        failure = _verifier_failure(attempt)
-        logs = RunLogStore(root=tmp_path, run_id="role-mismatch")
-        path = logs.write_journal(
-            VerificationJournal(
-                static_membership=(),
-                run_id="role-mismatch",
-                command="search",
-                source_snapshot_digest="snapshot",
-                package_policies=(
-                    VerificationPackagePolicy(
-                        package="demo",
-                        execution_policy_identity="policy",
-                    ),
-                ),
-                entries=(
-                    VerificationJournalEntry(
-                        package="demo",
-                        cell=cell,
-                        role="probe",
-                        attempt=attempt,
-                        failure=failure,
-                    ),
-                ),
-            )
+        logs, path, failure = _write_search_probe_journal(
+            tmp_path, run_id="role-mismatch"
         )
         document = json.loads(path.read_text(encoding="utf-8"))
         document["entries"][0]["role"] = "baseline"

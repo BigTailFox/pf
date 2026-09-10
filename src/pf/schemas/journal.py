@@ -21,23 +21,43 @@ from pf.schemas.ty_cache import TyCacheDocument
 
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
-_COMMAND_ROLE_REQUEST: dict[tuple[str, VerificationRole], frozenset[str]] = {
-    ("smoke", "baseline"): frozenset({"highest"}),
-    ("search", "baseline"): frozenset({"highest"}),
-    ("check", "declaration-capture"): frozenset({"highest"}),
-    ("check", "declaration"): frozenset({"lowest-direct"}),
-    ("search", "probe"): frozenset({"exact-vector"}),
+_COMMAND_REQUEST_ROLE: dict[tuple[str, str], VerificationRole] = {
+    ("smoke", "highest"): "baseline",
+    ("search", "highest"): "baseline",
+    ("check", "highest"): "declaration-capture",
+    ("check", "lowest-direct"): "declaration",
+    ("search", "exact-vector"): "probe",
 }
 
 
-def _admit_entry_role(command: str, entry: "VerificationJournalEntry") -> None:
-    if entry.attempt is None:
-        if command != "search" or entry.role != "probe":
+def journal_role(*, command: str, requested_resolution: str | None) -> VerificationRole:
+    """Return the Journal Role that D008 §2 admits for this command and request."""
+    if requested_resolution is None:
+        if command != "search":
             raise ValueError("journal cell-scoped entry must be a search probe")
-        return
-    allowed = _COMMAND_ROLE_REQUEST.get((command, entry.role))
-    requested = entry.attempt.identity.requested_resolution
-    if allowed is None or requested not in allowed:
+        return "probe"
+    role = _COMMAND_REQUEST_ROLE.get((command, requested_resolution))
+    if role is None:
+        raise ValueError("journal entry role does not match its command and request")
+    return role
+
+
+def journal_role_for_failure(*, command: str, failure: FailureRecord) -> VerificationRole:
+    if isinstance(failure.scope, AttemptFailureScope):
+        return journal_role(
+            command=command,
+            requested_resolution=failure.scope.attempt.identity.requested_resolution,
+        )
+    return journal_role(command=command, requested_resolution=None)
+
+
+def _admit_entry_role(command: str, entry: "VerificationJournalEntry") -> None:
+    requested = (
+        None
+        if entry.attempt is None
+        else entry.attempt.identity.requested_resolution
+    )
+    if journal_role(command=command, requested_resolution=requested) != entry.role:
         raise ValueError("journal entry role does not match its command and request")
 
 
@@ -75,6 +95,12 @@ class JournalStaticMembership(FrozenSchema):
 
 def cell_canonical_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
     return (cell.package, cell.python_minor, cell.target, cell.extra_surface)
+
+
+def journal_entry_sort_key(
+    entry: "VerificationJournalEntry",
+) -> tuple[str, str, str, tuple[str, ...], str]:
+    return (*cell_canonical_key(entry.cell), entry.failure.failure_id)
 
 
 def static_membership_from_scope(scope: StaticScopeEvidence) -> JournalStaticMembership | None:
@@ -205,10 +231,7 @@ class VerificationJournal(FrozenSchema):
             if failure_id in seen_ids:
                 raise ValueError("journal failure ID maps to conflicting entries")
             seen_ids.add(failure_id)
-        entry_keys = tuple(
-            (*cell_canonical_key(entry.cell), entry.failure.failure_id)
-            for entry in self.entries
-        )
+        entry_keys = tuple(journal_entry_sort_key(entry) for entry in self.entries)
         if entry_keys != tuple(sorted(entry_keys)):
             raise ValueError("journal entries must be sorted by cell and failure ID")
         keys = tuple(cell_canonical_key(member.cell) for member in self.static_membership)

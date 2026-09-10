@@ -35,7 +35,6 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessObservation,
     RuntimeEvaluationRun,
-    VerificationRole,
 )
 from pf.schemas.journal import (
     JournalStaticMembership,
@@ -43,6 +42,8 @@ from pf.schemas.journal import (
     VerificationJournalEntry,
     VerificationPackagePolicy,
     cell_canonical_key,
+    journal_entry_sort_key,
+    journal_role_for_failure,
 )
 from pf.schemas.ty_cache import TyCacheDocument, ty_cache_from_documents
 from pf.schemas.project import Cell, PackagePlan, SourcePlan, cell_identity
@@ -458,10 +459,7 @@ class _VerificationEvents:
         entries = tuple(
             sorted(
                 self._entries.values(),
-                key=lambda entry: (
-                    *cell_canonical_key(entry.cell),
-                    entry.failure.failure_id,
-                ),
+                key=journal_entry_sort_key,
             )
         )
         members = list(self._static_membership.values())
@@ -689,22 +687,17 @@ def _project_search(result: CellResult) -> _CellProjection:
     for failure in failure_records_for_result(result):
         if isinstance(failure.scope, AttemptFailureScope):
             attempt = failure.scope.attempt
-            requested = attempt.identity.requested_resolution
-            if requested == "lowest-direct":
+            if attempt.identity.requested_resolution == "lowest-direct":
                 raise ValueError("search result cannot contain a lowest-direct Attempt")
-            role: VerificationRole = (
-                "baseline" if requested == "highest" else "probe"
-            )
             result_cell = attempt.identity.cell
         else:
-            role = "probe"
             attempt = None
             result_cell = failure.scope.cell
         entries.append(
             VerificationJournalEntry(
                 package=result_cell.package,
                 cell=result_cell,
-                role=role,
+                role=journal_role_for_failure(command="search", failure=failure),
                 attempt=attempt,
                 failure=failure,
             )
