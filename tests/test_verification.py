@@ -260,7 +260,8 @@ def _check_indeterminate(
     role: Literal["declaration-capture", "declaration"] = "declaration",
     process: ProcessObservation | None = None,
 ) -> CheckCellOutcome:
-    attempt = _attempt(package, snapshot, cell, "lowest-direct")
+    resolution = "highest" if role == "declaration-capture" else "lowest-direct"
+    attempt = _attempt(package, snapshot, cell, resolution)
     failure = _attempt_failure(attempt, process=process)
     return CheckCellOutcome(
         status="INDETERMINATE",

@@ -6,7 +6,7 @@
 - **目标 owner：** [D002](../../designs/D002-pf-implementation.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)；指针 [D003](../../designs/D003-pf-search-algorithm.md)；[D005](../../designs/D005-pf-failure-and-diagnose.md) 只核对
 - **起点：** `09b742cdd99b4485aa0e7f1236a8b3bde3264795`
 - **流程与测试：** [AGENTS.md](../../../AGENTS.md)、[测试说明](../../../tests/README.md)
-- **来源：** [R011](../../reviews/R011-pf-architecture-review.md) §3–§6
+- **来源：** [R011](../reviews/R011-pf-architecture-review.md) §3–§6
 
 本 Plan 记录切片、决定、去向与验收证据；目标行为只由 D039 规定。不另立契约。未开切片时不改 `src/` 或 `tests/`。
 

@@ -21,6 +21,26 @@ from pf.schemas.ty_cache import TyCacheDocument
 
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
+_COMMAND_ROLE_REQUEST: dict[tuple[str, VerificationRole], frozenset[str]] = {
+    ("smoke", "baseline"): frozenset({"highest"}),
+    ("search", "baseline"): frozenset({"highest"}),
+    ("check", "declaration-capture"): frozenset({"highest"}),
+    ("check", "declaration"): frozenset({"lowest-direct"}),
+    ("search", "probe"): frozenset({"exact-vector"}),
+}
+
+
+def _admit_entry_role(command: str, entry: "VerificationJournalEntry") -> None:
+    if entry.attempt is None:
+        if command != "search" or entry.role != "probe":
+            raise ValueError("journal cell-scoped entry must be a search probe")
+        return
+    allowed = _COMMAND_ROLE_REQUEST.get((command, entry.role))
+    requested = entry.attempt.identity.requested_resolution
+    if allowed is None or requested not in allowed:
+        raise ValueError("journal entry role does not match its command and request")
+
+
 _INTERN_FIELDS = (
     "static_contents",
     "static_subjects",
@@ -178,6 +198,19 @@ class VerificationJournal(FrozenSchema):
                 raise ValueError("journal entry policy identity does not match package")
             if snapshot_digest != self.source_snapshot_digest:
                 raise ValueError("journal entry snapshot does not match its run")
+            _admit_entry_role(self.command, entry)
+        seen_ids: set[str] = set()
+        for entry in self.entries:
+            failure_id = entry.failure.failure_id
+            if failure_id in seen_ids:
+                raise ValueError("journal failure ID maps to conflicting entries")
+            seen_ids.add(failure_id)
+        entry_keys = tuple(
+            (*cell_canonical_key(entry.cell), entry.failure.failure_id)
+            for entry in self.entries
+        )
+        if entry_keys != tuple(sorted(entry_keys)):
+            raise ValueError("journal entries must be sorted by cell and failure ID")
         keys = tuple(cell_canonical_key(member.cell) for member in self.static_membership)
         if keys != tuple(sorted(set(keys))):
             raise PydanticCustomError(

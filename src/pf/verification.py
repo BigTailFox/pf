@@ -459,10 +459,7 @@ class _VerificationEvents:
             sorted(
                 self._entries.values(),
                 key=lambda entry: (
-                    entry.package,
-                    entry.cell.target,
-                    entry.cell.python_minor,
-                    entry.cell.extra_surface,
+                    *cell_canonical_key(entry.cell),
                     entry.failure.failure_id,
                 ),
             )

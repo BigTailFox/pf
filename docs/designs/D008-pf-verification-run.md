@@ -267,8 +267,9 @@ static_membership[]         # required，可空；按 Cell canonical 升序
 
 `collected` 的三个 identity 必须能在同 Run 的 ty-cache 中按 `TyCheckKey` 找到对应
 `document`，且 `document.fact.identity = fact_identity`。这项跨文件闭合由 writer admission
-和显式 Run 内 static-audit seam 验证。普通 Journal decode（含 diagnose 回退）只验证 Journal
-自身结构、字面量、排序和唯一性，不得打开 ty-cache，也不得因 ty-cache 缺失或损坏而使一个
+和显式 Run 内 static-audit seam 验证。普通 Journal decode（含 diagnose 回退）验证 Journal
+自身结构、字面量、排序、唯一性、§2 的 command/Role/request 闭合，以及同 Failure ID 的 payload
+冲突；不得打开 ty-cache，也不得因 ty-cache 缺失或损坏而使一个
 本来合法的 `FailureRecord` 不可读。
 
 磁盘字段为 `schema`；内存 `VerificationJournal` 字段为 `schema_version`，由 RunLogStore 编解码。
@@ -276,7 +277,7 @@ ty-cache 路径为 `.pf/logs/<run-id>/ty-cache.json`，外层 `schema = pf-ty-ca
 `run_id` 与按 `(subject_identity, cache_identity)` 升序唯一的 `entries[]`。条目落盘完整
 `TyFactDocument`。ty-cache 不是 Process Log，不绑定 Failure ID，不进入报告。
 
-每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、Attempt、source digest与该policy必须闭合；同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。Cell canonical：`(package, python_minor, target, extra_surface)`。
+每个现行Verification Run只写一个package policy；数组形状仅服务Journal wire。每个entry的package、Cell、Attempt、source digest与该policy必须闭合；command/Role 与 Attempt request 必须符合 §2；无 Attempt 的 Cell-scoped entry 只允许 search 的 `probe`。同failure ID的不同payload冲突。Entries按package/Cell/failure ID规范排序。Cell canonical：`(package, python_minor, target, extra_surface)`。
 
 Journal 不保存 stdout/stderr、完整 Evaluation、`RuntimeEvaluationRun` diagnostics、absolute path
 或 report refs。对于同一 Failure ID，其展开后的 `FailureAuthority` 必须与 D014 report 完全

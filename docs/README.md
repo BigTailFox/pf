@@ -112,8 +112,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 | 文档 | 当前跟踪范围 |
 | --- | --- |
-| [R011](reviews/R011-pf-architecture-review.md) | §3–§6 已由归档 D039/P046 吸收进 D002/D003 §5/D004/D008。不重复 R006/R008/R010 |
-| [R010](reviews/R010-pf-engineering-document-audit.md) | §2 实现偏移与 §4 工程事项；文档治理已由本页与 AGENTS.md 拥有 |
+| [R010](reviews/R010-pf-engineering-document-audit.md) | §4 工程事项：ty × Python / 真实 host 资格、targeted-runtime-contract floor；§2 已关闭 |
 | [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
 | [R008](reviews/R008-pf-search-performance-review.md) | 2026-09-08 重评：hints/single-flight/materialize/xdist 与当前 HEAD 分阶段基线；region/preflight 已撤销 |
 | [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) | 原 D031 的树搜索设想；E005 尚未证明树的默认收益，predecessor 重验已另行完成 |
@@ -144,8 +143,10 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 | [E010](experiments/E010-windows-native-search-cleanup.md) | 2026-09-08 非 WSL Windows 自搜索：killpg 崩溃复现与 Cell 结束环境清理墙钟 |
 
 已归档 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。现行 Investigation 现无未归档条目。
-补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)；
-开放事项已移交 R006/R008/R010。
+补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)
+（开放事项已移交 R006/R008/R010）；
+[R011 架构评审](archived/reviews/R011-pf-architecture-review.md)
+（§3–§6 已吸收，其余仍由 R006/R008/R010 拥有）。
 
 ## 9. 文档变更验证
 
@@ -159,4 +160,4 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 `check_docs.py` 核对应指针、现行 owner 与索引表一致、frontmatter、相对链接与章节锚点、双语 README 配置示例、以及既有归档记录未被删除。授权的路径重定位可以改写入链。`git diff --check` 含在其中。生成投影仍由 D014 脚本检查。
 
 核对现行 owner 与代码/公开 tests 的具体 seam 仍按改动范围进行。只改文档不宣称交付了行为修复。
-剩余实现问题见 R010 §2 与 §4，不在索引复制测试计数。
+剩余实现问题见 R010 §4，不在索引复制测试计数。

@@ -1,14 +1,16 @@
 # R011 — PF 现行架构评审
 
-- **状态：** 开放
+- **状态：** 已归档（2026-09-10）；§3–§6 已吸收进 D002/D003 §5/D004/D008；其余开放项仍由 R006/R008/R010 拥有
 - **日期：** 2026-09-08
 - **性质：** 非规范性架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
-- **对照：** 当前 HEAD；模块 owner 为 [D002](../designs/D002-pf-implementation.md)
-- **目标 Design：** [D039](../archived/designs/D039-pf-static-evaluation-module.md)（已吸收进 D002/D004/D008，D003 §5 已改写；Plan [P046](../archived/plans/P046-pf-static-evaluation-module.md) 已完成）
-- **前序：** [R005](../archived/reviews/R005-pf-module-depth-review.md) 已完成 SourcePlan、WorkspaceInventory、Verification Run request 与评价 Protocol 合并并归档；CLI 剩余项由 [R006](R006-pf-cli-system-review.md) 拥有；搜索性能由 [R008](R008-pf-search-performance-review.md) 2026-09-08 重评拥有；实现偏移由 [R010](R010-pf-engineering-document-audit.md) 拥有
-- **契约所有者：** [D001](../designs/D001-pf.md)–[D008](../designs/D008-pf-verification-run.md)、
-  [D012](../designs/D012-pf-harness-relaxation.md)–[D014](../designs/D014-pf-report-schema.md)、
-  [D037](../designs/D037-pf-candidate-search-policy.md)
+- **对照：** 当前 HEAD；模块 owner 为 [D002](../../designs/D002-pf-implementation.md)
+- **目标 Design：** [D039](../designs/D039-pf-static-evaluation-module.md)（已吸收进 D002/D004/D008，D003 §5 已改写；Plan [P046](../plans/P046-pf-static-evaluation-module.md) 已完成）
+- **前序：** [R005](R005-pf-module-depth-review.md) 已完成 SourcePlan、WorkspaceInventory、Verification Run request 与评价 Protocol 合并并归档；CLI 剩余项由 [R006](../../reviews/R006-pf-cli-system-review.md) 拥有；搜索性能由 [R008](../../reviews/R008-pf-search-performance-review.md) 2026-09-08 重评拥有；实现偏移由 [R010](../../reviews/R010-pf-engineering-document-audit.md) 拥有
+- **契约所有者：** [D001](../../designs/D001-pf.md)–[D008](../../designs/D008-pf-verification-run.md)、
+  [D012](../../designs/D012-pf-harness-relaxation.md)–[D014](../../designs/D014-pf-report-schema.md)、
+  [D037](../../designs/D037-pf-candidate-search-policy.md)
+
+2026-09-10：本文归档。§3–§6 已由 D039/P046 吸收；其余开放项仍由 R006/R008/R010 拥有。未改评审当时的问题陈述。
 
 本文回答：R005 轨完成且 D038 删除 witness/region 之后，现行 PF 还有哪些 **module / interface / seam** 值得加深。
 它不重复 R006 的 CLI 展示、R008 的墙钟候选、R010 的契约偏移，也不把建议写成现行规范。
@@ -36,9 +38,9 @@ composition root，并已按命令装配 capability graph。
 | P1 | Schema 记录与准入/比较/hint 算法分家 | 2026-09-10 已吸收；schemas 不再重放 compare/hint/harness |
 | P2 | 修订 D002 模块地图 | 2026-09-10 已吸收进 D002 §3 |
 | P3 | 收回 `FailurePolicy` 可选注入 | 2026-09-10 已吸收进 D002 §7 |
-| 已跟踪 | result-card、非 TTY 活动 | [R006](R006-pf-cli-system-review.md) |
-| 已跟踪 | hints、single-flight、materialize、xdist、当前 HEAD 基线 | [R008](R008-pf-search-performance-review.md) |
-| 已跟踪 | NO_PASS 文案、Journal Role、资格矩阵 | [R010](R010-pf-engineering-document-audit.md) |
+| 已跟踪 | result-card、非 TTY 活动 | [R006](../../reviews/R006-pf-cli-system-review.md) |
+| 已跟踪 | hints、single-flight、materialize、xdist、当前 HEAD 基线 | [R008](../../reviews/R008-pf-search-performance-review.md) |
+| 已跟踪 | NO_PASS 文案、Journal Role、资格矩阵 | [R010](../../reviews/R010-pf-engineering-document-audit.md) |
 | 构想 | 树搜索、registry 分析 CLI、成功解析日志门槛、乐观单调搜索 | C001–C004；不因本评审进入 Design |
 
 不要按行数拆 `report.py` / `schemas/evaluation.py`，不要把 Check/Smoke/Search 收成评价 facade，
@@ -113,7 +115,7 @@ hint 算法类型去手写 slice。
 停止条件：新 interface 与现有 Evaluator + Cache + RequestFactory 等宽；或只把文件挪进子目录而不
 减少调用方知识。文件行数不是启动理由。
 
-归属 D002（模块边界）与 D004（静态事实/比较）。须先接受 [D039](../archived/designs/D039-pf-static-evaluation-module.md)。D038 已归档，不把「静态无
+归属 D002（模块边界）与 D004（静态事实/比较）。须先接受 [D039](../designs/D039-pf-static-evaluation-module.md)。D038 已归档，不把「静态无
 compatibility disposition」改回去。
 
 ## 4. P1：Schema 层向上执行 domain 算法
@@ -149,7 +151,7 @@ record 只保存已资格化的 args 投影。
 Schema 可以引用其他 schema 与 `canonical_identity_json`。不能执行搜索、准入或 harness 变换。
 
 与 §3 同一 Design 交付：先分家再收模块，避免 schemas 仍调用「换了路径的同一函数」。目标见
-[D039](../archived/designs/D039-pf-static-evaluation-module.md)。
+[D039](../designs/D039-pf-static-evaluation-module.md)。
 
 ## 5. P2：D002 包布局不是现行 module 地图
 
@@ -162,7 +164,7 @@ D002 §3 仍列出 `static.py`，未列出 `cancellation.py`、`ty_fact.py`、`t
 
 若只更正不存在的文件名、补上 `cancellation.py`，属于 D002 owner 文档修正，不必另立产品 Design。
 若把静态簇写成「一个 module 的内部文件」，必须与 §3 的 interface 设计一起接受，不能只改目录。
-两项均已写入 [D039](../archived/designs/D039-pf-static-evaluation-module.md)，与加深同一吸收。
+两项均已写入 [D039](../designs/D039-pf-static-evaluation-module.md)，与加深同一吸收。
 
 ## 6. P3：`FailurePolicy` 仍是单实现假想 seam
 
@@ -174,19 +176,19 @@ D002 §3 仍列出 `static.py`，未列出 `cancellation.py`、`ty_fact.py`、`t
 方向：编排器内部构造；测试从公开 outcome 观察分类。不能仅因「一个生产实现」删除
 `ConfiguredVerifier`、`UvOperations` 或 workflow Protocol 这类双 adapter 真实 seam。
 
-不单独开 Design。已合入 [D039](../archived/designs/D039-pf-static-evaluation-module.md)。
+不单独开 Design。已合入 [D039](../designs/D039-pf-static-evaluation-module.md)。
 
 ## 7. 本评审不重复跟踪的开放项
 
 | 事项 | 唯一跟踪者 |
 | --- | --- |
-| apply/no-floor/配置错误的 result-card；非 TTY 搜索活动 | [R006 §5.1–5.2](R006-pf-cli-system-review.md) |
-| 跨运行 hints、per-key 锁、copytree、xdist failed-set、当前 HEAD 分阶段基线 | [R008](R008-pf-search-performance-review.md) 2026-09-08 重评 |
-| `NO_PASS`「完整评估」文案；Journal Role 错配；ty×Python / 多宿主资格 | [R010](R010-pf-engineering-document-audit.md) §2、§4 |
-| 树搜索默认化 | [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)；E005 未证明 |
-| 独立 registry 分析 CLI | [C002](../concepts/C002-pf-registry-analysis-cli.md) |
-| 成功解析是否仍要求日志完整性 | [C003](../concepts/C003-pf-resolution-output-completeness.md) |
-| 乐观单调与反例 refinement | [C004](../concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) |
+| apply/no-floor/配置错误的 result-card；非 TTY 搜索活动 | [R006 §5.1–5.2](../../reviews/R006-pf-cli-system-review.md) |
+| 跨运行 hints、per-key 锁、copytree、xdist failed-set、当前 HEAD 分阶段基线 | [R008](../../reviews/R008-pf-search-performance-review.md) 2026-09-08 重评 |
+| `NO_PASS`「完整评估」文案；Journal Role 错配；ty×Python / 多宿主资格 | [R010](../../reviews/R010-pf-engineering-document-audit.md) §2、§4 |
+| 树搜索默认化 | [C001](../../concepts/C001-pf-multi-resolution-coordinate-search.md)；E005 未证明 |
+| 独立 registry 分析 CLI | [C002](../../concepts/C002-pf-registry-analysis-cli.md) |
+| 成功解析是否仍要求日志完整性 | [C003](../../concepts/C003-pf-resolution-output-completeness.md) |
+| 乐观单调与反例 refinement | [C004](../../concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) |
 
 PEP 508 规范化在 `report.py` 与 `authorization.py` 各有一份：R010 已标为低优先级，且授权必须独立
 重求值。本评审不把它升级为合并两个 owner 的理由。
@@ -205,7 +207,7 @@ PEP 508 规范化在 `report.py` 与 `authorization.py` 各有一份：R010 已�
 
 ## 9. 建议顺序与治理
 
-1. [D039](../archived/designs/D039-pf-static-evaluation-module.md) / [P046](../archived/plans/P046-pf-static-evaluation-module.md) 已于 2026-09-10 完成吸收；现行行为以 D002/D003 §5/D004/D008 为准。
+1. [D039](../designs/D039-pf-static-evaluation-module.md) / [P046](../plans/P046-pf-static-evaluation-module.md) 已于 2026-09-10 完成吸收；现行行为以 D002/D003 §5/D004/D008 为准。
 2. R006/R008/R010 的开放项不因本评审启动。R008 须先有当前 HEAD 分阶段基线再决定 hints。
 
 任何实质 module/schema 边界变更都必须先接受 Design，再写覆盖每条验收的 Plan。本文不授权实施。

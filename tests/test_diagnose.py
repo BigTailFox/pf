@@ -6,6 +6,7 @@ from pf.schemas.project import Candidate
 
 from pathlib import Path
 from io import StringIO
+import json
 import re
 from typing import Literal
 
@@ -14,7 +15,7 @@ from rich.console import Console
 
 from visible_text import visible_cli_text
 
-from pf.errors import DiagnoseNotFoundError
+from pf.errors import DiagnoseNotFoundError, JournalReadError
 from pf.failure import FailurePolicy
 from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
@@ -1060,9 +1061,9 @@ class TestDiagnoseWorkflow:
         attempt = _attempt(
             cell=cell,
             snapshot_digest="snapshot",
-            vector=None,
+            vector=(VersionPin(name="demo-dep", version="1.0.0"),),
             policy_identity="policy",
-            requested_resolution="lowest-direct",
+            requested_resolution="exact-vector",
         )
         failure = _verifier_failure(attempt)
         (tmp_path / "package-floor.json").write_text(
@@ -1070,10 +1071,66 @@ class TestDiagnoseWorkflow:
             encoding="utf-8",
         )
         logs = RunLogStore(root=tmp_path, run_id="search-run")
-        logs.write_journal(
+        journal = VerificationJournal(
+            static_membership=(),
+            run_id="search-run",
+            command="search",
+            source_snapshot_digest="snapshot",
+            package_policies=(
+                VerificationPackagePolicy(
+                    package="demo",
+                    execution_policy_identity="policy",
+                ),
+            ),
+            entries=(
+                VerificationJournalEntry(
+                    package="demo",
+                    cell=cell,
+                    role="probe",
+                    attempt=attempt,
+                    failure=failure,
+                ),
+            ),
+        )
+        logs.write_journal(journal)
+
+        diagnosis = DiagnoseCommandWorkflow(
+            discovery=ProjectDiscovery(),
+            reports=ReportStore(),
+            logs=logs,
+        ).run(
+            DiagnoseRequest(
+                root=tmp_path.as_posix(),
+                selector=WorkspacePackage(canonical_name="demo"),
+                failure_id=failure.failure_id,
+            )
+        )
+
+        assert diagnosis.source == "journal"
+        assert diagnosis.command == "search"
+        assert diagnosis.verification_role == "probe"
+        assert diagnosis.failure.failure_id == failure.failure_id
+
+    def test_diagnose_does_not_use_a_journal_with_mismatched_role(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        _write_managed_project(tmp_path)
+        project = ProjectLoader().load(root=tmp_path)
+        cell = project.target.cells[0]
+        attempt = _attempt(
+            cell=cell,
+            snapshot_digest="snapshot",
+            vector=(VersionPin(name="demo-dep", version="1.0.0"),),
+            policy_identity="policy",
+            requested_resolution="exact-vector",
+        )
+        failure = _verifier_failure(attempt)
+        logs = RunLogStore(root=tmp_path, run_id="role-mismatch")
+        path = logs.write_journal(
             VerificationJournal(
                 static_membership=(),
-                run_id="search-run",
+                run_id="role-mismatch",
                 command="search",
                 source_snapshot_digest="snapshot",
                 package_policies=(
@@ -1093,23 +1150,22 @@ class TestDiagnoseWorkflow:
                 ),
             )
         )
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["entries"][0]["role"] = "baseline"
+        path.write_text(json.dumps(document), encoding="utf-8")
 
-        diagnosis = DiagnoseCommandWorkflow(
-            discovery=ProjectDiscovery(),
-            reports=ReportStore(),
-            logs=logs,
-        ).run(
-            DiagnoseRequest(
-                root=tmp_path.as_posix(),
-                selector=WorkspacePackage(canonical_name="demo"),
-                failure_id=failure.failure_id,
+        with pytest.raises(JournalReadError, match="unsupported-journal-contract"):
+            DiagnoseCommandWorkflow(
+                discovery=ProjectDiscovery(),
+                reports=ReportStore(),
+                logs=logs,
+            ).run(
+                DiagnoseRequest(
+                    root=tmp_path.as_posix(),
+                    selector=WorkspacePackage(canonical_name="demo"),
+                    failure_id=failure.failure_id,
+                )
             )
-        )
-
-        assert diagnosis.source == "journal"
-        assert diagnosis.command == "search"
-        assert diagnosis.verification_role == "probe"
-        assert diagnosis.failure.failure_id == failure.failure_id
 
     def test_diagnose_uses_declaration_capture_impact_for_highest_check_failures(
         self,

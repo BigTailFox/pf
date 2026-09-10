@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D043 | 已实施并由现行 Design 接管 |
 | [plans](plans/) | P001–P047 | 实施与验证已完成 |
-| [reviews](reviews/) | R001–R003、R005、R007、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
+| [reviews](reviews/) | R001–R003、R005、R007、R009、R011 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001、I002 | 结论已纳入 D013 / 现行静态 owner |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
@@ -21,7 +21,7 @@
 [D039](designs/D039-pf-static-evaluation-module.md) /
 [P046](plans/P046-pf-static-evaluation-module.md)：静态评价深模块已完成；公开五方法、Preparation
 registry + Direct-PASS ledger、schema 纯化与 `failures=` 收回已落地。稳定规则由 D002/D003 §5/D004/D008
-与 CONTEXT 接管，D005 分类不变。
+与 CONTEXT 接管，D005 分类不变。来源 [R011](reviews/R011-pf-architecture-review.md) 已归档。
 
 [D043](designs/D043-pf-static-subject-v2.md) /
 [P045](plans/P045-pf-static-subject-v2.md) /

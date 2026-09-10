@@ -9,13 +9,18 @@ from typing import TextIO
 
 import pytest
 
-from pf.errors import ConfigurationError, InfrastructureError
+from pf.errors import ConfigurationError, InfrastructureError, JournalReadError
 from pf.failure import FailurePolicy
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
+    Attempt,
+    AttemptFailureScope,
+    AttemptIdentity,
     CellFailureScope,
     EnvironmentVariable,
     FailureDetail,
+    FailureRecord,
+    NormalExit,
     ProcessResult,
     ProcessSpec,
     ProcessTerminalUnavailable,
@@ -25,7 +30,13 @@ from pf.schemas.journal import (
     VerificationJournalEntry,
     VerificationPackagePolicy,
 )
-from pf.schemas.project import Cell
+from pf.schemas.project import (
+    AvailableArtifact,
+    Cell,
+    SelectedCandidate,
+    VersionPin,
+    selected_candidate_evidence_digest,
+)
 
 
 def _entry(*, package: str, policy: str) -> VerificationJournalEntry:
@@ -52,6 +63,108 @@ def _entry(*, package: str, policy: str) -> VerificationJournalEntry:
         cell=cell,
         role="probe",
         failure=failure,
+    )
+
+
+def _cell(package: str) -> Cell:
+    return Cell(
+        package=package,
+        target="x86_64-unknown-linux-gnu",
+        python_minor="3.10",
+        extra_surface=(),
+    )
+
+
+def _attempt_entry(
+    *,
+    package: str,
+    role: str,
+    requested_resolution: str,
+    policy: str = "policy",
+) -> VerificationJournalEntry:
+    cell = _cell(package)
+    vector = (
+        (VersionPin(name="demo-dep", version="1.0.0"),)
+        if requested_resolution == "exact-vector"
+        else None
+    )
+    attempt = Attempt.from_identity(
+        AttemptIdentity(
+            source_snapshot_digest="snapshot",
+            cell=cell,
+            requested_resolution=requested_resolution,
+            requested_managed_vector=vector,
+            active_declaration_ids=cell.active_declaration_ids,
+            source_plan_identity="sources",
+            execution_policy_identity=policy,
+            resolution_context_digest="context",
+            harness_policy_identity=(
+                "original-harness-v1"
+                if requested_resolution == "highest"
+                else "harness-relaxation-v1"
+            ),
+            harness_baseline_digest=(
+                None if requested_resolution == "highest" else "harness-baseline"
+            ),
+            selected_candidate_evidence_digest=(
+                selected_candidate_evidence_digest(
+                    (
+                        SelectedCandidate(
+                            dependency="demo-dep",
+                            version="1.0.0",
+                            artifact=AvailableArtifact(
+                                filename="demo-dep-1.0.0.whl",
+                                kind="wheel",
+                                python_minors=(cell.python_minor,),
+                                targets=(cell.target,),
+                                content_hash=f"sha256:{'a' * 64}",
+                                locator="https://files.example/demo-dep-1.0.0.whl",
+                            ),
+                        ),
+                    )
+                )
+                if requested_resolution == "exact-vector"
+                else None
+            ),
+        )
+    )
+    failure = FailureRecord.from_verifier(
+        scope=AttemptFailureScope(attempt=attempt),
+        disposition="REJECTED",
+        cause="VERIFIER_EXITED_NONZERO",
+        stage="test",
+        terminal=NormalExit(exit_code=1),
+    )
+    return VerificationJournalEntry(
+        package=package,
+        cell=cell,
+        role=role,
+        attempt=attempt,
+        failure=failure,
+    )
+
+
+def _journal(
+    *,
+    run_id: str,
+    command: str,
+    entries: tuple[VerificationJournalEntry, ...],
+    policy: str = "policy",
+) -> VerificationJournal:
+    packages = tuple(sorted({entry.package for entry in entries})) or ("alpha",)
+    return VerificationJournal(
+        static_membership=(),
+        run_id=run_id,
+        command=command,
+        source_snapshot_digest="snapshot",
+        package_policies=tuple(
+            VerificationPackagePolicy(
+                package=package,
+                execution_policy_identity=policy,
+            )
+            for package in packages
+        ),
+        entries=entries,
     )
 
 
@@ -379,6 +492,89 @@ class TestRunLogStoreJournal:
         assert store.lookup("generation", "failure") == Path(
             ".pf/logs/atomic-run/process-0001.log"
         )
+
+
+class TestRunLogStoreJournalAdmission:
+    @pytest.mark.parametrize(
+        ("command", "role", "requested_resolution"),
+        (
+            ("smoke", "baseline", "highest"),
+            ("check", "declaration-capture", "highest"),
+            ("check", "declaration", "lowest-direct"),
+            ("search", "probe", "exact-vector"),
+            ("search", "probe", None),
+        ),
+        ids=(
+            "smoke-baseline",
+            "check-declaration-capture",
+            "check-declaration",
+            "search-probe",
+            "search-cell-scoped-probe",
+        ),
+    )
+    def test_run_log_store_reads_legal_command_role_request_journals(
+        self,
+        tmp_path: Path,
+        command: str,
+        role: str,
+        requested_resolution: str | None,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="role-admit")
+        entry = (
+            _entry(package="alpha", policy="policy")
+            if requested_resolution is None
+            else _attempt_entry(
+                package="alpha",
+                role=role,
+                requested_resolution=requested_resolution,
+            )
+        )
+        journal = _journal(run_id=store.run_id, command=command, entries=(entry,))
+        store.write_journal(journal)
+        loaded = store.read_latest_journal("alpha")
+        assert loaded == journal
+        assert loaded.command == command
+        assert loaded.entries[0].role == role
+
+    def test_run_log_store_rejects_a_role_request_mismatch(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="role-mismatch")
+        entry = _attempt_entry(
+            package="alpha",
+            role="probe",
+            requested_resolution="exact-vector",
+        )
+        path = store.write_journal(
+            _journal(run_id=store.run_id, command="search", entries=(entry,))
+        )
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["entries"][0]["role"] = "baseline"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        with pytest.raises(JournalReadError, match="unsupported-journal-contract"):
+            store.read_latest_journal("alpha")
+
+    def test_run_log_store_rejects_conflicting_entries_for_the_same_failure_id(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = RunLogStore(root=tmp_path, run_id="role-conflict")
+        entry = _attempt_entry(
+            package="alpha",
+            role="probe",
+            requested_resolution="exact-vector",
+        )
+        path = store.write_journal(
+            _journal(run_id=store.run_id, command="search", entries=(entry,))
+        )
+        document = json.loads(path.read_text(encoding="utf-8"))
+        duplicate = json.loads(json.dumps(document["entries"][0]))
+        duplicate["failure"]["authority"]["terminal"]["exit_code"] = 2
+        document["entries"].append(duplicate)
+        path.write_text(json.dumps(document), encoding="utf-8")
+        with pytest.raises(JournalReadError, match="unsupported-journal-contract"):
+            store.read_latest_journal("alpha")
 
 
 class TestRunLogStoreIndexRejection:

@@ -6,7 +6,7 @@
 - **目标 owner：** [D002](../../designs/D002-pf-implementation.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)
 - **验收标准：** [§9](#9-验收标准)
 - **实施计划：** [P046](../plans/P046-pf-static-evaluation-module.md)
-- **来源：** [R011](../../reviews/R011-pf-architecture-review.md) §3–§6
+- **来源：** [R011](../reviews/R011-pf-architecture-review.md) §3–§6
 - **关联：** [D003](../../designs/D003-pf-search-algorithm.md) 两阶段搜索与「静态无 compatibility disposition」不变；S4 必须改写 D003 §5 的 Direct-PASS / `record_runtime` / `open_static_slice` 责任，不是只改 StaticSlice 提供方指针。[D005](../../designs/D005-pf-failure-and-diagnose.md) 分类 interface 与 Failure Process Log 资格不变；[D012](../../designs/D012-pf-harness-relaxation.md) 保留 harness 变换；[D014](../../designs/D014-pf-report-schema.md) 公开报告无静态 intern 表；比较重放只在完整的 Run-local static audit closure 上进行，不能只凭 `TyFactDocument`。[D043](D043-pf-static-subject-v2.md) 已吸收的五表删除、`selection_reason` 与 v2 identity 字节不在本文件 AC10 范围内
 
 本文定义 R011 的**目标** module interface：把静态采集、Run cache、准入、比较与纯 guidance 收成一个深模块，并把 FrozenSchema 从这些算法中拆出；同一吸收改写 D002 模块地图，并收回 `FailurePolicy` 可选注入。行为语义仍以现行 D003/D004/D005 为准；本文件只改规则住在哪里、调用方必须学习什么。吸收完成前，现行行为仍以 D002/D004/D008 为准，本文件不冒充已交付行为。

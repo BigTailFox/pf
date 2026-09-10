@@ -419,12 +419,12 @@ class TestReportWorkflows:
                 timed_out=True,
             ),
         )
-        logs = RunLogStore(root=tmp_path, run_id="check-run")
+        logs = RunLogStore(root=tmp_path, run_id="search-run")
         journal_path = logs.write_journal(
             VerificationJournal(
                 static_membership=(),
-                run_id="check-run",
-                command="check",
+                run_id="search-run",
+                command="search",
                 source_snapshot_digest="snapshot",
                 package_policies=(
                     VerificationPackagePolicy(
@@ -436,7 +436,7 @@ class TestReportWorkflows:
                     VerificationJournalEntry(
                         package="demo",
                         cell=cell,
-                        role="declaration",
+                        role="probe",
                         failure=failure,
                     ),
                 ),

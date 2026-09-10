@@ -8,6 +8,15 @@
 - **排除：** 本轮开始前的 72 个归档文件只检查完整性/链接，不修改历史内容；未修改生产代码或测试
 - **后续契约入口：** [工程文档索引](../README.md)；各行为的唯一 owner 由该索引定位
 
+## 2026-09-10 状态核对
+
+§2.2 Journal Role/冲突 admission 已按现行 D008 在 Journal decode 与公开 read seam 关闭；
+§2.1 已于 2026-09-09 关闭。§2 不再有开放实现偏移。
+PEP 508 机械规范化不单独实施；假想 Protocol 无新增整改。
+[R011](../archived/reviews/R011-pf-architecture-review.md) 已归档。
+现行开放项只剩 §4 的 ty × Python / 真实 host 发布资格，以及 targeted-runtime-contract floor
+（若推进须先固定 argv 与产物）。
+
 ## 2026-09-08 状态核对
 
 文档治理标准已写入 [工程文档索引](../README.md) 与 [AGENTS.md](../../AGENTS.md)。
@@ -75,10 +84,10 @@ Role 不进入 Failure ID 不意味着 reader 可以忽略 Role 的闭合。
 `request=exact-vector role=baseline`；追加原始 probe entry 后，reader 返回 2 entries、1 distinct Failure ID。
 没有修改 Attempt 或 failure authority、没有绕过 Failure ID 复算。
 
-**修复归属与验收：** D008/RunLogStore 的 Journal admission，保持 D005 Role-independent identity。
-从公开 read seam 覆盖三命令合法 Role、错误 Role/request、同 ID 冲突 entry 与确定读取；
-无效 Journal 不得向 diagnose 提供错误 impact。既有历史 reader 分支须明确其适用验证边界，
-不能用本次修复无意引入另一套 failure identity。
+**代码状态（2026-09-10）：** Journal decode 拒绝 command/Role/request 错配、非 search-probe 的
+Cell-scoped entry，以及同 Failure ID 冲突条目。`RunLogStore.read_journal` 映射为
+`JournalReadError(reason="unsupported-journal-contract")`；diagnose 不得从错配 Journal 展示
+impact。本项关闭；§2 已全部关闭。
 
 ## 3. 已修复的文档偏移与权威重复
 
@@ -115,8 +124,8 @@ R008 已于 2026-09-08 按现行 D003/D038 全文重评，不再把 09-04 的 re
 | E001 artifact 链接漂移 | 本轮已修复，见 §3 |
 | targeted-runtime-contract floor | 本 Review 接收；未找到独立的该标签实验。E001 full-repository floor 与后续根报告不能自动充当 runtime-only floor；若推进先固定验证 argv 与产物 |
 | ty × Python / 真实 host 发布资格 | 本 Review 接收；当前 CI 是 Ubuntu × Python 3.10/3.11/3.12，ty exact pin 与 synthetic tests 不等于动态诊断矩阵。发布支持范围与真实 macOS/Windows 资格仍待明确 |
-| 假想 Protocol | `FailureLogAssociations` 已删除，其他 seam 不能仅凭一个生产实现删除；无新增独立整改 |
-| PEP 508 机械规范化局部重复 | 本 Review 接收为低优先级相邻改动建议；`report.py` / `authorization.py` 仍各有规范化，但必须保留独立重求值的授权检查，不据此合并两个 owner |
+| 假想 Protocol | 已关闭；`FailureLogAssociations` 已删除，其他 seam 不能仅凭一个生产实现删除 |
+| PEP 508 机械规范化局部重复 | 不单独实施。投影与授权必须各自重求值；仅当邻近改动同时触及 `report.py` 与 `authorization.py` 时，才可抽 terminal-free/wire-free 的 private helper |
 
 此处接管剩余状态，不复刻 R007 的完整证据或再维护一个跨 Review 总优先级清单。
 C001–C003 仍为开放构想；未因 D033/D036 已完成而关闭独立证据缺口。
@@ -248,6 +257,9 @@ static classification 的公开入口、完整/终态环境关闭分别留在 D0
 已完成 §5 的候选拆分和视觉附录建议；README 通过缩小示例范围消除平行默认表，当前无需新增生成器。
 D005/D008/D014 继续分担各自边界，R006/R008 保留开放项与历史证据；没有进一步应立即执行的归并或归档。
 §2 的两项实现偏移与 §4 的工程事项仍开放，本次文档迁移不关闭这些问题，也不新增产品行为。
+
+2026-09-10：§2 已关闭；PEP 508 不单独实施；假想 Protocol 无新增整改。§4 剩余
+ty × Python / 真实 host 资格与 targeted-runtime-contract floor。
 
 迁移核对：D006 的 13 个搬迁片段在规范化相对链接与空白后全部保留；混合段落拆开的状态与样式规则
 逐项核对仍在主文/附录。D001 原候选章节的 16 个段落中，12 个保持原文；其余 4 个分别拆分统一

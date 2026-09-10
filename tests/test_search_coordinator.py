@@ -113,18 +113,51 @@ def assert_public_direct_bound(result, *, floor, predecessor, predecessor_requir
 
 def assert_guidance_journal_roundtrip(tmp_path, project, result):
     from pf.runlog import RunLogStore
-    from pf.schemas.journal import (VerificationJournal, VerificationJournalEntry,
-                                    VerificationPackagePolicy)
+    from pf.schemas.journal import (
+        VerificationJournal,
+        VerificationJournalEntry,
+        VerificationPackagePolicy,
+        cell_canonical_key,
+    )
     from pf.schemas.evaluation import AttemptFailureScope
+
+    def journal_role(failure):
+        if not isinstance(failure.scope, AttemptFailureScope):
+            return "probe"
+        requested = failure.scope.attempt.identity.requested_resolution
+        return "baseline" if requested == "highest" else "probe"
+
     logs = RunLogStore(root=tmp_path, run_id="guided")
+    entries = tuple(
+        sorted(
+            (
+                VerificationJournalEntry(
+                    package=project.package.name,
+                    cell=project.package.cells[0],
+                    role=journal_role(failure),
+                    failure=failure,
+                    attempt=(
+                        failure.scope.attempt
+                        if isinstance(failure.scope, AttemptFailureScope)
+                        else None
+                    ),
+                )
+                for failure in result.failure_records
+            ),
+            key=lambda entry: (*cell_canonical_key(entry.cell), entry.failure.failure_id),
+        )
+    )
     journal = VerificationJournal(
-        run_id=logs.run_id, command="search", source_snapshot_digest=project.snapshot.identity.digest,
-        package_policies=(VerificationPackagePolicy(package=project.package.name,
-                          execution_policy_identity=result.baseline.proposal.policy_identity),),
-        entries=tuple(VerificationJournalEntry(
-            package=project.package.name, cell=project.package.cells[0], role="probe", failure=failure,
-            attempt=failure.scope.attempt if isinstance(failure.scope, AttemptFailureScope) else None,
-        ) for failure in result.failure_records),
+        run_id=logs.run_id,
+        command="search",
+        source_snapshot_digest=project.snapshot.identity.digest,
+        package_policies=(
+            VerificationPackagePolicy(
+                package=project.package.name,
+                execution_policy_identity=result.baseline.proposal.policy_identity,
+            ),
+        ),
+        entries=entries,
         static_membership=(),
     )
     logs.write_journal(journal)
