@@ -252,3 +252,8 @@ implementation 内的修复。Region 类 D003 变更必须先有新的、与现�
 当前快照的 PASS 权威，可写环境仍不跨 invocation 借用。§7 否决的仍是跳过当前契约 runtime 权威
 的 cache，以及通用 cache/hint/environment 服务。测试级关联与 testmon 风格影响面见
 [C006](../concepts/C006-pf-test-dependency-association.md)，不在本评审范围。
+
+**2026-09-10：** 同契约 `C` 上的直接观察准入已起草为临时
+[D044](../designs/D044-pf-check-first-same-snapshot-observations.md)（草案）。D044 接受前 §7
+仍然适用；D044 把「当前契约」写成身份闭合的快照/Cell/SourcePlan/ExecutionPolicy/解析图，
+并继续禁止共享可写环境与通用 cache 服务。跨运行 hints 仍由本评审 §5.1 跟踪，不并入 D044。

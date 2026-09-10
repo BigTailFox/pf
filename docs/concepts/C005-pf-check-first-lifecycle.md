@@ -13,9 +13,12 @@
 - **相关构想：** [C004](C004-pf-evidence-respecting-optimistic-monotone-search.md) 处理一维
   单调性假设；[C006](C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，
   不在本文范围
+- **第一刀 Design：** [D044](../designs/D044-pf-check-first-same-snapshot-observations.md)（草案）
+  覆盖 check 稳态叙事与同契约 `C` 观察准入；本文仍开放，只跟踪未进入 D044 的增量 apply 与
+  apply 本机历史
 
-本文不定义当前或已接受的目标契约。下文的周期、缓存、增量 apply 与历史记录都是待验证设想。
-取得足以改写 D001/D002/D003/D004/D014 的依据后，应另建规范性 Design 并获得接受，再建立 Plan。
+本文不定义当前或已接受的目标契约。D044 接受前，下文除已移交第一刀的部分外仍是待验证设想。
+增量 apply 与历史记录仍须另建 Design。
 
 ## 1. 构想
 
@@ -249,18 +252,18 @@ D001 §9 与 D003/D004 将「跨运行 Proposal/Evaluation environment cache」�
 
 ## 10. 进入 Design 的条件
 
-至少同时成立：
+条件 1–2（稳态叙事、同快照直接观察准入、不引入第二套 cache API）已移交
+[D044](../designs/D044-pf-check-first-same-snapshot-observations.md)；该草案接受前仍非现行契约。
 
-1. 稳态叙事闭合：check 为日常权威转运，search 为接入/治理；不把缓存命中写成新快照的 floor。
-2. 统一观察存储有一份身份字段清单和至少一条已证准入策略（建议先做同快照续跑/重试），
-   且不引入第二套运行时 cache API。
-3. 增量 apply 能指出相对 D001 §6 放宽的恰好哪些检查，以及仍 fail closed 的检查；有具体的
+增量 apply 与 apply 历史仍须至少同时成立：
+
+1. 增量 apply 能指出相对 D001 §6 放宽的恰好哪些检查，以及仍 fail closed 的检查；有具体的
    extra 新增与依赖新增场景。
-4. apply 历史的存放位置、与公共报告的分界、provenance 在缺本机历史时的行为、回滚冲突规则
+2. apply 历史的存放位置、与公共报告的分界、provenance 在缺本机历史时的行为、回滚冲突规则
    都有明确失败语义。
 
-然后另建临时 Design，逐项标明替代 D001/D002/D003/D004/D014 的哪条规则，接受后再 Plan。
-C006 不是本 Design 的前置；没有关联分析也可以先做 check 稳态、同快照缓存和增量 extra 证明。
+然后另建临时 Design，逐项标明替代 D001/D002/D014 的哪条规则，接受后再 Plan。
+C006 不是前置。没有关联分析也可以在 D044 之后单独做增量 extra 证明。
 
 ## 11. 可能涉及的 owner
 
