@@ -14,8 +14,8 @@
   单调性假设；[C006](C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，
   不在本文范围
 - **第一刀 Design：** [D044](../designs/D044-pf-check-first-same-snapshot-observations.md)（草案）
-  覆盖 check 稳态叙事与同契约 `C` 观察准入；本文仍开放，只跟踪未进入 D044 的增量 apply 与
-  apply 本机历史
+  覆盖 check 稳态叙事、smoke/check 最小验证序列与同快照、身份闭合的 static/runtime 观察准入；
+  本文仍开放，只跟踪未进入 D044 的增量 apply 与 apply 本机历史
 
 本文不定义当前或已接受的目标契约。D044 接受前，下文除已移交第一刀的部分外仍是待验证设想。
 增量 apply 与历史记录仍须另建 Design。
@@ -252,7 +252,7 @@ D001 §9 与 D003/D004 将「跨运行 Proposal/Evaluation environment cache」�
 
 ## 10. 进入 Design 的条件
 
-条件 1–2（稳态叙事、同快照直接观察准入、不引入第二套 cache API）已移交
+条件 1–2（稳态叙事、smoke/check 最小验证序列、同快照直接观察准入、不引入第二套 cache API）已移交
 [D044](../designs/D044-pf-check-first-same-snapshot-observations.md)；该草案接受前仍非现行契约。
 
 增量 apply 与 apply 历史仍须至少同时成立：
