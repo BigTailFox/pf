@@ -20,16 +20,20 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: uv sync --group test
-      - name: Ruff
-        run: uv run ruff check src tests
-      - name: ty
-        run: uv run ty check src
-      - name: Pytest (testmon disabled)
+      - name: PR validation
         if: matrix.python-version != '3.10'
-        run: uv run pytest --no-testmon -m "not qualification"
-      - name: Pytest with coverage data
+        run: uv run python scripts/validate.py pr
+      - name: Coverage validation
         if: matrix.python-version == '3.10'
-        run: uv run pytest --no-testmon --cov --cov-report=term-missing --cov-fail-under=0 -m ""
+        run: uv run python scripts/validate.py coverage
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ matrix.os }}-${{ matrix.python-version }}
+          path: tests/.cache/validation/
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Upload coverage data
         if: matrix.python-version == '3.10'
         uses: actions/upload-artifact@v4
@@ -38,8 +42,6 @@ jobs:
           path: tests/.cache/cov/.coverage*
           include-hidden-files: true
           if-no-files-found: error
-      - name: Build
-        run: uv build
 
   coverage:
     needs: test

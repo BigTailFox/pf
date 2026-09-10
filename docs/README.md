@@ -3,13 +3,13 @@
 - **状态：** 现行
 - **最后核对：** 2026-09-10
 
-本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛由 [AGENTS.md](../AGENTS.md) 拥有。
+本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛与 agent 执行原则由 [AGENTS.md](../AGENTS.md) 拥有。
 
 ## 1. 负载分层
 
 | 层 | 文件 | 允许写入 |
 | --- | --- | --- |
-| 始终加载 | [AGENTS.md](../AGENTS.md) | 工程门槛与触发指针；不复制契约 |
+| 始终加载 | [AGENTS.md](../AGENTS.md) | 工程门槛、执行原则与触发指针；不复制契约 |
 | 地图 | 本页 | 分类、生命周期、owner 表、开放项、归档入口 |
 | 词汇 | [CONTEXT.md](../CONTEXT.md) | 现行术语与 `_Avoid_`；不写行为或验收 |
 | 测试 | [tests/README.md](../tests/README.md) | 本仓库测试种类、消费者、断言与验证命令；由 AGENTS.md 触发 |
@@ -37,8 +37,8 @@
 
 何时新建或只改 owner：
 
-- 改产品承诺、命令、配置、退出码、失败资格、wire 或模块边界：先写或改 Design，接受后再 Plan。临时 Design 逐项标明替代哪个 owner 的哪条规则。
-- 实现偏移、性能或展示候选：记 Review。Review 不授权生产代码。
+- 改产品承诺、命令、配置、退出码、失败资格、wire 或模块边界等契约：写或改 Design；接受与实施门槛遵循 [AGENTS.md](../AGENTS.md#engineering-workflow)。临时 Design 逐项标明替代哪个 owner 的哪条规则。
+- 需要留存的问题评审与待办（实现偏移、性能或展示候选）：记 Review。Review 文档本身不授权生产代码；用户已授权的轻量修复按 AGENTS.md 执行，无须为进入实施补建 Review。
 - 尚未证明该做的方向：记 Concept。
 - 固定环境下的命令、结果与局限：记 Experiment 或 Investigation。结论可被吸收，原文不回写。
 - 用词、链接、去重、frontmatter 与历史归档：直接改文档，不另建产品 Design/Plan。改变产品承诺仍走 AGENTS.md。
@@ -65,7 +65,7 @@
 
 临时 Design 的目标被接受不等于实现已验证。接受、Plan、实施、验收与 owner 吸收的工程门槛直接遵循 AGENTS.md，本页不再复制一套流程。
 
-文档与代码不一致时先查现行 owner、已接受变更和公开 seam：契约残留/过时则修订 owner；实现偏移则记录 Review，保持应有契约，不能把 bug 写成新规范。无法确定意图时记录未决项，不以代码自动胜出。
+文档与代码不一致时先查现行 owner、已接受变更和公开 seam：契约残留/过时则修订 owner；实现偏移则保持应有契约，按 AGENTS.md 的授权与影响分流修复，需留存的问题按 §2 记 Review。无法确定意图时记录未决项，不以代码自动胜出或把 bug 写成新规范。
 
 现行 owner 正文只保留范围、规则、不变量、验证边界与公开 seam。迁移故事、验收计数与当时测试规模留在归档 Plan。不按行数拆文档；只有新的所有权边界才拆分。
 
@@ -154,11 +154,10 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 文档变更后在仓库根、沙箱外运行：
 
 ```sh
-.venv/bin/python scripts/check_docs.py
-.venv/bin/python scripts/generate_report_schema.py --check
+uv run python scripts/validate.py docs
 ```
 
-`check_docs.py` 核对应指针、现行 owner 与索引表一致、frontmatter、相对链接与章节锚点、双语 README 配置示例、以及既有归档记录未被删除。授权的路径重定位可以改写入链。`git diff --check` 含在其中。生成投影仍由 D014 脚本检查。
+统一入口及日志规则见 [tests/README.md](../tests/README.md#验证)。`check_docs.py` 核对应指针、现行 owner 与索引表一致、frontmatter、相对链接与章节锚点、双语 README 配置示例、以及既有归档记录未被删除。授权的路径重定位可以改写入链。`git diff --check` 含在其中。生成投影仍由 D014 脚本检查。
 
 核对现行 owner 与代码/公开 tests 的具体 seam 仍按改动范围进行。只改文档不宣称交付了行为修复。
 剩余实现问题见 R010 §4，不在索引复制测试计数。

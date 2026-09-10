@@ -17,7 +17,7 @@ Adapter 真实性见 [D002 §11](../docs/designs/D002-pf-implementation.md#11-�
 | 基建 | `infra` | 是 | 否 | 插件 hook、文档不变式、车道漏标安全网；必须直接驱动 `_secure_runlog` adapter 协议时也可标。不进入自举 `C` |
 | 真实进程公开缝 | `process` | 否 | 否 | 真实 uv / ty / nested pytest；`python -m pf` / 安装入口的 help、调用错误、adapter 协议代表项。经 `TyAdapter` / `UvAdapter` / `ConfiguredVerifier` / spawn helper。不含产品命令路径 |
 | 产品 CLI | `e2e`（且必须 `process`） | 否 | 否 | 真实子进程执行了 `smoke` / `check` / `search` / `minimize` / `apply` / `explain` / `diagnose` / `merge` 的产品路径（含该命令的产品级失败）。`-m e2e` 即全部真实产品 CLI；日常与自举仍排除。帮助、未知 option、非法 duration 与未知 `--package` 走 `create_app`，不标 `e2e` |
-| 资格 | `qualification` | 否 | 否 | `scripts/qualify_*.py` 的工具协议 / 版本矩阵；committed manifest 由未标记测试对照现行 protocol 常量。不是产品 process 溢流，也不是定期回归。仅在凭据变化时重跑脚本；不进日常 / PR。不用于产品 Environment/Static/CLI 组合 |
+| 资格 | `qualification` | 否 | 否 | `scripts/qualify_*.py` 的工具协议 / 版本矩阵；committed manifest 由未标记测试对照现行 protocol 常量。仅在凭据变化时主动刷新；不进日常 / PR，canonical 全量覆盖率仍收集。不用于产品 Environment/Static/CLI 组合 |
 
 本仓库的 `[tool.pf] test-command` 是 **targeted-runtime-contract**：只收集进程内产品测试，不含基建、真实进程、全流程或资格。改变该数组就是新的 `C`。根目录既有 `package-floor.json` 若仍由更宽的历史 `C`（当时默认只排除 `qualification`）产生，不得写成已经相对于现行 `test-command` 验证。安装入口正确性由 CI 的 `process` / `e2e` 车道承担。
 
@@ -65,31 +65,44 @@ Cell 契约展开要求 marker、projection、apply、admission 每个公开 sea
 
 ## 验证
 
-从仓库根目录执行；运行环境要求见 [AGENTS.md](../AGENTS.md#run-environment)。
-`pyproject.toml` 的默认 `addopts` 为 `--testmon` 与 `-m "not process and not e2e and not qualification"`（含 `infra`）。
-自举 `[tool.pf] test-command` 另排除 `infra`。凡是比日常默认更宽的收集必须在 CLI 上传入自己的 `-m`。
-`PATH` 需包含仓库 `.venv/bin`，以便真实 ty/uv 公开缝能解析到工具。
+从仓库根目录、按 [AGENTS.md](../AGENTS.md#run-environment) 的环境要求执行。
+[validate.py](../scripts/validate.py) 是本地与 CI 共用的完整验证入口，拥有各车道的命令组合；
+`--dry-run` 显示命令而不执行。使用 `uv run` 使真实 uv/ty 公开缝能从 PATH 找到工具。
 
-```sh
-# 日常：进程内产品 + 基建，不含真实进程 / 全流程 / 资格
-uv run pytest --no-testmon -q --durations=30
-uv run ruff check tests
-uv run ty check
-git diff --check
+### 迭代与交付
 
-# 真实进程公开缝（含 e2e；不是日常默认）
-uv run pytest --no-testmon -q -m "process and not qualification"
+- 迭代先运行受影响的公开测试；日常增量可用 `uv run pytest -q`。指定文件或 nodeid 时使用
+  `uv run pytest --no-testmon -q tests/<file>.py`，并按测试种类显式选择 marker。
+  默认 marker 与 testmon 配置由 [pyproject.toml](../pyproject.toml) 拥有。
+- 交付按下表选择所需完整车道；实际执行范围写入结果。增量选择、指定测试和完整车道各自证明
+  自己的范围；testmon 未选中测试不构成全量 PASS。PF 自举的 `test-command` 仍独立定义 `C`。
+- 已通过的检查，在所验证的代码、测试、配置、工具/依赖与相关环境未变化且范围满足本次要求时复用。
+  记录命令、范围、源码状态（commit 及相关未提交改动）、环境和日志路径；有并发修改或状态不明时刷新。
+  后续纯文档收尾只使相应文档检查失效。只有新修改、失败、未决风险或未覆盖的门禁才扩大或重跑验证。
+- 同一变更可用较宽车道覆盖相同条件下的较窄车道；完成所需检查后停止。
+  完整车道均禁用 testmon。脚本遇到首个失败即返回该命令退出码；修复后可单独重跑失败步骤及受影响步骤，
+  保留前面仍适用的成功证据，逐项闭合该车道。
 
-# 资格凭据刷新（更换受支持的 uv/pytest 版本、矩阵 case 或绑定字段时；也可直接跑 scripts/qualify_*.py）
-uv run pytest --no-testmon -q -m qualification
+| 场景 | 命令 | 范围 |
+| --- | --- | --- |
+| 文档变更 | `uv run python scripts/validate.py docs` | 文档不变式（含工作区/暂存区 whitespace）与生成投影一致性 |
+| 日常完整验证 | `uv run python scripts/validate.py daily` | Ruff（src/tests/scripts）、ty（src）、文档检查、进程内产品与基建 |
+| PR（CI 3.11/3.12） | `uv run python scripts/validate.py pr` | 静态/文档检查、日常 ∪ process ∪ e2e、构建 |
+| 覆盖率（CI 3.10） | `uv run python scripts/validate.py coverage` | 静态/文档检查、全量测试与分支覆盖率采集、构建；90% 门禁由合并 job 执行 |
+| 真实进程补充验证 | `uv run python scripts/validate.py process` | process（含 e2e），排除 qualification |
+| 资格凭据刷新 | `uv run python scripts/validate.py qualification` | qualification；仅凭据变化时主动刷新，另保留 canonical 全量覆盖率车道 |
 
-# PR 门禁（3.11/3.12）：日常 ∪ process ∪ e2e
-uv run pytest --no-testmon -q -m "not qualification"
+PR/CI 的既定矩阵与覆盖率门禁仍须完成；局部迭代结果不能替代它们。新增工程脚本纳入 Ruff，
+ty 的完整车道范围统一为 `src`，与现有 CI 一致。涉及 typing 配置或额外范围时按变更补充验证。
 
-# 本机采集覆盖率（canonical Python 全量；不过 90% 门禁）
-uv run pytest --no-testmon --cov=pf --cov-report=term-missing --cov-fail-under=0 -m ""
-```
+### 输出与证据
 
-`--no-testmon` 确保本轮全量执行。日常增量执行仍可使用默认 testmon。
+每次入口调用在 `tests/.cache/validation/` 下创建独立目录，保存每步完整 stdout/stderr。
+终端报告命令、退出码和日志路径，失败时显示有界末尾；排查时再按错误读取相关片段。
+`--log-dir PATH` 可指定日志父目录；CI 在成功或失败后上传日志。成功步骤的日志含原始测试计数，
+最终报告引用实际计数与范围。信号退出映射为 `128 + signal`，启动失败为 127，中断为 130。
+
+Plan 保存可恢复的状态和证据引用；共享或长期保留的验收证据应放入固定、可访问的产物位置，
+本地 cache 路径只作为本地运行记录。`docs` 已检查 whitespace，相同输入下无需另跑 `git diff --check`。
 
 覆盖率门禁是 **canonical Python 3.10、全量 `-m ""`、各 CI OS 数据的并集**，`fail_under = 90` 只在合并后的 `coverage report` 上生效。各 OS 的 pytest 只采集（`--cov-fail-under=0`），不按单宿主百分比卡关。增加 Windows / macOS 时把 CI `matrix.os` 扩进去即可，不必改门槛算法。单宿主跑不到的平台私有分支由对应 OS job 补上，不要用 `# pragma: no cover` 或降低 90% 代替。

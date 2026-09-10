@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from runpy import run_path
+import shlex
 import sys
 from types import SimpleNamespace
+from typing import Callable, cast
 
 import pytest
 import tomli
@@ -54,15 +57,27 @@ class TestRepositoryTestLanes:
         document = tomli.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         assert document["tool"]["pf"]["test-command"] == BOOTSTRAP_COMMAND
 
-    def test_ci_jobs_pass_explicit_marker_expressions(self) -> None:
+    @pytest.mark.parametrize(
+        ("lane", "marker"), [("pr", "not qualification"), ("coverage", "")],
+        ids=["pr", "coverage"],
+    )
+    def test_ci_jobs_pass_explicit_marker_expressions(
+        self, lane: str, marker: str, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        assert "uv run pytest --no-testmon -m \"not qualification\"" in workflow
-        assert (
-            "uv run pytest --no-testmon --cov --cov-report=term-missing "
-            "--cov-fail-under=0 -m \"\""
-        ) in workflow
+        assert f"uv run python scripts/validate.py {lane}" in workflow
+        validate = cast(Callable[..., int], run_path(str(ROOT / "scripts/validate.py"))["main"])
+        assert validate([lane, "--dry-run"]) == 0
+        commands = [shlex.split(line) for line in capsys.readouterr().out.splitlines()[1:]]
+        command, = [command for command in commands if "pytest" in command]
+        assert "--no-testmon" in command
+        assert command[command.index("-m", 3) + 1] == marker
+        if lane == "coverage":
+            assert "--cov=pf" in command
+            assert "--cov-fail-under=0" in command
         assert "coverage combine" in workflow
-        assert "fail_under = 90" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        document = tomli.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert document["tool"]["coverage"]["report"]["fail_under"] == 90
 
     def test_e2e_without_process_fails_collection_check(self) -> None:
         item = SimpleNamespace(
