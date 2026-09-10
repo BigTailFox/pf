@@ -25,6 +25,7 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[(?:[^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)
 FIELD = re.compile(r"^- \*\*([^*]+)：\*\* (.+)$", re.M)
 OWNER_LINK = re.compile(r"\[D\d+\]\((designs/D\d+[^)]+\.md)\)")
 STATUS_BY_KIND = {
+    "plan": {"进行中", "已完成"},
     "review": {"开放", "已解决或已移交", "已归档"},
     "concept": {"开放", "转入 Design", "关闭"},
     "experiment": {"进行中", "已完成"},
@@ -35,12 +36,12 @@ TEMPORARY_DESIGN_FIELDS = {"状态", "目标 owner", "验收标准"}
 
 SKIP_SCHEMES = {"http", "https", "mailto"}
 LIVE_MARKDOWN_ROOTS = (
-    ROOT / "AGENTS.md",
-    ROOT / "CONTEXT.md",
-    ROOT / "README.md",
-    ROOT / "README.zh.md",
-    ROOT / "tests" / "README.md",
-    ROOT / "tests" / "history.md",
+    "AGENTS.md",
+    "CONTEXT.md",
+    "README.md",
+    "README.zh.md",
+    "tests/README.md",
+    "tests/history.md",
 )
 
 
@@ -53,7 +54,7 @@ def slugify(text: str) -> str:
 
 
 def iter_markdown(root: Path) -> list[Path]:
-    files = [path for path in LIVE_MARKDOWN_ROOTS if path.is_file()]
+    files = [root / path for path in LIVE_MARKDOWN_ROOTS if (root / path).is_file()]
     files.extend(sorted((root / "docs").rglob("*.md")))
     extra = root / "tests" / "execution_qualification" / "README.md"
     if extra.is_file():
@@ -171,26 +172,46 @@ def check_frontmatter(root: Path) -> list[str]:
         if missing:
             errors.append(f"{location}: missing {', '.join(sorted(missing))}")
     kinds = (
+        ("plan", root / "docs" / "plans", {"状态", "对应 Design"}),
         ("review", root / "docs" / "reviews", {"状态", "日期", "性质"}),
         ("concept", root / "docs" / "concepts", {"状态", "日期", "性质"}),
-        ("experiment", root / "docs" / "experiments", {"状态", "日期", "性质"}),
+        ("experiment", root / "docs" / "experiments", {"状态", "日期", "性质", "证据位置"}),
         ("investigation", root / "docs" / "investigations", {"状态", "日期", "性质", "证据位置"}),
     )
     for kind, directory, required in kinds:
         if not directory.is_dir():
             continue
-        for path in sorted(directory.glob("*.md")):
+        for path in sorted(directory.glob("P*.md" if kind == "plan" else "*.md")):
             fields = frontmatter(path.read_text(encoding="utf-8"))
             location = rel(path, root)
-            missing = required - fields.keys()
+            missing = {field for field in required if not fields.get(field)}
             if missing:
                 errors.append(f"{location}: missing {', '.join(sorted(missing))}")
                 continue
             token = status_token(fields["状态"])
             if token not in STATUS_BY_KIND[kind]:
                 errors.append(f"{location}: 状态 {token!r} is not allowed")
-            if DATE.match(fields["日期"]) is None:
+            if "日期" in required and DATE.match(fields["日期"]) is None:
                 errors.append(f"{location}: 日期 must start with YYYY-MM-DD")
+            if kind == "plan":
+                targets = MARKDOWN_LINK.findall(fields["对应 Design"])
+                design_directories = {
+                    (root / "docs" / "designs").resolve(),
+                    (root / "docs" / "archived" / "designs").resolve(),
+                }
+                valid_design = False
+                for target in targets:
+                    linked, status, _ = resolve_link(path, target, root)
+                    if (
+                        status == "ok"
+                        and linked is not None
+                        and linked.is_file()
+                        and linked.parent in design_directories
+                        and re.fullmatch(r"D\d+[^/]*\.md", linked.name)
+                    ):
+                        valid_design = True
+                if not valid_design:
+                    errors.append(f"{location}: 对应 Design must link to an existing Design")
     return errors
 
 
@@ -310,30 +331,39 @@ def is_local_artifact_link(linked: Path, root: Path) -> bool:
     return bool(relative.parts) and relative.parts[0] == "experiments"
 
 
-def check_archive_freeze(root: Path) -> list[str]:
+def check_archive_freeze(root: Path, base: str | None = None) -> list[str]:
     if not is_git_work_tree(root):
         return []
-    result = run_git(
-        root,
-        ["diff", "--diff-filter=D", "--name-only", "HEAD", "--", "docs/archived"],
-    )
-    if result.returncode != 0:
-        return [f"git diff archive freeze failed: {result.stderr.strip()}"]
-    deleted = [
-        line
-        for line in result.stdout.splitlines()
-        if line and line != "docs/archived/README.md"
-    ]
-    if not deleted:
-        return []
-    return ["archived records were deleted: " + ", ".join(deleted)]
+    revisions = [["HEAD"]]
+    if base is not None:
+        revisions.append([base, "HEAD"])
+    errors: list[str] = []
+    deleted: set[str] = set()
+    for revision in revisions:
+        result = run_git(
+            root,
+            ["diff", "--diff-filter=D", "--name-only", *revision, "--", "docs/archived"],
+        )
+        if result.returncode != 0:
+            errors.append(f"git diff archive freeze failed: {result.stderr.strip()}")
+            continue
+        deleted.update(
+            line for line in result.stdout.splitlines()
+            if line and line != "docs/archived/README.md"
+        )
+    if deleted:
+        errors.append("archived records were deleted: " + ", ".join(sorted(deleted)))
+    return errors
 
 
-def check_whitespace(root: Path) -> list[str]:
+def check_whitespace(root: Path, base: str | None = None) -> list[str]:
     if not is_git_work_tree(root):
         return []
     errors: list[str] = []
-    for args in (["diff", "--check"], ["diff", "--check", "--cached"]):
+    commands = [["diff", "--check"], ["diff", "--check", "--cached"]]
+    if base is not None:
+        commands.append(["diff", "--check", base, "HEAD", "--"])
+    for args in commands:
         result = run_git(root, args)
         if result.returncode == 0 and not result.stdout.strip() and not result.stderr.strip():
             continue
@@ -342,26 +372,32 @@ def check_whitespace(root: Path) -> list[str]:
     return errors
 
 
-def check_docs(root: Path) -> list[str]:
+def check_docs(root: Path, base: str | None = None) -> list[str]:
     errors: list[str] = []
+    if base is not None:
+        result = run_git(root, ["rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}"])
+        if result.returncode != 0:
+            return [f"invalid --base {base!r}: {result.stderr.strip()}"]
+        base = result.stdout.strip()
     for checker in (
         check_pointers,
         check_owners,
         check_frontmatter,
         check_links,
         check_readme_examples,
-        check_archive_freeze,
-        check_whitespace,
     ):
         errors.extend(checker(root))
+    errors.extend(check_archive_freeze(root, base))
+    errors.extend(check_whitespace(root, base))
     return errors
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--base", help="also check committed archive deletions and whitespace from REF to HEAD")
     args = parser.parse_args(list(argv) if argv is not None else None)
-    errors = check_docs(args.root.resolve())
+    errors = check_docs(args.root.resolve(), args.base)
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

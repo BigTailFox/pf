@@ -52,7 +52,7 @@
 | --- | --- | --- |
 | 现行 owner Design、其附录、本索引、CONTEXT | 现行 | 状态、最后核对 |
 | 临时 Design | 草案 / 已接受待实施 / 实施中 | 状态、目标 owner、验收标准 |
-| Plan | 进行中 / 已完成 | 状态、对应 Design |
+| Plan | 进行中 / 已完成 | 状态、对应 Design（指向现行或归档 Design 的有效 Markdown 链接） |
 | Review | 开放 / 已解决或已移交 / 已归档 | 状态、日期、性质 |
 | Concept | 开放 / 转入 Design / 关闭 | 状态、日期、性质 |
 | Experiment / Investigation | 进行中 / 已完成 | 状态、日期、性质、证据位置 |
@@ -158,6 +158,11 @@ uv run python scripts/validate.py docs
 ```
 
 统一入口及日志规则见 [tests/README.md](../tests/README.md#验证)。`check_docs.py` 核对应指针、现行 owner 与索引表一致、frontmatter、相对链接与章节锚点、双语 README 配置示例、以及既有归档记录未被删除。授权的路径重定位可以改写入链。`git diff --check` 含在其中。生成投影仍由 D014 脚本检查。
+
+提交范围检查使用 `uv run python scripts/validate.py docs --base REF`；也可直接给 `check_docs.py`
+传 `--base REF`。REF 必须能解析为 commit，在本地工作区/暂存区检查之外增加 REF 到 HEAD 的
+已提交归档删除与 whitespace 检查；无效或不可用基准明确失败。调用方选择比较基准，脚本不自动
+改用 merge-base。CI 获取完整历史，PR 使用目标分支的 base SHA，push 使用事件的 before SHA。
 
 核对现行 owner 与代码/公开 tests 的具体 seam 仍按改动范围进行。只改文档不宣称交付了行为修复。
 剩余实现问题见 R010 §4，不在索引复制测试计数。

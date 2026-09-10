@@ -25,7 +25,9 @@ Adapter 真实性见 [D002 §11](../docs/designs/D002-pf-implementation.md#11-�
 - 同一公开接口的不同输入在进程内用 `pytest.mark.parametrize` 展开。参数值本身已是可读语义时
   可保留自动 id；元组、布尔、整数代码必须显式 `ids=`。有先后依赖的缓存复用和多命令生命周期
   保留为连续场景，标 `e2e`。真实进程每种 adapter 协议留代表项；产品命令真实子进程标 `e2e`，
-  每种命令至多一条代表项。资格矩阵只在凭据变化时重跑，不在资格层展开产品 Environment/Static/CLI 组合。
+  每种命令保留覆盖独立进程风险所需的最少代表场景。新增真实进程测试须说明现有进程内或 adapter
+  测试无法证明的风险，例如中断清理或跨命令持久化。资格矩阵只在凭据变化时重跑，
+  不在资格层展开产品 Environment/Static/CLI 组合。
 - 从公开返回值、异常字段、事件、输出协议或持久化产物验证行为。插件测试调用 pytest hooks 后
   检查协议文件；替身响应请求中已经分类好的环境/配置/outcome，包装真实 runner 的 recording
   不按 argv 识别 `ty check`。不写入 `CliContext` 私有 workflow 字段（经 `compose` 注入）；
@@ -68,6 +70,7 @@ Cell 契约展开要求 marker、projection、apply、admission 每个公开 sea
 从仓库根目录、按 [AGENTS.md](../AGENTS.md#run-environment) 的环境要求执行。
 [validate.py](../scripts/validate.py) 是本地与 CI 共用的完整验证入口，拥有各车道的命令组合；
 `--dry-run` 显示命令而不执行。使用 `uv run` 使真实 uv/ty 公开缝能从 PATH 找到工具。
+含文档检查的车道支持 `--base REF`，提交比较规则见 [文档验证](../docs/README.md#9-文档变更验证)。
 
 ### 迭代与交付
 
@@ -98,6 +101,14 @@ ty 的完整车道范围统一为 `src`，与现有 CI 一致。涉及 typing �
 ### 输出与证据
 
 每次入口调用在 `tests/.cache/validation/` 下创建独立目录，保存每步完整 stdout/stderr。
+同目录的 `manifest.json` 在每步开始与结束时原子更新：记录车道、cwd、比较基准、Python/平台、
+已安装包版本、入口直接调用的外部工具路径/版本，以及每步 argv、起止时间、耗时、退出码和相对日志路径。
+实际运行先将 `--base REF` 固定为 commit，清单同时保存原始 REF 与该 commit，检查器使用后者。
+步骤状态区分 pending / running / passed / failed；未执行的步骤没有成功证据。
+每步执行前后记录 HEAD、Git 状态、工作区/暂存区 diff 的 SHA-256，以及未跟踪文件内容摘要；
+Git 忽略项和本次日志目录不参与源码记录。记录失败显式保存 error，`source_unchanged` 为 null。
+这些记录辅助判断证据适用范围；步骤 passed 只表示命令成功。源码变化、未捕获的环境/外部输入
+仍需按上述复用条件核对，摘要相同不自动授权复用。
 终端报告命令、退出码和日志路径，失败时显示有界末尾；排查时再按错误读取相关片段。
 `--log-dir PATH` 可指定日志父目录；CI 在成功或失败后上传日志。成功步骤的日志含原始测试计数，
 最终报告引用实际计数与范围。信号退出映射为 `128 + signal`，启动失败为 127，中断为 130。

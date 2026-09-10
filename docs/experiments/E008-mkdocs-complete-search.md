@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-06（Asia/Shanghai；run-id 使用 UTC）
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约
+- **证据位置：** [data/E008/](data/E008/)（报告/进程摘要、搜索空间、配置及 GT 对照）。
 - **前序：** [E007](E007-mkdocs-baseline-and-build-failures.md) 的实验准备与构建失败调查
 - **目标：** `experiments/mkdocs`，MkDocs `1.6.1`，上游 commit
   `2862536793b3c67d9d83c33e0dd6d50a791928f8` 加本地实验配置

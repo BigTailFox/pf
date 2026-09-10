@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-05
 - **性质：** 非规范性 dogfood 实验报告；不定义命令、算法、Schema 或 module interface
+- **证据位置：** [本文 §3 三次命令结果](#3-三次命令结果) 保存运行 ID、FailureRecord 与报告 identity 摘要；原始本机日志及可变报告不作为固定证据链接。
 - **目标仓库：** [`experiments/requests`](../../experiments/requests)（psf/requests `v2.34.2-28-gdae7ef63`，commit `dae7ef63b4df6eded86637f251fc4e3a06c3b479`）
 - **PF 版本：** `0.1.0`；工作树 `684df373070fab081e8db195d434c722c731cc0b`
 - **宿主：** `x86_64-unknown-linux-gnu`；本机可用 CPython `3.10`–`3.14`

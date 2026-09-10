@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-06（Asia/Shanghai；run-id 使用 UTC）
 - **性质：** 非规范性 dogfood 实验事实；不定义失败分类或搜索算法的新契约
+- **证据位置：** [data/E007/](data/E007/)（报告摘要、smoke 证据、诊断与配置记录）。
 - **目标：** `experiments/mkdocs`，MkDocs `1.6.1`，上游 commit
   `2862536793b3c67d9d83c33e0dd6d50a791928f8`（2025-10-20）加本地实验配置
 - **PF：** 原始报告 generator 为 `0.2.0`；报告不记录 PF Git commit，未据此反推运行时提交

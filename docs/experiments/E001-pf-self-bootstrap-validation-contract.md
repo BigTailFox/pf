@@ -7,7 +7,7 @@
 - **报告实体：** generation `608d62263bbf315e1aab6528b5db9aeebbe6b97da85c1c86a82caa5100408014`
 - **源码快照：** `d40a8b364e72386063ec01285c4ee2db53ad9fcc7f9ae314f78afe277bc0f7b9`
 - **验证策略：** `configured-verifier-terminal-v1`；`pytest --no-testmon`
-- **实验产物：** 固定 Git 对象 `0bc8550:package-floor.json`（`git show 0bc8550:package-floor.json`）；根目录同名文件会更新，不能用它复证本实验。
+- **证据位置：** 固定 Git 对象 `0bc8550:package-floor.json`（`git show 0bc8550:package-floor.json`）；根目录同名文件会更新，不能用它复证本实验。
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D008](../designs/D008-pf-verification-run.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D013](../designs/D013-pf-pytest-observer.md)
 
 本文记录 PF 对自身仓库执行一次成功 `pf search` 时，`packaging` floor 如何受到 configured validation contract 选择影响。实验不提出 PF 核心设计整改；它说明同一源码与候选向量在不同 verifier contract 下可以得到不同、但各自真实的 floor。

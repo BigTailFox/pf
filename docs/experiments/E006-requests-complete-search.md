@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-05–06（Asia/Shanghai）
 - **性质：** 非规范性 dogfood 实验报告；记录运行事实，不定义产品契约
+- **证据位置：** [data/E006/](data/E006/)（重跑记录、日志及两阶段报告摘要）。
 - **历史对照：** [E003](E003-requests-dependency-validation.md)、[E004](E004-requests-validation-surfaces.md)
 - **目标：** `experiments/requests`，commit `dae7ef63b4df6eded86637f251fc4e3a06c3b479`
 - **PF：** `0.1.0`；第一阶段 search 的生产代码为 `325e43d`，第二阶段 refine 使用 `4a9238d`

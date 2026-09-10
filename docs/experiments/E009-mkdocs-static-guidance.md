@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-08（Asia/Shanghai；run-id 使用 UTC）
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约
+- **证据位置：** [data/E009/](data/E009/)（隔离、check/search 资格 JSON、测量及报告摘要）。
 - **前序：** [E008](E008-mkdocs-complete-search.md)
 - **规范：** [D038](../archived/designs/D038-pf-static-guidance-authority.md)、[P042](../archived/plans/P042-pf-static-guidance-authority.md)
 - **目标：** 隔离副本 `/tmp/pf-d038-e009-mkdocs`，源 `/home/llh/pf/experiments/mkdocs`，MkDocs `1.6.1`，上游 commit `2862536793b3c67d9d83c33e0dd6d50a791928f8` 加本地 PF 实验配置

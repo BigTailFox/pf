@@ -6,7 +6,8 @@
   local fix restoring that contract, a small internal refactor, or a test/document correction, proceed
   directly through implementation and appropriate validation; no new Design, Plan, or Review is required.
   Any contract change or substantial product, architecture, schema, or cross-contract work takes the
-  Design path, even when its code diff is small.
+  Design path, even when its code diff is small. Judge impact by product promises, public interfaces,
+  ownership, invariants, and migration risk; touching several files or modules alone does not require it.
 - **Design path.** Establish and obtain acceptance for the normative Design before editing production
   code. Once implementation is authorized, create a durable Plan and carry it through implementation,
   validation, acceptance audit, and documentation closure without separate approval for each phase.
@@ -19,7 +20,8 @@
 - **Plan granularity.** Map every Design acceptance criterion to ordered, verifiable slices, including
   dependencies, interface/ownership migrations, documentation and generated artifacts, tests, and
   evidence slots. Reference the Design for contract rules; leave private implementation details to
-  execution unless they determine feasibility or correctness.
+  execution unless they determine feasibility or correctness. Scale Design and Plan detail to impact;
+  a bounded contract change may amend its existing owner Design without creating a new Design document.
 - **Progress and completion.** Update the Plan at slice boundaries and material decisions with outcomes,
   deviations, and exact validation commands and results. Keep completed work, the next step, and evidence
   paths in the Plan; retain raw output in logs. Audit every acceptance criterion and reconcile Design/Plan status;

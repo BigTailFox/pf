@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-09-05
 - **性质：** 非规范性 dogfood 运行事实；不定义产品或实现契约
+- **证据位置：** [本文 §3 有效运行结果](#3-有效运行结果) 及后续诊断章节保存运行 ID、日志编号、命令与结果；原始本机产物路径保留其当时口径。
 - **实现依据：** [D028](../archived/designs/D028-pf-validation-contract-surfaces.md) / [P034](../archived/plans/P034-pf-validation-contract-surfaces.md)
 - **历史对照：** [E003](E003-requests-dependency-validation.md)
 - **目标：** `experiments/requests`，commit `dae7ef63b4df6eded86637f251fc4e3a06c3b479`

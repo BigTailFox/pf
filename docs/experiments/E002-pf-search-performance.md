@@ -3,6 +3,7 @@
 - **状态：** 已完成
 - **日期：** 2026-08-28
 - **性质：** 非规范性性能实验报告；不定义命令、算法、Schema 或 module interface
+- **证据位置：** [本文 §2 运行证据](#2-运行证据) 保存运行 ID 对应的计数与终态；未在仓库冻结该轮完整原始日志。
 - **对照：** configured-verifier authority 落地工作树；运行 ID `20260828T063807.140981Z-999683-d803a27c`
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D012](../designs/D012-pf-harness-relaxation.md)
 - **历史决策：** [D011](../archived/designs/D011-pf-runtime-backed-static-search.md)、[D015](../archived/designs/D015-pf-authoritative-verification-outcome.md)
