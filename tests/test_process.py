@@ -18,7 +18,6 @@ from pf.adapters.process import (
     SecretRedactor,
     SubprocessRunner,
 )
-from pf.errors import InfrastructureError
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
     EnvironmentVariable,

@@ -9,13 +9,6 @@ import pytest
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader, host_target
 from pf.markers import MarkerError, platform_marker_facts
-
-
-def _fail_if_called(name: str):
-    def _probe(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError(f"{name} must not be read")
-
-    return _probe
 from pf.project_discovery import (
     ProjectDiscovery,
     WorkspaceInventory,
@@ -29,6 +22,13 @@ from pf.schemas.project import (
     SourceIdentity,
     StaticWorkspaceMemberVersion,
 )
+
+
+def _fail_if_called(name: str):
+    def _probe(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError(f"{name} must not be read")
+
+    return _probe
 
 
 def write_basic_project(
