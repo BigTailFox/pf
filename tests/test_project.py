@@ -9,6 +9,13 @@ import pytest
 from pf.errors import ConfigurationError
 from pf.project import ProjectLoader, host_target
 from pf.markers import MarkerError, platform_marker_facts
+
+
+def _fail_if_called(name: str):
+    def _probe(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError(f"{name} must not be read")
+
+    return _probe
 from pf.project_discovery import (
     ProjectDiscovery,
     WorkspaceInventory,
@@ -1287,32 +1294,79 @@ class TestTargetPlatform:
     @pytest.mark.parametrize(
         ("sys_platform", "machine", "libc", "expected"),
         (
-            ("linux", "AMD64", ("musl", "1.2"), "x86_64-unknown-linux-musl"),
-            ("darwin", "arm64", ("", ""), "aarch64-apple-darwin"),
-            ("win32", "AMD64", ("", ""), "x86_64-pc-windows-msvc"),
+            ("linux", "AMD64", ("glibc", "2.39"), "x86_64-unknown-linux-gnu"),
+            ("linux", "aarch64", ("gnu", ""), "aarch64-unknown-linux-gnu"),
+            ("linux", "x86_64", ("musl", "1.2"), "x86_64-unknown-linux-musl"),
+            ("linux", "ARM64", ("MUSL", "1.2"), "aarch64-unknown-linux-musl"),
+            ("linux2", "x86_64", ("glibc", "2"), "x86_64-unknown-linux-gnu"),
+            ("darwin", "AMD64", None, "x86_64-apple-darwin"),
+            ("darwin", "arm64", None, "aarch64-apple-darwin"),
+            ("win32", "AMD64", None, "x86_64-pc-windows-msvc"),
+            ("win32", "arm64", None, "aarch64-pc-windows-msvc"),
+        ),
+        ids=(
+            "linux-amd64-glibc",
+            "linux-aarch64-gnu",
+            "linux-x86_64-musl",
+            "linux-arm64-musl-case",
+            "linux2-startswith",
+            "darwin-amd64",
+            "darwin-arm64",
+            "win32-amd64",
+            "win32-arm64",
         ),
     )
-    def test_host_target_normalizes_supported_runtime_platforms(
+    def test_host_target_returns_supported_exact_triples(
         self,
         monkeypatch: pytest.MonkeyPatch,
         sys_platform: str,
         machine: str,
-        libc: tuple[str, str],
+        libc: tuple[str, str] | None,
         expected: str,
     ) -> None:
         monkeypatch.setattr("sys.platform", sys_platform)
         monkeypatch.setattr("platform.machine", lambda: machine)
-        monkeypatch.setattr("platform.libc_ver", lambda: libc)
+        if libc is None:
+            monkeypatch.setattr("platform.libc_ver", _fail_if_called("libc_ver"))
+        else:
+            monkeypatch.setattr("platform.libc_ver", lambda: libc)
 
         assert host_target() == expected
 
-    def test_host_target_rejects_an_unsupported_runtime(
+    def test_host_target_rejects_unknown_os_without_reading_machine_or_libc(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr("sys.platform", "emscripten")
-        monkeypatch.setattr("platform.machine", lambda: "wasm32")
-        with pytest.raises(ConfigurationError, match="unsupported host platform"):
+        monkeypatch.setattr("platform.machine", _fail_if_called("machine"))
+        monkeypatch.setattr("platform.libc_ver", _fail_if_called("libc_ver"))
+        with pytest.raises(
+            ConfigurationError,
+            match="unsupported host platform: emscripten",
+        ):
+            host_target()
+
+    def test_host_target_rejects_unknown_machine_without_forming_a_triple(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("sys.platform", "linux")
+        monkeypatch.setattr("platform.machine", lambda: "i686")
+        monkeypatch.setattr("platform.libc_ver", lambda: ("glibc", "2"))
+        with pytest.raises(ConfigurationError, match="unsupported host machine") as caught:
+            host_target()
+        assert "i686" not in str(caught.value)
+
+    @pytest.mark.parametrize("libc", (("", ""), ("unknown", "")), ids=("empty", "unknown"))
+    def test_host_target_rejects_unrecognized_linux_libc(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        libc: tuple[str, str],
+    ) -> None:
+        monkeypatch.setattr("sys.platform", "linux")
+        monkeypatch.setattr("platform.machine", lambda: "x86_64")
+        monkeypatch.setattr("platform.libc_ver", lambda: libc)
+        with pytest.raises(ConfigurationError, match="unsupported host libc"):
             host_target()
 
 

@@ -9,6 +9,8 @@ import pytest
 import pf.windows_runlog as windows_runlog
 from pf.windows_runlog import WindowsRunDirectory
 
+pytestmark = pytest.mark.infra
+
 
 class TestWindowsRunDirectory:
     def test_windows_run_directory_rejects_use_after_close(

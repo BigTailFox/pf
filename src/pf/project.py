@@ -61,19 +61,36 @@ def host_target() -> str:
     import platform
     import sys
 
+    runtime = sys.platform
+    if runtime.startswith("linux"):
+        family = "linux"
+    elif runtime == "darwin":
+        family = "darwin"
+    elif runtime == "win32":
+        family = "win32"
+    else:
+        raise ConfigurationError(f"unsupported host platform: {runtime}")
+
     raw_machine = platform.machine().lower()
     machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(
         raw_machine,
         raw_machine,
     )
-    if sys.platform.startswith("linux"):
-        libc = "musl" if platform.libc_ver()[0].lower() == "musl" else "gnu"
+    if machine not in {"x86_64", "aarch64"}:
+        raise ConfigurationError("unsupported host machine")
+
+    if family == "linux":
+        libc_name = platform.libc_ver()[0].lower()
+        if libc_name in {"gnu", "glibc"}:
+            libc = "gnu"
+        elif libc_name == "musl":
+            libc = "musl"
+        else:
+            raise ConfigurationError("unsupported host libc")
         return f"{machine}-unknown-linux-{libc}"
-    if sys.platform == "darwin":
+    if family == "darwin":
         return f"{machine}-apple-darwin"
-    if sys.platform == "win32":
-        return f"{machine}-pc-windows-msvc"
-    raise ConfigurationError(f"unsupported host platform: {sys.platform}")
+    return f"{machine}-pc-windows-msvc"
 
 
 class PythonMinorProvider(Protocol):
@@ -1020,10 +1037,6 @@ class ProjectLoader:
                 "no available stable CPython minor satisfies requires-python"
             )
         return selected
-
-    @staticmethod
-    def _host_target() -> str:
-        return host_target()
 
     @staticmethod
     def _expand_group(

@@ -19,6 +19,7 @@
 - 只为真实变化建立 seam：外部进程、uv/ty/test、Evaluator、cell task 与 activity consumer。
 - 类用于状态、生命周期或不变量；一次性转换留在 owner 中。
 - 不建立 `utils.py`、通用 filesystem/repository、DI framework、event bus 或 daemon。
+- 受支持 Host 上的 OS 差异留在已经拥有该能力的 module 内部；禁止通用平台独立层、`pf.platform` 与跨能力 HostFacts。内部 seam 的必要条件是同一能力已有两个真实 adapter；Darwin 与 Linux 同属 POSIX，不因「三端」单独成层。
 - 文件大小不决定拆分；只有独立规则所有权或真实 adapter 分化才形成新 module。
 
 ## 2. 技术与依赖方向
@@ -124,6 +125,45 @@ Proposal 只在 prepare 成功并复证 graph 后建立，保存 Attempt ID、pr
 
 ## 5. Application boundary
 
+### 5.1 Host OS 读取
+
+命中指 `os.name`、`sys.platform`，以及把 `platform.machine()` / `libc_ver` 读成产品身份。`import os`、`os.environ`、`os.fstat` 不是命中。本节是 Host OS 身份读取的完整 owner 白名单；未列入的产品编排只接收 target 或能力结果，不读取 Host 身份。`configure_utf8_stdio()` 不读 `os.name` / `sys.platform`，不进入本节。禁止 `src/pf/platform/`、`src/pf/host/` 包及同名 module；不禁止 stdlib `platform` 仅由 `host_target()` 使用。
+
+`host_target()` 是唯一允许把 `sys.platform` / `platform.machine()` / libc 读成 Cell 身份的函数，只许返回下列 exact triple。先读并校验 `sys.platform`；未知 OS 立即以 `ConfigurationError` 失败，不再读取 machine/libc。已知 OS 再把 machine 转为小写并规范化别名（`amd64`→`x86_64`，`arm64`→`aarch64`），校验结果只属于 `x86_64` / `aarch64`；只有 Linux 随后读取 libc：
+
+| OS | machine | libc | triple |
+| --- | --- | --- | --- |
+| `sys.platform.startswith("linux")` | `x86_64` / `aarch64` | 只在 Linux 上读 `platform.libc_ver()[0]`（大小写不敏感）：已识别的 `gnu` / `glibc` → `gnu`；已识别的 `musl` → `musl` | `{machine}-unknown-linux-{gnu\|musl}` |
+| `darwin` | `x86_64` / `aarch64` | 不读、不校验 | `{machine}-apple-darwin` |
+| `win32` | `x86_64` / `aarch64` | 不读、不校验 | `{machine}-pc-windows-msvc` |
+
+规范化后不在表内的 machine、Linux 上无法识别为 `musl` 或 `gnu`/`glibc` 的 libc（含空串），一律 `ConfigurationError`。返回值不得把原 machine/libc 字符串写进 triple，也不得把「非 musl」默认为 `gnu`。`darwin` / `win32` 不读取 libc，不能因 `libc_ver` 为空或不可调用而失败。CLI composition 可调用并向 `VerificationRunner` 注入字符串；`ProjectLoader` 在应用 D001 默认 `platforms` 时可调用。其它编排 module 只接收 target，不探测 Host，也不对调用次数建立产品不变量。
+
+能力 owner 需要「posix 或 windows」这类单一事实时，在该 owner 的实现路径内读 `os.name`，或接收该能力专用参数。ty 配置根的探测在 `TyConfigurationResolver`：产品装配省略 `platform=`，由 Resolver 读 `os.name`；参数仍可显式传入。`static_request.py` 不读 `os.name`。不把这些事实收成跨模块 HostFacts / Platform 服务。
+
+| 能力 | Owner | 实现路径 | 调用方学习的表面 |
+| --- | --- | --- | --- |
+| Host→exact target | `host_target()` | `project.py`（`host_target`） | `str` exact triple。Runner 由 composition 注入；Loader 在省略 `platforms` 时可调用 |
+| 进程组、超时/中断停止、Windows 子进程 PATH | `SubprocessRunner` | `adapters/process.py` | `ProcessRunner.run(ProcessSpec) → ProcessObservation` |
+| 安全日志目录 | 私有 `SecureLogDirectory` | `_secure_runlog.py`、`windows_runlog.py` | `RunLogStore` |
+| 临时目录关闭 | `cleanup_temporary_directory` | `snapshot.py` | `SnapshotBuilder` / `EnvironmentFactory` 的 `close()` 调用该函数；消费方不是第二 owner |
+| venv 解释器路径 | `EnvironmentFactory` | `environment.py`（`_interpreter`） | `PreparedEnvironment.interpreter` |
+| ty 用户配置根 | `TyConfigurationResolver` | `static_configuration.py` | 产品装配省略 `platform`；`static_request.py` 不读 `os.name`。owner 测试可显式传 `platform=` |
+
+### 5.2 Cell target 投影
+
+只读注入或规划得到的 target。未列入 §5.1 的产品编排不得新增宿主身份分支。
+
+| 能力 | Owner | 实现路径 | 调用方学习的表面 |
+| --- | --- | --- | --- |
+| PEP 508 四平台字段 | `pf.markers` | `markers.py` | `platform_marker_facts(target)`，只读 target |
+| wheel / uv platform tag | `UvAdapter` | `adapters/uv.py` | candidate / install 按 Cell target 匹配 |
+| apply selector 展示 | `pf.terminal` | `terminal/` | D006 标签；`win32`/`darwin` 是 Cell 别名 |
+
+不列入 §5.1：Cell 解释器 ABI（`UvAdapter` / `static_inputs` 发给 prepared venv 的 probe 脚本读 `SOABI` / `cache_tag`）是目标侧观察；D001 preserved / external harness 的 contextual marker 由 Cell 覆盖五字段、其余沿用 `packaging` 的 context/Host default，不生成 host target。
+
+### 5.3 Composition 与 invocation lifecycle
+
 ```text
 create_app(context: CliContext) -> cyclopts.App
 CliContext.compose(presenter, run_logs, *, root=..., <workflow>=...) -> CliContext
@@ -137,8 +177,9 @@ main() -> None
 命令 handler 在同一 `cli.py` root 内按命令装配 capability graph：
 help/version 只使用 parser/presenter；explain/diagnose/merge 不构造 UvAdapter、host target、
 评价图或 SearchCoordinator；apply 不构造 static/runtime evaluator、SearchCoordinator 或
-host target；check/smoke/search/minimize 装配各自验证图，`host_target()` 每 invocation 最多
-一次，minimize 共享已缓存子图。生产 `CliContext` 构造不要求七个 workflow 同时存在。
+host target；check/smoke/search/minimize 装配各自验证图。`host_target()` 的两个合法调用位置是
+CLI composition（向 `VerificationRunner` 注入）与 `ProjectLoader`（省略 `platforms` 时）；
+Runner 只接收注入的字符串，自己不探测。minimize 共享已缓存子图。生产 `CliContext` 构造不要求七个 workflow 同时存在。
 
 除 `minimize` 外，handler 只构造 request、调用一个 workflow、让 `TerminalPresenter` 渲染。
 `minimize` 顺序复用 search/apply workflow。Expected failures 继承 `PfError` 并只在最外层映射
@@ -336,7 +377,8 @@ ProcessRunner.run(ProcessSpec) -> ProcessObservation
 ```
 
 生产 `SubprocessRunner` 唯一执行 `shell=False` argv、cwd/env、进程组、timeout、output capture
-与通用 redaction，并可把完整 Process Log 交给 RunLogStore。
+与通用 redaction，并可把完整 Process Log 交给 RunLogStore。进程组停止与 Windows 子进程 PATH
+解析是 `SubprocessRunner` 内部差异，不升为 public ProcessPlatform。
 `ProcessSpec.environment_removals` 表达从继承 environment 删除的名字；runner 必须先删除、
 再应用 `environment` overlay，使 adapter 可以隔离私有 invocation 状态而不修改进程级
 `os.environ`。`ProcessObservation`、Process Log 与 Output Cache 的唯一契约是 D007。
@@ -385,15 +427,7 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值；relocation 经 `EnvironmentFactory.prepare` 或公开 `PreparedEnvironment.relocate_to`。不替换 concrete prepare/collect_prepared/capture_highest/compare_global/record_runtime/open_slice/evaluate/verify/minimize，不读取 evaluator/search private state。产品测试不调用 `TyCheckCache` 领域方法；Runner 可见方法是构造、`admitted_membership`、`documents`、`stop`、`close`。分类从公开 Check/Highest/Search outcome 观察，不注入假 `FailurePolicy`。不写入 `CliContext._check_workflow` 一类私有字段；进程内 CLI 经 `create_app` 与公开 property，替身 workflow 经 `CliContext.compose` 的可选参数注入。产品测试不进口 `pf._secure_runlog`；安全目录行为经 `RunLogStore` 与 `pf.windows_runlog`，必须直接驱动 POSIX/Windows adapter 协议的用例标 `infra`。产品测试不 patch `pf` 包内私有函数。真实 ty 进程经 `TyAdapter.observe`（及其公开装配），不手写 `ty check` argv；`decode_process` 的纯解码矩阵用 recording 的 `ProcessResult`。包装真实 runner 的 recording 不按 argv 识别 `ty check`。
 
-车道只调度真实性，不另开测试专用产品 API。种类是 pytest marker（或默认未标记），一条测试只标它所证明的种类。PR 仍是日常 ∪ `process` ∪ `e2e`（`-m "not qualification"`）。
-
-- **进程内（默认收集与自举 `C`）：** 公开 module 的接口结果、schema/identity、CLI `create_app` / `main()`、recording / scripted adapter。同一公开接口的不同输入用 `parametrize` 展开。不得启动真实 uv / ty / nested pytest / `python -m pf` 或安装入口 `pf`，也不得进入生产 `SubprocessRunner.run`。
-- **`infra`：** 插件 hook、文档不变式、车道漏标安全网；必须直接驱动 `_secure_runlog` adapter 协议时也可标。不进入自举 `C`。
-- **`process`：** 真实 uv / ty / nested pytest；`python -m pf` / 安装入口的 help、调用错误、adapter 协议代表项。经 `TyAdapter` / `UvAdapter` / `ConfiguredVerifier` / spawn helper。不含产品命令路径。
-- **`e2e`（且必须 `process`）：** 真实子进程执行了 `smoke` / `check` / `search` / `minimize` / `apply` / `explain` / `diagnose` / `merge` 的产品路径（含该命令的产品级失败）。`-m e2e` 即全部真实产品 CLI；日常与自举仍排除。帮助、未知 option、非法 duration 与未知 `--package` 走 `create_app`，不标 `e2e`。
-- **`qualification`：** `scripts/qualify_*.py` 的工具协议 / 版本矩阵；committed manifest 由未标记测试对照现行 protocol 常量。不是产品 process 溢流，也不是定期回归。仅在凭据变化时重跑脚本（更换受支持的 uv/pytest 版本、矩阵 case 或绑定字段）；不进日常 / PR。不用于产品 Environment/Static/CLI 组合。
-
-需要网络、其他 CPython minor 或非宿主平台的验证必须明确标注。覆盖率 `fail_under` 只作用于 canonical Python 在各 CI OS 上全量收集结果的并集；单宿主不必执行其他 OS 的平台私有分支。
+车道只调度真实性，不另开测试专用产品 API。未授权车道不得进入生产 `SubprocessRunner.run`。种类、覆盖率并集与 Host/Cell 展开只见 [tests/README.md](../../tests/README.md)。
 
 静态事实从 `StaticEvaluator.collect_prepared` / `capture_highest` / `compare_global` /
 `record_runtime` / `open_slice` 与真实 Check/Highest/Search 的公开 outcome 观察。

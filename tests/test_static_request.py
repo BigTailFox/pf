@@ -3,6 +3,7 @@ from __future__ import annotations
 from pf.cancellation import Cancellation
 
 from pathlib import Path
+import inspect
 import shutil
 import copy
 from dataclasses import dataclass
@@ -26,9 +27,16 @@ from pf.schemas.ty_fact import TyFactDocument
 from pf.schemas.static_preparation import StaticPreparationEvidence
 from pf.schemas.static_consumer import StaticConsumerEvidence
 from pf.snapshot import SnapshotBuilder
-from pf.static_request import static_preparation_evidence
+from pf.static_request import StaticRequestFactory, static_preparation_evidence
 from pf.ty_fact import ty_fact_document
 from pf.static.comparison import admit_harness_relation, admit_common_static_context
+
+
+class TestStaticRequestAssembly:
+    def test_product_assembly_omits_platform_argument(self) -> None:
+        source = inspect.getsource(StaticRequestFactory._assemble)
+        assert "platform=" not in source
+        assert "os.name" not in source
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,12 @@ PF 为 Python 分发包在明确运行环境与验证策略下寻找可验证的
 
 _Avoid_: Environment, platform
 
+**Host**
+
+运行本次 PF invocation 的本机。它不是 Cell。
+
+_Avoid_: Cell, platform, Environment
+
 **Attempt**
 
 PF 在已知 cell、源码快照和策略下，对一种解析方式或精确受管向量进行的验证尝试；环境解析成功前它已经存在。

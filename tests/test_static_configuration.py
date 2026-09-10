@@ -110,3 +110,38 @@ class TestTyConfigurationResolver:
             platform="windows", snapshot_root=tmp_path,
         )
         assert resolved == TyConfigurationUnavailable(detail="undeclared-analysis-root")
+
+    @pytest.mark.parametrize(
+        ("os_name", "environment", "config_file"),
+        (
+            (
+                "posix",
+                lambda tmp_path: {"HOME": str(tmp_path / "home")},
+                lambda tmp_path: tmp_path / "home" / ".config" / "ty" / "ty.toml",
+            ),
+            (
+                "nt",
+                lambda tmp_path: {"APPDATA": str(tmp_path / "appdata")},
+                lambda tmp_path: tmp_path / "appdata" / "ty" / "ty.toml",
+            ),
+        ),
+        ids=("posix-home", "nt-appdata"),
+    )
+    def test_omitted_platform_selects_host_user_config_root(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        os_name: str,
+        environment,
+        config_file,
+    ) -> None:
+        monkeypatch.setattr("pf.static_configuration._host_os_name", lambda: os_name)
+        path = config_file(tmp_path)
+        path.parent.mkdir(parents=True)
+        path.write_text('[rules]\ninvalid-assignment="warn"\n')
+        resolved = TyConfigurationResolver().resolve(
+            project_directory=tmp_path,
+            environment=environment(tmp_path),
+            snapshot_root=tmp_path,
+        )
+        assert resolved == TyConfigurationUnavailable(detail="undeclared-analysis-root")

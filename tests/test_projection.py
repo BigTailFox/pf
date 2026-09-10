@@ -10,9 +10,11 @@ from typing import Literal
 
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 import pytest
 
 from pf.errors import ConfigurationError
+from pf.markers import PortableMarker, platform_marker_facts
 from pf.policy import execution_policy_identity
 from pf.project import ProjectLoader
 from pf.report import PackageReportBuilder, ReportStore
@@ -284,6 +286,60 @@ class TestReportProjection:
         requirement = Requirement(projection.projected_requirements[0])
         assert requirement.specifier == SpecifierSet("<4,>=2.0")
         assert requirement.marker is None
+
+    def test_group_projection_covers_linux_darwin_and_win32_selectors(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        versions = {
+            "x86_64-unknown-linux-gnu": "2.0",
+            "aarch64-apple-darwin": "2.5",
+            "x86_64-pc-windows-msvc": "3.0",
+        }
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "1"\n'
+            'dependencies = ["idna<4"]\n'
+            '[tool.pf]\npythons = ["3.10"]\n'
+            'platforms = ["aarch64-apple-darwin", '
+            '"x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]\n'
+            'test-command = ["pytest"]\n',
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=tmp_path).target
+        floors = tuple(
+            FloorProjection(cell=cell, version=versions[cell.target])
+            for cell in package.cells
+        )
+        selectors = tuple(
+            ApplySelector(
+                sys_platform=facts.sys_platform,
+                platform_machine=facts.platform_machine,
+            )
+            for cell in package.cells
+            for facts in (platform_marker_facts(cell.target),)
+        )
+        projection = PackageReportBuilder().project(
+            declarations=package.declarations,
+            target_cells=package.cells,
+            floors=floors,
+            selected_selectors=selectors,
+            platform_scoped=False,
+        )
+
+        assert projection.representable is True
+        seen = set()
+        for cell in package.cells:
+            facts = platform_marker_facts(cell.target)
+            seen.add(facts.sys_platform)
+            active = [
+                Requirement(raw)
+                for raw in projection.projected_requirements
+                if Requirement(raw).marker is None
+                or PortableMarker.parse(str(Requirement(raw).marker)).evaluate(cell)
+            ]
+            assert len(active) == 1
+            assert Version(versions[cell.target]) in active[0].specifier
+        assert seen == {"linux", "darwin", "win32"}
 
     def test_group_projection_scopes_selected_selector_and_preserves_complement(
         self,

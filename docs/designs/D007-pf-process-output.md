@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **日志格式：** `pf-process-log-v2`
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-10
 - **Failure 消费：** [D005](D005-pf-failure-and-diagnose.md)
 - **CLI 展示：** [D006](D006-pf-cli-enhancement.md)
 - **Journal 与 Index：** [D008](D008-pf-verification-run.md)
@@ -150,5 +150,7 @@ Locator 缺失时仍可展示 FailureRecord portable facts；其他 host merge �
 | Cause/disposition | D005 |
 | Tail/link 展示 | D006 |
 | Journal/Diagnosis Index association | D008 |
+
+无 public `ProcessPlatform`；跨能力平台层见 [D002](D002-pf-implementation.md)。
 
 必须保持：日志正文与 cache projection 分离；cache 缺失不改变 portable facts；本地日志不可提升报告 authority；任何持久化面都不泄漏 secret；所有读取都通过安全 locator；输出正文不进入公共报告。

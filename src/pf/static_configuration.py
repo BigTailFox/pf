@@ -89,12 +89,16 @@ def materialize_ty_configuration(
         return TyConfigurationUnavailable()
 
 
+def _host_os_name() -> str:
+    return os.name
+
+
 class TyConfigurationResolver:
     """Resolve snapshot-only configuration. Host user files are fail-closed."""
 
     def resolve(
         self, *, project_directory: Path, environment: Mapping[str, str],
-        platform: Literal["posix", "windows"],
+        platform: Literal["posix", "windows"] | None = None,
         snapshot_root: Path | None = None,
     ) -> TyConfigurationResolution | TyConfigurationUnavailable:
         queried: list[Path] = []
@@ -108,7 +112,12 @@ class TyConfigurationResolver:
                 project_directory.resolve().relative_to(root.resolve())
             except ValueError:
                 return TyConfigurationUnavailable(detail="undeclared-analysis-root")
-            host = self._host_user_config(environment, platform)
+            host_platform = (
+                platform
+                if platform is not None
+                else ("windows" if _host_os_name() == "nt" else "posix")
+            )
+            host = self._host_user_config(environment, host_platform)
             if host is None:
                 return TyConfigurationUnavailable(detail="configuration-context-unavailable")
             queried.append(host)

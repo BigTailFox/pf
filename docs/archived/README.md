@@ -8,12 +8,15 @@
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
-| [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D041、D043 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P046 | 实施与验证已完成 |
+| [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D043 | 已实施并由现行 Design 接管 |
+| [plans](plans/) | P001–P047 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R007、R009 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001、I002 | 结论已纳入 D013 / 现行静态 owner |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
+
+[D042](designs/D042-pf-host-capability-locality.md) /
+[P047](plans/P047-pf-host-capability-locality.md)：宿主能力局部化已完成；Host OS 差异留在能力 owner 内，禁止通用平台独立层；`host_target()` 对未知 OS/machine/Linux libc fail-closed。稳定规则由 D002 §1/§5/§8/§11、D007、CONTEXT 与 `tests/README.md` 接管。
 
 [D039](designs/D039-pf-static-evaluation-module.md) /
 [P046](plans/P046-pf-static-evaluation-module.md)：静态评价深模块已完成；公开五方法、Preparation

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from io import StringIO
 import json
 from pathlib import Path
+import stat
+from typing import TextIO
 
 import pytest
 
@@ -10,6 +14,7 @@ from pf.failure import FailurePolicy
 from pf.runlog import RunLogStore
 from pf.schemas.evaluation import (
     CellFailureScope,
+    EnvironmentVariable,
     FailureDetail,
     ProcessResult,
     ProcessSpec,
@@ -414,3 +419,325 @@ class TestRunLogStoreIndexRejection:
 
         with pytest.raises(ConfigurationError, match="could not read PF diagnosis log"):
             RunLogStore(root=tmp_path).lookup("generation", "failure")
+
+
+def _process_result(*, exit_code: int = 0) -> ProcessResult:
+    return ProcessResult(exit_code=exit_code, duration_seconds=0.1)
+
+
+def _process_spec(tmp_path: Path, *argv: str) -> ProcessSpec:
+    return ProcessSpec(
+        argv=argv or ("tool",),
+        cwd=tmp_path.as_posix(),
+        timeout_seconds=5,
+    )
+
+
+class _FakeSecureLogDirectory:
+    def __init__(
+        self,
+        *,
+        root: Path,
+        run_id: str,
+        events: list[str] | None = None,
+    ) -> None:
+        self._root = root
+        self._run_id = run_id
+        self._events = events if events is not None else []
+        self._identities: dict[Path, tuple[int, int]] = {}
+
+    def _run_root(self) -> Path:
+        return self._root / ".pf" / "logs" / self._run_id
+
+    def _logs_root(self) -> Path:
+        return self._root / ".pf" / "logs"
+
+    def _remember(self, path: Path) -> None:
+        self._identities[path] = (path.stat().st_dev, path.stat().st_ino)
+
+    def _assert_intact(self) -> None:
+        for path, identity in self._identities.items():
+            linked = path.lstat()
+            if path.is_symlink() or (linked.st_dev, linked.st_ino) != identity:
+                raise OSError("PF run log directory identity changed")
+
+    def ensure_run(self, manifest: str) -> None:
+        run_root = self._run_root()
+        run_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for path in (self._root, self._root / ".pf", self._logs_root(), run_root):
+            self._remember(path)
+        (run_root / "run.log").write_text(manifest, encoding="utf-8")
+
+    def write_run_text(self, name: str, content: str) -> None:
+        self.write_run_stream(name, lambda stream: stream.write(content))
+
+    def write_run_stream(
+        self,
+        name: str,
+        write_body: Callable[[TextIO], None],
+    ) -> None:
+        self._assert_intact()
+        buf = StringIO()
+        write_body(buf)
+        (self._run_root() / name).write_text(buf.getvalue(), encoding="utf-8")
+        self._assert_intact()
+
+    def read_run_text(self, run_id: str, name: str, limit: int | None) -> str:
+        text = (self._logs_root() / run_id / name).read_text(encoding="utf-8")
+        return text if limit is None else text[:limit]
+
+    def read_run_stream(
+        self,
+        run_id: str,
+        name: str,
+        read_body: Callable[[TextIO], object],
+    ) -> object:
+        with (self._logs_root() / run_id / name).open(encoding="utf-8") as stream:
+            return read_body(stream)
+
+    def read_logs_text(self, name: str, limit: int) -> str:
+        self._events.append("logs-open")
+        try:
+            path = self._logs_root() / name
+            if not path.is_file():
+                raise FileNotFoundError(name)
+            return path.read_text(encoding="utf-8")[:limit]
+        finally:
+            self._events.append("logs-close")
+
+    def write_logs_text(self, name: str, content: str) -> None:
+        path = self._logs_root() / name
+        path.write_text(content, encoding="utf-8")
+        path.chmod(0o600)
+
+    def resolve_regular_log(self, relative: Path) -> Path | None:
+        self._events.append("run-open")
+        try:
+            path = self._logs_root() / relative
+            if path.is_symlink() or not path.is_file():
+                raise OSError("unsafe PF log file")
+            return Path(".pf") / "logs" / relative
+        finally:
+            self._events.append("run-close")
+
+    def close(self) -> None:
+        return
+
+
+class TestRunLogStoreProcessOutput:
+    def test_run_log_store_indexes_a_failure_without_exposing_the_path(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+        result = _process_result(exit_code=2)
+        logs.record(1, _process_spec(tmp_path), result)
+        logs.associate("generation-a", "failure-a", result)
+
+        assert logs.lookup("generation-a", "failure-a") == Path(
+            ".pf/logs/diagnosis-run/process-0001.log"
+        )
+        assert logs.lookup("generation-a", "failure-missing") is None
+        index = tmp_path / ".pf/logs/diagnosis-index.json"
+        assert stat.S_IMODE(index.stat().st_mode) == 0o600
+        assert str(tmp_path) not in index.read_text(encoding="utf-8")
+
+    def test_run_log_store_refuses_to_index_an_unrecorded_current_process(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+        result = _process_result(exit_code=2)
+
+        with pytest.raises(
+            InfrastructureError,
+            match="could not write PF diagnosis index",
+        ):
+            logs.associate("generation-a", "failure-a", result)
+
+    def test_run_log_store_replaces_and_removes_generation_associations(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+        first = _process_result(exit_code=1)
+        second = _process_result(exit_code=2)
+        logs.record(1, _process_spec(tmp_path), first)
+        logs.record(2, _process_spec(tmp_path), second)
+
+        logs.replace_associations(
+            "generation-a",
+            (("failure-a", first), ("failure-b", second)),
+        )
+        logs.replace_associations(
+            "generation-a",
+            (("failure-b", second),),
+        )
+
+        assert logs.lookup("generation-a", "failure-a") is None
+        assert logs.lookup("generation-a", "failure-b") == Path(
+            ".pf/logs/diagnosis-run/process-0002.log"
+        )
+
+        logs.replace_associations(
+            "generation-a",
+            (),
+            replace_generation=False,
+            remove_failure_ids=("failure-b",),
+        )
+
+        assert logs.lookup("generation-a", "failure-b") is None
+
+    def test_run_log_store_ignores_a_remote_failure_without_a_local_process(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="diagnosis-run")
+
+        logs.replace_associations("generation-a", (("failure-a", None),))
+
+        assert logs.lookup("generation-a", "failure-a") is None
+        assert not (tmp_path / ".pf").exists()
+
+    def test_run_log_store_refuses_a_symlinked_pf_directory(
+        self, tmp_path: Path
+    ) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (tmp_path / ".pf").symlink_to(outside, target_is_directory=True)
+        logs = RunLogStore(root=tmp_path, run_id="unsafe-run")
+        result = _process_result()
+
+        with pytest.raises(InfrastructureError, match="could not write PF process log"):
+            logs.record(1, _process_spec(tmp_path), result)
+
+        assert not (outside / "logs").exists()
+
+    def test_run_log_store_refuses_a_replaced_run_directory(
+        self, tmp_path: Path
+    ) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="stable-run")
+        result = _process_result()
+        spec = _process_spec(tmp_path)
+        logs.record(1, spec, result)
+        run_root = tmp_path / ".pf/logs/stable-run"
+        run_root.rename(tmp_path / ".pf/logs/original-run")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        run_root.symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(InfrastructureError, match="could not write PF process log"):
+            logs.record(2, spec, result)
+
+        assert not (outside / "process-0002.log").exists()
+
+    def test_run_log_store_bounds_process_metadata(self, tmp_path: Path) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="bounded-run")
+        result = _process_result()
+
+        path = logs.record(
+            1,
+            ProcessSpec(
+                argv=("tool", "x" * 200_000),
+                cwd="/project/" + "y" * 200_000,
+                environment=(EnvironmentVariable(name="Z" * 200_000, value="***"),),
+                timeout_seconds=5,
+            ),
+            result,
+        )
+
+        detail = path.read_text(encoding="utf-8")
+        assert path.stat().st_size < 100_000
+        assert "[truncated by RunLogStore]" in detail
+
+    def test_run_log_store_uses_a_platform_guard_without_dir_fd(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "pf.runlog.secure_log_directory",
+            lambda **kwargs: _FakeSecureLogDirectory(**kwargs),
+        )
+        logs = RunLogStore(root=tmp_path, run_id="portable-run")
+        result = _process_result()
+        spec = _process_spec(tmp_path)
+        path = logs.record(1, spec, result)
+
+        assert path.is_file()
+        assert logs.reference_for(result) == path
+
+        run_root = path.parent
+        run_root.rename(tmp_path / ".pf/logs/portable-original")
+        outside = tmp_path / "portable-outside"
+        outside.mkdir()
+        run_root.symlink_to(outside, target_is_directory=True)
+        with pytest.raises(InfrastructureError, match="could not write PF process log"):
+            logs.record(2, spec, result)
+        assert not (outside / "process-0002.log").exists()
+
+    def test_run_log_store_uses_the_windows_guard_for_index_and_offline_lookup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        guard_events: list[str] = []
+
+        def factory(*, root: Path, run_id: str) -> _FakeSecureLogDirectory:
+            return _FakeSecureLogDirectory(
+                root=root,
+                run_id=run_id,
+                events=guard_events,
+            )
+
+        monkeypatch.setattr("pf.runlog.secure_log_directory", factory)
+        logs = RunLogStore(root=tmp_path, run_id="windows-run")
+        result = _process_result(exit_code=2)
+        logs.record(1, _process_spec(tmp_path), result)
+        logs.associate("generation-a", "failure-a", result)
+        logs.close()
+        guard_events.clear()
+
+        offline = RunLogStore(root=tmp_path, run_id="offline")
+        assert offline.lookup("generation-a", "failure-a") == Path(
+            ".pf/logs/windows-run/process-0001.log"
+        )
+        assert guard_events == ["logs-open", "logs-close", "run-open", "run-close"]
+
+    def test_run_log_store_fails_closed_without_a_secure_platform_backend(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class UnsupportedDirectory:
+            def ensure_run(self, manifest: str) -> None:
+                raise OSError("secure PF run logs are unsupported")
+
+        monkeypatch.setattr(
+            "pf.runlog.secure_log_directory",
+            lambda **kwargs: UnsupportedDirectory(),
+        )
+        logs = RunLogStore(root=tmp_path, run_id="unsupported-run")
+        result = _process_result()
+
+        with pytest.raises(InfrastructureError, match="could not write PF process log"):
+            logs.record(1, _process_spec(tmp_path), result)
+
+    def test_run_log_store_patches_terminal_facts_without_dropping_streamed_body(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        logs = RunLogStore(root=tmp_path, run_id="patch-run")
+        spec = _process_spec(tmp_path)
+        writer = logs.begin_record(1, spec)
+        writer.write_stdout("alpha" * 4_000)
+        writer.write_stderr("beta" * 4_000)
+        result = ProcessResult(exit_code=3, signal=None, duration_seconds=1.25)
+        path = writer.finish(result)
+        detail = path.read_text(encoding="utf-8")
+        assert "alpha" * 4_000 in detail
+        assert "beta" * 4_000 in detail
+        assert "exit_code: 3" in detail
+        assert "stdout_complete: true" in detail
+        assert "stderr_complete: true" in detail
+        assert logs.read_output(result) == ("alpha" * 4_000, "beta" * 4_000)

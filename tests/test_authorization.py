@@ -694,6 +694,45 @@ class TestApplyAuthorizer:
         assert package_apply.preserved_selectors == ()
         snapshot.close()
 
+    def test_complete_three_family_report_uses_declared_matrix(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        platforms = (
+            "aarch64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+            "x86_64-unknown-linux-gnu",
+        )
+        _write_project(tmp_path, platforms=platforms)
+        project = ProjectLoader().load(root=tmp_path)
+        snapshot = _snapshot(project, tmp_path)
+        report = _report(
+            project.target,
+            snapshot,
+            {
+                "aarch64-apple-darwin": "2.0",
+                "x86_64-pc-windows-msvc": "2.0",
+                "x86_64-unknown-linux-gnu": "2.0",
+            },
+        )
+
+        authorization = ApplyAuthorizer().authorize(
+            report=report,
+            project=project,
+            current_snapshot=snapshot,
+            force=False,
+        )
+
+        package_apply = authorization.package_apply
+        assert package_apply.scope == "DECLARED_MATRIX"
+        assert {item.sys_platform for item in package_apply.selected_selectors} == {
+            "darwin",
+            "linux",
+            "win32",
+        }
+        assert package_apply.preserved_selectors == ()
+        snapshot.close()
+
     def test_missing_libc_variant_inherits_selector_floor_without_scoping(
         self,
         tmp_path: Path,

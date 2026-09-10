@@ -481,6 +481,49 @@ class TestVerificationRunnerRequest:
 
 
 class TestVerificationRunnerAdmission:
+    @pytest.mark.parametrize(
+        ("host_target", "other_target"),
+        (
+            ("x86_64-unknown-linux-gnu", "aarch64-apple-darwin"),
+            ("aarch64-apple-darwin", "x86_64-pc-windows-msvc"),
+            ("x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"),
+        ),
+        ids=("linux-host", "darwin-host", "win32-host"),
+    )
+    def test_admission_executes_only_the_injected_host_family(
+        self,
+        tmp_path: Path,
+        host_target: str,
+        other_target: str,
+    ) -> None:
+        host = _cell(target=host_target)
+        other = _cell(target=other_target)
+        snapshot, package = _case(tmp_path, cells=(other, host))
+        source_plan = SourcePlan.for_package(package, "SEARCH")
+        received: list[Cell] = []
+        outcome = _search_indeterminate(package, snapshot, host)
+        operation = _SearchOperation(
+            lambda package, cell, snapshot, plan: (received.append(cell) or outcome)
+        )
+
+        results = VerificationRunner(
+            events=_Events(),
+            logs=None,
+            host_target=host_target,
+        ).run(
+            SearchVerificationRun(
+                package=package,
+                source_plan=source_plan,
+                snapshot=snapshot,
+                operation=operation,
+                limits=_limits(),
+            )
+        )
+
+        assert results.cell_results == (outcome,)
+        assert received == [host]
+        snapshot.close()
+
     def test_duplicate_host_cell_identity_stops_before_matrix(
         self,
         tmp_path: Path,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import shutil
 
@@ -212,10 +211,9 @@ class StaticRequestFactory:
         )
         if isinstance(subject, StaticContentUnavailable):
             return subject
-        platform = "windows" if os.name == "nt" else "posix"
         configuration = TyConfigurationResolver().resolve(
             project_directory=prepared.package_root, environment=environment,
-            platform=platform, snapshot_root=snapshot_root,
+            snapshot_root=snapshot_root,
         )
         snapshot_ty_config, materialized = snapshot_ty_config_from_resolution(
             configuration, directory=directory / "configuration",
