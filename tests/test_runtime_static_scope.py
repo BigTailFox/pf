@@ -69,7 +69,7 @@ class TestRuntimeStaticPassRegistration:
         assert restored.model_dump_json() == saved
         assert restored.passes[0].evidence == passed.evidence
 
-    def test_open_slice_requires_direct_pass_ledger(self, tmp_path):
+    def test_open_slice_without_direct_pass_returns_none(self, tmp_path):
         from test_search import snapshot
 
         project = evaluation_project(tmp_path, dependency=None)
@@ -93,15 +93,15 @@ class TestRuntimeStaticPassRegistration:
                 assembly.static.capture_highest(
                     prepared, package=project.package, run_cache=cache,
                 )
-                with pytest.raises(ValueError, match="Direct-PASS ledger"):
-                    assembly.static.open_slice(
-                        run_cache=cache,
-                        upper_proposal=prepared.proposal,
-                        dependency="idna",
-                        versions=("1", "2", "3"),
-                        candidates=snapshot("idna"),
-                        collector=Collector(),
-                    )
+                slice = assembly.static.open_slice(
+                    run_cache=cache,
+                    upper_proposal=prepared.proposal,
+                    dependency="idna",
+                    versions=("1", "2", "3"),
+                    candidates=snapshot("idna"),
+                    collector=Collector(),
+                )
+                assert slice is None
         finally:
             prepared.close()
             project.snapshot.close()
@@ -143,11 +143,12 @@ class TestRuntimeStaticPassRegistration:
         try:
             with TyCheckCache() as cache, TyCheckCache() as other:
                 run = assembly.runtime.evaluate(prepared, package=project.package)
-                with pytest.raises(ValueError, match="registered"):
-                    assembly.static.record_runtime(prepared, run, run_cache=other)
+                assembly.static.record_runtime(prepared, run, run_cache=other)
+                assert cache.snapshot(prepared.proposal.cell).passes == ()
+                assert other.snapshot(prepared.proposal.cell).passes == ()
                 assembly.static.capture_highest(prepared, package=project.package, run_cache=cache)
-                with pytest.raises(ValueError, match="another cache|registered"):
-                    assembly.static.record_runtime(prepared, run, run_cache=other)
+                assembly.static.record_runtime(prepared, run, run_cache=other)
+                assert other.snapshot(prepared.proposal.cell).passes == ()
         finally:
             prepared.close()
             project.snapshot.close()
@@ -176,8 +177,9 @@ class TestRuntimeStaticPassRegistration:
                     CollectedStaticSubject,
                 )
                 run = assembly.runtime.evaluate(prepared, package=project.package)
-                with pytest.raises(ValueError, match="reuse a ty process"):
+                with pytest.warns(RuntimeWarning, match="static observation failed"):
                     assembly.static.record_runtime(prepared, run, run_cache=cache)
+                assert cache.snapshot(prepared.proposal.cell).passes == ()
         finally:
             prepared.close()
             project.snapshot.close()
@@ -257,8 +259,9 @@ class TestRuntimeStaticPassRegistration:
                 assert isinstance(second, PreparedEnvironment)
                 try:
                     assembly.static.collect_prepared(second, package=project.package, run_cache=cache)
-                    with pytest.raises(ValueError, match="runtime owner"):
+                    with pytest.warns(RuntimeWarning, match="static observation failed"):
                         assembly.static.record_runtime(second, run, run_cache=cache)
+                    assert len(cache.snapshot(first.proposal.cell).passes) == 1
                 finally:
                     second.close()
         finally:
@@ -284,8 +287,8 @@ class TestRuntimeStaticPassRegistration:
             with TyCheckCache() as cache:
                 run = assembly.runtime.evaluate(prepared, package=project.package)
                 assert run.evaluation.status == "VERIFIER_REJECTED"
-                with pytest.raises(ValueError, match="registered"):
-                    assembly.static.record_runtime(prepared, run, run_cache=cache)
+                assembly.static.record_runtime(prepared, run, run_cache=cache)
+                assert cache.snapshot(prepared.proposal.cell).passes == ()
         finally:
             prepared.close()
             project.snapshot.close()
@@ -358,8 +361,9 @@ class TestRuntimeStaticPassRegistration:
                     prepared_b, package=project_b.package, run_cache=cache_b,
                 )
                 run_b = assembly_b.runtime.evaluate(prepared_b, package=project_b.package)
-                with pytest.raises(ValueError, match="another static Run"):
+                with pytest.warns(RuntimeWarning, match="static observation failed"):
                     assembly_b.static.record_runtime(prepared_b, run_b, run_cache=cache_b)
+                assert cache_b.snapshot(prepared_b.proposal.cell).passes == ()
         finally:
             prepared_a.close()
             prepared_b.close()

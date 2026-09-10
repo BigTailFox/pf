@@ -13,6 +13,7 @@ from pf.environment import HighestResolution, LowestDirectResolution, PreparedEn
 from pf.evaluation import StagePermitPools
 from pf.static import CollectedStaticSubject, StaticEvaluator
 from pf.schemas.evaluation import ToolFailure, TyCheck, VerifierRun, VerifierPass, NormalExit, VerifierDiagnostics
+from pf.schemas.static import StaticContentUnavailable
 from pf.static import TyCheckCache
 
 
@@ -211,8 +212,7 @@ class TestStaticConsumerOwnership:
                     (rebuilt.environment_root / "support.txt").write_text("different installed support bytes")
                 run = assembly.runtime.evaluate(rebuilt, package=project.package)
                 assert run.evaluation.status == "PASS"
-                with pytest.raises(ValueError, match="registered"):
-                    static.record_runtime(rebuilt, run, run_cache=cache)
+                static.record_runtime(rebuilt, run, run_cache=cache)
                 assert len(calls) == 1
                 scope = cache.snapshot(owner.proposal.cell)
                 assert len(scope.facts) == 1
@@ -274,11 +274,17 @@ class TestStaticConsumerOwnership:
             finally:
                 trigger.set()
                 finish_cleanup.set()
-            expected = OperationCancelled if mode == "cancel" else ValueError
-            with pytest.raises(expected):
-                first.result(5)
-            with pytest.raises((expected, OperationCancelled)):
-                second.result(5)
+            if mode == "cancel":
+                with pytest.raises(OperationCancelled):
+                    first.result(5)
+                with pytest.raises(OperationCancelled):
+                    second.result(5)
+            else:
+                first_result = first.result(5)
+                second_result = second.result(5)
+                assert isinstance(first_result, StaticContentUnavailable)
+                assert first_result.detail == "invalid-layout"
+                assert second_result == first_result
             if stopping is not None:
                 assert stopping.result(5) == ()
             closing.result(5)
@@ -289,5 +295,9 @@ class TestStaticConsumerOwnership:
             assert isinstance(cache.lookup(calls[0].subject, calls[0].observation_policy), CacheMiss)
             scope = cache.snapshot(owner.proposal.cell)
             assert scope.facts == scope.consumers == scope.processes == scope.passes == ()
-            with pytest.raises((OperationCancelled, ValueError)):
-                static.collect_prepared(owner, package=project.package, run_cache=cache)
+            if mode == "cancel":
+                with pytest.raises(OperationCancelled):
+                    static.collect_prepared(owner, package=project.package, run_cache=cache)
+            else:
+                retry = static.collect_prepared(owner, package=project.package, run_cache=cache)
+                assert isinstance(retry, StaticContentUnavailable)

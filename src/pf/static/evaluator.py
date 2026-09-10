@@ -7,7 +7,7 @@ import os
 from typing import Protocol
 
 from pf.adapters.process import ProcessRunner
-from pf.cancellation import Cancellation
+from pf.cancellation import Cancellation, OperationCancelled
 from pf.environment import PreparedEnvironment, StageConsumer, emit_cell_stage
 from pf.evaluation import StagePermitPools
 from pf.schemas.evaluation import PassEvaluation, RuntimeEvaluationRun
@@ -38,6 +38,7 @@ from pf.static_cache import (
 )
 from pf.static_request import StaticRequestFactory, StaticTyRequest, static_preparation_evidence
 from pf.static.guidance import StaticPoint, StaticSearchResult, StaticSlice
+from pf.static.guard import unexpected_comparison, unexpected_unavailable, warn_static_failure
 from pf.ty_fact import ty_fact_document
 from pf.schemas.evaluation import ToolFailure, TyCheck
 
@@ -82,18 +83,31 @@ class StaticEvaluator:
     def collect_prepared(
         self, prepared: PreparedEnvironment, *, package: PackagePlan, run_cache: TyCheckCache,
     ) -> CollectedStaticSubject | StaticContentUnavailable:
+        try:
+            return self._collect_prepared(prepared, package=package, run_cache=run_cache)
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            return unexpected_unavailable(exc)
+
+    def _collect_prepared(
+        self, prepared: PreparedEnvironment, *, package: PackagePlan, run_cache: TyCheckCache,
+    ) -> CollectedStaticSubject | StaticContentUnavailable:
         run_cache.require_accepting()
         preparation = static_preparation_evidence(prepared, package)
         if isinstance(preparation, StaticContentUnavailable):
-            raise ValueError(
-                f"prepared has no portable static preparation: {preparation.detail}"
-            )
+            return preparation
         run_cache.register_prepared(prepared, preparation)
         with prepared.static_use(cancellation=run_cache.cancellation) as available:
             if not available:
                 return StaticContentUnavailable(detail="content-changed")
             request = self._requests.capture(
-                prepared, package=package, environment=os.environ,
+                prepared, package=package,
+                environment={
+                    name: value
+                    for name, value in os.environ.items()
+                    if name != "PYTHONPATH"
+                },
                 cancellation=run_cache.cancellation,
             )
             if isinstance(request, StaticContentUnavailable):
@@ -112,45 +126,90 @@ class StaticEvaluator:
     def capture_highest(
         self, prepared: PreparedEnvironment, *, package: PackagePlan, run_cache: TyCheckCache,
     ) -> CollectedStaticSubject | StaticContentUnavailable:
-        if prepared.attempt.identity.requested_resolution != "highest":
-            raise ValueError("capture_highest requires a highest-resolution preparation")
-        result = self.collect_prepared(prepared, package=package, run_cache=run_cache)
-        if isinstance(result, StaticContentUnavailable):
-            run_cache.set_highest_uncollected(StaticUncollectedBaseline(
-                attempt=prepared.attempt, proposal=prepared.proposal, unavailable=result,
-            ))
-            return result
-        run_cache.set_highest(result._consumer)
-        return CollectedStaticSubject(
-            _run_identity=result._run_identity,
-            _consumer=result._consumer,
-            _from_highest=True,
-        )
+        try:
+            if prepared.attempt.identity.requested_resolution != "highest":
+                return StaticContentUnavailable(detail="invalid-layout")
+            result = self.collect_prepared(prepared, package=package, run_cache=run_cache)
+            if isinstance(result, StaticContentUnavailable):
+                run_cache.set_highest_uncollected(StaticUncollectedBaseline(
+                    attempt=prepared.attempt, proposal=prepared.proposal, unavailable=result,
+                ))
+                return result
+            run_cache.set_highest(result._consumer)
+            return CollectedStaticSubject(
+                _run_identity=result._run_identity,
+                _consumer=result._consumer,
+                _from_highest=True,
+            )
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            unavailable = unexpected_unavailable(exc)
+            try:
+                run_cache.set_highest_uncollected(StaticUncollectedBaseline(
+                    attempt=prepared.attempt, proposal=prepared.proposal, unavailable=unavailable,
+                ))
+            except OperationCancelled:
+                raise
+            except Exception:
+                pass
+            return unavailable
 
     def compare_global(
         self, collected: CollectedStaticSubject, *, run_cache: TyCheckCache,
     ) -> StaticComparisonResult:
-        self._require_handle(collected, run_cache)
-        if collected._from_highest:
-            raise ValueError("compare_global does not accept a capture_highest handle")
-        policy = collected._consumer.fact.observation.observation_policy
-        guidance = GuidancePolicy(observation=policy, observation_identity=policy.identity)
-        return run_cache.compare_global(collected._consumer, guidance=guidance)
+        try:
+            self._require_handle(collected, run_cache)
+            if collected._from_highest:
+                return StaticComparisonUnavailable(reason="invalid-layout")
+            policy = collected._consumer.fact.observation.observation_policy
+            guidance = GuidancePolicy(observation=policy, observation_identity=policy.identity)
+            return run_cache.compare_global(collected._consumer, guidance=guidance)
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            return unexpected_comparison(exc)
 
     def record_runtime(
         self, prepared: PreparedEnvironment, runtime: RuntimeEvaluationRun, *,
         run_cache: TyCheckCache,
     ) -> None:
-        run_cache.require_accepting()
-        if not run_cache.has_prepared(prepared):
-            raise ValueError("prepared is not registered in this static Run")
-        if runtime.evaluation.proposal != prepared.proposal:
-            raise ValueError("runtime evaluation must use the prepared Proposal")
-        if not isinstance(runtime.evaluation, PassEvaluation) or runtime.diagnostics is None:
-            return
-        run_cache.record_direct_pass(prepared, runtime)
+        try:
+            run_cache.require_accepting()
+            if not run_cache.has_prepared(prepared):
+                return
+            if runtime.evaluation.proposal != prepared.proposal:
+                return
+            if not isinstance(runtime.evaluation, PassEvaluation) or runtime.diagnostics is None:
+                return
+            run_cache.record_direct_pass(prepared, runtime)
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            warn_static_failure(exc)
 
     def open_slice(
+        self,
+        *,
+        run_cache: TyCheckCache,
+        upper_proposal: Proposal,
+        dependency: str,
+        versions: tuple[str, ...],
+        candidates: CandidateSnapshot,
+        collector: StaticSliceCollector,
+    ) -> StaticSlice | None:
+        try:
+            return self._open_slice(
+                run_cache=run_cache, upper_proposal=upper_proposal, dependency=dependency,
+                versions=versions, candidates=candidates, collector=collector,
+            )
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            warn_static_failure(exc)
+            return None
+
+    def _open_slice(
         self,
         *,
         run_cache: TyCheckCache,
@@ -163,12 +222,10 @@ class StaticEvaluator:
         run_cache.require_accepting()
         entry = run_cache.find_direct_pass(upper_proposal)
         if entry is None:
-            raise ValueError("open_slice requires a Direct-PASS ledger row")
+            return None
         names = tuple(pin.name for pin in upper_proposal.managed_vector)
-        if dependency not in names:
-            raise ValueError("slice dependency must be on the upper Proposal")
-        if candidates.dependency != dependency:
-            raise ValueError("slice candidates must match the dependency")
+        if dependency not in names or candidates.dependency != dependency:
+            return None
         fixed = tuple(pin for pin in upper_proposal.managed_vector if pin.name != dependency)
         window = tuple(candidates.select(version) for version in versions)
         attempt = entry.preparation.attempt
@@ -209,12 +266,23 @@ class StaticEvaluator:
     def record_phase_skip(
         self, *, run_cache: TyCheckCache, skip: StaticPhaseSkip,
     ) -> None:
-        run_cache.record_skip(skip)
+        try:
+            run_cache.record_skip(skip)
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            warn_static_failure(exc)
 
     def record_oracle_selection(
         self, *, run_cache: TyCheckCache, selection: OracleSelectionAudit,
     ) -> str:
-        return run_cache.record_selection(selection)
+        try:
+            return run_cache.record_selection(selection)
+        except OperationCancelled:
+            raise
+        except Exception as exc:
+            warn_static_failure(exc)
+            return ""
 
     def _require_handle(self, collected: CollectedStaticSubject, run_cache: TyCheckCache) -> None:
         if collected._run_identity != run_cache.run_identity:
@@ -290,17 +358,28 @@ class _EvaluatorStaticSlice:
 
     @property
     def known_points(self) -> tuple[StaticPoint, ...]:
-        return tuple(StaticPoint(
-            next(
-                pin.version for pin in document.subject.preparation.proposal.managed_vector
-                if pin.name == self._context.dependency
-            ),
-            document.result, document.identity,
-        ) for document in self._cache.local_comparisons(
-            self._entry, context=self._context, guidance=self._guidance,
-        ))
+        try:
+            return tuple(StaticPoint(
+                next(
+                    pin.version for pin in document.subject.preparation.proposal.managed_vector
+                    if pin.name == self._context.dependency
+                ),
+                document.result, document.identity,
+            ) for document in self._cache.local_comparisons(
+                self._entry, context=self._context, guidance=self._guidance,
+            ))
+        except Exception as exc:
+            warn_static_failure(exc)
+            return ()
 
     def inspect(self, version: str) -> StaticPoint:
+        try:
+            return self._inspect(version)
+        except Exception as exc:
+            warn_static_failure(exc)
+            return StaticPoint(version, StaticComparisonUnavailable(reason="invalid-layout"), None)
+
+    def _inspect(self, version: str) -> StaticPoint:
         assert self._entry.consumer is not None
         anchor_version = next(
             pin.version for pin in self._entry.consumer.preparation.proposal.managed_vector
@@ -315,7 +394,14 @@ class _EvaluatorStaticSlice:
         reason = collected.unavailable.detail if collected.unavailable is not None else "prepare-unavailable"
         return StaticPoint(version, StaticComparisonUnavailable(reason=reason), None)
 
-    def finish(self, result: StaticSearchResult) -> str:
+    def finish(self, result: StaticSearchResult) -> str | None:
+        try:
+            return self._finish(result)
+        except Exception as exc:
+            warn_static_failure(exc)
+            return None
+
+    def _finish(self, result: StaticSearchResult) -> str:
         keep: list[str] = []
         hint = result.hint
         if hint is not None:

@@ -5,7 +5,13 @@ from typing import Literal, Protocol, runtime_checkable
 from packaging.version import Version
 
 from pf.schemas.project import VersionPin
-from pf.schemas.static_comparison import StaticCompared, StaticComparisonResult, StaticUncompared
+from pf.schemas.static_comparison import (
+    StaticCompared,
+    StaticComparisonResult,
+    StaticComparisonUnavailable,
+    StaticUncompared,
+)
+from pf.static.guard import warn_static_failure
 
 
 @dataclass(frozen=True)
@@ -48,23 +54,48 @@ class StaticGuidanceEvaluator(Protocol):
 
 def locate_static_hint(slice: StaticSlice, versions: tuple[str, ...]) -> StaticSearchResult:
     """Sample a regression/unchanged bracket without pruning oracle candidates."""
+    try:
+        return _locate_static_hint(slice, versions)
+    except Exception as exc:
+        warn_static_failure(exc)
+        empty = StaticSearchResult((), None, "static-unavailable")
+        try:
+            return replace(empty, search_ref=slice.finish(empty))
+        except Exception as finish_exc:
+            warn_static_failure(finish_exc)
+            return empty
+
+
+def _locate_static_hint(slice: StaticSlice, versions: tuple[str, ...]) -> StaticSearchResult:
     anchor = slice.anchor
     points = [anchor]
 
     def finish(reason=None, hint=None):
         result = StaticSearchResult(tuple(points), hint, reason)
-        return replace(result, search_ref=slice.finish(result))
+        try:
+            return replace(result, search_ref=slice.finish(result))
+        except Exception as exc:
+            warn_static_failure(exc)
+            return result
 
     if not isinstance(anchor.result, StaticCompared) or anchor.result.state != "STATIC_UNCHANGED":
         return finish("anchor-unavailable")
     ordered = sorted(set(versions) | {anchor.version}, key=Version)
     if not versions or ordered[-1] != anchor.version or len(ordered) < 2:
-        raise ValueError("static search requires unresolved candidates below its direct PASS anchor")
+        return finish("static-unavailable")
 
     def inspect(index):
-        point = slice.inspect(ordered[index])
+        try:
+            point = slice.inspect(ordered[index])
+        except Exception as exc:
+            warn_static_failure(exc)
+            point = StaticPoint(
+                ordered[index], StaticComparisonUnavailable(reason="invalid-layout"), None,
+            )
         if point.version != ordered[index]:
-            raise ValueError("static observation does not match the selected version")
+            point = StaticPoint(
+                ordered[index], StaticComparisonUnavailable(reason="invalid-layout"), None,
+            )
         points.append(point)
         return point
 

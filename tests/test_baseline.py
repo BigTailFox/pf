@@ -11,7 +11,7 @@ from evaluation_fixtures import (
 )
 
 from pf.report import PackageReportBuilder, ReportStore
-from pf.schemas.journal import JournalHighestCollected
+from pf.schemas.journal import JournalHighestCollected, JournalHighestUncollected
 from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
@@ -57,6 +57,29 @@ class TestHighestVersionVerifier:
         assert assembly.ty.vectors == [()]
         assert assembly.verifier.vectors == [()]
         assert assembly.uv.environment_roots
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_highest_version_verifier_collects_static_with_host_pythonpath(
+        self, run_cache, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        plugin = tmp_path / "observer-plugin"
+        plugin.mkdir()
+        monkeypatch.setenv("PYTHONPATH", str(plugin))
+        project = evaluation_project(tmp_path / "project", dependency=None)
+        assembly = evaluation_assembly(highest=())
+
+        result = assembly.highest.verify(run_cache=run_cache,
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, HighestVersionPass)
+        membership = run_cache.admitted_membership(result.evaluation.proposal.cell)
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestCollected)
+        assert run_cache.documents()[0].fact.kind == "ty-check"
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     @pytest.mark.parametrize("cause", ("INSTALLATION_FAILED", "SOURCE_FAILURE"))
@@ -118,6 +141,34 @@ class TestHighestVersionVerifier:
         assert isinstance(membership.highest, JournalHighestCollected)
         assert run_cache.documents()[0].fact.kind == "ty-check-unavailable"
         assert result.evaluation is not None
+        assert assembly.verifier.vectors == [()]
+        assert assembly.ty.vectors == [()]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_highest_version_verifier_continues_when_static_observe_raises(
+        self, run_cache, tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project", dependency=None)
+
+        def ty_handler(vector, call):
+            raise RuntimeError("unmodeled ty observe")
+
+        assembly = evaluation_assembly(highest=(), ty_handler=ty_handler)
+
+        with pytest.warns(RuntimeWarning, match="static observation failed"):
+            result = assembly.highest.verify(run_cache=run_cache,
+                package=project.package,
+                cell=project.package.cells[0],
+                snapshot=project.snapshot,
+                source_plan=project.source_plan,
+            )
+
+        assert isinstance(result, HighestVersionPass)
+        membership = run_cache.admitted_membership(result.evaluation.proposal.cell)
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestUncollected)
+        assert membership.highest.detail == "invalid-layout"
+        assert run_cache.documents() == ()
         assert assembly.verifier.vectors == [()]
         assert assembly.ty.vectors == [()]
         assert all(not root.exists() for root in assembly.uv.environment_roots)

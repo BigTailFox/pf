@@ -17,7 +17,8 @@ continuation、不变量与终止条件的唯一所有者。候选冻结由
 [D037](D037-pf-candidate-search-policy.md) 定义；原始 TyCheck 与比较准入由 D004 定义；
 `PASS` / `REJECTED` / `INDETERMINATE` 由 D005 定义。跨 cell 并发、报告合并和 apply 不属于本文。
 
-静态事实可以改变探测顺序，但不能排除候选或更新兼容性边界。
+静态事实可以改变探测顺序，但不能排除候选或更新兼容性边界。静态 guidance 未建模失败与
+NO_HINT 相同，由 [D004](D004-pf-ty-enhancement.md) 拥有，不中断坐标搜索。
 
 ## 1. 模型
 

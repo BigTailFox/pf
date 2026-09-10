@@ -14,7 +14,10 @@
 
 本文是 PF 中 `ty` 运行、诊断身份、规范静态投影、原始 TyCheck/Unavailable、Run 内缓存、
 `S_hi` / `S_slice` 比较准入和 GuidancePolicy 的唯一契约。静态事实不决定 compatibility
-disposition；边界由 D003/D005 的动态证据决定。生产路径不再包含 static witness、AST
+disposition；边界由 D003/D005 的动态证据决定。未建模的静态异常同样不是命令失败：它们转为
+typed unavailable / NO_HINT，最多发出 `RuntimeWarning`，不得让 smoke / check / search /
+minimize 的 Cell 操作以未捕获异常中断。`OperationCancelled` 与 D008 的 Journal / ty-cache
+持久化失败除外。生产路径不再包含 static witness、AST
 classifier 或 isolated runtime-interface rejection。
 
 D005 的 resolve/install 正常非零拒绝兜底不适用于本文件协议：ty 非零仍须解码其合法诊断，
@@ -216,14 +219,21 @@ prepared。Direct-PASS ledger 每 Proposal 一个 runtime owner；后续 collect
 不同 Proposal 不能共享动态 authority。capture 前 cache 已存在；跨 Run/Cell 与已关闭 refs
 即使 key/payload 相同也被拒绝。
 
-同 key 并发请求只启动一个 ty 操作并共享终态。owner 环境保留至进程收拢；取消/异常不泄漏
-资源或等待者。同 ty key 不授权提前释放不同 Proposal 的环境。
+同 key 并发请求只启动一个 ty 操作并共享终态。owner 环境保留至进程收拢；取消不泄漏
+资源或等待者。collect 的未建模 `Exception` 转为 typed `StaticContentUnavailable`
+（`detail=invalid-layout`），等待者共享该结果，不停止 Run、不 cancel 其他 key。该次结果
+不写入 completed cache，后续同 key 可再 collect。`StaticEvaluator` 的 `capture_highest` /
+`compare_global` / `record_runtime` / `open_slice` / `record_phase_skip` /
+`record_oracle_selection` 与 `locate_static_hint` 对未建模 `Exception` 同样转为 typed
+unavailable、`None` 或 NO_HINT，并允许 `RuntimeWarning`；不得让命令以未捕获异常中断。
+身份或账本冲突不再写入 Direct-PASS 或比较结果。`OperationCancelled` 仍停止本 Run 的收集。
+同 ty key 不授权提前释放不同 Proposal 的环境。
 
 ## 8. RuntimeEvaluator 路由
 
 ```text
 collect static facts as needed
-  └── ty unavailable -> 继续 verifier；比较记 UNAVAILABLE / NO_HINT
+  └── ty unavailable / 未建模静态异常 -> 继续 verifier；比较记 UNAVAILABLE / NO_HINT
         ↓
 run configured verifier
   -> D005 terminal disposition
@@ -333,7 +343,8 @@ final_verification = direct-test-command-pass
 1. 同一 GLOBAL 比较必须引用同 scope 的 `S_hi` 状态，包括 UNAVAILABLE。
 2. `V_hi` capture 是空增量 unchanged，不重跑 ty。
 3. Regression 当且仅当 multiset increment 非空；它没有 disposition。
-4. 静态失败最多退回无提示的 oracle 搜索。
+4. 静态失败（含未建模异常）最多退回无提示的 oracle 搜索；不得中断 smoke / check / search /
+   minimize。允许 `RuntimeWarning`，不改变 disposition 或退出码。
 5. 完整 PASS 必须由本 Proposal 的 PassEvaluation 证明。
 6. 截断、坏 JSON 或未闭合输入不能形成 compatibility boundary。
 

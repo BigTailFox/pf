@@ -126,6 +126,21 @@ class TestStaticGuidance:
         assert result.hint is None and result.reason == "context-mismatch"
         assert mismatch.events == [("static", 1)]
 
+    def test_inspect_exception_returns_static_unavailable_without_raising(self):
+        class Boom(Slice):
+            def inspect(self, version):
+                raise RuntimeError("unmodeled slice inspect")
+
+        slice = Boom(10, 5, [])
+        with pytest.warns(RuntimeWarning, match="static observation failed"):
+            result = locate_static_hint(slice, tuple(map(str, range(1, 10))))
+        assert result.hint is None and result.reason == "static-unavailable"
+
+    def test_empty_window_returns_static_unavailable_without_raising(self):
+        slice = Slice(10, 5, [])
+        result = locate_static_hint(slice, ())
+        assert result.hint is None and result.reason == "static-unavailable"
+
     @pytest.mark.parametrize("floor", (1, 5, 9, 10))
     @pytest.mark.parametrize("unavailable", (None, 1, 5, 9))
     def test_unavailable_and_mechanical_paths_keep_the_same_dynamic_floor(self, floor, unavailable):

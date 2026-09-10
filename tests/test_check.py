@@ -276,6 +276,36 @@ class TestCompatibilityChecker:
             assert isinstance(membership.highest, JournalHighestCollected)
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
+    def test_check_continues_when_static_observe_raises(self, run_cache, tmp_path: Path) -> None:
+        project = evaluation_project(tmp_path, dependency="demo-dep")
+
+        def ty_handler(vector, call):
+            raise RuntimeError("unmodeled ty observe")
+
+        assembly = evaluation_assembly(
+            lowest=(VersionPin(name="demo-dep", version="1"),),
+            ty_handler=ty_handler,
+        )
+        with pytest.warns(RuntimeWarning, match="static observation failed"):
+            result = CompatibilityChecker(
+                environments=assembly.environments,
+                static=assembly.static,
+                full=assembly.runtime,
+            ).check(
+                package=project.package, cell=project.package.cells[0],
+                snapshot=project.snapshot, source_plan=project.source_plan,
+                run_cache=run_cache,
+            )
+        assert result.status == "PASS"
+        assert result.evaluation is not None
+        membership = run_cache.admitted_membership(project.package.cells[0])
+        assert membership is not None
+        assert isinstance(membership.highest, JournalHighestUncollected)
+        assert membership.highest.detail == "invalid-layout"
+        assert run_cache.documents() == ()
+        assert len(assembly.verifier.vectors) == 1
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
     def test_check_preserves_capture_when_lowest_preparation_fails(self, run_cache, tmp_path: Path) -> None:
         project = evaluation_project(tmp_path)
         lowest = (VersionPin(name="demo-dep", version="1"),)

@@ -99,7 +99,8 @@ timeout、signal、start failure、typed terminal unavailable 不形成 Rejectio
 build Attempt、terminal 或未取得的 plan。辅助 create/inspect 不采用候选拒绝兜底。
 
 静态 prepare/ty/比较失败不形成 Rejection 或 Indeterminate；它们只影响 guidance / Journal
-审计。孤立 runtime interface missing 不再生产。
+审计。未建模静态异常同样不是 InfrastructureError，转义规则只见
+[D004](D004-pf-ty-enhancement.md)。孤立 runtime interface missing 不再生产。
 
 ### 3.1 共享执行规则
 

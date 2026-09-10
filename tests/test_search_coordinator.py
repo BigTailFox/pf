@@ -207,6 +207,42 @@ class TestSearchCoordinator:
         finally:
             project.snapshot.close()
 
+    def test_unmodeled_static_exception_does_not_interrupt_search(self, tmp_path, run_cache):
+        def ty_handler(vector, call):
+            raise RuntimeError("unmodeled ty observe")
+
+        def verifier(vector, call):
+            passed = int(vector[0].version) >= 2
+            return VerifierRun(
+                authoritative=(VerifierPass(terminal=NormalExit(exit_code=0)) if passed
+                               else VerifierRejected(terminal=NormalExit(exit_code=1))),
+                diagnostics=VerifierDiagnostics(process=successful_process(exit_code=0 if passed else 1)),
+            )
+
+        project = evaluation_project(tmp_path)
+        assembly = evaluation_assembly(ty_handler=ty_handler, verifier_handler=verifier)
+        try:
+            with pytest.warns(RuntimeWarning, match="static observation failed"):
+                result = assembly.coordinator.search(
+                    run_cache=run_cache, package=project.package, cell=project.package.cells[0],
+                    snapshot=project.snapshot, source_plan=project.source_plan,
+                )
+            assert isinstance(result, CellSuccess)
+            assert result.final_vector == (VersionPin(name="demo-dep", version="2"),)
+            verified = [vector[0].version for vector in assembly.verifier.vectors]
+            assert verified[0] == "3"
+            assert set(verified[1:]) == {"1", "2"}
+            assert_public_direct_bound(result, floor="2", predecessor="1")
+            reasons = {
+                observation.selection_reason
+                for observation in result.search.observations
+                if observation.selection_reason is not None
+            }
+            assert not any(reason.startswith("static-") for reason in reasons)
+            assert all(not root.exists() for root in assembly.uv.environment_roots)
+        finally:
+            project.snapshot.close()
+
     @pytest.mark.parametrize("mode", ["guided", "unavailable", "lower-unchanged", "capture-unavailable", "prepare-unavailable"])
     def test_local_static_phase_guides_real_oracle_and_reuses_prepared_inputs(self, tmp_path, run_cache, mode):
         from pf.schemas.evaluation import TyDiagnostic

@@ -13,6 +13,7 @@ from static_fixtures import (
 )
 from pf.cancellation import OperationCancelled
 from pf.schemas.evaluation import ProcessResult, ToolFailure, TyCheck
+from pf.schemas.static import StaticContentUnavailable
 from pf.static_cache import CacheMiss, RunTyFactRef
 from pf.static import TyCheckCache
 from pf.ty_fact import ty_fact_document
@@ -116,16 +117,21 @@ class TestRunTyCache:
         assert isinstance(cache.lookup(static_subject, policy), CacheMiss)
         cache.close()
 
-    def test_unmodeled_exception_wakes_consumers_and_prevents_retry(self, preparation, static_subject, policy):
+    def test_unmodeled_exception_wakes_consumers_and_allows_retry(self, preparation, static_subject, policy):
         cache = TyCheckCache()
         entered, release = Event(), Event()
         calls = []
+        fail = True
 
         def observe(_):
             calls.append(1)
-            entered.set()
-            assert release.wait(5)
-            raise ValueError("unmodeled collector failure")
+            if fail:
+                entered.set()
+                assert release.wait(5)
+                raise ValueError("unmodeled collector failure")
+            process = ProcessResult(exit_code=0, duration_seconds=1)
+            document = ty_fact_document(static_subject, policy, TyCheck(process=process, diagnostics=()))
+            return document, process
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             owner = pool.submit(cache.collect, preparation, policy, observe, revalidate=lambda: True)
@@ -134,15 +140,17 @@ class TestRunTyCache:
                 waiter = pool.submit(cache.collect, preparation, policy, observe, revalidate=lambda: True)
             finally:
                 release.set()
-            with pytest.raises(ValueError, match="unmodeled collector failure"):
-                owner.result(5)
-            # The concurrent caller may enter before or after Run shutdown.
-            with pytest.raises((ValueError, OperationCancelled)):
-                waiter.result(5)
+            owner_result = owner.result(5)
+            waiter_result = waiter.result(5)
+        assert isinstance(owner_result, StaticContentUnavailable)
+        assert owner_result.detail == "invalid-layout"
+        assert waiter_result == owner_result
         assert calls == [1]
-        with pytest.raises(OperationCancelled):
-            cache.collect(preparation, policy, observe, revalidate=lambda: True)
         assert isinstance(cache.lookup(static_subject, policy), CacheMiss)
+        fail = False
+        recovered = cache.collect(preparation, policy, observe, revalidate=lambda: True)
+        assert isinstance(recovered, RunTyFactRef)
+        assert calls == [1, 1]
         cache.close()
 
 

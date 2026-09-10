@@ -33,6 +33,7 @@ from pf.schemas.static_scope import (
 from pf.schemas.static_comparison import GlobalComparisonContext, SliceComparisonContext, SliceAnchorPass, StaticComparisonContext, StaticComparisonResult, StaticUncompared, StaticComparisonDocument
 from pf.static.audit import _admit_saved_static_audit
 from pf.static.comparison import compare_static_document
+from pf.static.guard import unexpected_unavailable
 from pf.schemas.policy import GuidancePolicy
 from pf.schemas.static_search import StaticSearchAudit, StaticPhaseOmission, StaticPhaseSkip, OracleSelectionAudit
 from pf.static_subject import TyCheckKey, ty_check_key
@@ -135,7 +136,7 @@ class TyCheckCache:
     def require_accepting(self) -> None:
         with self._condition:
             if not self._accepting or self._closed:
-                raise ValueError("static cache is closed or stopped")
+                raise OperationCancelled("static Run stopped")
 
     def has_prepared(self, prepared: object) -> bool:
         with self._condition:
@@ -148,7 +149,7 @@ class TyCheckCache:
     def register_prepared(self, prepared: object, preparation: StaticPreparationEvidence) -> None:
         with self._condition:
             if not self._accepting or self._closed:
-                raise ValueError("static cache is closed or stopped")
+                raise OperationCancelled("static Run stopped")
             token = getattr(prepared, "_static_run_identity", None)
             if token is not None and token != self._run_identity:
                 raise ValueError("prepared is registered in another cache")
@@ -180,7 +181,7 @@ class TyCheckCache:
     def record_direct_pass(self, prepared: object, runtime: RuntimeEvaluationRun) -> _DirectPassEntry:
         with self._condition:
             if not self._accepting or self._closed:
-                raise ValueError("static cache is closed or stopped")
+                raise OperationCancelled("static Run stopped")
             entry = self._preparations.get(id(prepared))
             if entry is None or entry.prepared is not prepared:
                 raise ValueError("prepared is not registered in this static Run")
@@ -293,9 +294,17 @@ class TyCheckCache:
                 self._completed[key] = ref
                 pending.result.set_result(ref)
             return ref
+        except Exception as failure:
+            outcome = unexpected_unavailable(failure)
+            with self._condition:
+                if not self._accepting:
+                    if not pending.result.done():
+                        pending.result.set_exception(OperationCancelled("static Run stopped"))
+                    raise OperationCancelled("static Run stopped") from failure
+                if not pending.result.done():
+                    pending.result.set_result(outcome)
+            return outcome
         except BaseException as failure:
-            # An unmodeled exception stops this Run. It is never a negative
-            # observation, and later consumers cannot retry its request.
             with self._condition:
                 self._accepting = False
             try:
