@@ -17,6 +17,10 @@
   and authorized scope. Ask when a target contract must change, work must exceed that scope, or a
   material choice cannot be resolved from available evidence. Continue independent authorized work
   while that decision is pending.
+- **Plan impasse.** When a planned slice has no stable path inside the authorized contract—only a
+  brittle workaround or an unauthorized contract change—the only authorized moves are to skip that
+  slice and record it as a Plan deviation if later slices can proceed without it, or to stop the Plan
+  and ask if they depend on it.
 - **Plan granularity.** Map every Design acceptance criterion to ordered, verifiable slices, including
   dependencies, interface/ownership migrations, documentation and generated artifacts, tests, and
   evidence slots. Reference the Design for contract rules; leave private implementation details to
