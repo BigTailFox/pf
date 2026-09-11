@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from contextlib import nullcontext
 from threading import Event
 
 import pytest
@@ -240,7 +241,12 @@ class TestStaticConsumerOwnership:
                     cleaned.set()
 
         static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv), permits=StagePermitPools(ty_jobs=1, test_jobs=1))
-        with TyCheckCache() as cache, ThreadPoolExecutor(max_workers=4) as pool:
+        expected_warning = (
+            pytest.warns(RuntimeWarning, match="static observation failed")
+            if mode == "exception"
+            else nullcontext()
+        )
+        with expected_warning, TyCheckCache() as cache, ThreadPoolExecutor(max_workers=4) as pool:
             first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
             try:
                 assert entered.wait(5)
@@ -320,7 +326,8 @@ class TestStaticConsumerOwnership:
         )
         try:
             with TyCheckCache() as cache:
-                first = static.collect_prepared(waiter, package=project.package, run_cache=cache)
+                with pytest.warns(RuntimeWarning, match="static observation failed"):
+                    first = static.collect_prepared(waiter, package=project.package, run_cache=cache)
                 assert isinstance(first, StaticContentUnavailable)
                 assert first.detail == "invalid-layout"
                 other = static.collect_prepared(owner, package=project.package, run_cache=cache)

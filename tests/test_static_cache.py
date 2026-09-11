@@ -153,10 +153,12 @@ class TestRunTyCache:
                 _signal_when_waiter_awaits_pending(cache, joined)
                 waiter = pool.submit(cache.collect, preparation, policy, observe, revalidate=lambda: True)
                 assert joined.wait(5)
+                with pytest.warns(RuntimeWarning, match="static observation failed"):
+                    release.set()
+                    owner_result = owner.result(5)
+                    waiter_result = waiter.result(5)
             finally:
                 release.set()
-            owner_result = owner.result(5)
-            waiter_result = waiter.result(5)
         assert isinstance(owner_result, StaticContentUnavailable)
         assert owner_result.detail == "invalid-layout"
         assert waiter_result == owner_result

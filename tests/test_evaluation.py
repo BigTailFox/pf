@@ -208,13 +208,15 @@ class TestStaticEvaluator:
             assert compared.status == "COMPARED"
             foreign = TyCheckCache()
             try:
-                crossed = assembly.static.compare_global(collected, run_cache=foreign)
+                with pytest.warns(RuntimeWarning, match="static observation failed"):
+                    crossed = assembly.static.compare_global(collected, run_cache=foreign)
                 assert isinstance(crossed, StaticComparisonUnavailable)
                 assert crossed.status == "UNAVAILABLE"
             finally:
                 foreign.close()
             cache.close()
-            closed = assembly.static.compare_global(collected, run_cache=cache)
+            with pytest.warns(RuntimeWarning, match="static observation failed"):
+                closed = assembly.static.compare_global(collected, run_cache=cache)
             assert isinstance(closed, StaticComparisonUnavailable)
             assert closed.status == "UNAVAILABLE"
         finally:
