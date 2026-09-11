@@ -2,451 +2,345 @@
 
 - **状态：** 开放
 - **日期：** 2026-09-08
-- **性质：** 非规范性 Concept，保存 PF 1.x 对单坐标单调性的设想与待证问题，不授权实施
-- **来源：** 将一维 `REJECTED* PASS*` 从正确性假设改为乐观搜索假设的开发构想
-- **现行对照：** [D001 §1](../designs/D001-pf.md#1-结果承诺)、[D001 §9](../designs/D001-pf.md#9-v1-非目标)、
-  [D003 §9](../designs/D003-pf-search-algorithm.md#9-非单调检测)、
-  [D003 §12](../designs/D003-pf-search-algorithm.md#12-非目标)
-- **相关 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
-  [D003](../designs/D003-pf-search-algorithm.md)、[D004](../designs/D004-pf-ty-enhancement.md)、
+- **讨论更新：** 2026-09-11
+- **推进判断：** 保留研究，暂缓进入规范性 Design 与实现；先取得真实 Slice 的分布证据，验证概率模型与搜索收益
+- **性质：** 非规范性 Concept，保存构想、实验结论与待证问题，不授权实施
+- **来源：** 将一维 `REJECTED* PASS*` 从正确性假设改为乐观搜索假设的讨论
+- **实验：** [E011](../experiments/E011-pf-optimistic-search-exploration.md) 保存纯算法模拟的协议、结果、负例与复现证据
+- **现行对照：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)
+- **相关 owner：** [D002](../designs/D002-pf-implementation.md)、[D004](../designs/D004-pf-ty-enhancement.md)、
   [D006](../designs/D006-pf-cli-enhancement.md)、[D014](../designs/D014-pf-report-schema.md)
-- **相关构想：** [C001](C001-pf-multi-resolution-coordinate-search.md) 仍按现行立刻
-  `NON_MONOTONIC` 终止来写树 refinement；本文讨论的是一维证据模型，二者不互相替代。
-  [C005](C005-pf-check-first-lifecycle.md) 把「假设降成本、证据定真值」用到声明下界在开发
-  周期中的寿命，不替代本文的单调性 refinement
-- **权威先例：** [D038](../archived/designs/D038-pf-static-guidance-authority.md) 已将静态事实降为
-  guidance；稳定规则由 D003/D004 拥有。本文把同一原则用到单调性假设
-- **实验背景：** [E001](../experiments/E001-pf-self-bootstrap-validation-contract.md)、
-  [E006](../experiments/E006-requests-complete-search.md)、
-  [E008](../experiments/E008-mkdocs-complete-search.md)、
-  [E009](../experiments/E009-mkdocs-static-guidance.md) 显示真实仓库常有较强局部单调性，
-  不证明单调性普遍成立，也不构成非单调 refinement 的验收
+- **相关构想：** [C001](C001-pf-multi-resolution-coordinate-search.md) 的树搜索、
+  [C005](C005-pf-check-first-lifecycle.md) 的开发周期验证；它们与本文不互为前置
 
-本文不定义当前或已接受的目标契约。下文的模型、声明编码、报告区分和复杂度目标都是待验证设想。
-取得足以改写 D001/D003 的依据后，应另建规范性 Design 并获得接受，再建立 Plan。
+本文不定义当前或已接受的目标契约。下文的搜索、预算、概率模型和投影都是研究方向；现行行为仍由
+owner Design 定义。`P` 表示 PASS，`R` 表示 [Probe Rejection](../../CONTEXT.md)，
+`INDETERMINATE` 与同点冲突的 `NONDETERMINISTIC` 不作为普通非单调反例处理。
 
-下文的 `REJECTED` 是 [Disposition](../../CONTEXT.md) 中的 Probe Rejection；示意图里若出现 `FAIL`，
-含义与 `REJECTED` 相同。`INDETERMINATE` 与同点冲突的 `NONDETERMINISTIC` 不在本构想的放宽范围内。
+## 1. 当前决定
 
-## 1. 构想与现行对照
+有限探索能发现普通二分遗漏的反例，值得继续研究；但 **E011 尚不足以支持选定算法、默认参数或进入实现**。
+主要缺口是：真实项目的单调比例与异常区间分布未知，有限探针发现窄 hole 的能力有限，E011 的调度又在
+反例出现后放弃原主搜索轨迹，使最终找到的下界可能更高。这不表示探索必然伤害 floor；下一轮必须加入
+保留普通搜索参考轨迹的对照，分开评价探索收益与调度影响。
 
-PF 当前一维坐标搜索依赖：
+后续顺序调整为：
 
 ```text
-REJECTED* PASS*
+预先固定评价指标与采集协议
+        ↓
+固定 Slice 的真实真值序列
+        ↓
+候选概率模型及留出验证
+        ↓
+统一成本口径的离线算法回放
+        ↓
+判断是否值得进入 Design
 ```
 
-固定其他坐标后，某个依赖的有序候选被假定只有一个兼容边界。该假设使 binary / guided search
-能把单坐标探测从线性降到近似对数。PF 自身、Requests、MkDocs 的完整 search 都表现出较强局部单调性，
-因此它有明确的工程价值。
+这些是后续研究建议，本次只归纳讨论，不启动真实数据采集或生产改动。E011 保留当时的实验结论；
+本节记录在其后作出的暂缓推进决定，不回写实验历史，也不关闭该构想。
 
-真实依赖仍可能因上游 regression、后续 bugfix、临时 workaround、API 加入/破坏/恢复，或
-Python / platform 特定行为，形成：
+## 2. 现行缺口：能响应反例，不等于能发现反例
 
-```text
-old -------------------------------------------------------------- new
-REJECTED  PASS  PASS  REJECTED  PASS  PASS
-```
+现行 D001/D003 在固定其他坐标的一维 Slice 中假设 `R*P*`；一旦直接证据出现较低 P、较高 R，
+立即以 `NON_MONOTONIC` 停止并阻止 apply。它没有丢弃反例，限制在于发现后的响应方式。
 
-现行契约把单调性当作不可违反的正确性假设：
+普通二分还有另一个盲区：它根据 R/P 锚点选择中间 probe，结果为 P 就裁掉右侧，为 R 就裁掉左侧。
+这样自行生成的已观察序列始终能由某个单调阈值解释；被裁掉的 `P..P` 内仍可能有 R，`R..R` 内仍可能有 P。
+只增加矛盾检测器，通常不会主动打开这个盲区。
 
-| 现行规则 | 位置 | 后果 |
+[E001](../experiments/E001-pf-self-bootstrap-validation-contract.md)、
+[E006](../experiments/E006-requests-complete-search.md)、
+[E008](../experiments/E008-mkdocs-complete-search.md)、
+[E009](../experiments/E009-mkdocs-static-guidance.md) 的搜索轨迹支持单调假设具有工程价值，
+但它们不是候选全序列扫描，不能据此估计真实 hole 的数量或证明整个空间单调。
+
+## 3. 已收敛的语义方向
+
+以下是讨论中保留的原则，尚未成为产品契约。
+
+1. **不保证发现全部 hole，已见事实必须保留。** 同一 Slice 的直接 P/R 高于乐观推断；
+   出现反例后不能忽略、覆盖或把它解释成噪声。成功结果不得与适用的已观察事实冲突。
+2. **精确 current 与区间结果分开。** 坐标下降仍串行，每次只降低一个坐标；新精确向量取得直接 P
+   后可以成为 current，包括更早的 PASS island，无须留在与高端相连的 segment。
+   本文的 current 仅表示搜索使用的、具有直接 PASS 证据的精确向量（exact search point）；
+   它不隐含向高版本方向的区间资格，也不等同于最终可发布的 lower-bound declaration。
+   后来在更高版本发现 R，本身不推翻这个精确 current 的 P，也不要求将 current 抬高。
+3. **证据资格随 Slice。** 降低其他坐标会改变上下文；旧 Slice 的 P/R 不能直接充当最终 Slice 的事实。
+   最终向量仍须自身通过验证；若结果声称区间资格，其证据须满足该声明在最终上下文中的要求。
+4. **搜索不受投影编码限制。** 先形成 observations 与 inferred segments，再按现有依赖声明和 marker
+   语义尽量完整投影。不能为简化声明而限制搜索进入更早的 PASS island。
+5. **单点失败性质不变。** I 立即停止，同候选相反直接结果仍是 `NONDETERMINISTIC`；概率模型和
+   静态 hint 只能指导搜索，不能将这些结果转成普通 hole。
+6. **证据处理强制，边界闭合取决于结果声明。** 已见反例必须保存，并撤销或收缩与它冲突的推断。
+   若只报告“已观察非单调，不 apply”，较低 P、较高 R 已足够，无须找到精确边界。
+   若要输出区间、投影或 hole 排除项，则完成该声明所要求的细化；精确排除一个已见 R 与声明整个
+   hole 的边界，所需证据也不同。预算不足时应降级或撤回未获支撑的声明，不能把未闭合边界说成已闭合。
+
+本文不依赖 speculative 并行搜索与 joint 验证。串行坐标下降中，后一个坐标在更新后的 current
+上下文里验证，不会直接把两个各自相对旧 baseline 通过的降级拼起来。Speculative 并行若值得做，
+应作为另一个性能优化方向；多维最优搜索也不属于本构想。
+
+## 4. E011 验证了什么
+
+### 4.1 被测机制
+
+启动时 S 已有直接 P。S 可以是最高候选，也可以位于候选空间外；虚拟 sentinel 不能执行、不能成为
+候选 floor，也不能据此假定最高合法候选为 P。
+
+E011 的 `prune` 策略先验最左候选，再进行机械搜索。每次普通剪枝时，若被裁区间内部尚未观察的合法
+候选数严格大于 T，且同 Slice 的可选探索预算 B 未耗尽，就探一次未知候选的较低中位点。
+最左候选 P 时的整个右侧裁剪也纳入此规则。结果同色则继续搜索，不递归审计刚产生的两个同色子区间；
+结果相反则保留事实并转入细化。已有反例不能被阈值或预算跳过。
+
+共同细化先探新反例点的左邻、右邻，再按坐标顺序处理尚有未知候选的异色事实边界：从选定端点倍增
+探测，遇到异色后二分至候选相邻，反复处理至所有已知异色边界闭合。同色未知区间仍可能藏有异常。
+精确选端规则和完整轨迹见 [E011 §3](../experiments/E011-pf-optimistic-search-exploration.md#3-被比较的算法)。
+
+在 E011 的被测策略中，结果要求闭合所有已知异色边界；B 只限制可选探索，不能免除这个实验目标所要求的
+细化，另设总调用上限时中断该过程则报告 incomplete。这不是所有结果类型的通用义务，见 §3。
+E011 在首次反例后结束原机械搜索，完成共同细化即返回，没有恢复原主搜索轨迹。这个调度是被测方案的一部分，
+不是本 Concept 已经选定的算法。
+
+### 4.2 主要结果与边界
+
+主配置为 T=8、B=ceil(log2(N+1))；下表摘自
+[E011 §5](../experiments/E011-pf-optimistic-search-exploration.md#5-发现能力和调用成本)。
+
+| 观察 | 结果 | 含义 |
 | --- | --- | --- |
-| 每个一维 Slice 假设 `REJECTED* PASS*`；发现反例即以 `NON_MONOTONIC` 停止并禁止 apply | D001 §1 | 有已观察 hole 的坐标拿不到可应用 floor |
-| 同 Slice 出现 `PASS(v_low)` 且 `REJECTED(v_high)` 立即终止并保存反例 | D003 §9 | 证据被保留，搜索不继续 |
-| 非单调区间细化、version-hole 认证、自动 `!=` 或上界发现列为 v1 非目标 | D001 §9、D003 §12 | 不把 hole 投影进声明，而是直接失败 |
+| 普通二分 | 自生成轨迹未发现反例 | 需要主动覆盖被裁区间，不能只等矛盾出现 |
+| 单 hole / 单 PASS island | prune 发现率 14.71% / 22.40% | 有效，但不能保证发现异常 |
+| 相同实际探索次数的均匀对照 | 发现率 8.64% / 9.75% | prune 在这两族更高，也付出更多细化调用；不存在逐例支配 |
+| 宽度为 1 的 hole | prune 发现率 1.89% | 窄异常是明显盲区 |
+| 单调 N=1024 | 平均总调用 10.99 → 16.98 | 同阶复杂度不等于常见路径开销可忽略 |
+| 最小直接 PASS 退化 | 随机族 31 例、多区间族 6 例 | 提前细化可能遗漏普通二分原本会查询的更低 P |
 
-v1 并不丢弃已观察反例：它停止并阻止 apply。缺口是响应方式。一旦出现
-`PASS < REJECTED`，即使高端仍有直接 PASS，Cell 也无法提交一个与已观察 hole 不冲突的
-`>=floor`。与此同时，未观察 hole 仍可能被乐观二分跳过——这是非穷举搜索的固有代价，不是本构想要消除的对象。
+代表负例中，普通二分 7 次调用找到候选 43，prune 14 次调用只找到 47。它没有丢掉自身观察的 P，
+而是切换细化后没有再去探 43。因此“尊重已观察证据”不能推出“搜索收益不低于普通二分”；
+该负例针对这次调度，不否定 §8 保留参考轨迹时最低已观察 P 的非退化性质。
 
-PF 1.x 应放宽单调性的**正确性**地位，但不因此默认退回逐版本枚举。
+E011 共保存 150,148 行性能模拟、12,276 次短序列穷举检查及 162 个现行机械搜索公开接口的合成差分案例；
+独立复跑产物一致。它测的是唯一候选 oracle 调用次数，不是真实安装、resolver、verifier 或墙钟成本，
+也没有验证完整多坐标调度与声明投影。
 
-## 2. 核心原则
+发现率是合成矩阵频率，不是现实成功概率。均匀策略先完成普通搜索再采样；匹配策略还事后使用 prune
+实际花掉的探索次数。因此比较同时改变选点、时机和反例后的调度，不能独立证明“中点位置最优”。
 
-把单调性从正确性假设调整为乐观搜索假设：
+### 4.3 复杂度判断的修正
 
-> 未观察到反例时，PF 可以乐观地假设单调，以减少 oracle 探测；一旦真实执行证据与当前单调模型冲突，证据必须优先，PF 必须细化搜索空间，不得忽略反例以维持单调假设。
+无反例且不递归审计同色区间时，可将额外探索限制在 O(log N) 量级；实际常数仍需测量。
+缓存使有限候选模型中的唯一调用不超过候选总数，但结果声明所要求的细化可能显著超过 B。
 
-写成操作规则：
+真实序列即使极端交替，也可能因采样位置而没有暴露足够反例，**不会仅因真值更非单调就自然接近枚举**。
+是否增加探测取决于已见证据、覆盖策略与总预算。不得将线性上限描述为发现全部 hole 的保证。
 
-```text
-assumption guides search
-evidence determines truth
-```
+## 5. 搜索结果与独立投影
 
-以及：
+投影意图是尽量完整表达搜索结果中、现有依赖声明和 marker 语义能够表示的子集。
+对同一搜索结果与用户约束下的合法可表示子集族，区分两个术语：
 
-> 不得为维持单调性而丢弃或覆盖任何已观察的 oracle evidence。
+- **最大（maximum）可表示子集：** 按集合包含关系支配所有其他合法方案；存在时优先采用。
+- **极大（maximal）可表示子集：** 已无法扩大为另一个合法方案，但可能存在互不包含的其他极大方案。
+  不保证存在 maximum；若只有多个 maximal，需按预先明确的覆盖度量和取舍规则选择，不能称作唯一最大集合。
 
-启发式只降低探测成本。错误启发式的后果应是搜索变慢或触发更昂贵的 fallback，而不是写出与已观察
-Disposition 冲突的 floor。
+先保留搜索形成的全部合格结果，再讨论如何表示、合并与裁剪。覆盖完整性优先于声明最短；不预先限定为
+`>=L, !=h…`，不要求保留高端 segment，也不因为编码较长就默认提高 L、丢掉更早的 PASS island。
 
-## 3. 证据优先
+例如冻结候选上的 `RRPPRPPP`，`>=3, !=5` 可以示意比 `>=6` 更完整的表达；但这只是例子，
+不是所有结果的规定编码。实际声明还涉及候选之外的版本、用户既有约束及跨 Cell marker，不能仅凭
+冻结表上的集合相等就认定完整声明语义相等，也不能假设同名 requirement 自然组成版本并集。
 
-对一个 coordinate，PF 可以根据当前证据推断区间结构，但同一 Slice 的直接 oracle observation
-始终高于推断。静态 hint 继续只选择探针，不排除候选，也不更新兼容性边界。
+未来 Design 仍需明确：现有语法下的可表示集合、跨 Cell 合并、覆盖度量与多个极大子集的取舍、
+表达预算是否允许有损裁剪，以及结果不完整时的 apply 资格。§6.3 的候选计数是有限实验域上的评价口径，
+不自动决定候选外版本或跨 Cell 的产品覆盖度量。这些都不应倒过来改变搜索目标。
 
-例如已有：
+报告要区分直接观察、乐观区间与声明条款。最终投影不能允许与其适用范围对应的已观察 R，
+也不能把未逐点验证的 inferred segment 称为“全部版本已经 PASS”。旧 Slice 的历史 P/R 只能按其
+资格使用，不能自动扩张最终声明。
 
-```text
-m1 -------------------------- h
-PASS                          PASS
-```
+## 6. 下一步先研究真实分布
 
-PF 可以暂时把 `[m1, h]` 视为乐观 PASS segment。若后续 probe 得到：
+### 6.1 建模对象与候选模型
 
-```text
-m1 -------- m2 ------------- h
-PASS        REJECTED         PASS
-```
+在固定项目、环境、其他直接依赖和解析规则后，一条 Slice 的 P/R 真值表应当是确定的。
+概率描述跨 Slice 差异和未探点的不确定性；重复验证不一致要单独调查，不作为独立 Bernoulli 噪声吸收。
+我们需要的是“已有可运行 baseline”的条件分布；候选外 S=P 不等于候选末点 P。
 
-则 `PASS < REJECTED < PASS` 已经构成对原单调模型的反例。PF 不得忽略 `m2`、将其解释为噪声、
-继续把 `[m1, h]` 当作整体 PASS，或为保持单一 floor 而覆盖该证据。必须使原区间失效并 refinement。
+目前没有足够证据断言真实 PF Slice 的单调比例、异常数量或区间长度分布。依赖更新的实证研究可支持
+兼容性变化并不可靠地遵循版本号，但其客户端升级失败率不能直接换算成固定 Slice 的 hole 率。
+例如 [Maven 实证研究](https://link.springer.com/article/10.1007/s10664-024-10563-4)
+考察升级对客户端的影响，并非逐版本的固定 Slice 全序列。
 
-同版本先后得到不同 Disposition 仍是 `NONDETERMINISTIC`；辅助静态协议失败仍只产生 `NO_HINT`。
-这两条不因本构想改变。
+建议先比较简单模型，复杂度由数据决定：
 
-## 4. 反例驱动的区间分裂
-
-出现单调性反例后，将原乐观区间拆成更小 segment，并优先探测反例两侧。例如：
-
-```text
-m1 -------- m2 -------- h
-PASS        REJECTED    PASS
-```
-
-先拆成：
-
-```text
-[m1, m2)    [m2]        (m2, h]
-    ?       REJECTED        ?
-```
-
-邻域 refinement 之后可以形成：
-
-```text
-m1 ------ m2-1  m2  m2+1 ------ h
-PASS      PASS   REJECTED PASS       PASS
-```
-
-```text
-[m1, m2-1]   乐观 PASS segment
-[m2]         已观察 REJECTED
-[m2+1, h]    乐观 PASS segment
-```
-
-即局部的 `PASS* | REJECTED | PASS*`。这些 segment 仍是基于局部单调性的乐观推断，不是对每个
-中间版本的穷举证明。任一 segment 内再出现反例，继续 split。
-
-## 5. 搜索模型
-
-坐标状态不再只维护一对 `lower_rejected` / `upper_pass`，而表示为：
-
-```text
-observations + inferred segments
-```
-
-例如：
-
-```text
-v1         v4         v7         v10
-REJECTED   PASS       REJECTED   PASS
-```
-
-可对应：
-
-```text
-segment A: 单调乐观
-segment B: 已矛盾并已细化
-segment C: 单调乐观
-```
-
-循环是 counterexample-driven refinement：
-
-```text
-optimistic monotone model
-        ↓
-oracle probe
-        ↓
-counterexample?
-   no ───────→ continue fast search
-   yes
-        ↓
-split affected segment
-        ↓
-locally refine neighborhood
-        ↓
-continue
-```
-
-搜索中的 `current` 仍是精确向量：每次提交只改一个坐标的精确版本，并保持该完整向量的直接
-PASS。较早 PASS island 不得在未证明与最终其他坐标兼容时充当 `current`；默认仍走与已验证高端
-相连、内部无已观察 REJECTED 的 segment。Apply 写回的声明可以比 `current` 更宽，见 §7。
-
-最低候选快路仍可先探测最早样本。若它 PASS，只登记 observation，不立刻提交为 `current`。
-定界相对已验证高端（baseline / 当前 `current`）进行。
-
-## 6. 复杂度目标
-
-对现实中保持 `REJECTED* PASS*` 的坐标，成本应接近当前 binary / guided search：
-
-```text
-O(log N)
-```
-
-对只有少量 hole / regression 的坐标，只增加发生矛盾处的局部 refinement，不重新枚举整个候选系列。
-
-极端交替：
-
-```text
-PASS REJECTED PASS REJECTED PASS REJECTED ...
-```
-
-每次乐观 segment 都会被新证据打破，自然退化为：
-
-```text
-O(N)
-```
-
-期望性质：
-
-> 越接近单调，越接近二分；越违反单调，越接近枚举。
-
-不得为维持固定复杂度而牺牲已观察证据的正确性。
-
-## 7. Floor 语义与 apply 投影
-
-搜索提交的仍是精确 `current`；apply 写回的是对该坐标已观察/乐观分段的 **PEP 440 声明**。
-二者不必相同。现行 D001 只写精确 `>=version` 并保留用户已有上界与排除项；本构想把 PF 自己
-生成的 `!=` 也纳入写回，用来表达 hole，而不是发现不兼容上界。
-
-非单调时，单一“最早 PASS”或单一“最后一段 PASS”都可能不是最短、也不一定是最完整的声明。
-例如候选序列（旧 → 新，高端已验证 PASS）：
-
-```text
-1  2  3  4  5  6  7  8
-F  F  P  P  F  P  P  P
-```
-
-即 `FFPPFPPP`（`F` = `REJECTED`，`P` = `PASS`）。
-
-| 写法 | 覆盖 | 问题 |
+| 候选 | 描述 | 待检验假设 |
 | --- | --- | --- |
-| `>=3` | 3–8 | 包含已观察 hole `5` |
-| `>=6` | 6–8 | 合法但丢掉已观察 PASS island `3–4` |
-| `>=3, !=5` | 3,4,6–8 | 覆盖全部分段，且不含已知 hole |
+| 单调阈值 | `R*P*` 及边界位置 | 哪些 Slice 足以由一个边界描述 |
+| 分层分段模型 | 区分单调/非单调序列，统计变点数与连续 P/R 区间长度 | 异常是否稀疏、是否成段、长度是否集中 |
+| 带特征的半 Markov 模型 | 显式区间长度，变点概率依赖发行边界、间隔、元数据等特征 | 这些特征是否能预测未见项目中的变化 |
 
-提议的投影对象是 **最大可投影集合** `S`，再用尽量短的声明去编码它。
+普通 Markov 模型隐含几何分布的状态持续长度；半 Markov 可显式选择长度分布，但目前只是候选，
+不必直接采用复杂的非参数模型。方法背景见
+[Johnson 与 Willsky 的研究](https://jmlr.org/papers/v14/johnson13a.html)。
 
-`S` 是满足下列条件的最大版本集合：
+应先描述可观察的 P/R 区间，再解释 hole/island。`PPRRPP` 可以解释为中央 hole，也可以解释为低端
+PASS island；“正常阈值 + 异常”的分解没有天然唯一性。版本按实际候选顺序建模，发行时间和版本分支
+作为特征，不将语义版本号当作等距实数。
 
-1. 包含已验证高端所在的乐观 PASS segment；
-2. 不含同一最终 Slice 上任何已观察 REJECTED；
-3. 可写成一个下界加有限排除：`>=L, !=h1, !=h2, ...`（再与用户原有上界、排除项、marker 合并）；
-4. `L` 与每个 `hi` 都有最终 Slice 的直接证据或由其界定的乐观 segment 支撑。不同 context
-   下较早 sweep 的 island PASS 不得进入 `S`。
+### 6.2 数据采集与模型检验建议
 
-对上例，`L = 3`，`h = {5}`，`S = {3,4,6,7,8}`。
+后续独立实验可以采集固定 Slice 全序列，再供算法离线回放；不需要先向 PF 实现非单调搜索。
 
-编码原则：
+1. **先取少量完整序列。** 预先定义项目选择、候选窗口与 baseline 条件，完整扫描窗口内候选；
+   大量稀疏二分轨迹无法识别未探区间中的异常数量和宽度。即使正确处理自适应采样，也不能消除这个信息缺口。
+2. **固定执行条件并记录解析。** 冻结源码、解释器、索引时间范围和执行规则，保存每个候选的解析结果；
+   传递依赖可按相同规则随目标版本变化。I、缺失结果和重复不一致单独记录，不能强制当作 R 或悄然删掉。
+   保留操作阶段、执行终态、合格归因及原始证据引用，并记录每次 probe 的 resolve/install/test 成本分解、
+   总耗时和缓存复用。未执行阶段与耗时缺失须区分，缺失不能填 0。解析无解、安装失败、import 失败和
+   测试回归可作为研究分类，但无法确定时保留未知；不凭自由文本将它们升级为权威根因。
+   分类依据与 P/R disposition 分开，沿用 [D005](../designs/D005-pf-failure-and-diagnose.md) 的资格边界。
+   模型可不使用这些字段，采集阶段仍应保存，以便检验不同失败机制是否具有不同区间结构。
+3. **分开代表性样本与异常样本。** 已知回归案例适合检验机制，不可直接用于估计发生率。
+   按候选数、发行跨度、依赖类型等分层，避免大项目或特定版本分支支配结论。
+4. **留出项目验证。** 按项目/依赖分组控制训练验证泄漏，比较单调比例、变点数量、P/R 区间长度和位置，
+   检查“某裁剪区间仍有反例”的概率校准；逐点准确率很高仍可能漏掉所有稀有 hole。
+5. **最后评价算法。** 在未参与拟合的完整序列上回放搜索，按 §6.3 预注册指标评价，而非只比较发现反例数。
+   没有完整真值的样本只支持其实际覆盖范围。
 
-> 在冻结候选序列上表示恰好集合 `S` 的 PEP 440 声明中，选择最短者。
+模型“通过验证”意味着在未见数据上具有可复现的解释和决策价值，不是证明它普遍正确。
 
-典型最短形是一个 `>=` 加上若干 `!=`。同一包不得拆成两行 requirement 用并集绕过同名 overlap
-规则；`>=3,<5` 会切掉高端，因此不能代替 `>=3, !=5`。连续多个 hole 就列出多个 `!=`，或在
-编码长度不可接受时退回更高的 `L`（见下文压缩）。
+### 6.3 真实数据采集前固定评价协议
 
-这比“只取最后一段”更完整，也比“最早 PASS 当 floor”更安全：`>=3` 非法，`>=3, !=5` 合法。
-单调 `REJECTED* PASS*` 时 `S` 没有 hole，最短声明退化为现行的单个 `>=floor`。
+下一轮先预注册评价域、输出声明类型、预算、指标及聚合方式，再采集与评测，避免根据发现率结果更换目标。
+以固定 Slice 的有限候选集 D 为评价域，完整真值中的 P 集合为 G，R 集合为 D−G，rank 是候选序号。
+区间和投影都按其语义在 D 上取值，不能只计算已观察点。
 
-`current` / final 精确向量仍须自身 PASS。它通常取自高端相连 segment 的下端，作为其他坐标的
-context；声明则可以额外纳入最终 Slice 已证明的更早 island。predecessor 证据改为支撑该声明：
-`L` 的直接前驱（若存在且 REJECTED）以及每个写入 `!=` 的 hole。
+分别记录搜索结果声称兼容的集合 A_search，以及实际声明覆盖的集合 A_decl；二者不混算。
+同一结果类型下，各策略使用相同输出口径；投影尚未实现时，只评价 A_search，不假造 A_decl。
 
-安全网不变：若写出的 specifier 在最终 Slice 上仍允许已观察 REJECTED，则拒绝 apply。
-
-压缩是次要策略，不是默认目标。最短编码针对的是 **恰好表示最大 `S`**，因此 `>=6` 虽更短，
-但表示的是真子集，不能赢过 `>=3, !=5`。仅当 `!=` 条数或规范文本超过后续 Design 给出的预算
-（例如交替 `PFPFPF…` 接近线性排除）时，才提高 `L`、丢掉更早 island，使可行声明变短。
-该预算未定之前，默认不丢 segment。
-
-不在本次生成 `<` / `<=` 上界，也不把未观察版本写成已认证 hole。`!=` 只排除精确已观察
-REJECTED（及其在候选序列上经邻域 refinement 闭合的 hole 点），与现行“保留用户上界/排除项”
-合并，而不是改写它们。
-
-## 8. 观察与推断
-
-报告应明确区分两类事实。
-
-**已观察证据**来自直接 runtime observation，例如：
-
-```text
-v3 PASS
-v5 REJECTED
-v8 PASS
-```
-
-**推断结构**来自当前乐观单调模型，例如：
-
-```text
-[v3, v4] assumed PASS
-[v6, v8] assumed REJECTED→PASS transition
-```
-
-不得把 inferred segment 写成穷举证明，尤其不得声称“specifier 允许的全部版本均已验证 PASS”，
-除非实际做了 exhaustive certification。更准确的语义是：
-
-> 当前声明在乐观单调假设下表示最终 Slice 上的最大可投影集合，且不存在与该投影冲突的已观察执行证据。
-
-现行 `NO_PASS_IN_SEARCH_SPACE` 文案夸大已验证范围的问题见
-[R010 §2.1](../reviews/R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围)；
-本构想若进入 Design，成功路径同样不得把乐观 segment 说成已逐点认证。
-
-## 9. 与静态 guidance 的同一权威原则
-
-[D038](../archived/designs/D038-pf-static-guidance-authority.md) 把 ty 从可排除候选的权威降为
-guidance；现行 D003 写为：静态事实可以改变探测顺序，但不能排除候选或更新兼容性边界。
-
-本构想对单调性使用同一分层：
-
-| 来源 | 角色 | 不能做的事 |
-| --- | --- | --- |
-| ty / 静态事实 | 选择探针 | 排除候选、更新兼容性边界、覆盖 oracle |
-| 单调性假设 | 选择探针、剪枝未观察点 | 丢弃或改写已观察 Disposition、把推断写成穷举证明 |
-| 直接 oracle observation | 决定兼容性与声明资格 | — |
-
-共同原则：
-
-> Heuristics and structural assumptions may reduce search cost, but executable evidence has final authority.
-
-## 10. 1.x 范围
-
-本构想只放宽**单 coordinate** 的单调性假设。1.x 可以支持：
-
-- 乐观单调的 binary / guided search；
-- 同 Slice 直接 `PASS` / `REJECTED` 矛盾检测；
-- 反例驱动的 segment split；
-- 矛盾邻域的局部 refinement；
-- 多个单调乐观 segment；
-- 最坏情况退化为线性探测；
-- 报告区分 observed 与 inferred；
-- apply 用尽量短的 `>=L, !=h…` 编码最大可投影分段，并拒绝仍包含已知 hole 的声明。
-
-`NON_MONOTONIC` 作为 Cell 失败原因是否退役、缩为“无法形成合法声明”的终态，还是仅保留给
-未建模情况，由后续 Design 决定。同点冲突与 `INDETERMINATE` 仍立即停止。
-
-## 11. 暂不处理的依赖交互
-
-本阶段不主动解决多个 dependency coordinate 之间的高阶 interaction。例如：
-
-```text
-A_low + B_high = PASS
-A_high + B_low = PASS
-A_low + B_low = REJECTED
-```
-
-仍属后续算法演进。原因：
-
-1. 最终向量仍须自身取得完整 configured verifier PASS，明显失败的组合不能直接作为成功结果；
-2. interaction 更常先影响搜索 optimality、completeness 或使 floor 偏保守；
-3. 单轴 hole 直接破坏普通 `>=floor`、分段声明与单调搜索本身；
-4. 先完成一维 evidence-aware search，可降低后续 interaction search 的复杂度。
-
-未来可以再引入 interaction detection、grouped coordinates、局部多维搜索或 Pareto support region。
-这些不属于本文。
-
-## 12. 非目标
-
-本次不要求：
-
-- 穷举验证所有 candidate；
-- 静态证明单调性；
-- 全局非单调 optimization；
-- 任意多维 black-box search；
-- dependency interaction discovery；
-- 发现或生成不兼容上界；
-- 对未观察版本做 hole 完备认证；
-- 用第二行 requirement 或 marker 并集绕过同名 overlap 来表示分段；
-- symbolic execution；
-- 概率正确性声称。
-
-对**已观察** hole 写入 `!=` 属于 §7 的投影，不是非目标。它仍不是穷举认证，也不代替用户原有排除项。
-
-PF 仍然允许把单调性当作工程先验。改变的是：
-
-> 单调性不能覆盖已经观察到的反例。
-
-## 13. 证据缺口与进入 Design 的条件
-
-进入 Design 前至少需要回答下列问题。纯设想或与现行单调 workload 的定性相似不足以改写 D001/D003。
-
-1. **单调对照成本。** 在与当前 `direct-first-coordinate-guidance-v1` 相同的冻结候选、Slice 与
-   小窗口阈值上，合成或回放的 `REJECTED* PASS*` 坐标探测次数是否仍接近现行二分，而不是系统性退化到线性。
-2. **少量 hole 的声明。** 对 `FFPPFPPP` 这类单 hole，最终 Slice 上是否得到 `>=3rd, !=5th`
-   （或等价最短形），而不是更窄的 `>=6th` 或非法的 `>=3rd`。探测次数是否只在 hole 邻域增加。
-3. **已观察证据闭合。** 成功声明不得允许同一最终 Slice 的已观察 REJECTED；报告能区分
-   observation、inferred segment 与写入的 `>=` / `!=` 条款。
-4. **最终 Slice 资格。** 进入 `S` 的 island 是否都在最终其他坐标下重新直接观察；跨 Slice 的
-   历史 PASS 不得生成更宽声明。
-5. **已提交 current 与后发现的高端 hole。** 若精确 `current` 提交后，在它与已验证高端之间又观察
-   到 REJECTED，是允许抬高 `current`、改写声明并再定位，还是将该 Cell 失败。v1 的“每次提交只严格降低
-   一个坐标”可能无法原样保留。
-6. **最短编码与压缩预算。** 长度按 PEP 440 子句数还是规范文本；连续 hole 的多个 `!=` 是否最短；
-   交替最坏情况下预算阈值与提高 `L` 的回退是否要进 1.x。
-7. **虚拟 sentinel、最低快路与 predecessor 重验。** 空间外 PASS sentinel、首次最早候选探测、以及
-   后续 sweep 的 predecessor 直接重验，如何维持精确 `current` 在高端 segment，同时仍把最终 Slice
-   的 island 编进声明。
-8. **搜索推导身份。** 现行 `search_derivation_identity` 绑定
-   `monotonicity=rejected-prefix-pass-suffix`。规则变更必须成为可区分的 search provenance，
-   不能把旧单调 `>=floor` 报告当作带 `!=` 的新语义 apply。
-9. **与用户排除项、跨 Cell 投影的合并。** 原声明已有 `!=` / 上界时如何规范合并；不同 Cell 的
-   hole 集合不同时，是 canonical marker 分行、不可表示，还是取交集变窄。
-
-建议先用确定性 fake evaluator 做一维合成矩阵（均匀单调、边界靠两端、单 hole 如 `FFPPFPPP`、
-多 hole、交替最坏、虚拟 sentinel、Indeterminate、同点冲突），并固定声明编码对照，再决定是否
-值得接到真实 evaluator。E001/E006/E008/E009 只支持“近似单调时应对性能接近现状”这一动机，
-不能代替 hole 场景的正确性或声明最短性证据。
-
-满足以上闭合后，另建临时 Design，逐项写明将替代 D001/D003 的哪条规则，接受后再 Plan。
-若证据表明真实 hole 极少、而抬高 current / 报告模型的代价过高，可以关闭本文或把范围缩到
-“观察到反例时失败但文案不再暗示已穷举”，不把 refinement 写成产品义务。
-
-## 14. 可能涉及的 owner 与候选验收方向
-
-若后续推进，新 Design 需要评审的增量（目前不是承诺）：
-
-| Owner | 可能增量 |
+| 产品相关指标 | 预注册口径 |
 | --- | --- |
-| D001 | 结果承诺从单调坐标最小向量改为最大可投影集合的最短声明；apply 可写 `>=` 与 PF 生成的 `!=`；保留用户上界/排除项并规范合并；§9 非目标收缩；`NON_MONOTONIC` 与 apply blocker 的新含义 |
-| D003 | 以 observations + segments 替换单一 bracket；反例 split 与邻域 refinement；成功路径不再一律 `NON_MONOTONIC` 终止；精确 `current` 与声明编码分离 |
-| D002 | `CoordinateSearch` / evaluator seam 是否仍只返回单一 floor+predecessor，或要暴露 segment 与声明条款 |
-| D004 | 静态窗口仍只产出 hint；旧区间 split 后作废该坐标的既有 static hint |
-| D006 | 成功但存在 hole/segment 时的结论语言；展示 `>=` / `!=` 时避免把推断写成已验证范围 |
-| D014 | observation、inferred segment、`L`/`!=` 条款的 wire、identity、reader 复证；不把推断标成 Probe evidence |
-| Search provenance | 新的 monotonicity / derivation 规则名，与 execution policy 继续分离 |
+| floor regret | 最终 exact current 在 D 中的序号减去 G 中最低 P 的序号；另报最低已观察 P，区分选点收益与 current 选择 |
+| unsafe admitted coverage | 对 A_search、A_decl 分别计算 `count(A ∩ (D−G))`，即被声称兼容却实际为 R 的候选数 |
+| PASS coverage | 对两类 A 分别计算 `count(A ∩ G) / count(G)`，并保存分子、分母；不能只用允许集合大小代替 |
+| oracle cost | 唯一被查询候选数、实际 oracle 调用数（含 I 与重验），及 resolve/install/test 分阶段墙钟和整轮墙钟；缓存命中不算新调用 |
 
-候选验收方向（供未来 Design 裁剪，不是本文义务）：
+边界口径也在采集前固定：G 为空时 regret 和 PASS coverage 不适用，单列无候选 P 的结果判断；
+G 非空但未给出 D 内的直接 P current（包括只保留空间外 sentinel）时，regret 记为 +∞ 的未找到事件，
+单独报告比例，不从均值中静默删除。I、同点冲突和预算中断单列终态；中断时保留的点可有 regret，
+不等于输出声明已具备资格。current 与完整真值冲突时单列证据或输出错误，不能当作有效 regret 结果排名。
 
-| 方向 | 待验证内容 |
+没有生成某类兼容声明或没有可评价的投影时，对应指标标为不适用并报告原因；不要把“未输出”记成零 unsafe
+的安全胜利。没有执行或被拒绝 apply 不等于没有投影：若已形成可评价的声明，仍按其覆盖评分，apply 资格
+与执行状态另列。实际输出空集合时，unsafe 为 0、G 非空时 PASS coverage 为 0，必须联合解释。
+incomplete 前缀的点或集合指标标明暂态，不冒充完整结果；评价域内指标也不能证明声明在 D 外安全。
+
+附加诊断包括异常点命中率、非单调证实率、边界误差、相对 vanilla 的点质量变化及模型校准。
+边界误差仅对实际声称定位的边界评分，缺失/多报边界单列；未输出边界不能按误差 0 处理。
+按项目与 Slice 的聚合权重、预算档位和失败处理预先固定；先报告质量—成本的多目标结果，若合成单一 loss，
+其权重也必须预先明确。初始事实与缓存条件相同，共同 baseline 准备及离线全序列采集成本单列，
+不混入算法查询成本。固定真值回放的阶段耗时之和不自动等于另一种缓存或调度下的真实整轮墙钟。
+
+## 7. 用模型指导探索，而非固定机械中点
+
+本问题兼有探索与利用，但目标至少包含“寻找更低 P”和“认识兼容集合”。只优化最小可行版本，
+可能合理地忽略 floor 右侧的 hole，因此不能直接把普通贝叶斯优化当作完整解决方案。
+
+可借鉴 [主动集合估计](https://people.csail.mit.edu/alkisg/files/gotovos13active.pdf) 和
+[未知约束下的信息驱动贝叶斯优化](https://proceedings.mlr.press/v37/hernandez-lobatob15.html)，
+用区间模型估计一次 probe 预期减少多少搜索损失，再与成本比较。搜索损失按 §6.3 的质量与成本指标定义，
+权重属于待明确的产品目标；算法不能只最大化找到某个反例的概率。
+
+需要支撑区间声明时细化对应边界，某个同色未知区间风险较高时探索；可靠版本特征可改变选点，
+没有预测力时则需要保留分布无关的覆盖对照。平滑 Gaussian Process 不是默认选择，离散版本上的突变结构应先由数据检验。
+所有模型都只影响选择与预算，不覆盖直接事实。
+
+信息不足也会限制任何策略：若 M 个未知点中仅有一个异常，位置均匀且没有定位线索，q 次不同查询的
+命中率只有 `q/M`。例如 M=256、q=8 时为 3.125%。这是该假设下的命中率，不是一般发现率保证；
+采中 R 还需要其左侧已有 P 才能证实非单调。结构先验只有具有真实预测力时才能改善这一基线。
+
+停止条件须分开可选探索预算、结果声明所要求的细化与总预算。模型估计的“残余风险低于阈值”需要留出校准，
+只能是模型条件下的判断；既不能证明所有未探点安全，也不能免除已知反例的记录和冲突推断的撤销。
+允许停止探测并缩减输出，但不能沿用已失去证据支撑的声明。
+
+## 8. 采样调度与保留参考轨迹的对照
+
+E011 的均匀策略先完成普通搜索，再对剩余未知点采样。它能补充事实，却无法用这些事实帮助之前的
+主搜索。前置采样可能提前发现更低 P、多个区间和更紧的锚点，值得作为下一轮独立对照。
+
+缓存收益本身不取决于先后：若主搜索与采样最终查询集合固定为 A、B，两种顺序的唯一调用都是
+`|A ∪ B|`。前置采样要节省调用，必须通过提前获得的信息改变后续查询集合。
+
+下一轮至少比较以下四种调度；统一输出声明目标、相应细化要求与证据缓存，并分别观察完整完成和预算截断的结果：
+
+| 调度 | 研究问题 |
 | --- | --- |
-| 乐观单调 | 无反例时 floor/predecessor 与现行算法一致，探测次数同阶 |
-| 反例 refinement | 每个已观察 `PASS < REJECTED < PASS` 都 split；不丢弃 m2 |
-| 声明编码 | `FFPPFPPP` → 最短形 `>=3rd, !=5th`；单调序列仍为单个 `>=floor` |
-| 投影安全 | 声明不允许已观察 REJECTED；跨 Slice island 不进入 `S`；否则拒绝 apply |
-| 报告 | observed / inferred / 声明条款可区分；不得声称穷举 specifier 内全部版本 |
-| 退化 | 交替 oracle 可终止且不输出矛盾 floor；允许接近 O(N) |
-| 身份 | 新推导规则与旧报告不可混 apply |
-| 产品路径 | focused/full checks、终端、Schema/examples、文档归并 |
+| 普通搜索后均匀采样 | E011 的已有参照 |
+| 全预算前置均匀采样，再搜索 | 全局信息是否能抵消预先支付的费用 |
+| 少量前置覆盖，再自适应选择 | 是否能兼顾初始覆盖与后续信息收益 |
+| 交错探索，但保留普通搜索参考轨迹 | 在保留 vanilla 所有查询点的条件下，探索能增加多少质量、付出多少额外调用 |
 
-核心立场：
+第四种 `baseline-preserving exploration` 是下一轮必须加入的强对照；这里 baseline 指 vanilla
+参考搜索，不是启动时的 PASS 锚点 S。参考搜索固定相同 Slice、候选、初始证据和选点规则（含 guidance 输入
+与随机种子），只根据
+自身请求的结果推进；探索可以插入 probe、发现 island 和进行声明所需细化，但不能改变或取消参考路径。
+若参考路径请求的点已由探索执行，可以复用缓存并交付相同事实，无须重复执行。
+
+参考轨迹只提供选点参照，不授权它覆盖全量证据或输出与探索事实冲突的区间。研究结果始终处理全部
+P/R；保留参考路径不等于在产品中忽略 `NON_MONOTONIC`，也不改变现行 D003。
+
+在同一确定性 Slice 中，若参考轨迹完整完成，设其观察点集为 V，交错策略为 E，则 `V ⊆ E`，因而：
 
 ```text
-optimistic assumptions
-evidence-respecting refinement
-graceful linear fallback
+min observed P in E ≤ min observed P in V
 ```
 
-或：
+这里仅比较 D 内候选，并在没有观察到 P 时按 +∞ 处理。要把这个性质变为最终 exact current 的非退化，
+还需两边都选择各自最低的合格已观察 P；它不保证投影、PASS coverage 或 unsafe admitted coverage 不退化。
+探索必须让参考轨迹有机会完成；总预算/取消截断、探索遇到 I 或同点冲突而停止、或改变 Slice 后，
+不能宣称该性质仍成立，更不能为完成参考轨迹而吞掉这些终态。
 
-> Assume monotonicity for efficiency; refine on counterexamples; never hide evidence to preserve the assumption.
+成本是 vanilla 的唯一调用加上探索及细化带来的新增调用，已重合的点只计一次。这给出一个有价值但
+不免费的研究基准。后续若想利用提前信息取消 vanilla 的部分 probe、赚回成本，就已离开严格保留轨迹
+的对照；需要另行证明非退化条件，或按预注册 regret/coverage 指标报告经验上的质量与成本取舍。
+
+固定等距采样还应对照带随机偏移的分层采样，以检查周期性错过异常的影响。若最左候选 P，寻找 floor
+本来只需一次；额外前置调用购买的是集合覆盖。其收益取决于产品目标，尚不能认定前置策略总是更好。
+比较既要同预算上限，也要相同实际总调用的收益曲线，不能只匹配可选探索次数而忽略声明所需细化成本。
+严格保留轨迹的完整完成性质与固定总预算下的结果应分开报告。
+
+## 9. 重新考虑进入 Design 的条件
+
+在以下缺口有证据支持的取舍前，本文保持开放研究状态，不建立实施 Plan：
+
+1. **真实结构与模型价值。** 获得条件明确的真实 Slice 样本；模型能预测留出数据中的区间风险，
+   或证据表明无需概率模型、简单覆盖策略已足够。
+2. **搜索目标与预算。** 先固定 §6.3 指标和取舍，再比较前置、后置、自适应及保留 vanilla 参考轨迹的
+   对照；区分最低已观察 P、最终 current 与声明覆盖，不能只在生成自己的模型上证明有效。
+3. **事实与终止语义。** 已见反例不被预算隐藏；按结果类型明确声明所需细化、总上限与降级输出，
+   以及 I/同点冲突、虚拟 sentinel、predecessor 和最终 Slice 的证据资格；同色未知区间不被误报为逐点认证。
+4. **独立投影可行性。** maximum/maximal 的区分、覆盖度量、marker 合并、用户约束、候选外版本及表达预算有明确处理，
+   不通过限制 current 所在 segment 来回避投影问题。
+5. **生产影响可接受。** 新推导 identity、report/reader、apply 及现行 owner 的迁移范围明确；
+   合成计数不替代真实执行成本或产品资格证据。
+
+若真实序列大多严格单调、异常又稀有且极窄，可能支持继续保留 D003 普通乐观二分作为 V1 的工程取舍，
+而将 C004 限于检测/研究能力；若异常有成段结构或可预测特征，再评价产品算法是否值得演进。
+两种方向都需数据与预注册目标支持。若实际收益不足以抵消常见路径费用与语义复杂度，可以缩小范围或关闭构想。
+若值得推进，再建立并接受规范性 Design；Design 接受与实施授权仍是不同阶段。
+
+可能涉及的 owner 如下，仅用于定位未来评审范围：
+
+| Owner | 待评审影响 |
+| --- | --- |
+| D001 | 精确点与区间承诺、非单调终态、可表示子集的覆盖目标与 apply 资格 |
+| D003 | 串行搜索、observations/segments、探索和细化调度、预算与最终 Slice 证据 |
+| D002 | 搜索与 evaluator 返回边界，区间结果向下游的传递 |
+| D004 | 静态信息或模型作为选点 guidance，不能取得 oracle authority |
+| D006 | 下界、区间、预算不足和推断范围的用户表达 |
+| D014 | 观察/推断/投影的 wire、推导 identity 与 reader 复证 |
+
+保留的核心原则是：乐观假设降低成本，直接证据决定事实；是否以及如何把它做成产品，等待分布、
+成本和产品目标的证据共同支持。
