@@ -161,7 +161,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 uv run python scripts/validate.py docs
 ```
 
-统一入口及日志规则见 [tests/README.md](../tests/README.md#验证)。`check_docs.py` 核对应指针、现行 owner 与索引表一致、frontmatter、相对链接与章节锚点、双语 README 配置示例、以及既有归档记录未被删除。授权的路径重定位可以改写入链。`git diff --check` 含在其中。生成投影仍由 D014 脚本检查。
+统一入口及日志规则见 [tests/README.md](../tests/README.md#验证)。`check_docs.py` 核对应指针、现行 owner 与索引表一致、frontmatter、相对链接与章节锚点、双语 README 配置示例、以及既有归档记录未被删除。授权的路径重定位可以改写入链。`git diff --check` 含在其中，但排除 `docs/experiments/data/`：该目录是冻结运行证据，终端、差分与诊断原文保留当时空白。生成投影仍由 D014 脚本检查。
 
 提交范围检查使用 `uv run python scripts/validate.py docs --base REF`；也可直接给 `check_docs.py`
 传 `--base REF`。REF 必须能解析为 commit，在本地工作区/暂存区检查之外增加 REF 到 HEAD 的

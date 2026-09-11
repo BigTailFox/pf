@@ -163,6 +163,23 @@ class TestEngineeringDocsGitComparison:
         assert "archived records were deleted: docs/archived/designs/D000-historical.md" in output
         assert "tracked.txt:1: trailing whitespace" in output
 
+    def test_whitespace_ignores_experiment_evidence(
+        self, documentation_git_root: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        root = documentation_git_root
+        evidence = root / "docs/experiments/data/E999/apply.diff"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text("+ captured trailing whitespace \n", encoding="utf-8")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "Captured experiment evidence")
+        assert _main(["--root", str(root), "--base", "HEAD"]) == 0
+
+        (root / "tracked.txt").write_text("trailing whitespace \n", encoding="utf-8")
+        assert _main(["--root", str(root), "--base", "HEAD"]) == 1
+        output = capsys.readouterr().err
+        assert "tracked.txt:1: trailing whitespace" in output
+        assert "apply.diff" not in output
+
     @pytest.mark.parametrize("staged", [False, True], ids=["worktree", "index"])
     def test_base_keeps_local_archive_and_whitespace_checks(
         self, documentation_git_root: Path, capsys: pytest.CaptureFixture[str], staged: bool,

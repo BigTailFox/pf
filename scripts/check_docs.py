@@ -356,13 +356,20 @@ def check_archive_freeze(root: Path, base: str | None = None) -> list[str]:
     return errors
 
 
+# Frozen run evidence keeps original terminal padding and captured diffs.
+WHITESPACE_PATHSPECS = (".", ":(exclude)docs/experiments/data")
+
+
 def check_whitespace(root: Path, base: str | None = None) -> list[str]:
     if not is_git_work_tree(root):
         return []
     errors: list[str] = []
-    commands = [["diff", "--check"], ["diff", "--check", "--cached"]]
+    commands = [
+        ["diff", "--check", "--", *WHITESPACE_PATHSPECS],
+        ["diff", "--check", "--cached", "--", *WHITESPACE_PATHSPECS],
+    ]
     if base is not None:
-        commands.append(["diff", "--check", base, "HEAD", "--"])
+        commands.append(["diff", "--check", base, "HEAD", "--", *WHITESPACE_PATHSPECS])
     for args in commands:
         result = run_git(root, args)
         if result.returncode == 0 and not result.stdout.strip() and not result.stderr.strip():
