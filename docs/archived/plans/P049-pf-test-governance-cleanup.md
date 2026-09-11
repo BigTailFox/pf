@@ -1,19 +1,19 @@
 # P049 — PF 遗留清理与测试治理执行计划
 
-- **状态：** 进行中
+- **状态：** 已完成
 - **日期：** 2026-09-11
-- **对应 Design：** 现行 [D002](../designs/D002-pf-implementation.md)、[D004](../designs/D004-pf-ty-enhancement.md)；不新增临时 Design
-- **关联 owner：** [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D007](../designs/D007-pf-process-output.md)、[D008](../designs/D008-pf-verification-run.md)、[D012](../designs/D012-pf-harness-relaxation.md)、[D013](../designs/D013-pf-pytest-observer.md)、[D014](../designs/D014-pf-report-schema.md)
-- **流程与测试：** [AGENTS.md](../../AGENTS.md)、[tests/README.md](../../tests/README.md)
+- **对应 Design：** 现行 [D002](../../designs/D002-pf-implementation.md)、[D004](../../designs/D004-pf-ty-enhancement.md)；不新增临时 Design
+- **关联 owner：** [D003](../../designs/D003-pf-search-algorithm.md)、[D006](../../designs/D006-pf-cli-enhancement.md)、[D007](../../designs/D007-pf-process-output.md)、[D008](../../designs/D008-pf-verification-run.md)、[D012](../../designs/D012-pf-harness-relaxation.md)、[D013](../../designs/D013-pf-pytest-observer.md)、[D014](../../designs/D014-pf-report-schema.md)
+- **流程与测试：** [AGENTS.md](../../../AGENTS.md)、[tests/README.md](../../../tests/README.md)
 - **评审基准：** B0 对应 `d1da96046a51b1213f4151918e4077ae81cbedf5` 的树；执行前另记实际工作树状态
-- **执行状态：** 已授权实施；S0–S5 本机完成（含 T3/T5 CLI 未实现偏差）；AC6 待提交后的 Ubuntu CI；S6 仅完成等待期文档整理，未归档
+- **执行状态：** S0–S6 完成；T3/T5 CLI 为未实现偏差；AC6 由 `c6fbd81` Ubuntu CI 闭合
 
 本 Plan 承接本轮代码与测试评审，记录现行契约内的清理、测试修正和验证工作，不另立产品或测试政策。
 90% 门禁继续由测试 owner 与现行 CI 定义；全仓补齐作为本计划的独立工作，不回写 D044 的交付责任。
 
 ## 1. 范围与执行边界
 
-执行授权到达后，按 [AGENTS.md](../../AGENTS.md) 的影响路由推进 S0–S6，无须逐切片另行确认。
+执行授权到达后，按 [AGENTS.md](../../../AGENTS.md) 的影响路由推进 S0–S6，无须逐切片另行确认。
 范围包括：确认无消费者的遗留定义与测试材料、现行 marker 与公开 seam 纠偏、弱断言和并发同步修正、
 静态准入及异常恢复的重要缺口。发现恢复现行契约所必需的局部实现修复时，先保留可复现失败证据，再修复并回归。
 
@@ -60,35 +60,35 @@ S0 将可复用基准的 manifest、日志、coverage 原始数据 / JSON、源�
 
 | ID | 位置与对象 | 处理与保留边界 |
 | --- | --- | --- |
-| L1 | [schemas/static.py](../../src/pf/schemas/static.py)：`StaticContentPath`、`StaticTextLiteral/Root/FileValue/Projection`、`StaticContentEntry/Manifest`；`StaticPackageMapping`、`StaticSourceInput`、`StaticTargetInput`、`StaticInstalledArtifact/Node/World`、`StaticRootPlacement`、`StaticAnalysisLayout`、`StaticConfigurationInput`、`StaticEnvironmentValue`、`StaticProcessContext` | 删除无生产消费者的 18 个旧类、专属 helper / alias / import；D004 §6 已采用 v2。保留 `StaticContentUnavailable` 的完整返回契约，S0 固化其 `detail` literal 集合，L1 不收窄任何成员，包括当前无写入点的值。保留 `StaticSubjectCell/Interpreter`、`ResolutionArtifact*`、`ResolutionBinding`、`StaticSubject`；核对现行 report/schema 生成结果 |
-| L2 | [test_static_subject.py](../../tests/test_static_subject.py)：`TestStaticContentManifestAdmission` | 随 L1 删除 5 个参数项；保留现行 subject identity、key、raw fact codec 与准入用例 |
-| L3 | [schemas/evaluation.py](../../src/pf/schemas/evaluation.py)：`process_facts_match()`；[test_schemas.py](../../tests/test_schemas.py) 对应 presence 测试 | 删除无生产消费者的函数、专属测试和 import；保留现行 failure/process 一致性验证 |
-| L4 | [adapters/process.py](../../src/pf/adapters/process.py)：`SecretRedactor.overlap_bytes()`、`project_output_cache()`；[test_process.py](../../tests/test_process.py)：`_ExactOverlapRedactor` | 删除闲置实现与失效 override，测试使用现行 redactor；保留五个分块 / UTF-8 / URL / 多表面脱敏场景，以及仍由流式 builder 使用的 `_cache_budgets`、`_decode_tail` |
-| L5 | [terminal/_explain.py](../../src/pf/terminal/_explain.py) `_report_kind()`；[terminal/__init__.py](../../src/pf/terminal/__init__.py) `_render_explain_overview()`、`_INFRA_REASONS`；[terminal/_presentation.py](../../src/pf/terminal/_presentation.py) `cell_identity_title()` | 删除无调用的旧展示实现，保留实际 summary / result-card 路径及公开渲染测试 |
-| L6 | [search.py](../../src/pf/search.py) `_ProposalRunner.failure_record()`；[static_cache.py](../../src/pf/static_cache.py) `find_consumer()`；[errors.py](../../src/pf/errors.py) `CompatibilityError`；[policy.py](../../src/pf/policy.py) `TY_DIAGNOSTIC_POLICY`；[uv_diagnostics.py](../../src/pf/adapters/uv_diagnostics.py) `UV_DIAGNOSTIC_SHAPE_SET` | S0 对照 D004 / D005 / D012、typed `TyObservationPolicy` 与实际 uv qualification profile，记录两个常量的现行承接关系；无消费者且未掩盖 identity / 资格缺口才删除。按完整符号删除 `failure_record()`，保留 `failure_records`、typed outcomes、兼容失败退出码与现行 policy / profile；不模糊匹配批删 |
-| L7 | [test_static_report.py](../../tests/test_static_report.py) `assert_interned_static_audit()`；`tests/fixtures/admitted-static-journal.json`（562170 bytes） | 删除无人调用的旧 intern assertion 与无读取入口的 fixture；不改根报告中的历史 snapshot 元数据或归档证据 |
-| L8 | [test_terminal.py](../../tests/test_terminal.py) `candidate_snapshot_for()`；[test_static_module_graph.py](../../tests/test_static_module_graph.py) `_module_name()`；[test_secure_runlog.py](../../tests/test_secure_runlog.py) `windows_log_adapter()`；[process_lane.py](../../tests/process_lane.py) `current_item()`；[test_static_guidance_qualification.py](../../tests/test_static_guidance_qualification.py) `SCRIPT/CONTROLLED` | 删除无消费者脚手架及专属 import；保留仍使用的 fixture、adapter 和实际脚本入口 |
+| L1 | [schemas/static.py](../../../src/pf/schemas/static.py)：`StaticContentPath`、`StaticTextLiteral/Root/FileValue/Projection`、`StaticContentEntry/Manifest`；`StaticPackageMapping`、`StaticSourceInput`、`StaticTargetInput`、`StaticInstalledArtifact/Node/World`、`StaticRootPlacement`、`StaticAnalysisLayout`、`StaticConfigurationInput`、`StaticEnvironmentValue`、`StaticProcessContext` | 删除无生产消费者的 18 个旧类、专属 helper / alias / import；D004 §6 已采用 v2。保留 `StaticContentUnavailable` 的完整返回契约，S0 固化其 `detail` literal 集合，L1 不收窄任何成员，包括当前无写入点的值。保留 `StaticSubjectCell/Interpreter`、`ResolutionArtifact*`、`ResolutionBinding`、`StaticSubject`；核对现行 report/schema 生成结果 |
+| L2 | [test_static_subject.py](../../../tests/test_static_subject.py)：`TestStaticContentManifestAdmission` | 随 L1 删除 5 个参数项；保留现行 subject identity、key、raw fact codec 与准入用例 |
+| L3 | [schemas/evaluation.py](../../../src/pf/schemas/evaluation.py)：`process_facts_match()`；[test_schemas.py](../../../tests/test_schemas.py) 对应 presence 测试 | 删除无生产消费者的函数、专属测试和 import；保留现行 failure/process 一致性验证 |
+| L4 | [adapters/process.py](../../../src/pf/adapters/process.py)：`SecretRedactor.overlap_bytes()`、`project_output_cache()`；[test_process.py](../../../tests/test_process.py)：`_ExactOverlapRedactor` | 删除闲置实现与失效 override，测试使用现行 redactor；保留五个分块 / UTF-8 / URL / 多表面脱敏场景，以及仍由流式 builder 使用的 `_cache_budgets`、`_decode_tail` |
+| L5 | [terminal/_explain.py](../../../src/pf/terminal/_explain.py) `_report_kind()`；[terminal/__init__.py](../../../src/pf/terminal/__init__.py) `_render_explain_overview()`、`_INFRA_REASONS`；[terminal/_presentation.py](../../../src/pf/terminal/_presentation.py) `cell_identity_title()` | 删除无调用的旧展示实现，保留实际 summary / result-card 路径及公开渲染测试 |
+| L6 | [search.py](../../../src/pf/search.py) `_ProposalRunner.failure_record()`；[static_cache.py](../../../src/pf/static_cache.py) `find_consumer()`；[errors.py](../../../src/pf/errors.py) `CompatibilityError`；[policy.py](../../../src/pf/policy.py) `TY_DIAGNOSTIC_POLICY`；[uv_diagnostics.py](../../../src/pf/adapters/uv_diagnostics.py) `UV_DIAGNOSTIC_SHAPE_SET` | S0 对照 D004 / D005 / D012、typed `TyObservationPolicy` 与实际 uv qualification profile，记录两个常量的现行承接关系；无消费者且未掩盖 identity / 资格缺口才删除。按完整符号删除 `failure_record()`，保留 `failure_records`、typed outcomes、兼容失败退出码与现行 policy / profile；不模糊匹配批删 |
+| L7 | [test_static_report.py](../../../tests/test_static_report.py) `assert_interned_static_audit()`；`tests/fixtures/admitted-static-journal.json`（562170 bytes） | 删除无人调用的旧 intern assertion 与无读取入口的 fixture；不改根报告中的历史 snapshot 元数据或归档证据 |
+| L8 | [test_terminal.py](../../../tests/test_terminal.py) `candidate_snapshot_for()`；[test_static_module_graph.py](../../../tests/test_static_module_graph.py) `_module_name()`；[test_secure_runlog.py](../../../tests/test_secure_runlog.py) `windows_log_adapter()`；[process_lane.py](../../../tests/process_lane.py) `current_item()`；[test_static_guidance_qualification.py](../../../tests/test_static_guidance_qualification.py) `SCRIPT/CONTROLLED` | 删除无消费者脚手架及专属 import；保留仍使用的 fixture、adapter 和实际脚本入口 |
 
 ### 3.2 测试治理
 
 | ID | 对象 | 执行结果要求 |
 | --- | --- | --- |
-| T1 | [test_static_request.py](../../tests/test_static_request.py) 两个 `run_*` helper | 整体放在 S3；S1 不删这两个 helper 或其参数臂。S0 先在 §3.4 冻结去向；S3 删除无入口参数臂及专属 helper 时，先验证现行语义的保留 / 替代 node。保留真实采集、重定位、关闭后读取、invalidate 拒绝和 metadata 变化后的 subject 稳定性；纯 schema / comparison 矩阵迁入进程内 owner 测试，不恢复真实 uv/ty 笛卡尔矩阵 |
-| T2 | `test_static_module_graph.py` 的 10 个架构测试，`TestStaticRequestAssembly` 与 [test_static_inputs.py](../../tests/test_static_inputs.py) 的源码否定检查 | 有现行 ownership 价值的 AST 检查归 `infra`，合并重复定义扫描；迁移名称 / 字符串检查删除或改为公开行为证明。保留禁止产品调用 cache 域方法的护栏，不能因 L6 删除实现就把 `CACHE_DOMAIN_METHODS` 当作死脚手架。禁名按现行入口维护；可用等价有效的 infra 架构检查替换，不要求永久保存已删 `find_consumer` 的拼写。按 TestClass 与结果路径组织，并在 E3 / E5 记录移出自举 C 的集合变化 |
-| T3 | [test_cli.py](../../tests/test_cli.py) production composition 测试 | 按 D044 后的现行行为验证 Search / Highest 共用静态 evaluator 与 runner；Check / Smoke 复用 runtime runner，不向其 evaluator 注入 static、不调用 ty capture。经公开 workflow、composition 绑定处的 adapter 记录及生命周期效果证明，消除多层私有字段断言；纯结构护栏归 `infra`。不要求整个 `CliContext` 在 Check / Smoke 装配时不构造 static，也不把 `host_target()` 计数当作 static 构造证据 |
-| T4 | [test_static_journal.py](../../tests/test_static_journal.py)、`test_static_report.py` 的 old intern / retired authority 矩阵 | 合并为各 reader 的现行未知字段、非法 tag 和证据准入代表；保留 reader 专有错误分类、membership / identity 篡改与 update_path 处理无效现存报告的语义，不逐个枚举旧版本字段 |
-| T5 | `test_cli.py` 的 interrupt 测试；[test_pytest_progress.py](../../tests/test_pytest_progress.py) 的 stubborn-worker stop 测试 | CLI 从 composition 绑定处记录所装配 runner，经公开 workflow 与 `interrupt_processes()` 观察该实例的公开 `interrupt()` 调用，不读 runner 私有状态。真实进程组收拢 / 后续 run 拒绝复用 `test_process.py::TestSubprocessRunner::test_subprocess_runner_interrupt_stops_an_inflight_process_group`。progress 用合法 snapshot、`consume` 回调与 `start/stop` 观察生命周期；需要真实阻塞时用回调 Event 并保证释放收拢，删除 `_thread.is_alive` 恒真的 patch。只证明 D013 规定的进度 / terminal 行为；没有独立公开语义的 stubborn-worker 条目并入已有场景，不为 `_invalidate` 单独新增契约或接口 |
-| T6 | [test_static_cache.py](../../tests/test_static_cache.py) single-flight 与异常唤醒测试，以及 `test_static_ownership.py` 的对应并发场景 | 用确定同步证明 waiter 已选中并等待本次 pending 后再释放 owner，区分并发共享与后续缓存命中。现有 `joined.set()` 在 `super().collect()` 前，不能直接复用为已加入证据；先修正真正的等待点，再在适用的内部 owner 测试间复用，避免新增产品接口。保留异常不缓存及 retry，不依赖 sleep 或调度运气；仍只记录调度空隙，不声称已复现 flaky |
+| T1 | [test_static_request.py](../../../tests/test_static_request.py) 两个 `run_*` helper | 整体放在 S3；S1 不删这两个 helper 或其参数臂。S0 先在 §3.4 冻结去向；S3 删除无入口参数臂及专属 helper 时，先验证现行语义的保留 / 替代 node。保留真实采集、重定位、关闭后读取、invalidate 拒绝和 metadata 变化后的 subject 稳定性；纯 schema / comparison 矩阵迁入进程内 owner 测试，不恢复真实 uv/ty 笛卡尔矩阵 |
+| T2 | `test_static_module_graph.py` 的 10 个架构测试，`TestStaticRequestAssembly` 与 [test_static_inputs.py](../../../tests/test_static_inputs.py) 的源码否定检查 | 有现行 ownership 价值的 AST 检查归 `infra`，合并重复定义扫描；迁移名称 / 字符串检查删除或改为公开行为证明。保留禁止产品调用 cache 域方法的护栏，不能因 L6 删除实现就把 `CACHE_DOMAIN_METHODS` 当作死脚手架。禁名按现行入口维护；可用等价有效的 infra 架构检查替换，不要求永久保存已删 `find_consumer` 的拼写。按 TestClass 与结果路径组织，并在 E3 / E5 记录移出自举 C 的集合变化 |
+| T3 | [test_cli.py](../../../tests/test_cli.py) production composition 测试 | 按 D044 后的现行行为验证 Search / Highest 共用静态 evaluator 与 runner；Check / Smoke 复用 runtime runner，不向其 evaluator 注入 static、不调用 ty capture。经公开 workflow、composition 绑定处的 adapter 记录及生命周期效果证明，消除多层私有字段断言；纯结构护栏归 `infra`。不要求整个 `CliContext` 在 Check / Smoke 装配时不构造 static，也不把 `host_target()` 计数当作 static 构造证据 |
+| T4 | [test_static_journal.py](../../../tests/test_static_journal.py)、`test_static_report.py` 的 old intern / retired authority 矩阵 | 合并为各 reader 的现行未知字段、非法 tag 和证据准入代表；保留 reader 专有错误分类、membership / identity 篡改与 update_path 处理无效现存报告的语义，不逐个枚举旧版本字段 |
+| T5 | `test_cli.py` 的 interrupt 测试；[test_pytest_progress.py](../../../tests/test_pytest_progress.py) 的 stubborn-worker stop 测试 | CLI 从 composition 绑定处记录所装配 runner，经公开 workflow 与 `interrupt_processes()` 观察该实例的公开 `interrupt()` 调用，不读 runner 私有状态。真实进程组收拢 / 后续 run 拒绝复用 `test_process.py::TestSubprocessRunner::test_subprocess_runner_interrupt_stops_an_inflight_process_group`。progress 用合法 snapshot、`consume` 回调与 `start/stop` 观察生命周期；需要真实阻塞时用回调 Event 并保证释放收拢，删除 `_thread.is_alive` 恒真的 patch。只证明 D013 规定的进度 / terminal 行为；没有独立公开语义的 stubborn-worker 条目并入已有场景，不为 `_invalidate` 单独新增契约或接口 |
+| T6 | [test_static_cache.py](../../../tests/test_static_cache.py) single-flight 与异常唤醒测试，以及 `test_static_ownership.py` 的对应并发场景 | 用确定同步证明 waiter 已选中并等待本次 pending 后再释放 owner，区分并发共享与后续缓存命中。现有 `joined.set()` 在 `super().collect()` 前，不能直接复用为已加入证据；先修正真正的等待点，再在适用的内部 owner 测试间复用，避免新增产品接口。保留异常不缓存及 retry，不依赖 sleep 或调度运气；仍只记录调度空隙，不声称已复现 flaky |
 | T7 | `test_static_guidance_qualification.py` controlled 场景 | 默认合并现有证据：业务结果进既有 scripted Search，真实 uv/ty/verifier / 落盘义务优先并入既有 `process` / `e2e` Search / Journal 代表。先按 §3.4 映射两种真实性，不能以 scripted Search 替代真实协议证据。只有写明现有代表不能证明的独有进程风险及成本，才新增 `process`＋`e2e`；无缺口则删除重复 controlled 测试，不新开真实 prepare。分类依现行 tests/README，保留仍有消费者的脚本入口 |
 
 ### 3.3 优先补测
 
 | ID | 现行要求与已有证据 | 本次增量与触发条件 |
 | --- | --- | --- |
-| G1 | D004 / D012；`TestNonemptyStaticPreparation::test_registry_selection_and_external_harness_round_trip` 已产生非空 environment plan，但 [static/audit.py](../../src/pf/static/audit.py) `_admit_preparation_request()` 的该分支在 B0 未执行 | 使用带活跃 external harness 的 Cell 和现有 scripted adapter；明确断言 `environment_plan is not None`，经 `EnvironmentFactory.prepare` → `StaticEvaluator.capture_highest/collect_prepared` → `TyCheckCache.admitted_membership()`，触发完整 replay。覆盖 highest 原 harness 与 lower/exact 放宽 harness 的代表；只 collect 成功不算完成。内部负向代表是重算外层身份后篡改 environment request 仍被拒绝 |
-| G2 | D004 §7；`test_static_cache.py::TestRunTyCache::test_membership_is_run_owned_even_with_identical_payload` 与 `TestRunStaticScope::test_closed_cache_rejects_foreign_and_closed_comparison_refs` 已有 cache 域隔离证据 | 只补 [StaticEvaluator](../../src/pf/static/evaluator.py) 的公开 handle 边界：由实际 `collect_prepared` 获得 handle，经 `compare_global` 比较同 Run 仅环境关闭、跨 Run、cache 关闭后三种结果。前者仍合法，后两者 typed unavailable；使用 scripted adapter 即可，不再构造 `RunTyFactRef` 或复制 cache 域矩阵 |
+| G1 | D004 / D012；`TestNonemptyStaticPreparation::test_registry_selection_and_external_harness_round_trip` 已产生非空 environment plan，但 [static/audit.py](../../../src/pf/static/audit.py) `_admit_preparation_request()` 的该分支在 B0 未执行 | 使用带活跃 external harness 的 Cell 和现有 scripted adapter；明确断言 `environment_plan is not None`，经 `EnvironmentFactory.prepare` → `StaticEvaluator.capture_highest/collect_prepared` → `TyCheckCache.admitted_membership()`，触发完整 replay。覆盖 highest 原 harness 与 lower/exact 放宽 harness 的代表；只 collect 成功不算完成。内部负向代表是重算外层身份后篡改 environment request 仍被拒绝 |
+| G2 | D004 §7；`test_static_cache.py::TestRunTyCache::test_membership_is_run_owned_even_with_identical_payload` 与 `TestRunStaticScope::test_closed_cache_rejects_foreign_and_closed_comparison_refs` 已有 cache 域隔离证据 | 只补 [StaticEvaluator](../../../src/pf/static/evaluator.py) 的公开 handle 边界：由实际 `collect_prepared` 获得 handle，经 `compare_global` 比较同 Run 仅环境关闭、跨 Run、cache 关闭后三种结果。前者仍合法，后两者 typed unavailable；使用 scripted adapter 即可，不再构造 `RunTyFactRef` 或复制 cache 域矩阵 |
 | G3 | D004 §7；`test_static_ownership.py::TestStaticConsumerOwnership::test_terminal_cleanup_releases_both_consumers_and_wakes_waiters` 已有异常降级、cleanup 与不入 completed cache 断言；`test_static_cache.py::TestRunTyCache::test_unmodeled_exception_wakes_consumers_and_allows_retry` 已有 cache 层 retry。前者 waiter 同次参与的确定证据由 T6 修正 | 只补公开 collect 的连续成功恢复：首次 lower observation 抛未建模异常后，另一 key 继续成功，原 key 在仍可用或 reprepare 环境上重试成功；验证公开结果、调用次数、permit 与环境释放。复用已有失败准备，不重建整套异常 / 取消矩阵；取消保持原传播语义 |
-| G4 | D002 §11 内部账本闭合；[static_cache.py](../../src/pf/static_cache.py) 已有合法 / 伪造 admission 测试，但 append 后失败回滚在 B0 缺证据 | 在内部 owner 测试中补非法记录准入失败 → 原账本不变 → 合法记录成功的连续场景。使用允许的 snapshot / admission seam；选行为组代表，不为每个字段或 catch 分支构造测试 |
+| G4 | D002 §11 内部账本闭合；[static_cache.py](../../../src/pf/static_cache.py) 已有合法 / 伪造 admission 测试，但 append 后失败回滚在 B0 缺证据 | 在内部 owner 测试中补非法记录准入失败 → 原账本不变 → 合法记录成功的连续场景。使用允许的 snapshot / admission seam；选行为组代表，不为每个字段或 catch 分支构造测试 |
 
 保留已有 `test_static_lifecycle.py`、`test_static_ownership.py`、`test_static_cache.py` 的取消、排空、
 异常唤醒与重建证据，以及 Search 动态 floor、Journal 持久化失败边界。它们不是待从零补齐的功能。
@@ -191,8 +191,8 @@ S0 的 §3.4 去向表冻结后才能开 S1；S6 的文档整理可在 S5 等待
 | S2 清理后重测 | 运行完整 coverage 车道，固化中间数据；与 S0 对照，区分删除遗留分母、有效行为覆盖损失及原有缺口。在 §3.3 写明 G1–G4 与 H1–H3 入选项的封闭清单和证据槽，不以门禁未过无限展开 | AC2、AC6 | 已完成 / E2：`tests/.cache/p049/s2/`；本机门禁已过，G1–G4+H1 仍为契约缺口 |
 | S3 测试治理 | 完成 T1–T7；按冻结去向先验证保留 / 替代 node，再删或合并旧断言，回填实际映射。核对消费者收集变化、停止效果、确定并发窗口与 T7 的真实协议证据 | AC2–AC4 | 已完成（T3/T5 CLI 为未实现偏差）/ E3：`tests/.cache/p049/s3/` |
 | S4 现行缺口 | 完成 G1–G4 与 S2 入选项，已由 S3 证明的项复用证据；不自动扩清单。替身通过现有 adapter seam 注入；证明异常不会污染后续执行 | AC5、AC6 | 已完成 / E4：`tests/.cache/p049/s4/` |
-| S5 完整验收 | 本机闭合 AC1–AC5 与 Linux 3.10 证据；AC6 按现行 Ubuntu CI 矩阵闭合，写明 AC7 的适用范围。CI 未完成时记录具体待完成 job / 产物与下一步，状态不冒充完成 | AC1–AC6、AC7 的范围说明 | 本机已完成；AC6 待 CI / E5：`tests/.cache/p049/s5/` |
-| S6 文档收尾 | CI 等待期间可整理唯一 owner、索引与结果；AC1–AC6 闭合后在同一审查变更中或紧随 CI 成功的文档收尾中归档 P049，修复入链并跑 docs 车道，闭合 AC7。不新增人为阶段批准，不在缺证据时提前归档 | AC7 | 等待期整理已写入 §7；归档未做 / E6 待 CI |
+| S5 完整验收 | 本机闭合 AC1–AC5 与 Linux 3.10 证据；AC6 按现行 Ubuntu CI 矩阵闭合，写明 AC7 的适用范围。CI 未完成时记录具体待完成 job / 产物与下一步，状态不冒充完成 | AC1–AC6、AC7 的范围说明 | 已完成 / E5：本机 `tests/.cache/p049/s5/`；CI [run 34566256369](https://github.com/BigTailFox/pf/actions/runs/34566256369) |
+| S6 文档收尾 | CI 等待期间可整理唯一 owner、索引与结果；AC1–AC6 闭合后在同一审查变更中或紧随 CI 成功的文档收尾中归档 P049，修复入链并跑 docs 车道，闭合 AC7。不新增人为阶段批准，不在缺证据时提前归档 | AC7 | 已完成 / E6：本归档变更 |
 
 ## 5. 验收与验证安排
 
@@ -205,10 +205,10 @@ S0 的 §3.4 去向表冻结后才能开 S1；S6 的文档整理可在 S5 等待
 | AC3 | T2、T7 归入现行消费者；真实进程代表留存，产品测试不被 qualification 隐藏，基建不进入自举 C | E3、E5 收集集合与完整运行 | 本机已闭合 |
 | AC4 | T3、T5、T6 经允许 seam 证明装配、停止与并发结果；无效 no-op 会被断言发现，不靠私有结构或调度运气 | E3 focused 结果与受控反例 / 同步证据 | 部分闭合：T5 progress 与 T6 已证明；T3 与 T5 CLI 为未实现偏差 |
 | AC5 | G1–G4 的准入、隔离、恢复、回滚结果均有现行证据；既有取消 / 动态 authority / 持久化保证保留 | E4、E5；逐项关联实际 node | 本机已闭合 |
-| AC6 | 现行 `ubuntu-latest` × Python 3.10 / 3.11 / 3.12 矩阵成功：3.10 全量 coverage 采集及合并 job 的 90% 门禁，3.11 / 3.12 的 pr 车道。本计划不要求 Darwin / Windows，不降低门槛或新增排除 | E5 CI job / artifact、源码身份与门禁结果；本机证据单列 | 待 CI：见 §7.2；无本变更集的 commit SHA，未 push，未触发 job |
-| AC7 | 实际自举集合变化及旧证据适用范围明确；文档 / schema 检查成功；结果与局限完整，完成后归档 | E3、E5、E6 | 等待期草稿见 §7.1；归档与入链依赖 AC6 |
+| AC6 | 现行 `ubuntu-latest` × Python 3.10 / 3.11 / 3.12 矩阵成功：3.10 全量 coverage 采集及合并 job 的 90% 门禁，3.11 / 3.12 的 pr 车道。本计划不要求 Darwin / Windows，不降低门槛或新增排除 | E5 CI job / artifact、源码身份与门禁结果；本机证据单列 | 已闭合：`c6fbd81` [CI run 34566256369](https://github.com/BigTailFox/pf/actions/runs/34566256369) 的 test 3.10/3.11/3.12 与 coverage 均为 success |
+| AC7 | 实际自举集合变化及旧证据适用范围明确；文档 / schema 检查成功；结果与局限完整，完成后归档 | E3、E5、E6 | 已闭合：§7 范围说明保留；本文件归档 |
 
-验证命令由 [scripts/validate.py](../../scripts/validate.py) 拥有；在仓库根按 AGENTS 的环境要求执行，
+验证命令由 [scripts/validate.py](../../../scripts/validate.py) 拥有；在仓库根按 AGENTS 的环境要求执行，
 实际 argv、退出码、源码状态、环境、测试计数和日志路径回填 E0–E6。
 
 | 时点 | 验证安排 |
@@ -274,9 +274,9 @@ E3 / E5 记录变更后的收集范围，不沿用根 `package-floor.json` 或�
 
 | 2026-09-11 | S6 等待期整理：写下 §7 自举集合变化、旧证据适用范围与 AC6 待取得 job。本变更集仍未提交（HEAD `b063272`，相对 `origin/main` 另超前 4 个无关 commit；P049 计划未入 git）。无 CI run / artifact。本机不可替代 Ubuntu 矩阵。不归档 |
 
-## 7. S6 等待期整理（未归档）
+## 7. S6 等待期整理
 
-本节是 AC6 等待期间允许的文档准备，不是完成或归档证明。
+本节是 AC6 等待期间写下的文档准备；归档后只作历史范围说明。
 
 ### 7.1 AC7 草稿：自举变化、旧证据范围、结果与局限
 
@@ -320,4 +320,7 @@ C 减少 23、infra 增加 9：T2 将 `test_static_module_graph.py` 标 `infra` 
 
 闭合路径：提交本变更集并 push / 开 PR，取得上述四个 job 成功后，在同一审查变更或紧随 CI 成功的文档收尾中归档 P049、更新 `docs/README.md` 与 `docs/archived/README.md` 入链，再跑 `validate.py docs`。
 
-当前下一步：提交并触发 Ubuntu CI（AC6）后归档 P049。
+2026-09-11 追加：上述待取得项已由 `c6fbd81` [CI run 34566256369](https://github.com/BigTailFox/pf/actions/runs/34566256369) 闭合；本文件随 S6 归档。
+
+| 2026-09-11 | 用户授权提交并 push `main`。commit `c6fbd8136ea2c4d63f0d74827f2b65eb47a868aa`。已 push `origin/main` |
+| 2026-09-11 | AC6 闭合：[CI run 34566256369](https://github.com/BigTailFox/pf/actions/runs/34566256369) `conclusion=success`；`test (ubuntu-latest, 3.10)` / `3.11` / `3.12` 与 `coverage` 均为 success。S6 归档本文件并修复入链 |

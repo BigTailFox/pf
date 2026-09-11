@@ -9,7 +9,7 @@
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
 | [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D044 | 已实施并由现行 Design 接管 |
-| [plans](plans/) | P001–P048 | 实施与验证已完成 |
+| [plans](plans/) | P001–P049 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R007、R009、R011 | 发现已由后续设计和实现解决，或已移交现行 Review |
 | [investigations](investigations/) | I001、I002 | 结论已纳入 D013 / 现行静态 owner |
 
@@ -22,6 +22,8 @@
 [P046](plans/P046-pf-static-evaluation-module.md)：静态评价深模块已完成；公开五方法、Preparation
 registry + Direct-PASS ledger、schema 纯化与 `failures=` 收回已落地。稳定规则由 D002/D003 §5/D004/D008
 与 CONTEXT 接管，D005 分类不变。来源 [R011](reviews/R011-pf-architecture-review.md) 已归档。
+
+[P049](plans/P049-pf-test-governance-cleanup.md)：遗留 static 表面与测试治理已完成；T3/T5 CLI 经 `compose` 注入 runner 因现行 D002 只接受 workflow 记为未实现偏差。稳定规则仍由 D002/D004 与 `tests/README.md` 拥有，不新增契约。
 
 [D044](designs/D044-pf-check-first-minimal-verification.md) /
 [P048](plans/P048-pf-check-first-minimal-verification.md)：check 稳态与 smoke/check 最小验证序列已完成；
