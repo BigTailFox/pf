@@ -565,9 +565,6 @@ class _ProposalRunner:
     def failure_runtime_runs(self) -> tuple[FailureRuntimeRun, ...]:
         return tuple(self._failure_runtime_runs.values())
 
-    def failure_record(self, failure_id: str) -> FailureRecord:
-        return self._failure_records[failure_id]
-
     def close(self) -> None:
         for prepared in self._prepared.values():
             prepared.close()

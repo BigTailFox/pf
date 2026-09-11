@@ -19,7 +19,7 @@ from evaluation_fixtures import (
 
 from pf.static import TyCheckCache
 from evaluation_fixtures import ScriptedProcessRunner
-from pf.environment import ExactSelection, HighestResolution, PreparedEnvironment
+from pf.environment import ExactSelection, HighestResolution, LowestDirectResolution, PreparedEnvironment
 from pf.evaluation import RuntimeEvaluator, StagePermitPools
 from pf.static import StaticEvaluator
 from pf.failure import FailurePolicy
@@ -39,6 +39,7 @@ from pf.schemas.evaluation import (
     VerifierRun,
 )
 from pf.schemas.project import VersionPin
+from pf.schemas.static_comparison import StaticComparisonUnavailable
 
 
 def collect_global(static, prepared, package, cache):
@@ -173,6 +174,142 @@ class TestStaticEvaluator:
         assert isinstance(result, CollectedStaticSubject)
         assert run_cache.documents()[0].fact.kind == "ty-check-unavailable"
         prepared.close()
+
+    def test_compare_global_handle_survives_environment_close_and_rejects_foreign_or_closed_cache(
+        self, tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path / "project", dependency="demo-dep")
+        assembly = evaluation_assembly()
+        highest = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=HighestResolution(),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(highest, PreparedEnvironment)
+        candidate = assembly.environments.prepare(
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            resolution=candidate_resolution(highest, "demo-dep", "2"),
+            source_plan=project.source_plan,
+        )
+        assert isinstance(candidate, PreparedEnvironment)
+        cache = TyCheckCache()
+        try:
+            capture = assembly.static.capture_highest(highest, run_cache=cache, package=project.package)
+            collected = assembly.static.collect_prepared(candidate, package=project.package, run_cache=cache)
+            assert isinstance(capture, CollectedStaticSubject)
+            assert isinstance(collected, CollectedStaticSubject)
+            highest.close()
+            candidate.close()
+            compared = assembly.static.compare_global(collected, run_cache=cache)
+            assert compared.status == "COMPARED"
+            foreign = TyCheckCache()
+            try:
+                crossed = assembly.static.compare_global(collected, run_cache=foreign)
+                assert isinstance(crossed, StaticComparisonUnavailable)
+                assert crossed.status == "UNAVAILABLE"
+            finally:
+                foreign.close()
+            cache.close()
+            closed = assembly.static.compare_global(collected, run_cache=cache)
+            assert isinstance(closed, StaticComparisonUnavailable)
+            assert closed.status == "UNAVAILABLE"
+        finally:
+            if not highest.closed:
+                highest.close()
+            if not candidate.closed:
+                candidate.close()
+            project.snapshot.close()
+
+
+class TestNonemptyPreparationAdmission:
+    def test_nonempty_environment_plan_replays_highest_relaxed_and_rejects_tampered_request(
+        self, tmp_path: Path,
+    ) -> None:
+        from pf.resolution import ResolutionPlanEvidence, environment_identity_digest, resolution_semantic_digest
+        from pf.static.audit import _admit_saved_static_audit
+        from pf.static_request import static_preparation_evidence
+        from pf.schemas.static_preparation import StaticPreparationEvidence
+
+        project = evaluation_project(tmp_path / "project", test_dependencies=("packaging",))
+        assembly = evaluation_assembly(
+            highest=(VersionPin(name="demo-dep", version="3"),),
+            lowest=(VersionPin(name="demo-dep", version="1"),),
+        )
+        cell = project.package.cells[0]
+        highest = assembly.environments.prepare(
+            package=project.package, cell=cell, snapshot=project.snapshot,
+            resolution=HighestResolution(), source_plan=project.source_plan,
+        )
+        assert isinstance(highest, PreparedEnvironment)
+        assert highest.environment_plan is not None
+        cache = TyCheckCache()
+        try:
+            captured = assembly.static.capture_highest(highest, package=project.package, run_cache=cache)
+            assert isinstance(captured, CollectedStaticSubject)
+            membership = cache.admitted_membership(cell)
+            assert membership is not None
+
+            lower = assembly.environments.prepare(
+                package=project.package, cell=cell, snapshot=project.snapshot,
+                resolution=LowestDirectResolution(highest.harness_baseline),
+                source_plan=project.source_plan,
+            )
+            assert isinstance(lower, PreparedEnvironment)
+            assert lower.environment_plan is not None
+            collected_lower = assembly.static.collect_prepared(lower, package=project.package, run_cache=cache)
+            assert isinstance(collected_lower, CollectedStaticSubject)
+            assert cache.admitted_membership(cell) is not None
+
+            exact = assembly.environments.prepare(
+                package=project.package, cell=cell, snapshot=project.snapshot,
+                resolution=candidate_resolution(highest, "demo-dep", "2"),
+                source_plan=project.source_plan,
+            )
+            assert isinstance(exact, PreparedEnvironment)
+            assert exact.environment_plan is not None
+            collected_exact = assembly.static.collect_prepared(exact, package=project.package, run_cache=cache)
+            assert isinstance(collected_exact, CollectedStaticSubject)
+            assert cache.admitted_membership(cell) is not None
+
+            evidence = static_preparation_evidence(highest, project.package)
+            assert isinstance(evidence, StaticPreparationEvidence)
+            assert evidence.environment_plan is not None
+            forged_plan_payload = evidence.environment_plan.model_dump(mode="json")
+            forged_plan_payload["request_digest"] = "f" * 64
+            forged_plan_payload["semantic_digest"] = resolution_semantic_digest(
+                kind="environment", request_digest="f" * 64,
+                context=evidence.environment_plan.context,
+                packages=evidence.environment_plan.packages,
+                direct_harness=evidence.environment_plan.direct_harness,
+            )
+            forged_plan = ResolutionPlanEvidence.model_validate(forged_plan_payload)
+            forged = evidence.model_dump(mode="json")
+            forged["environment_plan"] = forged_plan.model_dump(mode="json")
+            forged["proposal"]["environment_plan_digest"] = forged_plan.semantic_digest
+            forged["proposal"]["proposal_id"] = environment_identity_digest(
+                attempt_id=evidence.attempt.attempt_id,
+                project_plan_digest=evidence.project_plan.semantic_digest,
+                environment_plan_digest=forged_plan.semantic_digest,
+                graph=evidence.proposal.resolved_graph,
+            )
+            forged_prep = StaticPreparationEvidence.model_validate(forged)
+            scope = cache.snapshot(cell)
+            payload = scope.model_dump(mode="json")
+            payload["preparations"][0]["preparation"] = forged_prep.model_dump(mode="json")
+            with pytest.raises(ValueError, match="resolution request mismatch"):
+                _admit_saved_static_audit(type(scope).model_validate(payload))
+        finally:
+            highest.close()
+            if "lower" in locals() and isinstance(lower, PreparedEnvironment):
+                lower.close()
+            if "exact" in locals() and isinstance(exact, PreparedEnvironment):
+                exact.close()
+            cache.close()
+            project.snapshot.close()
 
 
 class TestRuntimeEvaluator:

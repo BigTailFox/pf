@@ -13,8 +13,10 @@ from pf.environment import HighestResolution, LowestDirectResolution, PreparedEn
 from pf.evaluation import StagePermitPools
 from pf.static import CollectedStaticSubject, StaticEvaluator
 from pf.schemas.evaluation import ToolFailure, TyCheck, VerifierRun, VerifierPass, NormalExit, VerifierDiagnostics
+from pf.schemas.project import VersionPin
 from pf.schemas.static import StaticContentUnavailable
 from pf.static import TyCheckCache
+from test_static_cache import _signal_when_waiter_awaits_pending
 
 
 @pytest.fixture
@@ -52,12 +54,6 @@ class TestStaticConsumerOwnership:
         entered, joined, release, action_entered = Event(), Event(), Event(), Event()
         calls = []
 
-        class Cache(TyCheckCache):
-            def collect(self, preparation, policy, operation, *, revalidate):
-                if preparation.proposal == waiter.proposal:
-                    joined.set()
-                return super().collect(preparation, policy, operation, revalidate=revalidate)
-
         class Ty:
             def observe(self, request, *, cancellation=None):
                 calls.append(request)
@@ -81,10 +77,11 @@ class TestStaticConsumerOwnership:
                 assert run.evaluation.proposal == environment.proposal
 
         try:
-            with Cache() as cache, ThreadPoolExecutor(max_workers=3) as pool:
+            with TyCheckCache() as cache, ThreadPoolExecutor(max_workers=3) as pool:
                 first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
                 try:
                     assert entered.wait(5)
+                    _signal_when_waiter_awaits_pending(cache, joined)
                     second = pool.submit(static.collect_prepared, waiter, package=project.package, run_cache=cache)
                     assert joined.wait(5)
                     consumed = pool.submit(consume)
@@ -164,12 +161,6 @@ class TestStaticConsumerOwnership:
         entered, joined, release = Event(), Event(), Event()
         calls = []
 
-        class Cache(TyCheckCache):
-            def collect(self, preparation, policy, operation, *, revalidate):
-                if preparation.proposal == waiter.proposal:
-                    joined.set()
-                return super().collect(preparation, policy, operation, revalidate=revalidate)
-
         class Ty:
             def observe(self, request, *, cancellation=None):
                 calls.append(request)
@@ -178,10 +169,11 @@ class TestStaticConsumerOwnership:
                 return TyCheck(process=successful_process(), diagnostics=())
 
         static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv))
-        with Cache() as cache, ThreadPoolExecutor(max_workers=2) as pool:
+        with TyCheckCache() as cache, ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
             try:
                 assert entered.wait(5)
+                _signal_when_waiter_awaits_pending(cache, joined)
                 second = pool.submit(static.collect_prepared, waiter, package=project.package, run_cache=cache)
                 assert joined.wait(5)
                 (waiter.proposal_root / "changed.txt").write_text("external change while joining")
@@ -228,12 +220,6 @@ class TestStaticConsumerOwnership:
         entered, joined, trigger, cleanup_started, finish_cleanup, cleaned = (Event() for _ in range(6))
         calls = []
 
-        class Cache(TyCheckCache):
-            def collect(self, preparation, policy, operation, *, revalidate):
-                if preparation.proposal == waiter.proposal:
-                    joined.set()
-                return super().collect(preparation, policy, operation, revalidate=revalidate)
-
         class Ty:
             def observe(self, request, *, cancellation=None):
                 assert cancellation is not None
@@ -254,10 +240,11 @@ class TestStaticConsumerOwnership:
                     cleaned.set()
 
         static = StaticEvaluator(Ty(), processes=ScriptedProcessRunner(assembly.uv), permits=StagePermitPools(ty_jobs=1, test_jobs=1))
-        with Cache() as cache, ThreadPoolExecutor(max_workers=4) as pool:
+        with TyCheckCache() as cache, ThreadPoolExecutor(max_workers=4) as pool:
             first = pool.submit(static.collect_prepared, owner, package=project.package, run_cache=cache)
             try:
                 assert entered.wait(5)
+                _signal_when_waiter_awaits_pending(cache, joined)
                 second = pool.submit(static.collect_prepared, waiter, package=project.package, run_cache=cache)
                 assert joined.wait(5)
                 closing = pool.submit(owner.close)
@@ -301,3 +288,53 @@ class TestStaticConsumerOwnership:
             else:
                 retry = static.collect_prepared(owner, package=project.package, run_cache=cache)
                 assert isinstance(retry, StaticContentUnavailable)
+
+    def test_public_collect_recovers_after_unmodeled_lower_exception(self, tmp_path):
+        project = evaluation_project(tmp_path, dependency="demo-dep")
+        assembly = evaluation_assembly(
+            highest=(VersionPin(name="demo-dep", version="3"),),
+            lowest=(VersionPin(name="demo-dep", version="1"),),
+        )
+        owner = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
+            source_plan=project.source_plan, resolution=HighestResolution(),
+        )
+        assert isinstance(owner, PreparedEnvironment)
+        waiter = assembly.environments.prepare(
+            package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
+            source_plan=project.source_plan, resolution=LowestDirectResolution(owner.harness_baseline),
+        )
+        assert isinstance(waiter, PreparedEnvironment)
+        calls: list[str] = []
+
+        class Ty:
+            def observe(self, request, *, cancellation=None):
+                calls.append(request.preparation.proposal.proposal_id)
+                if len(calls) == 1:
+                    raise ValueError("unmodeled lower ty error")
+                return TyCheck(process=successful_process(), diagnostics=())
+
+        static = StaticEvaluator(
+            Ty(), processes=ScriptedProcessRunner(assembly.uv),
+            permits=StagePermitPools(ty_jobs=1, test_jobs=1),
+        )
+        try:
+            with TyCheckCache() as cache:
+                first = static.collect_prepared(waiter, package=project.package, run_cache=cache)
+                assert isinstance(first, StaticContentUnavailable)
+                assert first.detail == "invalid-layout"
+                other = static.collect_prepared(owner, package=project.package, run_cache=cache)
+                assert isinstance(other, CollectedStaticSubject)
+                retry = static.collect_prepared(waiter, package=project.package, run_cache=cache)
+                assert isinstance(retry, CollectedStaticSubject)
+                assert calls == [
+                    waiter.proposal.proposal_id,
+                    owner.proposal.proposal_id,
+                    waiter.proposal.proposal_id,
+                ]
+                assert owner.environment_root.exists() and waiter.environment_root.exists()
+                assert owner.closed is False and waiter.closed is False
+        finally:
+            owner.close()
+            waiter.close()
+            project.snapshot.close()

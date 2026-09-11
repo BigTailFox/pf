@@ -84,20 +84,13 @@ from pf.schemas.evaluation import (
     VerifierRejectedEvaluation,
 )
 from pf.schemas.project import (
-    AvailableArtifact,
-    Candidate,
-    CandidateSnapshot,
     Cell,
     PackagePlan,
     Proposal,
     RequirementDeclaration,
-    SelectedCandidate,
-    SourceIdentity,
     SourcePlan,
     SourceSnapshotIdentity,
     VersionPin,
-    candidate_snapshot_digest,
-    selected_candidate_evidence_digest,
     source_snapshot_digest,
 )
 from pf.schemas.config import EffectiveConfig
@@ -113,7 +106,6 @@ from pf.schemas.report import (
     failure_records_for_result,
 )
 from pf.terminal import CellPresentation, PF_THEME, TerminalPresenter
-from pf.search_space import SpaceSelection
 from pf.workflow import ExplainCommandResult, MergeCommandResult, SearchCommandResult
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -372,69 +364,6 @@ def attempt_for(
             ),
         )
     )
-
-
-def candidate_snapshot_for(
-    cell: Cell,
-    *,
-    dependency: str,
-    baseline_version: str,
-    candidate_version: str,
-) -> tuple[CandidateSnapshot, str]:
-    def artifact(version: str) -> AvailableArtifact:
-        return AvailableArtifact(
-            filename=f"{dependency}-{version}-py3-none-any.whl",
-            kind="wheel",
-            content_hash=f"sha256:{version[-1] * 64}",
-            locator=(
-                f"https://files.example/{dependency}-{version}-py3-none-any.whl"
-            ),
-        )
-
-    baseline_selection = SelectedCandidate(
-        dependency=dependency,
-        version=baseline_version,
-        artifact=artifact(baseline_version),
-    )
-    selected = SelectedCandidate(
-        dependency=dependency,
-        version=candidate_version,
-        artifact=artifact(candidate_version),
-    )
-    candidate = Candidate(
-        version=candidate_version,
-        series_key=candidate_version,
-        artifact=selected.artifact,
-    )
-    candidates = (candidate,)
-    representatives = ((candidate.series_key, candidate.version),)
-    selection = SpaceSelection("all", "explicit", ())
-    source = SourceIdentity(kind="registry")
-    snapshot = CandidateSnapshot(
-        dependency=dependency,
-        cell=cell,
-        policy_identity="candidate-policy",
-        source_plan_identity="sources",
-        source=source,
-        baseline_selection=baseline_selection,
-        candidates=candidates,
-        series_representatives=representatives,
-        selection=selection,
-        series_inventory=None,
-        digest=candidate_snapshot_digest(
-            dependency=dependency,
-            cell=cell,
-            policy_identity="candidate-policy",
-            source_plan_identity="sources",
-            source=source,
-            baseline_selection=baseline_selection,
-            candidates=candidates,
-            series_representatives=representatives,
-            selection=selection,
-            series_inventory=None,
-        ),
-    )
-    return snapshot, selected_candidate_evidence_digest((selected,))
 
 
 def verifier_failure(attempt: Attempt, *, exit_code: int = 1) -> FailureRecord:

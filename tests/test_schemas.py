@@ -59,7 +59,6 @@ from pf.schemas.evaluation import (
     Unavailable,
     VerifierRejected,
     VerifierRejectedEvaluation,
-    process_facts_match,
 )
 from pf.schemas.project import (
     AvailableArtifact,
@@ -1266,14 +1265,6 @@ class TestEvaluationSchemas:
                 harness_policy_identity="harness-relaxation-v1",
                 harness_baseline_digest="baseline",
             )
-
-
-    def test_process_facts_match_requires_matching_presence(self) -> None:
-        assert process_facts_match(None, None) is True
-        assert process_facts_match(_successful_process(), None) is False
-
-
-
 
 
     @pytest.mark.parametrize(

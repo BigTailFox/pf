@@ -107,8 +107,6 @@ class _CliConsole(Console):
         return ConsoleDimensions(min(measured.width, _MAX_CLI_WIDTH), measured.height)
 
 
-_INFRA_REASONS = frozenset({"INDETERMINATE", "BASELINE_REJECTION"})
-
 _ICONS = {
     "success": "✓",
     "failure": "✗",
@@ -121,19 +119,6 @@ _RESULT_STYLES: dict[OutcomeKind, str] = {
     "warning": "bold yellow",
     "indeterminate": "bold yellow",
 }
-
-
-def _outcome_card(
-    lines: tuple[RenderableType, ...] | list[RenderableType],
-    *,
-    kind: OutcomeKind,
-) -> Panel:
-    return Panel(
-        Group(*lines),
-        box=box.ROUNDED,
-        border_style=outcome_border_style(kind),
-        padding=(0, 1),
-    )
 
 
 def _result_card(
@@ -1108,19 +1093,6 @@ class TerminalPresenter:
             self.stdout.print(_cell_outcome_card(lines, kind=presentation.kind))
             return
         self.stdout.print(_plain_cell_result(lines, kind=presentation.kind))
-
-    def _render_explain_overview(
-        self,
-        lines: tuple[Text, ...],
-        *,
-        kind: OutcomeKind,
-    ) -> None:
-        """Render the report overview with the shared outcome-card theme."""
-        if self.stdout.is_terminal:
-            self.stdout.print(_outcome_card(lines, kind=kind))
-            return
-        for line in lines:
-            self.stdout.print(line)
 
     def _cell_result_lines(
         self,

@@ -112,6 +112,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 | 文档 | 当前跟踪范围 |
 | --- | --- |
+| [P049](plans/P049-pf-test-governance-cleanup.md) | 遗留代码与测试材料清理、测试消费者及断言治理、现行静态准入与恢复补测；S0–S5 本机完成；T3/T5 CLI 为未实现偏差；AC6 待提交后的 Ubuntu CI，未归档 |
 | [R010](reviews/R010-pf-engineering-document-audit.md) | §4 工程事项：ty × Python / 真实 host 资格、targeted-runtime-contract floor；§2 已关闭 |
 | [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
 | [R008](reviews/R008-pf-search-performance-review.md) | 2026-09-08 重评：hints/single-flight/materialize/xdist 与当前 HEAD 分阶段基线；region/preflight 已撤销 |

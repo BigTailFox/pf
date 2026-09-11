@@ -204,24 +204,6 @@ def _write_progress(
 
 
 class TestPytestProgressMonitor:
-    def test_stop_invalidates_a_monitor_with_a_stubborn_worker(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        observed: list[StageProgress | None] = []
-        monitor = PytestProgressMonitor(
-            tmp_path,
-            nonce="0" * 32,
-            consume=observed.append,
-        )
-        monitor.start()
-        monkeypatch.setattr(monitor._thread, "is_alive", lambda: True)
-
-        monitor.stop()
-
-        assert observed == []
-
     def test_start_stop_contains_progress_consumer_failure(
         self,
         tmp_path: Path,

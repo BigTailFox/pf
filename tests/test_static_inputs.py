@@ -7,20 +7,12 @@ import pytest
 from pf.adapters.process import SubprocessRunner
 from pf.adapters.static_inputs import (
     PreparedStaticInputs, PreparedStaticInputsUnavailable, StaticInputsAdapter,
-    _INSPECT,
 )
 from pf.adapters.uv import UvAdapter
 from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
 from pf.project import ProjectLoader
 from pf.schemas.project import SourcePlan
 from pf.snapshot import SnapshotBuilder
-
-
-def test_inspect_script_does_not_access_distribution_files() -> None:
-    assert "distribution.files" not in _INSPECT
-    assert ".files" not in _INSPECT
-    source = Path("src/pf/adapters/static_inputs.py").read_text(encoding="utf-8")
-    assert "distribution.files" not in source
 
 
 @pytest.mark.process

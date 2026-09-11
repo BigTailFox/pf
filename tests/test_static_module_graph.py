@@ -3,10 +3,14 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from pf.static.audit import _admit_saved_static_audit
 from pf.static.comparison import derive_static_comparison
 from pf.static.guidance import locate_static_hint
 
+
+pytestmark = pytest.mark.infra
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "src" / "pf" / "schemas"
@@ -36,10 +40,6 @@ _REPLAY_NAMES = {
     "resolution_projection",
     "subject_interpreter",
 }
-
-
-def _module_name(path: Path) -> str:
-    return "pf.schemas." + ".".join(path.relative_to(SCHEMAS).with_suffix("").parts)
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -117,6 +117,22 @@ def test_admit_uses_shared_derive_and_hint() -> None:
     ]
     assert second_derive == []
     assert second_hint == []
+    evaluator = ast.parse((STATIC_PKG / "evaluator.py").read_text())
+    called_eval: set[str] = set()
+    for node in ast.walk(evaluator):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                called_eval.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                called_eval.add(node.func.attr)
+    methods = {
+        node.name for node in ast.walk(evaluator) if isinstance(node, ast.FunctionDef)
+    }
+    assert "compare_global" in methods
+    assert called_eval.issuperset({"compare_global", "compare_document"})
+    audit = (STATIC_PKG / "audit.py").read_text()
+    assert "derive_static_comparison" in audit or "compare_static_document" in audit
+    assert "locate_static_hint" in audit
 
 
 SRC = ROOT / "src" / "pf"
@@ -233,49 +249,13 @@ def test_product_callers_import_only_public_static_names() -> None:
 
 
 def test_search_has_no_handwritten_slice() -> None:
-    source = (SRC / "search.py").read_text()
-    tree = ast.parse(source)
+    tree = ast.parse((SRC / "search.py").read_text())
     classes = {
         node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
     }
     assert "StaticSliceCollector" in _imported_from(tree, "pf.static")
     assert "_RunnerStaticSlice" not in classes
     assert "StaticPoint" not in _imported_from(tree, "pf.static")
-    assert "RunStaticConsumerRef" not in source
-    assert "RunStaticPassRef" not in source
-    assert "static.open_slice(" in source or "self._static.open_slice(" in source
-
-
-def test_derive_and_hint_have_one_implementation() -> None:
-    evaluator = ast.parse((STATIC_PKG / "evaluator.py").read_text())
-    called: set[str] = set()
-    for node in ast.walk(evaluator):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                called.add(node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                called.add(node.func.attr)
-    methods = {
-        node.name for node in ast.walk(evaluator) if isinstance(node, ast.FunctionDef)
-    }
-    assert "compare_global" in methods
-    assert called.issuperset({"compare_global", "compare_document"})
-    assert "locate_static_hint" in (STATIC_PKG / "guidance.py").read_text()
-    audit = (STATIC_PKG / "audit.py").read_text()
-    assert "derive_static_comparison" in audit or "compare_static_document" in audit
-    assert "locate_static_hint" in audit
-    second_derive = [
-        path for path in SRC.rglob("*.py")
-        if path != STATIC_PKG / "comparison.py"
-        and "def derive_static_comparison" in path.read_text()
-    ]
-    second_hint = [
-        path for path in SRC.rglob("*.py")
-        if path != STATIC_PKG / "guidance.py"
-        and "def locate_static_hint" in path.read_text()
-    ]
-    assert second_derive == []
-    assert second_hint == []
 
 
 def test_no_test_only_public_static_exports() -> None:

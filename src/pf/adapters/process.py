@@ -137,10 +137,6 @@ class SecretRedactor:
             return len(text)
         return 0
 
-    def overlap_bytes(self) -> int:
-        longest = max((len(secret.encode("utf-8")) for secret in self._secrets), default=0)
-        return max(longest, 256)
-
 
 def read_process_output(runner: object, result: ProcessResult) -> ProcessOutput:
     """Return stdout/stderr from a runner cache, Process Log, or result projection."""
@@ -148,26 +144,6 @@ def read_process_output(runner: object, result: ProcessResult) -> ProcessOutput:
     if callable(reader):
         return reader(result)
     return ProcessOutput(stdout=result.stdout, stderr=result.stderr)
-
-
-def project_output_cache(
-    stdout: str,
-    stderr: str,
-    *,
-    limit: int = OUTPUT_CACHE_LIMIT,
-) -> tuple[str, str]:
-    """Keep a tail-preferring projection whose UTF-8 size is at most *limit*."""
-    stdout_bytes = stdout.encode("utf-8")
-    stderr_bytes = stderr.encode("utf-8")
-    stdout_budget, stderr_budget = _cache_budgets(
-        len(stdout_bytes),
-        len(stderr_bytes),
-        limit,
-    )
-    return (
-        _decode_tail(stdout_bytes, stdout_budget),
-        _decode_tail(stderr_bytes, stderr_budget),
-    )
 
 
 def _cache_budgets(stdout_len: int, stderr_len: int, limit: int) -> tuple[int, int]:

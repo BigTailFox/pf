@@ -23,11 +23,6 @@ class PfError(Exception):
         self.detail = detail
 
 
-class CompatibilityError(PfError):
-    category = "compatibility"
-    exit_code = ExitCode.COMPATIBILITY_FAILED
-
-
 class NoApplicableFloorError(PfError):
     category = "no-applicable-floor"
     exit_code = ExitCode.NO_APPLICABLE_FLOOR

@@ -3,18 +3,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from runpy import run_path
 import subprocess
 import sys
-from typing import Any, Callable, cast
+from typing import Any
 
 import pytest
 
 
 pytestmark = pytest.mark.qualification
-
-SCRIPT = run_path("scripts/qualify_static_guidance.py")
-CONTROLLED = cast(Callable[..., dict[str, Any]], SCRIPT["qualify_controlled"])
 
 
 def assert_controlled(record: dict[str, Any]) -> None:

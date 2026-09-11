@@ -109,17 +109,6 @@ def _emit_files(tmp_path: Path, stdout: str = "", stderr: str = "") -> Path:
     return script
 
 
-class _ExactOverlapRedactor(SecretRedactor):
-    """Keep only a short overlap so keep/pending can split a secret or URL."""
-
-    def __init__(self, secrets: tuple[str, ...] = (), overlap: int = 8) -> None:
-        super().__init__(secrets)
-        self._overlap = overlap
-
-    def overlap_bytes(self) -> int:
-        return self._overlap
-
-
 class TestSubprocessRunner:
     @pytest.mark.parametrize("terminal_values", [False, True], ids=["empty", "terminal"])
     def test_explicit_environment_reaches_process_without_host_inputs(
@@ -769,7 +758,7 @@ class TestStreamRedaction:
         secret = "top-secret-token"
         chunk = 24
         monkeypatch.setattr(process_module, "_STREAM_CHUNK_SIZE", chunk)
-        redactor = _ExactOverlapRedactor((secret,))
+        redactor = SecretRedactor((secret,))
         payload = ("P" * offset) + secret + "END"
         logs = _ChunkLog(tmp_path)
         runner = SubprocessRunner(redactor=redactor, logs=logs)
@@ -805,7 +794,7 @@ class TestStreamRedaction:
             "at": (2 * chunk) - url.index("@") - 1,
         }[split]
         payload = ("U" * prefix_length) + url
-        redactor = _ExactOverlapRedactor(overlap=8)
+        redactor = SecretRedactor()
         logs = _ChunkLog(tmp_path)
         runner = SubprocessRunner(redactor=redactor, logs=logs)
         result = runner.run(
@@ -830,7 +819,7 @@ class TestStreamRedaction:
         monkeypatch.setattr(process_module, "_STREAM_CHUNK_SIZE", 16)
         secret = "top-secret-token"
         payload = ("€" * 20) + secret + "Ω"
-        redactor = _ExactOverlapRedactor((secret,), overlap=8)
+        redactor = SecretRedactor((secret,))
         logs = _ChunkLog(tmp_path)
         runner = SubprocessRunner(redactor=redactor, logs=logs)
         runner.run(
@@ -855,7 +844,7 @@ class TestStreamRedaction:
         short = "secret-token"
         long = "supersecret-token"
         payload = f"pre {long} mid {short} end"
-        redactor = _ExactOverlapRedactor((short, long), overlap=8)
+        redactor = SecretRedactor((short, long))
         logs = _ChunkLog(tmp_path)
         runner = SubprocessRunner(redactor=redactor, logs=logs)
         result = runner.run(
@@ -886,7 +875,7 @@ class TestStreamRedaction:
         monkeypatch.setattr(process_module, "_STREAM_CHUNK_SIZE", 32)
         secret = "stderr-secret-token"
         payload = ("E" * 28) + secret
-        redactor = _ExactOverlapRedactor((secret,), overlap=8)
+        redactor = SecretRedactor((secret,))
         store = RunLogStore(root=tmp_path, run_id="redact-run")
         runner = SubprocessRunner(redactor=redactor, logs=store)
         result = runner.run(

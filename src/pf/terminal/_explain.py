@@ -405,17 +405,6 @@ def _cell_key(cell: Cell) -> tuple[str, str, str, tuple[str, ...]]:
     return (cell.package, cell.python_minor, cell.target, cell.extra_surface)
 
 
-def _report_kind(report: ValidatedReport) -> OutcomeKind:
-    if report.result.status == "complete":
-        return "success"
-    reasons = set(report.result.reasons)
-    if "BASELINE_REJECTION" in reasons:
-        return "failure"
-    if "INDETERMINATE" in reasons:
-        return "indeterminate"
-    return "warning"
-
-
 def _summary_kind(
     *,
     complete: bool,

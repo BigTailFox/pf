@@ -240,10 +240,6 @@ def result_stage_text(stage: str, *, content_style: str) -> Text:
     return value
 
 
-def cell_identity_title(identity: CellDetailIdentity) -> str:
-    return cell_identity_text(identity).plain
-
-
 def completed_packages_text(
     completed_packages: tuple[VersionPin, ...],
     *,

@@ -9,9 +9,6 @@ from pf.resolution import UV_DIAGNOSTIC_PROFILES
 from pf.schemas.evaluation import FailureCause, ProcessResult
 
 
-UV_DIAGNOSTIC_SHAPE_SET = "uv-resolution-stderr-shapes-v1"
-
-
 @dataclass(frozen=True)
 class UvResolutionClassification:
     kind: Literal["unsat", "indeterminate"]

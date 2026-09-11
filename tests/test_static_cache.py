@@ -19,10 +19,21 @@ from pf.static import TyCheckCache
 from pf.ty_fact import ty_fact_document
 
 
+def _signal_when_waiter_awaits_pending(cache: TyCheckCache, joined: Event) -> None:
+    pending = next(iter(cache._pending.values()))
+    original = pending.result.result
+
+    def result(timeout=None):
+        joined.set()
+        return original(timeout)
+
+    pending.result.result = result  # type: ignore[method-assign]
+
+
 class TestRunTyCache:
     @pytest.mark.parametrize("failed", [False, True])
     def test_overlapping_consumers_share_one_actual_terminal(self, preparation, static_subject, policy, failed):
-        entered, release = Event(), Event()
+        entered, release, joined = Event(), Event(), Event()
         cache = TyCheckCache()
         calls = []
         process = ProcessResult(exit_code=2 if failed else 0, duration_seconds=1)
@@ -41,7 +52,9 @@ class TestRunTyCache:
             try:
                 assert entered.wait(5)
                 assert isinstance(cache.lookup(static_subject, policy), CacheMiss)
+                _signal_when_waiter_awaits_pending(cache, joined)
                 waiters = [pool.submit(cache.collect, preparation, policy, observe, revalidate=lambda: True) for _ in range(2)]
+                assert joined.wait(5)
             finally:
                 release.set()
             result = owner.result(5)
@@ -119,7 +132,7 @@ class TestRunTyCache:
 
     def test_unmodeled_exception_wakes_consumers_and_allows_retry(self, preparation, static_subject, policy):
         cache = TyCheckCache()
-        entered, release = Event(), Event()
+        entered, release, joined = Event(), Event(), Event()
         calls = []
         fail = True
 
@@ -137,7 +150,9 @@ class TestRunTyCache:
             owner = pool.submit(cache.collect, preparation, policy, observe, revalidate=lambda: True)
             try:
                 assert entered.wait(5)
+                _signal_when_waiter_awaits_pending(cache, joined)
                 waiter = pool.submit(cache.collect, preparation, policy, observe, revalidate=lambda: True)
+                assert joined.wait(5)
             finally:
                 release.set()
             owner_result = owner.result(5)
@@ -645,3 +660,58 @@ class TestSearchAuditLedger:
         skip = _direct_bound_skip(scope, floor="3", predecessor=None)
         assert skip.predecessor_failure_id is None
         assert skip.window == ("3",)
+
+    def test_illegal_record_rolls_back_then_legal_record_succeeds(self, tmp_path, run_cache):
+        from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
+        from pf.schemas.evaluation import NormalExit, TyDiagnostic, VerifierDiagnostics, VerifierPass, VerifierRejected, VerifierRun
+        from pf.schemas.report import CellSuccess
+
+        diagnostic = TyDiagnostic(
+            identity="snapshot|src/demo/__init__.py|1|1|example", origin="snapshot",
+            path="src/demo/__init__.py", line=1, column=1, code="example",
+            severity="error", message="static suspicion",
+        )
+
+        def ty(vector, call):
+            version = int(vector[0].version)
+            regression = version < 3
+            return TyCheck(
+                process=successful_process(exit_code=1 if regression else 0),
+                diagnostics=(diagnostic,) if regression else (),
+            )
+
+        def verifier(vector, call):
+            version = int(vector[0].version)
+            return VerifierRun(
+                authoritative=(
+                    VerifierPass(terminal=NormalExit(exit_code=0)) if version >= 2
+                    else VerifierRejected(terminal=NormalExit(exit_code=1))
+                ),
+                diagnostics=VerifierDiagnostics(process=successful_process(exit_code=0 if version >= 2 else 1)),
+            )
+
+        project = evaluation_project(tmp_path)
+        assembly = evaluation_assembly(ty_handler=ty, verifier_handler=verifier)
+        try:
+            result = assembly.coordinator.search(
+                run_cache=run_cache, package=project.package, cell=project.package.cells[0],
+                snapshot=project.snapshot, source_plan=project.source_plan,
+            )
+            assert isinstance(result, CellSuccess)
+            scope = run_cache.snapshot(project.package.cells[0])
+            original = scope.searches
+            assert original
+            before = [item.model_dump_json() for item in original]
+            illegal = original[0].model_copy(update={"reason": "anchor-unavailable"})
+            with pytest.raises(ValueError, match="static search"):
+                run_cache.record_search(illegal)
+            rolled = run_cache.snapshot(project.package.cells[0])
+            assert [item.model_dump_json() for item in rolled.searches] == before
+            legal_ref = run_cache.record_search(original[0])
+            assert legal_ref
+            admitted = run_cache.snapshot(project.package.cells[0])
+            assert len(admitted.searches) == len(original) + 1
+            assert admitted.searches[-1].ref == legal_ref
+            assert run_cache.admitted_membership(project.package.cells[0]) is not None
+        finally:
+            project.snapshot.close()

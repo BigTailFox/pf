@@ -170,11 +170,10 @@ class TestStaticJournal:
         record_property("journal_bytes", len(first))
         assert isinstance(caches[0].lookup(cache.entries[0].document.subject, cache.entries[0].document.observation_policy), CacheMiss)
 
-    @pytest.mark.parametrize("field", INTERN_FIELDS)
-    def test_reader_rejects_old_intern_tables(self, tmp_path: Path, field):
+    def test_reader_rejects_an_unknown_intern_table(self, tmp_path: Path):
         store, journal, path = _write_current_journal(tmp_path)
         document = json.loads(path.read_text())
-        document[field] = []
+        document["static_facts"] = []
         path.write_text(json.dumps(document))
         with pytest.raises(JournalReadError) as caught:
             store.read_journal(journal.run_id)

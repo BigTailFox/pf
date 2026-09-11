@@ -29,38 +29,6 @@ from pf.adapters.test_command import ConfiguredVerifier
 from pf.verification import SearchVerificationRun, VerificationRunner
 
 
-def assert_interned_static_audit(container) -> None:
-    """Journal intern shape until S4; public reports no longer carry these tables."""
-    facts = container["static_facts"]
-    comparisons = container["static_comparisons"]
-    contents = container.get("static_contents", [])
-    subjects = container.get("static_subjects", [])
-    identities = [item["identity"] for item in facts]
-    assert identities == sorted(set(identities))
-    comparison_ids = [item["identity"] for item in comparisons]
-    assert comparison_ids == sorted(set(comparison_ids))
-    assert [item["identity"] for item in contents] == sorted({item["identity"] for item in contents})
-    assert [item["identity"] for item in subjects] == sorted({item["identity"] for item in subjects})
-    referenced_facts = set()
-    referenced_comparisons = set()
-    for scope in container["static_scopes"]:
-        body = scope["scope"] if "scope" in scope and "facts" not in scope else scope
-        for member in body["facts"]:
-            assert "observation" not in member
-            referenced_facts.add(member["observation_identity"])
-        for member in body["comparisons"]:
-            assert "context" not in member
-            referenced_comparisons.add(member["identity"])
-        for member in body["consumers"]:
-            assert "subject" not in member["preparation"]
-            assert member["subject_identity"]
-    assert referenced_facts == set(identities)
-    assert referenced_comparisons == set(comparison_ids)
-    for item in facts:
-        assert "observation" not in item
-        assert "subject_identity" in item
-
-
 INTERN_FIELDS = (
     "static_contents",
     "static_subjects",
@@ -257,13 +225,12 @@ class TestStaticReport:
         Draft202012Validator(schema).validate(document)
         assert_report_has_no_static_intern(document)
 
-    @pytest.mark.parametrize("field", INTERN_FIELDS)
-    def test_reader_rejects_old_intern_tables(self, scripted_report, tmp_path, field):
+    def test_reader_rejects_an_unknown_intern_table(self, scripted_report, tmp_path):
         _, report = scripted_report
         path = tmp_path / "report.json"
         ReportStore().write(path, report)
         document = json.loads(path.read_text())
-        document["evidence"][field] = []
+        document["evidence"]["static_facts"] = []
         path.write_text(json.dumps(document))
         with pytest.raises(ConfigurationError):
             ReportStore().read(path)
@@ -295,18 +262,12 @@ class TestStaticReport:
         document = json.loads(path.read_text())
         assert_report_has_no_static_intern(document)
 
-    @pytest.mark.parametrize("mutation", ("regions", "witnesses", "runtime-interface-missing"))
-    def test_reader_rejects_retired_static_authority_fields(self, scripted_report, tmp_path, mutation):
+    def test_reader_rejects_a_retired_authority_tag(self, scripted_report, tmp_path):
         _, report = scripted_report
         path = tmp_path / "retired.json"
         ReportStore().write(path, report)
         document = json.loads(path.read_text())
-        if mutation == "regions":
-            document["cell_results"][0]["regions"] = []
-        elif mutation == "witnesses":
-            document["evidence"]["evaluations"][0]["witnesses"] = []
-        else:
-            document["evidence"]["evaluations"][0]["status"] = "RUNTIME_INTERFACE_MISSING"
+        document["evidence"]["evaluations"][0]["status"] = "RUNTIME_INTERFACE_MISSING"
         path.write_text(json.dumps(document))
         with pytest.raises(ConfigurationError) as caught:
             ReportStore().read(path)

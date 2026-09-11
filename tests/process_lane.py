@@ -21,10 +21,6 @@ class ProcessLaneViolation(RuntimeError):
     """An unmarked test entered a real uv/ty/pytest/pf process."""
 
 
-def current_item() -> pytest.Item | None:
-    return _CURRENT_ITEM
-
-
 @contextmanager
 def using_item(item: pytest.Item) -> Iterator[None]:
     global _CURRENT_ITEM

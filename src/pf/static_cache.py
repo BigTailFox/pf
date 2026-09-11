@@ -583,11 +583,6 @@ class TyCheckCache:
                 ),
             )
 
-    def find_consumer(self, proposal: Proposal) -> RunStaticConsumerRef | None:
-        with self._condition:
-            return next((item for item in self._consumers.values()
-                         if item.preparation.proposal == proposal and self._admits_consumer(item)), None)
-
     def local_comparisons(
         self, anchor: _DirectPassEntry, *,
         context: SliceComparisonContext, guidance: GuidancePolicy,

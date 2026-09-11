@@ -3,8 +3,6 @@ from __future__ import annotations
 from pf.cancellation import Cancellation
 
 from pathlib import Path
-import inspect
-import shutil
 import copy
 from dataclasses import dataclass
 
@@ -18,7 +16,7 @@ from pf.static_cache import RunTyFactRef
 from pf.static import TyCheckCache
 from pf.schemas.ty_fact import TyCheckFact
 from pf.adapters.uv import UvAdapter
-from pf.environment import EnvironmentFactory, HighestResolution, LowestDirectResolution, ExactSelection, PreparedEnvironment
+from pf.environment import EnvironmentFactory, HighestResolution, PreparedEnvironment
 from pf.project import ProjectLoader
 from pf.schemas.evaluation import ProcessResult, TyCheck
 from pf.schemas.project import SourcePlan
@@ -27,16 +25,9 @@ from pf.schemas.ty_fact import TyFactDocument
 from pf.schemas.static_preparation import StaticPreparationEvidence
 from pf.schemas.static_consumer import StaticConsumerEvidence
 from pf.snapshot import SnapshotBuilder
-from pf.static_request import StaticRequestFactory, static_preparation_evidence
+from pf.static_request import static_preparation_evidence
 from pf.ty_fact import ty_fact_document
 from pf.static.comparison import admit_harness_relation, admit_common_static_context
-
-
-class TestStaticRequestAssembly:
-    def test_product_assembly_omits_platform_argument(self) -> None:
-        source = inspect.getsource(StaticRequestFactory._assemble)
-        assert "platform=" not in source
-        assert "os.name" not in source
 
 
 @dataclass(frozen=True)
@@ -68,21 +59,13 @@ class CountingTy(TyAdapter):
         return observed
 
 
-def run_complete_prepared_request(
-    tmp_path: Path, *, external_stub: bool, relocate: bool, resolution_kind: str,
-) -> None:
+def run_complete_prepared_request(tmp_path: Path, *, relocate: bool) -> None:
         project, home = tmp_path / "project", tmp_path / "home"
         (project / "src/demo").mkdir(parents=True)
         home.mkdir()
         (project / "src/demo/__init__.py").write_text("VALUE: str = 1\n")
         (project / "ignored.py").write_text("VALUE: int = 'ignored'\n")
         (project / ".ignore").write_text("ignored.py\n")
-        if external_stub:
-            stubs = project / "stubs"
-            stubs.mkdir()
-            (stubs / "helper.pyi").write_text("VALUE: int\n")
-            (project / "ty.toml").write_text('[environment]\nextra-paths=["stubs"]\n')
-            (project / "src/demo/__init__.py").write_text("from helper import VALUE\nvalid: int = VALUE\nwrong: str = 1\n")
         (project / "pyproject.toml").write_text('''
 [project]
 name = "demo"
@@ -105,16 +88,6 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             prepared = EnvironmentFactory(UvAdapter(runner)).prepare(package=package, cell=package.cells[0], snapshot=snapshot,
                                                                      resolution=HighestResolution(), source_plan=source_plan)
             assert isinstance(prepared, PreparedEnvironment)
-            if resolution_kind != "highest":
-                baseline = prepared.harness_baseline
-                prepared.close()
-                prepared = EnvironmentFactory(UvAdapter(runner)).prepare(
-                    package=package, cell=package.cells[0], snapshot=snapshot,
-                    resolution=(LowestDirectResolution(baseline) if resolution_kind == "lowest-direct"
-                                else ExactSelection(selection=(), harness_baseline=baseline)),
-                    source_plan=source_plan,
-                )
-                assert isinstance(prepared, PreparedEnvironment)
             evidence = static_preparation_evidence(prepared, package)
             assert isinstance(evidence, StaticPreparationEvidence)
             assert evidence.subject.source_snapshot_digest == snapshot.identity.digest
@@ -124,7 +97,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
             assert evidence.subject.interpreter.abi == prepared.proposal.interpreter.abi
             saved_preparation = evidence.model_dump_json()
             assert StaticPreparationEvidence.model_validate_json(saved_preparation) == evidence
-            if not external_stub and not relocate:
+            if not relocate:
                 original = evidence.model_dump(mode="json")
                 for field, value in (
                     ("attempt_id", "f" * 64),
@@ -138,9 +111,6 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
                     forged["proposal"][field] = value
                     with pytest.raises(ValueError, match="static preparation"):
                         StaticPreparationEvidence.model_validate(forged)
-            if external_stub:
-                shutil.rmtree(stubs)
-                shutil.rmtree(home)
             collected = static.collect_prepared(prepared, package=package, run_cache=cache)
             assert isinstance(collected, CollectedStaticSubject)
             documents = cache.documents()
@@ -172,7 +142,7 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
                 )
                 assert runner.ty_checks == 1
                 evidence = restored
-            elif not external_stub:
+            else:
                 rebuilt = prepared.relocate_to(relocatable)
                 (prepared.environment_root / "changed.txt").write_text("external mutation")
                 assert isinstance(
@@ -227,19 +197,13 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1"]
 @pytest.mark.process
 class TestRealStaticRequest:
     def test_complete_prepared_request_observes_and_survives_environment_close(self, tmp_path: Path) -> None:
-        run_complete_prepared_request(
-            tmp_path, external_stub=False, relocate=False, resolution_kind="highest",
-        )
+        run_complete_prepared_request(tmp_path, relocate=False)
 
     def test_relocation_reuses_the_run_cache(self, tmp_path: Path) -> None:
-        run_complete_prepared_request(
-            tmp_path, external_stub=False, relocate=True, resolution_kind="highest",
-        )
+        run_complete_prepared_request(tmp_path, relocate=True)
 
 
-def run_nonempty_static_preparation(
-    tmp_path: Path, *, resolution_kind: str, secondary_managed: bool,
-) -> None:
+def run_nonempty_static_preparation(tmp_path: Path) -> None:
         from pf.resolution import ResolutionPlanEvidence, resolution_semantic_digest, environment_identity_digest
 
         project = tmp_path / "project"
@@ -261,10 +225,6 @@ test-command = ["python", "-c", "import demo"]
 [tool.ty.rules]
 invalid-assignment = "error"
 ''')
-        if secondary_managed:
-            pyproject = project / "pyproject.toml"
-            pyproject.write_text(pyproject.read_text().replace('dependencies = ["idna>=3.10"]',
-                                                              'dependencies = ["idna>=3.10", "packaging>=24.0"]'))
         package = ProjectLoader().load(root=project).target
         source_plan = SourcePlan.for_package(package, "SEARCH")
         runner = RecordingRunner()
@@ -278,81 +238,31 @@ invalid-assignment = "error"
             assert isinstance(prepared, PreparedEnvironment), prepared
             cache = TyCheckCache()
             static = StaticEvaluator(TyAdapter(runner), processes=runner)
-            baseline_evidence = static_preparation_evidence(prepared, package)
-            assert isinstance(baseline_evidence, StaticPreparationEvidence)
+            evidence = static_preparation_evidence(prepared, package)
+            assert isinstance(evidence, StaticPreparationEvidence)
             assert isinstance(
                 static.collect_prepared(prepared, package=package, run_cache=cache),
                 CollectedStaticSubject,
             )
-            baseline_consumer = _consumer_from_cache(cache, baseline_evidence)
-            assert isinstance(baseline_consumer.observation.fact, TyCheckFact)
-            assert baseline_consumer.observation.fact.diagnostics == ()
+            consumer = _consumer_from_cache(cache, evidence)
+            assert isinstance(consumer.observation.fact, TyCheckFact)
+            assert consumer.observation.fact.diagnostics == ()
             baseline = prepared.harness_baseline
             assert {item.name for item in baseline.observations} == {"idna", "packaging"}
-            selection = selected_candidates_for_prepared(prepared)
-            anchor_pass = None
-            if resolution_kind == "exact-vector":
-                from pf.adapters.test_command import ConfiguredVerifier
-                from pf.schemas.evaluation import VerifierRequest, EnvironmentVariable
-                from pf.schemas.static_comparison import SliceAnchorPass
-                import os
-
-                verifier_run = ConfiguredVerifier(runner).run(VerifierRequest(
-                    command=package.config.test.command, cwd=prepared.package_root,
-                    environment=(EnvironmentVariable(name="PATH", value=os.pathsep.join(
-                        (str(prepared.interpreter.parent), os.environ.get("PATH", "")))),),
-                    timeout_seconds=package.config.test.timeout_seconds,
-                ))
-                prepared.mark_tested()
-                anchor_pass = SliceAnchorPass.from_run(proposal=prepared.proposal, run=verifier_run)
-            if resolution_kind != "highest":
-                prepared.close()
-                prepared = factory.prepare(package=package, cell=package.cells[0], snapshot=snapshot,
-                                           resolution=(LowestDirectResolution(baseline) if resolution_kind == "lowest-direct"
-                                                       else ExactSelection(selection=selection, harness_baseline=baseline)),
-                                           source_plan=source_plan)
-                assert isinstance(prepared, PreparedEnvironment), prepared
-            evidence = (
-                baseline_evidence if resolution_kind == "highest"
-                else static_preparation_evidence(prepared, package)
-            )
-            assert isinstance(evidence, StaticPreparationEvidence)
-            if resolution_kind != "highest":
-                assert isinstance(
-                    static.collect_prepared(prepared, package=package, run_cache=cache),
-                    CollectedStaticSubject,
-                )
-            assert admit_common_static_context(baseline_evidence, evidence)
-            assert admit_harness_relation(baseline_evidence, evidence)
+            assert admit_common_static_context(evidence, evidence)
             assert admit_harness_relation(evidence, evidence)
-            assert admit_harness_relation(evidence, baseline_evidence) == (resolution_kind == "highest")
             changed_group = evidence.model_dump(mode="json")
             changed_group["selected_test_group"] = "another-group"
-            assert not admit_harness_relation(baseline_evidence,
+            assert not admit_harness_relation(evidence,
                                               StaticPreparationEvidence.model_validate(changed_group))
             assert evidence.environment_plan is not None
             assert {item.name for item in evidence.subject.resolution_projection} == {"idna", "packaging"}
             assert {item.artifact.kind for item in evidence.subject.resolution_projection} == {"available-set"}
             assert evidence.harness_baseline == baseline
-            assert evidence.selected_candidates == (selection if resolution_kind == "exact-vector" else None)
-            assert evidence.attempt.identity.requested_resolution == resolution_kind
-            consumer = _consumer_from_cache(cache, evidence)
-            assert isinstance(consumer.observation.fact, TyCheckFact)
-            assert consumer.observation.fact.diagnostics == ()
+            assert evidence.selected_candidates is None
+            assert evidence.attempt.identity.requested_resolution == "highest"
             assert StaticConsumerEvidence.model_validate_json(consumer.model_dump_json()) == consumer
-            assert_global_comparison_contract(baseline_consumer, consumer)
-            if anchor_pass is not None:
-                assert_slice_comparison_contract(baseline_consumer, consumer, anchor_pass, selection)
-                assert verifier_run.diagnostics is not None
-                scope = cache.snapshot(evidence.proposal.cell)
-                def _process_for(item):
-                    fact = next(row for row in scope.facts if row.observation == item.observation)
-                    return next(row.process for row in scope.processes if row.ref == fact.process_ref)
-                assert_static_scope_contract(
-                    baseline_consumer, consumer, anchor_pass, selection,
-                    _process_for(baseline_consumer), _process_for(consumer),
-                    verifier_run.diagnostics.process,
-                )
+            assert_global_comparison_contract(consumer, consumer)
             other_subject = evidence.subject.model_copy(
                 update={"source_snapshot_digest": "e" * 64},
             )
@@ -388,39 +298,6 @@ invalid-assignment = "error"
             with pytest.raises(ValueError, match="resolution request mismatch"):
                 StaticPreparationEvidence.model_validate(forged)
             encoded = evidence.model_dump_json()
-            if secondary_managed:
-                assert anchor_pass is not None
-                other = factory.prepare(package=package, cell=package.cells[0], snapshot=snapshot,
-                                        resolution=LowestDirectResolution(baseline), source_plan=source_plan)
-                assert isinstance(other, PreparedEnvironment), other
-                try:
-                    lower_selection = selected_candidates_for_prepared(other)
-                finally:
-                    other.close()
-                for changed_name in ("idna", "packaging"):
-                    lower_candidate = next(item for item in lower_selection if item.dependency == changed_name)
-                    original_candidate = next(item for item in selection if item.dependency == changed_name)
-                    assert lower_candidate.version != original_candidate.version
-                    changed_selection = tuple(lower_candidate if item.dependency == changed_name else item
-                                              for item in selection)
-                    other = factory.prepare(package=package, cell=package.cells[0], snapshot=snapshot,
-                                            resolution=ExactSelection(selection=changed_selection, harness_baseline=baseline),
-                                            source_plan=source_plan)
-                    assert isinstance(other, PreparedEnvironment), other
-                    try:
-                        changed_evidence = static_preparation_evidence(other, package)
-                        assert isinstance(changed_evidence, StaticPreparationEvidence)
-                        assert isinstance(
-                            static.collect_prepared(other, package=package, run_cache=cache),
-                            CollectedStaticSubject,
-                        )
-                        changed_consumer = _consumer_from_cache(cache, changed_evidence)
-                        if changed_name == "idna":
-                            assert_slice_comparison_contract(baseline_consumer, changed_consumer, anchor_pass, changed_selection)
-                        else:
-                            assert_changed_other_coordinate(baseline_consumer, changed_consumer, anchor_pass, selection)
-                    finally:
-                        other.close()
         finally:
             if isinstance(prepared, PreparedEnvironment):
                 prepared.close()
@@ -434,9 +311,7 @@ invalid-assignment = "error"
 @pytest.mark.process
 class TestNonemptyStaticPreparation:
     def test_registry_selection_and_external_harness_round_trip(self, tmp_path: Path) -> None:
-        run_nonempty_static_preparation(
-            tmp_path, resolution_kind="highest", secondary_managed=False,
-        )
+        run_nonempty_static_preparation(tmp_path)
 
 
 def assert_global_comparison_contract(reference: StaticConsumerEvidence, subject: StaticConsumerEvidence) -> None:

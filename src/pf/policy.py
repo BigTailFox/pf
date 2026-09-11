@@ -13,17 +13,6 @@ from pf.ty_options import validate_ty_args
 from pf.ty_version import read_ty_tool_version
 
 
-TY_DIAGNOSTIC_POLICY = {
-    "comparison": "multiset-subtraction",
-    "fingerprint": "scoped-comparison-identity-multiset-v1",
-    "identity_rule": ("snapshot-path-line-column-code+external-namespace-path-code"),
-    "output_format": "gitlab",
-    "policy": "static-guidance-v1",
-    "project_terminal": "adapter-cli-overrides",
-    "boundary_rule": "runtime-evidence-only",
-    "final_verification": "direct-test-command-pass",
-}
-
 CONFIGURED_VERIFIER_OUTCOME_POLICY = "configured-verifier-terminal-v1"
 
 EXECUTION_OUTCOME_POLICY = {

@@ -420,16 +420,6 @@ class VerifierRun(FrozenSchema):
     failed_case_additions: tuple[str, ...] = Field(default=(), exclude=True)
 
 
-def process_facts_match(
-    left: ProcessObservation | None,
-    right: ProcessObservation | None,
-) -> bool:
-    """Return whether two results have the same report-portable process facts."""
-    if left is None or right is None:
-        return left is right
-    return left.model_dump(mode="json") == right.model_dump(mode="json")
-
-
 FailureCause = Literal[
     "RESOLUTION_FAILED",
     "INSTALLATION_FAILED",

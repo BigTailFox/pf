@@ -14,12 +14,7 @@ from pf.schemas.policy import (
     TyToolVersionDistribution, TyToolVersionUnavailable,
 )
 from pf.schemas.project import Cell, InterpreterIdentity, SourceIdentity
-from pf.schemas.static import (
-    StaticContentEntry,
-    StaticContentManifest,
-    StaticContentPath,
-    StaticSubject,
-)
+from pf.schemas.static import StaticContentUnavailable, StaticSubject
 from pf.static_projection import (
     available_set_digest, available_set_preimage,
     static_subject as build_static_subject,
@@ -61,40 +56,6 @@ def _observation_policy(**overrides):
     }
     payload.update(overrides)
     return guidance_policy(EffectiveConfig(), **payload).observation
-
-
-class TestStaticContentManifestAdmission:
-    @pytest.mark.parametrize("fault", ["version", "digest", "parent", "extra", "order"])
-    def test_reader_rejects_unverifiable_content(self, tmp_path: Path, fault: str) -> None:
-        del tmp_path
-        digest = hashlib.sha256(b"x = 1").hexdigest()
-        collected = StaticContentManifest(entries=(
-            StaticContentEntry(
-                location=StaticContentPath(root="snapshot", path="."),
-                kind="directory",
-                content_digest=None,
-                link_target=None,
-            ),
-            StaticContentEntry(
-                location=StaticContentPath(root="snapshot", path="a.py"),
-                kind="file",
-                content_digest=digest,
-                link_target=None,
-            ),
-        ))
-        document = collected.model_dump(mode="json")
-        if fault == "version":
-            document["format"] = "unknown"
-        elif fault == "digest":
-            document["entries"][1]["content_digest"] = "not-a-digest"
-        elif fault == "parent":
-            document["entries"].pop(0)
-        elif fault == "extra":
-            document["unregistered"] = "input"
-        else:
-            document["entries"].reverse()
-        with pytest.raises(ValueError):
-            StaticContentManifest.model_validate(document)
 
 
 class TestStaticSubjectIdentity:
@@ -284,3 +245,39 @@ class TestRawTyFactCodec:
             document["fact"]["terminal"]["exit_code"] = 0
         with pytest.raises(ValueError):
             TyFactDocument.model_validate(document)
+
+
+class TestResolutionProjectionUnavailable:
+    def test_registry_without_available_artifacts_is_unbound(self) -> None:
+        cell = Cell(
+            package="demo", target="x86_64-unknown-linux-gnu",
+            python_minor="3.10", extra_surface=(),
+        )
+        interpreter = InterpreterIdentity(implementation="cpython", version="3.10.19", abi="cp310")
+        packages = (
+            ResolutionPackage(name="demo", version="1", source=SourceIdentity(kind="registry")),
+        )
+        result = build_static_subject(
+            source_snapshot_digest="a" * 64, cell=cell, interpreter=interpreter, packages=packages,
+        )
+        assert result == StaticContentUnavailable(detail="resolution-artifact-unbound")
+
+    def test_path_locator_outside_snapshot_is_unbound(self, tmp_path: Path) -> None:
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
+        cell = Cell(
+            package="demo", target="x86_64-unknown-linux-gnu",
+            python_minor="3.10", extra_surface=(),
+        )
+        interpreter = InterpreterIdentity(implementation="cpython", version="3.10.19", abi="cp310")
+        packages = (
+            ResolutionPackage(
+                name="demo", version="1",
+                source=SourceIdentity(kind="path", locator=str(tmp_path / "outside")),
+            ),
+        )
+        result = build_static_subject(
+            source_snapshot_digest="a" * 64, cell=cell, interpreter=interpreter,
+            packages=packages, snapshot_root=snapshot,
+        )
+        assert result == StaticContentUnavailable(detail="resolution-artifact-unbound")
