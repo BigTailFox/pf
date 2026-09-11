@@ -1,0 +1,11 @@
+# PF dogfood (E012). Flask has a `dev` group (ruff/tox), so omitting test-group
+# would select that instead of the pytest suite in `tests`. extra-policy none
+# keeps the six runtime dependencies as the search coordinates; asgiref and
+# python-dotenv remain harness-only via the tests group. PF v1 does not run
+# PyPy, free-threaded, or 3.15 prerelease from Flask's CI matrix.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+test-group = "tests"
+extra-policy = "none"
+test-command = ["pytest"]
+resolve-artifact = "any"

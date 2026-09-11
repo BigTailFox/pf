@@ -1,0 +1,12 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "apply"
+  ],
+  "cwd": "/home/llh/pf/experiments/flask",
+  "started_at": "2026-09-11T08:39:30.348842+00:00",
+  "finished_at": "2026-09-11T08:39:31.018800+00:00",
+  "elapsed_s": 0.669958,
+  "exit_code": 0,
+  "log": "docs/experiments/data/E012/apply.txt"
+}

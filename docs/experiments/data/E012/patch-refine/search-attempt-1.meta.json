@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search"
+  ],
+  "cwd": "/home/llh/pf/experiments/flask",
+  "started_at": "2026-09-11T08:49:49.308230+00:00",
+  "finished_at": "2026-09-11T08:50:08.593619+00:00",
+  "elapsed_s": 19.285389,
+  "exit_code": 4,
+  "log": "docs/experiments/data/E012/patch-refine/search.txt",
+  "evidence": "docs/experiments/data/E012/patch-refine"
+}

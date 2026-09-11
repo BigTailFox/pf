@@ -1,0 +1,12 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "smoke"
+  ],
+  "cwd": "/home/llh/pf/experiments/flask",
+  "started_at": "2026-09-11T08:35:06.562435+00:00",
+  "finished_at": "2026-09-11T08:35:12.607376+00:00",
+  "elapsed_s": 6.044941,
+  "exit_code": 0,
+  "log": "docs/experiments/data/E012/smoke.txt"
+}

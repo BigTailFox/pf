@@ -1,0 +1,42 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ef28fccb..c71b703e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -21,12 +21,13 @@ classifiers = [
+ ]
+ requires-python = ">=3.10"
+ dependencies = [
+-    "blinker>=1.9.0",
+-    "click>=8.1.3",
+-    "itsdangerous>=2.2.0",
+-    "jinja2>=3.1.2",
+-    "markupsafe>=2.1.1",
+-    "werkzeug>=3.1.0",
++    "blinker>=1.6.3; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\" or python_version == \"3.13\"",
++    "blinker>=1.7.0; python_version == \"3.14\"",
++    "click>=8.0.4",
++    "itsdangerous>=2.0.1",
++    "jinja2>=3.0.3",
++    "markupsafe>=2.1.5",
++    "werkzeug>=3.1.8",
+ ]
+ 
+ [project.optional-dependencies]
+@@ -276,3 +277,17 @@ dependency_groups = []
+ no_default_groups = true
+ skip_install = true
+ commands = [["uv", "lock", {replace = "posargs", default = ["-U"], extend = true}]]
++
++# PF dogfood (E012). Flask has a `dev` group (ruff/tox), so omitting test-group
++# would select that instead of the pytest suite in `tests`. extra-policy none
++# keeps the six runtime dependencies as the search coordinates; asgiref and
++# python-dotenv remain harness-only via the tests group. PF v1 does not run
++# PyPy, free-threaded, or 3.15 prerelease from Flask's CI matrix.
++[tool.pf]
++pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
++test-group = "tests"
++extra-policy = "none"
++test-command = ["pytest"]
++resolve-artifact = "any"
++search-space = "all"
++search-resolution = "minor"

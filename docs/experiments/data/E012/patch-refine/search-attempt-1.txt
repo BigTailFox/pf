@@ -1,0 +1,51 @@
+✓  selected 5 cells, 6 active packages (0 pinned)
+   run-id: 20260911T084949.622979Z-523825-c2d1ddfb
+   python: 3.10, 3.11, 3.12, 3.13, 3.14
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ !  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:06                      │
+│    search stopped at [candidate discovery]                                   │
+│    Search stopped before the configured search space was fully evaluated. PF │
+│    could not reach or read a configured package source.                      │
+│    -> run `pf diagnose failure-cf4efbd1b7f1dc8a --package flask` for more    │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ !  [py3.13][x86_64-unknown-linux-gnu][no-extra] 0:00:10                      │
+│    search stopped at [candidate discovery]                                   │
+│    Search stopped before the configured search space was fully evaluated. PF │
+│    could not reach or read a configured package source.                      │
+│    -> run `pf diagnose failure-3051d013b29b4788 --package flask` for more    │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ !  [py3.12][x86_64-unknown-linux-gnu][no-extra] 0:00:13                      │
+│    search stopped at [candidate discovery]                                   │
+│    Search stopped before the configured search space was fully evaluated. PF │
+│    could not reach or read a configured package source.                      │
+│    -> run `pf diagnose failure-fb0aa1e9b92791d6 --package flask` for more    │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ !  [py3.14][x86_64-unknown-linux-gnu][no-extra] 0:00:17                      │
+│    search stopped at [candidate discovery]                                   │
+│    Search stopped before the configured search space was fully evaluated. PF │
+│    could not reach or read a configured package source.                      │
+│    -> run `pf diagnose failure-b4c9dece8cb5e98e --package flask` for more    │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ !  [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:20                      │
+│    search stopped at [candidate discovery]                                   │
+│    Search stopped before the configured search space was fully evaluated. PF │
+│    could not reach or read a configured package source.                      │
+│    -> run `pf diagnose failure-86a08090e96befaf --package flask` for more    │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+!  Search stopped · compatibility is unknown · package-floor.json written

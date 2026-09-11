@@ -1,0 +1,56 @@
+E012 representative predecessor diagnoses. Source: pf diagnose against
+experiments/flask/package-floor.json after search
+20260911T083625.392659Z-472754-04f7b6a3. Terminal chrome omitted.
+
+failure-0d45dbe2faca30ed
+  cell: py3.12 / no-extra
+  cause: VERIFIER_EXITED_NONZERO / stage test
+  boundary: werkzeug predecessor 3.0.6
+  vector: blinker==1.6.3, click==8.0.4, itsdangerous==2.0.1, jinja2==3.0.3,
+          markupsafe==2.1.5, werkzeug==3.0.6
+  log: process-1112.log
+  pytest: tests/test_basic.py::test_session_accessed
+  error: TypeError: Response.set_cookie() got an unexpected keyword argument
+         'partitioned'
+  note: Flask sessions.py passes partitioned= into Werkzeug; 3.0.6 lacks it.
+
+failure-d5c32569421e97ba
+  cell: py3.12 / no-extra
+  cause: RESOLUTION_CONFLICT / stage resolve-project
+  boundary: markupsafe predecessor 2.0.1
+  vector: blinker==1.6.3, click==8.0.4, itsdangerous==2.0.1, jinja2==3.0.3,
+          markupsafe==2.0.1, werkzeug==3.1.8
+  log: process-0899.log
+  uv: werkzeug==3.1.8 depends on markupsafe>=2.1.1; flask pinned
+      markupsafe==2.0.1. Unsatisfiable with the already-committed werkzeug
+      3.1 series representative.
+
+failure-031696120264919d
+  cell: py3.14 / no-extra
+  cause: VERIFIER_EXITED_NONZERO / stage test
+  boundary: blinker predecessor 1.6.3 (3.14-only; other Pythons floor at 1.6.3)
+  vector: blinker==1.6.3, click==8.0.4, itsdangerous==2.0.1, jinja2==3.0.3,
+          markupsafe==2.1.5, werkzeug==3.1.8
+  log: process-1164.log (pruned pytest, 1 item)
+  pytest: tests/test_appctx.py::test_robust_teardown
+  error: assert 2 == 4 after ExceptionGroup teardown on Python 3.14.
+
+failure-16ba123076a03978
+  cell: py3.10 / no-extra
+  cause: VERIFIER_EXITED_NONZERO / stage test
+  boundary: jinja2 predecessor 2.11.3
+  vector: blinker==1.6.3, click==8.0.4, itsdangerous==2.0.1, jinja2==2.11.3,
+          markupsafe==2.1.5, werkzeug==3.1.8
+  log: process-1295.log
+  pytest collection: ImportError: cannot import name 'soft_unicode' from
+                     'markupsafe' (jinja2 2.11.3 vs markupsafe 2.1.5)
+
+failure-ad97958322a90db1
+  cell: py3.10 / no-extra
+  cause: VERIFIER_EXITED_NONZERO / stage test
+  boundary: click predecessor 7.1.2
+  vector: blinker==1.6.3, click==7.1.2, itsdangerous==2.0.1, jinja2==3.0.3,
+          markupsafe==2.1.5, werkzeug==3.1.8
+  log: process-1217.log
+  pytest collection: ImportError: cannot import name 'ParameterSource' from
+                     'click.core'

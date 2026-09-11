@@ -1,0 +1,18 @@
+E012 round 2 patch-refine. Successful run 20260911T085355.235820Z-528701-11a24044.
+Two earlier attempts failed at candidate-discovery SOURCE_FAILURE when PyPI
+simple JSON queries raised SSL UNEXPECTED_EOF_WHILE_READING; see
+search-attempt-1.txt and search-attempt-2.txt. Those incomplete reports were
+removed before the successful retry.
+
+failure-9106ec381027aa5d
+  cell: py3.12 / no-extra
+  cause: RESOLUTION_CONFLICT / stage resolve-project
+  boundary: markupsafe predecessor 2.1.0
+  vector: blinker==1.6, click==8.0.0, itsdangerous==2.0.0, jinja2==3.0.0,
+          markupsafe==2.1.0, werkzeug==3.1.0
+  log: process-0767.log
+  uv: werkzeug==3.1.0 depends on markupsafe>=2.1.1; flask pinned
+      markupsafe==2.1.0. Unsatisfiable.
+  note: this is the only predecessor in the patch space. Other coordinates
+        reached the lowest patch in their declaration minor with no lower
+        candidate (predecessor=None).

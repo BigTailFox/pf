@@ -1,0 +1,10 @@
+# PF dogfood (E012) round 2, phase 2: patch refine.
+# Intermediate declarations are the all×minor floors from phase 1 apply.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+test-group = "tests"
+extra-policy = "none"
+test-command = ["pytest"]
+resolve-artifact = "any"
+search-space = "minors[declaration]"
+search-resolution = "patch"

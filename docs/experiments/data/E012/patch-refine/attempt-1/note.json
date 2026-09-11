@@ -1,0 +1,13 @@
+{
+  "status": "incomplete",
+  "reasons": [
+    "INDETERMINATE",
+    "UNREPRESENTABLE_PROJECTION"
+  ],
+  "cause": "SOURCE_FAILURE",
+  "stage": "candidate-discovery",
+  "run_id": "20260911T084949.622979Z-523825-c2d1ddfb",
+  "sha256": "f36c6ff27985490a902e053284cd48c572c43cb327e97bdd158916da3c49979e",
+  "bytes": 64761,
+  "note": "PyPI simple JSON queries failed with SSL UNEXPECTED_EOF_WHILE_READING; urllib reproduced the same error immediately after this run."
+}

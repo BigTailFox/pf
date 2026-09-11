@@ -1,0 +1,10 @@
+# PF dogfood (E012) round 2, phase 1: full-space minor search.
+# Original Flask declarations restored; previous majors[declaration-1:] apply undone.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+test-group = "tests"
+extra-policy = "none"
+test-command = ["pytest"]
+resolve-artifact = "any"
+search-space = "all"
+search-resolution = "minor"

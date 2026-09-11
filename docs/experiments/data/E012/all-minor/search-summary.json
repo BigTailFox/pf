@@ -1,0 +1,653 @@
+{
+  "provenance": {
+    "source": "experiments/flask/package-floor.json",
+    "run_id": "20260911T084517.157103Z-495841-a524b339",
+    "sha256": "fb753f442695c16cc6551017d75b0d6b9148838e2320010a99d6ee15079b764f",
+    "bytes": 1012942,
+    "reader_validation": {
+      "status": "complete",
+      "cells": 5
+    },
+    "pf_head": "0b2d14d59dfdc04f31229e832e5908e4aca76948",
+    "pf_version": "0.4.0",
+    "phase": "all-minor"
+  },
+  "identity": {
+    "generator": {
+      "name": "pf",
+      "version": "0.4.0",
+      "algorithm": "v1"
+    },
+    "package": {
+      "name": "flask",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.10"
+    },
+    "policy_identity": "1e35bcbf8038ecc7a3c35142754f315f902873cae85e6e27352d8f08e1518198",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
+    "search_derivation_identity": "32d6b3cf556b77384bd3dcdb3bf5687b2bf019a245124544fc571289fdc552d4",
+    "report_generation_id": "41997c8d0eeb9da7dfc2763547ac7ce149ee459e19dd687c29243378a1fc58eb",
+    "source_snapshot_digest": "512445c273343ff5c4ac07d908e217b40aa83b9c14ec78f79c21117133cd2b2f",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "result": {
+    "status": "complete"
+  },
+  "search_policy": {
+    "profile": "registry-series-slice-v1",
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "asgiref",
+          "blinker",
+          "click",
+          "itsdangerous",
+          "jinja2",
+          "markupsafe",
+          "python-dotenv",
+          "werkzeug"
+        ],
+        "requested_space": "all",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "minor",
+        "prereleases": false
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "name": "blinker",
+      "raw": "blinker>=1.9.0",
+      "specifier": ">=1.9.0",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "jinja2",
+      "raw": "jinja2>=3.1.2",
+      "specifier": ">=3.1.2",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "werkzeug",
+      "raw": "werkzeug>=3.1.0",
+      "specifier": ">=3.1.0",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "python-dotenv",
+      "raw": "python-dotenv",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe>=2.1.1",
+      "specifier": ">=2.1.1",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "click",
+      "raw": "click>=8.1.3",
+      "specifier": ">=8.1.3",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "itsdangerous",
+      "raw": "itsdangerous>=2.2.0",
+      "specifier": ">=2.2.0",
+      "kind": "searchable",
+      "managed": true
+    },
+    {
+      "name": "asgiref",
+      "raw": "asgiref>=3.2",
+      "specifier": ">=3.2",
+      "kind": "searchable",
+      "managed": true
+    }
+  ],
+  "projections": [
+    {
+      "name": "blinker",
+      "raw": "blinker>=1.9.0",
+      "specifier": ">=1.9.0",
+      "representable": true,
+      "projected_requirements": [
+        "blinker>=1.6.3; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\" or python_version == \"3.13\"",
+        "blinker>=1.7.0; python_version == \"3.14\""
+      ],
+      "floor_versions": [
+        "1.6.3",
+        "1.7.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "version": "1.6.3"
+        },
+        {
+          "python_minor": "3.11",
+          "version": "1.6.3"
+        },
+        {
+          "python_minor": "3.12",
+          "version": "1.6.3"
+        },
+        {
+          "python_minor": "3.13",
+          "version": "1.6.3"
+        },
+        {
+          "python_minor": "3.14",
+          "version": "1.7.0"
+        }
+      ]
+    },
+    {
+      "name": "jinja2",
+      "raw": "jinja2>=3.1.2",
+      "specifier": ">=3.1.2",
+      "representable": true,
+      "projected_requirements": [
+        "jinja2>=3.0.3"
+      ],
+      "floor_versions": [
+        "3.0.3"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "version": "3.0.3"
+        },
+        {
+          "python_minor": "3.11",
+          "version": "3.0.3"
+        },
+        {
+          "python_minor": "3.12",
+          "version": "3.0.3"
+        },
+        {
+          "python_minor": "3.13",
+          "version": "3.0.3"
+        },
+        {
+          "python_minor": "3.14",
+          "version": "3.0.3"
+        }
+      ]
+    },
+    {
+      "name": "werkzeug",
+      "raw": "werkzeug>=3.1.0",
+      "specifier": ">=3.1.0",
+      "representable": true,
+      "projected_requirements": [
+        "werkzeug>=3.1.8"
+      ],
+      "floor_versions": [
+        "3.1.8"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "version": "3.1.8"
+        },
+        {
+          "python_minor": "3.11",
+          "version": "3.1.8"
+        },
+        {
+          "python_minor": "3.12",
+          "version": "3.1.8"
+        },
+        {
+          "python_minor": "3.13",
+          "version": "3.1.8"
+        },
+        {
+          "python_minor": "3.14",
+          "version": "3.1.8"
+        }
+      ]
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe>=2.1.1",
+      "specifier": ">=2.1.1",
+      "representable": true,
+      "projected_requirements": [
+        "markupsafe>=2.1.5"
+      ],
+      "floor_versions": [
+        "2.1.5"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "version": "2.1.5"
+        },
+        {
+          "python_minor": "3.11",
+          "version": "2.1.5"
+        },
+        {
+          "python_minor": "3.12",
+          "version": "2.1.5"
+        },
+        {
+          "python_minor": "3.13",
+          "version": "2.1.5"
+        },
+        {
+          "python_minor": "3.14",
+          "version": "2.1.5"
+        }
+      ]
+    },
+    {
+      "name": "click",
+      "raw": "click>=8.1.3",
+      "specifier": ">=8.1.3",
+      "representable": true,
+      "projected_requirements": [
+        "click>=8.0.4"
+      ],
+      "floor_versions": [
+        "8.0.4"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "version": "8.0.4"
+        },
+        {
+          "python_minor": "3.11",
+          "version": "8.0.4"
+        },
+        {
+          "python_minor": "3.12",
+          "version": "8.0.4"
+        },
+        {
+          "python_minor": "3.13",
+          "version": "8.0.4"
+        },
+        {
+          "python_minor": "3.14",
+          "version": "8.0.4"
+        }
+      ]
+    },
+    {
+      "name": "itsdangerous",
+      "raw": "itsdangerous>=2.2.0",
+      "specifier": ">=2.2.0",
+      "representable": true,
+      "projected_requirements": [
+        "itsdangerous>=2.0.1"
+      ],
+      "floor_versions": [
+        "2.0.1"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "version": "2.0.1"
+        },
+        {
+          "python_minor": "3.11",
+          "version": "2.0.1"
+        },
+        {
+          "python_minor": "3.12",
+          "version": "2.0.1"
+        },
+        {
+          "python_minor": "3.13",
+          "version": "2.0.1"
+        },
+        {
+          "python_minor": "3.14",
+          "version": "2.0.1"
+        }
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.10",
+      "interpreter": "3.10.16",
+      "sweeps": 2,
+      "baseline": {
+        "blinker": "1.9.0",
+        "click": "8.5.0",
+        "itsdangerous": "2.2.0",
+        "jinja2": "3.1.6",
+        "markupsafe": "3.0.3",
+        "werkzeug": "3.1.8"
+      },
+      "final_vector": {
+        "blinker": "1.6.3",
+        "click": "8.0.4",
+        "itsdangerous": "2.0.1",
+        "jinja2": "3.0.3",
+        "markupsafe": "2.1.5",
+        "werkzeug": "3.1.8"
+      },
+      "boundaries": [
+        {
+          "dependency": "blinker",
+          "floor": "1.6.3",
+          "predecessor": "1.5",
+          "predecessor_failure_id": "failure-744db24ce3a81c80"
+        },
+        {
+          "dependency": "click",
+          "floor": "8.0.4",
+          "predecessor": "7.1.2",
+          "predecessor_failure_id": "failure-53c647f31ad5fcf2"
+        },
+        {
+          "dependency": "itsdangerous",
+          "floor": "2.0.1",
+          "predecessor": "1.1.0",
+          "predecessor_failure_id": "failure-7e1bab9a0e1d7ff7"
+        },
+        {
+          "dependency": "jinja2",
+          "floor": "3.0.3",
+          "predecessor": "2.11.3",
+          "predecessor_failure_id": "failure-79ae5be18a06c15c"
+        },
+        {
+          "dependency": "markupsafe",
+          "floor": "2.1.5",
+          "predecessor": "2.0.1",
+          "predecessor_failure_id": "failure-65f0e22cfdc3c39c"
+        },
+        {
+          "dependency": "werkzeug",
+          "floor": "3.1.8",
+          "predecessor": "3.0.6",
+          "predecessor_failure_id": "failure-b08a4d768239dd12"
+        }
+      ],
+      "observation_count": 50,
+      "failure_record_count": 32
+    },
+    {
+      "python_minor": "3.11",
+      "interpreter": "3.11.15",
+      "sweeps": 2,
+      "baseline": {
+        "blinker": "1.9.0",
+        "click": "8.5.0",
+        "itsdangerous": "2.2.0",
+        "jinja2": "3.1.6",
+        "markupsafe": "3.0.3",
+        "werkzeug": "3.1.8"
+      },
+      "final_vector": {
+        "blinker": "1.6.3",
+        "click": "8.0.4",
+        "itsdangerous": "2.0.1",
+        "jinja2": "3.0.3",
+        "markupsafe": "2.1.5",
+        "werkzeug": "3.1.8"
+      },
+      "boundaries": [
+        {
+          "dependency": "blinker",
+          "floor": "1.6.3",
+          "predecessor": "1.5",
+          "predecessor_failure_id": "failure-f42260beb148f16e"
+        },
+        {
+          "dependency": "click",
+          "floor": "8.0.4",
+          "predecessor": "7.1.2",
+          "predecessor_failure_id": "failure-686111d5d62568ce"
+        },
+        {
+          "dependency": "itsdangerous",
+          "floor": "2.0.1",
+          "predecessor": "1.1.0",
+          "predecessor_failure_id": "failure-3022ef7bc3cae2be"
+        },
+        {
+          "dependency": "jinja2",
+          "floor": "3.0.3",
+          "predecessor": "2.11.3",
+          "predecessor_failure_id": "failure-23fb5e7db750dac0"
+        },
+        {
+          "dependency": "markupsafe",
+          "floor": "2.1.5",
+          "predecessor": "2.0.1",
+          "predecessor_failure_id": "failure-eed12a9039d3d577"
+        },
+        {
+          "dependency": "werkzeug",
+          "floor": "3.1.8",
+          "predecessor": "3.0.6",
+          "predecessor_failure_id": "failure-e54e36809d7bd253"
+        }
+      ],
+      "observation_count": 50,
+      "failure_record_count": 32
+    },
+    {
+      "python_minor": "3.12",
+      "interpreter": "3.12.3",
+      "sweeps": 2,
+      "baseline": {
+        "blinker": "1.9.0",
+        "click": "8.5.0",
+        "itsdangerous": "2.2.0",
+        "jinja2": "3.1.6",
+        "markupsafe": "3.0.3",
+        "werkzeug": "3.1.8"
+      },
+      "final_vector": {
+        "blinker": "1.6.3",
+        "click": "8.0.4",
+        "itsdangerous": "2.0.1",
+        "jinja2": "3.0.3",
+        "markupsafe": "2.1.5",
+        "werkzeug": "3.1.8"
+      },
+      "boundaries": [
+        {
+          "dependency": "blinker",
+          "floor": "1.6.3",
+          "predecessor": "1.5",
+          "predecessor_failure_id": "failure-35f0ce5dc64094ba"
+        },
+        {
+          "dependency": "click",
+          "floor": "8.0.4",
+          "predecessor": "7.1.2",
+          "predecessor_failure_id": "failure-a379cbb7d74e1afc"
+        },
+        {
+          "dependency": "itsdangerous",
+          "floor": "2.0.1",
+          "predecessor": "1.1.0",
+          "predecessor_failure_id": "failure-6d2caed2a321e3b4"
+        },
+        {
+          "dependency": "jinja2",
+          "floor": "3.0.3",
+          "predecessor": "2.11.3",
+          "predecessor_failure_id": "failure-9d3f8b8048894c4c"
+        },
+        {
+          "dependency": "markupsafe",
+          "floor": "2.1.5",
+          "predecessor": "2.0.1",
+          "predecessor_failure_id": "failure-a1f6f996c1b263ca"
+        },
+        {
+          "dependency": "werkzeug",
+          "floor": "3.1.8",
+          "predecessor": "3.0.6",
+          "predecessor_failure_id": "failure-4fba4b338441f109"
+        }
+      ],
+      "observation_count": 50,
+      "failure_record_count": 32
+    },
+    {
+      "python_minor": "3.13",
+      "interpreter": "3.13.15",
+      "sweeps": 2,
+      "baseline": {
+        "blinker": "1.9.0",
+        "click": "8.5.0",
+        "itsdangerous": "2.2.0",
+        "jinja2": "3.1.6",
+        "markupsafe": "3.0.3",
+        "werkzeug": "3.1.8"
+      },
+      "final_vector": {
+        "blinker": "1.6.3",
+        "click": "8.0.4",
+        "itsdangerous": "2.0.1",
+        "jinja2": "3.0.3",
+        "markupsafe": "2.1.5",
+        "werkzeug": "3.1.8"
+      },
+      "boundaries": [
+        {
+          "dependency": "blinker",
+          "floor": "1.6.3",
+          "predecessor": "1.5",
+          "predecessor_failure_id": "failure-1601f07fe565426c"
+        },
+        {
+          "dependency": "click",
+          "floor": "8.0.4",
+          "predecessor": "7.1.2",
+          "predecessor_failure_id": "failure-e608d0247b703d0a"
+        },
+        {
+          "dependency": "itsdangerous",
+          "floor": "2.0.1",
+          "predecessor": "1.1.0",
+          "predecessor_failure_id": "failure-0b543c8ea6828d75"
+        },
+        {
+          "dependency": "jinja2",
+          "floor": "3.0.3",
+          "predecessor": "2.11.3",
+          "predecessor_failure_id": "failure-d971464468a2b8ab"
+        },
+        {
+          "dependency": "markupsafe",
+          "floor": "2.1.5",
+          "predecessor": "2.0.1",
+          "predecessor_failure_id": "failure-80b01875d3c7cc2a"
+        },
+        {
+          "dependency": "werkzeug",
+          "floor": "3.1.8",
+          "predecessor": "3.0.6",
+          "predecessor_failure_id": "failure-a9b5fb61ebca598b"
+        }
+      ],
+      "observation_count": 50,
+      "failure_record_count": 32
+    },
+    {
+      "python_minor": "3.14",
+      "interpreter": "3.14.7",
+      "sweeps": 2,
+      "baseline": {
+        "blinker": "1.9.0",
+        "click": "8.5.0",
+        "itsdangerous": "2.2.0",
+        "jinja2": "3.1.6",
+        "markupsafe": "3.0.3",
+        "werkzeug": "3.1.8"
+      },
+      "final_vector": {
+        "blinker": "1.7.0",
+        "click": "8.0.4",
+        "itsdangerous": "2.0.1",
+        "jinja2": "3.0.3",
+        "markupsafe": "2.1.5",
+        "werkzeug": "3.1.8"
+      },
+      "boundaries": [
+        {
+          "dependency": "blinker",
+          "floor": "1.7.0",
+          "predecessor": "1.6.3",
+          "predecessor_failure_id": "failure-319425d3c6d021ae"
+        },
+        {
+          "dependency": "click",
+          "floor": "8.0.4",
+          "predecessor": "7.1.2",
+          "predecessor_failure_id": "failure-7be2c5cf47257361"
+        },
+        {
+          "dependency": "itsdangerous",
+          "floor": "2.0.1",
+          "predecessor": "1.1.0",
+          "predecessor_failure_id": "failure-6c80ca916da59a67"
+        },
+        {
+          "dependency": "jinja2",
+          "floor": "3.0.3",
+          "predecessor": "2.11.3",
+          "predecessor_failure_id": "failure-5ab197ce3789ac39"
+        },
+        {
+          "dependency": "markupsafe",
+          "floor": "2.1.5",
+          "predecessor": "2.0.1",
+          "predecessor_failure_id": "failure-a52f1efecbb2a601"
+        },
+        {
+          "dependency": "werkzeug",
+          "floor": "3.1.8",
+          "predecessor": "3.0.6",
+          "predecessor_failure_id": "failure-e6ba15c422524bca"
+        }
+      ],
+      "observation_count": 49,
+      "failure_record_count": 31
+    }
+  ],
+  "counts": {
+    "cell_results": 5,
+    "search_observations": 249,
+    "observation_evidence": {
+      "ProbePass": 90,
+      "ProbeRejection": 159
+    },
+    "failure_records_in_cells": 159,
+    "failure_cause_counts": {
+      "VERIFIER_EXITED_NONZERO": 119,
+      "RESOLUTION_FAILED": 20,
+      "RESOLUTION_CONFLICT": 20
+    },
+    "candidate_snapshots": 30,
+    "search_process_logs": 1929,
+    "journal_entries": 159,
+    "journal_sha256": "dd01e586c3925844b9e42bf1e8364159ecc82e46fbbf8ac67f5ef776f5f113b4",
+    "source_snapshot_digest": "512445c273343ff5c4ac07d908e217b40aa83b9c14ec78f79c21117133cd2b2f"
+  }
+}
