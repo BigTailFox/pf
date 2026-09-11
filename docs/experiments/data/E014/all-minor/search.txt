@@ -1,0 +1,51 @@
+✓  selected 5 cells, 14 active packages (0 pinned)
+   run-id: 20260911T095557.102032Z-666024-689b5a17
+   python: 3.8, 3.9, 3.10, 3.11, 3.12
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: i18n
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.12][x86_64-unknown-linux-gnu][i18n] 0:15:18                          │
+│    [baseline][babel=2.7.0][click=7.0][ghp-import=0.6.0][jinja2=2.10.3][markd │
+│    own=3.3.7][markupsafe=1.1.1][mergedeep=1.3.4][mkdocs-get-deps=0.1.0][pack │
+│    aging=14.1][pathspec=0.10.3][pyyaml=5.1.2][pyyaml-env-tag=0.1][watchdog=0 │
+│    .10.4]                                                                    │
+│    search completed at [markdown=3.2.2][oracle 3.2.2~3.3.7#2]                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.11][x86_64-unknown-linux-gnu][i18n] 0:15:55                          │
+│    [baseline][babel=2.7.0][click=7.0][ghp-import=0.6.0][jinja2=2.10.3][markd │
+│    own=3.3.7][markupsafe=1.1.1][mergedeep=1.3.4][mkdocs-get-deps=0.1.0][pack │
+│    aging=14.1][pathspec=0.10.3][pyyaml=5.1.2][pyyaml-env-tag=0.1][watchdog=0 │
+│    .10.4]                                                                    │
+│    search completed at [markdown=3.2.2][oracle 3.2.2~3.3.7#2]                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.10][x86_64-unknown-linux-gnu][i18n] 0:17:32                          │
+│    [baseline][babel=2.7.0][click=7.0][ghp-import=0.6.0][jinja2=2.10.3][markd │
+│    own=3.3.7][markupsafe=1.1.1][mergedeep=1.3.4][mkdocs-get-deps=0.1.0][pack │
+│    aging=14.1][pathspec=0.10.3][pyyaml=5.1.2][pyyaml-env-tag=0.1][watchdog=0 │
+│    .10.4]                                                                    │
+│    search completed at [markdown=3.2.2][oracle 3.2.2~3.3.7#2]                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.8][x86_64-unknown-linux-gnu][i18n] 0:18:11                           │
+│    [baseline][babel=1.0][click=7.0][ghp-import=0.6.0][importlib-metadata=4.4 │
+│    .0][jinja2=2.9.6][markdown=3.3.7][markupsafe=0.23][mergedeep=1.3.4][mkdoc │
+│    s-get-deps=0.1.0][packaging=14.1][pathspec=0.10.3][pyyaml=5.1.2][pyyaml-e │
+│    nv-tag=0.1][watchdog=0.10.4]                                              │
+│    search completed at [markdown=3.2.2][oracle 3.2.2~3.3.7#2]                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.9][x86_64-unknown-linux-gnu][i18n] 0:18:41                           │
+│    [baseline][babel=1.0][click=7.0][ghp-import=0.6.0][importlib-metadata=4.4 │
+│    .0][jinja2=2.9.6][markdown=3.3.7][markupsafe=0.23][mergedeep=1.3.4][mkdoc │
+│    s-get-deps=0.1.0][packaging=14.1][pathspec=0.10.3][pyyaml=5.1.2][pyyaml-e │
+│    nv-tag=0.1][watchdog=0.10.4]                                              │
+│    search completed at [markdown=3.2.2][oracle 3.2.2~3.3.7#2]                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✓  Search complete · package-floor.json

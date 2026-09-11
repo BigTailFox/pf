@@ -1,0 +1,16 @@
+{
+  "run_id": "20260911T091348.541186Z-549403-395f2940",
+  "command": "smoke",
+  "journal_sha256": "c7e25a21367ddfbd508377171f0af72e9ee6101400a90ba52a7088fc6140c5c7",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 0,
+  "source_snapshot_digest": "ba3645a2be9ddd295ef2094335884917683746407ce76dd10334237684467e2f",
+  "package_policies": [
+    {
+      "package": "requests",
+      "execution_policy_identity": "836ec5e859f4d1dea75b80a901fe70720fb84b87d9eee92f96fe3a266119bc25"
+    }
+  ],
+  "process_log_count": 72,
+  "failure_entries": []
+}

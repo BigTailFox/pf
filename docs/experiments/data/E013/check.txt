@@ -1,0 +1,89 @@
+✓  selected 10 cells, 6 active packages (0 pinned)
+   run-id: 20260911T091516.703157Z-551500-f6e8ad2f
+   python: 3.10, 3.11, 3.12, 3.13, 3.14
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: socks, socks+use_chardet_on_py3
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.13][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:14      │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-331ee8ab438a1458 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.14][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:14      │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-7977d01aae830c8f --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.12][x86_64-unknown-linux-gnu][socks] 0:00:14                         │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-53dd10b42b64be65 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.13][x86_64-unknown-linux-gnu][socks] 0:00:15                         │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-1fb241af132d868d --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.12][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:15      │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-35d0ca0c5eb7c9f1 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.14][x86_64-unknown-linux-gnu][socks] 0:00:15                         │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-2d00fc17ad6663fa --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:26      │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    FAILED                                                                    │
+│    tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]  │
+│    -> run `pf diagnose failure-d7a07f8e5bfe8c9e --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:26      │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    FAILED                                                                    │
+│    tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]  │
+│    -> run `pf diagnose failure-bb1c66f968063fb8 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][socks] 0:00:26                         │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    FAILED                                                                    │
+│    tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]  │
+│    -> run `pf diagnose failure-6196aa92fd32cfd8 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.10][x86_64-unknown-linux-gnu][socks] 0:00:27                         │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    FAILED                                                                    │
+│    tests/test_lowlevel.py::test_use_proxy_from_environment[http_proxy-http]  │
+│    -> run `pf diagnose failure-db6d28f4df77fe7f --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Check failed · declared lower bounds are incompatible · 10 cells

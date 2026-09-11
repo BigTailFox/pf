@@ -1,0 +1,32 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-db6d28f4df77fe7f · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The declared lower bounds did not pass the required        │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   latest pf check                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      e030bce69399513d2c674ad45222177f230d3f5a93e2f9dc1eecf160936e │
+│                 6b82                                                         │
+│    resolution   lowest-direct                                                │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:15:31,332] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T091516.703157Z-551500-f6e8ad2f/process-011 │
+│                 8.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-db6d28f4df77fe7f

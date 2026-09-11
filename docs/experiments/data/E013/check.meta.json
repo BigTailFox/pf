@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "check"
+  ],
+  "cwd": "/home/llh/pf/experiments/requests",
+  "started_at": "2026-09-11T09:15:20.068159+00:00",
+  "finished_at": "2026-09-11T09:15:43.968668+00:00",
+  "elapsed_s": 23.900509,
+  "exit_code": 1,
+  "log": "docs/experiments/data/E013/check.txt",
+  "evidence": "docs/experiments/data/E013"
+}

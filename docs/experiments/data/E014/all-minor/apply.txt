@@ -1,0 +1,9 @@
+✓  applied floors
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  mkdocs · applied verified floors                                          │
+│    Evidence  5 observed cells passed                                         │
+│    Scope     all declared platforms                                          │
+│    Metadata  pyproject.toml updated                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Applied floors · project updated

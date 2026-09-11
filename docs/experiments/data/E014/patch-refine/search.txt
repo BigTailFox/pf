@@ -1,0 +1,59 @@
+✓  selected 5 cells, 14 active packages (0 pinned)
+   run-id: 20260911T101358.869628Z-745130-0fa244e8
+   python: 3.8, 3.9, 3.10, 3.11, 3.12
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: i18n
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.11][x86_64-unknown-linux-gnu][i18n] 0:01:06                          │
+│    [baseline][babel=2.7.0][click=7.0][ghp-import=0.6.0]                      │
+│    search stopped at [jinja2=2.10.3][oracle 2.10~2.10.3#4][testing]          │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-f1212fcaf8324d24 --package mkdocs` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.12][x86_64-unknown-linux-gnu][i18n] 0:01:06                          │
+│    [baseline][babel=2.7.0][click=7.0][ghp-import=0.6.0]                      │
+│    search stopped at [jinja2=2.10.3][oracle 2.10~2.10.3#4][testing]          │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-1fbc0ad1c3e34450 --package mkdocs` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.10][x86_64-unknown-linux-gnu][i18n] 0:01:09                          │
+│    [baseline][babel=2.7.0][click=7.0][ghp-import=0.6.0]                      │
+│    search stopped at [jinja2=2.10.3][oracle 2.10~2.10.3#4][testing]          │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-d4a3bc34d8b3ed59 --package mkdocs` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.9][x86_64-unknown-linux-gnu][i18n] 0:01:23                           │
+│    [baseline][babel=1.0][click=7.0][ghp-import=0.6.0][importlib-metadata=4.4 │
+│    .0]                                                                       │
+│    search stopped at [jinja2=2.9.6][oracle 2.9~2.9.6#7][testing]             │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-4a0fa823364b1cd9 --package mkdocs` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.8][x86_64-unknown-linux-gnu][i18n] 0:01:23                           │
+│    [baseline][babel=1.0][click=7.0][ghp-import=0.6.0][importlib-metadata=4.4 │
+│    .0]                                                                       │
+│    search stopped at [jinja2=2.9.6][oracle 2.9~2.9.6#7][testing]             │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-05245a5663b71df4 --package mkdocs` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⚠  Search incomplete · package-floor.json written · 5 cells have no applicable  
+   floor · the full-matrix floor projection is not representable                

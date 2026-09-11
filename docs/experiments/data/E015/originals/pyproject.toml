@@ -1,0 +1,123 @@
+[project]
+name = "package-floor"
+version = "0.4.0"
+description = "PF finds verified lower bounds for your Python package's direct dependencies."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Lihao Liu", email = "leoherz.liu@gmail.com" }]
+keywords = [
+    "python",
+    "dependencies",
+    "dependency-management",
+    "lower-bounds",
+    "packaging",
+    "uv",
+    "testing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "cyclopts>=4.10.2",
+    "packaging>=26.3",
+    "pydantic>=2.6.4",
+    "rich>=14.3.4",
+    "tomli>=1.1.0; python_version == \"3.11\" or python_version == \"3.12\"",
+    "tomli>=2.0.2; python_version == \"3.10\"",
+    "tomlkit>=0.8.0",
+    "ty==0.0.74",
+    "uv==0.12.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/BigTailFox/pf"
+Repository = "https://github.com/BigTailFox/pf"
+Issues = "https://github.com/BigTailFox/pf/issues"
+
+[project.scripts]
+pf = "pf.cli:main"
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.25",
+    "pytest>=9.1",
+    "pytest-benchmark>=5.2",
+    "pytest-cov>=7.1",
+    "pytest-env>=1.0",
+    "pytest-testmon>=2.2",
+    "pytest-xdist>=3.8",
+    "ruff>=0.12",
+]
+test = [{ include-group = "dev" }]
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "pf"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--testmon", "-m", "not process and not e2e and not qualification"]
+cache_dir = "tests/.cache/pytest"
+required_plugins = ["pytest-cov>=7.1", "pytest-env>=1.0", "pytest-testmon>=2.2"]
+markers = [
+    "process: real uv/ty/nested pytest/pf subprocess; excluded from the daily and bootstrap lanes",
+    "e2e: real subprocess executing a product command (smoke/check/search/minimize/apply/explain/diagnose/merge); subset of process",
+    "qualification: qualify_*.py tool protocol/version matrix; credential refresh only",
+    "infra: repository test/docs infrastructure; excluded from the bootstrap contract",
+]
+
+[tool.pytest_env]
+TESTMON_DATAFILE = "tests/.cache/testmon/.testmondata"
+
+[tool.coverage.run]
+branch = true
+data_file = "tests/.cache/cov/.coverage"
+relative_files = true
+source = ["pf"]
+
+[tool.coverage.paths]
+source = ["src/pf", "*/src/pf"]
+
+[tool.coverage.html]
+directory = "tests/.cache/cov/html"
+
+[tool.coverage.report]
+fail_under = 90
+
+[tool.pf]
+test-command = [
+    "pytest",
+    "--no-testmon",
+    "--no-cov",
+    "--maxfail=1",
+    "-m",
+    "not process and not e2e and not qualification and not infra",
+]
+
+[tool.ruff]
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501", "E731"]

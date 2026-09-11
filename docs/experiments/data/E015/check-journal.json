@@ -1,0 +1,16 @@
+{
+  "run_id": "20260911T101957.204677Z-756137-d0291f47",
+  "command": "check",
+  "journal_sha256": "b820d9d2659c0259784b13237ac926cb59e6d97bb6422e8ea8abdbfa40013b3a",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 0,
+  "source_snapshot_digest": "3a97d981577985bc9b2b4fa33a2bc946b055e0bf4964255393e08fb7c5370e14",
+  "package_policies": [
+    {
+      "package": "package-floor",
+      "execution_policy_identity": "40221cf3cab73522423b38faa89b9ebd0f51d507d11a543ace9baad50cf25e33"
+    }
+  ],
+  "process_log_count": 41,
+  "failure_entries": []
+}

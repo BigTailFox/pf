@@ -1,0 +1,8 @@
+# PF dogfood (E013) phase 2: patch refine inside the all×minor declaration
+# minors. Intermediate floors from apply are the new declarations.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+test-command = ["pytest"]
+resolve-artifact = "any"
+search-space = "minors[declaration]"
+search-resolution = "patch"

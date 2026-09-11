@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search"
+  ],
+  "cwd": "/home/llh/pf",
+  "started_at": "2026-09-11T10:35:39.545Z",
+  "finished_at": "2026-09-11T10:38:18.428Z",
+  "exit_code": 0,
+  "log": "/tmp/pf-e015-patch-refine/search.txt",
+  "note": "patch refine; logs kept outside the PF tree; apply skipped because snapshot drifted after evidence copy",
+  "elapsed_s": 160.887
+}

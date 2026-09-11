@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search"
+  ],
+  "cwd": "/home/llh/pf",
+  "started_at": "2026-09-11T10:28:20.561Z",
+  "finished_at": "2026-09-11T10:34:14.193Z",
+  "exit_code": 0,
+  "log": "/tmp/pf-e015-all-minor/search.txt",
+  "note": "retry after snapshot drift; logs kept outside the PF tree",
+  "elapsed_s": 357.829
+}

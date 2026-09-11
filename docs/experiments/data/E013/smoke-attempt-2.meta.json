@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "smoke"
+  ],
+  "cwd": "/home/llh/pf/experiments/requests",
+  "started_at": "2026-09-11T09:12:13.324437+00:00",
+  "finished_at": "2026-09-11T09:13:37.387158+00:00",
+  "elapsed_s": 84.062721,
+  "exit_code": 1,
+  "log": "docs/experiments/data/E013/smoke.txt",
+  "evidence": "docs/experiments/data/E013"
+}

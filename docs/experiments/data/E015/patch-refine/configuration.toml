@@ -1,0 +1,14 @@
+# PF dogfood (E015) phase 2: patch refine inside declaration minors.
+# Apply was skipped: copying evidence into docs/ changed the source snapshot.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12"]
+test-command = [
+    "pytest",
+    "--no-testmon",
+    "--no-cov",
+    "--maxfail=1",
+    "-m",
+    "not process and not e2e and not qualification and not infra",
+]
+search-space = "minors[declaration]"
+search-resolution = "patch"

@@ -1,0 +1,174 @@
+===== failure-0283cd5c96844609 =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-0283cd5c96844609 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      4ba4b126ae6c77993b022b599dbd77532e703df3fbeff005b992f29a3d7f │
+│                 0650                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.8, charset-normalizer==1.2.0, idna==2.0,        │
+│                 pysocks==1.7.1, urllib3==1.26.20                             │
+│    proposal     8beb30bab184b3cfba832cb28a33137306f65f01cfcd553d0f3ca2f96838 │
+│                 0096                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:27:18,505] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T091559.456107Z-554510-5b570d29/process-204 │
+│                 0.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-0283cd5c96844609
+===== failure-3dc4c0d40d0cedef =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-3dc4c0d40d0cedef · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      aed8948d7f8bacb4fc4a6562aea711dd2843d2d7815af161d99e5b1784a9 │
+│                 aac3                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.8, charset-normalizer==1.3.9, idna==1.1,        │
+│                 pysocks==1.7.1, urllib3==1.26.20                             │
+│    proposal     00c2678277f41a4d0bc8bd88a7f9d03721259f40ee416d3eb3db3165f197 │
+│                 3fcf                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:27:21,643] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T091559.456107Z-554510-5b570d29/process-206 │
+│                 7.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-3dc4c0d40d0cedef
+===== failure-62c332932b20b2e7 =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-62c332932b20b2e7 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      bc73b297fd4cb99374a4ea82143e58b6101c8c430c6ad3b92386c11bf00e │
+│                 0d32                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.8, charset-normalizer==1.3.9, idna==2.0,        │
+│                 pysocks==1.6.8, urllib3==1.26.20                             │
+│    proposal     158d19f4c7a3eb839b5409dd0f19099f392ab145ccc13a62995ed6c53276 │
+│                 56e8                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:27:29,030] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T091559.456107Z-554510-5b570d29/process-210 │
+│                 8.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-62c332932b20b2e7
+===== failure-761d501e42a1b538 =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-761d501e42a1b538 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      64a529de82d983507f6ad74fe78d8a7e44aff282cb21e5193ccc48f169c1 │
+│                 85dc                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.8, charset-normalizer==1.3.9, idna==2.0,        │
+│                 pysocks==1.7.1, urllib3==1.25.11                             │
+│    proposal     bffa841191ab2c78438e34a809c27629ca6077c1d499c8a3f1b1622d3214 │
+│                 52b6                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:26:46,507] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T091559.456107Z-554510-5b570d29/process-199 │
+│                 3.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-761d501e42a1b538
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-fee9c1d1fd551b4e · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3]     │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      81a741782c597f5fd702eff449a8aeb07bfe85cc6b8aa52055f3500773ba │
+│                 7889                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.8, chardet==2.1.1, charset-normalizer==1.3.9,   │
+│                 idna==2.0, pysocks==1.7.1, urllib3==1.26.20                  │
+│    proposal     fc1fe7de3227659626c8eeae3a6b7c69a6e36f087039573ea0cfcc5d97a6 │
+│                 0404                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:32:02,598] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T091559.456107Z-554510-5b570d29/process-302 │
+│                 3.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-fee9c1d1fd551b4e

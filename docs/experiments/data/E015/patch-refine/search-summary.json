@@ -1,0 +1,533 @@
+{
+  "provenance": {
+    "source": "package-floor.json",
+    "run_id": "20260911T103539.860483Z-810499-79df9996",
+    "sha256": "a221fbe4d4181eb3e36000dde6c596c64492faa0730a3a01a6a640055f401867",
+    "bytes": 262337,
+    "reader_validation": {
+      "status": "complete",
+      "cells": 3
+    },
+    "pf_head": "64b06eb45a3fed054cbc43cf1d3c5d6a67f0bc8b",
+    "pf_version": "0.4.0",
+    "phase": "patch-refine"
+  },
+  "identity": {
+    "generator": {
+      "name": "pf",
+      "version": "0.4.0",
+      "algorithm": "v1"
+    },
+    "package": {
+      "name": "package-floor",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.10,<3.13"
+    },
+    "policy_identity": "659bc932c99e3280efcf6043618c684e55dd290420f9a656427cc3abe6db48e2",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
+    "search_derivation_identity": "1b1cfd4553a295c4f9604ed7a3e8b67f5aea103596a8a21da0a8a20661990eea",
+    "report_generation_id": "839cb4902299e62fe85351d67cd288390ace695eb810567f4cb4e81a121ae386",
+    "source_snapshot_digest": "e63827a4749aa6a079e7ce7453489a8fb01f26fed536cc308a4be4c82f8cbc0f",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "result": {
+    "status": "complete"
+  },
+  "search_policy": {
+    "profile": "registry-series-slice-v1",
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "cyclopts",
+          "packaging",
+          "pydantic",
+          "rich",
+          "tomli",
+          "tomlkit"
+        ],
+        "requested_space": "minors[declaration]",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "patch",
+        "prereleases": false
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "name": "ty",
+      "raw": "ty==0.0.74",
+      "specifier": "==0.0.74",
+      "kind": "fixed",
+      "managed": false,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "tomli",
+      "raw": "tomli>=2.0.2; python_version == \"3.10\"",
+      "specifier": ">=2.0.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "cyclopts",
+      "raw": "cyclopts>=4.10.2",
+      "specifier": ">=4.10.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging>=26.3",
+      "specifier": ">=26.3",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "rich",
+      "raw": "rich>=14.3.4",
+      "specifier": ">=14.3.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "uv",
+      "raw": "uv==0.12.5",
+      "specifier": "==0.12.5",
+      "kind": "fixed",
+      "managed": false,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pydantic",
+      "raw": "pydantic>=2.6.4",
+      "specifier": ">=2.6.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "tomlkit",
+      "raw": "tomlkit>=0.8.0",
+      "specifier": ">=0.8.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "tomli",
+      "raw": "tomli>=1.1.0; python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=1.1.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    }
+  ],
+  "projections": [
+    {
+      "name": "tomli",
+      "raw": "tomli>=2.0.2; python_version == \"3.10\"",
+      "specifier": ">=2.0.2",
+      "representable": true,
+      "projected_requirements": [
+        "tomli>=2.0.0; python_version == \"3.10\""
+      ],
+      "floor_versions": [
+        "2.0.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [],
+          "version": "2.0.0"
+        }
+      ]
+    },
+    {
+      "name": "cyclopts",
+      "raw": "cyclopts>=4.10.2",
+      "specifier": ">=4.10.2",
+      "representable": true,
+      "projected_requirements": [
+        "cyclopts>=4.10.0"
+      ],
+      "floor_versions": [
+        "4.10.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [],
+          "version": "4.10.0"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "4.10.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [],
+          "version": "4.10.0"
+        }
+      ]
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging>=26.3",
+      "specifier": ">=26.3",
+      "representable": true,
+      "projected_requirements": [
+        "packaging>=26.3"
+      ],
+      "floor_versions": [
+        "26.3"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [],
+          "version": "26.3"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "26.3"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [],
+          "version": "26.3"
+        }
+      ]
+    },
+    {
+      "name": "rich",
+      "raw": "rich>=14.3.4",
+      "specifier": ">=14.3.4",
+      "representable": true,
+      "projected_requirements": [
+        "rich>=14.3.0"
+      ],
+      "floor_versions": [
+        "14.3.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [],
+          "version": "14.3.0"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "14.3.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [],
+          "version": "14.3.0"
+        }
+      ]
+    },
+    {
+      "name": "pydantic",
+      "raw": "pydantic>=2.6.4",
+      "specifier": ">=2.6.4",
+      "representable": true,
+      "projected_requirements": [
+        "pydantic>=2.6.0"
+      ],
+      "floor_versions": [
+        "2.6.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [],
+          "version": "2.6.0"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "2.6.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [],
+          "version": "2.6.0"
+        }
+      ]
+    },
+    {
+      "name": "tomlkit",
+      "raw": "tomlkit>=0.8.0",
+      "specifier": ">=0.8.0",
+      "representable": true,
+      "projected_requirements": [
+        "tomlkit>=0.8.0"
+      ],
+      "floor_versions": [
+        "0.8.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [],
+          "version": "0.8.0"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "0.8.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [],
+          "version": "0.8.0"
+        }
+      ]
+    },
+    {
+      "name": "tomli",
+      "raw": "tomli>=1.1.0; python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=1.1.0",
+      "representable": true,
+      "projected_requirements": [
+        "tomli>=1.1.0; python_version == \"3.11\" or python_version == \"3.12\""
+      ],
+      "floor_versions": [
+        "1.1.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "1.1.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [],
+          "version": "1.1.0"
+        }
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.10",
+      "extra_surface": [],
+      "sweeps": 2,
+      "baseline": {
+        "cyclopts": "4.25.2",
+        "packaging": "26.3",
+        "pydantic": "2.13.5",
+        "rich": "15.0.0",
+        "tomli": "2.4.1",
+        "tomlkit": "0.15.1"
+      },
+      "final_vector": {
+        "cyclopts": "4.10.0",
+        "packaging": "26.3",
+        "pydantic": "2.6.0",
+        "rich": "14.3.0",
+        "tomli": "2.0.0",
+        "tomlkit": "0.8.0"
+      },
+      "boundaries": [
+        {
+          "dependency": "cyclopts",
+          "floor": "4.10.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "packaging",
+          "floor": "26.3",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "pydantic",
+          "floor": "2.6.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "rich",
+          "floor": "14.3.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "tomli",
+          "floor": "2.0.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "tomlkit",
+          "floor": "0.8.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        }
+      ],
+      "observation_count": 13,
+      "failure_record_count": 0
+    },
+    {
+      "python_minor": "3.11",
+      "extra_surface": [],
+      "sweeps": 2,
+      "baseline": {
+        "cyclopts": "4.25.2",
+        "packaging": "26.3",
+        "pydantic": "2.13.5",
+        "rich": "15.0.0",
+        "tomli": "2.4.1",
+        "tomlkit": "0.15.1"
+      },
+      "final_vector": {
+        "cyclopts": "4.10.0",
+        "packaging": "26.3",
+        "pydantic": "2.6.0",
+        "rich": "14.3.0",
+        "tomli": "1.1.0",
+        "tomlkit": "0.8.0"
+      },
+      "boundaries": [
+        {
+          "dependency": "cyclopts",
+          "floor": "4.10.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "packaging",
+          "floor": "26.3",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "pydantic",
+          "floor": "2.6.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "rich",
+          "floor": "14.3.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "tomli",
+          "floor": "1.1.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "tomlkit",
+          "floor": "0.8.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        }
+      ],
+      "observation_count": 13,
+      "failure_record_count": 0
+    },
+    {
+      "python_minor": "3.12",
+      "extra_surface": [],
+      "sweeps": 2,
+      "baseline": {
+        "cyclopts": "4.25.2",
+        "packaging": "26.3",
+        "pydantic": "2.13.5",
+        "rich": "15.0.0",
+        "tomli": "2.4.1",
+        "tomlkit": "0.15.1"
+      },
+      "final_vector": {
+        "cyclopts": "4.10.0",
+        "packaging": "26.3",
+        "pydantic": "2.6.0",
+        "rich": "14.3.0",
+        "tomli": "1.1.0",
+        "tomlkit": "0.8.0"
+      },
+      "boundaries": [
+        {
+          "dependency": "cyclopts",
+          "floor": "4.10.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "packaging",
+          "floor": "26.3",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "pydantic",
+          "floor": "2.6.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "rich",
+          "floor": "14.3.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "tomli",
+          "floor": "1.1.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "tomlkit",
+          "floor": "0.8.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        }
+      ],
+      "observation_count": 13,
+      "failure_record_count": 0
+    }
+  ],
+  "counts": {
+    "cell_results": 3,
+    "search_observations": 39,
+    "observation_evidence": {
+      "ProbePass": 39
+    },
+    "failure_records_in_cells": 0,
+    "failure_cause_counts": {},
+    "candidate_snapshots": 18,
+    "search_process_logs": 316,
+    "journal_entries": 0,
+    "journal_sha256": "dc6184d977e3381f61a59572ddf3cbe5f1647555eead96738256aaa988025466",
+    "source_snapshot_digest": "e63827a4749aa6a079e7ce7453489a8fb01f26fed536cc308a4be4c82f8cbc0f",
+    "probe_pass": 39,
+    "probe_rejection": 0
+  }
+}

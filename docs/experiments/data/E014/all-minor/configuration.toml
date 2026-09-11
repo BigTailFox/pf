@@ -1,0 +1,21 @@
+# PF dogfood (E014) phase 1: full-space minor search on original MkDocs
+# declarations plus the E007 pathspec upper bound and i18n test group.
+[dependency-groups]
+pf-unit = ["mkdocs[i18n]"]
+
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12", "3.8", "3.9"]
+test-group = "pf-unit"
+extra-policy = "none"
+test-command = [
+    "python",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "mkdocs",
+    "-p",
+    "*tests.py",
+]
+search-space = "all"
+search-resolution = "minor"

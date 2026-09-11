@@ -1,0 +1,14 @@
+# PF dogfood (E015) phase 1: full-space minor search on current PF declarations.
+# uv and ty remain pinned. test-command is the targeted-runtime contract.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12"]
+test-command = [
+    "pytest",
+    "--no-testmon",
+    "--no-cov",
+    "--maxfail=1",
+    "-m",
+    "not process and not e2e and not qualification and not infra",
+]
+search-space = "all"
+search-resolution = "minor"

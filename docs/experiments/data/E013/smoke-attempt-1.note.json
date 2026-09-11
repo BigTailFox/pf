@@ -1,0 +1,6 @@
+{
+  "note": "first smoke failed with RESOLUTION_FAILED / tls handshake eof against pypi.org/simple/setuptools/",
+  "run_id": "20260911T090700.531182Z-545762-e84f03a9",
+  "passed_cells": 1,
+  "failed_cells": 9
+}

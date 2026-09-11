@@ -1,0 +1,107 @@
+E013 patch-refine representative predecessor diagnoses.
+===== failure-fb73671197d70121 =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-fb73671197d70121 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      15c237d4501af345d776cec23037e841f62eb5e63fc866d0b110d0bc7ab1 │
+│                 ba68                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.6, charset-normalizer==1.3.1, idna==2.0,        │
+│                 pysocks==1.7.0, urllib3==1.26.5                              │
+│    proposal     655926a278122ca196b896f8716eb598bad0c964bfddbdf22c2f1e912e7a │
+│                 8111                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 4                                                     │
+│    output       E       print where()                                        │
+│                 E       ^^^^^^^^^^^^^                                        │
+│                 E   SyntaxError: Missing parentheses in call to 'print'. Did │
+│                 you mean print(...)?                                         │
+│    log          .pf/logs/20260911T093346.711360Z-611867-89248610/process-247 │
+│                 0.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-fb73671197d70121
+===== failure-b59ef4efbf5bcdb1 =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-b59ef4efbf5bcdb1 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      0ce61a28867645b28dbe6332689fea3e2f88bdf08d1a222023424ea0cab3 │
+│                 0094                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.7, charset-normalizer==1.3.0, idna==2.0,        │
+│                 pysocks==1.7.0, urllib3==1.26.5                              │
+│    proposal     428f739602d7ee0519c6f961160f8ed61325f148414148cce0dd8275d1d8 │
+│                 31a0                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:46:41,438] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T093346.711360Z-611867-89248610/process-249 │
+│                 6.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-b59ef4efbf5bcdb1
+===== failure-40274d5461cb2e38 =====
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-40274d5461cb2e38 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      6f646d6db28b35586c7d2819c45be2fe9a503f94ffe027c7e08d597ad8e8 │
+│                 0d6b                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       certifi==0.0.7, charset-normalizer==1.3.1, idna==2.0,        │
+│                 pysocks==1.7.0, urllib3==1.26.4                              │
+│    proposal     2bc3d6b5664c76c4847969950e7672143d47b8e2a3d7cbc89fa306327f18 │
+│                 658a                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       [2026-09-11 17:46:29,704] WARNING in core: flasgger is not   │
+│                 installed; serving the static landing page at / and skipping │
+│                 the Swagger UI and /spec.json.                               │
+│    log          .pf/logs/20260911T093346.711360Z-611867-89248610/process-243 │
+│                 6.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-40274d5461cb2e38

@@ -1,0 +1,87 @@
+✓  selected 10 cells, 6 active packages (0 pinned)
+   run-id: 20260911T090700.531182Z-545762-e84f03a9
+   python: 3.10, 3.11, 3.12, 3.13, 3.14
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: socks, socks+use_chardet_on_py3
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.10][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:19      │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-1d8f898d10e72cf2 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.14][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:00:39      │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-1fda75cc9d5afc42 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.10][x86_64-unknown-linux-gnu][socks] 0:01:02                         │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-4f929255681f1994 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.12][x86_64-unknown-linux-gnu][socks] 0:01:25                         │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-7e9890a1553b0bbe --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.12][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:01:47      │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-8b5727d97e9d10bf --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.14][x86_64-unknown-linux-gnu][socks] 0:02:09                         │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-e6e704f656ccc992 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:02:34      │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-5b93d8bb88cc265a --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][socks] 0:02:58                         │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-4177a51c7554c2d8 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.13][x86_64-unknown-linux-gnu][socks+use_chardet_on_py3] 0:03:23      │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-48a6959f563a25d0 --package requests` for more │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.13][x86_64-unknown-linux-gnu][socks] 0:05:04                         │
+│    smoke passed at [baseline][highest]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Smoke failed · highest-version resolution did not pass · 10 cells

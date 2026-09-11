@@ -1,0 +1,12 @@
+# PF dogfood (E013). Restore original requests declarations, then search
+# the full registry space at minor resolution. extra-policy remains the
+# omitted default "each": socks is required via the test group self-reference,
+# and use_chardet_on_py3 is the only additional extra surface. Empty security
+# extra no longer creates a Cell. PF v1 does not run the 3.15 prerelease from
+# classifiers.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+test-command = ["pytest"]
+resolve-artifact = "any"
+search-space = "all"
+search-resolution = "minor"

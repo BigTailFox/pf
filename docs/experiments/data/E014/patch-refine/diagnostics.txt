@@ -1,0 +1,5 @@
+E014 patch-refine: NO_PASS_IN_SEARCH_SPACE on jinja2
+jinja2 minor floor was probed against current highest of other coords
+coordinate-descent order dependence: jinja2 before markupsafe; first sweep
+fails entire 2.10.x against MarkupSafe 3.x and stops the cell. See E014 §7.1.
+

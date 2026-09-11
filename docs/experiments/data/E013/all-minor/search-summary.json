@@ -1,0 +1,1233 @@
+{
+  "provenance": {
+    "source": "experiments/requests/package-floor.json",
+    "run_id": "20260911T091559.456107Z-554510-5b570d29",
+    "sha256": "472911599e38acb6b729782ed19d38549c9c5bae950806f91c30e2ddf73d2583",
+    "bytes": 2178715,
+    "reader_validation": {
+      "status": "complete",
+      "cells": 10
+    },
+    "pf_head": "64b06eb45a3fed054cbc43cf1d3c5d6a67f0bc8b",
+    "pf_version": "0.4.0",
+    "phase": "all-minor"
+  },
+  "identity": {
+    "generator": {
+      "name": "pf",
+      "version": "0.4.0",
+      "algorithm": "v1"
+    },
+    "package": {
+      "name": "requests",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.10"
+    },
+    "policy_identity": "1e35bcbf8038ecc7a3c35142754f315f902873cae85e6e27352d8f08e1518198",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
+    "search_derivation_identity": "32d6b3cf556b77384bd3dcdb3bf5687b2bf019a245124544fc571289fdc552d4",
+    "report_generation_id": "d26df9f9deaedb292dafddb137820e999e5ae50a7c54a10a2e36ac390a4fe85f",
+    "source_snapshot_digest": "ba3645a2be9ddd295ef2094335884917683746407ce76dd10334237684467e2f",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "result": {
+    "status": "complete"
+  },
+  "search_policy": {
+    "profile": "registry-series-slice-v1",
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "certifi",
+          "chardet",
+          "charset-normalizer",
+          "idna",
+          "pysocks",
+          "urllib3"
+        ],
+        "requested_space": "all",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "minor",
+        "prereleases": false
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "name": "idna",
+      "raw": "idna>=2.5,<4",
+      "specifier": "<4,>=2.5",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "urllib3",
+      "raw": "urllib3>=1.26,<3",
+      "specifier": "<3,>=1.26",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "chardet",
+      "raw": "chardet>=3.0.2,<8",
+      "specifier": "<8,>=3.0.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "use_chardet_on_py3"
+    },
+    {
+      "name": "pysocks",
+      "raw": "PySocks>=1.5.6, !=1.5.7",
+      "specifier": "!=1.5.7,>=1.5.6",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "socks"
+    },
+    {
+      "name": "charset-normalizer",
+      "raw": "charset_normalizer>=2,<4",
+      "specifier": "<4,>=2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "certifi",
+      "raw": "certifi>=2023.5.7",
+      "specifier": ">=2023.5.7",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    }
+  ],
+  "projections": [
+    {
+      "name": "idna",
+      "raw": "idna>=2.5,<4",
+      "specifier": "<4,>=2.5",
+      "representable": true,
+      "projected_requirements": [
+        "idna<4,>=2.0"
+      ],
+      "floor_versions": [
+        "2.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "2.0"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.0"
+        }
+      ]
+    },
+    {
+      "name": "urllib3",
+      "raw": "urllib3>=1.26,<3",
+      "specifier": "<3,>=1.26",
+      "representable": true,
+      "projected_requirements": [
+        "urllib3<3,>=1.26.20"
+      ],
+      "floor_versions": [
+        "1.26.20"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.26.20"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.26.20"
+        }
+      ]
+    },
+    {
+      "name": "chardet",
+      "raw": "chardet>=3.0.2,<8",
+      "specifier": "<8,>=3.0.2",
+      "representable": true,
+      "projected_requirements": [
+        "chardet<8,>=2.2.1"
+      ],
+      "floor_versions": [
+        "2.2.1"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.2.1"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.2.1"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.2.1"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.2.1"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "2.2.1"
+        }
+      ]
+    },
+    {
+      "name": "pysocks",
+      "raw": "PySocks>=1.5.6, !=1.5.7",
+      "specifier": "!=1.5.7,>=1.5.6",
+      "representable": true,
+      "projected_requirements": [
+        "PySocks!=1.5.7,>=1.7.1"
+      ],
+      "floor_versions": [
+        "1.7.1"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.7.1"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.7.1"
+        }
+      ]
+    },
+    {
+      "name": "charset-normalizer",
+      "raw": "charset_normalizer>=2,<4",
+      "specifier": "<4,>=2",
+      "representable": true,
+      "projected_requirements": [
+        "charset_normalizer<4,>=1.3.9"
+      ],
+      "floor_versions": [
+        "1.3.9"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "1.3.9"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "1.3.9"
+        }
+      ]
+    },
+    {
+      "name": "certifi",
+      "raw": "certifi>=2023.5.7",
+      "specifier": ">=2023.5.7",
+      "representable": true,
+      "projected_requirements": [
+        "certifi>=0.0.8"
+      ],
+      "floor_versions": [
+        "0.0.8"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.10",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.11",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.12",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.13",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks"
+          ],
+          "version": "0.0.8"
+        },
+        {
+          "python_minor": "3.14",
+          "extra_surface": [
+            "socks",
+            "use_chardet_on_py3"
+          ],
+          "version": "0.0.8"
+        }
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.10",
+      "extra_surface": [
+        "socks"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-0283cd5c96844609"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-3dc4c0d40d0cedef"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-62c332932b20b2e7"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-761d501e42a1b538"
+        }
+      ],
+      "observation_count": 33,
+      "failure_record_count": 18
+    },
+    {
+      "python_minor": "3.10",
+      "extra_surface": [
+        "socks",
+        "use_chardet_on_py3"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "chardet": "7.6.0",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "chardet": "2.2.1",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_id": "failure-fee9c1d1fd551b4e"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-38e64f153a0c4fd6"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-83996b17d482bad6"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-f41296f34af26ea3"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-f90d58904f4d6e99"
+        }
+      ],
+      "observation_count": 41,
+      "failure_record_count": 21
+    },
+    {
+      "python_minor": "3.11",
+      "extra_surface": [
+        "socks"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-bad46bc6d668d19f"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-06781207cbf26207"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-a44fbcada2df8321"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-62c8dd4f7b512ac8"
+        }
+      ],
+      "observation_count": 33,
+      "failure_record_count": 18
+    },
+    {
+      "python_minor": "3.11",
+      "extra_surface": [
+        "socks",
+        "use_chardet_on_py3"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "chardet": "7.6.0",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "chardet": "2.2.1",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_id": "failure-88a7e7ce5ccb2ba0"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-16a6b8f21980d8c8"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-f935ebc1d1caf07f"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-07baa22a95b153ad"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-3ff6965d909a3969"
+        }
+      ],
+      "observation_count": 41,
+      "failure_record_count": 21
+    },
+    {
+      "python_minor": "3.12",
+      "extra_surface": [
+        "socks"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-ad8759d2d1467540"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-78a72d1257e78c21"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-21c3035f6c002ea8"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-a97eac67d64fb115"
+        }
+      ],
+      "observation_count": 33,
+      "failure_record_count": 18
+    },
+    {
+      "python_minor": "3.12",
+      "extra_surface": [
+        "socks",
+        "use_chardet_on_py3"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "chardet": "7.6.0",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "chardet": "2.2.1",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_id": "failure-175ed38d5a22f727"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-dd6729e2efd0380a"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-31741f42222f38a2"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-4512ca39a0a567c8"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-6f8880ba52454a97"
+        }
+      ],
+      "observation_count": 41,
+      "failure_record_count": 21
+    },
+    {
+      "python_minor": "3.13",
+      "extra_surface": [
+        "socks"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-b3ad52e7db5498d0"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-f368aadc7b08730e"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-fd7b260b56aca761"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-911feec9b928d8b0"
+        }
+      ],
+      "observation_count": 33,
+      "failure_record_count": 18
+    },
+    {
+      "python_minor": "3.13",
+      "extra_surface": [
+        "socks",
+        "use_chardet_on_py3"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "chardet": "7.6.0",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "chardet": "2.2.1",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_id": "failure-726059251b744ac3"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-34ea7ebf7a184147"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-28d7f10e87ff8c5f"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-42c65e77909e2e48"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-5d162ca28122e87b"
+        }
+      ],
+      "observation_count": 41,
+      "failure_record_count": 21
+    },
+    {
+      "python_minor": "3.14",
+      "extra_surface": [
+        "socks"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-41d6bfa1896df4f4"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-092c117540d2c549"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-891c188ea4885623"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-201769989f8e9cd0"
+        }
+      ],
+      "observation_count": 33,
+      "failure_record_count": 18
+    },
+    {
+      "python_minor": "3.14",
+      "extra_surface": [
+        "socks",
+        "use_chardet_on_py3"
+      ],
+      "sweeps": 2,
+      "baseline": {
+        "certifi": "2026.7.22",
+        "chardet": "7.6.0",
+        "charset-normalizer": "3.5.1",
+        "idna": "3.19",
+        "pysocks": "1.7.1",
+        "urllib3": "2.7.0"
+      },
+      "final_vector": {
+        "certifi": "0.0.8",
+        "chardet": "2.2.1",
+        "charset-normalizer": "1.3.9",
+        "idna": "2.0",
+        "pysocks": "1.7.1",
+        "urllib3": "1.26.20"
+      },
+      "boundaries": [
+        {
+          "dependency": "certifi",
+          "floor": "0.0.8",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "chardet",
+          "floor": "2.2.1",
+          "predecessor": "2.1.1",
+          "predecessor_failure_id": "failure-19cda33aa0230aa0"
+        },
+        {
+          "dependency": "charset-normalizer",
+          "floor": "1.3.9",
+          "predecessor": "1.2.0",
+          "predecessor_failure_id": "failure-23642d14044ef8e5"
+        },
+        {
+          "dependency": "idna",
+          "floor": "2.0",
+          "predecessor": "1.1",
+          "predecessor_failure_id": "failure-9b6ccf2eb4fe367a"
+        },
+        {
+          "dependency": "pysocks",
+          "floor": "1.7.1",
+          "predecessor": "1.6.8",
+          "predecessor_failure_id": "failure-2ba81108cc27b0af"
+        },
+        {
+          "dependency": "urllib3",
+          "floor": "1.26.20",
+          "predecessor": "1.25.11",
+          "predecessor_failure_id": "failure-ec245c78beae9b49"
+        }
+      ],
+      "observation_count": 41,
+      "failure_record_count": 21
+    }
+  ],
+  "counts": {
+    "cell_results": 10,
+    "search_observations": 370,
+    "observation_evidence": {
+      "ProbePass": 175,
+      "ProbeRejection": 195
+    },
+    "failure_records_in_cells": 195,
+    "failure_cause_counts": {
+      "VERIFIER_EXITED_NONZERO": 175,
+      "RESOLUTION_FAILED": 20
+    },
+    "candidate_snapshots": 55,
+    "search_process_logs": 3051,
+    "journal_entries": 195,
+    "journal_sha256": "9bf061b406c36acdf62763b066a9365894f8a41ebb1d4a6249879ddcde74a151",
+    "source_snapshot_digest": "ba3645a2be9ddd295ef2094335884917683746407ce76dd10334237684467e2f",
+    "probe_pass": 175,
+    "probe_rejection": 195
+  }
+}

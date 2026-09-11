@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "apply"
+  ],
+  "cwd": "/home/llh/pf",
+  "started_at": "2026-09-11T10:35:10.574016+00:00",
+  "finished_at": "2026-09-11T10:35:11.173018+00:00",
+  "elapsed_s": 0.599002,
+  "exit_code": 3,
+  "log": "docs/experiments/data/E015/all-minor/apply.txt",
+  "evidence": "docs/experiments/data/E015/all-minor"
+}

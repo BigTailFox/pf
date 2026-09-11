@@ -1,0 +1,14 @@
+# PF dogfood (E015). Keep the current targeted-runtime-contract test-command.
+# Explicit pythons match requires-python >=3.10,<3.13. uv and ty remain pinned.
+[tool.pf]
+pythons = ["3.10", "3.11", "3.12"]
+test-command = [
+    "pytest",
+    "--no-testmon",
+    "--no-cov",
+    "--maxfail=1",
+    "-m",
+    "not process and not e2e and not qualification and not infra",
+]
+search-space = "all"
+search-resolution = "minor"

@@ -1,0 +1,16 @@
+{
+  "run_id": "20260911T095456.023732Z-663017-5a154df1",
+  "command": "smoke",
+  "journal_sha256": "c89cad0084ffffff51ecd640e8116681df488f079f540960b9b1ea71058d6ea6",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 0,
+  "source_snapshot_digest": "7c60932eba25f041e33929ae8f1a82d60ce3a9d5ca08da7984a2afd8f0ba555b",
+  "package_policies": [
+    {
+      "package": "mkdocs",
+      "execution_policy_identity": "968e10f44e5ddeeee80fbf71fbad8522c9b652ee881f67540112177115c243af"
+    }
+  ],
+  "process_log_count": 32,
+  "failure_entries": []
+}

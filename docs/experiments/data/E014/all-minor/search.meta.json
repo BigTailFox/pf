@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search"
+  ],
+  "cwd": "/home/llh/pf/experiments/mkdocs",
+  "started_at": "2026-09-11T09:55:56.784221+00:00",
+  "finished_at": "2026-09-11T10:13:19.474485+00:00",
+  "elapsed_s": 1042.690264,
+  "exit_code": 0,
+  "log": "docs/experiments/data/E014/all-minor/search.txt",
+  "evidence": "docs/experiments/data/E014/all-minor"
+}

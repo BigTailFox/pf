@@ -1,0 +1,573 @@
+{
+  "provenance": {
+    "source": "experiments/mkdocs/package-floor.json",
+    "run_id": "20260911T101358.869628Z-745130-0fa244e8",
+    "sha256": "58bb877bf28ee33262c81b95a617f51d8336a3b13d2011f2663db99794a20107",
+    "bytes": 346132,
+    "reader_validation": {
+      "status": "incomplete",
+      "cells": 5
+    },
+    "pf_head": "64b06eb45a3fed054cbc43cf1d3c5d6a67f0bc8b",
+    "pf_version": "0.4.0",
+    "phase": "patch-refine"
+  },
+  "identity": {
+    "generator": {
+      "name": "pf",
+      "version": "0.4.0",
+      "algorithm": "v1"
+    },
+    "package": {
+      "name": "mkdocs",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.8"
+    },
+    "policy_identity": "3471833e6288a340bbda52d645846b005b69dd7ffadaf89874fd70de0c547cc7",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
+    "search_derivation_identity": "1b1cfd4553a295c4f9604ed7a3e8b67f5aea103596a8a21da0a8a20661990eea",
+    "report_generation_id": "0c4ce934840c3802d6cbf438ae12d2013f8379bcbbfbe804ef75d0d2b9bbe309",
+    "source_snapshot_digest": "1bca6709c381aa3df0f4ea455c7908cd1ee871a7986e08022b60c96bedf6c3a1",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "result": {
+    "status": "incomplete"
+  },
+  "search_policy": {
+    "profile": "registry-series-slice-v1",
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "babel",
+          "click",
+          "colorama",
+          "ghp-import",
+          "importlib-metadata",
+          "jinja2",
+          "markdown",
+          "markupsafe",
+          "mergedeep",
+          "mkdocs-get-deps",
+          "packaging",
+          "pathspec",
+          "pyyaml",
+          "pyyaml-env-tag",
+          "watchdog"
+        ],
+        "requested_space": "minors[declaration]",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "patch",
+        "prereleases": false
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "name": "babel",
+      "raw": "babel>=2.7.0; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=2.7.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "i18n"
+    },
+    {
+      "name": "pyyaml",
+      "raw": "PyYAML>=5.1.2",
+      "specifier": ">=5.1.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pathspec",
+      "raw": "pathspec ==0.11.1",
+      "specifier": "==0.11.1",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "ghp-import",
+      "raw": "ghp-import ==1.0",
+      "specifier": "==1.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "colorama",
+      "raw": "colorama >=0.4; platform_system == 'Windows'",
+      "specifier": ">=0.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "click",
+      "raw": "click ==7.0",
+      "specifier": "==7.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "pyyaml-env-tag",
+      "raw": "pyyaml_env_tag ==0.1",
+      "specifier": "==0.1",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe ==2.0.1",
+      "specifier": "==2.0.1",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "babel",
+      "raw": "babel ==2.9.0",
+      "specifier": "==2.9.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging>=14.1",
+      "specifier": ">=14.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "jinja2",
+      "raw": "Jinja2>=2.9.6; python_version == \"3.8\" or python_version == \"3.9\"",
+      "specifier": ">=2.9.6",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pyyaml-env-tag",
+      "raw": "pyyaml_env_tag>=0.1",
+      "specifier": ">=0.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "importlib-metadata",
+      "raw": "importlib-metadata ==4.4; python_version < '3.10'",
+      "specifier": "==4.4",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "markdown",
+      "raw": "Markdown ==3.3.6",
+      "specifier": "==3.3.6",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging ==20.5",
+      "specifier": "==20.5",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe>=0.23; python_version == \"3.8\" or python_version == \"3.9\"",
+      "specifier": ">=0.23",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pyyaml",
+      "raw": "PyYAML ==5.1",
+      "specifier": "==5.1",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "watchdog",
+      "raw": "watchdog ==2.0",
+      "specifier": "==2.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "jinja2",
+      "raw": "Jinja2 ==2.11.1",
+      "specifier": "==2.11.1",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "ghp-import",
+      "raw": "ghp-import>=0.6.0",
+      "specifier": ">=0.6.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "mergedeep",
+      "raw": "mergedeep ==1.3.4",
+      "specifier": "==1.3.4",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "importlib-metadata",
+      "raw": "importlib-metadata>=4.4.0; python_version < \"3.10\"",
+      "specifier": ">=4.4.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "babel",
+      "raw": "babel>=1.0; python_version == \"3.8\" or python_version == \"3.9\"",
+      "specifier": ">=1.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "i18n"
+    },
+    {
+      "name": "jinja2",
+      "raw": "Jinja2>=2.10.3; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=2.10.3",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pathspec",
+      "raw": "pathspec<=0.12.1,>=0.10.3",
+      "specifier": "<=0.12.1,>=0.10.3",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "mkdocs-get-deps",
+      "raw": "mkdocs-get-deps>=0.1.0",
+      "specifier": ">=0.1.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "colorama",
+      "raw": "colorama ==0.4; platform_system == 'Windows'",
+      "specifier": "==0.4",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe>=1.1.1; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=1.1.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "click",
+      "raw": "click>=7.0",
+      "specifier": ">=7.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "watchdog",
+      "raw": "watchdog>=0.10.4",
+      "specifier": ">=0.10.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "mergedeep",
+      "raw": "mergedeep>=1.3.4",
+      "specifier": ">=1.3.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "markdown",
+      "raw": "Markdown>=3.3.7",
+      "specifier": ">=3.3.7",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "mkdocs-get-deps",
+      "raw": "mkdocs-get-deps ==0.2.0",
+      "specifier": "==0.2.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "min-versions"
+    }
+  ],
+  "projections": [
+    {
+      "name": "babel",
+      "raw": "babel>=2.7.0; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=2.7.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pyyaml",
+      "raw": "PyYAML>=5.1.2",
+      "specifier": ">=5.1.2",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging>=14.1",
+      "specifier": ">=14.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "jinja2",
+      "raw": "Jinja2>=2.9.6; python_version == \"3.8\" or python_version == \"3.9\"",
+      "specifier": ">=2.9.6",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pyyaml-env-tag",
+      "raw": "pyyaml_env_tag>=0.1",
+      "specifier": ">=0.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe>=0.23; python_version == \"3.8\" or python_version == \"3.9\"",
+      "specifier": ">=0.23",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "ghp-import",
+      "raw": "ghp-import>=0.6.0",
+      "specifier": ">=0.6.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "importlib-metadata",
+      "raw": "importlib-metadata>=4.4.0; python_version < \"3.10\"",
+      "specifier": ">=4.4.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "babel",
+      "raw": "babel>=1.0; python_version == \"3.8\" or python_version == \"3.9\"",
+      "specifier": ">=1.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "jinja2",
+      "raw": "Jinja2>=2.10.3; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=2.10.3",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pathspec",
+      "raw": "pathspec<=0.12.1,>=0.10.3",
+      "specifier": "<=0.12.1,>=0.10.3",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "mkdocs-get-deps",
+      "raw": "mkdocs-get-deps>=0.1.0",
+      "specifier": ">=0.1.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "markupsafe",
+      "raw": "markupsafe>=1.1.1; python_version == \"3.10\" or python_version == \"3.11\" or python_version == \"3.12\"",
+      "specifier": ">=1.1.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "click",
+      "raw": "click>=7.0",
+      "specifier": ">=7.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "watchdog",
+      "raw": "watchdog>=0.10.4",
+      "specifier": ">=0.10.4",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "mergedeep",
+      "raw": "mergedeep>=1.3.4",
+      "specifier": ">=1.3.4",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "markdown",
+      "raw": "Markdown>=3.3.7",
+      "specifier": ">=3.3.7",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.10",
+      "extra_surface": [
+        "i18n"
+      ],
+      "status": "SEARCH_FAILED"
+    },
+    {
+      "python_minor": "3.11",
+      "extra_surface": [
+        "i18n"
+      ],
+      "status": "SEARCH_FAILED"
+    },
+    {
+      "python_minor": "3.12",
+      "extra_surface": [
+        "i18n"
+      ],
+      "status": "SEARCH_FAILED"
+    },
+    {
+      "python_minor": "3.8",
+      "extra_surface": [
+        "i18n"
+      ],
+      "status": "SEARCH_FAILED"
+    },
+    {
+      "python_minor": "3.9",
+      "extra_surface": [
+        "i18n"
+      ],
+      "status": "SEARCH_FAILED"
+    }
+  ],
+  "counts": {
+    "cell_results": 5,
+    "search_observations": 0,
+    "observation_evidence": {},
+    "failure_records_in_cells": 0,
+    "failure_cause_counts": {},
+    "candidate_snapshots": 0,
+    "search_process_logs": 379,
+    "journal_entries": 5,
+    "journal_sha256": "de6451b0f20ea58a2b9d71c4225a3128bf14821ab478ff072c3d4f3bcfa68ab2",
+    "source_snapshot_digest": "1bca6709c381aa3df0f4ea455c7908cd1ee871a7986e08022b60c96bedf6c3a1",
+    "probe_pass": 0,
+    "probe_rejection": 0
+  }
+}

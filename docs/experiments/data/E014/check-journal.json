@@ -1,0 +1,16 @@
+{
+  "run_id": "20260911T095523.605618Z-664481-031c5f4c",
+  "command": "check",
+  "journal_sha256": "7b371d98b9cb7e149ffbfe478e028e0d854b74d31e3232d41e3e4f140c9ce056",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 0,
+  "source_snapshot_digest": "7c60932eba25f041e33929ae8f1a82d60ce3a9d5ca08da7984a2afd8f0ba555b",
+  "package_policies": [
+    {
+      "package": "mkdocs",
+      "execution_policy_identity": "968e10f44e5ddeeee80fbf71fbad8522c9b652ee881f67540112177115c243af"
+    }
+  ],
+  "process_log_count": 32,
+  "failure_entries": []
+}

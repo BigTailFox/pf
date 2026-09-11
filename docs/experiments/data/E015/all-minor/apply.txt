@@ -1,0 +1,2 @@
+
+✗  configuration: project source snapshot has drifted since search

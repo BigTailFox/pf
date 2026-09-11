@@ -1,0 +1,35 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-53dd10b42b64be65 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The declared lower bounds did not pass the required        │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  requests                                                         │
+│    cell     [py3.12][x86_64-unknown-linux-gnu][socks]                        │
+│    stage    test                                                             │
+│    source   latest pf check                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      702bd2d7491b94b8f60bf911e1d3a178884b06e437683a1f14df78dcf3d1 │
+│                 7abb                                                         │
+│    resolution   lowest-direct                                                │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 4                                                     │
+│    output       ../environment/lib/python3.12/site-packages/urllib3/exceptio │
+│                 ns.py:3: in <module>                                         │
+│                     from .packages.six.moves.http_client import              │
+│                 IncompleteRead as httplib_IncompleteRead                     │
+│                 E   ModuleNotFoundError: No module named                     │
+│                 'urllib3.packages.six.moves'                                 │
+│    log          .pf/logs/20260911T091516.703157Z-551500-f6e8ad2f/process-012 │
+│                 7.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-53dd10b42b64be65

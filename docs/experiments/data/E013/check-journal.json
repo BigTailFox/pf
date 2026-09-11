@@ -1,0 +1,77 @@
+{
+  "run_id": "20260911T091516.703157Z-551500-f6e8ad2f",
+  "command": "check",
+  "journal_sha256": "3517242696fc0dcf9a1e4f5a83f114272b0630b792152b6f527c690507781e89",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 10,
+  "source_snapshot_digest": "ba3645a2be9ddd295ef2094335884917683746407ce76dd10334237684467e2f",
+  "package_policies": [
+    {
+      "package": "requests",
+      "execution_policy_identity": "836ec5e859f4d1dea75b80a901fe70720fb84b87d9eee92f96fe3a266119bc25"
+    }
+  ],
+  "process_log_count": 132,
+  "failure_entries": [
+    {
+      "failure_id": "failure-db6d28f4df77fe7f",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-bb1c66f968063fb8",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-6196aa92fd32cfd8",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-d7a07f8e5bfe8c9e",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-53dd10b42b64be65",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-35d0ca0c5eb7c9f1",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-1fb241af132d868d",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-331ee8ab438a1458",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-2d00fc17ad6663fa",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-7977d01aae830c8f",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    }
+  ]
+}
