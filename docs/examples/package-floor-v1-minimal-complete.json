@@ -100,7 +100,7 @@
     "generator": {
       "algorithm": "v1",
       "name": "pf",
-      "version": "0.3.0"
+      "version": "0.4.0"
     },
     "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
     "package": {
@@ -108,7 +108,7 @@
       "pyproject_path": "pyproject.toml"
     },
     "policy_identity": "fd39c1ea8d4e805b98d515501efb086d91bb5b24cb91891015d38816707024d3",
-    "report_generation_id": "9969a7b9bffa93f551851f9db009db8a010e8cdc71d7f0d13c903631d7322f22",
+    "report_generation_id": "bc4fa81ee7420ff48ff992e0418ccb19df8013d7b1feb0785d47a171a29ecf82",
     "search_derivation_identity": "3f7ea733fb76e96df406efae8e1a2d8d5e927942f68296f1149d2f966adb3eaf",
     "source_snapshot": {
       "digest": "e5a9352b3d9e35b63465ad83850749bfc7a247dafaf905074fdf5559f90aba54",
