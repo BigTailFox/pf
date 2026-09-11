@@ -1341,7 +1341,7 @@ CheckResult = Annotated[
 
 VerificationRole = Literal[
     "baseline",
-    "declaration-capture",
+    "harness-prepare",
     "declaration",
     "probe",
 ]
@@ -1360,7 +1360,7 @@ def failure_process_matches(record: FailureRecord, process: ProcessObservation) 
 
 class CheckCellOutcome(FrozenSchema):
     status: Literal["PASS", "REJECTED", "INDETERMINATE"]
-    role: Literal["declaration-capture", "declaration"]
+    role: Literal["harness-prepare", "declaration"]
     attempt: Attempt
     failure: FailureRecord | None = None
     evaluation: Evaluation | None = None
@@ -1525,14 +1525,36 @@ HighestVersionOutcome = Annotated[
 ]
 
 
+class SmokeCellPass(FrozenSchema):
+    status: Literal["PASS"] = "PASS"
+    attempt: Attempt
+    evaluation: PassEvaluation
+
+    @model_validator(mode="after")
+    def validate_smoke_evaluation(self) -> "SmokeCellPass":
+        if self.attempt.identity.requested_resolution != "highest":
+            raise ValueError("smoke pass requires a highest Attempt")
+        if self.evaluation.proposal.cell != self.attempt.identity.cell:
+            raise ValueError("smoke evaluation must match its cell")
+        if self.evaluation.proposal.attempt_id != self.attempt.attempt_id:
+            raise ValueError("smoke proposal must reference its attempt")
+        return self
+
+
+SmokeCellOutcome = Annotated[
+    Union[SmokeCellPass, BaselineRejection, BaselineIndeterminate],
+    Field(discriminator="status"),
+]
+
+
 class SmokePass(FrozenSchema):
     status: Literal["PASS"] = "PASS"
-    outcomes: tuple[HighestVersionPass, ...]
+    outcomes: tuple[SmokeCellPass, ...]
 
 
 class SmokeBaselineRejection(FrozenSchema):
     status: Literal["BASELINE_REJECTION"] = "BASELINE_REJECTION"
-    outcomes: tuple[HighestVersionOutcome, ...]
+    outcomes: tuple[SmokeCellOutcome, ...]
 
     @model_validator(mode="after")
     def validate_rejection(self) -> "SmokeBaselineRejection":
@@ -1543,7 +1565,7 @@ class SmokeBaselineRejection(FrozenSchema):
 
 class SmokeIndeterminate(FrozenSchema):
     status: Literal["INDETERMINATE"] = "INDETERMINATE"
-    outcomes: tuple[HighestVersionPass | BaselineIndeterminate, ...]
+    outcomes: tuple[SmokeCellPass | BaselineIndeterminate, ...]
 
     @model_validator(mode="after")
     def validate_indeterminate(self) -> "SmokeIndeterminate":

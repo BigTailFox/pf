@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **Journal：** `verification-journal-v3`
-- **最后核对：** 2026-09-10
+- **最后核对：** 2026-09-11
 - **命令语义：** [D001](D001-pf.md)
 - **Failure 分类：** [D005](D005-pf-failure-and-diagnose.md)
 - **展示：** [D006](D006-pf-cli-enhancement.md)
@@ -66,8 +66,8 @@ exact-vector   search probe，必须带 requested managed vector
 | Role | 命令 | Request | Evaluation contract |
 | --- | --- | --- | --- |
 | `baseline` | smoke/search | highest | full |
-| `declaration-capture` | check | highest | static capture only |
-| `declaration` | check | lowest-direct | full，相对本次捕获的 `S_hi` |
+| `harness-prepare` | check | highest | 只取得 `HarnessBaseline`，零 ty、零 verifier |
+| `declaration` | check | lowest-direct | full runtime |
 | `probe` | search | exact-vector | D003 runtime-backed route |
 
 Role 进入 Journal 并决定 offline impact；它不进入 Attempt ID、Proposal ID 或 Failure ID，也不改变 D005 classification。
@@ -79,33 +79,47 @@ Role 进入 Journal 并决定 offline impact；它不进入 Attempt ID、Proposa
 每个宿主 Cell 一次 baseline：
 
 ```text
-prepare(highest, original harness, DEVELOPMENT)
--> capture S_hi
--> 在同一未污染 environment 上 full evaluate
--> close
+prepare(highest, original harness, DEVELOPMENT) → full evaluate → close
 ```
 
-使用 `HighestVersionVerifier`，复用 capture 的 TyCheck（若可用），只运行一次完整 test-command，
-不运行 candidate discovery；写 Journal，不读写 floor report。ty 不可用仍进入 verifier。
+使用 `SmokeVersionVerifier`，只运行一次完整 test-command，不运行 ty、不 capture `S_hi`、
+不运行 candidate discovery；写 Journal，不读写 floor report。成功类型为 `SmokeCellPass`，
+不含 `HarnessBaseline`。
 
 ### 3.2 Check
 
-每个宿主 Cell 最多两次串行 Attempt：
+Runner 在 operation 前用 D012 的 harness policy 对已资格化的 active external requirements
+作一次纯决定，并把 `HarnessBaselineRequirement` 传给 Checker：
 
 ```text
-1. declaration-capture
-   prepare(highest, original harness, SEARCH) -> capture S_hi/HarnessBaseline -> close
+REQUIRED     任一 active requirement 为 ceiling_eligible（含 ~= 与 wildcard equality）
+DEGENERATE   无 active harness，或全部为固定 source / 精确 ==X / ===X
+```
+
+`DEGENERATE` 每个宿主 Cell 一次 declaration：
+
+```text
+degenerate HarnessBaseline（排序唯一 active IDs，observations=()）
+→ prepare(lowest-direct, baseline, SEARCH) → full evaluate → close
+```
+
+`REQUIRED` 每个宿主 Cell 最多两次串行 Attempt：
+
+```text
+1. harness-prepare
+   prepare(highest, original harness, SEARCH) → derive HarnessBaseline → close
+   # 零 ty，零 verifier
 
 2. declaration
    仅当步骤 1 prepare 成功
-   prepare(lowest-direct, relaxed harness, captured HarnessBaseline, SEARCH)
-   -> full evaluate relative to S_hi -> close
+   prepare(lowest-direct, baseline, SEARCH) → full evaluate → close
 ```
 
 步骤 1 **prepare** 失败 → 不进入 declaration，也不能把结果描述为“declared lower bounds
-failed”；它只说明未能准备 highest。步骤 1 prepare 成功后，无论静态 capture 以何种
-`StaticContentUnavailable` 结束，都继续 lowest-direct；GLOBAL 比较为 UNAVAILABLE。步骤 1
-的 static diagnostics 构成 baseline，不是 failure。步骤 2 不进入 CoordinateSearch。
+failed”；它只说明未能准备 highest harness baseline。步骤 1 成功不构成 Cell PASS 或
+declaration 结果。步骤 2 不进入 CoordinateSearch，也不相对 `S_hi` 比较。
+`REQUIRED` 的 `harness-prepare` 已成功而 declaration 尚未开始时，若发生取消或基础设施
+异常，走现行中断或命令失败路径；不得把成功的准备阶段当作 Cell PASS 或 declaration 结果。
 
 ### 3.3 Search
 
@@ -134,9 +148,10 @@ Runner 独占：
 - 验证command/package/SourcePlan与host Cell聚合不变量，消费已经解析的 RunLimits；
 - 发布唯一`CellMatrixEvent`，私有装配command-specific operation task并注入同一Run facts；
 - 经Scheduler `on_started`为每个真正启动的Cell发布唯一initial
-  `CellContextEvent(BaselineDetailIdentity)`；
-- 用 `limits.max_cells` 构造 generic Scheduler，并在 scheduler 前用 `limits.ty_jobs/test_jobs` 配置 composition root 与 evaluators 共享的阶段 permit pools；
-- `limits.max_duration_seconds` 对未启动task形成`TIMEOUT @ scheduler-deadline` CellResult；`None`不安装deadline callback；
+  `CellContextEvent`：Smoke 为 baseline；Check DEGENERATE 为 declaration；Check REQUIRED
+  为 baseline，随后 Checker 在 declaration 开始前切换一次；Search 为 baseline；
+- 用 `limits.max_cells` 构造 generic Scheduler，并在 scheduler 前用 `limits.ty_jobs/test_jobs` 配置 composition root 与 evaluators 共享的阶段 permit pools；Smoke/Check 不因已解析的 `ty_jobs` 执行 ty；
+- `limits.max_duration_seconds` 只对 Search 的未启动 task 形成`TIMEOUT @ scheduler-deadline` CellResult；合法 Smoke/Check Run 的该字段必须为 `None`，不安装 deadline callback，typed failure 不截断其他 Cell；
 - 三个implementation-private typed projector同时形成Run-live completion、Journal entries与journal-side
   Process Log facts，并拒绝outcome family/Cell mismatch或Search lowest-direct Attempt；
 - per-Cell Journal/association merge、持久化与diagnose availability；
@@ -162,7 +177,7 @@ Workflow继续拥有project load、snapshot build/close、SourcePlan构造、sta
 post-run source drift、report build/update与report-generation association replacement。Runner不关闭、
 materialize或重建snapshot，也不拥有report ID。
 
-`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。capture 前创建 Run ty cache。Cell 完成时调用 `admitted_membership`；Run 收尾为 `stop` → `documents` → `close`，不在 `stop` 之后补跑 admission。Journal v3 的 `static_membership` 不计失败，只供 Run 内重建，不供 diagnose。Diagnosis Index 只关联 Failure 到 verifier Process Log；静态 fact / TyCheck 不建立 association。diagnose 只展示 Failure 权威，不读 ty-cache、不渲染静态。
+`max_cells` 只限制跨 Cell task；`ty_jobs` 与 `test_jobs` 分别限制所有 Cell 共享的真实 ty process 和 configured verifier process。uv resolution/install 与其他进程不占这两个 pool，stage limits 也不进入 tool argv、Journal、report 或 policy identity。Run 开始时创建 ty cache；Search 在静态工作前使用它，Smoke/Check 仍持久化空 `ty-cache.json` 与空 Journal `static_membership`，不省略 sidecar。Cell 完成时调用 `admitted_membership`；Run 收尾为 `stop` → `documents` → `close`，不在 `stop` 之后补跑 admission。Journal v3 的 `static_membership` 不计失败，只供 Run 内重建，不供 diagnose。Diagnosis Index 只关联 Failure 到 verifier Process Log；静态 fact / TyCheck 不建立 association。diagnose 只展示 Failure 权威，不读 ty-cache、不渲染静态。
 
 ## 5. Activity 与 completion
 
@@ -177,10 +192,13 @@ StatusEvent / CellMatrixEvent / ProcessEvent / SearchFailureEvent
 
 Context、stage 与 completion 不能用 optional field 组合或 `completed == 0` 隐式编码。`0 < completed <= total`。
 
-Initial context只由Runner为已启动Cell发布。Smoke workflow、`CompatibilityChecker`与
-`SearchCoordinator`不再发布baseline initial；Check的`DeclarationDetailIdentity`、Search的`detail=None`
-与probe context继续由对应单Celloperation拥有。该initial event happens-before operation的任何context或
-stage；未启动deadline Cell没有context。`HighestVersionVerifier`不发布context。
+Initial context只由Runner为已启动Cell发布。Smoke 与 Search 的 initial 为 baseline；Check
+REQUIRED 的 initial 为 baseline，DEGENERATE 的 initial 为 declaration。`CompatibilityChecker`
+在 REQUIRED 进入 declaration 时切换一次 context，DEGENERATE 不发布 baseline，也不重复发布
+declaration。Smoke workflow 与 `SearchCoordinator`不再发布baseline initial；Search 的
+`detail=None` 与 probe context 继续由对应单 Cell operation 拥有。该initial event
+happens-before operation的任何context或 stage；未启动 deadline Cell（仅 Search）没有context。
+`SmokeVersionVerifier` 与 `HighestVersionVerifier`不发布context。
 
 统一 completion outcome 是：
 
@@ -217,14 +235,16 @@ prepare 的 execution/operation-structured authority 同样保留 excluded Proce
 Runner 用 retained Failure ID 绑定 process，并验证其 terminal 与新 authority 相等；Journal、
 Diagnosis Index、report association 和 live/final projection 不因 authority 不含 ProcessResult
 而丢失本机日志，也不能将另一 failure 的 process 接到 primary failure。
-分类仅使用 D005 共享规则：prepare Reject 可继续 probe 搜索，baseline/declaration-capture Reject
+分类仅使用 D005 共享规则：prepare Reject 可继续 probe 搜索，baseline/harness-prepare Reject
 仍终止对应 Cell/阶段，Indeterminate 仍终止；Role、聚合与退出码不因 cause 新增而改变。
 
 ## 6. 命令聚合
 
-`check` 对每个 Cell 使用 declaration 结果；若未启动，则使用 declaration-capture 结果。任一
-Rejected 聚合为 `COMPATIBILITY_FAILED`；否则任一 Indeterminate 聚合为 `INDETERMINATE`；其余
-为 `PASS`。
+`check` 对每个 Cell：DEGENERATE 只使用 declaration 的结果；REQUIRED 若最高环境 prepare
+失败，使用 `harness-prepare` 的原 Rejected/Indeterminate，不启动 declaration，不伪造下界
+Evaluation；否则使用随后 declaration 的结果。任一 Rejected 聚合为 `COMPATIBILITY_FAILED`；
+否则任一 Indeterminate 聚合为 `INDETERMINATE`；其余为 `PASS`。最高环境准备失败不证明声明
+下界不兼容。
 
 `smoke` 按 `BaselineRejection > BaselineIndeterminate > PASS` 聚合。`search` 按
 `BASELINE_REJECTION > INDETERMINATE > 其他 no-floor reason > complete` 聚合；Probe Rejection
@@ -332,7 +352,7 @@ Association/locator 不进入 report，缺失不改变 Failure evidence。
 | probe | `This candidate was excluded from the search.` | `Compatibility for this candidate is unknown, so this cell stopped.` |
 | baseline/search | `The highest-version baseline did not pass, so the floor search did not start for this cell.` | `Compatibility of the highest-version baseline is unknown, so this cell stopped.` |
 | baseline/smoke | `The highest-version resolution did not pass the required checks.` | `Compatibility of the highest-version resolution is unknown.` |
-| declaration-capture | `A static baseline could not be captured from the current declarations, so declared lower bounds were not verified for this cell.` | `Whether a static baseline can be captured is unknown, so declared lower bounds were not verified for this cell.` |
+| harness-prepare | `The highest-version harness baseline could not be prepared, so declared lower bounds were not verified for this cell.` | `Whether the highest-version harness baseline can be prepared is unknown, so declared lower bounds were not verified for this cell.` |
 | declaration | `The declared lower bounds did not pass the required checks.` | `Compatibility of the declared lower bounds is unknown.` |
 | Cell scope | 不允许 | `PF could not obtain the information needed to start or continue this cell.` |
 

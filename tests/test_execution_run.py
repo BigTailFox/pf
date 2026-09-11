@@ -97,7 +97,7 @@ class TestExecutionFailureRun:
             )
             check = CheckCellOutcome(
                 status=failure.disposition,
-                role="declaration-capture",
+                role="harness-prepare",
                 attempt=prepared.attempt,
                 failure=failure,
                 failure_process=process,
@@ -204,7 +204,7 @@ class TestExecutionFailureRun:
             if command == "check" and not timeout:
                 rendered = visible_cli_text(output.getvalue())
                 assert "declared lower bounds are incompatible" not in rendered
-                assert "baseline capture did not pass" in rendered
+                assert "harness preparation did not pass" in rendered
 
             class NoProcessLogs:
                 def lookup(self, report_generation_id, failure_id):

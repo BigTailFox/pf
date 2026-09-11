@@ -277,14 +277,14 @@ def _impact_for(
             if rejected
             else "Compatibility for this candidate is unknown, so this cell stopped."
         )
-    if resolved_role == "declaration-capture":
+    if resolved_role == "harness-prepare":
         return (
-            "A static baseline could not be captured from the current declarations, "
+            "The highest-version harness baseline could not be prepared, "
             "so declared lower bounds were not verified for this cell."
             if rejected
             else (
-                "Whether a static baseline can be captured is unknown, so declared "
-                "lower bounds were not verified for this cell."
+                "Whether the highest-version harness baseline can be prepared is "
+                "unknown, so declared lower bounds were not verified for this cell."
             )
         )
     if resolved_role == "declaration":
@@ -925,9 +925,9 @@ class TerminalPresenter:
             return 0
         if result.status == "COMPATIBILITY_FAILED":
             conclusion = (
-                "baseline capture did not pass"
+                "harness preparation did not pass"
                 if any(
-                    outcome.role == "declaration-capture" and outcome.status != "PASS"
+                    outcome.role == "harness-prepare" and outcome.status != "PASS"
                     for outcome in result.outcomes
                 )
                 else "declared lower bounds are incompatible"

@@ -504,14 +504,14 @@ class TestRunLogStoreJournalAdmission:
         ("command", "role", "requested_resolution"),
         (
             ("smoke", "baseline", "highest"),
-            ("check", "declaration-capture", "highest"),
+            ("check", "harness-prepare", "highest"),
             ("check", "declaration", "lowest-direct"),
             ("search", "probe", "exact-vector"),
             ("search", "probe", None),
         ),
         ids=(
             "smoke-baseline",
-            "check-declaration-capture",
+            "check-harness-prepare",
             "check-declaration",
             "search-probe",
             "search-cell-scoped-probe",

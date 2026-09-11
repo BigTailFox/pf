@@ -10,7 +10,7 @@ from typing import Literal, cast
 
 from pf.cancellation import Cancellation
 from pf.static_request import StaticTyRequest
-from pf.baseline import HighestVersionVerifier
+from pf.baseline import HighestVersionVerifier, SmokeVersionVerifier
 from pf.candidates import CandidateBuilder
 from pf.coordinate_search import CoordinateSearch
 from pf.environment import (
@@ -593,6 +593,7 @@ class EvaluationAssembly:
     static: StaticEvaluator
     runtime: RuntimeEvaluator
     highest: HighestVersionVerifier
+    smoke: SmokeVersionVerifier
     candidate_builder: CandidateBuilder
     coordinate_search: CoordinateSearch
     coordinator: SearchCoordinator
@@ -649,6 +650,10 @@ def evaluation_assembly(
         static=static,
         full=runtime,
     )
+    smoke_verifier = SmokeVersionVerifier(
+        environments=environments,
+        full=runtime,
+    )
     candidate_builder = CandidateBuilder(candidates)
     coordinate_search = CoordinateSearch()
     coordinator = SearchCoordinator(
@@ -670,6 +675,7 @@ def evaluation_assembly(
         static=static,
         runtime=runtime,
         highest=highest_verifier,
+        smoke=smoke_verifier,
         candidate_builder=candidate_builder,
         coordinate_search=coordinate_search,
         coordinator=coordinator,

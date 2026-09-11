@@ -1,7 +1,7 @@
 # PF CLI 交互与展示
 
 - **状态：** 现行
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-11
 - **命令与退出码：** [D001](D001-pf.md)
 - **诊断事实：** [D004](D004-pf-ty-enhancement.md)、[D005](D005-pf-failure-and-diagnose.md)
 - **Process Log：** [D007](D007-pf-process-output.md)
@@ -154,8 +154,8 @@ projector与Run live对共同事实保持D008规定的语义相等，但Terminal
 
 结果卡先于唯一 final summary；格式、宽度验收与单复数规则见附录 A.5。
 
-Check 聚合为 `COMPATIBILITY_FAILED` 且含失败的 declaration-capture outcome 时，摘要使用
-`Check failed · baseline capture did not pass · N cells`，不能称 declared lower bounds
+Check 聚合为 `COMPATIBILITY_FAILED` 且含失败的 `harness-prepare` outcome 时，摘要使用
+`Check failed · harness preparation did not pass · N cells`，不能称 declared lower bounds
 不兼容；只有实际 declaration rejection 才使用下界不兼容结论。数值退出码见 D001；聚合为 `INDETERMINATE` 时仍走 unknown summary，逐 Cell impact 见 D008。
 
 典型 final summary 文案见 [附录 A.6](appendices/D006-visual-specification.md#a6-final-summary-示例)。

@@ -22,9 +22,8 @@ def assert_controlled(record: dict[str, Any]) -> None:
     assert record["mode"] == "controlled"
     assert record["profile"] == "controlled-prepare-ty-verifier-v1"
     assert record["status"] == "PASS"
-    assert record["outcomes"]
-    assert all(item["entered_verifier"] for item in record["outcomes"])
-    assert all(item["role"] in {"declaration-capture", "declaration"} for item in record["outcomes"])
+    assert record["cells"]
+    assert all(item.get("final_pass") is True for item in record["cells"])
     assert record["static_journal"]
     assert any(
         item["highest"]["kind"] == "collected"
@@ -33,13 +32,11 @@ def assert_controlled(record: dict[str, Any]) -> None:
         and item["highest"]["fact_identity"]
         for item in record["static_journal"]
     )
-    for outcome in record["outcomes"]:
-        if outcome["status"] == "PASS":
-            assert outcome["evaluation"]["status"] == "PASS"
-            assert outcome["evaluation"]["verifier_terminal"] == {
-                "kind": "normal-exit",
-                "exit_code": 0,
-            }
+    for cell in record["cells"]:
+        assert cell["final_verifier_terminal"] == {
+            "kind": "normal-exit",
+            "exit_code": 0,
+        }
 
 
 @pytest.fixture(scope="module")

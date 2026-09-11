@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pf.static import TyCheckCache
-
+from inspect import signature
 from pathlib import Path
 from threading import Barrier, Lock
 from typing import Literal, cast
@@ -9,23 +8,26 @@ from typing import Literal, cast
 import pytest
 
 from evaluation_fixtures import (
-    ScriptedProcessRunner,
     evaluation_assembly,
     evaluation_project,
     successful_process,
 )
 
-from pf.schemas.journal import JournalHighestCollected, JournalHighestUncollected
-from pf.schemas.ty_fact import TyCheckUnavailable
-from pf.static import StaticEvaluator
 from pf.check import CompatibilityChecker
+from pf.errors import ConfigurationError, InfrastructureError
 from pf.failure import FailurePolicy
+from pf.harness import (
+    degenerate_harness_baseline,
+    harness_baseline_requirement,
+)
 from pf.project import ProjectLoader
-from pf.schemas.config import CheckRequest
+from pf.resolution import InstallFailure, ResolutionPlan
+from pf.schemas.config import CheckRequest, RunLimits
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
     AttemptIdentity,
+    BaselineDetailIdentity,
     CellCompletedEvent,
     CellContextEvent,
     CellMatrixEvent,
@@ -40,8 +42,6 @@ from pf.schemas.evaluation import (
     OperationFailureResult,
     ExecutionFailure,
     Unattributed,
-    TyCheck,
-    TyDiagnostic,
 )
 from pf.schemas.evaluation import (
     TimedOut,
@@ -53,8 +53,11 @@ from pf.schemas.evaluation import (
 from pf.schemas.project import Cell, PackagePlan, Proposal, SourcePlan, VersionPin
 from pf.snapshot import SnapshotBuilder
 from pf.snapshot import SourceSnapshot
-from pf.errors import ConfigurationError
-from pf.verification import CheckCellOperations, VerificationRunner
+from pf.verification import (
+    CheckCellOperations,
+    CheckVerificationRun,
+    VerificationRunner,
+)
 from pf.workflow import CheckCommandWorkflow
 
 
@@ -177,11 +180,48 @@ platforms = ["x86_64-unknown-linux-gnu"]
     return package, SnapshotBuilder.without_processes().build(tmp_path)
 
 
+def run_checker(
+    assembly,
+    package: PackagePlan,
+    snapshot: SourceSnapshot,
+    *,
+    events: Events | None = None,
+    cell: Cell | None = None,
+    requirement: Literal["REQUIRED", "DEGENERATE"] | None = None,
+):
+    source_plan = SourcePlan.for_package(package, "SEARCH")
+    selected = package.cells[0] if cell is None else cell
+    decided = (
+        harness_baseline_requirement(
+            package.harness_requirements,
+            selected,
+            source_plan=source_plan,
+        )
+        if requirement is None
+        else requirement
+    )
+    return CompatibilityChecker(
+        environments=assembly.environments,
+        full=assembly.runtime,
+        events=events,
+    ).check(
+        package=package,
+        cell=selected,
+        snapshot=snapshot,
+        source_plan=source_plan,
+        baseline_requirement=decided,
+    )
+
+
 class TestCompatibilityChecker:
+    def test_checker_and_smoke_constructors_reject_static_dependencies(self) -> None:
+        assert "static" not in signature(CompatibilityChecker.__init__).parameters
+        assert "run_cache" not in signature(CompatibilityChecker.check).parameters
+
     @pytest.mark.parametrize("test_command", (False, True), ids=("default-command", "explicit-command"))
     @pytest.mark.parametrize("test_group", (False, True), ids=("missing-group", "empty-group"))
-    def test_compatibility_checker_captures_highest_before_testing_lowest_direct(
-        self, run_cache,
+    def test_degenerate_without_active_harness_prepares_only_lowest_direct(
+        self,
         tmp_path: Path,
         test_command: bool,
         test_group: bool,
@@ -192,192 +232,143 @@ class TestCompatibilityChecker:
         assert package.config.test.command == ("pytest",)
         events = Events()
         assembly = evaluation_assembly(highest=(), lowest=(), events=events)
+        cell = package.cells[0]
+        baseline = degenerate_harness_baseline(package.harness_requirements, cell)
 
-        result = CompatibilityChecker(
-            environments=assembly.environments,
-            static=assembly.static,
-            full=assembly.runtime,
-            events=events,
-        ).check(run_cache=run_cache,
-            package=package,
-            cell=package.cells[0],
-            snapshot=snapshot,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-        )
+        result = run_checker(assembly, package, snapshot, events=events)
 
         assert result.status == "PASS"
+        assert result.role == "declaration"
+        assert assembly.uv.resolutions == ["lowest-direct"]
+        assert baseline.declaration_ids == ()
+        assert baseline.observations == ()
+        assert result.attempt.identity.harness_baseline_digest == baseline.digest
+        assert result.evaluation is not None
+        assert result.evaluation.proposal.environment_plan_digest is None
+        assert [
+            event.detail
+            for event in events.items
+            if isinstance(event, CellContextEvent)
+        ] == []
+        assert assembly.ty.vectors == []
+        assert assembly.verifier.vectors == [()]
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    @pytest.mark.parametrize("harness", ("tool==1.4.5", "tool===vendor"))
+    def test_degenerate_fixed_harness_keeps_ids_and_rechecks_environment(
+        self,
+        tmp_path: Path,
+        harness: str,
+    ) -> None:
+        project = evaluation_project(
+            tmp_path,
+            dependency=None,
+            test_dependencies=(harness,),
+        )
+        assembly = evaluation_assembly(highest=(), lowest=())
+        cell = project.package.cells[0]
+        baseline = degenerate_harness_baseline(project.package.harness_requirements, cell)
+        source_plan = SourcePlan.for_package(project.package, "SEARCH")
+
+        assert (
+            harness_baseline_requirement(
+                project.package.harness_requirements,
+                cell,
+                source_plan=source_plan,
+            )
+            == "DEGENERATE"
+        )
+        result = run_checker(assembly, project.package, project.snapshot)
+
+        assert result.status == "PASS"
+        assert result.role == "declaration"
+        assert assembly.uv.resolutions == ["lowest-direct"]
+        assert baseline.declaration_ids == tuple(
+            sorted(item.declaration_id for item in project.package.harness_requirements)
+        )
+        assert baseline.observations == ()
+        assert result.attempt.identity.harness_declaration_ids == baseline.declaration_ids
+        assert result.attempt.identity.harness_baseline_digest == baseline.digest
+        assert result.evaluation is not None
+        assert result.evaluation.proposal.environment_plan_digest is not None
+        assert assembly.ty.vectors == []
+        assert len(assembly.verifier.vectors) == 1
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    @pytest.mark.parametrize("harness", ("tool>=1", "tool~=1.0", "tool==1.*"))
+    def test_required_prepares_highest_baseline_then_full_declaration(
+        self,
+        tmp_path: Path,
+        harness: str,
+    ) -> None:
+        project = evaluation_project(
+            tmp_path,
+            dependency=None,
+            test_dependencies=(harness,),
+        )
+        events = Events()
+        assembly = evaluation_assembly(highest=(), lowest=(), events=events)
+        cell = project.package.cells[0]
+        source_plan = SourcePlan.for_package(project.package, "SEARCH")
+
+        assert (
+            harness_baseline_requirement(
+                project.package.harness_requirements,
+                cell,
+                source_plan=source_plan,
+            )
+            == "REQUIRED"
+        )
+        result = run_checker(assembly, project.package, project.snapshot, events=events)
+
+        assert result.status == "PASS"
+        assert result.role == "declaration"
         assert assembly.uv.resolutions == ["highest", "lowest-direct"]
-        assert assembly.uv.resolution_root_states == [
-            ("highest", (True,)),
-            ("lowest-direct", (False, True)),
-        ]
+        assert result.attempt.identity.requested_resolution == "lowest-direct"
+        assert result.attempt.identity.harness_declaration_ids
+        assert result.evaluation is not None
+        assert result.evaluation.proposal.environment_plan_digest is not None
         assert [
             event.detail
             for event in events.items
             if isinstance(event, CellContextEvent)
         ] == [DeclarationDetailIdentity()]
-        assert assembly.ty.vectors == [()]
-        assert assembly.verifier.vectors == [()]
-        assert all(not root.exists() for root in assembly.uv.environment_roots)
-
-    @pytest.mark.parametrize("uncollected", (None, "highest", "lowest-direct"))
-    def test_check_retains_global_multiset_comparison_in_scope(
-        self, run_cache, tmp_path: Path, uncollected: str | None,
-    ) -> None:
-        project = evaluation_project(tmp_path, dependency="demo-dep")
-        diagnostic = TyDiagnostic(
-            identity="snapshot|demo.py|1|1|invalid-type", origin="snapshot", path="demo.py",
-            line=1, column=1, code="invalid-type", severity="major", message="invalid type",
-        )
-        assembly = evaluation_assembly(
-            lowest=(VersionPin(name="demo-dep", version="1"),),
-            ty_handler=lambda vector, call: TyCheck(
-                process=successful_process(exit_code=1),
-                diagnostics=(diagnostic,) * (3 if vector[0].version == "1" else 1),
-            ),
-        )
-
-        class Runner(ScriptedProcessRunner):
-            def __init__(self):
-                super().__init__(assembly.uv)
-                self.inspects = 0
-
-            def run(self, spec, *, cancellation=None):
-                if len(spec.argv) >= 4 and spec.argv[1:4] == ("-I", "-B", "-c"):
-                    self.inspects += 1
-                    fail_at = {None: 0, "highest": 1, "lowest-direct": 2}[uncollected]
-                    if fail_at and self.inspects == fail_at:
-                        return ProcessResult(
-                            exit_code=1, signal=None, duration_seconds=0.01,
-                            stdout="", stderr="inspect failed",
-                        )
-                return super().run(spec, cancellation=cancellation)
-
-        result = CompatibilityChecker(
-            environments=assembly.environments,
-            static=StaticEvaluator(assembly.ty, processes=Runner()), full=assembly.runtime,
-        ).check(
-            package=project.package, cell=project.package.cells[0], snapshot=project.snapshot,
-            source_plan=project.source_plan, run_cache=run_cache,
-        )
-        assert result.status == "PASS"
-        assert result.evaluation is not None
-        assert result.evaluation.proposal.managed_vector == (VersionPin(name="demo-dep", version="1"),)
-        assert len(assembly.verifier.vectors) == 1
-        cell = project.package.cells[0]
-        documents = run_cache.documents()
-        membership = run_cache.admitted_membership(cell)
-        assert membership is not None
-        assert len(documents) == (2 if uncollected is None else 1)
-        if uncollected == "highest":
-            assert isinstance(membership.highest, JournalHighestUncollected)
-            assert membership.highest.detail == "inspection-unavailable"
-        else:
-            assert isinstance(membership.highest, JournalHighestCollected)
-        assert all(not root.exists() for root in assembly.uv.environment_roots)
-
-    def test_check_continues_when_static_observe_raises(self, run_cache, tmp_path: Path) -> None:
-        project = evaluation_project(tmp_path, dependency="demo-dep")
-
-        def ty_handler(vector, call):
-            raise RuntimeError("unmodeled ty observe")
-
-        assembly = evaluation_assembly(
-            lowest=(VersionPin(name="demo-dep", version="1"),),
-            ty_handler=ty_handler,
-        )
-        with pytest.warns(RuntimeWarning, match="static observation failed"):
-            result = CompatibilityChecker(
-                environments=assembly.environments,
-                static=assembly.static,
-                full=assembly.runtime,
-            ).check(
-                package=project.package, cell=project.package.cells[0],
-                snapshot=project.snapshot, source_plan=project.source_plan,
-                run_cache=run_cache,
-            )
-        assert result.status == "PASS"
-        assert result.evaluation is not None
-        membership = run_cache.admitted_membership(project.package.cells[0])
-        assert membership is not None
-        assert isinstance(membership.highest, JournalHighestUncollected)
-        assert membership.highest.detail == "invalid-layout"
-        assert run_cache.documents() == ()
+        assert assembly.ty.vectors == []
         assert len(assembly.verifier.vectors) == 1
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
-    def test_check_preserves_capture_when_lowest_preparation_fails(self, run_cache, tmp_path: Path) -> None:
-        project = evaluation_project(tmp_path)
-        lowest = (VersionPin(name="demo-dep", version="1"),)
-        assembly = evaluation_assembly(
-            lowest=lowest,
-            ty_handler=lambda vector, call: ToolFailure(
-                cause="TOOL_FAILURE", stage="ty", process=successful_process(exit_code=2)
-            ),
-        )
-        assembly.uv.install_failures_by_vector[lowest] = OperationFailureResult(
-            failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
-            stage="install-project", process=successful_process(exit_code=2),
-        )
-        result = CompatibilityChecker(
-            environments=assembly.environments, static=assembly.static, full=assembly.runtime
-        ).check(run_cache=run_cache,
-            package=project.package, cell=project.package.cells[0],
-            snapshot=project.snapshot, source_plan=project.source_plan,
-        )
-        assert result.status == "REJECTED"
-        assert result.role == "declaration"
-        assert result.evaluation is None
-        assert result.failure is not None
-        assert result.failure.stage == "install-project"
-        membership = run_cache.admitted_membership(project.package.cells[0])
-        assert membership is not None
-        assert isinstance(membership.highest, JournalHighestCollected)
-        fact = run_cache.documents()[0].fact
-        assert isinstance(fact, TyCheckUnavailable)
-        assert fact.reason == "exit-code"
-        assert assembly.uv.resolutions == ["highest", "lowest-direct"]
-        assert len(assembly.ty.vectors) == 1
-        assert assembly.verifier.vectors == []
-        assert all(not root.exists() for root in assembly.uv.environment_roots)
-
-    def test_check_highest_prepare_failure_does_not_start_lowest_direct(
-        self, run_cache,
+    def test_required_highest_prepare_failure_does_not_start_declaration(
+        self,
         tmp_path: Path,
     ) -> None:
-        package, snapshot = write_check_project(tmp_path)
-        cell = package.cells[0]
+        project = evaluation_project(
+            tmp_path,
+            dependency=None,
+            test_dependencies=("tool>=1",),
+        )
         events = Events()
         assembly = evaluation_assembly(
             highest=(),
             lowest=(),
             install_failure=OperationFailureResult(
-                failure=ExecutionFailure(terminal=NormalExit(exit_code=2), attribution=Unattributed()),
+                failure=ExecutionFailure(
+                    terminal=NormalExit(exit_code=2), attribution=Unattributed()
+                ),
                 stage="install-project",
                 process=successful_process(exit_code=2),
             ),
             events=events,
         )
 
-        result = CompatibilityChecker(
-            environments=assembly.environments,
-            static=assembly.static,
-            full=assembly.runtime,
-            events=events,
-        ).check(run_cache=run_cache,
-            package=package,
-            cell=cell,
-            snapshot=snapshot,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-        )
+        result = run_checker(assembly, project.package, project.snapshot, events=events)
 
         assert assembly.uv.resolutions == ["highest"]
         assert result.status == "REJECTED"
-        assert result.role == "declaration-capture"
+        assert result.role == "harness-prepare"
         assert result.attempt.identity.requested_resolution == "highest"
         assert result.failure is not None
         assert result.failure.cause == "INSTALLATION_FAILED"
-        assert result.failure.stage == "install-project"
+        assert result.failure.stage == "install-environment"
         assert assembly.ty.vectors == []
         assert assembly.verifier.vectors == []
         assert all(not root.exists() for root in assembly.uv.environment_roots)
@@ -386,6 +377,234 @@ class TestCompatibilityChecker:
             for event in events.items
             if isinstance(event, CellContextEvent)
         ] == []
+
+    def test_required_interrupt_after_highest_does_not_forge_declaration(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(
+            tmp_path,
+            dependency=None,
+            test_dependencies=("tool>=1",),
+        )
+        assembly = evaluation_assembly(highest=(), lowest=())
+        closed: list[object] = []
+
+        class InterruptAfterHighest:
+            def prepare(self, **kwargs):
+                if kwargs["resolution"].kind != "highest":
+                    raise InfrastructureError("cancelled before declaration")
+                prepared = assembly.environments.prepare(**kwargs)
+                original_close = prepared.close
+
+                def close() -> None:
+                    closed.append(prepared)
+                    original_close()
+
+                prepared.close = close  # type: ignore[method-assign]
+                return prepared
+
+        with pytest.raises(InfrastructureError, match="cancelled before declaration"):
+            CompatibilityChecker(
+                environments=cast(object, InterruptAfterHighest()),
+                full=assembly.runtime,
+            ).check(
+                package=project.package,
+                cell=project.package.cells[0],
+                snapshot=project.snapshot,
+                source_plan=SourcePlan.for_package(project.package, "SEARCH"),
+                baseline_requirement="REQUIRED",
+            )
+
+        assert assembly.uv.resolutions == ["highest"]
+        assert closed
+        assert assembly.verifier.vectors == []
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_declaration_prepare_failure_keeps_declaration_role(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(tmp_path)
+        lowest = (VersionPin(name="demo-dep", version="1"),)
+        assembly = evaluation_assembly(lowest=lowest)
+        assembly.uv.install_failures_by_vector[lowest] = OperationFailureResult(
+            failure=ExecutionFailure(
+                terminal=NormalExit(exit_code=2), attribution=Unattributed()
+            ),
+            stage="install-project",
+            process=successful_process(exit_code=2),
+        )
+
+        result = run_checker(assembly, project.package, project.snapshot)
+
+        assert result.status == "REJECTED"
+        assert result.role == "declaration"
+        assert result.evaluation is None
+        assert result.failure is not None
+        assert result.failure.stage == "install-project"
+        assert assembly.uv.resolutions == ["lowest-direct"]
+        assert assembly.ty.vectors == []
+        assert assembly.verifier.vectors == []
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
+    def test_runner_publishes_command_specific_initial_context(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        degenerate_package, degenerate_snapshot = write_check_project(tmp_path)
+        required = evaluation_project(
+            tmp_path / "required",
+            dependency=None,
+            test_dependencies=("tool>=1",),
+        )
+        events = Events()
+        assembly = evaluation_assembly(highest=(), lowest=(), events=events)
+        checker = CompatibilityChecker(
+            environments=assembly.environments,
+            full=assembly.runtime,
+            events=events,
+        )
+        runner = VerificationRunner(
+            events=events,
+            logs=None,
+            host_target="x86_64-unknown-linux-gnu",
+        )
+
+        runner.run(
+            CheckVerificationRun(
+                package=degenerate_package,
+                source_plan=SourcePlan.for_package(degenerate_package, "SEARCH"),
+                snapshot=degenerate_snapshot,
+                operation=checker,
+                limits=RunLimits(max_cells=1, ty_jobs=1, test_jobs=1),
+            )
+        )
+        degenerate_contexts = [
+            event.detail
+            for event in events.items
+            if isinstance(event, CellContextEvent)
+        ]
+        assert degenerate_contexts == [DeclarationDetailIdentity()]
+
+        events.items.clear()
+        runner.run(
+            CheckVerificationRun(
+                package=required.package,
+                source_plan=SourcePlan.for_package(required.package, "SEARCH"),
+                snapshot=required.snapshot,
+                operation=checker,
+                limits=RunLimits(max_cells=1, ty_jobs=1, test_jobs=1),
+            )
+        )
+        required_contexts = [
+            event.detail
+            for event in events.items
+            if isinstance(event, CellContextEvent)
+        ]
+        assert required_contexts == [
+            BaselineDetailIdentity(),
+            DeclarationDetailIdentity(),
+        ]
+
+    def test_mixed_cells_with_serial_scheduler_complete_both_branches(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            """
+[project]
+name = "demo"
+version = "0.1.0"
+optional-dependencies = {cuda = ["idna"]}
+
+[dependency-groups]
+test = [
+    "fixed==1.0; python_version == '3.10'",
+    "tool>=8; python_version == '3.10' and extra == 'cuda'",
+]
+
+[tool.pf]
+pythons = ["3.10"]
+platforms = ["x86_64-unknown-linux-gnu"]
+extra-policy = "each"
+test-command = ["python", "-c", "pass"]
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        package = ProjectLoader().load(root=tmp_path).target
+        snapshot = SnapshotBuilder.without_processes().build(tmp_path)
+        source_plan = SourcePlan.for_package(package, "SEARCH")
+        host_cells = tuple(
+            cell
+            for cell in package.cells
+            if cell.target == "x86_64-unknown-linux-gnu"
+        )
+        assert [cell.extra_surface for cell in host_cells] == [(), ("cuda",)]
+        assert [
+            harness_baseline_requirement(
+                package.harness_requirements, cell, source_plan=source_plan
+            )
+            for cell in host_cells
+        ] == ["DEGENERATE", "REQUIRED"]
+
+        events = Events()
+        assembly = evaluation_assembly(highest=(), lowest=(), events=events)
+        install = assembly.uv.install_resolution
+
+        def fail_required_highest(**kwargs: object):
+            plan = cast(ResolutionPlan, kwargs["plan"])
+            if assembly.uv.resolutions and assembly.uv.resolutions[-1] == "highest":
+                return InstallFailure(
+                    failure=ExecutionFailure(
+                        terminal=NormalExit(exit_code=2), attribution=Unattributed()
+                    ),
+                    stage="install-environment",
+                    process=successful_process(exit_code=2),
+                    plan_digest=plan.digest,
+                )
+            return install(**kwargs)
+
+        assembly.uv.install_resolution = fail_required_highest  # type: ignore[method-assign]
+        result = CheckCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            checker=CompatibilityChecker(
+                environments=assembly.environments,
+                full=assembly.runtime,
+                events=events,
+            ),
+            verification=VerificationRunner(
+                events=events,
+                logs=None,
+                host_target="x86_64-unknown-linux-gnu",
+            ),
+            events=events,
+        ).run(CheckRequest(root=tmp_path.as_posix(), max_cells=1))
+
+        assert assembly.uv.resolutions == ["lowest-direct", "highest"]
+        assert result.status == "COMPATIBILITY_FAILED"
+        assert [outcome.role for outcome in result.outcomes] == [
+            "declaration",
+            "harness-prepare",
+        ]
+        assert [outcome.status for outcome in result.outcomes] == [
+            "PASS",
+            "REJECTED",
+        ]
+        assert assembly.ty.vectors == []
+        assert len(assembly.verifier.vectors) == 1
+        contexts = [
+            (event.cell.extra_surface, event.detail)
+            for event in events.items
+            if isinstance(event, CellContextEvent)
+        ]
+        assert contexts == [
+            ((), DeclarationDetailIdentity()),
+            (("cuda",), BaselineDetailIdentity()),
+        ]
+        snapshot.close()
 
     def test_check_only_evaluates_cells_for_the_exact_host_target(
         self, tmp_path: Path
@@ -416,7 +635,8 @@ class TestCompatibilityChecker:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
+                source_plan: SourcePlan,
+                baseline_requirement: object,
             ) -> CheckCellOutcome:
                 seen.append(cell.target)
                 return indeterminate_outcome(cell)
@@ -459,7 +679,8 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
+                source_plan: SourcePlan,
+                baseline_requirement: object,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -515,7 +736,8 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
+                source_plan: SourcePlan,
+                baseline_requirement: object,
             ) -> Evaluation:
                 raise AssertionError(
                     "invalid configuration must fail before evaluation"
@@ -538,26 +760,14 @@ class TestCheckWorkflow:
         "evaluation_status",
         ("PASS", "VERIFIER_REJECTED", "INDETERMINATE"),
     )
-    @pytest.mark.parametrize("failed_collections", ((), (1,), (2,), (1, 2)))
     def test_check_preserves_configured_verifier_outcomes(
-        self, run_cache,
+        self,
         tmp_path: Path,
         evaluation_status: str,
-        failed_collections: tuple[int, ...],
     ) -> None:
         project = evaluation_project(tmp_path, dependency="demo-dep")
-        package, snapshot = project.package, project.snapshot
         assembly = evaluation_assembly(
             lowest=(VersionPin(name="demo-dep", version="1"),),
-            ty_handler=lambda vector, call: (
-                ToolFailure(
-                    cause="TOOL_FAILURE",
-                    stage="ty",
-                    process=successful_process(exit_code=2),
-                )
-                if call in failed_collections
-                else TyCheck(process=successful_process(), diagnostics=())
-            ),
             verifier_handler=lambda vector, call: VerifierRun(
                 authoritative=(
                     VerifierPass(terminal=NormalExit(exit_code=0))
@@ -571,16 +781,7 @@ class TestCheckWorkflow:
             ),
         )
 
-        result = CompatibilityChecker(
-            environments=assembly.environments,
-            static=assembly.static,
-            full=assembly.runtime,
-        ).check(run_cache=run_cache,
-            package=package,
-            cell=package.cells[0],
-            snapshot=snapshot,
-            source_plan=SourcePlan.for_package(package, "SEARCH"),
-        )
+        result = run_checker(assembly, project.package, project.snapshot)
 
         assert (
             result.status
@@ -593,10 +794,6 @@ class TestCheckWorkflow:
         assert result.role == "declaration"
         assert result.attempt.identity.requested_resolution == "lowest-direct"
         assert result.evaluation is not None
-        membership = run_cache.admitted_membership(package.cells[0])
-        assert membership is not None
-        assert isinstance(membership.highest, JournalHighestCollected)
-        assert len(run_cache.documents()) == 2
         if evaluation_status == "PASS":
             assert result.failure is None
         else:
@@ -609,7 +806,8 @@ class TestCheckWorkflow:
             assert result.failure.stage == "test"
             assert result.failure.authority.kind == "configured-verifier"
         assert assembly.verifier.vectors == [(VersionPin(name="demo-dep", version="1"),)]
-        assert assembly.uv.resolutions == ["highest", "lowest-direct"]
+        assert assembly.uv.resolutions == ["lowest-direct"]
+        assert assembly.ty.vectors == []
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     @pytest.mark.parametrize("indeterminate", (False, True))
@@ -627,7 +825,8 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
+                source_plan: SourcePlan,
+                baseline_requirement: object,
             ) -> CheckCellOutcome:
                 if indeterminate:
                     return indeterminate_outcome(cell)
@@ -687,7 +886,8 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
+                source_plan: SourcePlan,
+                baseline_requirement: object,
             ) -> CheckCellOutcome:
                 return indeterminate_outcome(cell)
 
@@ -750,7 +950,8 @@ class TestCheckWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
+                source_plan: SourcePlan,
+                baseline_requirement: object,
             ) -> CheckCellOutcome:
                 nonlocal active, maximum_active
                 with lock:

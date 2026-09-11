@@ -781,13 +781,13 @@ test-command = ["pytest"]
         )
         result = CompatibilityChecker(
             environments=assembly.environments,
-            static=assembly.static,
             full=runtime,
-        ).check(run_cache=run_cache,
+        ).check(
             package=package,
             cell=package.cells[0],
             snapshot=snapshot,
             source_plan=SourcePlan.for_package(package, "SEARCH"),
+            baseline_requirement="DEGENERATE",
         )
 
         assert result.status == "PASS"

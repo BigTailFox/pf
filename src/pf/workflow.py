@@ -23,8 +23,8 @@ from pf.schemas.evaluation import (
     CheckPass,
     CheckResult,
     FailureRecord,
-    HighestVersionOutcome,
-    HighestVersionPass,
+    SmokeCellOutcome,
+    SmokeCellPass,
     PassEvaluation,
     SmokeIndeterminate,
     SmokeBaselineRejection,
@@ -101,7 +101,6 @@ class CheckCommandWorkflow:
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,
-            ty_jobs=request.ty_jobs,
             test_jobs=request.test_jobs,
         )
         self._emit(StatusEvent(message="building snapshot"))
@@ -191,7 +190,6 @@ class SmokeCommandWorkflow:
         limits = resolve_run_limits(
             package.config.scheduling,
             max_cells=request.max_cells,
-            ty_jobs=request.ty_jobs,
             test_jobs=request.test_jobs,
         )
         self._emit(StatusEvent(message="building snapshot"))
@@ -218,7 +216,7 @@ class SmokeCommandWorkflow:
 
     @staticmethod
     def _aggregate(
-        outcomes: tuple[HighestVersionOutcome, ...],
+        outcomes: tuple[SmokeCellOutcome, ...],
     ) -> SmokeResult:
         if any(isinstance(item, BaselineRejection) for item in outcomes):
             return SmokeBaselineRejection(outcomes=outcomes)
@@ -226,12 +224,12 @@ class SmokeCommandWorkflow:
             narrowed = tuple(
                 item
                 for item in outcomes
-                if isinstance(item, (HighestVersionPass, BaselineIndeterminate))
+                if isinstance(item, (SmokeCellPass, BaselineIndeterminate))
             )
             return SmokeIndeterminate(outcomes=narrowed)
         return SmokePass(
             outcomes=tuple(
-                item for item in outcomes if isinstance(item, HighestVersionPass)
+                item for item in outcomes if isinstance(item, SmokeCellPass)
             )
         )
 

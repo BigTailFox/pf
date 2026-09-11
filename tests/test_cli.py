@@ -340,9 +340,11 @@ class TestCliInterface:
         assert "Verify" in module_help.stdout
         assert "Find and apply floors" in module_help.stdout
         assert "Inspect and combine reports" in module_help.stdout
+        collapsed = " ".join(module_help.stdout.split())
         assert (
-            "Typical workflow: pf smoke -> pf search -> pf explain -> pf apply"
-            in module_help.stdout
+            "Onboarding: pf smoke -> pf search -> pf explain -> pf apply. "
+            "Steady state: pf check. Use pf minimize to search and apply in one command."
+            in collapsed
         )
         stdout = module_help.stdout
         assert stdout.index("Verify") < stdout.index("Find and apply floors")
@@ -408,13 +410,13 @@ class TestCliInterface:
         assert "\x1b" not in result.stderr
 
     def test_illegal_stage_limit_is_an_invocation_error(self) -> None:
-        result = invoke_app("check", "--ty-jobs", "nope")
+        result = invoke_app("search", "--ty-jobs", "nope")
 
         assert result.returncode == 1
         assert "Error:" in result.stderr
         assert "positive integer" in result.stderr
-        assert "Usage: pf check [OPTIONS]" in result.stderr
-        assert "Try 'pf check --help'" in result.stderr
+        assert "Usage: pf search [OPTIONS]" in result.stderr
+        assert "Try 'pf search --help'" in result.stderr
         assert "Traceback" not in result.stderr
         assert "\x1b" not in result.stderr
 
@@ -598,8 +600,8 @@ class TestCommandDispatch:
     @pytest.mark.parametrize(
         ("command", "expected_fragments"),
         (
-            ("smoke", ("--max-cells", "--ty-jobs", "--test-jobs", "auto")),
-            ("check", ("--max-cells", "--ty-jobs", "--test-jobs", "auto")),
+            ("smoke", ("--max-cells", "--test-jobs", "auto")),
+            ("check", ("--max-cells", "--test-jobs", "auto")),
             (
                 "search",
                 (
@@ -647,6 +649,8 @@ class TestCommandDispatch:
         assert "--package" in result.stdout
         normalized_help = visible_cli_text(result.stdout)
         assert all(fragment in normalized_help for fragment in expected_fragments)
+        if command in {"smoke", "check"}:
+            assert "--ty-jobs" not in normalized_help
 
     def test_verification_commands_do_not_expose_pruning_options(self) -> None:
         from pf.schemas.config import TestConfig
@@ -731,8 +735,6 @@ class TestCommandDispatch:
                 "demo",
                 "--max-cells",
                 "2",
-                "--ty-jobs",
-                "auto",
                 "--test-jobs",
                 "3",
             ],
@@ -745,7 +747,6 @@ class TestCommandDispatch:
             root=tmp_path.as_posix(),
             selector=WorkspacePackage(canonical_name="demo"),
             max_cells=2,
-            ty_jobs="auto",
             test_jobs=3,
         )
 
@@ -785,7 +786,6 @@ class TestCommandDispatch:
         assert workflow.request.selector == WorkspacePackage(canonical_name="demo")
         assert workflow.request.root == tmp_path.as_posix()
         assert workflow.request.max_cells is None
-        assert workflow.request.ty_jobs is None
         assert workflow.request.test_jobs is None
         assert stdout.getvalue() == "✓  Check passed · 0 cells\n"
         assert stderr.getvalue() == ""
@@ -1596,9 +1596,9 @@ class TestDefaultContext:
             runner = context._runner
             assert static is not None and runner is not None
             assert context._checker is not None
+            assert context._smoke is not None
             assert context._highest is not None
             assert context._coordinator is not None
-            assert context._checker._static is static
             assert context._highest._static is static
             assert context._coordinator._static is static
             from pf.adapters.ty import TyAdapter

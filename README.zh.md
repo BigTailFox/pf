@@ -6,7 +6,7 @@
 
 ## 它做什么
 
-PF 在隔离环境中发现候选版本，尝试以当前声明所允许的最高版本环境的 `ty` 诊断作为静态基线，再运行项目的完整测试命令。兼容性结论只来自该动态证据；`ty` 可以改变后续探测顺序，但不能排除候选。它记录可解释、经过验证的精确依赖向量。
+PF 在隔离环境中发现候选版本。`search` 会尝试以当前声明所允许的最高版本环境的 `ty` 诊断作为静态基线，再运行项目的完整测试命令。兼容性结论只来自该动态证据；`ty` 可以改变后续探测顺序，但不能排除候选。它记录可解释、经过验证的精确依赖向量。`smoke` 与 `check` 运行同一 verifier，不运行 `ty`。
 
 搜索单位是一个可独立安装的包和一个兼容性 cell：精确 uv target triple、CPython minor、extra 兼容面。在冻结的候选快照中，PF 返回经过完整测试的坐标最小向量。它不声称得到依赖笛卡尔积的全局最小值，也不证明未探测版本或其他组合兼容。产品契约以 [D001](docs/designs/D001-pf.md) 为准。
 
@@ -37,14 +37,14 @@ pf search
 pf apply
 ```
 
-`smoke` 在当前声明允许的最新版本上做一次 fresh install 检查。`search` 写出 `package-floor.json`。授权通过后，`apply` 按该报告更新项目的依赖下界。
+`smoke` 在当前声明允许的最新版本上做一次 fresh install 检查。`search` 写出 `package-floor.json`。授权通过后，`apply` 按该报告更新项目的依赖下界。接入之后，日常验证用 `check`：它只核对当前声明，不要求报告或 Git。
 
 ## 命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `pf smoke` | 以允许的最新版本做 fresh install、尝试捕获 `ty` 基线并跑完整测试。缺少 `ty` 基线仍进入 verifier。不搜索、不写报告。 |
-| `pf check` | 验证项目已声明的下界。不搜索、不写报告。 |
+| `pf smoke` | 以允许的最新版本做 fresh install 并跑完整测试。不运行 `ty`、不搜索、不写报告。 |
+| `pf check` | 验证项目已声明的下界。不要求先前 search/apply、报告或 Git。不运行 `ty`、不搜索、不写报告。 |
 | `pf search` | 寻找经过验证的 floor，并写出 `package-floor.json`。从不编辑项目元数据。 |
 | `pf explain` | 读取报告，展示 floor、覆盖面与 apply 阻碍。 |
 | `pf apply` | 在授权通过后按报告编辑项目元数据。`--force` 只豁免 source-layer drift。 |
@@ -52,7 +52,7 @@ pf apply
 | `pf diagnose FAILURE_ID` | 解释一条已记录的拒绝或不确定结果。离线，不重放。 |
 | `pf merge REPORT ... --output PATH` | 合并不同宿主上生成的兼容报告。 |
 
-常见流程：`pf smoke` → `pf search` → `pf explain` → `pf apply`。需要一步搜索并应用时用 `pf minimize`。
+接入：`pf smoke` → `pf search` → `pf explain` → `pf apply`。稳态：`pf check`。需要一步搜索并应用时用 `pf minimize`。check 失败或需要重新定界时，再跑 `pf search` → `pf apply`。产品契约见 [D001](docs/designs/D001-pf.md)。
 
 ## 使用要求
 

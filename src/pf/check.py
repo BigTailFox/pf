@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from pf.static import CollectedStaticSubject, StaticEvaluator, TyCheckCache
-
 from typing import Literal
 
 from pf.environment import EnvironmentFactory, HighestResolution, LowestDirectResolution
 from pf.evaluation import RuntimeEvaluator
 from pf.failure import FailurePolicy
+from pf.harness import HarnessBaselineRequirement, degenerate_harness_baseline
 from pf.schemas.evaluation import (
     Attempt,
     AttemptFailureScope,
@@ -18,7 +17,7 @@ from pf.schemas.evaluation import (
     PrepareFailure,
     RuntimeEvaluationRun,
 )
-from pf.schemas.project import Cell, PackagePlan, SourcePlan
+from pf.schemas.project import Cell, HarnessBaseline, PackagePlan, SourcePlan
 from pf.snapshot import SourceSnapshot
 from pf.verification import ActivityConsumer
 
@@ -30,12 +29,10 @@ class CompatibilityChecker:
         self,
         *,
         environments: EnvironmentFactory,
-        static: StaticEvaluator,
         full: RuntimeEvaluator,
         events: ActivityConsumer | None = None,
     ) -> None:
         self._environments = environments
-        self._static = static
         self._full = full
         self._failures = FailurePolicy()
         self._events = events
@@ -47,8 +44,19 @@ class CompatibilityChecker:
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
-        run_cache: TyCheckCache,
+        baseline_requirement: HarnessBaselineRequirement,
     ) -> CheckCellOutcome:
+        if baseline_requirement == "DEGENERATE":
+            return self._declare(
+                package=package,
+                cell=cell,
+                snapshot=snapshot,
+                source_plan=source_plan,
+                baseline=degenerate_harness_baseline(
+                    package.harness_requirements,
+                    cell,
+                ),
+            )
         highest = self._environments.prepare(
             package=package,
             cell=cell,
@@ -57,32 +65,43 @@ class CompatibilityChecker:
             source_plan=source_plan,
         )
         if isinstance(highest, PrepareFailure):
-            return self._prepare_outcome(highest, role="declaration-capture")
+            return self._prepare_outcome(highest, role="harness-prepare")
         try:
-            self._static.capture_highest(highest, package=package, run_cache=run_cache)
+            baseline = highest.harness_baseline
         finally:
             highest.close()
         if self._events is not None:
             self._events.consume(
                 CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
             )
+        return self._declare(
+            package=package,
+            cell=cell,
+            snapshot=snapshot,
+            source_plan=source_plan,
+            baseline=baseline,
+        )
+
+    def _declare(
+        self,
+        *,
+        package: PackagePlan,
+        cell: Cell,
+        snapshot: SourceSnapshot,
+        source_plan: SourcePlan,
+        baseline: HarnessBaseline,
+    ) -> CheckCellOutcome:
         prepared = self._environments.prepare(
             package=package,
             cell=cell,
             snapshot=snapshot,
-            resolution=LowestDirectResolution(highest.harness_baseline),
+            resolution=LowestDirectResolution(baseline),
             source_plan=source_plan,
         )
         if isinstance(prepared, PrepareFailure):
-            return self._prepare_outcome(
-                prepared, role="declaration"
-            )
+            return self._prepare_outcome(prepared, role="declaration")
         try:
-            collected = self._static.collect_prepared(prepared, package=package, run_cache=run_cache)
-            if isinstance(collected, CollectedStaticSubject):
-                self._static.compare_global(collected, run_cache=run_cache)
             runtime = self._full.evaluate(prepared, package=package)
-            self._static.record_runtime(prepared, runtime, run_cache=run_cache)
         finally:
             prepared.close()
         return self._evaluation_outcome(
@@ -98,7 +117,7 @@ class CompatibilityChecker:
         self,
         prepared: PrepareFailure,
         *,
-        role: Literal["declaration-capture", "declaration"],
+        role: Literal["harness-prepare", "declaration"],
     ) -> CheckCellOutcome:
         failure = self._failures.record_prepare(prepared)
         return CheckCellOutcome(
@@ -113,7 +132,7 @@ class CompatibilityChecker:
         self,
         *,
         attempt: Attempt,
-        role: Literal["declaration-capture", "declaration"],
+        role: Literal["harness-prepare", "declaration"],
         evaluation: Evaluation,
         runtime: RuntimeEvaluationRun | None = None,
         project_plan_digest: str,

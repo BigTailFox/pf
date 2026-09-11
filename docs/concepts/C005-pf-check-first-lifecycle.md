@@ -13,12 +13,14 @@
 - **相关构想：** [C004](C004-pf-evidence-respecting-optimistic-monotone-search.md) 处理一维
   单调性假设；[C006](C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，
   不在本文范围
-- **第一刀 Design：** [D044](../designs/D044-pf-check-first-and-apply-receipts.md)（已接受待实施）
-  覆盖 check 稳态、smoke/check 最小验证序列、报告中的有限 apply 回执与声明/报告事务；
-  本文仍开放，跟踪增量 apply、跨 Run 观察复用与可回滚历史。后两者不是 D044 前置
+- **第一刀 Design：** [D044](../archived/designs/D044-pf-check-first-minimal-verification.md)
+  （已完成并归档）仅覆盖 check 稳态与 smoke/check 最小验证序列，稳定规则已由
+  D001/D002/D004/D006/D008/D012 接管；本文仍开放，跟踪增量 apply、跨 Run
+  观察复用、可选应用记录与可回滚历史，均不是已归档第一刀的前置
 
-本文不定义当前或已接受的目标契约。已移交第一刀的目标以 D044 为准，其余仍是待验证设想。
-跨 Run 观察复用、增量 apply 与可回滚历史仍须另建 Design。D044 不接入 Git，也不维护 check 历史。
+本文不定义当前或已接受的目标契约。已移交第一刀的目标以现行 owner 为准，其余仍是待验证设想。
+跨 Run 观察复用、增量 apply、应用回执与可回滚历史仍须独立论证并另建 Design。
+已归档的 D044 不接入 Git，不维护 check 历史，也不扩展 apply 的报告写入或事务范围。
 
 ## 1. 构想
 
@@ -55,8 +57,8 @@ Run 内缓存随进程结束丢弃。长期循环因此不友好。
    分裂实现。
 3. **apply 只为增量搜索结果放松。** 不默认放宽普通 source drift，不对手工乱改 requirement
    放行。增量之外的授权仍按现行严格规则。
-4. **有限回执与可回滚历史分开。** D044 已接受的目标是在报告记录当前应用目标的成功回执；它不保持跨报告
-   历史、不提供用户回滚。可复原历史前态的本机记录仍是本 Concept 的待证方向。
+4. **应用记录先证明用途。** 有限回执与可回滚历史均是待证方向，不属于 D044。
+   历史展示、增量授权与用户回滚是不同消费者，不能仅为组织生命周期而新增持久化状态。
 5. **关联分析不在本文。** 源码/测试与依赖的影响面分析见 C006，可独立进入或关闭。
 
 本文沿用现行词：**受管依赖** 仍是搜索集合（`managed-deps`）。上次合法 apply 写进声明的精确
@@ -67,7 +69,7 @@ D007 的 **Output Cache** 仍只是进程内 Process Log 正文投影，与本�
 
 ## 3. 稳态：验证当前声明
 
-日常 check 的目标契约已移交 [D044](../designs/D044-pf-check-first-and-apply-receipts.md)。
+日常 check 的目标契约已移交现行 owner；迁移记录见 [D044](../archived/designs/D044-pf-check-first-minimal-verification.md)。
 它每次验证当前声明，不要求声明来自 PF，不恢复旧报告的精确向量，不维护 check 历史或缓存。
 本 Concept 后续讨论增量治理时，不能把一次 check 通过提升为新快照上的历史 search 最小性证明。
 
@@ -179,11 +181,25 @@ PLATFORM_SCOPED 已允许「本 generation 未证明的平台 selector 保留 or
 用户如何声明「这是一次增量、覆盖哪些轴」尚未决定：可由本次 Cell 集合与 apply 历史推断，
 也可显式配置。推断错误时必须失败，不能静默把未证明轴写成已证明。
 
-## 6. Apply 历史与回滚
+## 6. 可选应用记录、历史与回滚
 
 现行 `ProjectEditor` 的 rollback 只覆盖**一次事务崩溃**，不记录「昨天那次成功 apply」的前态。
-D044 已接受将声明与报告回执纳入同一可恢复事务的目标；回执随当前报告保留，不含可回滚前态、不授权
-增量 apply。完整历史仍是后续构想。`.pf/` 已从 SourceSnapshot 排除，并被 gitignore。
+原有授权、漂移检测、安全写入、恢复及全量回滚继续由 D001/D002 拥有。
+
+**2026-09-11 范围调整：** 回执及为其新增的声明／报告事务扩展已从 D044/P048 撤出。
+Check 只验证当前声明，不消费应用历史；现行 apply 每次重新授权并支持 NOOP，因此第一步
+不需要记录“本报告的某个目标曾被成功确认”。此前完整方案见 Git 历史 `bd8e9ae`，不再是目标契约。
+
+未来若出现追踪某 package/platform/目标曾应用过的具体需求，先回答谁消费、据此做什么决定，
+以及缺少记录的实际后果，再在以下方向中选择，而不是沿用已撤下的字段或事务协议：
+
+- 非权威操作日志：服务历史展示，明确记录失败/丢失是否影响 apply 成功；不默认为准入依据。
+- 与声明共同提交的回执：先证明可靠历史事实需要这种强一致性，再评估 reader/writer 协调、
+  中断恢复及只读报告的成本；不预设一定写入 `package-floor.json`。
+
+存放位置、identity、保留/清理、重入和 report replacement 语义均待独立设计。有限回执不自动
+提供增量 apply 的证明，也不等同可恢复前态的历史。以下可回滚历史是另一个构想，不是回执的
+默认实现；`.pf/` 已从 SourceSnapshot 排除，并被 gitignore。
 
 构想：在 PF 本机数据（`.pf/`，不进入快照、默认不进 git）写下每次合法 apply 的历史，使
 下一次增量 apply 能回答「上次 PF 写了哪些地板」，并支持回到上一份已记录前态。
@@ -242,13 +258,17 @@ D001 §9 与 D003/D004 将「跨运行 Proposal/Evaluation environment cache」�
 6. 观察缓存与 Journal / Process Log / 报告的去重：哪些 payload 只存一份。
 7. 没有 C006 时，增量定界是否只覆盖「声明集合变化 + check 仍通过」；check 失败是否一律
    要求完整 search。
+8. 应用回执的具体消费者与收益，记录缺失的后果；普通日志或强一致记录哪个才满足需求。
 
 ## 10. 进入 Design 的条件
 
-稳态叙事、smoke/check 最小验证序列、有限 apply 回执与两文件事务已移交
-[D044](../designs/D044-pf-check-first-and-apply-receipts.md)；目标已接受，实施计划见
-[P048](../plans/P048-pf-check-first-and-apply-receipts.md)，尚未授权生产实现。
+稳态叙事与 smoke/check 最小验证序列已由
+[D044](../archived/designs/D044-pf-check-first-minimal-verification.md) /
+[P048](../archived/plans/P048-pf-check-first-minimal-verification.md) 实施并吸收进现行 owner。
 观察缓存另待完整身份、执行准入与真实收益证据，不作为日常 check 的前置。
+
+可选应用记录须先具备 §6 的明确消费者、缺失影响与一致性选择，再独立进入 Design；
+不得把回执存入报告及两文件事务默认绑定，也不与下面的增量 apply/回滚历史共用准入门槛。
 
 增量 apply 与 apply 历史仍须至少同时成立：
 
@@ -270,7 +290,7 @@ C006 不是前置。没有关联分析也可以在 D044 之后单独做增量 ex
 | D002 | 观察存储与 Apply 历史的 module 边界；不新增通用 cache 服务 |
 | D003 | 增量定界是否改变「每次覆盖全部受管坐标」；hints 是否只消费观察存储 |
 | D004 | Run 内 TyCheckCache 并入统一存储；跨 Run 拒绝规则改为策略 |
-| D006 | 增量 apply / 回滚 / 未证明轴的措辞，避免写成已验证 |
+| D006 | 应用记录展示、增量 apply / 回滚 / 未证明轴的措辞，避免写成已验证 |
 | D008 | check 与增量 search 的 Role 序列是否变化 |
-| D014 | 有限回执不足以授权增量 apply；generation、增量覆盖与历史如何并存 |
+| D014 | 若应用记录进入公共报告，论证 wire/reader/生命周期成本；generation、增量覆盖与历史如何并存 |
 | Editor / Authorizer | 增量投影、历史前态、回滚 fail closed |

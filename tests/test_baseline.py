@@ -59,6 +59,34 @@ class TestHighestVersionVerifier:
         assert assembly.uv.environment_roots
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
+    def test_search_highest_still_collects_full_baseline_when_harness_is_fixed(
+        self,
+        run_cache,
+        tmp_path: Path,
+    ) -> None:
+        project = evaluation_project(
+            tmp_path / "project",
+            dependency=None,
+            test_dependencies=("tool==1.4.5",),
+        )
+        assembly = evaluation_assembly(highest=())
+
+        result = assembly.highest.verify(
+            run_cache=run_cache,
+            package=project.package,
+            cell=project.package.cells[0],
+            snapshot=project.snapshot,
+            source_plan=project.source_plan,
+        )
+
+        assert isinstance(result, HighestVersionPass)
+        assert result.harness_baseline.declaration_ids
+        assert result.harness_baseline.observations
+        assert assembly.uv.resolutions == ["highest"]
+        assert assembly.ty.vectors == [()]
+        assert len(assembly.verifier.vectors) == 1
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
+
     def test_highest_version_verifier_collects_static_with_host_pythonpath(
         self, run_cache, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:

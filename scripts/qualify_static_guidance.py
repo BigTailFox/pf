@@ -1,4 +1,9 @@
-"""Qualify D038 static guidance through public Check/Search workflows.
+"""Qualify D038 static guidance through public Search, with Check as a runtime-only leftover.
+
+Static capture, compare, and journal membership are Search-only. Check still runs
+through the public workflow seam for leftover project experiments, but does not
+collect ty. Controlled mode uses Search so the audit still proves prepare + ty +
+verifier.
 
 Run from the repository root after a risk check, outside the agent sandbox:
 
@@ -30,7 +35,7 @@ from pf.cli import CliContext
 from pf.report import ReportStore
 from pf.runlog import RunLogStore
 from pf.schemas.config import CheckRequest, SearchRequest
-from pf.schemas.evaluation import CheckCompatibilityFailure, CheckPass, PassEvaluation
+from pf.schemas.evaluation import PassEvaluation
 from pf.schemas.report import CellSuccess
 from pf.terminal import TerminalPresenter
 
@@ -82,17 +87,21 @@ def _project_name(root: Path) -> str:
     return root.name
 
 
-def _check_document(result, *, root: Path, logs: RunLogStore) -> dict[str, object]:
+def _static_journal(logs: RunLogStore, root: Path) -> list[dict[str, object]]:
     journal = logs.read_latest_journal(_project_name(root))
-    static_membership = []
-    if journal is not None:
-        static_membership = [
-            {
-                "cell": _cell_key(member.cell),
-                "highest": member.highest.model_dump(mode="json"),
-            }
-            for member in journal.static_membership
-        ]
+    if journal is None:
+        return []
+    return [
+        {
+            "cell": _cell_key(member.cell),
+            "highest": member.highest.model_dump(mode="json"),
+        }
+        for member in journal.static_membership
+    ]
+
+
+def _check_document(result, *, root: Path, logs: RunLogStore) -> dict[str, object]:
+    static_membership = _static_journal(logs, root)
     outcomes = []
     for outcome in getattr(result, "outcomes", ()):
         record = {
@@ -175,7 +184,7 @@ def _search_document(result, *, root: Path, logs: RunLogStore) -> dict[str, obje
         "guidance_policy_identity": report.guidance_policy_identity,
         "search_derivation_identity": report.search_derivation_identity,
         "cells": cells,
-        "static_membership": [],
+        "static_membership": _static_journal(logs, root),
     }
 
 
@@ -199,24 +208,34 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('ver
         )
         context, logs = _context(root)
         try:
-            result = context.check_workflow.run(CheckRequest(root=str(root)))
-            document = _check_document(result, root=root, logs=logs)
+            result = context.search_workflow.run(SearchRequest(root=str(root)))
+            document = _search_document(result, root=root, logs=logs)
         finally:
             context.close()
+        cells = document["cells"]
+        assert isinstance(cells, list) and cells
         document.update({
             "schema": SCHEMA,
             "profile": "controlled-prepare-ty-verifier-v1",
             "recorded_at": _utc_now(),
             "python": sys.version.split()[0],
             "mode": "controlled",
+            "status": (
+                "PASS"
+                if all(
+                    isinstance(item, dict) and item.get("final_pass") is True
+                    for item in cells
+                )
+                else "INCOMPLETE"
+            ),
+            "static_journal": document["static_membership"],
         })
-        assert isinstance(result, (CheckPass, CheckCompatibilityFailure))
-        assert document["static_journal"], "controlled check must persist static journal audit"
-        outcomes = document["outcomes"]
-        assert isinstance(outcomes, list)
-        assert all(
-            isinstance(item, dict) and item["entered_verifier"] for item in outcomes
+        assert document["static_journal"], (
+            "controlled search must persist static journal audit"
         )
+        assert all(
+            isinstance(item, dict) and item.get("final_pass") is True for item in cells
+        ), "controlled search must enter the verifier and PASS"
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(document, indent=2) + "\n")
         return document

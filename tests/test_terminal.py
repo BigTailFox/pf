@@ -12,7 +12,6 @@ from typing import Literal
 import pytest
 from verifier_fixtures import verifier_pass, verifier_rejected
 
-from conftest import empty_harness_baseline
 from rich.console import Console
 
 from visible_text import compact_cli_text, visible_cli_text
@@ -69,7 +68,7 @@ from pf.schemas.evaluation import (
     FailureDetail,
     FailureCause,
     FailureRecord,
-    HighestVersionPass,
+    SmokeCellPass,
     NormalExit,
     RuntimeEvaluationRun,
     SearchFailureEvent,
@@ -1168,7 +1167,7 @@ class TestProgressRendering:
             status="REJECTED",
             failure=failure,
             process=process,
-            role="declaration-capture",
+            role="harness-prepare",
             stage="install-project",
             diagnose_available=False,
         )
@@ -3485,13 +3484,10 @@ class TestVerificationRendering:
         exit_code = terminal.render_smoke(
             SmokePass(
                 outcomes=(
-                    HighestVersionPass(
+                    SmokeCellPass(
                         attempt=attempt,
-                        harness_baseline=empty_harness_baseline(attempt.identity.cell),
-
                         evaluation=PassEvaluation(
                             proposal=proposal,
-
                             verifier=verifier_pass(
                                 process.model_copy(update={"exit_code": 0})
                             ),

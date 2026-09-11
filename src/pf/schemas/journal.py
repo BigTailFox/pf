@@ -24,7 +24,7 @@ Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 _COMMAND_REQUEST_ROLE: dict[tuple[str, str], VerificationRole] = {
     ("smoke", "highest"): "baseline",
     ("search", "highest"): "baseline",
-    ("check", "highest"): "declaration-capture",
+    ("check", "highest"): "harness-prepare",
     ("check", "lowest-direct"): "declaration",
     ("search", "exact-vector"): "probe",
 }

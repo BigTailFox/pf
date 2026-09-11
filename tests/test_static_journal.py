@@ -10,18 +10,21 @@ from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import UvAdapter
 from pf.baseline import HighestVersionVerifier
+from pf.candidates import CandidateBuilder
+from pf.coordinate_search import CoordinateSearch
 from pf.environment import EnvironmentFactory
 from pf.errors import JournalReadError
 from pf.evaluation import RuntimeEvaluator
+from pf.search import SearchCoordinator
 from pf.static import StaticEvaluator
 from pf.project import ProjectLoader
 from pf.runlog import RunLogStore
 from pf.schemas.config import RunLimits
-from pf.schemas.evaluation import CellCompletedEvent, HighestVersionPass
+from pf.schemas.evaluation import CellCompletedEvent
 from pf.schemas.project import SourcePlan
 from pf.snapshot import SnapshotBuilder
 from pf.static_cache import CacheMiss
-from pf.verification import SmokeVerificationRun, VerificationRunner
+from pf.verification import SearchVerificationRun, VerificationRunner
 from pf.errors import InfrastructureError
 from pf.schemas.journal import (
     VerificationJournal,
@@ -75,15 +78,26 @@ pythons = ["3.10"]
 test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('verified demo')"]
 """)
     package = ProjectLoader().load(root=project).target
-    source_plan = SourcePlan.for_package(package, "DEVELOPMENT")
+    source_plan = SourcePlan.for_package(package, "SEARCH")
     logs = RunLogStore(root=root, run_id="actual-static-journal")
     runner = SubprocessRunner(logs=logs)
     snapshot = SnapshotBuilder(runner).build(project)
+    uv = UvAdapter(runner)
+    environments = EnvironmentFactory(uv)
     static = StaticEvaluator(TyAdapter(runner), processes=runner)
+    full = RuntimeEvaluator(verifier=ConfiguredVerifier(runner))
     highest = HighestVersionVerifier(
-        environments=EnvironmentFactory(UvAdapter(runner)),
+        environments=environments,
         static=static,
-        full=RuntimeEvaluator( verifier=ConfiguredVerifier(runner)),
+        full=full,
+    )
+    coordinator = SearchCoordinator(
+        environments=environments,
+        candidates=CandidateBuilder(uv),
+        static=static,
+        full=full,
+        highest=highest,
+        coordinate_search=CoordinateSearch(),
     )
     caches = []
     events = []
@@ -93,24 +107,22 @@ test-command = ["python", "-c", "import demo; assert demo.VALUE == 1; print('ver
             events.append(event)
 
     class Operation:
-        def verify(self, *, run_cache, **kwargs):
+        def search(self, *, run_cache, **kwargs):
             caches.append(run_cache)
-            result = highest.verify(run_cache=run_cache, **kwargs)
-            assert isinstance(result, HighestVersionPass)
-            return result
+            return coordinator.search(run_cache=run_cache, **kwargs)
 
     try:
         outcomes = VerificationRunner(
             events=Events(), logs=logs, host_target=package.cells[0].target
         ).run(
-            SmokeVerificationRun(
+            SearchVerificationRun(
                 package=package,
                 source_plan=source_plan,
                 snapshot=snapshot,
                 operation=Operation(),
                 limits=RunLimits(max_cells=1, ty_jobs=1, test_jobs=1),
             ),
-        )
+        ).cell_results
         journal = logs.read_latest_journal(package.name)
         assert journal is not None
         assert journal.static_membership[0].highest.kind == "collected"
@@ -127,7 +139,7 @@ class TestStaticJournal:
         self, actual_static_journal, tmp_path: Path, record_property
     ):
         logs, journal, outcomes, events, caches = actual_static_journal
-        assert all(outcome.status == "PASS" for outcome in outcomes)
+        assert all(outcome.status == "SUCCESS" for outcome in outcomes)
         assert journal.schema_version == "verification-journal-v3"
         assert journal.entries == ()
         assert len(journal.static_membership) == 1
@@ -143,7 +155,7 @@ class TestStaticJournal:
             next(
                 event for event in events if isinstance(event, CellCompletedEvent)
             ).outcome.status
-            == "PASS"
+            == "SUCCESS"
         )
         logs.write_journal(journal)
         copy = RunLogStore(root=tmp_path, run_id=journal.run_id)
@@ -336,15 +348,22 @@ class TestStaticJournal:
         highest = HighestVersionVerifier(
             environments=assembly.environments,
             static=static,
-            full=RuntimeEvaluator( verifier=assembly.verifier),
+            full=RuntimeEvaluator(verifier=assembly.verifier),
+        )
+        coordinator = SearchCoordinator(
+            environments=assembly.environments,
+            candidates=assembly.candidate_builder,
+            static=static,
+            full=assembly.runtime,
+            highest=highest,
+            coordinate_search=assembly.coordinate_search,
         )
         caches = []
 
         class Operation:
-            def verify(self, *, run_cache, **kwargs):
+            def search(self, *, run_cache, **kwargs):
                 caches.append(run_cache)
-                result = highest.verify(run_cache=run_cache, **kwargs)
-                assert result.status == "PASS"
+                result = coordinator.search(run_cache=run_cache, **kwargs)
                 if scenario == "raise-after-pass":
                     raise RuntimeError("completed observation before interruption")
                 return result
@@ -354,9 +373,9 @@ class TestStaticJournal:
                 pass
 
         logs = RunLogStore(root=tmp_path, run_id=scenario)
-        request = SmokeVerificationRun(
+        request = SearchVerificationRun(
             package=project.package,
-            source_plan=SourcePlan.for_package(project.package, "DEVELOPMENT"),
+            source_plan=SourcePlan.for_package(project.package, "SEARCH"),
             snapshot=project.snapshot,
             operation=Operation(),
             limits=RunLimits(max_cells=1, ty_jobs=1, test_jobs=1),
@@ -369,7 +388,7 @@ class TestStaticJournal:
                 with pytest.raises(RuntimeError, match="completed observation"):
                     verification.run(request)
             else:
-                assert verification.run(request)[0].status == "PASS"
+                assert verification.run(request).cell_results[0].status == "SUCCESS"
             journal = logs.read_latest_journal(project.package.name)
             assert journal is not None
             assert journal.entries == ()

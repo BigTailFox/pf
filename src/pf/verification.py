@@ -13,6 +13,7 @@ from pf.errors import ConfigurationError, InfrastructureError
 from pf.evaluation import StagePermitPools
 from pf.failure import FailurePolicy
 from pf.policy import execution_policy_identity
+from pf.harness import HarnessBaselineRequirement, harness_baseline_requirement
 from pf.schemas.evaluation import (
     ActivityEvent,
     AttemptFailureScope,
@@ -21,9 +22,11 @@ from pf.schemas.evaluation import (
     BaselineRejection,
     CellCompletedEvent,
     CellContextEvent,
+    CellDetailIdentity,
     CellFailed,
     CellFailureScope,
     CellMatrixEvent,
+    DeclarationDetailIdentity,
     PytestFailureDetail,
     CellSucceeded,
     CheckCellOutcome,
@@ -35,6 +38,8 @@ from pf.schemas.evaluation import (
     PassEvaluation,
     ProcessObservation,
     RuntimeEvaluationRun,
+    SmokeCellOutcome,
+    SmokeCellPass,
 )
 from pf.schemas.journal import (
     JournalStaticMembership,
@@ -72,7 +77,7 @@ class CheckCellOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
-        run_cache: TyCheckCache,
+        baseline_requirement: HarnessBaselineRequirement,
     ) -> CheckCellOutcome: ...
 
 
@@ -84,8 +89,7 @@ class SmokeCellOperations(Protocol):
         cell: Cell,
         snapshot: SourceSnapshot,
         source_plan: SourcePlan,
-        run_cache: TyCheckCache,
-    ) -> HighestVersionOutcome: ...
+    ) -> SmokeCellOutcome: ...
 
 
 class CellSearchOperations(Protocol):
@@ -136,7 +140,7 @@ class SearchVerificationResult:
 
 
 VerificationRun = CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun
-VerificationResult = CheckCellOutcome | HighestVersionOutcome | CellResult
+VerificationResult = CheckCellOutcome | SmokeCellOutcome | HighestVersionOutcome | CellResult
 
 
 class JournalStore(Protocol):
@@ -181,7 +185,7 @@ class VerificationRunner:
     def run(
         self,
         request: SmokeVerificationRun,
-    ) -> tuple[HighestVersionOutcome, ...]: ...
+    ) -> tuple[SmokeCellOutcome, ...]: ...
 
     @overload
     def run(self, request: SearchVerificationRun) -> SearchVerificationResult: ...
@@ -196,6 +200,10 @@ class VerificationRunner:
         cells = self._host_cells(request.package)
         self._events.consume(_cell_matrix_event(request.package, cells))
         self._admit_evaluation(request, cells)
+        if not isinstance(request, SearchVerificationRun) and (
+            request.limits.max_duration_seconds is not None
+        ):
+            raise ValueError("smoke and check runs cannot carry a total deadline")
         if self._permits is not None:
             self._permits.configure(
                 ty_jobs=request.limits.ty_jobs,
@@ -203,6 +211,14 @@ class VerificationRunner:
             )
 
         run_cache = TyCheckCache()
+        check_requirements = (
+            {
+                cell_identity(cell): _check_baseline_requirement(request, cell)
+                for cell in cells
+            }
+            if isinstance(request, CheckVerificationRun)
+            else {}
+        )
         gate = _VerificationEvents(
             inner=self._events,
             logs=self._logs,
@@ -212,13 +228,25 @@ class VerificationRunner:
         )
         try:
             outcomes = self._scheduler.run(
-                tuple(self._task(request, cell, run_cache) for cell in cells),
+                tuple(
+                    self._task(
+                        request,
+                        cell,
+                        run_cache,
+                        check_requirements.get(cell_identity(cell)),
+                    )
+                    for cell in cells
+                ),
                 jobs=request.limits.max_cells,
                 max_duration_seconds=request.limits.max_duration_seconds,
                 on_started=lambda task: self._events.consume(
                     CellContextEvent(
                         cell=task.cell,
-                        detail=BaselineDetailIdentity(),
+                        detail=_initial_context(
+                            request,
+                            task.cell,
+                            check_requirements.get(cell_identity(task.cell)),
+                        ),
                     )
                 ),
                 on_completed=gate.completed,
@@ -283,22 +311,32 @@ class VerificationRunner:
         request: VerificationRun,
         cell: Cell,
         run_cache: TyCheckCache,
+        baseline_requirement: HarnessBaselineRequirement | None = None,
     ) -> ScheduledCellTask[VerificationResult]:
         return ScheduledCellTask(
             cell=cell,
-            run=lambda: self._run_cell(request, cell, run_cache),
+            run=lambda: self._run_cell(
+                request, cell, run_cache, baseline_requirement
+            ),
             deadline_result=self._deadline_result(request, cell),
         )
 
     @staticmethod
-    def _run_cell(request: VerificationRun, cell: Cell, run_cache: TyCheckCache) -> VerificationResult:
+    def _run_cell(
+        request: VerificationRun,
+        cell: Cell,
+        run_cache: TyCheckCache,
+        baseline_requirement: HarnessBaselineRequirement | None = None,
+    ) -> VerificationResult:
         if isinstance(request, CheckVerificationRun):
+            if baseline_requirement is None:
+                raise ValueError("check cells require a computed baseline requirement")
             return request.operation.check(
                 package=request.package,
                 cell=cell,
                 snapshot=request.snapshot,
                 source_plan=request.source_plan,
-                run_cache=run_cache,
+                baseline_requirement=baseline_requirement,
             )
         if isinstance(request, SmokeVerificationRun):
             return request.operation.verify(
@@ -306,7 +344,6 @@ class VerificationRunner:
                 cell=cell,
                 snapshot=request.snapshot,
                 source_plan=request.source_plan,
-                run_cache=run_cache,
             )
         return request.operation.search(
             package=request.package,
@@ -506,7 +543,7 @@ def _project_result(
     if isinstance(request, SmokeVerificationRun):
         if not isinstance(
             result,
-            (HighestVersionPass, BaselineRejection, BaselineIndeterminate),
+            (SmokeCellPass, BaselineRejection, BaselineIndeterminate),
         ):
             raise TypeError("smoke operation returned an invalid outcome")
         if result.attempt.identity.cell != cell:
@@ -579,8 +616,10 @@ def _project_check(result: CheckCellOutcome) -> _CellProjection:
     )
 
 
-def _project_smoke(result: HighestVersionOutcome) -> _CellProjection:
-    if isinstance(result, HighestVersionPass):
+def _project_smoke(
+    result: SmokeCellPass | HighestVersionPass | BaselineRejection | BaselineIndeterminate,
+) -> _CellProjection:
+    if isinstance(result, (SmokeCellPass, HighestVersionPass)):
         completion: CellSucceeded | CellFailed = CellSucceeded(
             status=result.status,
             phase="complete",
@@ -755,6 +794,28 @@ def _runtime_process(runtime: RuntimeEvaluationRun | None) -> ProcessObservation
     if runtime is None or runtime.diagnostics is None:
         return None
     return runtime.diagnostics.process
+
+
+def _check_baseline_requirement(
+    request: CheckVerificationRun,
+    cell: Cell,
+) -> HarnessBaselineRequirement:
+    return harness_baseline_requirement(
+        request.package.harness_requirements,
+        cell,
+        source_plan=request.source_plan,
+    )
+
+
+def _initial_context(
+    request: VerificationRun,
+    cell: Cell,
+    baseline_requirement: HarnessBaselineRequirement | None = None,
+) -> CellDetailIdentity:
+    del cell
+    if isinstance(request, CheckVerificationRun) and baseline_requirement == "DEGENERATE":
+        return DeclarationDetailIdentity()
+    return BaselineDetailIdentity()
 
 
 def _cell_matrix_event(

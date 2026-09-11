@@ -6,6 +6,8 @@ import pytest
 
 from pf.harness import (
     active_harness_requirements,
+    degenerate_harness_baseline,
+    harness_baseline_requirement,
     harness_requirement_policy,
     original_harness,
     relax_harness,
@@ -486,4 +488,41 @@ class TestHarnessRelaxation:
                 baseline,
                 project_plan=_project_plan(package),
                 source_plan=SourcePlan.for_package(package, "SEARCH"),
+            )
+
+
+class TestCheckHarnessBaselineRequirement:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        (
+            (("pytest>=8",), "REQUIRED"),
+            (("pytest~=8.0",), "REQUIRED"),
+            (("pytest==8.*",), "REQUIRED"),
+            (("pytest==8.4",), "DEGENERATE"),
+            (("pytest===vendor",), "DEGENERATE"),
+            ((), "DEGENERATE"),
+        ),
+    )
+    def test_ceiling_eligible_harness_selects_required(
+        self,
+        tmp_path: Path,
+        raw: tuple[str, ...],
+        expected: str,
+    ) -> None:
+        package = _load_harness(tmp_path, raw) if raw else _load_harness(tmp_path, ())
+        source_plan = SourcePlan.for_package(package, "SEARCH")
+        cell = package.cells[0]
+        assert (
+            harness_baseline_requirement(
+                package.harness_requirements,
+                cell,
+                source_plan=source_plan,
+            )
+            == expected
+        )
+        if expected == "DEGENERATE":
+            baseline = degenerate_harness_baseline(package.harness_requirements, cell)
+            assert baseline.observations == ()
+            assert baseline.declaration_ids == tuple(
+                sorted(item.declaration_id for item in package.harness_requirements)
             )

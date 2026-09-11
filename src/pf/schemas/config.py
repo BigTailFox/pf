@@ -216,12 +216,11 @@ class CheckRequest(FrozenSchema):
     root: str
     selector: TargetSelector = RootPackage()
     max_cells: OptionalSchedulingLimit = None
-    ty_jobs: OptionalSchedulingLimit = None
     test_jobs: OptionalSchedulingLimit = None
 
     @model_validator(mode="after")
     def validate_scheduling(self) -> "CheckRequest":
-        _validate_optional_scheduling(self)
+        _validate_optional_scheduling(self, ("max_cells", "test_jobs"))
         return self
 
 
@@ -229,12 +228,11 @@ class SmokeRequest(FrozenSchema):
     root: str
     selector: TargetSelector = RootPackage()
     max_cells: OptionalSchedulingLimit = None
-    ty_jobs: OptionalSchedulingLimit = None
     test_jobs: OptionalSchedulingLimit = None
 
     @model_validator(mode="after")
     def validate_scheduling(self) -> "SmokeRequest":
-        _validate_optional_scheduling(self)
+        _validate_optional_scheduling(self, ("max_cells", "test_jobs"))
         return self
 
 
@@ -249,7 +247,7 @@ class SearchRequest(FrozenSchema):
 
     @model_validator(mode="after")
     def validate_scheduling(self) -> "SearchRequest":
-        _validate_optional_scheduling(self)
+        _validate_optional_scheduling(self, ("max_cells", "ty_jobs", "test_jobs"))
         if self.max_duration_seconds is not None and self.max_duration_seconds <= 0:
             raise ValueError("max duration must be positive or None")
         return self
@@ -257,8 +255,9 @@ class SearchRequest(FrozenSchema):
 
 def _validate_optional_scheduling(
     request: CheckRequest | SmokeRequest | SearchRequest,
+    fields: tuple[str, ...],
 ) -> None:
-    for field in ("max_cells", "ty_jobs", "test_jobs"):
+    for field in fields:
         value = getattr(request, field)
         if isinstance(value, bool) or (
             isinstance(value, int) and value <= 0

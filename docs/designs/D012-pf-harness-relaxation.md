@@ -1,7 +1,7 @@
 # PF Harness Resolution
 
 - **状态：** 现行
-- **最后核对：** 2026-09-09
+- **最后核对：** 2026-09-11
 - **适用范围：** smoke/check/search 各角色的环境准备；relaxation 仅适用于 declaration/probe
 - **产品与命令：** [D001](D001-pf.md)
 - **实现结构：** [D002](D002-pf-implementation.md)
@@ -102,9 +102,29 @@ patch，也不宣称混合表达式可移植。harness module 补充使用语境
 
 ### 3.1 Baseline evidence
 
-Baseline 有活跃 external harness 时先以原始 harness 得到并安装 `E(B)`；否则安装 `G(B)` 并建立同一 Cell 的 empty HarnessBaseline（IDs 与 observations 均为空）。`HarnessBaseline` 保存活跃 declaration IDs，以及按 distribution 聚合的 `observations: tuple[HarnessSatisfaction, ...]`。每个 observation 保存 name、version/source/selected_artifact、`satisfied_by: PROJECT_GRAPH | EXTERNAL_HARNESS` 与 `ceiling_eligible`。它引用 environment 中唯一同名节点；PROJECT_GRAPH 必须与 project node exact 相等，EXTERNAL_HARNESS 要求同名节点不在 project graph。此 record 不声称对 harness 独立选择了第二个版本。
+`HarnessBaseline` 保存活跃 declaration IDs，以及按 distribution 聚合的
+`observations: tuple[HarnessSatisfaction, ...]`。每个 observation 保存
+name、version/source/selected_artifact、`satisfied_by: PROJECT_GRAPH | EXTERNAL_HARNESS`
+与 `ceiling_eligible`。它引用 environment 中唯一同名节点；PROJECT_GRAPH 必须与 project
+node exact 相等，EXTERNAL_HARNESS 要求同名节点不在 project graph。此 record 不声称对
+harness 独立选择了第二个版本。
 
-来自 registry 且仍允许 resolver 选择多个版本的 distribution 进入 `U_B`；是否含可删除下限不影响 ceiling 资格。精确 `==X`、`===X` 和固定 source 不追加 ceiling，但仍保留 baseline satisfaction evidence。
+最高环境安装路径适用于 Smoke/Search baseline 与 Check REQUIRED：有活跃 harness 时安装
+`E(B)`，否则安装 `G(B)`，均完整复证 graph。Search 与 Check REQUIRED 保留供后续
+relaxation 消费的完整 satisfaction observations，包含 fixed 项。Search 无活跃 harness
+时得到 IDs/observations 均为空的 baseline。Smoke 不要求在成功结果中保留 HarnessBaseline
+或 observations。
+
+仅 Check DEGENERATE 可在无 highest prepare 时构造同一 Cell 的普通 HarnessBaseline：保存
+排序唯一的 active external declaration IDs，`observations=()`。这些 requirements 不删下限、
+不追加 ceiling，original/relaxed harness 语义相同。该 baseline 正常计算 digest 并进入
+request/Attempt identity。非空 IDs 加空 observations 表示本路径无需 baseline ceiling，
+不表示已经观察过 harness satisfaction。随后 declaration 仍按本节完整
+resolve/install/inspect；active IDs 非空仍须复证 environment plan，不能改走 project-only
+安装。Search 即使全部 harness fixed 也执行 highest prepare、`S_hi` capture 和 full
+baseline verifier，再进入候选冻结；不得套用 Check DEGENERATE 省略这一步。
+
+来自 registry 且仍允许 resolver 选择多个版本的 distribution 进入 `U_B`；是否含可删除下限不影响 ceiling 资格。精确 `==X`、`===X` 和固定 source 不追加 ceiling。Search 与 Check REQUIRED 仍保留这些项的 baseline satisfaction evidence。
 
 ### 3.2 Relaxation
 
@@ -125,7 +145,7 @@ ceiling_eligible  registry 且非 fixed
 | `~=X`、`==X`、`==X.*`、`===X` | 保留 |
 | URL、Git、path、workspace source | 原样固定 |
 
-仅 declaration/probe 执行该变换：当前 `A in G(P)` 时由 Exact(G(P))[A] 独占版本，不追加 ceiling；当前 harness-only 且 `ceiling_eligible` 时追加 `<=U_B[A]`。Baseline 的 observation 即使来自 project graph，也为后续变为 harness-only 的 A 提供 upper bound；反向变为 project-owned 时 ceiling 不得约束该 project node。Baseline/declaration-capture 始终保留原始 external specifier 且无 ceiling。名称、extras、marker、source、upper bound、exclusion 和其它原始 specifier 语义均保持不变。多个同名 declaration 由 uv 求交集。
+仅 declaration/probe 执行该变换：当前 `A in G(P)` 时由 Exact(G(P))[A] 独占版本，不追加 ceiling；当前 harness-only 且 `ceiling_eligible` 时追加 `<=U_B[A]`。Baseline 的 observation 即使来自 project graph，也为后续变为 harness-only 的 A 提供 upper bound；反向变为 project-owned 时 ceiling 不得约束该 project node。Baseline/harness-prepare 始终保留原始 external specifier 且无 ceiling。名称、extras、marker、source、upper bound、exclusion 和其它原始 specifier 语义均保持不变。多个同名 declaration 由 uv 求交集。
 
 该变换由 `packaging` 支持的纯函数实现，并有版本化 policy identity；PF 不扩展 `~=` 或 wildcard equality，也不建立第二套 requirement semantics engine。
 
@@ -267,7 +287,7 @@ EnvironmentFactory.reprepare(proposal, snapshot, source_plan)
     -> PreparedEnvironment | StaticContentUnavailable
 ```
 
-`EnvironmentFactory` 在 project plan 成功且 active external IDs 非空时把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 execution / guidance / search 三类 identity 拥有。
+`EnvironmentFactory` 在 project plan 成功且 active external IDs 非空时把当前 graph 交给 harness normalization；UvAdapter 投影 satisfaction 并复证 graph ownership。谁在 prepare 前取得 `HarnessBaseline` 按命令分支：Smoke/Search baseline 与 Check REQUIRED 仍经最高环境安装得到 satisfaction evidence；仅 Check DEGENERATE 可按 §3.1 在无 highest 时构造 degenerate baseline。Runner 用同一 harness policy 决定 Check 分支并把该决定传给 Checker；该 enum 不进入 Schema。Baseline/observation、resolution request/plan 与 Attempt baseline digest 均绑定新 evidence，旧 HarnessSelection 不保留 alias。跨语义 generation/apply 隔离由 D014 的 execution / guidance / search 三类 identity 拥有。
 
 `EnvironmentFactory.prepare` 是首次环境准备入口；active IDs 分支、harness relaxation、project/optional environment resolution、一次 installation 和 graph 复证都隐藏在其内。
 调用者只传 package、Cell、resolution request、snapshot 与同一 SourcePlan；suppression names 不是 public

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from packaging.version import Version
 
@@ -17,6 +18,8 @@ from pf.schemas.project import (
     SourceIdentity,
     SourcePlan,
 )
+
+HarnessBaselineRequirement = Literal["REQUIRED", "DEGENERATE"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,36 @@ def harness_requirement_policy(
         fixed=fixed,
         relaxable=relaxable,
         ceiling_eligible=source.kind == "registry" and not fixed,
+    )
+
+
+def harness_baseline_requirement(
+    requirements: tuple[HarnessRequirement, ...],
+    cell: Cell,
+    *,
+    source_plan: SourcePlan,
+) -> HarnessBaselineRequirement:
+    """Decide whether Check must obtain a highest-environment HarnessBaseline."""
+    for requirement in active_harness_requirements(requirements, cell):
+        policy = harness_requirement_policy(
+            requirement,
+            source=source_plan.source_for(requirement.name),
+        )
+        if policy.ceiling_eligible:
+            return "REQUIRED"
+    return "DEGENERATE"
+
+
+def degenerate_harness_baseline(
+    requirements: tuple[HarnessRequirement, ...],
+    cell: Cell,
+) -> HarnessBaseline:
+    """Build a Check-only baseline with active IDs and no satisfaction observations."""
+    active = active_harness_requirements(requirements, cell)
+    return HarnessBaseline.from_evidence(
+        cell=cell,
+        declaration_ids=tuple(sorted(item.declaration_id for item in active)),
+        observations=(),
     )
 
 

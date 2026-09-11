@@ -1,7 +1,7 @@
 # D006 视觉与固定文案附录
 
 - **状态：** 现行
-- **最后核对：** 2026-09-08
+- **最后核对：** 2026-09-11
 - **主文：** [D006 CLI 交互与展示](../D006-pf-cli-enhancement.md)
 
 本附录保存从 D006 主文移来的视觉细则与固定文案。通道、状态、事实来源和信息层级以主文为准；
@@ -27,7 +27,13 @@ Inspect and combine reports
   merge
 ```
 
-Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf apply Use pf minimize to search and apply in one command.`；实际换行由终端宽度决定。
+Epilogue 固定为：
+
+```text
+Onboarding: pf smoke -> pf search -> pf explain -> pf apply. Steady state: pf check. Use pf minimize to search and apply in one command.
+```
+
+实际换行由终端宽度决定。
 
 命令说明来自可解析 docstring；参数说明来自唯一 `Parameter(help=...)`，不维护第二套手写 help 页面。
 
@@ -39,22 +45,30 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
     installable workspace root.
 ```
 
-公共选项：
+`smoke` / `check` 与 `search` / `minimize` 共用的 scheduling 文案：
 
 ```text
 --max-cells auto|N
     Maximum concurrent cells. Omit to use project configuration.
 
---ty-jobs auto|N
-    Maximum concurrent ty checks. Omit to use project configuration.
-
 --test-jobs auto|N
     Maximum concurrent configured test commands. Omit to use project configuration.
+```
+
+仅 `search` / `minimize` 提供：
+
+```text
+--ty-jobs auto|N
+    Maximum concurrent ty checks. Omit to use project configuration.
 
 --max-duration DURATION
     Stop scheduling after DURATION and save an incomplete report.
     Accepts a positive integer followed by s, m, or h; use none for no limit.
+```
 
+`--search-resolution` 属于 search / apply / minimize；`--force` 只属于 apply / minimize：
+
+```text
 --search-resolution major|minor|patch
     Series representative granularity. Omit to use project configuration;
     accepts major, minor, or patch.
@@ -63,7 +77,7 @@ Epilogue 固定为 `Typical workflow: pf smoke -> pf search -> pf explain -> pf 
     Accept source-layer drift after structural authorization.
 ```
 
-选项适用命令、默认/override、duration、force 与 Failure ID 准入只见 [D001 §5、§7](../D001-pf.md#5-命令)。本节只固定 help 文案；`diagnose` 的 Usage 为 `pf diagnose FAILURE_ID [OPTIONS]`，`merge` 为 `REPORT [REPORT ...] --output PATH`。
+选项适用命令、默认/override、duration、force 与 Failure ID 准入只见 [D001 §5、§7](../D001-pf.md#5-命令)。本节只固定 help 文案；`diagnose` 的 Usage 为 `pf diagnose FAILURE_ID [OPTIONS]`，`merge` 为 `REPORT [REPORT ...] --output PATH`。`smoke` / `check` 的 Usage 不含 `--ty-jobs`。
 
 ## A.2 Scope 样式
 
@@ -161,6 +175,7 @@ Final summary 的 icon 与整句文字使用同一个结果色且 bold。
 ✓ Smoke passed · 1 cell
 ✓ Check passed · 3 cells
 ✗ Check failed · declared lower bounds are incompatible · 1 cell
+✗ Check failed · harness preparation did not pass · 1 cell
 ✓ Search complete · package-floor.json
 ⚠ Search incomplete · package-floor.json written · 3 cells have no applicable floor
 ⚠ Search incomplete · package-floor.json written · 2 cells passed · 1 cell awaits another host · next: collect reports and run pf merge

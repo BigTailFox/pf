@@ -23,6 +23,7 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     CellCompletedEvent,
     CellContextEvent,
+    DeclarationDetailIdentity,
     CellFailureScope,
     CellMatrixEvent,
     CheckCellOutcome,
@@ -98,7 +99,8 @@ class _CheckOperation:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan, run_cache: TyCheckCache,
+        source_plan: SourcePlan,
+        baseline_requirement: object,
     ) -> CheckCellOutcome:
         return self._run(package, cell, snapshot, source_plan)
 
@@ -118,7 +120,7 @@ class _SmokeOperation:
         package: PackagePlan,
         cell: Cell,
         snapshot: SourceSnapshot,
-        source_plan: SourcePlan, run_cache: TyCheckCache,
+        source_plan: SourcePlan,
     ) -> BaselineIndeterminate:
         return self._run(package, cell, snapshot, source_plan)
 
@@ -257,10 +259,10 @@ def _check_indeterminate(
     snapshot: SourceSnapshot,
     cell: Cell,
     *,
-    role: Literal["declaration-capture", "declaration"] = "declaration",
+    role: Literal["harness-prepare", "declaration"] = "declaration",
     process: ProcessObservation | None = None,
 ) -> CheckCellOutcome:
-    resolution = "highest" if role == "declaration-capture" else "lowest-direct"
+    resolution = "highest" if role == "harness-prepare" else "lowest-direct"
     attempt = _attempt(package, snapshot, cell, resolution)
     failure = _attempt_failure(attempt, process=process)
     return CheckCellOutcome(
@@ -887,7 +889,7 @@ class TestVerificationRunnerProjection:
             package,
             snapshot,
             cell,
-            role="declaration-capture",
+            role="harness-prepare",
             process=unavailable,
         )
         journals: list[VerificationJournal] = []
@@ -922,12 +924,96 @@ class TestVerificationRunnerProjection:
         )
 
         assert outcome.failure is not None
-        assert journals[-1].entries[0].role == "declaration-capture"
+        assert journals[-1].entries[0].role == "harness-prepare"
         assert journals[-1].entries[0].attempt == outcome.attempt
         assert associations == [
             ("journal:check-run", outcome.failure.failure_id, unavailable),
             ("journal:check-run", outcome.failure.failure_id, unavailable),
         ]
+        snapshot.close()
+
+    def test_check_and_smoke_persist_empty_ty_cache_and_membership(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, package = _case(tmp_path)
+        cell = package.cells[0]
+        caches: list[object] = []
+        journals: list[VerificationJournal] = []
+
+        class Logs:
+            run_id = "empty-sidecar"
+
+            def persist_run(self, journal: VerificationJournal, cache) -> None:
+                caches.append(cache)
+                self.write_journal(journal)
+
+            def write_journal(self, journal: VerificationJournal) -> Path:
+                journals.append(journal)
+                return tmp_path / "journal.json"
+
+            def associate(
+                self,
+                report_generation_id: str,
+                failure_id: str,
+                result: ProcessObservation,
+            ) -> None:
+                return
+
+        runner = VerificationRunner(events=_Events(), logs=Logs(), host_target=HOST)
+        runner.run(
+            CheckVerificationRun(
+                package=package,
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+                snapshot=snapshot,
+                operation=_CheckOperation(
+                    lambda *_: _check_pass(package, snapshot, cell)
+                ),
+                limits=_limits(),
+            )
+        )
+        runner.run(
+            SmokeVerificationRun(
+                package=package,
+                source_plan=SourcePlan.for_package(package, "DEVELOPMENT"),
+                snapshot=snapshot,
+                operation=_SmokeOperation(
+                    lambda *_: _smoke_indeterminate(package, snapshot, cell)
+                ),
+                limits=_limits(),
+            )
+        )
+
+        assert journals and all(journal.static_membership == () for journal in journals)
+        assert caches and all(cache.entries == () for cache in caches)
+        snapshot.close()
+
+    def test_check_degenerate_initial_context_is_declaration(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        snapshot, package = _case(tmp_path)
+        events = _Events()
+        cell = package.cells[0]
+
+        def run(*_: object) -> CheckCellOutcome:
+            contexts = [
+                item for item in events.items if isinstance(item, CellContextEvent)
+            ]
+            assert contexts == [
+                CellContextEvent(cell=cell, detail=DeclarationDetailIdentity())
+            ]
+            return _check_pass(package, snapshot, cell)
+
+        VerificationRunner(events=events, logs=None, host_target=HOST).run(
+            CheckVerificationRun(
+                package=package,
+                source_plan=SourcePlan.for_package(package, "SEARCH"),
+                snapshot=snapshot,
+                operation=_CheckOperation(run),
+                limits=_limits(),
+            )
+        )
         snapshot.close()
 
     def test_smoke_failure_uses_baseline_role(self, tmp_path: Path) -> None:

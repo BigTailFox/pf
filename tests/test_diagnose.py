@@ -527,10 +527,10 @@ class TestDiagnoseWorkflow:
                 "Compatibility of the highest-version resolution is unknown.",
             ),
             (
-                "declaration-capture",
+                "harness-prepare",
                 "check",
                 True,
-                "A static baseline could not be captured from the current declarations, so declared lower bounds were not verified for this cell.",
+                "The highest-version harness baseline could not be prepared, so declared lower bounds were not verified for this cell.",
             ),
             (
                 "declaration",
@@ -542,7 +542,7 @@ class TestDiagnoseWorkflow:
     )
     def test_diagnose_role_impact_matches_the_offline_contract(
         self,
-        role: Literal["probe", "baseline", "declaration-capture", "declaration"],
+        role: Literal["probe", "baseline", "harness-prepare", "declaration"],
         command: Literal["smoke", "check", "search"],
         rejected: bool,
         expected: str,
@@ -1181,7 +1181,7 @@ class TestDiagnoseWorkflow:
                     VerificationJournalEntry(
                         package="demo",
                         cell=cell,
-                        role="declaration-capture",
+                        role="harness-prepare",
                         attempt=attempt,
                         failure=failure,
                     ),
@@ -1201,7 +1201,7 @@ class TestDiagnoseWorkflow:
             )
         )
 
-        assert diagnosis.verification_role == "declaration-capture"
+        assert diagnosis.verification_role == "harness-prepare"
         stdout = StringIO()
         TerminalPresenter(
             stdout=Console(file=stdout, force_terminal=False, color_system=None),
@@ -1210,7 +1210,7 @@ class TestDiagnoseWorkflow:
         ).render_diagnose(diagnosis)
         rendered = visible_cli_text(stdout.getvalue())
         assert (
-            "A static baseline could not be captured" in rendered
+            "The highest-version harness baseline could not be prepared" in rendered
         )
         assert "declared lower bounds" in rendered
         assert "did not start the floor search" not in rendered

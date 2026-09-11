@@ -49,6 +49,7 @@ from pf.schemas.evaluation import (
     PytestFailureDetail,
     SearchFailureEvent,
     SmokeBaselineRejection,
+    SmokeCellPass,
     SmokeIndeterminate,
     TyCheck,
     TyDiagnostic,
@@ -462,10 +463,10 @@ class TestPlanningSchemas:
             (SearchRequest, {"root": ".", "test_jobs": False}),
             (SearchRequest, {"root": ".", "max_duration_seconds": 0}),
             (CheckRequest, {"root": ".", "max_cells": True}),
-            (CheckRequest, {"root": ".", "ty_jobs": 0}),
             (CheckRequest, {"root": ".", "test_jobs": False}),
             (SmokeRequest, {"root": ".", "max_cells": True}),
             (SmokeRequest, {"root": ".", "max_cells": 0}),
+            (SmokeRequest, {"root": ".", "test_jobs": 0}),
         ),
         ids=(
             "search-max-cells",
@@ -473,10 +474,10 @@ class TestPlanningSchemas:
             "search-test-jobs",
             "search-max-duration",
             "check-max-cells",
-            "check-ty-jobs",
             "check-test-jobs",
             "smoke-max-cells-bool",
             "smoke-max-cells-zero",
+            "smoke-test-jobs",
         ),
     )
     def test_command_request_rejects_invalid_scheduling(
@@ -685,10 +686,8 @@ class TestSearchSchemas:
         with pytest.raises(ValidationError, match="requires rejected evidence"):
             SmokeBaselineRejection(
                 outcomes=(
-                    HighestVersionPass(
+                    SmokeCellPass(
                         attempt=attempt,
-
-                        harness_baseline=empty_harness_baseline(attempt.identity.cell),
                         evaluation=passed,
                     ),
                 )
@@ -1102,10 +1101,8 @@ class TestSearchSchemas:
         with pytest.raises(ValidationError, match="requires indeterminate evidence"):
             SmokeIndeterminate(
                 outcomes=(
-                    HighestVersionPass(
+                    SmokeCellPass(
                         attempt=attempt,
-
-                        harness_baseline=empty_harness_baseline(attempt.identity.cell),
                         evaluation=passed,
                     ),
                 )

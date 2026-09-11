@@ -6,7 +6,7 @@ English | [简体中文](README.zh.md)
 
 ## What it does
 
-PF discovers candidate versions in isolated environments, optionally captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. Compatibility conclusions come only from that dynamic evidence; `ty` may choose a later probe but cannot reject a candidate. It records an explainable, verified exact dependency vector.
+PF discovers candidate versions in isolated environments. `search` optionally captures a `ty` static baseline from the highest versions your declarations allow, then runs the project's full test command. Compatibility conclusions come only from that dynamic evidence; `ty` may choose a later probe but cannot reject a candidate. It records an explainable, verified exact dependency vector. `smoke` and `check` run the same verifier without `ty`.
 
 The search unit is one installable package and one compatibility cell: exact uv target triple, CPython minor, and extra surface. On a frozen candidate snapshot, PF returns a coordinate-minimal vector that passed full tests. It does not claim a global minimum over the Cartesian product of dependencies, and it does not prove that unprobed versions or other combinations work. The product contract is [D001](docs/designs/D001-pf.md).
 
@@ -37,14 +37,14 @@ pf search
 pf apply
 ```
 
-`smoke` checks a fresh install at the newest allowed versions. `search` writes `package-floor.json`. `apply` updates the project's requirement floors from that report when authorization succeeds.
+`smoke` checks a fresh install at the newest allowed versions. `search` writes `package-floor.json`. `apply` updates the project's requirement floors from that report when authorization succeeds. After apply, `check` is the everyday command: it verifies the current declarations and does not require a report or Git.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `pf smoke` | Fresh-install at newest allowed versions, try to capture a `ty` baseline, run the full tests. A missing `ty` baseline still enters the verifier. Does not search or write a report. |
-| `pf check` | Verify the lower bounds the project already declares. Does not search or write a report. |
+| `pf smoke` | Fresh-install at newest allowed versions and run the full tests. Does not run `ty`, search, or write a report. |
+| `pf check` | Verify the lower bounds the project already declares. Does not require a prior search or apply, a report, or Git. Does not run `ty`, search, or write a report. |
 | `pf search` | Find verified floors and write `package-floor.json`. Never edits project metadata. |
 | `pf explain` | Read the report and show floors, coverage, and apply blockers. |
 | `pf apply` | Edit project metadata from an authorized report. `--force` only waives source-layer drift. |
@@ -52,7 +52,7 @@ pf apply
 | `pf diagnose FAILURE_ID` | Explain one recorded rejection or indeterminate result. Offline; does not replay. |
 | `pf merge REPORT ... --output PATH` | Combine compatible reports produced on different hosts. |
 
-Typical workflow: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Use `pf minimize` to search and apply in one step.
+Onboarding: `pf smoke` → `pf search` → `pf explain` → `pf apply`. Steady state: `pf check`. Use `pf minimize` to search and apply in one step. After a failed check, or when you want new floors, run `pf search` → `pf apply` again.
 
 ## Requirements
 

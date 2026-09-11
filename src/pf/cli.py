@@ -15,7 +15,7 @@ from pf.adapters.process import SecretRedactor, SubprocessRunner
 from pf.adapters.test_command import ConfiguredVerifier
 from pf.adapters.ty import TyAdapter
 from pf.adapters.uv import RegistryAccess, UvAdapter
-from pf.baseline import HighestVersionVerifier
+from pf.baseline import HighestVersionVerifier, SmokeVersionVerifier
 from pf.authorization import ApplyAuthorizer
 from pf.candidates import CandidateBuilder
 from pf.check import CompatibilityChecker
@@ -114,6 +114,7 @@ class CliContext:
     _static: StaticEvaluator | None = field(default=None, init=False, repr=False)
     _full: RuntimeEvaluator | None = field(default=None, init=False, repr=False)
     _checker: CompatibilityChecker | None = field(default=None, init=False, repr=False)
+    _smoke: SmokeVersionVerifier | None = field(default=None, init=False, repr=False)
     _highest: HighestVersionVerifier | None = field(default=None, init=False, repr=False)
     _verification: VerificationRunner | None = field(default=None, init=False, repr=False)
     _coordinator: SearchCoordinator | None = field(default=None, init=False, repr=False)
@@ -293,9 +294,12 @@ class CliContext:
         self._full = full
         self._checker = CompatibilityChecker(
             environments=environments,
-            static=static,
             full=full,
             events=self.presenter,
+        )
+        self._smoke = SmokeVersionVerifier(
+            environments=environments,
+            full=full,
         )
         self._highest = HighestVersionVerifier(
             environments=environments,
@@ -353,7 +357,7 @@ class CliContext:
         self._smoke_workflow = SmokeCommandWorkflow(
             projects=projects,
             snapshots=snapshots,
-            verifier=_assembled(self._highest),
+            verifier=_assembled(self._smoke),
             verification=_assembled(self._verification),
             events=self.presenter,
         )
@@ -498,8 +502,8 @@ def create_app(context: CliContext) -> App:
         name="pf",
         help="Find verified lower bounds for direct Python dependencies.",
         help_epilogue=(
-            "Typical workflow: pf smoke -> pf search -> pf explain -> pf apply\n"
-            "Use pf minimize to search and apply in one command."
+            "Onboarding: pf smoke -> pf search -> pf explain -> pf apply. "
+            "Steady state: pf check. Use pf minimize to search and apply in one command."
         ),
         help_on_error=False,
         print_error=True,
@@ -514,7 +518,6 @@ def create_app(context: CliContext) -> App:
         *,
         package: _PACKAGE = None,
         max_cells: _MAX_CELLS = None,
-        ty_jobs: _TY_JOBS = None,
         test_jobs: _TEST_JOBS = None,
     ) -> int:
         """Verify a fresh install with the newest versions allowed by current declarations."""
@@ -523,7 +526,6 @@ def create_app(context: CliContext) -> App:
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
             max_cells=_cli_scheduling_limit(max_cells, field="max-cells"),
-            ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
             test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
         )
         return context.presenter.render_smoke(context.smoke_workflow.run(request))
@@ -533,7 +535,6 @@ def create_app(context: CliContext) -> App:
         *,
         package: _PACKAGE = None,
         max_cells: _MAX_CELLS = None,
-        ty_jobs: _TY_JOBS = None,
         test_jobs: _TEST_JOBS = None,
     ) -> int:
         """Verify the lower bounds declared by the project."""
@@ -542,7 +543,6 @@ def create_app(context: CliContext) -> App:
             root=Path.cwd().as_posix(),
             selector=_cli_selector(package),
             max_cells=_cli_scheduling_limit(max_cells, field="max-cells"),
-            ty_jobs=_cli_scheduling_limit(ty_jobs, field="ty-jobs"),
             test_jobs=_cli_scheduling_limit(test_jobs, field="test-jobs"),
         )
         result = context.check_workflow.run(request)

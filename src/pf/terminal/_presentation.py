@@ -23,6 +23,8 @@ from pf.schemas.evaluation import (
     FailureEvaluationRuntimeRun,
     HighestVersionOutcome,
     HighestVersionPass,
+    SmokeCellOutcome,
+    SmokeCellPass,
     IndeterminateEvaluation,
     PassEvaluation,
     ProcessObservation,
@@ -301,7 +303,7 @@ def _completion_identity(
     if command == "smoke" and outcome.verification_role == "baseline":
         return BaselineDetailIdentity()
     if command == "check":
-        if outcome.verification_role == "declaration-capture":
+        if outcome.verification_role == "harness-prepare":
             return BaselineDetailIdentity()
         if outcome.verification_role == "declaration":
             return DeclarationDetailIdentity()
@@ -372,7 +374,7 @@ class CellPresentation:
     @classmethod
     def from_result(
         cls,
-        result: CheckCellOutcome | HighestVersionOutcome | CellResult,
+        result: CheckCellOutcome | HighestVersionOutcome | SmokeCellOutcome | CellResult,
         *,
         cell: Cell,
         elapsed: float | None = None,
@@ -508,7 +510,7 @@ def _unique_failures(
 
 
 def _run_result_outcome(
-    result: CheckCellOutcome | HighestVersionOutcome | CellResult,
+    result: CheckCellOutcome | HighestVersionOutcome | SmokeCellOutcome | CellResult,
 ) -> CellSucceeded | CellFailed:
     if isinstance(result, CheckCellOutcome):
         if isinstance(result.evaluation, PassEvaluation):
@@ -537,7 +539,7 @@ def _run_result_outcome(
             failures=(result.failure,),
             verification_role=result.role,
         )
-    if isinstance(result, HighestVersionPass):
+    if isinstance(result, (HighestVersionPass, SmokeCellPass)):
         return CellSucceeded(status=result.status, phase="complete")
     if isinstance(result, (BaselineRejection, BaselineIndeterminate)):
         detail = _evaluation_detail(result.evaluation, runtime=result.runtime)

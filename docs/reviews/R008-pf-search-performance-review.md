@@ -254,15 +254,23 @@ implementation 内的修复。Region 类 D003 变更必须先有新的、与现�
 [C006](../concepts/C006-pf-test-dependency-association.md)，不在本评审范围。
 
 **2026-09-10：** 同契约 `C` 上的直接观察准入已起草为临时
-[D044](../designs/D044-pf-check-first-and-apply-receipts.md)（草案）。D044 接受前 §7
+[D044](../archived/designs/D044-pf-check-first-minimal-verification.md)（草案）。D044 接受前 §7
 仍然适用；D044 把「当前契约」写成身份闭合的快照/Cell/SourcePlan/ExecutionPolicy/解析图，
 并继续禁止共享可写环境与通用 cache 服务。跨运行 hints 仍由本评审 §5.1 跟踪，不并入 D044。
 
 **2026-09-10 范围收敛：** 上段记录 D044 的初稿方向。后续讨论已将跨 Run 观察准入移回 C005
-待证范围；[D044](../designs/D044-pf-check-first-and-apply-receipts.md) 现仅定义 check 稳态、
+待证范围；[D044](../archived/designs/D044-pf-check-first-minimal-verification.md) 现仅定义 check 稳态、
 smoke/check 最小验证序列及有限 apply 回执/声明与报告事务。每次 check 都实际运行完整 verifier，
 不保存成功 identity，不引入 Git、观察存储或跨 Run 复用；本评审 §7 的非目标保持原约束。
 
 **2026-09-11 接受状态：** D044 在补齐验证命令范围与阶段间中断语义后已接受待实施；
-[P048](../plans/P048-pf-check-first-and-apply-receipts.md) 已起草，命令与回执/事务分轴验收。
+[P048](../archived/plans/P048-pf-check-first-minimal-verification.md) 已起草，命令与回执/事务分轴验收。
 本轮未授权生产实现，不改变上述跨 Run 缓存的范围结论。
+
+**2026-09-11 后续收缩：** 回执的现有消费者仅为有限历史展示，不是 check/search/apply 准入前提。
+用户决定从 D044/P048 撤下回执、专属 identity 及报告参与 apply 事务的扩展，移回 C005 待证；
+原有 apply 授权、NOOP、安全写入及恢复保持。D044 的已接受目标现仅为 check 稳态与
+smoke/check 最小验证序列，P048 相应收缩为三切片；仍未授权生产实现。上段保留此前接受范围的记录。
+
+**2026-09-11 完成：** D044/P048 已实施、验收并归档；稳定规则由 D001/D002/D004/D006/D008/D012
+接管。跨 Run 观察复用仍由 C005 待证，本评审 §7 非目标保持。

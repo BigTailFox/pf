@@ -2,7 +2,7 @@
 
 - **状态：** 现行
 - **策略版本：** `static-guidance-v1`
-- **最后核对：** 2026-09-10
+- **最后核对：** 2026-09-11
 - **产品结果：** [D001](D001-pf.md)
 - **模块接口：** [D002](D002-pf-implementation.md)
 - **搜索算法：** [D003](D003-pf-search-algorithm.md)
@@ -201,7 +201,8 @@ Preparation registry 与 Direct-PASS ledger。采集与比较的公开方法是 
 `GuidancePolicy`。比较准入、减法与 `locate_static_hint` 的唯一实现在静态 module；
 `compare_global`、`StaticSlice` 与 `_admit_saved_static_audit` 委托同一内部 derive/hint。
 `RuntimeEvaluator` 独占 verifier 调用及动态结果组装，不读 static consumer、不写 Run cache。
-Check / Highest / Search 在每次 `evaluate` 之后、prepared close 之前调用 `record_runtime`。
+只有 Search 的 Highest / probe 路径在每次 `evaluate` 之后、prepared close 之前调用
+`record_runtime`；Smoke/Check 不取得 TyCheck，也不登记 runtime PASS。
 
 原始 `TyCheck` / `TyCheckUnavailable` 由 Run 内独立 `TyCheckCache` 共享。缓存静态事实，
 不缓存某次 guidance 解释。lookup 只读；collect 才原子加入或启动，只有 owner 占 ty permit。
@@ -245,12 +246,13 @@ verifier 原命令阶段 `NormalExit(0)`。
 
 ## 9. check、smoke 与 search
 
-命令如何组合 capture/full evaluation 只见 [D008 §3](D008-pf-verification-run.md#3-命令序列)；
+命令如何组合 prepare/full evaluation 只见 [D008 §3](D008-pf-verification-run.md#3-命令序列)；
 搜索的静态/oracle 调度只见 D003。完整 PASS 的资格由 D005 拥有。
 模块依赖与 public-seam 测试边界只见 [D002 §7、§11](D002-pf-implementation.md#7-verification-modules)。
 
-check 保留真实 HarnessBaseline；capture ty 失败仍验证 lowest-direct。smoke 复用 capture 的
-TyCheck（若有），只运行一次完整 test-command。
+static capture、compare 与 Direct-PASS ledger 只服务 Search。Smoke/Check 不运行 ty、不
+capture/compare `S_hi`、不登记 runtime PASS。Search 即使全部 harness 固定，仍先取得完整
+highest satisfaction evidence 并执行 `S_hi` 与 full baseline verifier。
 
 ## 10. Schema、cache 与报告
 

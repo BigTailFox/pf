@@ -1,7 +1,7 @@
 # PF 实现结构
 
 - **状态：** 现行
-- **最后核对：** 2026-09-10
+- **最后核对：** 2026-09-11
 - **产品契约：** [D001](D001-pf.md)
 - **算法与证据：** [D003](D003-pf-search-algorithm.md)–[D005](D005-pf-failure-and-diagnose.md)
 - **展示与运行：** [D006](D006-pf-cli-enhancement.md)–[D008](D008-pf-verification-run.md)
@@ -66,8 +66,8 @@ environment.py               prepare 与 PreparedEnvironment lifecycle
 cancellation.py              Run 取消
 static module (pf.static)    原始 TyCheck、Run cache、准入/比较、纯 guidance、request 装配
 evaluation.py                RuntimeEvaluator、动态 cache、stage permits
-baseline.py                  highest full-verification lifecycle
-check.py                     declaration two-phase CompatibilityChecker
+baseline.py                  Search highest full-verification 与 SmokeVersionVerifier
+check.py                     declaration CompatibilityChecker（REQUIRED 先 harness-prepare）
 failure.py                   FailurePolicy 分类实现；构造由本节 composition 拥有
 coordinate_search.py         pure vector search
 search.py                    single-Cell SearchCoordinator
@@ -193,7 +193,7 @@ presenter，再关闭 logs，并在嵌套中断下仍完成。`build_context()` 
 | Workflow | Owner boundary |
 | --- | --- |
 | `CheckCommandWorkflow` | planning → snapshot → VerificationRunner → CompatibilityChecker |
-| `SmokeCommandWorkflow` | planning → snapshot → VerificationRunner → HighestVersionVerifier |
+| `SmokeCommandWorkflow` | planning → snapshot → VerificationRunner → SmokeVersionVerifier |
 | `SearchCommandWorkflow` | planning → search anchor admission → snapshot → VerificationRunner → report update → diagnosis associations → `SearchCommandResult` |
 | `ExplainCommandWorkflow` | offline discovery → report read → `ExplainCommandResult` |
 | `DiagnoseCommandWorkflow` | offline discovery → selected report then latest Journal → one `FailureDiagnosis` |
@@ -317,26 +317,28 @@ StaticEvaluator.collect_prepared / capture_highest / compare_global
 StaticEvaluator.record_runtime / open_slice
 StaticEvaluator.record_phase_skip / record_oracle_selection
 RuntimeEvaluator.evaluate(prepared, *, package, failed_case_nodeids=())
+SmokeVersionVerifier.verify(...) -> SmokeCellOutcome
 HighestVersionVerifier.verify(...) -> HighestVersionOutcome
-CompatibilityChecker.check(...) -> CheckCellOutcome
+CompatibilityChecker.check(..., baseline_requirement) -> CheckCellOutcome
 ConfiguredVerifier.run(VerifierRequest) -> VerifierRun
 
 CoordinateSearch.minimize(...) -> CoordinateOutcome
 SearchCoordinator.search(...) -> CellResult
 VerificationRunner.run(CheckVerificationRun) -> tuple[CheckCellOutcome, ...]
-VerificationRunner.run(SmokeVerificationRun) -> tuple[HighestVersionOutcome, ...]
+VerificationRunner.run(SmokeVerificationRun) -> tuple[SmokeCellOutcome, ...]
 VerificationRunner.run(SearchVerificationRun) -> tuple[CellResult, ...]
 ```
 
 上述 Candidate/Environment/Highest/Check/Search interface 的最后一个参数均为同一 `source_plan`，不是裸 `source_mode`。`SourcePlan.for_package(package, mode)` 是在线 workflow 与 apply 的领域构造入口；其 `source_for`、`registry_routed_workspace_dependencies`、`workspace_member_version_for` 与派生 `identity` 独占 effective source、dual-route/member facts 和 source identity。只有 `source_mode + routes` 进入 wire；查询不保存实例缓存。ProjectLoader 仍独占 route 分类，UvAdapter 独占 argv，ApplyAuthorizer 独占授权，ReportStore 独占 codec/cross-ref。
 
-`CompatibilityChecker`、`HighestVersionVerifier` 与 `SearchCoordinator` 分别拥有 declaration two-phase、
-highest full verify 和单 Cell search；三者的构造器直接依赖 composition root 共享的同一
-`EnvironmentFactory`、`StaticEvaluator`、`RuntimeEvaluator` 实例，不为 caller 复制 env/static/full
-Protocol。Search 还直接依赖 `CandidateBuilder`、共享的 `HighestVersionVerifier` 与 `CoordinateSearch`。
+`SmokeVersionVerifier` 与 `CompatibilityChecker` 只依赖共享 `EnvironmentFactory` 与
+`RuntimeEvaluator`，不接收 `StaticEvaluator` 或 `TyCheckCache`。`HighestVersionVerifier` 只供
+Search，仍依赖同一 `EnvironmentFactory`、`StaticEvaluator` 与 `RuntimeEvaluator`，并由 Runner
+注入 Run `ty` cache。`SearchCoordinator` 拥有单 Cell search，还直接依赖 `CandidateBuilder`、
+共享的 `HighestVersionVerifier` 与 `CoordinateSearch`。不为 caller 复制 env/static/full Protocol。
 `cli.py` 不构造 `StaticRequestFactory`；生产 `TyAdapter` 与静态 request/inspect 装配绑定同一个
-`ProcessRunner`。`RuntimeEvaluator` 不接收 `run_cache`，不读 static consumer。Check / Highest /
-Search / `_ProposalRunner` 内部构造 `FailurePolicy()`，不接受 `failures=`。
+`ProcessRunner`。`RuntimeEvaluator` 不接收 `run_cache`，不读 static consumer。Check / Smoke /
+Highest / Search / `_ProposalRunner` 内部构造 `FailurePolicy()`，不接受 `failures=`。
 这些 in-process module 不是 adapter seam；真实替换点只保留 uv、candidate provider、ty、configured
 verifier、process 及 activity/diagnostic consumer。不得用 evaluator facade、parameter
 bundle、factory、locator 或 service registry隐藏该依赖图。
@@ -344,6 +346,8 @@ bundle、factory、locator 或 service registry隐藏该依赖图。
 `EffectiveConfig` 是按消费者分组的 frozen interface：`target`、`search`、`resolution`、`ty`、`test`、`scheduling`。ConfigLoader 独占 raw key/default/merge/canonicalization；ProjectLoader 独占 dependency selection 与 `DependencySearchPolicy` 到 managed searchable direct dependency 的资格绑定，并在 `PackagePlan.dependency_search_policies` 中提供排序唯一的完整 named policy。CandidateBuilder 和其他消费者不得重新读取 raw TOML 或实现平行默认逻辑。
 
 `ResolutionRequest` 是 `HighestResolution | LowestDirectResolution | ExactSelection`。
+命令 typed request 中，`CheckRequest` / `SmokeRequest` 只有 `max_cells` 与 `test_jobs`
+scheduling override，没有 `ty_jobs`；`SearchRequest` 保留 `ty_jobs` 与 `max_duration_seconds`。
 跨 Cell request 是 `CheckVerificationRun | SmokeVerificationRun | SearchVerificationRun`；
 其字段、Role、RunLimits、host Cell admission、activity、scheduling 与 Journal 生命周期只见
 [D008](D008-pf-verification-run.md)。Workflow 拥有 project load、一次 RunLimits 解析、snapshot
@@ -425,12 +429,13 @@ Expected command failures使用typed `PfError`：explain report read/validation�
 
 ## 11. 验证边界
 
-测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值；relocation 经 `EnvironmentFactory.prepare` 或公开 `PreparedEnvironment.relocate_to`。不替换 concrete prepare/collect_prepared/capture_highest/compare_global/record_runtime/open_slice/evaluate/verify/minimize，不读取 evaluator/search private state。产品测试不调用 `TyCheckCache` 领域方法；Runner 可见方法是构造、`admitted_membership`、`documents`、`stop`、`close`。分类从公开 Check/Highest/Search outcome 观察，不注入假 `FailurePolicy`。不写入 `CliContext._check_workflow` 一类私有字段；进程内 CLI 经 `create_app` 与公开 property，替身 workflow 经 `CliContext.compose` 的可选参数注入。产品测试不进口 `pf._secure_runlog`；安全目录行为经 `RunLogStore` 与 `pf.windows_runlog`，必须直接驱动 POSIX/Windows adapter 协议的用例标 `infra`。产品测试不 patch `pf` 包内私有函数。真实 ty 进程经 `TyAdapter.observe`（及其公开装配），不手写 `ty check` argv；`decode_process` 的纯解码矩阵用 recording 的 `ProcessResult`。包装真实 runner 的 recording 不按 argv 识别 `ty check`。
+测试覆盖 public module behavior：strict Schema/identity、临时项目与文件系统、adapter argv/outcome、CoordinateSearch/Runner、report/store/editor transaction、CLI 与 wheel entry point。调用方和测试走同一公开表面。不直接构造 `PreparedEnvironment` 成功值；relocation 经 `EnvironmentFactory.prepare` 或公开 `PreparedEnvironment.relocate_to`。不替换 concrete prepare/collect_prepared/capture_highest/compare_global/record_runtime/open_slice/evaluate/verify/minimize，不读取 evaluator/search private state。产品测试不调用 `TyCheckCache` 领域方法；Runner 可见方法是构造、`admitted_membership`、`documents`、`stop`、`close`。分类从公开 Check/Smoke/Highest/Search outcome 观察，不注入假 `FailurePolicy`。不写入 `CliContext._check_workflow` 一类私有字段；进程内 CLI 经 `create_app` 与公开 property，替身 workflow 经 `CliContext.compose` 的可选参数注入。产品测试不进口 `pf._secure_runlog`；安全目录行为经 `RunLogStore` 与 `pf.windows_runlog`，必须直接驱动 POSIX/Windows adapter 协议的用例标 `infra`。产品测试不 patch `pf` 包内私有函数。真实 ty 进程经 `TyAdapter.observe`（及其公开装配），不手写 `ty check` argv；`decode_process` 的纯解码矩阵用 recording 的 `ProcessResult`。包装真实 runner 的 recording 不按 argv 识别 `ty check`。
 
 车道只调度真实性，不另开测试专用产品 API。未授权车道不得进入生产 `SubprocessRunner.run`。种类、覆盖率并集与 Host/Cell 展开只见 [tests/README.md](../../tests/README.md)。
 
 静态事实从 `StaticEvaluator.collect_prepared` / `capture_highest` / `compare_global` /
-`record_runtime` / `open_slice` 与真实 Check/Highest/Search 的公开 outcome 观察。
+`record_runtime` / `open_slice` 与真实 Search/Highest 的公开 outcome 观察。Smoke/Check 的公开
+outcome 只证明 runtime prepare/evaluate，不登记静态事实。
 `record_phase_skip` / `record_oracle_selection` 只供 Search 写入 Run 内 search/skip/selection
 账本；该账本不是 Journal、report 或 diagnose 事实，产品测试不读取 `TyCheckCache.snapshot`
 上的 searches/skips/selections。账本闭合由内部测试经 snapshot / `_admit` 证明。

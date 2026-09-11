@@ -57,7 +57,7 @@
 | Concept | 开放 / 转入 Design / 关闭 | 状态、日期、性质 |
 | Experiment / Investigation | 进行中 / 已完成 | 状态、日期、性质、证据位置 |
 
-编号永久保留、不复用。D009–D011、D015–D036、D038–D043 与已完成 Plan 在归档；原 D031 拆至 C001 后不再回到 Design 号。现行 D012–D014、D037 的空号是归档结果，不是缺失。临时 [D044](designs/D044-pf-check-first-and-apply-receipts.md) 已接受待实施，对应 [P048](plans/P048-pf-check-first-and-apply-receipts.md)；见开放事项。进行中 Plan 在 `docs/plans/`。
+编号永久保留、不复用。D009–D011、D015–D036、D038–D044 与已完成 Plan 在归档；原 D031 拆至 C001 后不再回到 Design 号。现行 D012–D014、D037 的空号是归档结果，不是缺失。进行中 Plan 在 `docs/plans/`。
 
 ## 4. 单一权威与冲突分流
 
@@ -119,9 +119,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 | [C002](concepts/C002-pf-registry-analysis-cli.md) | 独立 registry 发布分布分析 CLI，命令与数据契约待探索 |
 | [C003](concepts/C003-pf-resolution-output-completeness.md) | 成功 resolve 的日志完整性是否可与 lock authority 分离，依据待验证 |
 | [C004](concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) | 将一维单调性从正确性假设改为乐观搜索假设；反例 refinement 与最短分段声明（`>=` + `!=`）待证 |
-| [D044](designs/D044-pf-check-first-and-apply-receipts.md) | 已接受待实施：check 稳态、smoke/check 最小验证序列、apply 回执与声明/报告事务；无 Git、check 历史或跨 Run 缓存。不覆盖增量 apply |
-| [P048](plans/P048-pf-check-first-and-apply-receipts.md) | D044 实施计划已起草；命令轴与回执/事务轴分开验收，生产实现未授权、未开始 |
-| [C005](concepts/C005-pf-check-first-lifecycle.md) | 日常流程与有限 apply 回执已交 D044；仍跟踪增量 apply、观察复用与可回滚历史；不依赖 C006 |
+| [C005](concepts/C005-pf-check-first-lifecycle.md) | 日常 check 周期已由 D001/D002/D004/D006/D008/D012 吸收；增量 apply、观察复用、可选应用记录与可回滚历史待证；回执须先证明用途及一致性需求，不依赖 C006 |
 | [C006](concepts/C006-pf-test-dependency-association.md) | 测试/源码与依赖坐标的关联分析；影响面与失效，不能授权 PASS；可 fork testmon |
 
 <a id="uv-resolution-output-completeness"></a>

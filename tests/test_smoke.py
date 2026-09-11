@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from pf.static import TyCheckCache
-
 from io import StringIO
 from pathlib import Path
 import re
 
 import pytest
 
-from conftest import empty_harness_baseline
 from visible_text import visible_cli_text
 from evaluation_fixtures import evaluation_assembly, evaluation_project, successful_process
 from rich.console import Console
@@ -24,8 +21,8 @@ from pf.schemas.evaluation import (
     BaselineIndeterminate,
     BaselineRejection,
     FailureRecord,
-    HighestVersionOutcome,
-    HighestVersionPass,
+    SmokeCellOutcome,
+    SmokeCellPass,
     NormalExit,
     PassEvaluation,
     ProcessObservation,
@@ -115,7 +112,7 @@ class FailingJournal:
 
 
 class TestSmokeWorkflow:
-    def test_smoke_runs_verifier_when_static_capture_is_unavailable(self, tmp_path: Path) -> None:
+    def test_smoke_runs_only_highest_prepare_and_full_verifier(self, tmp_path: Path) -> None:
         evaluation_project(tmp_path, dependency=None)
         assembly = evaluation_assembly(
             highest=(),
@@ -127,7 +124,7 @@ class TestSmokeWorkflow:
         result = SmokeCommandWorkflow(
             projects=ProjectLoader(),
             snapshots=SnapshotBuilder.without_processes(),
-            verifier=assembly.highest,
+            verifier=assembly.smoke,
             verification=VerificationRunner(
                 events=events, logs=None, host_target="x86_64-unknown-linux-gnu"
             ),
@@ -136,12 +133,33 @@ class TestSmokeWorkflow:
         assert result.status == "PASS"
         assert len(result.outcomes) == 1
         outcome = result.outcomes[0]
-        assert isinstance(outcome, HighestVersionPass)
+        assert isinstance(outcome, SmokeCellPass)
         assert outcome.evaluation.verifier.terminal == NormalExit(exit_code=0)
-        assert assembly.ty.vectors == [()]
+        assert assembly.ty.vectors == []
         assert assembly.verifier.vectors == [()]
         assert all(not root.exists() for root in assembly.uv.environment_roots)
 
+    def test_smoke_repeats_full_verifier_on_the_same_snapshot(self, tmp_path: Path) -> None:
+        evaluation_project(tmp_path, dependency=None)
+        assembly = evaluation_assembly(highest=())
+        events = Events()
+        workflow = SmokeCommandWorkflow(
+            projects=ProjectLoader(),
+            snapshots=SnapshotBuilder.without_processes(),
+            verifier=assembly.smoke,
+            verification=VerificationRunner(
+                events=events, logs=None, host_target="x86_64-unknown-linux-gnu"
+            ),
+            events=events,
+        )
+        first = workflow.run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
+        second = workflow.run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
+        assert first.status == "PASS"
+        assert second.status == "PASS"
+        assert assembly.ty.vectors == []
+        assert assembly.verifier.vectors == [(), ()]
+        assert len(assembly.uv.environment_roots) == 2
+        assert all(not root.exists() for root in assembly.uv.environment_roots)
 
     def test_smoke_workflow_emits_live_baseline_identity_before_verification(
         self,
@@ -182,8 +200,8 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
-            ) -> HighestVersionOutcome:
+                source_plan: SourcePlan,
+            ) -> SmokeCellOutcome:
                 seen.append(cell)
                 live_frames.append(visible(stderr.getvalue()))
                 attempt, proposal = attempt_and_proposal(
@@ -191,10 +209,8 @@ class TestSmokeWorkflow:
                     cell=cell,
                     snapshot=snapshot,
                 )
-                return HighestVersionPass(
+                return SmokeCellPass(
                     attempt=attempt,
-
-                    harness_baseline=empty_harness_baseline(cell),
                     evaluation=PassEvaluation(
                         proposal=proposal,
 
@@ -257,8 +273,8 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
-            ) -> HighestVersionOutcome:
+                source_plan: SourcePlan,
+            ) -> SmokeCellOutcome:
                 attempt, proposal = attempt_and_proposal(
                     package=package,
                     cell=cell,
@@ -309,7 +325,7 @@ class TestSmokeWorkflow:
         )
         result = SmokeCommandWorkflow(
             projects=ProjectLoader(), snapshots=SnapshotBuilder.without_processes(),
-            verifier=assembly.highest,
+            verifier=assembly.smoke,
             verification=VerificationRunner(events=Events(), logs=None, host_target="x86_64-unknown-linux-gnu"),
             events=Events(),
         ).run(SmokeRequest(root=tmp_path.as_posix(), max_cells=1))
@@ -366,8 +382,8 @@ class TestSmokeWorkflow:
                 package: PackagePlan,
                 cell: Cell,
                 snapshot: SourceSnapshot,
-                source_plan: SourcePlan, run_cache: TyCheckCache,
-            ) -> HighestVersionOutcome:
+                source_plan: SourcePlan,
+            ) -> SmokeCellOutcome:
                 nonlocal failure_id
                 attempt, proposal = attempt_and_proposal(
                     package=package,
