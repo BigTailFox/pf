@@ -254,6 +254,15 @@ implementation 内的修复。Region 类 D003 变更必须先有新的、与现�
 [C006](../concepts/C006-pf-test-dependency-association.md)，不在本评审范围。
 
 **2026-09-10：** 同契约 `C` 上的直接观察准入已起草为临时
-[D044](../designs/D044-pf-check-first-same-snapshot-observations.md)（草案）。D044 接受前 §7
+[D044](../designs/D044-pf-check-first-and-apply-receipts.md)（草案）。D044 接受前 §7
 仍然适用；D044 把「当前契约」写成身份闭合的快照/Cell/SourcePlan/ExecutionPolicy/解析图，
 并继续禁止共享可写环境与通用 cache 服务。跨运行 hints 仍由本评审 §5.1 跟踪，不并入 D044。
+
+**2026-09-10 范围收敛：** 上段记录 D044 的初稿方向。后续讨论已将跨 Run 观察准入移回 C005
+待证范围；[D044](../designs/D044-pf-check-first-and-apply-receipts.md) 现仅定义 check 稳态、
+smoke/check 最小验证序列及有限 apply 回执/声明与报告事务。每次 check 都实际运行完整 verifier，
+不保存成功 identity，不引入 Git、观察存储或跨 Run 复用；本评审 §7 的非目标保持原约束。
+
+**2026-09-11 接受状态：** D044 在补齐验证命令范围与阶段间中断语义后已接受待实施；
+[P048](../plans/P048-pf-check-first-and-apply-receipts.md) 已起草，命令与回执/事务分轴验收。
+本轮未授权生产实现，不改变上述跨 Run 缓存的范围结论。

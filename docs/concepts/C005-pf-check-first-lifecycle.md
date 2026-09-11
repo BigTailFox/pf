@@ -13,12 +13,12 @@
 - **相关构想：** [C004](C004-pf-evidence-respecting-optimistic-monotone-search.md) 处理一维
   单调性假设；[C006](C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，
   不在本文范围
-- **第一刀 Design：** [D044](../designs/D044-pf-check-first-same-snapshot-observations.md)（草案）
-  覆盖 check 稳态叙事、smoke/check 最小验证序列与同快照、身份闭合的 static/runtime 观察准入；
-  本文仍开放，只跟踪未进入 D044 的增量 apply 与 apply 本机历史
+- **第一刀 Design：** [D044](../designs/D044-pf-check-first-and-apply-receipts.md)（已接受待实施）
+  覆盖 check 稳态、smoke/check 最小验证序列、报告中的有限 apply 回执与声明/报告事务；
+  本文仍开放，跟踪增量 apply、跨 Run 观察复用与可回滚历史。后两者不是 D044 前置
 
-本文不定义当前或已接受的目标契约。D044 接受前，下文除已移交第一刀的部分外仍是待验证设想。
-增量 apply 与历史记录仍须另建 Design。
+本文不定义当前或已接受的目标契约。已移交第一刀的目标以 D044 为准，其余仍是待验证设想。
+跨 Run 观察复用、增量 apply 与可回滚历史仍须另建 Design。D044 不接入 Git，也不维护 check 历史。
 
 ## 1. 构想
 
@@ -28,7 +28,7 @@ PF 主要被库作者使用。依赖下界应是开发周期里变化很慢的�
 设想的周期：
 
 ```text
-接入     一次完整 clean search → apply 写入声明下界
+接入     一次完整 search → apply 严格准入并写入声明下界
 稳态     每次 CI / release 跑 pf check，验证当前快照上声明下界仍成立
 治理     新增 extra / 新增受管依赖 / 主动重搜时，做增量 search，再 apply 增量结果
 ```
@@ -48,15 +48,15 @@ Run 内缓存随进程结束丢弃。长期循环因此不友好。
 
 ## 2. 已确认的工作假设
 
-1. **稳态只承认 check。** 代码或测试的日常修改不期待重新 `pf search`。check 失败即声明下界
-   在当前快照上不成立；CI 不必在失败路径上自动 search。
+1. **稳态只承认 check。** 代码或测试的日常修改不期待重新 `pf search`。check 按实际 terminal
+   区分拒绝与无法判定；CI 不必在失败路径上自动 search。
 2. **观察缓存是一套系统。** 若上跨 run 持久化，运行时命中与长期命中共用同一存储与同一套
    完整 identity；哪些情况算命中、哪些算过期由**准入策略**决定，不按「内存一份、磁盘一份」
    分裂实现。
 3. **apply 只为增量搜索结果放松。** 不默认放宽普通 source drift，不对手工乱改 requirement
    放行。增量之外的授权仍按现行严格规则。
-4. **PF 本机数据记录 apply 历史。** apply 应是可回滚的操作，而不是一次不可逆的高风险改写。
-   公共 `package-floor.json` 仍不是 apply-time 历史的权威存放处。
+4. **有限回执与可回滚历史分开。** D044 已接受的目标是在报告记录当前应用目标的成功回执；它不保持跨报告
+   历史、不提供用户回滚。可复原历史前态的本机记录仍是本 Concept 的待证方向。
 5. **关联分析不在本文。** 源码/测试与依赖的影响面分析见 C006，可独立进入或关闭。
 
 本文沿用现行词：**受管依赖** 仍是搜索集合（`managed-deps`）。上次合法 apply 写进声明的精确
@@ -65,24 +65,17 @@ Run 内缓存随进程结束丢弃。长期循环因此不友好。
 
 D007 的 **Output Cache** 仍只是进程内 Process Log 正文投影，与本文观察存储不是同一对象。
 
-## 3. 稳态：check 转运下界
+## 3. 稳态：验证当前声明
 
-现行结果承诺把可应用下界绑在固定契约 `C` 上，`C` 含源码快照。代码一变就不是同一个 `C`。
-本构想不取消这条权威，只改变**日常如何跨越新快照**：
-
-| 动作 | 当前快照上的作用 |
-| --- | --- |
-| `pf check` | 用完整 configured verifier 重新证明声明下界；通过则 PF 地板仍可用 |
-| `pf search` | 接入、治理，或 check 已失败且作者选择重定界 |
-| `pf apply` | 把本次（完整或增量）search 的可应用结果写入声明 |
-
-check 通过，不写报告、不 apply。check 失败，产品默认是失败（现行退出 1 的兼容性失败），
-不是隐式增量 search。
-
-这与 C004 的句式同类：假设降成本，证据定真值。C004 假设的是一维单调；本文假设的是
-「声明下界在日常源码变化下通常仍成立」。
+日常 check 的目标契约已移交 [D044](../designs/D044-pf-check-first-and-apply-receipts.md)。
+它每次验证当前声明，不要求声明来自 PF，不恢复旧报告的精确向量，不维护 check 历史或缓存。
+本 Concept 后续讨论增量治理时，不能把一次 check 通过提升为新快照上的历史 search 最小性证明。
 
 ## 4. 统一观察缓存
+
+**2026-09-10 范围调整：** 本节已从 D044 移出。D044 的每次 check 都重新 prepare 并执行完整
+verifier，不依赖本节。未来 runtime 准入必须先证明实际执行环境/外部工具与安装产物的身份闭包；
+仅有源码快照、版本图或 artifact alternatives 集合不足以授权跳过 verifier。以下仍是待证构想。
 
 现行实现按生命周期裂开：
 
@@ -188,9 +181,9 @@ PLATFORM_SCOPED 已允许「本 generation 未证明的平台 selector 保留 or
 
 ## 6. Apply 历史与回滚
 
-现行 `ProjectEditor` 的 rollback 只覆盖**一次事务崩溃**：写到一半则 all-or-nothing 回到
-事务前。它不记录「昨天那次成功 apply」的前态，公共报告也不保存 apply-time scope / waiver /
-history（D001/D014）。`.pf/` 已从 SourceSnapshot 排除，并被 gitignore。
+现行 `ProjectEditor` 的 rollback 只覆盖**一次事务崩溃**，不记录「昨天那次成功 apply」的前态。
+D044 已接受将声明与报告回执纳入同一可恢复事务的目标；回执随当前报告保留，不含可回滚前态、不授权
+增量 apply。完整历史仍是后续构想。`.pf/` 已从 SourceSnapshot 排除，并被 gitignore。
 
 构想：在 PF 本机数据（`.pf/`，不进入快照、默认不进 git）写下每次合法 apply 的历史，使
 下一次增量 apply 能回答「上次 PF 写了哪些地板」，并支持回到上一份已记录前态。
@@ -252,8 +245,10 @@ D001 §9 与 D003/D004 将「跨运行 Proposal/Evaluation environment cache」�
 
 ## 10. 进入 Design 的条件
 
-条件 1–2（稳态叙事、smoke/check 最小验证序列、同快照直接观察准入、不引入第二套 cache API）已移交
-[D044](../designs/D044-pf-check-first-same-snapshot-observations.md)；该草案接受前仍非现行契约。
+稳态叙事、smoke/check 最小验证序列、有限 apply 回执与两文件事务已移交
+[D044](../designs/D044-pf-check-first-and-apply-receipts.md)；目标已接受，实施计划见
+[P048](../plans/P048-pf-check-first-and-apply-receipts.md)，尚未授权生产实现。
+观察缓存另待完整身份、执行准入与真实收益证据，不作为日常 check 的前置。
 
 增量 apply 与 apply 历史仍须至少同时成立：
 
@@ -271,11 +266,11 @@ C006 不是前置。没有关联分析也可以在 D044 之后单独做增量 ex
 
 | Owner | 可能增量 |
 | --- | --- |
-| D001 | 产品周期叙事；§6 增量 apply；§9 收缩跨运行 cache / apply lineage 非目标；check 作为稳态 |
+| D001 | §6 增量 apply；按未来独立 Design 收缩跨运行 cache / 完整 apply 历史非目标 |
 | D002 | 观察存储与 Apply 历史的 module 边界；不新增通用 cache 服务 |
 | D003 | 增量定界是否改变「每次覆盖全部受管坐标」；hints 是否只消费观察存储 |
 | D004 | Run 内 TyCheckCache 并入统一存储；跨 Run 拒绝规则改为策略 |
 | D006 | 增量 apply / 回滚 / 未证明轴的措辞，避免写成已验证 |
 | D008 | check 与增量 search 的 Role 序列是否变化 |
-| D014 | 公共报告仍无 apply-time history；generation 与增量覆盖如何并存 |
+| D014 | 有限回执不足以授权增量 apply；generation、增量覆盖与历史如何并存 |
 | Editor / Authorizer | 增量投影、历史前态、回滚 fail closed |
