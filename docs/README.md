@@ -141,6 +141,7 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 | [E008](experiments/E008-mkdocs-complete-search.md) | MkDocs 5-Cell smoke/check/search 完整记录、最终 PASS 与 witness 目标错配发现 |
 | [E009](experiments/E009-mkdocs-static-guidance.md) | 静态 guidance 后 MkDocs check/search 资格；check 声明下界进入原 unittest，intern 后 search 经 64 MiB reader 复证 |
 | [E010](experiments/E010-windows-native-search-cleanup.md) | 2026-09-08 非 WSL Windows 自搜索：killpg 崩溃复现与 Cell 结束环境清理墙钟 |
+| [E011](experiments/E011-pf-optimistic-search-exploration.md) | 2026-09-11 乐观二分与有限探索的纯算法模拟：oracle 调用成本、发现率及下界退化 |
 
 已归档 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。现行 Investigation 现无未归档条目。
 补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)

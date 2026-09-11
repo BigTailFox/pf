@@ -1,0 +1,381 @@
+{
+  "base": null,
+  "base_commit": null,
+  "cwd": "/home/llh/pf",
+  "environment": {
+    "machine": "x86_64",
+    "packages": [
+      {
+        "name": "Pygments",
+        "version": "2.21.0"
+      },
+      {
+        "name": "annotated-types",
+        "version": "0.8.0"
+      },
+      {
+        "name": "attrs",
+        "version": "26.1.0"
+      },
+      {
+        "name": "coverage",
+        "version": "7.15.4"
+      },
+      {
+        "name": "cyclopts",
+        "version": "4.23.0"
+      },
+      {
+        "name": "docstring_parser",
+        "version": "0.18.0"
+      },
+      {
+        "name": "exceptiongroup",
+        "version": "1.3.1"
+      },
+      {
+        "name": "execnet",
+        "version": "2.1.2"
+      },
+      {
+        "name": "iniconfig",
+        "version": "2.3.0"
+      },
+      {
+        "name": "jsonschema",
+        "version": "4.26.0"
+      },
+      {
+        "name": "jsonschema-specifications",
+        "version": "2025.9.1"
+      },
+      {
+        "name": "markdown-it-py",
+        "version": "4.2.0"
+      },
+      {
+        "name": "mdurl",
+        "version": "0.1.2"
+      },
+      {
+        "name": "package-floor",
+        "version": "0.3.0"
+      },
+      {
+        "name": "packaging",
+        "version": "26.3"
+      },
+      {
+        "name": "pluggy",
+        "version": "1.6.0"
+      },
+      {
+        "name": "py-cpuinfo",
+        "version": "9.0.0"
+      },
+      {
+        "name": "pydantic",
+        "version": "2.13.4"
+      },
+      {
+        "name": "pydantic_core",
+        "version": "2.46.4"
+      },
+      {
+        "name": "pytest",
+        "version": "9.1.1"
+      },
+      {
+        "name": "pytest-benchmark",
+        "version": "5.2.3"
+      },
+      {
+        "name": "pytest-cov",
+        "version": "7.1.0"
+      },
+      {
+        "name": "pytest-env",
+        "version": "1.7.0"
+      },
+      {
+        "name": "pytest-testmon",
+        "version": "2.2.0"
+      },
+      {
+        "name": "pytest-xdist",
+        "version": "3.8.0"
+      },
+      {
+        "name": "python-dotenv",
+        "version": "1.2.3"
+      },
+      {
+        "name": "referencing",
+        "version": "0.37.0"
+      },
+      {
+        "name": "rich",
+        "version": "15.0.0"
+      },
+      {
+        "name": "rich-rst",
+        "version": "2.1.0"
+      },
+      {
+        "name": "rpds-py",
+        "version": "0.30.0"
+      },
+      {
+        "name": "ruff",
+        "version": "0.16.4"
+      },
+      {
+        "name": "tomli",
+        "version": "2.4.1"
+      },
+      {
+        "name": "tomlkit",
+        "version": "0.15.0"
+      },
+      {
+        "name": "ty",
+        "version": "0.0.74"
+      },
+      {
+        "name": "typing-inspection",
+        "version": "0.4.2"
+      },
+      {
+        "name": "typing_extensions",
+        "version": "4.15.0"
+      },
+      {
+        "name": "uv",
+        "version": "0.12.5"
+      }
+    ],
+    "platform": "linux",
+    "python": {
+      "executable": "/home/llh/pf/.venv/bin/python3",
+      "implementation": "CPython",
+      "version": "3.10.16 (main, Mar 17 2025, 21:01:46) [Clang 20.1.0 ]"
+    },
+    "tools": {
+      "git": {
+        "executable": "/usr/bin/git",
+        "exit_code": 0,
+        "version": "git version 2.43.0"
+      }
+    }
+  },
+  "exit_code": 0,
+  "finished_at": "2026-09-11T07:26:28.480527+00:00",
+  "lane": "docs",
+  "started_at": "2026-09-11T07:26:27.760414+00:00",
+  "status": "passed",
+  "steps": [
+    {
+      "command": [
+        "/home/llh/pf/.venv/bin/python3",
+        "scripts/check_docs.py"
+      ],
+      "duration_seconds": 0.3788757069996791,
+      "exit_code": 0,
+      "finished_at": "2026-09-11T07:26:28.178297+00:00",
+      "log": "01.log",
+      "source_after": {
+        "head": "2416f1ccdc4db5973af70efbe3d38e4d4e1f73db",
+        "index_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "status": " M docs/README.md\n M docs/concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md\n M tests/test_evaluation.py\n M tests/test_static_cache.py\n M tests/test_static_ownership.py\n?? docs/experiments/E011-pf-optimistic-search-exploration.md\n?? docs/experiments/data/E011/cases.csv.gz\n?? docs/experiments/data/E011/mechanisms.json\n?? docs/experiments/data/E011/repeat.log\n?? docs/experiments/data/E011/run.log\n?? docs/experiments/data/E011/summary.json\n?? docs/experiments/data/E011/traces.json\n?? docs/experiments/data/E011/validation.json\n?? scripts/simulate_c004_search.py\n",
+        "untracked": {
+          "docs/experiments/E011-pf-optimistic-search-exploration.md": {
+            "kind": "file",
+            "sha256": "e25e12c13871ac9b44c4e5d155fb1c1eada480de52096d1e09e420adbb1f6561"
+          },
+          "docs/experiments/data/E011/cases.csv.gz": {
+            "kind": "file",
+            "sha256": "a3fd3d834d29d941f71b64b36a84db1ac1b55c514ef319723942ac3d1cc746b2"
+          },
+          "docs/experiments/data/E011/mechanisms.json": {
+            "kind": "file",
+            "sha256": "222256a7d1cd796af06c2963daa851f34f737287950bc0c4839155fd55956788"
+          },
+          "docs/experiments/data/E011/repeat.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/run.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/summary.json": {
+            "kind": "file",
+            "sha256": "1c99072e87d2d6cb0b95bb4f782e05df513a830ced93f79338794344c153b8ce"
+          },
+          "docs/experiments/data/E011/traces.json": {
+            "kind": "file",
+            "sha256": "f900a7571ce754674b906dfbf0be064e54bb6142d5c81e0e6125c08c931df7ad"
+          },
+          "docs/experiments/data/E011/validation.json": {
+            "kind": "file",
+            "sha256": "73e9c2e8ffc47330bddfb6c76e8b01a59b0fb3c96a1989157fdedb4ba3a7024f"
+          },
+          "scripts/simulate_c004_search.py": {
+            "kind": "file",
+            "sha256": "246bbd62b538a8696270bbf4565ea1412bf176c137a3453fc3ca28445f86cff1"
+          }
+        },
+        "worktree_diff_sha256": "f09a01e7f50acc0ff5de2abb3366b6f97f5d85a8bec890b2323ab8bfbde93c01"
+      },
+      "source_before": {
+        "head": "2416f1ccdc4db5973af70efbe3d38e4d4e1f73db",
+        "index_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "status": " M docs/README.md\n M docs/concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md\n M tests/test_evaluation.py\n M tests/test_static_cache.py\n M tests/test_static_ownership.py\n?? docs/experiments/E011-pf-optimistic-search-exploration.md\n?? docs/experiments/data/E011/cases.csv.gz\n?? docs/experiments/data/E011/mechanisms.json\n?? docs/experiments/data/E011/repeat.log\n?? docs/experiments/data/E011/run.log\n?? docs/experiments/data/E011/summary.json\n?? docs/experiments/data/E011/traces.json\n?? docs/experiments/data/E011/validation.json\n?? scripts/simulate_c004_search.py\n",
+        "untracked": {
+          "docs/experiments/E011-pf-optimistic-search-exploration.md": {
+            "kind": "file",
+            "sha256": "e25e12c13871ac9b44c4e5d155fb1c1eada480de52096d1e09e420adbb1f6561"
+          },
+          "docs/experiments/data/E011/cases.csv.gz": {
+            "kind": "file",
+            "sha256": "a3fd3d834d29d941f71b64b36a84db1ac1b55c514ef319723942ac3d1cc746b2"
+          },
+          "docs/experiments/data/E011/mechanisms.json": {
+            "kind": "file",
+            "sha256": "222256a7d1cd796af06c2963daa851f34f737287950bc0c4839155fd55956788"
+          },
+          "docs/experiments/data/E011/repeat.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/run.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/summary.json": {
+            "kind": "file",
+            "sha256": "1c99072e87d2d6cb0b95bb4f782e05df513a830ced93f79338794344c153b8ce"
+          },
+          "docs/experiments/data/E011/traces.json": {
+            "kind": "file",
+            "sha256": "f900a7571ce754674b906dfbf0be064e54bb6142d5c81e0e6125c08c931df7ad"
+          },
+          "docs/experiments/data/E011/validation.json": {
+            "kind": "file",
+            "sha256": "73e9c2e8ffc47330bddfb6c76e8b01a59b0fb3c96a1989157fdedb4ba3a7024f"
+          },
+          "scripts/simulate_c004_search.py": {
+            "kind": "file",
+            "sha256": "246bbd62b538a8696270bbf4565ea1412bf176c137a3453fc3ca28445f86cff1"
+          }
+        },
+        "worktree_diff_sha256": "f09a01e7f50acc0ff5de2abb3366b6f97f5d85a8bec890b2323ab8bfbde93c01"
+      },
+      "source_unchanged": true,
+      "started_at": "2026-09-11T07:26:27.799194+00:00",
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/home/llh/pf/.venv/bin/python3",
+        "scripts/generate_report_schema.py",
+        "--check"
+      ],
+      "duration_seconds": 0.2723841890001495,
+      "exit_code": 0,
+      "finished_at": "2026-09-11T07:26:28.470142+00:00",
+      "log": "02.log",
+      "source_after": {
+        "head": "2416f1ccdc4db5973af70efbe3d38e4d4e1f73db",
+        "index_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "status": " M docs/README.md\n M docs/concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md\n M tests/test_evaluation.py\n M tests/test_static_cache.py\n M tests/test_static_ownership.py\n?? docs/experiments/E011-pf-optimistic-search-exploration.md\n?? docs/experiments/data/E011/cases.csv.gz\n?? docs/experiments/data/E011/mechanisms.json\n?? docs/experiments/data/E011/repeat.log\n?? docs/experiments/data/E011/run.log\n?? docs/experiments/data/E011/summary.json\n?? docs/experiments/data/E011/traces.json\n?? docs/experiments/data/E011/validation.json\n?? scripts/simulate_c004_search.py\n",
+        "untracked": {
+          "docs/experiments/E011-pf-optimistic-search-exploration.md": {
+            "kind": "file",
+            "sha256": "e25e12c13871ac9b44c4e5d155fb1c1eada480de52096d1e09e420adbb1f6561"
+          },
+          "docs/experiments/data/E011/cases.csv.gz": {
+            "kind": "file",
+            "sha256": "a3fd3d834d29d941f71b64b36a84db1ac1b55c514ef319723942ac3d1cc746b2"
+          },
+          "docs/experiments/data/E011/mechanisms.json": {
+            "kind": "file",
+            "sha256": "222256a7d1cd796af06c2963daa851f34f737287950bc0c4839155fd55956788"
+          },
+          "docs/experiments/data/E011/repeat.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/run.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/summary.json": {
+            "kind": "file",
+            "sha256": "1c99072e87d2d6cb0b95bb4f782e05df513a830ced93f79338794344c153b8ce"
+          },
+          "docs/experiments/data/E011/traces.json": {
+            "kind": "file",
+            "sha256": "f900a7571ce754674b906dfbf0be064e54bb6142d5c81e0e6125c08c931df7ad"
+          },
+          "docs/experiments/data/E011/validation.json": {
+            "kind": "file",
+            "sha256": "73e9c2e8ffc47330bddfb6c76e8b01a59b0fb3c96a1989157fdedb4ba3a7024f"
+          },
+          "scripts/simulate_c004_search.py": {
+            "kind": "file",
+            "sha256": "246bbd62b538a8696270bbf4565ea1412bf176c137a3453fc3ca28445f86cff1"
+          }
+        },
+        "worktree_diff_sha256": "f09a01e7f50acc0ff5de2abb3366b6f97f5d85a8bec890b2323ab8bfbde93c01"
+      },
+      "source_before": {
+        "head": "2416f1ccdc4db5973af70efbe3d38e4d4e1f73db",
+        "index_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "status": " M docs/README.md\n M docs/concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md\n M tests/test_evaluation.py\n M tests/test_static_cache.py\n M tests/test_static_ownership.py\n?? docs/experiments/E011-pf-optimistic-search-exploration.md\n?? docs/experiments/data/E011/cases.csv.gz\n?? docs/experiments/data/E011/mechanisms.json\n?? docs/experiments/data/E011/repeat.log\n?? docs/experiments/data/E011/run.log\n?? docs/experiments/data/E011/summary.json\n?? docs/experiments/data/E011/traces.json\n?? docs/experiments/data/E011/validation.json\n?? scripts/simulate_c004_search.py\n",
+        "untracked": {
+          "docs/experiments/E011-pf-optimistic-search-exploration.md": {
+            "kind": "file",
+            "sha256": "e25e12c13871ac9b44c4e5d155fb1c1eada480de52096d1e09e420adbb1f6561"
+          },
+          "docs/experiments/data/E011/cases.csv.gz": {
+            "kind": "file",
+            "sha256": "a3fd3d834d29d941f71b64b36a84db1ac1b55c514ef319723942ac3d1cc746b2"
+          },
+          "docs/experiments/data/E011/mechanisms.json": {
+            "kind": "file",
+            "sha256": "222256a7d1cd796af06c2963daa851f34f737287950bc0c4839155fd55956788"
+          },
+          "docs/experiments/data/E011/repeat.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/run.log": {
+            "kind": "file",
+            "sha256": "5180ae2b472f97abb4be5f7fe9f61edc73b5c033ba499fcb28311ebe6eb92898"
+          },
+          "docs/experiments/data/E011/summary.json": {
+            "kind": "file",
+            "sha256": "1c99072e87d2d6cb0b95bb4f782e05df513a830ced93f79338794344c153b8ce"
+          },
+          "docs/experiments/data/E011/traces.json": {
+            "kind": "file",
+            "sha256": "f900a7571ce754674b906dfbf0be064e54bb6142d5c81e0e6125c08c931df7ad"
+          },
+          "docs/experiments/data/E011/validation.json": {
+            "kind": "file",
+            "sha256": "73e9c2e8ffc47330bddfb6c76e8b01a59b0fb3c96a1989157fdedb4ba3a7024f"
+          },
+          "scripts/simulate_c004_search.py": {
+            "kind": "file",
+            "sha256": "246bbd62b538a8696270bbf4565ea1412bf176c137a3453fc3ca28445f86cff1"
+          }
+        },
+        "worktree_diff_sha256": "f09a01e7f50acc0ff5de2abb3366b6f97f5d85a8bec890b2323ab8bfbde93c01"
+      },
+      "source_unchanged": true,
+      "started_at": "2026-09-11T07:26:28.197473+00:00",
+      "status": "passed"
+    }
+  ]
+}

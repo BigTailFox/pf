@@ -1,0 +1,7 @@
+Logs: /home/llh/pf/tests/.cache/validation/docs-8b5zhb97
+Manifest: /home/llh/pf/tests/.cache/validation/docs-8b5zhb97/manifest.json
+[1/2] /home/llh/pf/.venv/bin/python3 scripts/check_docs.py
+exit=0 log=/home/llh/pf/tests/.cache/validation/docs-8b5zhb97/01.log
+[2/2] /home/llh/pf/.venv/bin/python3 scripts/generate_report_schema.py --check
+exit=0 log=/home/llh/pf/tests/.cache/validation/docs-8b5zhb97/02.log
+docs: PASS (2 steps)

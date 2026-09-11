@@ -1,0 +1,72 @@
+{
+  "exhaustive_runs": 12276,
+  "exhaustive_trace_sha256": "a2bb7c4eb2d410a37c62728fc254237b981d9be412f5ee417435304fdaef7c61",
+  "special": {
+    "budget_refinement": {
+      "complete": [
+        {
+          "index": 0,
+          "reason": "main",
+          "status": "P"
+        },
+        {
+          "index": 16,
+          "reason": "explore",
+          "status": "R"
+        },
+        {
+          "index": 15,
+          "reason": "refine-neighbor",
+          "status": "P"
+        },
+        {
+          "index": 17,
+          "reason": "refine-neighbor",
+          "status": "P"
+        }
+      ],
+      "limited": [
+        {
+          "index": 0,
+          "reason": "main",
+          "status": "P"
+        },
+        {
+          "index": 16,
+          "reason": "explore",
+          "status": "R"
+        }
+      ]
+    },
+    "prune_fatal": [
+      {
+        "index": 0,
+        "reason": "main",
+        "status": "P"
+      },
+      {
+        "index": 16,
+        "reason": "explore",
+        "status": "I"
+      }
+    ],
+    "same_point_conflict": {
+      "existing": "P",
+      "incoming": "R",
+      "index": 0,
+      "status": "NONDETERMINISTIC"
+    },
+    "uniform_cap_fatal": [
+      {
+        "index": 0,
+        "reason": "main",
+        "status": "P"
+      },
+      {
+        "index": 3,
+        "reason": "explore",
+        "status": "I"
+      }
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+primary: 15603 cases, 62412 strategy runs
+all performance rows: 150148; checking exhaustive mechanisms
+{"mechanisms":{"exhaustive_runs":12276,"exhaustive_trace_sha256":"a2bb7c4eb2d410a37c62728fc254237b981d9be412f5ee417435304fdaef7c61"},"performance_rows":150148,"primary_cases":15603,"production_baseline_differential_cases":162}

@@ -1,0 +1,5047 @@
+{
+  "all-strategies-miss-hole": {
+    "case": {
+      "family": "hole",
+      "hint": null,
+      "name": "hole/16/0/0/1/1",
+      "position": 1,
+      "truth": "PRPPPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 7,
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/alternating/virtual-0": {
+    "case": {
+      "family": "alternating",
+      "hint": null,
+      "name": "alternating/16/0/0",
+      "position": -1,
+      "truth": "RPRPRPRPRPRPRPRP",
+      "virtual": false,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 4
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 3,
+            "right": 7,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 1,
+            "right": 3,
+            "unknown": 1
+          }
+        ],
+        "floor": 1,
+        "inferred": "RPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "main": 4
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 3,
+            "right": 7,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 1,
+            "right": 3,
+            "unknown": 1
+          }
+        ],
+        "floor": 1,
+        "inferred": "RPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 4,
+          "refine": 1
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 3,
+            "right": 7,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 1,
+            "right": 3,
+            "unknown": 1
+          }
+        ],
+        "floor": 1,
+        "inferred": "RPPPRPRPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 9,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 5,
+            "reason": "refine-neighbor",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "main": 4
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 3,
+            "right": 7,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 1,
+            "right": 3,
+            "unknown": 1
+          }
+        ],
+        "floor": 1,
+        "inferred": "RPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/alternating/virtual-1": {
+    "case": {
+      "family": "alternating",
+      "hint": null,
+      "name": "alternating/16/1/0",
+      "position": -1,
+      "truth": "RPRPRPRPRPRPRPRP",
+      "virtual": true,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 15,
+            "right": 16,
+            "unknown": 0
+          }
+        ],
+        "floor": 15,
+        "inferred": "RRRRRRRRRRRRRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 15,
+            "right": 16,
+            "unknown": 0
+          }
+        ],
+        "floor": 15,
+        "inferred": "RRRRRRRRRRRRRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 5,
+          "refine": 1
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 15,
+            "right": 16,
+            "unknown": 0
+          }
+        ],
+        "floor": 9,
+        "inferred": "RRRRRRRRRPRPRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 9,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "refine-neighbor",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 15,
+            "right": 16,
+            "unknown": 0
+          }
+        ],
+        "floor": 15,
+        "inferred": "RRRRRRRRRRRRRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/hole/virtual-0": {
+    "case": {
+      "family": "hole",
+      "hint": null,
+      "name": "hole/16/0/0/1/1",
+      "position": 1,
+      "truth": "PRPPPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 7,
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/hole/virtual-1": {
+    "case": {
+      "family": "hole",
+      "hint": null,
+      "name": "hole/16/1/0/1/1",
+      "position": 1,
+      "truth": "PRPPPPPPPPPPPPPP",
+      "virtual": true,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 8,
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/island/virtual-0": {
+    "case": {
+      "family": "island",
+      "hint": null,
+      "name": "island/16/0/4/1/0",
+      "position": 0,
+      "truth": "PRRRPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 7,
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1,
+          "refine": 3
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "refine-expand",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/island/virtual-1": {
+    "case": {
+      "family": "island",
+      "hint": null,
+      "name": "island/16/1/4/1/0",
+      "position": 0,
+      "truth": "PRRRPPPPPPPPPPPP",
+      "virtual": true,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 8,
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1,
+          "refine": 3
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "refine-expand",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/monotone/virtual-0": {
+    "case": {
+      "family": "monotone",
+      "hint": null,
+      "name": "mono/16/0/0",
+      "position": -1,
+      "truth": "PPPPPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 7,
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/monotone/virtual-1": {
+    "case": {
+      "family": "monotone",
+      "hint": null,
+      "name": "mono/16/1/0",
+      "position": -1,
+      "truth": "PPPPPPPPPPPPPPPP",
+      "virtual": true,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 8,
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 16,
+            "unknown": 15
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/multi/virtual-0": {
+    "case": {
+      "family": "multi",
+      "hint": null,
+      "name": "multi/16/0/0",
+      "position": -1,
+      "truth": "RRRRPPPPPRRRPPPP",
+      "virtual": false,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 3,
+            "unknown": 2
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 5,
+            "right": 7,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 5,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 3,
+            "unknown": 2
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 5,
+            "right": 7,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 5,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 5,
+          "refine": 3
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 3,
+            "unknown": 2
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 5,
+            "right": 7,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 5,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPRRRPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 1,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 9,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 8,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "refine-expand",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 7,
+            "right": 15,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 3,
+            "unknown": 2
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 5,
+            "right": 7,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 5,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "first/multi/virtual-1": {
+    "case": {
+      "family": "multi",
+      "hint": null,
+      "name": "multi/16/1/0",
+      "position": -1,
+      "truth": "RRRRPRPPPRRPPRRR",
+      "virtual": true,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 8,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 2,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 2,
+            "right": 3,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 8,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 2,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 2,
+            "right": 3,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 5,
+          "refine": 5
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 8,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 2,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 2,
+            "right": 3,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPRPPPRRPPRRR",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 9,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 11,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 13,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "refine-neighbor",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 4,
+            "right": 8,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 2,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 2,
+            "right": 3,
+            "unknown": 0
+          }
+        ],
+        "floor": 4,
+        "inferred": "RRRRPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      }
+    }
+  },
+  "first/random/virtual-0": {
+    "case": {
+      "family": "random",
+      "hint": null,
+      "name": "random/16/0/0.1/0",
+      "position": -1,
+      "truth": "PRRRRRRRRRRRRRRP",
+      "virtual": false,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 1
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 1,
+          "refine": 11
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 7,
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PRRRRRRRRRRRRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 2,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 1,
+            "reason": "refine-midpoint",
+            "status": "R"
+          },
+          {
+            "index": 9,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 10,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 13,
+            "reason": "refine-midpoint",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "refine-midpoint",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 1,
+          "refine": 3
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PRRRRRRRRRRRRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 13,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 1,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 3,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "refine-expand",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 1,
+          "refine": 11
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          }
+        ],
+        "floor": 0,
+        "inferred": "PRRRRRRRRRRRRRRP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 2,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 1,
+            "reason": "refine-midpoint",
+            "status": "R"
+          },
+          {
+            "index": 9,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 10,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 13,
+            "reason": "refine-midpoint",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "refine-midpoint",
+            "status": "R"
+          }
+        ]
+      }
+    }
+  },
+  "first/random/virtual-1": {
+    "case": {
+      "family": "random",
+      "hint": null,
+      "name": "random/16/1/0.1/0",
+      "position": -1,
+      "truth": "RRRRRPRRPRRRRRRR",
+      "virtual": true,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 4,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 4,
+            "right": 6,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 6,
+            "right": 7,
+            "unknown": 0
+          }
+        ],
+        "floor": 8,
+        "inferred": "RRRRRRRRPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 4,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 4,
+            "right": 6,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 6,
+            "right": 7,
+            "unknown": 0
+          }
+        ],
+        "floor": 8,
+        "inferred": "RRRRRRRRPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 5,
+          "refine": 3
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 4,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 4,
+            "right": 6,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 6,
+            "right": 7,
+            "unknown": 0
+          }
+        ],
+        "floor": 5,
+        "inferred": "RRRRRPRRPRRRRRRR",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 5,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 10,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 9,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 11,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "refine-expand",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 8,
+            "right": 16,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 4,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 4,
+            "right": 6,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 6,
+            "right": 7,
+            "unknown": 0
+          }
+        ],
+        "floor": 8,
+        "inferred": "RRRRRRRRPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      }
+    }
+  },
+  "matched-only-vs-prune": {
+    "case": {
+      "family": "hole",
+      "hint": null,
+      "name": "hole/64/0/16/1/48",
+      "position": 48,
+      "truth": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 2,
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 47,
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "explore",
+            "expected": "R",
+            "index": 7,
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 47,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 7,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 7,
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 25,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 34,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 42,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 50,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 58,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 2,
+          "main": 7,
+          "refine": 2
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 48,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 49,
+            "reason": "refine-neighbor",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "prune-only-vs-matched": {
+    "case": {
+      "family": "hole",
+      "hint": null,
+      "name": "hole/64/0/16/1/47",
+      "position": 47,
+      "truth": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 1,
+          "main": 2,
+          "refine": 10
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 47,
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 47,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 46,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 48,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 30,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 29,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 27,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 23,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 19,
+            "reason": "refine-midpoint",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "refine-midpoint",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "refine-midpoint",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 7,
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 25,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 34,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 42,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 50,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 58,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 1,
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 31,
+            "right": 63,
+            "unknown": 31
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 15,
+            "unknown": 14
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 23,
+            "right": 31,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 19,
+            "right": 23,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 17,
+            "right": 19,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 16,
+            "right": 17,
+            "unknown": 0
+          }
+        ],
+        "floor": 16,
+        "inferred": "RRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 23,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 19,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 17,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 16,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 34,
+            "reason": "explore",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "prune-recovers-lower-pass": {
+    "case": {
+      "family": "hole",
+      "hint": null,
+      "name": "hole/64/0/32/1/47",
+      "position": 47,
+      "truth": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPPP",
+      "virtual": false,
+      "width": 1
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 31,
+            "right": 47,
+            "unknown": 15
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 55,
+            "right": 63,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 51,
+            "right": 55,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 49,
+            "right": 51,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 48,
+            "right": 49,
+            "unknown": 0
+          }
+        ],
+        "floor": 48,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 55,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 51,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 49,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 48,
+            "reason": "main",
+            "status": "P"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 2,
+          "main": 3,
+          "refine": 12
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "R",
+            "index": 15,
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "explore",
+            "expected": "R",
+            "index": 39,
+            "left": 31,
+            "right": 47,
+            "unknown": 15
+          }
+        ],
+        "floor": 32,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 39,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 38,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 40,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 37,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 36,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 34,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 32,
+            "reason": "refine-midpoint",
+            "status": "P"
+          },
+          {
+            "index": 41,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 42,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 44,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 45,
+            "reason": "refine-midpoint",
+            "status": "P"
+          },
+          {
+            "index": 46,
+            "reason": "refine-midpoint",
+            "status": "P"
+          },
+          {
+            "index": 48,
+            "reason": "refine-expand",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 7,
+          "main": 7,
+          "refine": 6
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 31,
+            "right": 47,
+            "unknown": 15
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 55,
+            "right": 63,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 51,
+            "right": 55,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 49,
+            "right": 51,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 48,
+            "right": 49,
+            "unknown": 0
+          }
+        ],
+        "floor": 32,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 55,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 51,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 49,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 48,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 20,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 28,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 37,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 45,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 58,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 36,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 38,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 35,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 34,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 32,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 46,
+            "reason": "refine-expand",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 2,
+          "main": 7,
+          "refine": 9
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 31,
+            "right": 47,
+            "unknown": 15
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 55,
+            "right": 63,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 51,
+            "right": 55,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 49,
+            "right": 51,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 48,
+            "right": 49,
+            "unknown": 0
+          }
+        ],
+        "floor": 32,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPRPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 55,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 51,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 49,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 48,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 43,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 42,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 44,
+            "reason": "refine-neighbor",
+            "status": "P"
+          },
+          {
+            "index": 41,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 40,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 38,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 34,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 32,
+            "reason": "refine-midpoint",
+            "status": "P"
+          },
+          {
+            "index": 45,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 46,
+            "reason": "refine-expand",
+            "status": "P"
+          }
+        ]
+      }
+    }
+  },
+  "prune-worsens-floor": {
+    "case": {
+      "family": "random",
+      "hint": null,
+      "name": "random/64/0/0.1/8",
+      "position": -1,
+      "truth": "RRRRRRRRRRRRRRRRPRRRRRRRRRRRRRRRRRRRRPRRRRRPRRRPRRRRRPRRRRRRRRPP",
+      "virtual": false,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 7
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 47,
+            "right": 63,
+            "unknown": 15
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 31,
+            "right": 39,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 43,
+            "right": 47,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 39,
+            "right": 41,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 41,
+            "right": 42,
+            "unknown": 0
+          }
+        ],
+        "floor": 43,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPPPPPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 39,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 43,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 41,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 42,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "explore": 2,
+          "main": 3,
+          "refine": 9
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "explore",
+            "expected": "R",
+            "index": 15,
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "explore",
+            "expected": "P",
+            "index": 55,
+            "left": 47,
+            "right": 63,
+            "unknown": 15
+          }
+        ],
+        "floor": 47,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPPPRRRRRRRRPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 55,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 54,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 56,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 46,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 53,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 57,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 58,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 60,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 61,
+            "reason": "refine-midpoint",
+            "status": "R"
+          },
+          {
+            "index": 62,
+            "reason": "refine-midpoint",
+            "status": "P"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 7,
+          "main": 7,
+          "refine": 9
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 47,
+            "right": 63,
+            "unknown": 15
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 31,
+            "right": 39,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 43,
+            "right": 47,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 39,
+            "right": 41,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 41,
+            "right": 42,
+            "unknown": 0
+          }
+        ],
+        "floor": 37,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPRRRRRPPPPPRRRRRRRRRRRRRRPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 39,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 43,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 41,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 42,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 20,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 28,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 37,
+            "reason": "explore",
+            "status": "P"
+          },
+          {
+            "index": 50,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 58,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 36,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 38,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 49,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 51,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 48,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 59,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 60,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 62,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 61,
+            "reason": "refine-midpoint",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "explore": 2,
+          "main": 7,
+          "refine": 5
+        },
+        "detected": true,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 31,
+            "unknown": 30
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 47,
+            "right": 63,
+            "unknown": 15
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 31,
+            "right": 39,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "P",
+            "left": 43,
+            "right": 47,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 39,
+            "right": 41,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 41,
+            "right": 42,
+            "unknown": 0
+          }
+        ],
+        "floor": 43,
+        "inferred": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRPPPPPRRRRRPPPPPPPPPPP",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 31,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 47,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 39,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 43,
+            "reason": "main",
+            "status": "P"
+          },
+          {
+            "index": 41,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 42,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 48,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 49,
+            "reason": "refine-neighbor",
+            "status": "R"
+          },
+          {
+            "index": 50,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 51,
+            "reason": "refine-expand",
+            "status": "R"
+          },
+          {
+            "index": 53,
+            "reason": "refine-expand",
+            "status": "P"
+          },
+          {
+            "index": 52,
+            "reason": "refine-midpoint",
+            "status": "R"
+          }
+        ]
+      }
+    }
+  },
+  "virtual-no-pass": {
+    "case": {
+      "family": "monotone",
+      "hint": null,
+      "name": "mono/16/1/16",
+      "position": -1,
+      "truth": "RRRRRRRRRRRRRRRR",
+      "virtual": true,
+      "width": 0
+    },
+    "config": "primary",
+    "runs": {
+      "plain": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 14,
+            "right": 15,
+            "unknown": 0
+          }
+        ],
+        "floor": null,
+        "inferred": "RRRRRRRRRRRRRRRR",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "prune": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 14,
+            "right": 15,
+            "unknown": 0
+          }
+        ],
+        "floor": null,
+        "inferred": "RRRRRRRRRRRRRRRR",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_cap": {
+        "counts": {
+          "explore": 5,
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 14,
+            "right": 15,
+            "unknown": 0
+          }
+        ],
+        "floor": null,
+        "inferred": "RRRRRRRRRRRRRRRR",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 2,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 4,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 6,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 9,
+            "reason": "explore",
+            "status": "R"
+          },
+          {
+            "index": 11,
+            "reason": "explore",
+            "status": "R"
+          }
+        ]
+      },
+      "uniform_matched": {
+        "counts": {
+          "main": 5
+        },
+        "detected": false,
+        "discards": [
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 0,
+            "right": 8,
+            "unknown": 7
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 8,
+            "right": 12,
+            "unknown": 3
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 12,
+            "right": 14,
+            "unknown": 1
+          },
+          {
+            "decision": "no-exploration",
+            "expected": "R",
+            "left": 14,
+            "right": 15,
+            "unknown": 0
+          }
+        ],
+        "floor": null,
+        "inferred": "RRRRRRRRRRRRRRRR",
+        "trace": [
+          {
+            "index": 0,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 8,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 12,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 14,
+            "reason": "main",
+            "status": "R"
+          },
+          {
+            "index": 15,
+            "reason": "main",
+            "status": "R"
+          }
+        ]
+      }
+    }
+  }
+}

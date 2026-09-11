@@ -1,0 +1,35 @@
+{
+  "commands": {
+    "repeat": ".venv/bin/python scripts/simulate_c004_search.py --output /tmp/pf-e011-repeat",
+    "ruff_check": ".venv/bin/ruff check scripts/simulate_c004_search.py",
+    "ruff_format_check": ".venv/bin/ruff format --check scripts/simulate_c004_search.py",
+    "simulation": ".venv/bin/python scripts/simulate_c004_search.py --output docs/experiments/data/E011"
+  },
+  "docs_validation": {
+    "command": "uv run python scripts/validate.py docs",
+    "exit_code": 0,
+    "steps": 2
+  },
+  "repeat_exit_code": 0,
+  "reproducibility": {
+    "cases.csv.gz": {
+      "identical": true,
+      "sha256": "a3fd3d834d29d941f71b64b36a84db1ac1b55c514ef319723942ac3d1cc746b2"
+    },
+    "mechanisms.json": {
+      "identical": true,
+      "sha256": "222256a7d1cd796af06c2963daa851f34f737287950bc0c4839155fd55956788"
+    },
+    "summary.json": {
+      "identical": true,
+      "sha256": "1c99072e87d2d6cb0b95bb4f782e05df513a830ced93f79338794344c153b8ce"
+    },
+    "traces.json": {
+      "identical": true,
+      "sha256": "f900a7571ce754674b906dfbf0be064e54bb6142d5c81e0e6125c08c931df7ad"
+    }
+  },
+  "ruff_check_exit_code": 0,
+  "ruff_format_check_exit_code": 0,
+  "simulation_exit_code": 0
+}
