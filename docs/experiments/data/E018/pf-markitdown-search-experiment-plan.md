@@ -3,16 +3,16 @@
 - **状态：** 已完成
 - **日期：** 2026-09-12
 - **性质：** 非规范性实验协议与执行计划；不定义新契约，不构成对 MarkItDown 上游声明的修改建议
-- **证据位置：** [../data/E018/](../data/E018/)
-- **报告：** [../E018-markitdown-complete-search.md](../E018-markitdown-complete-search.md)
-- **契约入口：** [D001](../../designs/D001-pf.md)、[D003](../../designs/D003-pf-search-algorithm.md)、
-  [D005](../../designs/D005-pf-failure-and-diagnose.md)、[D008](../../designs/D008-pf-verification-run.md)、
-  [D012](../../designs/D012-pf-harness-relaxation.md)、[D013](../../designs/D013-pf-pytest-observer.md)、
-  [D014](../../designs/D014-pf-report-schema.md)、[D037](../../designs/D037-pf-candidate-search-policy.md)
-- **对照：** [E012](../E012-flask-complete-search.md)、[E013](../E013-requests-complete-search.md)、
-  [E014](../E014-mkdocs-complete-search.md)、[E017](../E017-xarray-core-complete-search.md)；
-  [E016](../E016-pf-linear-search-control.md) 不在本轮执行
-- **候选调查：** [paper/candidate-markitdown.md](../../../paper/candidate-markitdown.md)
+- **证据位置：** [.](.)
+- **报告：** [../../E018-markitdown-complete-search.md](../../E018-markitdown-complete-search.md)
+- **契约入口：** [D001](../../../designs/D001-pf.md)、[D003](../../../designs/D003-pf-search-algorithm.md)、
+  [D005](../../../designs/D005-pf-failure-and-diagnose.md)、[D008](../../../designs/D008-pf-verification-run.md)、
+  [D012](../../../designs/D012-pf-harness-relaxation.md)、[D013](../../../designs/D013-pf-pytest-observer.md)、
+  [D014](../../../designs/D014-pf-report-schema.md)、[D037](../../../designs/D037-pf-candidate-search-policy.md)
+- **对照：** [E012](../../E012-flask-complete-search.md)、[E013](../../E013-requests-complete-search.md)、
+  [E014](../../E014-mkdocs-complete-search.md)、[E017](../../E017-xarray-core-complete-search.md)；
+  [E016](../../E016-pf-linear-search-control.md) 不在本轮执行
+- **候选调查：** [paper/candidate-markitdown.md](../../../../paper/candidate-markitdown.md)
 
 本计划固定 MarkItDown **`packages/markitdown`** 上的 PF 完整搜索。只选该可安装成员，不搜索
 `markitdown-mcp`、`markitdown-ocr` 或仓库根。extra 只跑命名 extra **`all`** 一组 surface。
@@ -54,7 +54,7 @@
 `packages/markitdown` 当作可安装 root，避免误选 MCP/OCR。
 
 自引用 `markitdown[all]` 把 `all` 并入 required base `R`。`extra-policy = "none"` 只保留
-`R`，得到单一 Cell `all`。这与 [E014](../E014-mkdocs-complete-search.md) 的
+`R`，得到单一 Cell `all`。这与 [E014](../../E014-mkdocs-complete-search.md) 的
 `pf-unit = ["mkdocs[i18n]"]` 相同，不是 `extra-surfaces = [["all"]]`：后者仍会留下 empty surface。
 
 阶段 1：
@@ -108,7 +108,7 @@ search-resolution = "minor"
 第一轮曾用 `extra-surfaces = [["all"]]` 同时准入 none 与 all。
 `pf smoke` run-id `20260912T055455.638407Z-234544-47c10a3e`：
 `all` PASS（307 passed / 33 skipped）；`no-extra` 收集 `test_pptx_svg.py` 因
-`ModuleNotFoundError: lxml` 被拒绝。证据：[../data/E018/admission/smoke-1/](../data/E018/admission/smoke-1/)。
+`ModuleNotFoundError: lxml` 被拒绝。证据：[admission/smoke-1/](admission/smoke-1/)。
 用户随后要求不再搜索 none。已改为自引用 `markitdown[all]`，不给 none 打测试补丁。
 后续 smoke/check/search 属于新配置、新快照，不回写第一轮 none 失败计数。
 
@@ -118,7 +118,7 @@ search-resolution = "minor"
 在默认 `search-prereleases = false` 下把 search baseline 选成稳定版
 `azure-ai-contentunderstanding==1.1.0`。`test_cu_converter.py` 在
 `UserAgentPolicy() takes no arguments` 处失败。Smoke 的 highest 安装的是
-`1.2.0b3`（声明 `>=1.2.0b1`）。证据：[../data/E018/all-minor/](../data/E018/all-minor/)。
+`1.2.0b3`（声明 `>=1.2.0b1`）。证据：[all-minor/](all-minor/)。
 该轮 **incomplete** / `SEARCH_FAILED`，0 次搜索观察，不回写。
 
 已只对该坐标打开 `search-prereleases = true`，其余坐标保持默认 false。

@@ -4,7 +4,7 @@
 - **日期：** 2026-09-12
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约，不构成对 MarkItDown 上游声明的修改建议
 - **证据位置：** [data/E018/](data/E018/)
-- **计划：** [E018/pf-markitdown-search-experiment-plan.md](E018/pf-markitdown-search-experiment-plan.md)
+- **计划：** [data/E018/pf-markitdown-search-experiment-plan.md](data/E018/pf-markitdown-search-experiment-plan.md)
 - **目标：** `experiments/markitdown/packages/markitdown`，MarkItDown `v0.1.7`，上游 commit
   `fd239d5d2be43d9b68329730206b9312c7d5a388` 加本地 `pf-test` 与 `[tool.pf]`
 - **PF：** generator `0.4.0`；HEAD `2af5bfeb4e3b3cfd9f4d35ba1f6bb774118dee3a`

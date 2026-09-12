@@ -3,14 +3,14 @@
 - **状态：** 已完成
 - **日期：** 2026-09-12
 - **性质：** 非规范性实验协议与执行计划；不定义新契约，不构成对 xarray 上游声明的修改建议
-- **证据位置：** [../data/E017/](../data/E017/)
-- **报告：** [../E017-xarray-core-complete-search.md](../E017-xarray-core-complete-search.md)
-- **契约入口：** [D001](../../designs/D001-pf.md)、[D003](../../designs/D003-pf-search-algorithm.md)、
-  [D005](../../designs/D005-pf-failure-and-diagnose.md)、[D008](../../designs/D008-pf-verification-run.md)、
-  [D012](../../designs/D012-pf-harness-relaxation.md)、[D013](../../designs/D013-pf-pytest-observer.md)、
-  [D014](../../designs/D014-pf-report-schema.md)、[D037](../../designs/D037-pf-candidate-search-policy.md)
-- **对照：** [E012](../E012-flask-complete-search.md)、[E013](../E013-requests-complete-search.md)、
-  [E014](../E014-mkdocs-complete-search.md)；[E016](../E016-pf-linear-search-control.md) 不在本轮执行
+- **证据位置：** [.](.)
+- **报告：** [../../E017-xarray-core-complete-search.md](../../E017-xarray-core-complete-search.md)
+- **契约入口：** [D001](../../../designs/D001-pf.md)、[D003](../../../designs/D003-pf-search-algorithm.md)、
+  [D005](../../../designs/D005-pf-failure-and-diagnose.md)、[D008](../../../designs/D008-pf-verification-run.md)、
+  [D012](../../../designs/D012-pf-harness-relaxation.md)、[D013](../../../designs/D013-pf-pytest-observer.md)、
+  [D014](../../../designs/D014-pf-report-schema.md)、[D037](../../../designs/D037-pf-candidate-search-policy.md)
+- **对照：** [E012](../../E012-flask-complete-search.md)、[E013](../../E013-requests-complete-search.md)、
+  [E014](../../E014-mkdocs-complete-search.md)；[E016](../../E016-pf-linear-search-control.md) 不在本轮执行
 
 本计划固定 xarray **core / upstream bare-minimum** 环境下的 PF 完整搜索。
 只搜索 `numpy`、`packaging`、`pandas` 三个 runtime 坐标。不声称 netCDF、Dask 或全部后端兼容。
@@ -88,14 +88,14 @@ search-resolution = "minor"
 
 第一次 `pf smoke`（run-id `20260912T050713.649383Z-204303-8eb7f92e`）在
 `resolve-project` 以 `RESOLUTION_FAILED` 拒绝：`Building source distributions for xarray is disabled`。
-证据：[../data/E017/admission/smoke-1/](../data/E017/admission/smoke-1/)。
+证据：[admission/smoke-1/](admission/smoke-1/)。
 D001 的 `resolve-artifact` 统一约束 project/environment 与 Candidate，因此 `wheel` 不能用于必须从快照构建的 target。
 已改为 `any`，不修改 PF 契约。
 
 第二次 smoke（run-id `20260912T050802.214872Z-205432-aa1900a0`）在收集
 `xarray/tests/test_pandas_to_xarray.py` 时因 `tzdata` / `US/Pacific` 缺失失败；当时已收集约 11013 项。
 本机 uv CPython 无系统时区数据。已把 `tzdata` 加入 `pf-core` harness，不是搜索坐标，也不删测试。
-证据：[../data/E017/admission/smoke-2/](../data/E017/admission/smoke-2/)。
+证据：[admission/smoke-2/](admission/smoke-2/)。
 
 ## 3. 执行流程
 
@@ -127,7 +127,7 @@ D001 的 `resolve-artifact` 统一约束 project/environment 与 Candidate，因
 ### 3.2 本地补丁后继续（2026-09-12）
 
 用户授权修复该金串后再搜索。补丁见
-[../data/E017/local-patch/NOTE.md](../data/E017/local-patch/NOTE.md)。
+[local-patch/NOTE.md](local-patch/NOTE.md)。
 源码快照因此变化；后续 smoke/check/search 属于新运行，不回写 §3.1。
 阶段 1 在 3.11 上重做；通过后按原计划进入 check 与 `all` × `minor` search。
 

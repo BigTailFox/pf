@@ -147,8 +147,8 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 | [E013](experiments/E013-requests-complete-search.md) | 2026-09-11 requests 10-Cell smoke/check/search/apply；all×minor 与 patch refine |
 | [E014](experiments/E014-mkdocs-complete-search.md) | 2026-09-11 MkDocs 5-Cell smoke/check/search；all×minor 成功；patch refine 暴露坐标下降的顺序依赖缺口 |
 | [E015](experiments/E015-pf-self-bootstrap-complete-search.md) | 2026-09-11 PF 自举 3-Cell smoke/check/search；all×minor 等于声明，patch refine 下降四条 |
-| [E017](experiments/E017-xarray-core-complete-search.md) | 2026-09-12 xarray `v2026.07.0` core：本地测试补丁后 3.11 all×minor complete/apply；patch refine incomplete；计划见 [E017 计划](experiments/E017/pf-xarray-core-search-experiment-plan.md) |
-| [E018](experiments/E018-markitdown-complete-search.md) | 2026-09-12 MarkItDown `v0.1.7` extra `all`：3.10 all×minor complete/apply；patch refine incomplete；apply 后 check 因 `lowest-direct` 经 numpy 2 把 pandas 抬到 2.2.2、与 openpyxl 3.0.10 冲突；计划见 [E018 计划](experiments/E018/pf-markitdown-search-experiment-plan.md) |
+| [E017](experiments/E017-xarray-core-complete-search.md) | 2026-09-12 xarray `v2026.07.0` core：本地测试补丁后 3.11 all×minor complete/apply；patch refine incomplete；计划见 [E017 计划](experiments/data/E017/pf-xarray-core-search-experiment-plan.md) |
+| [E018](experiments/E018-markitdown-complete-search.md) | 2026-09-12 MarkItDown `v0.1.7` extra `all`：3.10 all×minor complete/apply；patch refine incomplete；apply 后 check 因 `lowest-direct` 经 numpy 2 把 pandas 抬到 2.2.2、与 openpyxl 3.0.10 冲突；计划见 [E018 计划](experiments/data/E018/pf-markitdown-search-experiment-plan.md) |
 
 已归档 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。现行 Investigation 现无未归档条目。
 补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)

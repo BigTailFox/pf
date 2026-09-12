@@ -4,7 +4,7 @@
 - **日期：** 2026-09-12
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约，不构成对 xarray 上游声明的修改建议
 - **证据位置：** [data/E017/](data/E017/)（第一轮准入失败、本地补丁、补丁后 smoke/check/search/apply）
-- **计划：** [E017/pf-xarray-core-search-experiment-plan.md](E017/pf-xarray-core-search-experiment-plan.md)
+- **计划：** [data/E017/pf-xarray-core-search-experiment-plan.md](data/E017/pf-xarray-core-search-experiment-plan.md)
 - **目标：** `experiments/xarray`，xarray `v2026.07.0`，上游 commit
   `0238035a646a04a6d2b603cc5cee5cbefa304e23` 加本地 `pf-core` 与 `[tool.pf]`
 - **PF：** generator `0.4.0`；HEAD `72912785f381ed41bd84da599b13a26ec2a09343`
