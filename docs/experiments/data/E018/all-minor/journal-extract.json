@@ -1,0 +1,23 @@
+{
+  "run_id": "20260912T060058.106115Z-253753-228ef278",
+  "command": "search",
+  "journal_sha256": "107fa68fadfb7f082ccf79071643afd985e9c2f423e929ecb0a8c218ddf3178e",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 1,
+  "source_snapshot_digest": "847769b4145c786670e466d83e6493cec8919afae276124fb704a60b2c9b9d1f",
+  "package_policies": [
+    {
+      "package": "markitdown",
+      "execution_policy_identity": "737a01a44ce01dcb4b961e597f1d17cafdbad0968d2b95de1f644de10731ddf5"
+    }
+  ],
+  "process_log_count": 28,
+  "failure_entries": [
+    {
+      "failure_id": "failure-9baeca4a42305cd0",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    }
+  ]
+}

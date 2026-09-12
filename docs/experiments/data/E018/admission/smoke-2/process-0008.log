@@ -1,0 +1,52 @@
+format: pf-process-log-v2
+process_id: 8
+argv: ["pytest", "-p", "_pf_pytest_observer_***", "--maxfail=1", "-o", "cache_dir=/tmp/pf-pytest-cache-yb6kjfim"]
+cwd: "/tmp/pf-proposal-70a2bl9a/source"
+environment_names: ["PATH", "PF_PYTEST_OBSERVER_CASES_DIR", "PF_PYTEST_OBSERVER_CASES_PROJECTION", "PF_PYTEST_OBSERVER_DETAILS_DIR", "PF_PYTEST_OBSERVER_DIR", "PF_PYTEST_OBSERVER_NONCE", "PF_PYTEST_PROGRESS_DIR", "PF_PYTEST_PROGRESS_NONCE", "PYTHONPATH"]
+timeout_seconds: 7200
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 45.300789291999536
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 1990
+stderr_characters: 0
+
+--- stdout ---
+============================= test session starts ==============================
+platform linux -- Python 3.10.16, pytest-9.1.1, pluggy-1.6.0
+cachedir: /tmp/pf-pytest-cache-yb6kjfim
+rootdir: /tmp/pf-proposal-70a2bl9a/source
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collected 340 items
+
+tests/test_cli_misc.py ..                                                [  0%]
+tests/test_cli_vectors.py ....................................ssssssssss [ 14%]
+ss..                                                                     [ 15%]
+tests/test_cu_converter.py ............................................. [ 28%]
+........................................................................ [ 49%]
+.......                                                                  [ 51%]
+tests/test_docintel_html.py ..                                           [ 52%]
+tests/test_module_misc.py .........ss.s.s                                [ 56%]
+tests/test_module_vectors.py ........................................... [ 69%]
+.................sssssssssssssss..................................       [ 88%]
+tests/test_pdf_masterformat.py .....                                     [ 90%]
+tests/test_pdf_memory.py ......ss                                        [ 92%]
+tests/test_pdf_tables.py ......................                          [ 99%]
+tests/test_pptx_svg.py ...                                               [100%]
+
+=============================== warnings summary ===============================
+../environment/lib/python3.10/site-packages/pydub/utils.py:170
+  /tmp/pf-proposal-70a2bl9a/environment/lib/python3.10/site-packages/pydub/utils.py:170: RuntimeWarning: Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work
+    warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 307 passed, 33 skipped, 1 warning in 44.58s ==================
+
+--- stderr ---

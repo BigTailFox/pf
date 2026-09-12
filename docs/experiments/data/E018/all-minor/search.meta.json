@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search",
+    "--test-jobs",
+    "1",
+    "--max-duration",
+    "12h"
+  ],
+  "cwd": "/home/llh/pf/experiments/markitdown/packages/markitdown",
+  "started_at": "2026-09-12T06:00:57.774781+00:00",
+  "finished_at": "2026-09-12T06:02:32.525678+00:00",
+  "elapsed_s": 94.750897,
+  "exit_code": 2,
+  "log": "docs/experiments/data/E018/all-minor/search.txt",
+  "evidence": "docs/experiments/data/E018/all-minor",
+  "uv_cache_dir": "/tmp/pf-uv-cache",
+  "github_actions": "true"
+}

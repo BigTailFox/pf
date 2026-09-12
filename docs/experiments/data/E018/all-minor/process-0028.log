@@ -1,0 +1,141 @@
+format: pf-process-log-v2
+process_id: 28
+argv: ["pytest", "-p", "_pf_pytest_observer_***", "--maxfail=1", "-o", "cache_dir=/tmp/pf-pytest-cache-j9587gmx"]
+cwd: "/tmp/pf-proposal-umslg_r3/source"
+environment_names: ["PATH", "PF_PYTEST_OBSERVER_CASES_DIR", "PF_PYTEST_OBSERVER_CASES_PROJECTION", "PF_PYTEST_OBSERVER_DETAILS_DIR", "PF_PYTEST_OBSERVER_DIR", "PF_PYTEST_OBSERVER_NONCE", "PF_PYTEST_PROGRESS_DIR", "PF_PYTEST_PROGRESS_NONCE", "PYTHONPATH"]
+timeout_seconds: 7200
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 28.538386759999412
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 5585
+stderr_characters: 0
+
+--- stdout ---
+============================= test session starts ==============================
+platform linux -- Python 3.10.16, pytest-9.1.1, pluggy-1.6.0
+cachedir: /tmp/pf-pytest-cache-j9587gmx
+rootdir: /tmp/pf-proposal-umslg_r3/source
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collected 340 items
+
+tests/test_cli_misc.py ..                                                [  0%]
+tests/test_cli_vectors.py ....................................ssssssssss [ 14%]
+ss..                                                                     [ 15%]
+tests/test_cu_converter.py ............................................. [ 28%]
+......................................................................F
+
+=================================== FAILURES ===================================
+______ TestGetAnalyzerError.test_nonexistent_analyzer_raises_value_error _______
+
+self = <tests.test_cu_converter.TestGetAnalyzerError object at 0x7a9caf56b580>
+
+    def test_nonexistent_analyzer_raises_value_error(self):
+        """A *** get_analyzer() should raise ValueError with analyzer name."""
+        with patch(
+            "markitdown.converters._cu_converter._dependency_exc_info", None
+        ), patch(
+            "markitdown.converters._cu_converter.ContentUnderstandingClient"
+        ) as MockClient, patch(
+            "markitdown.converters._cu_converter.DefaultAzureCredential"
+        ):
+            mock_client = MagicMock()
+            mock_client.get_analyzer.side_effect = Exception("not found")
+            MockClient.return_value = mock_client
+    
+            with pytest.raises(ValueError, match="Failed to resolve analyzer 'bad-id'"):
+>               ContentUnderstandingConverter(
+                    endpoint="https://fake", analyzer_id="bad-id"
+                )
+
+tests/test_cu_converter.py:741: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <markitdown.converters._cu_converter.ContentUnderstandingConverter object at 0x7a9cad4d2020>
+endpoint = 'https://fake'
+credential = <MagicMock name='DefaultAzureCredential()' id='134813340999904'>
+analyzer_id = 'bad-id', file_types = None
+
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        credential: AzureKeyCredential | TokenCredential | None = None,
+        analyzer_id: Optional[str] = None,
+        file_types: Optional[List[ContentUnderstandingFileType]] = None,
+    ):
+        """Initialize the Content Understanding converter.
+    
+        Args:
+            endpoint: CU resource endpoint URL.
+            credential: Explicit credential. If None, falls back to
+                AZURE_API_KEY env var, then DefaultAzureCredential.
+            analyzer_id: Custom analyzer for compatible file types.
+                When set, the converter checks the analyzer's base modality
+                (via get_analyzer() at init) and routes only compatible
+                file types to it. Incompatible modalities auto-route to
+                default prebuilts. If None, auto-selects by extension/MIME.
+            file_types: Which file types to handle. If None, uses the
+                default set (all supported formats).
+        """
+        super().__init__()
+    
+        # Raise if dependencies are missing
+        if _dependency_exc_info is not None:
+            raise MissingDependencyException(
+                "ContentUnderstandingConverter requires the optional dependency "
+                "[az-content-understanding] (or [all]) to be installed. "
+                "E.g., `pip install 'markitdown[az-content-understanding]'`"
+            ) from _dependency_exc_info[
+                1
+            ].with_traceback(  # type: ignore[union-attr]
+                _dependency_exc_info[2]
+            )
+    
+        self._file_types = file_types if file_types is not None else _ALL_FILE_TYPES
+        self._analyzer_id = analyzer_id
+        self._analyzer_modality: Optional[str] = None
+    
+        # Resolve credential
+        if credential is None:
+            api_key = os.environ.get("AZURE_API_KEY")
+            if api_key is not None:
+                credential = AzureKeyCredential(api_key)
+            else:
+                credential = DefaultAzureCredential()
+    
+        # User agent for telemetry
+        try:
+            from ..__about__ import __version__
+        except ImportError:
+            __version__ = "unknown"
+        user_agent = f"markitdown-cu/{__version__}"
+    
+        # Create CU client
+        self._client = ContentUnderstandingClient(
+            endpoint=endpoint,
+            credential=credential,
+>           user_agent_policy=UserAgentPolicy(user_agent=user_agent),
+        )
+E       TypeError: UserAgentPolicy() takes no arguments
+
+src/markitdown/converters/_cu_converter.py:507: TypeError
+=============================== warnings summary ===============================
+../environment/lib/python3.10/site-packages/pydub/utils.py:170
+  /tmp/pf-proposal-umslg_r3/environment/lib/python3.10/site-packages/pydub/utils.py:170: RuntimeWarning: Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work
+    warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cu_converter.py::TestGetAnalyzerError::test_nonexistent_analyzer_raises_value_error
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+============ 1 ***, 155 passed, 12 skipped, 1 warning in 27.88s =============
+
+--- stderr ---

@@ -1,0 +1,21 @@
+✓  selected 1 cell, 21 active packages (3 pinned)
+   run-id: 20260912T060501.429407Z-265737-09b84b8e
+   python: 3.10
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: all
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.10][x86_64-unknown-linux-gnu][all] 0:27:16                           │
+│    [baseline][azure-ai-contentunderstanding=1.2.0b3][azure-ai-documentintell │
+│    igence=1.0.2][azure-identity=1.0.1][beautifulsoup4=4.9.3][charset-normali │
+│    zer=2.0.12][defusedxml=0.7.1][lxml=4.6.5][markdownify=0.14.1][olefile=0.4 │
+│    7][openpyxl=3.0.10][pandas=2.1.4][pdfminer-six=20260107][pdfplumber=0.11. │
+│    10][pydub=0.1.1][python-pptx=0.6.23][requests=2.21.0][speechrecognition=1 │
+│    .0.4][xlrd=2.0.2]                                                         │
+│    search completed at [olefile=0.46][oracle 0.46~0.47#2]                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✓  Search complete · package-floor.json

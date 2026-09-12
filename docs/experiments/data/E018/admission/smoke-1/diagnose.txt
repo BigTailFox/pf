@@ -1,0 +1,35 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-ec103297b914356d · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The highest-version resolution did not pass the required   │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  markitdown                                                       │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    test                                                             │
+│    source   latest pf smoke                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      a0e152ac3509d98045c58a469f926430d77dd70153db715084faaf6eb877 │
+│                 9197                                                         │
+│    resolution   highest                                                      │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 2                                                     │
+│    output       !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection  │
+│                 !!!!!!!!!!!!!!!!!!!!                                         │
+│                 =============================== 1 error in 1.35s             │
+│                 ===============================                              │
+│    log          .pf/logs/20260912T055455.638407Z-234544-47c10a3e/process-001 │
+│                 3.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-ec103297b914356d

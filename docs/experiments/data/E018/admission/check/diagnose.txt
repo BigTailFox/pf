@@ -1,0 +1,35 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-a11fbc967428e17d · rejected candidate                             │
+│                                                                              │
+│    What happened  This resolution attempt did not pass; a dependency         │
+│                   conflict has not been proven.                              │
+│    Impact         The declared lower bounds did not pass the required        │
+│                   checks.                                                    │
+│    -> Inspect the resolution diagnostics and log before changing dependency  │
+│    constraints.                                                              │
+│                                                                              │
+│    Context                                                                   │
+│    package  markitdown                                                       │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][all]                          │
+│    stage    resolve-project                                                  │
+│    source   latest pf check                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        RESOLUTION_FAILED                                            │
+│    attempt      29d3e2a779bf655d1e8c8b44fbe5f0eb12bdca27b6a24e98394f370bb30f │
+│                 22c3                                                         │
+│    resolution   lowest-direct                                                │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    basis        normal nonzero fallback                                      │
+│    output               File "<string>", line 12, in <module>                │
+│                       NameError: name 'execfile' is not defined              │
+│                 hint: Build failures usually indicate a problem with the     │
+│                 package or the build environment                             │
+│    log          .pf/logs/20260912T060036.819241Z-252969-f19d2ad0/process-001 │
+│                 0.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-a11fbc967428e17d

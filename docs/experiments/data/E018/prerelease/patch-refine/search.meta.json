@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search",
+    "--test-jobs",
+    "1",
+    "--max-duration",
+    "12h"
+  ],
+  "cwd": "/home/llh/pf/experiments/markitdown/packages/markitdown",
+  "started_at": "2026-09-12T06:31:21.047108+00:00",
+  "finished_at": "2026-09-12T06:38:17.016293+00:00",
+  "elapsed_s": 415.969185,
+  "exit_code": 2,
+  "log": "docs/experiments/data/E018/prerelease/patch-refine/search.txt",
+  "evidence": "docs/experiments/data/E018/prerelease/patch-refine",
+  "uv_cache_dir": "/tmp/pf-uv-cache",
+  "github_actions": "true"
+}

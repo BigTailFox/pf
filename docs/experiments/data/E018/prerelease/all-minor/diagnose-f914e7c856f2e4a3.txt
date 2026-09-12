@@ -1,0 +1,43 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-f914e7c856f2e4a3 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  markitdown                                                       │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][all]                          │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      193151d5c39eaee36092832930593932585a56aaaa69b0ad919e11d199b2 │
+│                 f1bf                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       azure-ai-contentunderstanding==1.2.0b3,                      │
+│                 azure-ai-documentintelligence==1.0.2, azure-identity==1.0.1, │
+│                 beautifulsoup4==4.9.3, charset-normalizer==2.0.12,           │
+│                 defusedxml==0.7.1, lxml==4.6.5, markdownify==0.14.1,         │
+│                 olefile==0.47, openpyxl==3.0.10, pandas==2.0.3,              │
+│                 pdfminer-six==20260107, pdfplumber==0.11.10, pydub==0.1.1,   │
+│                 python-pptx==0.6.23, requests==2.21.0,                       │
+│                 speechrecognition==1.0.4, xlrd==2.0.2                        │
+│    proposal     107b99362cbdc27a1621b096bdf640167a765ac45f6ade291ec756c0500c │
+│                 67db                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       ERROR tests/test_cli_misc.py - ValueError: numpy.dtype size  │
+│                 changed, may indi...                                         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 =============================== 1 error in 0.55s             │
+│                 ===============================                              │
+│    log          .pf/logs/20260912T060501.429407Z-265737-09b84b8e/process-074 │
+│                 9.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-f914e7c856f2e4a3

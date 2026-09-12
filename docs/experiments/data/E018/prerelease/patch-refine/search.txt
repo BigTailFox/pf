@@ -1,0 +1,24 @@
+✓  selected 1 cell, 21 active packages (3 pinned)
+   run-id: 20260912T063121.371726Z-359057-667e32d9
+   python: 3.10
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: all
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.10][x86_64-unknown-linux-gnu][all] 0:07:29                           │
+│    [baseline][azure-ai-contentunderstanding=1.2.0b3][azure-ai-documentintell │
+│    igence=1.0.0][azure-identity=1.0.0][beautifulsoup4=4.9.0][charset-normali │
+│    zer=2.0.0][defusedxml=0.7.1][lxml=4.6.3][markdownify=0.14.0][olefile=0.47 │
+│    ]                                                                         │
+│    search stopped at [openpyxl=3.0.10][oracle 3.0.9~3.0.10#2][testing]       │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-bcb1098a37ebc047 --package markitdown` for    │
+│    more information.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⚠  Search incomplete · package-floor.json written · 1 cell has no applicable    
+   floor · the full-matrix floor projection is not representable                

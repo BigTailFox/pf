@@ -1,0 +1,19 @@
+✓  selected 1 cell, 21 active packages (3 pinned)
+   run-id: 20260912T063853.654264Z-390926-be629222
+   python: 3.10
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: all
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.10][x86_64-unknown-linux-gnu][all] 0:00:11                           │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    FAILED tests/test_cli_vectors.py::test_output_to_stdout[test_vector1]     │
+│    -> run `pf diagnose failure-5bf95a7122a99c0b --package markitdown` for    │
+│    more information.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Check failed · declared lower bounds are incompatible · 1 cell

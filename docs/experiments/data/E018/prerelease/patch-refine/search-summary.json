@@ -1,0 +1,614 @@
+{
+  "provenance": {
+    "source": "experiments/markitdown/packages/markitdown/package-floor.json",
+    "run_id": "20260912T063121.371726Z-359057-667e32d9",
+    "sha256": "2aa5653ea3fc5b4b00dc42f37a891a53ca1043fa3594dd5054dec94097466056",
+    "bytes": 268479,
+    "reader_validation": {
+      "status": "incomplete",
+      "cells": 1
+    },
+    "pf_head": "2af5bfeb4e3b3cfd9f4d35ba1f6bb774118dee3a",
+    "pf_version": "0.4.0",
+    "phase": "patch-refine"
+  },
+  "identity": {
+    "generator": {
+      "name": "pf",
+      "version": "0.4.0",
+      "algorithm": "v1"
+    },
+    "package": {
+      "name": "markitdown",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.10"
+    },
+    "policy_identity": "8345c75c6e25ce7e9b1e41b2d0ed41b2852bac627077a16f4e5c7d9124434e63",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
+    "search_derivation_identity": "e150b92478b97e39508c5fc571c2bd9166fcb75622649c6ce23043eab53f6dc0",
+    "report_generation_id": "2e0ed09efc26feee2c6627e474ecb761c74869728a0cf492f41733647657acad",
+    "source_snapshot_digest": "996fd18f50c1a8e358f781d3e3f2424113fb03020e77fb18e7efce43d3337815",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "result": {
+    "status": "incomplete"
+  },
+  "search_policy": {
+    "profile": "registry-series-slice-v1",
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "azure-ai-contentunderstanding"
+        ],
+        "requested_space": "minors[declaration]",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "patch",
+        "prereleases": true
+      },
+      {
+        "dependencies": [
+          "azure-ai-documentintelligence",
+          "azure-identity",
+          "beautifulsoup4",
+          "charset-normalizer",
+          "defusedxml",
+          "lxml",
+          "markdownify",
+          "olefile",
+          "openpyxl",
+          "pandas",
+          "pdfminer-six",
+          "pdfplumber",
+          "pydub",
+          "python-pptx",
+          "requests",
+          "speechrecognition",
+          "xlrd",
+          "youtube-transcript-api"
+        ],
+        "requested_space": "minors[declaration]",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "patch",
+        "prereleases": false
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "name": "azure-identity",
+      "raw": "azure-identity",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "az-content-understanding"
+    },
+    {
+      "name": "openpyxl",
+      "raw": "openpyxl>=3.0.10",
+      "specifier": ">=3.0.10",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "pdfminer-six",
+      "raw": "pdfminer.six>=20251230",
+      "specifier": ">=20251230",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "pdf"
+    },
+    {
+      "name": "azure-identity",
+      "raw": "azure-identity",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "az-doc-intel"
+    },
+    {
+      "name": "azure-ai-documentintelligence",
+      "raw": "azure-ai-documentintelligence>=1.0.2",
+      "specifier": ">=1.0.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "pydub",
+      "raw": "pydub",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "audio-transcription"
+    },
+    {
+      "name": "pdfminer-six",
+      "raw": "pdfminer.six>=20260107",
+      "specifier": ">=20260107",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "azure-ai-contentunderstanding",
+      "raw": "azure-ai-contentunderstanding>=1.2.0b3",
+      "specifier": ">=1.2.0b3",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "pandas",
+      "raw": "pandas",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "xls"
+    },
+    {
+      "name": "speechrecognition",
+      "raw": "SpeechRecognition",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "audio-transcription"
+    },
+    {
+      "name": "xlrd",
+      "raw": "xlrd>=2.0.2",
+      "specifier": ">=2.0.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "speechrecognition",
+      "raw": "SpeechRecognition>=1.0.4",
+      "specifier": ">=1.0.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "pandas",
+      "raw": "pandas",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "xlsx"
+    },
+    {
+      "name": "python-pptx",
+      "raw": "python-pptx>=0.6.23",
+      "specifier": ">=0.6.23",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "lxml",
+      "raw": "lxml>=4.6.5",
+      "specifier": ">=4.6.5",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "beautifulsoup4",
+      "raw": "beautifulsoup4>=4.9.3",
+      "specifier": ">=4.9.3",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "lxml",
+      "raw": "lxml",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "docx"
+    },
+    {
+      "name": "markdownify",
+      "raw": "markdownify>=0.14.1",
+      "specifier": ">=0.14.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "olefile",
+      "raw": "olefile",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "outlook"
+    },
+    {
+      "name": "magika",
+      "raw": "magika~=0.6.1",
+      "specifier": "~=0.6.1",
+      "kind": "fixed",
+      "managed": false,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "mammoth",
+      "raw": "mammoth~=1.11.0",
+      "specifier": "~=1.11.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "python-pptx",
+      "raw": "python-pptx",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "pptx"
+    },
+    {
+      "name": "azure-identity",
+      "raw": "azure-identity>=1.0.1",
+      "specifier": ">=1.0.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "youtube-transcript-api",
+      "raw": "youtube-transcript-api~=1.0.0",
+      "specifier": "~=1.0.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "defusedxml",
+      "raw": "defusedxml>=0.7.1",
+      "specifier": ">=0.7.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pdfplumber",
+      "raw": "pdfplumber>=0.11.9",
+      "specifier": ">=0.11.9",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "pdf"
+    },
+    {
+      "name": "openpyxl",
+      "raw": "openpyxl",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "xlsx"
+    },
+    {
+      "name": "pydub",
+      "raw": "pydub>=0.1.1",
+      "specifier": ">=0.1.1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "olefile",
+      "raw": "olefile>=0.47",
+      "specifier": ">=0.47",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "mammoth",
+      "raw": "mammoth~=1.11.0",
+      "specifier": "~=1.11.0",
+      "kind": "fixed",
+      "managed": false,
+      "location": "optional",
+      "extra": "docx"
+    },
+    {
+      "name": "azure-ai-documentintelligence",
+      "raw": "azure-ai-documentintelligence",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "az-doc-intel"
+    },
+    {
+      "name": "charset-normalizer",
+      "raw": "charset-normalizer>=2.0.12",
+      "specifier": ">=2.0.12",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "xlrd",
+      "raw": "xlrd",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "xls"
+    },
+    {
+      "name": "azure-ai-contentunderstanding",
+      "raw": "azure-ai-contentunderstanding>=1.2.0b1",
+      "specifier": ">=1.2.0b1",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "az-content-understanding"
+    },
+    {
+      "name": "requests",
+      "raw": "requests>=2.21.0",
+      "specifier": ">=2.21.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "youtube-transcript-api",
+      "raw": "youtube-transcript-api",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "youtube-transcription"
+    },
+    {
+      "name": "pandas",
+      "raw": "pandas>=2.1.4",
+      "specifier": ">=2.1.4",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    },
+    {
+      "name": "pdfplumber",
+      "raw": "pdfplumber>=0.11.10",
+      "specifier": ">=0.11.10",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "all"
+    }
+  ],
+  "projections": [
+    {
+      "name": "openpyxl",
+      "raw": "openpyxl>=3.0.10",
+      "specifier": ">=3.0.10",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "azure-ai-documentintelligence",
+      "raw": "azure-ai-documentintelligence>=1.0.2",
+      "specifier": ">=1.0.2",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pdfminer-six",
+      "raw": "pdfminer.six>=20260107",
+      "specifier": ">=20260107",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "azure-ai-contentunderstanding",
+      "raw": "azure-ai-contentunderstanding>=1.2.0b3",
+      "specifier": ">=1.2.0b3",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "xlrd",
+      "raw": "xlrd>=2.0.2",
+      "specifier": ">=2.0.2",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "speechrecognition",
+      "raw": "SpeechRecognition>=1.0.4",
+      "specifier": ">=1.0.4",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "python-pptx",
+      "raw": "python-pptx>=0.6.23",
+      "specifier": ">=0.6.23",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "lxml",
+      "raw": "lxml>=4.6.5",
+      "specifier": ">=4.6.5",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "beautifulsoup4",
+      "raw": "beautifulsoup4>=4.9.3",
+      "specifier": ">=4.9.3",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "markdownify",
+      "raw": "markdownify>=0.14.1",
+      "specifier": ">=0.14.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "azure-identity",
+      "raw": "azure-identity>=1.0.1",
+      "specifier": ">=1.0.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "defusedxml",
+      "raw": "defusedxml>=0.7.1",
+      "specifier": ">=0.7.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pydub",
+      "raw": "pydub>=0.1.1",
+      "specifier": ">=0.1.1",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "olefile",
+      "raw": "olefile>=0.47",
+      "specifier": ">=0.47",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "charset-normalizer",
+      "raw": "charset-normalizer>=2.0.12",
+      "specifier": ">=2.0.12",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "requests",
+      "raw": "requests>=2.21.0",
+      "specifier": ">=2.21.0",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pandas",
+      "raw": "pandas>=2.1.4",
+      "specifier": ">=2.1.4",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    },
+    {
+      "name": "pdfplumber",
+      "raw": "pdfplumber>=0.11.10",
+      "specifier": ">=0.11.10",
+      "representable": false,
+      "projected_requirements": [],
+      "floor_versions": [],
+      "floors": []
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.10",
+      "extra_surface": [
+        "all"
+      ],
+      "status": "SEARCH_FAILED"
+    }
+  ],
+  "counts": {
+    "cell_results": 1,
+    "search_observations": 0,
+    "observation_evidence": {},
+    "failure_records_in_cells": 0,
+    "failure_cause_counts": {},
+    "candidate_snapshots": 0,
+    "search_process_logs": 161,
+    "journal_entries": 9,
+    "journal_sha256": "234e9bd84e55cb75f0184921c49b386978d5cbccee683ec8516e1e891ff3b1ca",
+    "source_snapshot_digest": "996fd18f50c1a8e358f781d3e3f2424113fb03020e77fb18e7efce43d3337815",
+    "probe_pass": 0,
+    "probe_rejection": 0
+  }
+}

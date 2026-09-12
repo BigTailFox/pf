@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "apply"
+  ],
+  "cwd": "/home/llh/pf/experiments/markitdown/packages/markitdown",
+  "started_at": "2026-09-12T06:30:56.702305+00:00",
+  "finished_at": "2026-09-12T06:30:57.364053+00:00",
+  "elapsed_s": 0.661748,
+  "exit_code": 0,
+  "log": "docs/experiments/data/E018/prerelease/all-minor/apply.txt",
+  "evidence": "docs/experiments/data/E018/prerelease/all-minor",
+  "uv_cache_dir": "/tmp/pf-uv-cache",
+  "github_actions": "true"
+}

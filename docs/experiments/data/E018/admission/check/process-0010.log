@@ -1,0 +1,82 @@
+format: pf-process-log-v2
+process_id: 10
+argv: ["/home/llh/pf/.venv/bin/uv", "pip", "compile", "pyproject.toml", "/tmp/pf-proposal-i6jca33y/project-requirements.in", "--format", "pylock.toml", "--output-file", "/tmp/pf-proposal-i6jca33y/pylock.pf-project.toml", "--python", "/tmp/pf-proposal-i6jca33y/environment/bin/python", "--python-version", "3.10.16", "--python-platform", "x86_64-unknown-linux-gnu", "--resolution", "lowest-direct", "--exclude-newer", "2026-09-12T06:00:36.844686+00:00", "--no-header", "--no-progress", "--color", "never", "--extra", "all"]
+cwd: "/tmp/pf-proposal-i6jca33y/source"
+environment_names: ["APPDATA", "XDG_CONFIG_HOME"]
+timeout_seconds: 600
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 2.0043096320005134
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 4728
+
+--- stdout ---
+
+--- stderr ---
+warning: The direct dependency `beautifulsoup4` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `requests` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `markdownify` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `charset-normalizer` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `defusedxml` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `python-pptx` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `pandas` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `openpyxl` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `xlrd` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `lxml` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `olefile` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `pydub` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `speechrecognition` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `azure-ai-documentintelligence` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+warning: The direct dependency `azure-identity` is unpinned. Consider setting a lower bound when using `--resolution lowest` or `--resolution lowest-direct` to avoid using outdated versions.
+  × Failed to build `markdownify==0.2.0`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit
+      status: 1)
+
+      [stderr]
+      <string>:5: SetuptoolsDeprecationWarning: The test command is disabled
+      and references to it are deprecated.
+      !!
+
+      
+      ********************************************************************************
+              Please remove any references to `setuptools.command.test` in all
+      supported versions of the affected package.
+
+              This deprecation is overdue, please update your project and
+      remove deprecated
+              calls to avoid build errors in the future.
+      
+      ********************************************************************************
+
+      !!
+      Traceback (most recent call last):
+        File "<string>", line 14, in <module>
+        File
+      "/tmp/pf-uv-cache/builds-v0/.tmp7M74dH/lib/python3.10/site-packages/setuptools/build_meta.py",
+      line 333, in get_requires_for_build_wheel
+          return self._get_build_requires(config_settings, requirements=[])
+        File
+      "/tmp/pf-uv-cache/builds-v0/.tmp7M74dH/lib/python3.10/site-packages/setuptools/build_meta.py",
+      line 301, in _get_build_requires
+          self.run_setup()
+        File
+      "/tmp/pf-uv-cache/builds-v0/.tmp7M74dH/lib/python3.10/site-packages/setuptools/build_meta.py",
+      line 520, in run_setup
+          super().run_setup(setup_script=setup_script)
+        File
+      "/tmp/pf-uv-cache/builds-v0/.tmp7M74dH/lib/python3.10/site-packages/setuptools/build_meta.py",
+      line 317, in run_setup
+          exec(code, locals())  # noqa: S102 # exec is intentional here
+        File "<string>", line 12, in <module>
+      NameError: name 'execfile' is not defined
+
+
+hint: Build failures usually indicate a problem with the package or the build environment

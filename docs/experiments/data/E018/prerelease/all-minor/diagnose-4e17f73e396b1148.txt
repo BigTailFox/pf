@@ -1,0 +1,44 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-4e17f73e396b1148 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  markitdown                                                       │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][all]                          │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      86e77abe8cc297f10eb015a461a6010500c3660c7d5823b41694be5e6702 │
+│                 a1b5                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       azure-ai-contentunderstanding==1.2.0b3,                      │
+│                 azure-ai-documentintelligence==1.0.2, azure-identity==1.0.1, │
+│                 beautifulsoup4==4.9.3, charset-normalizer==2.0.12,           │
+│                 defusedxml==0.7.1, lxml==4.6.5, markdownify==0.13.1,         │
+│                 olefile==0.47, openpyxl==3.0.10, pandas==2.1.4,              │
+│                 pdfminer-six==20260107, pdfplumber==0.11.10, pydub==0.1.1,   │
+│                 python-pptx==0.6.23, requests==2.21.0,                       │
+│                 speechrecognition==1.0.4, xlrd==2.0.2                        │
+│    proposal     e8e29f9ec95b2e135ef2f1191d6d9c914384d778c1546403a8e61a96936e │
+│                 61ce                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       FAILED                                                       │
+│                 tests/test_cli_vectors.py::test_output_to_stdout[test_vector │
+│                 0] - Asser...                                                │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 ============================== 1 failed in 1.72s             │
+│                 ===============================                              │
+│    log          .pf/logs/20260912T060501.429407Z-265737-09b84b8e/process-080 │
+│                 6.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-4e17f73e396b1148

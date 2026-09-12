@@ -1,0 +1,17 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "smoke",
+    "--test-jobs",
+    "1"
+  ],
+  "cwd": "/home/llh/pf/experiments/markitdown/packages/markitdown",
+  "started_at": "2026-09-12T05:54:55.311483+00:00",
+  "finished_at": "2026-09-12T05:55:49.565017+00:00",
+  "elapsed_s": 54.253534,
+  "exit_code": 1,
+  "log": "docs/experiments/data/E018/admission/smoke-1/smoke.txt",
+  "evidence": "docs/experiments/data/E018/admission/smoke-1",
+  "uv_cache_dir": "/tmp/pf-uv-cache",
+  "github_actions": "true"
+}

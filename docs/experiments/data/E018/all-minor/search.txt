@@ -1,0 +1,22 @@
+✓  selected 1 cell, 21 active packages (3 pinned)
+   run-id: 20260912T060058.106115Z-253753-228ef278
+   python: 3.10
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: all
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.10][x86_64-unknown-linux-gnu][all] 0:01:37                           │
+│    [baseline]                                                                │
+│    search stopped at [azure-ai-contentunderstanding=1.1.0][oracle            │
+│    1.0.1~1.1.0#2][testing]                                                   │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-9baeca4a42305cd0 --package markitdown` for    │
+│    more information.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⚠  Search incomplete · package-floor.json written · 1 cell has no applicable    
+   floor · the full-matrix floor projection is not representable                

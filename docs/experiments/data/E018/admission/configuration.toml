@@ -1,0 +1,20 @@
+# PF dogfood (E018) phase 1 after dropping no-extra: single-cell all surface.
+# Self-reference markitdown[all] + extra-policy none. openai matches hatch-test.
+# GITHUB_ACTIONS is set by the runner. test-jobs=1 avoids /tmp rlink races.
+[dependency-groups]
+pf-test = [
+  "markitdown[all]",
+  "pytest",
+  "openai",
+]
+
+[tool.pf]
+pythons = ["3.10"]
+test-group = "pf-test"
+extra-policy = "none"
+test-command = ["pytest"]
+resolve-artifact = "any"
+test-timeout = "2h"
+test-jobs = 1
+search-space = "all"
+search-resolution = "minor"

@@ -1,0 +1,36 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-5bf95a7122a99c0b · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The declared lower bounds did not pass the required        │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  markitdown                                                       │
+│    cell     [py3.10][x86_64-unknown-linux-gnu][all]                          │
+│    stage    test                                                             │
+│    source   latest pf check                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      4519afe74a226367d2a0fdfed1808211ac3d606771edfc52568f3e925fc6 │
+│                 1011                                                         │
+│    resolution   lowest-direct                                                │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    output       FAILED                                                       │
+│                 tests/test_cli_vectors.py::test_output_to_stdout[test_vector │
+│                 1] - Asser...                                                │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 ========================= 1 ***, 3 passed in 4.77s           │
+│                 ==========================                                   │
+│    log          .pf/logs/20260912T063853.654264Z-390926-be629222/process-001 │
+│                 4.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-5bf95a7122a99c0b

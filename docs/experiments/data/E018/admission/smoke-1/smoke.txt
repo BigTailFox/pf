@@ -1,0 +1,23 @@
+✓  selected 2 cells, 21 active packages (3 pinned)
+   run-id: 20260912T055455.638407Z-234544-47c10a3e
+   python: 3.10
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra, all
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.10][x86_64-unknown-linux-gnu][no-extra] 0:00:13                      │
+│    smoke failed at [baseline][highest][testing]                              │
+│    The configured verifier rejected this version combination.                │
+│    FAILED tests/test_pptx_svg.py (collect)                                   │
+│    -> run `pf diagnose failure-ec103297b914356d --package markitdown` for    │
+│    more information.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.10][x86_64-unknown-linux-gnu][all] 0:00:58                           │
+│    smoke passed at [baseline][highest]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Smoke failed · highest-version resolution did not pass · 2 cells

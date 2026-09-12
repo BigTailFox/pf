@@ -1,0 +1,87 @@
+diff --git a/packages/markitdown/pyproject.toml b/packages/markitdown/pyproject.toml
+index d4c20a4..93aed15 100644
+--- a/packages/markitdown/pyproject.toml
++++ b/packages/markitdown/pyproject.toml
+@@ -24,31 +24,31 @@ classifiers = [
+   "Programming Language :: Python :: Implementation :: PyPy",
+ ]
+ dependencies = [
+-  "beautifulsoup4",
+-  "requests",
+-  "markdownify",
++  "beautifulsoup4>=4.9.3",
++  "requests>=2.21.0",
++  "markdownify>=0.14.1",
+   "magika~=0.6.1",
+-  "charset-normalizer",
+-  "defusedxml",
++  "charset-normalizer>=2.0.12",
++  "defusedxml>=0.7.1",
+ ]
+ 
+ [project.optional-dependencies]
+ all = [
+-  "python-pptx",
++  "python-pptx>=0.6.23",
+   "mammoth~=1.11.0",
+-  "pandas",
+-  "openpyxl",
+-  "xlrd",
+-  "lxml",
+-  "pdfminer.six>=20251230",
+-  "pdfplumber>=0.11.9",
+-  "olefile",
+-  "pydub",
+-  "SpeechRecognition",
++  "pandas>=2.1.4",
++  "openpyxl>=3.0.10",
++  "xlrd>=2.0.2",
++  "lxml>=4.6.5",
++  "pdfminer.six>=20260107",
++  "pdfplumber>=0.11.10",
++  "olefile>=0.47",
++  "pydub>=0.1.1",
++  "SpeechRecognition>=1.0.4",
+   "youtube-transcript-api~=1.0.0",
+-  "azure-ai-documentintelligence",
+-  "azure-ai-contentunderstanding>=1.2.0b1",
+-  "azure-identity",
++  "azure-ai-documentintelligence>=1.0.2",
++  "azure-ai-contentunderstanding>=1.2.0b3",
++  "azure-identity>=1.0.1",
+ ]
+ pptx = ["python-pptx"]
+ docx = ["mammoth~=1.11.0", "lxml"]
+@@ -113,3 +113,32 @@ exclude_lines = [
+ 
+ [tool.hatch.build.targets.sdist]
+ only-include = ["src/markitdown"]
++
++# PF dogfood (E018): search packages/markitdown only, extra all only.
++# Self-reference markitdown[all] makes all the required surface; extra-policy none
++# does not add the empty / no-extra cell. Do not use extra-policy=all.
++# openai matches hatch-test; GITHUB_ACTIONS is set by the runner, not here.
++# test-jobs=1 avoids /tmp rlink races. resolve-artifact any builds the local snapshot.
++[dependency-groups]
++pf-test = [
++  "markitdown[all]",
++  "pytest",
++  "openai",
++]
++
++[tool.pf]
++pythons = ["3.10"]
++test-group = "pf-test"
++extra-policy = "none"
++test-command = ["pytest"]
++resolve-artifact = "any"
++test-timeout = "2h"
++test-jobs = 1
++search-space = "all"
++search-resolution = "minor"
++
++# First all×minor search (prereleases false) used stable 1.1.0 as the
++# contentunderstanding baseline and failed CU tests. Smoke's highest is 1.2.0b3.
++[[tool.pf.dep]]
++name = "azure-ai-contentunderstanding"
++search-prereleases = true

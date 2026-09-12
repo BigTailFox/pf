@@ -1,0 +1,23 @@
+# PF dogfood (E018) phase 4: patch refine inside the all×minor declaration.
+# azure-ai-contentunderstanding keeps search-prereleases = true.
+[dependency-groups]
+pf-test = [
+  "markitdown[all]",
+  "pytest",
+  "openai",
+]
+
+[tool.pf]
+pythons = ["3.10"]
+test-group = "pf-test"
+extra-policy = "none"
+test-command = ["pytest"]
+resolve-artifact = "any"
+test-timeout = "2h"
+test-jobs = 1
+search-space = "minors[declaration]"
+search-resolution = "patch"
+
+[[tool.pf.dep]]
+name = "azure-ai-contentunderstanding"
+search-prereleases = true

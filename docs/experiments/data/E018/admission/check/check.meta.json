@@ -1,0 +1,17 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "check",
+    "--test-jobs",
+    "1"
+  ],
+  "cwd": "/home/llh/pf/experiments/markitdown/packages/markitdown",
+  "started_at": "2026-09-12T06:00:36.500451+00:00",
+  "finished_at": "2026-09-12T06:00:40.047379+00:00",
+  "elapsed_s": 3.546928,
+  "exit_code": 1,
+  "log": "docs/experiments/data/E018/admission/check/check.txt",
+  "evidence": "docs/experiments/data/E018/admission/check",
+  "uv_cache_dir": "/tmp/pf-uv-cache",
+  "github_actions": "true"
+}

@@ -1,0 +1,545 @@
+{
+  "run_id": "20260912T060501.429407Z-265737-09b84b8e",
+  "command": "search",
+  "journal_sha256": "12b933955bbc5887aa6178753122950ff9d2ab6ac8ee0a385768e8aa0dbabd54",
+  "journal_schema": "verification-journal-v3",
+  "journal_entries": 88,
+  "source_snapshot_digest": "c75426842e2aca1c89adb47a34cf5410d579a55cd9224929bd3048ea82f49d37",
+  "package_policies": [
+    {
+      "package": "markitdown",
+      "execution_policy_identity": "737a01a44ce01dcb4b961e597f1d17cafdbad0968d2b95de1f644de10731ddf5"
+    }
+  ],
+  "process_log_count": 815,
+  "failure_entries": [
+    {
+      "failure_id": "failure-06494a51039db2ac",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-0785de08f08c0253",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-0837f248c73828b1",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-08669b0cc015d341",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-0a08655bd674adb4",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-0aaa4366b8a65ee7",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-0af783f22988442f",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-0ff932d571d58dbe",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-11960adb561f5496",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-1562a5da8f736c3a",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-1871dc3303b3c8a4",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-19495b760099d404",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-1e535595943f873f",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-1ff373ddbc454289",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-241068ec638c98b8",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-257c9db3e4622b3c",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-2662dba1e35d4f34",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-27c2a806a0d5950b",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-2aad3f56a7db02de",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-2db3c89137f5af51",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-2fed221764d5d299",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-30e1924843d95125",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-316d9ba707875055",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-390cf6817d94e44f",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-3b1345a847cf15f1",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-3d21969fb1147fcb",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-439b7fef4f790633",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-4b9821cfd9db1edc",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-4e17f73e396b1148",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-4e7f79127d785abf",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-5238b2d11858c720",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-5bbdf793b0f64ae0",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-5c748da0cc9c0182",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-655dac8c05544299",
+      "disposition": "REJECTED",
+      "cause": "INSTALLATION_FAILED",
+      "stage": "install-environment"
+    },
+    {
+      "failure_id": "failure-66a8d7a84c5edd0c",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-6851a7fbab7622fe",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-6b101a243305fe95",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-6b533eff69512605",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-6eab05d7f192278c",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-7207556e8f40589d",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-78a0ee1124d76b49",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-78dd9cee81aa537c",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-7c19cf5560a51b85",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-7e12e64de2efbbad",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-82c926e7ea19f31a",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-830420d249390d56",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-8a1a9459054d95f1",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-8bd821d34d276a85",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-9144d6d45e17051c",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-93def6941c891a97",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-9428deff0069fde7",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-9732ee9ab6dd1bfa",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-9a612eb2aa1dc57b",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-a1aec6211b5b32f9",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-a60d7784db85678d",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-a6fb2544c23157d4",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_FAILED",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-a727b2e990b69c64",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-abe1c7fe7dd54b71",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-ac4a79a25c36fa11",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-afc2dad4423076c3",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-b3248d9b8ed1cd61",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-b4bcd1304196ba45",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-b75aa4eb2a3256c1",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-b857f2c871276a6b",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-b93df5463f30960a",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-ba2331b17baa6528",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-bbc38d494eee4f71",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-c18df164880451f6",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-c36d8f9134886050",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-c3c8f374ee0c516a",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-c74cf5ef5f1d949e",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-c99d758f91fb0798",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-cec70db97a453814",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-cf930748906c8aa3",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-d2f2795042967828",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-d3fe39e21b91f85e",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-d66d6ef2ada248c4",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-d693503e67d435e6",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-dcd5d86c647e9e94",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-df7bcb883b7fb9a8",
+      "disposition": "REJECTED",
+      "cause": "INSTALLATION_FAILED",
+      "stage": "install-environment"
+    },
+    {
+      "failure_id": "failure-e39b923183153435",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-e50610f57232f232",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-e6044d7cc0d03826",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-f5235bd97c4b91f1",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-f914e7c856f2e4a3",
+      "disposition": "REJECTED",
+      "cause": "VERIFIER_EXITED_NONZERO",
+      "stage": "test"
+    },
+    {
+      "failure_id": "failure-fad6b062721b2f21",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-fb4a7e410fb0cce2",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    },
+    {
+      "failure_id": "failure-ff4893c251ec2779",
+      "disposition": "REJECTED",
+      "cause": "RESOLUTION_CONFLICT",
+      "stage": "resolve-project"
+    }
+  ]
+}

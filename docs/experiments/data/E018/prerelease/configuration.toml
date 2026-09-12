@@ -1,0 +1,23 @@
+# PF dogfood (E018) after first all×minor SEARCH_FAILED:
+# enable prereleases only for azure-ai-contentunderstanding (>=1.2.0b1).
+[dependency-groups]
+pf-test = [
+  "markitdown[all]",
+  "pytest",
+  "openai",
+]
+
+[tool.pf]
+pythons = ["3.10"]
+test-group = "pf-test"
+extra-policy = "none"
+test-command = ["pytest"]
+resolve-artifact = "any"
+test-timeout = "2h"
+test-jobs = 1
+search-space = "all"
+search-resolution = "minor"
+
+[[tool.pf.dep]]
+name = "azure-ai-contentunderstanding"
+search-prereleases = true

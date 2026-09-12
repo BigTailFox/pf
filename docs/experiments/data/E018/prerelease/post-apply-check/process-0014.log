@@ -1,0 +1,82 @@
+format: pf-process-log-v2
+process_id: 14
+argv: ["pytest", "-p", "_pf_pytest_observer_***", "--maxfail=1", "-o", "cache_dir=/tmp/pf-pytest-cache-25x6jsbq"]
+cwd: "/tmp/pf-proposal-ikxa4qjn/source"
+environment_names: ["PATH", "PF_PYTEST_OBSERVER_CASES_DIR", "PF_PYTEST_OBSERVER_CASES_PROJECTION", "PF_PYTEST_OBSERVER_DETAILS_DIR", "PF_PYTEST_OBSERVER_DIR", "PF_PYTEST_OBSERVER_NONCE", "PF_PYTEST_PROGRESS_DIR", "PF_PYTEST_PROGRESS_NONCE", "PYTHONPATH"]
+timeout_seconds: 7200
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 5.4143987799998285
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 3660
+stderr_characters: 0
+
+--- stdout ---
+============================= test session starts ==============================
+platform linux -- Python 3.10.16, pytest-9.1.1, pluggy-1.6.0
+cachedir: /tmp/pf-pytest-cache-25x6jsbq
+rootdir: /tmp/pf-proposal-ikxa4qjn/source
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collected 340 items
+
+tests/test_cli_misc.py ..                                                [  0%]
+tests/test_cli_vectors.py .F
+
+=================================== FAILURES ===================================
+_____________________ test_output_to_stdout[test_vector1] ______________________
+
+shared_tmp_dir = PosixPath('/tmp/pytest-of-llh/pytest-92/pytest_tmp0')
+test_vector = FileTestVector(filename='test.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', cha...17-9d07-3c046eb', '6ff4173b-42a5-4784-9b19-f49caff4d93d', 'affc7dad-52dc-4b98-9b5d-51e65d8a8ad0'], must_not_include=[])
+
+    @pytest.mark.parametrize("test_vector", CLI_TEST_VECTORS)
+    def test_output_to_stdout(shared_tmp_dir, test_vector) -> None:
+        """Test that the CLI outputs to stdout correctly."""
+    
+        result = subprocess.run(
+            [
+                "python",
+                "-m",
+                "markitdown",
+                os.path.join(TEST_FILES_DIR, test_vector.filename),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    
+>       assert result.returncode == 0, f"CLI exited with error: {result.stderr}"
+E       AssertionError: CLI exited with error: Traceback (most recent call last):
+E           File "/home/llh/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+E             return _run_code(code, main_globals, None,
+E           File "/home/llh/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/runpy.py", line 86, in _run_code
+E             exec(code, run_globals)
+E           File "/tmp/pf-proposal-ikxa4qjn/source/src/markitdown/__main__.py", line 281, in <module>
+E             main()
+E           File "/tmp/pf-proposal-ikxa4qjn/source/src/markitdown/__main__.py", line 254, in main
+E             result = markitdown.convert(
+E           File "/tmp/pf-proposal-ikxa4qjn/source/src/markitdown/_markitdown.py", line 306, in convert
+E             return self.convert_local(source, stream_info=stream_info, **kwargs)
+E           File "/tmp/pf-proposal-ikxa4qjn/source/src/markitdown/_markitdown.py", line 360, in convert_local
+E             return self._convert(file_stream=fh, stream_info_guesses=guesses, **kwargs)
+E           File "/tmp/pf-proposal-ikxa4qjn/source/src/markitdown/_markitdown.py", line 649, in _convert
+E             raise FileConversionException(attempts=***_attempts)
+E         markitdown._exceptions.FileConversionException: File conversion *** after 1 attempts:
+E          - XlsxConverter threw ImportError with message: Pandas requires version '3.1.0' or newer of 'openpyxl' (version '3.0.10' currently installed).
+E         
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['python', '-m', 'markitdown', '/tmp/pf-proposal-ikxa4qjn/source/tests/test_files/test.xlsx'], r...ith message: Pandas requires version \'3.1.0\' or newer of \'openpyxl\' (version \'3.0.10\' currently installed).\n\n').returncode
+
+tests/test_cli_vectors.py:58: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cli_vectors.py::test_output_to_stdout[test_vector1] - Asser...
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+========================= 1 ***, 3 passed in 4.77s ==========================
+
+--- stderr ---
