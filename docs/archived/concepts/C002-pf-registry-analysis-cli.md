@@ -1,14 +1,18 @@
 # C002 — PF Registry 发布分布分析 CLI
 
-- **状态：** 开放
+- **状态：** 关闭
 - **日期：** 2026-09-05
 - **性质：** 非规范性 Concept，不授权生产实施
-- **来源：** [D030 §12](../archived/designs/D030-pf-search-space-dsl.md#12-待办独立-registry-分析-cli-design)
+- **来源：** [D030 §12](../designs/D030-pf-search-space-dsl.md#12-待办独立-registry-分析-cli-design)
   的独立待办；从工程索引抽出集中跟踪，D030/P036 已完成
-- **相关 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
-  [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)
+- **相关 owner：** [D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)、
+  [D003](../../designs/D003-pf-search-algorithm.md)、[D006](../../designs/D006-pf-cli-enhancement.md)
 - **相关构想与草案：** [C001](C001-pf-multi-resolution-coordinate-search.md)、
-  [D033](../archived/designs/D033-pf-predecessor-revalidate.md)
+  [D033](../designs/D033-pf-predecessor-revalidate.md)
+
+## 归档交接（2026-09-12）
+
+本文关闭独立跟踪并归档，原编号不复用；不表示待证问题已解决。开放项移交[研究目录：Registry 分析](../../concepts/README.md#deferred-registry-analysis)。下文保留归档时的构想与证据，不作为现行契约。
 
 ## 1. 构想
 

@@ -185,9 +185,9 @@ D002 §3 仍列出 `static.py`，未列出 `cancellation.py`、`ty_fact.py`、`t
 | apply/no-floor/配置错误的 result-card；非 TTY 搜索活动 | [R006 §5.1–5.2](../../reviews/R006-pf-cli-system-review.md) |
 | 跨运行 hints、per-key 锁、copytree、xdist failed-set、当前 HEAD 分阶段基线 | [R008](../../reviews/R008-pf-search-performance-review.md) 2026-09-08 重评 |
 | `NO_PASS`「完整评估」文案；Journal Role 错配；ty×Python / 多宿主资格 | [R010](../../reviews/R010-pf-engineering-document-audit.md) §2、§4 |
-| 树搜索默认化 | [C001](../../concepts/C001-pf-multi-resolution-coordinate-search.md)；E005 未证明 |
-| 独立 registry 分析 CLI | [C002](../../concepts/C002-pf-registry-analysis-cli.md) |
-| 成功解析是否仍要求日志完整性 | [C003](../../concepts/C003-pf-resolution-output-completeness.md) |
+| 树搜索默认化 | [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)；E005 未证明 |
+| 独立 registry 分析 CLI | [C002](../concepts/C002-pf-registry-analysis-cli.md) |
+| 成功解析是否仍要求日志完整性 | [C003](../concepts/C003-pf-resolution-output-completeness.md) |
 | 乐观单调与反例 refinement | [C004](../../concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) |
 
 PEP 508 规范化在 `report.py` 与 `authorization.py` 各有一份：R010 已标为低优先级，且授权必须独立

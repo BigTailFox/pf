@@ -4,14 +4,15 @@
 - **日期：** 2026-09-08
 - **性质：** 非规范性 Concept；不授权实施，不要求作为其它构想的前置
 - **来源：** 库作者周期讨论中，希望用「谁影响谁」做增量搜索与缓存失效；该分析过于独立，从
-  [C005](C005-pf-check-first-lifecycle.md) 拆出
+  [C005](../archived/concepts/C005-pf-check-first-lifecycle.md) 拆出
 - **现行对照：** [D001 §4](../designs/D001-pf.md#4-候选与验证边界) 的测试 oracle 与 PASS 资格、
   [D002](../designs/D002-pf-implementation.md)、[D003](../designs/D003-pf-search-algorithm.md)、
   [D013](../designs/D013-pf-pytest-observer.md)
 - **已落地的邻近机制：** FailedCaseSet 拒绝预言（规则由 D001/D002/D003/D005/D013 拥有）只在
   **同一次 Verification Run、当前下降坐标**内用已知失败 nodeid 做负向 oracle；PASS 仍只来自
   未收窄的原命令阶段
-- **相关构想：** C005 的 check 稳态、统一观察缓存与增量 apply **不依赖**本文
+- **相关构想：** [C008](C008-pf-cross-run-evidence-store.md) 的同快照观察复用及[研究目录](README.md#deferred-incremental-apply) 的增量 apply **不依赖**本文
+- **讨论更新：** 2026-09-12；后续研究，保留影响面与失效边界，不升级为选测 PASS 方案
 
 本文不定义当前或已接受的目标契约。关联图、失效规则和工具选择都是待验证设想。
 
@@ -23,7 +24,7 @@
 - 改一部分项目源码，未执行到的测试不应得到不同结果；
 - 这些信息可以指导增量定界、以及观察缓存在快照变化后的失效，而不是每次都对全部坐标下降。
 
-这比 C005 里「新 extra 是不同 Cell」或「新依赖先经 check」更细，也更贵：需要源码、测试、
+这比[研究目录中的增量证明](README.md#deferred-incremental-apply)更细，也更贵：需要源码、测试、
 第三方包之间的影响面模型。
 
 候选方向包括从 [testmon](https://github.com/tarpas/pytest-testmon) 一类工具 fork 改进：
@@ -32,11 +33,11 @@
 
 ## 2. 为什么必须独立
 
-C005 没有关联分析也可以成立：日常用 check 转运下界，search 留给接入与治理，同快照观察
-可续跑，新增 extra 用增量证明。关联分析回答的是另一类问题：check 已经失败，或源码已变，
+check-first 已由现行 owner 接管；C008 的同快照观察复用、目录中的增量证明无需关联分析也可
+独立论证，但尚未交付。关联分析回答的是另一类问题：check 已经失败，或源码已变，
 如何避免完整坐标搜索、如何让观察缓存在新快照上做比「整树 miss」更细的失效。
 
-把它留在 C005 会把未证的静态/覆盖率问题绑进周期与 apply 讨论。两边都应能单独关闭。
+将本问题与生命周期或 apply 合并会捆绑未证的静态/覆盖率假设；各方向应能单独关闭。
 
 ## 3. 不可越过的红线
 
@@ -52,7 +53,7 @@ PASS 直接登记为新快照的 floor。至多：
 
 - 指导「先搜哪些坐标」；
 - 把观察缓存里与受影响测试相关的记录标为过期；
-- 在拒绝路径上继续用 FailedCaseSet 类的负向 oracle（跨 run 是否持久化属于 C005 的准入策略，
+- 在拒绝路径上继续用 FailedCaseSet 类的负向 oracle（跨 run 是否持久化属于 C008 的准入策略，
   且仍不得授权 PASS）。
 
 隐式启用上游 testmon、pytest `--lf` 或跨运行 last-failed 作为用户 oracle 的一部分，仍是
@@ -80,14 +81,14 @@ R008 已否决、D001 非目标的方向。Fork 改进必须保持 PF 拥有 sel
 1. 真实库作者仓库里，check 失败后完整 search 的成本，有多少能被「只重定界部分坐标」收回。
 2. import 图是否够用，还是必须覆盖率；动态插件项目（pytest plugin、MkDocs hook）的失败模式。
 3. fork testmon 是复用其依赖数据库格式，还是只借鉴模型、由 PF 在 observer 内自建。
-4. 关联身份如何进入 C005 观察记录的完整 key，而不把 C006 做成第二个 cache。
+4. 关联身份如何进入 C008 观察记录的完整 key，而不把 C006 做成第二个 cache。
 5. 无 coverage 数据的第一次运行（冷启动）做什么；图过期与 snapshot identity 如何对齐。
 6. generic `test-command`（非 direct pytest）是否永远得不到关联，因而本构想只覆盖 direct pytest。
 
 ## 6. 进入 Design 的条件
 
 至少有一种影响面口径在真实或受控套件上表明：它能减少 check 失败后的坐标搜索或跨快照缓存
-失效范围，并且**不改变** PASS 资格。同时写清与 FailedCaseSet、C005 准入策略的分界。
+失效范围，并且**不改变** PASS 资格。同时写清与 FailedCaseSet、C008 准入策略的分界。
 
 然后另建临时 Design，标明相对 D001/D002/D013 的规则增量。若证据表明收益只存在于 Cell/extra
-结构层，则关闭本文，把那一层留在 C005 的增量证明，不在此维护测试级关联。
+结构层，则关闭本文，把那一层移交[目录中的增量证明](README.md#deferred-incremental-apply)，不在此维护测试级关联。

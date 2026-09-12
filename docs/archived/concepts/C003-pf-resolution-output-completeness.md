@@ -1,13 +1,17 @@
 # C003 — PF 成功解析的日志完整性门槛
 
-- **状态：** 开放
+- **状态：** 关闭
 - **日期：** 2026-09-05
 - **性质：** 非规范性 Concept，不定义新的解析准入规则，不授权生产实施
-- **来源：** [D032 §9](../archived/designs/D032-pf-runtime-witness-stderr.md#9-待验证uv-成功解析的日志完整性门槛)
+- **来源：** [D032 §9](../designs/D032-pf-runtime-witness-stderr.md#9-待验证uv-成功解析的日志完整性门槛)
   的独立开放项；从工程索引抽出集中跟踪，D032/P037 已完成
-- **相关 owner：** [D012](../designs/D012-pf-harness-relaxation.md)、
-  [D007](../designs/D007-pf-process-output.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)
-- **本轮静态核对：** `6271752`；[UvAdapter](../../src/pf/adapters/uv.py) 的 resolve 路径
+- **相关 owner：** [D012](../../designs/D012-pf-harness-relaxation.md)、
+  [D007](../../designs/D007-pf-process-output.md)、[D005](../../designs/D005-pf-failure-and-diagnose.md)
+- **本轮静态核对：** `6271752`；[UvAdapter](../../../src/pf/adapters/uv.py) 的 resolve 路径
+
+## 归档交接（2026-09-12）
+
+本文关闭独立跟踪并归档，原编号不复用；不表示待证问题已解决。开放项移交[研究目录：解析日志完整性](../../concepts/README.md#deferred-resolution-output)。下文保留归档时的构想与证据，不作为现行契约。
 
 ## 1. 构想与当前事实
 

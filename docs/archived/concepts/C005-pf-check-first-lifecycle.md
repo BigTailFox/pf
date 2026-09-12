@@ -1,19 +1,19 @@
 # C005 — PF 以 check 为稳态的库作者周期
 
-- **状态：** 开放
+- **状态：** 关闭
 - **日期：** 2026-09-08
 - **性质：** 非规范性 Concept；不授权实施、不改变现行命令/apply/cache 契约
 - **来源：** 库作者长期开发周期中，现行快照绑定 floor 与 apply 整组准入过严，search 被当成日常路径
-- **现行对照：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
-  [D003](../designs/D003-pf-search-algorithm.md)、[D004](../designs/D004-pf-ty-enhancement.md)、
-  [D007](../designs/D007-pf-process-output.md)、[D008](../designs/D008-pf-verification-run.md)、
-  [D014](../designs/D014-pf-report-schema.md)
-- **相关评审：** [R008](../reviews/R008-pf-search-performance-review.md) §7 否决的是把跨运行
+- **现行对照：** [D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)、
+  [D003](../../designs/D003-pf-search-algorithm.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、
+  [D007](../../designs/D007-pf-process-output.md)、[D008](../../designs/D008-pf-verification-run.md)、
+  [D014](../../designs/D014-pf-report-schema.md)
+- **相关评审：** [R008](../../reviews/R008-pf-search-performance-review.md) §7 否决的是把跨运行
   cache 当成当前契约的 PASS 权威；本文讨论的是带准入策略的统一观察存储
-- **相关构想：** [C004](C004-pf-evidence-respecting-optimistic-monotone-search.md) 处理一维
-  单调性假设；[C006](C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，
+- **相关构想：** [C004](../../concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) 处理一维
+  单调性假设；[C006](../../concepts/C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，
   不在本文范围
-- **第一刀 Design：** [D044](../archived/designs/D044-pf-check-first-minimal-verification.md)
+- **第一刀 Design：** [D044](../designs/D044-pf-check-first-minimal-verification.md)
   （已完成并归档）仅覆盖 check 稳态与 smoke/check 最小验证序列，稳定规则已由
   D001/D002/D004/D006/D008/D012 接管；本文仍开放，跟踪增量 apply、跨 Run
   观察复用、可选应用记录与可回滚历史，均不是已归档第一刀的前置
@@ -21,6 +21,10 @@
 本文不定义当前或已接受的目标契约。已移交第一刀的目标以现行 owner 为准，其余仍是待验证设想。
 跨 Run 观察复用、增量 apply、应用回执与可回滚历史仍须独立论证并另建 Design。
 已归档的 D044 不接入 Git，不维护 check 历史，也不扩展 apply 的报告写入或事务范围。
+
+## 归档交接（2026-09-12）
+
+本文关闭独立跟踪并归档，原编号不复用；不表示待证问题已解决。开放项移交[C008](../../concepts/C008-pf-cross-run-evidence-store.md)（观察存储）与[研究目录](../../concepts/README.md#deferred-incremental-apply)（增量 apply、回执及历史回滚）；已交付生命周期由 D001 等现行 owner 接管。下文保留归档时的构想与证据，不作为现行契约。
 
 ## 1. 构想
 
@@ -63,13 +67,13 @@ Run 内缓存随进程结束丢弃。长期循环因此不友好。
 
 本文沿用现行词：**受管依赖** 仍是搜索集合（`managed-deps`）。上次合法 apply 写进声明的精确
 `>=` 在构想里称为 **PF 地板**，与受管集合不是同一件事。未进入 Design 前不写入
-[CONTEXT.md](../../CONTEXT.md)。
+[CONTEXT.md](../../../CONTEXT.md)。
 
 D007 的 **Output Cache** 仍只是进程内 Process Log 正文投影，与本文观察存储不是同一对象。
 
 ## 3. 稳态：验证当前声明
 
-日常 check 的目标契约已移交现行 owner；迁移记录见 [D044](../archived/designs/D044-pf-check-first-minimal-verification.md)。
+日常 check 的目标契约已移交现行 owner；迁移记录见 [D044](../designs/D044-pf-check-first-minimal-verification.md)。
 它每次验证当前声明，不要求声明来自 PF，不恢复旧报告的精确向量，不维护 check 历史或缓存。
 本 Concept 后续讨论增量治理时，不能把一次 check 通过提升为新快照上的历史 search 最小性证明。
 
@@ -263,8 +267,8 @@ D001 §9 与 D003/D004 将「跨运行 Proposal/Evaluation environment cache」�
 ## 10. 进入 Design 的条件
 
 稳态叙事与 smoke/check 最小验证序列已由
-[D044](../archived/designs/D044-pf-check-first-minimal-verification.md) /
-[P048](../archived/plans/P048-pf-check-first-minimal-verification.md) 实施并吸收进现行 owner。
+[D044](../designs/D044-pf-check-first-minimal-verification.md) /
+[P048](../plans/P048-pf-check-first-minimal-verification.md) 实施并吸收进现行 owner。
 观察缓存另待完整身份、执行准入与真实收益证据，不作为日常 check 的前置。
 
 可选应用记录须先具备 §6 的明确消费者、缺失影响与一致性选择，再独立进入 Design；

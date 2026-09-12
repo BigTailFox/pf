@@ -248,7 +248,7 @@ implementation 内的修复。Region 类 D003 变更必须先有新的、与现�
 
 ## 10. 后续状态（2026-09-08）
 
-[C005](../concepts/C005-pf-check-first-lifecycle.md) 另切「统一观察存储 + 准入策略」：命中不等于
+[C005](../archived/concepts/C005-pf-check-first-lifecycle.md) 另切「统一观察存储 + 准入策略」：命中不等于
 当前快照的 PASS 权威，可写环境仍不跨 invocation 借用。§7 否决的仍是跳过当前契约 runtime 权威
 的 cache，以及通用 cache/hint/environment 服务。测试级关联与 testmon 风格影响面见
 [C006](../concepts/C006-pf-test-dependency-association.md)，不在本评审范围。
@@ -274,3 +274,8 @@ smoke/check 最小验证序列，P048 相应收缩为三切片；仍未授权生
 
 **2026-09-11 完成：** D044/P048 已实施、验收并归档；稳定规则由 D001/D002/D004/D006/D008/D012
 接管。跨 Run 观察复用仍由 C005 待证，本评审 §7 非目标保持。
+
+**2026-09-12 文档交接：** C005 已归档，其跨 Run 观察存储与准入由
+[C008](../concepts/C008-pf-cross-run-evidence-store.md) 接收；增量 apply、应用记录与历史回滚见
+[研究目录](../concepts/README.md#deferred-incremental-apply)。上文日期段保留当时状态，
+本次不改变 §7 的现行边界，也不授权跨 Run 复用。

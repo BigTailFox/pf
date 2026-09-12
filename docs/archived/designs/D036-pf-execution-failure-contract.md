@@ -93,7 +93,7 @@ NormalExit(0) 与有效的失败归因同时出现属于权威事实冲突；不
 - 归因依赖的协议或完整 diagnostic envelope 不完整时，该归因不可采用；若仍有正常非零，使用兜底。
   可选 diagnostics 损坏不等于必需成功产物损坏。内部已声明为合法的凭据若字段矛盾，则失败关闭。
 - 成功路径仍要求当前 D007/D012 规定的完整输出与有效 native plan；本设计不实施
-  [C003](../../concepts/C003-pf-resolution-output-completeness.md) 的成功日志完整性放宽。
+  [C003](../concepts/C003-pf-resolution-output-completeness.md) 的成功日志完整性放宽。
 - 配置 verifier 的 stdout/stderr、pytest summary/detail/phase/退出码类别继续只作诊断；没有针对
   pytest 1/2/3/4/5 的可靠外因 dispatch。PF 不从 traceback 判断“测试代码”或“环境”谁负责。
 

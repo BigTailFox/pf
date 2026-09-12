@@ -4,7 +4,7 @@
 - **日期：** 2026-09-05
 - **性质：** 临时性搜索调度、配置命名、evaluator 缓存与 exact artifact 选择契约迁移 Design
 - **核对基线：** `a7bcc41`；评审修订基线为 `8883a65`，原拆分基线为 `6271752`
-- **来源：** 从原 D031 拆出目标 1、5、6、7；树方案移入 [C001](../../concepts/C001-pf-multi-resolution-coordinate-search.md)；
+- **来源：** 从原 D031 拆出目标 1、5、6、7；树方案移入 [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)；
   另纳入 `minors[declaration]` × patch 在多坐标 exact probe 中缺少空间外 baseline artifact 的现场缺陷
 - **稳定 owner：** [D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)、
   [D003](../../designs/D003-pf-search-algorithm.md)、[D006](../../designs/D006-pf-cli-enhancement.md)、

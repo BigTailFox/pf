@@ -1,16 +1,17 @@
 # PF 工程文档归档
 
 - **状态：** 历史索引
-- **最后整理：** 2026-09-11
+- **最后整理：** 2026-09-12
 
 归档只保存决策来源、实施过程、评审证据和实验记录，不解释当前行为。现行契约与所有权见 [工程文档索引](../README.md)。
-编号永久保留、不复用；现行 owner 出现 D012–D014、D037 等空号是归档结果，不是缺失。原 D031 已拆至现行 [C001](../concepts/C001-pf-multi-resolution-coordinate-search.md)。
+编号永久保留、不复用；现行 owner 出现 D012–D014、D037 等空号是归档结果，不是缺失。原 D031 曾拆至 [C001](concepts/C001-pf-multi-resolution-coordinate-search.md)。
 
 | 目录 | 内容 | 归档原因 |
 | --- | --- | --- |
 | [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D044 | 已实施并由现行 Design 接管 |
 | [plans](plans/) | P001–P049 | 实施与验证已完成 |
 | [reviews](reviews/) | R001–R003、R005、R007、R009、R011 | 发现已由后续设计和实现解决，或已移交现行 Review |
+| [concepts](concepts/) | C001–C003、C005 | 独立跟踪关闭；开放项移交研究目录及 C008，不表示问题已解决 |
 | [investigations](investigations/) | I001、I002 | 结论已纳入 D013 / 现行静态 owner |
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
@@ -29,8 +30,9 @@ registry + Direct-PASS ledger、schema 纯化与 `failures=` 收回已落地。�
 [P048](plans/P048-pf-check-first-minimal-verification.md)：check 稳态与 smoke/check 最小验证序列已完成；
 Smoke/Check 零 ty，Check 按 harness 分支取得 baseline，`harness-prepare` 替换
 `declaration-capture`，现有 apply 安全保持。稳定规则由 D001/D002/D004/D006/D008/D012 与
-双语 README 接管。来源 [C005](../concepts/C005-pf-check-first-lifecycle.md) 仍开放增量 apply、
-观察复用与可选应用记录。
+双语 README 接管。来源 [C005](concepts/C005-pf-check-first-lifecycle.md) 已归档；观察复用由
+[C008](../concepts/C008-pf-cross-run-evidence-store.md) 接收，增量 apply、应用记录与历史回滚由
+[研究目录](../concepts/README.md#deferred-incremental-apply) 接收。
 
 [D043](designs/D043-pf-static-subject-v2.md) /
 [P045](plans/P045-pf-static-subject-v2.md) /
@@ -74,3 +76,12 @@ highest baseline PASS 与窄搜索空间 baseline artifact 选择已完成；稳
 [P037](plans/P037-pf-adapter-evidence-admission.md)：adapter 证据准入与诊断边界迁移已完成，
 稳定规则由 D003/D004/D013/D014 接管；§9 的 uv 日志完整性候选继续由
 [现行 README 独立开放项](../README.md#uv-resolution-output-completeness) 跟踪。
+
+## Concept 交接（2026-09-12）
+
+| 历史文档 | 当前接收位置 |
+| --- | --- |
+| [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) | [普通多分辨率搜索](../concepts/README.md#deferred-multi-resolution) |
+| [C002](concepts/C002-pf-registry-analysis-cli.md) | [Registry 分析](../concepts/README.md#deferred-registry-analysis) |
+| [C003](concepts/C003-pf-resolution-output-completeness.md) | [成功解析日志完整性](../concepts/README.md#deferred-resolution-output) |
+| [C005](concepts/C005-pf-check-first-lifecycle.md) | [C008](../concepts/C008-pf-cross-run-evidence-store.md) 与[增量 apply / 历史目录](../concepts/README.md#deferred-incremental-apply)；已交付生命周期见 D001 等现行 owner |

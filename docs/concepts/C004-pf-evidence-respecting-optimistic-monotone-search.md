@@ -2,7 +2,7 @@
 
 - **状态：** 开放
 - **日期：** 2026-09-08
-- **讨论更新：** 2026-09-11
+- **讨论更新：** 2026-09-12
 - **推进判断：** 保留研究，暂缓进入规范性 Design 与实现；先取得真实 Slice 的分布证据，验证概率模型与搜索收益
 - **性质：** 非规范性 Concept，保存构想、实验结论与待证问题，不授权实施
 - **来源：** 将一维 `REJECTED* PASS*` 从正确性假设改为乐观搜索假设的讨论
@@ -10,8 +10,8 @@
 - **现行对照：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)
 - **相关 owner：** [D002](../designs/D002-pf-implementation.md)、[D004](../designs/D004-pf-ty-enhancement.md)、
   [D006](../designs/D006-pf-cli-enhancement.md)、[D014](../designs/D014-pf-report-schema.md)
-- **相关构想：** [C001](C001-pf-multi-resolution-coordinate-search.md) 的树搜索、
-  [C005](C005-pf-check-first-lifecycle.md) 的开发周期验证；它们与本文不互为前置
+- **相关构想：** [研究目录](README.md) 跟踪普通多分辨率搜索；[C008](C008-pf-cross-run-evidence-store.md) 研究观察复用；[C009](C009-pf-contextual-interaction-discovery.md) 研究跨坐标交互，均不并入本文
+- **真实对照协议：** [E016](../experiments/E016-pf-linear-search-control.md)；仅协议，尚未采集
 
 本文不定义当前或已接受的目标契约。下文的搜索、预算、概率模型和投影都是研究方向；现行行为仍由
 owner Design 定义。`P` 表示 PASS，`R` 表示 [Probe Rejection](../../CONTEXT.md)，
@@ -38,7 +38,8 @@ owner Design 定义。`P` 表示 PASS，`R` 表示 [Probe Rejection](../../CONTE
 判断是否值得进入 Design
 ```
 
-这些是后续研究建议，本次只归纳讨论，不启动真实数据采集或生产改动。E011 保留当时的实验结论；
+2026-09-12 将真实固定 Slice 扫描与整轮线性对照协议交给 E016；前者测 hole，后者测路径与成本，
+不能把不同 context 的观察拼成一条真值序列。当前尚未采集数据或修改生产算法。E011 保留当时的实验结论；
 本节记录在其后作出的暂缓推进决定，不回写实验历史，也不关闭该构想。
 
 ## 2. 现行缺口：能响应反例，不等于能发现反例

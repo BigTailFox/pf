@@ -8,7 +8,7 @@
   [D008](../../designs/D008-pf-verification-run.md)、[D012](../../designs/D012-pf-harness-relaxation.md)
 - **验收标准：** [§6](#6-验收标准)
 - **实施 Plan：** [P048](../plans/P048-pf-check-first-minimal-verification.md)
-- **来源：** [C005](../../concepts/C005-pf-check-first-lifecycle.md)；
+- **来源：** [C005](../concepts/C005-pf-check-first-lifecycle.md)；
   [R008](../../reviews/R008-pf-search-performance-review.md) §10
 - **关联：** [D003](../../designs/D003-pf-search-algorithm.md) 搜索算法、
   [D005](../../designs/D005-pf-failure-and-diagnose.md) verifier/prepare 资格、

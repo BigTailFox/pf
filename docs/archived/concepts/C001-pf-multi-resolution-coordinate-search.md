@@ -1,21 +1,25 @@
 # C001 — PF Multi-Resolution Search
 
-- **状态：** 开放
+- **状态：** 关闭
 - **日期：** 2026-09-05
 - **性质：** 非规范性 Concept，保存开发设想、待证假设与实验方向，不授权实施
 - **来源：** 原 D031 多分辨率坐标搜索草案中的树搜索部分；原编号 D031 不复用
-- **相关 Design：** [D033](../archived/designs/D033-pf-predecessor-revalidate.md) 已独立完成改名、重验、缓存与非单调终止
-- **现行 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、
-  [D003](../designs/D003-pf-search-algorithm.md)、[D006](../designs/D006-pf-cli-enhancement.md)、
-  [D014](../designs/D014-pf-report-schema.md)
-- **实验：** [E005](../experiments/E005-pf-multi-resolution-search-simulation.md)
-- **相关构想：** [C004](C004-pf-evidence-respecting-optimistic-monotone-search.md) 讨论把一维
+- **相关 Design：** [D033](../designs/D033-pf-predecessor-revalidate.md) 已独立完成改名、重验、缓存与非单调终止
+- **现行 owner：** [D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)、
+  [D003](../../designs/D003-pf-search-algorithm.md)、[D006](../../designs/D006-pf-cli-enhancement.md)、
+  [D014](../../designs/D014-pf-report-schema.md)
+- **实验：** [E005](../../experiments/E005-pf-multi-resolution-search-simulation.md)
+- **相关构想：** [C004](../../concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) 讨论把一维
   `REJECTED* PASS*` 从正确性假设改为乐观搜索假设；本文 §5.5 的立刻 `NON_MONOTONIC` 终止是树草案
   对现行契约的沿用，不是 C004 的目标
 
 本文保留树搜索的候选方案与验证方法，供后续探索；不定义当前或已接受的目标契约。
 下文的算法、接口、wire 形状和验收项都是待验证的设想。取得明确收益依据后，应重新评审范围，
 另建规范性 Design 并获得接受，再建立 Plan；本文不承担 Design 或 Plan 的职责。
+
+## 归档交接（2026-09-12）
+
+本文关闭独立跟踪并归档，原编号不复用；不表示待证问题已解决。开放项移交[研究目录：多分辨率搜索](../../concepts/README.md#deferred-multi-resolution)。下文保留归档时的构想与证据，不作为现行契约。
 
 ## 1. 想法与拆分边界
 
@@ -33,7 +37,7 @@ E005 中树本身的收益不稳定，组合策略也劣于仅重验；目前没
 
 ## 2. 分辨率与结果设想
 
-配置名称、默认值、继承与系列代表规则由 [D033 §2](../archived/designs/D033-pf-predecessor-revalidate.md#2-resolution-改名与候选语义)
+配置名称、默认值、继承与系列代表规则由 [D033 §2](../designs/D033-pf-predecessor-revalidate.md#2-resolution-改名与候选语义)
 提出。树不新增另一套配置；它只尝试以分层选点实现相同 resolution 的精确代表搜索。
 
 | Resolution | 设想的搜索层级 | 允许提交的精确版本 |
@@ -280,7 +284,7 @@ prepare、static guidance、promotion、FailedCaseSet 和资源隔离，不能�
 
 ### 8.6 第一阶段结果与待决事项
 
-[E005](../experiments/E005-pf-multi-resolution-search-simulation.md) 已完成纯算法矩阵：13,460 次策略运行，
+[E005](../../experiments/E005-pf-multi-resolution-search-simulation.md) 已完成纯算法矩阵：13,460 次策略运行，
 模拟 A 与当前算法 3,362 个 public-seam 差分对照通过，最终产物独立复跑一致。
 2,883 个单坐标场景中，B 的 direct oracle miss 比 A 少 36.75%，C 多 2.93%，D 少 23.96%；
 D 比 B 多 20.22%。多坐标矩阵同样是 B 更优。数字只代表所列合成输入的探针计数，不代表真实耗时。

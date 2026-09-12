@@ -146,6 +146,7 @@ def check_frontmatter(root: Path) -> list[str]:
     required_current = [
         root / "docs" / "README.md",
         root / "CONTEXT.md",
+        *sorted((root / "docs" / "concepts").glob("README.md")),
         *sorted((root / "docs" / "designs" / "appendices").glob("*.md")),
     ]
     for path in required_current:
@@ -182,6 +183,8 @@ def check_frontmatter(root: Path) -> list[str]:
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("P*.md" if kind == "plan" else "*.md")):
+            if kind == "concept" and path.name == "README.md":
+                continue
             fields = frontmatter(path.read_text(encoding="utf-8"))
             location = rel(path, root)
             missing = {field for field in required if not fields.get(field)}

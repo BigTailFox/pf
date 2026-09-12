@@ -1,7 +1,7 @@
 # PF 工程文档索引
 
 - **状态：** 现行
-- **最后核对：** 2026-09-11
+- **最后核对：** 2026-09-12
 
 本页拥有文档分类、生命周期、权威归属与导航。工程实施门槛与 agent 执行原则由 [AGENTS.md](../AGENTS.md) 拥有。
 
@@ -30,7 +30,7 @@
 | 临时 Design（D） | 已接受时定义唯一目标契约；完成吸收前不冒充已交付行为 | 草案 / 已接受待实施 / 实施中；目标 owner、验收标准、接受状态 |
 | Plan（P） | 实施步骤、决定与验收证据；不另立行为契约 | 进行中 / 已完成；按 AGENTS.md 维护 Design 验收映射 |
 | Review（R） | 问题证据与开放项；不授权实施 | 开放 / 已解决或已移交；基准 commit、owner、影响、证据、状态与去向 |
-| Concept（C） | 待证构想；不授权实施、不要求 Plan | 开放 / 转入 Design / 关闭；来源、证据缺口、进入 Design 的条件 |
+| Concept（C） | 待证构想；不授权实施、不要求 Plan | 开放 / 转入 Design / 关闭；来源、证据缺口、进入 Design 的条件；研究目录集中导航，暂缓项可明确移交目录后关闭独立文档 |
 | Experiment（E） / Investigation（I） | 固定环境下的事实、调查与结论；非规范性 | 进行中 / 已完成；日期、源码/工具/配置、命令、结果、局限与固定证据位置 |
 | README / CONTEXT | 使用摘要 / 领域词汇 | 引用 owner，不增加行为或验收义务 |
 | schemas / examples | wire model 的生成投影 | 由 D014 指定脚本生成，不手改、不形成平行契约 |
@@ -115,17 +115,14 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 | [R010](reviews/R010-pf-engineering-document-audit.md) | §4 工程事项：ty × Python / 真实 host 资格、targeted-runtime-contract floor；§2 已关闭 |
 | [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
 | [R008](reviews/R008-pf-search-performance-review.md) | 2026-09-08 重评：hints/single-flight/materialize/xdist 与当前 HEAD 分阶段基线；region/preflight 已撤销 |
-| [C001](concepts/C001-pf-multi-resolution-coordinate-search.md) | 原 D031 的树搜索设想；E005 尚未证明树的默认收益，predecessor 重验已另行完成 |
-| [C002](concepts/C002-pf-registry-analysis-cli.md) | 独立 registry 发布分布分析 CLI，命令与数据契约待探索 |
-| [C003](concepts/C003-pf-resolution-output-completeness.md) | 成功 resolve 的日志完整性是否可与 lock authority 分离，依据待验证 |
-| [C004](concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) | 暂缓 Design 与实现；[E011](experiments/E011-pf-optimistic-search-exploration.md) 已测有限探索，先研究真实 Slice 分布、概率模型及采样调度 |
-| [C005](concepts/C005-pf-check-first-lifecycle.md) | 日常 check 周期已由 D001/D002/D004/D006/D008/D012 吸收；增量 apply、观察复用、可选应用记录与可回滚历史待证；回执须先证明用途及一致性需求，不依赖 C006 |
-| [C006](concepts/C006-pf-test-dependency-association.md) | 测试/源码与依赖坐标的关联分析；影响面与失效，不能授权 PASS；可 fork testmon |
+| [研究目录](concepts/README.md) | 开放 C004/C006–C009、暂缓问题、已交付基础与实验入口；Concept 状态和优先级只在该目录导航 |
+| [E016](experiments/E016-pf-linear-search-control.md) | 真实固定 Slice 扫描与整轮线性对照协议；进行中，仅记录协议，尚未执行 |
 
 <a id="uv-resolution-output-completeness"></a>
 
-成功解析日志完整性开放项的稳定入口为 [C003](concepts/C003-pf-resolution-output-completeness.md)。
-原 D031 拆至 C001，编号不复用。
+成功解析日志完整性开放项已移交[研究目录](concepts/README.md#deferred-resolution-output)，
+[C003](archived/concepts/C003-pf-resolution-output-completeness.md) 保留历史。
+原 D031 拆至 C001；C001–C003、C005 已归档，开放问题交接见研究目录，编号不复用。
 
 ## 8. 历史证据与归档入口
 
