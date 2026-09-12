@@ -11,7 +11,7 @@
   [D006](../../designs/D006-pf-cli-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)、
   [D012](../../designs/D012-pf-harness-relaxation.md)、[D014](../../designs/D014-pf-report-schema.md)
 - **与既有文档的关系：** 本文汇总当前优先级和新增发现；E002 保存搜索性能运行证据，R006
-  继续保存 CLI 详细评审，后续 [R008](../../reviews/R008-pf-search-performance-review.md) 汇总当前搜索性能候选。
+  继续保存 CLI 详细评审，后续 [R008](R008-pf-search-performance-review.md) 汇总当前搜索性能候选。
   本文不以重复摘要替代这些文档。
 
 2026-09-08：现行 `docs/reviews/` 跳转页已删除；原指向该旧地址的入链已改到本文。未改评审结论。

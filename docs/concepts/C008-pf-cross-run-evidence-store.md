@@ -5,7 +5,8 @@
 - **性质：** 非规范性 Concept；不授权跨 Run PASS 复用或生产实现
 - **来源：** 接收 [C005 §4](../archived/concepts/C005-pf-check-first-lifecycle.md#4-统一观察缓存) 的独立开放问题
 - **相关 owner：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D004](../designs/D004-pf-ty-enhancement.md)、[D005](../designs/D005-pf-failure-and-diagnose.md)、[D008](../designs/D008-pf-verification-run.md)、[D014](../designs/D014-pf-report-schema.md)
-- **相关评审：** [R008](../reviews/R008-pf-search-performance-review.md)；历史 cache 否决不因本文失效
+- **相关评审：** [R008](../archived/reviews/R008-pf-search-performance-review.md)；历史 cache 否决不因本文失效
+- **相关研究：** [C010](C010-pf-search-efficiency.md) 接收 R008 的搜索效率收益假设；旧 floor 选点提示不等于本文的观察准入
 
 ## 1. 独立问题
 

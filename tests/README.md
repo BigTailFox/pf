@@ -55,7 +55,7 @@ Adapter 真实性见 [D002 §11](../docs/designs/D002-pf-implementation.md#11-�
 | 能力 owner 的私有 Host adapter 协议 | 直接打内部 adapter | **仅** `infra` | 把其它 adapter 协议标进 `infra`；产品测试进口私有 adapter |
 | 真实 `SubprocessRunner` 进程组停止、超时/中断、Windows PATH `which` | 进入生产 `SubprocessRunner.run` / 停止路径 | **仅** `process` | 标未标记、`infra` 或 `qualification`；当作 Host 发布资格 |
 | 产品命令在该 OS 上的路径 | 与 Linux 相同的收集；命令路径标 `e2e` | `e2e`（且 `process`） | 用 PAL / 本机 Linux 冒充 Windows/macOS e2e |
-| 工具协议 / 版本凭据 | `qualify_*.py` 与 committed manifest | `qualification` | 用资格矩阵证明产品 Host 行为或关闭 R010 |
+| 工具协议 / 版本凭据 | `qualify_*.py` 与 committed manifest | `qualification` | 用资格矩阵证明产品 Host 行为或关闭 [R012](../docs/reviews/R012-pf-qualification-todo.md) 的 Host 资格项 |
 
 Cell 契约展开要求 marker、projection、apply、admission 每个公开 seam 都有跨 linux / darwin / win32 family 的代表性正向断言；不要求把每条测试与三类 target 做笛卡尔积。
 

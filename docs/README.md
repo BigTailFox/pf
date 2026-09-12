@@ -39,7 +39,7 @@
 
 - 改产品承诺、命令、配置、退出码、失败资格、wire 或模块边界等契约：写或改 Design；接受与实施门槛遵循 [AGENTS.md](../AGENTS.md#engineering-workflow)。临时 Design 逐项标明替代哪个 owner 的哪条规则。
 - 需要留存的问题评审与待办（实现偏移、性能或展示候选）：记 Review。Review 文档本身不授权生产代码；用户已授权的轻量修复按 AGENTS.md 执行，无须为进入实施补建 Review。
-- 尚未证明该做的方向：记 Concept。
+- 尚未证明该做的产品、功能、契约或性能收益方向：记 Concept。纯架构优化（模块划分、私有抽象、去重、可维护性）留在 Review，明确观察、影响与待证判断；不因方案尚未验证就转入 Concept。涉及契约变更时仍按 Design 门槛处理。
 - 固定环境下的命令、结果与局限：记 Experiment 或 Investigation。结论可被吸收，原文不回写。
 - 用词、链接、去重、frontmatter 与历史归档：直接改文档，不另建产品 Design/Plan。改变产品承诺仍走 AGENTS.md。
 - 纯文档拆分可迁到新的长期 owner，必须在同一变更中搬走原规范、更新全部现行引用并留下迁移对照。规范性附录属于其主文 owner，不占独立 D 编号。
@@ -85,7 +85,12 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 不回写旧运行。实验产物使用固定 commit、不可变路径或保存的 identity；可变根 `package-floor.json` 不作历史证据链接。
 静态检查、fixture 回放、宿主测试与真实资格运行必须分别标注，不能相互替代。
 
-开放 Review 的现行部分只保留未解决问题和交接指针。已完成的文档整改不继续当作现行工作项。
+长期维护的开放 Review 在 frontmatter 后以 issue 状态表开始正文，至少列出事项、状态、证据或去向。
+事项状态区分「开放」「已解决」「过时」「已移交」：已解决须指向修复证据；过时指问题前提或对应机制
+已不存在，须注明失效原因，不能把证据不足当作过时；已移交须指定接收文档和具体事项。
+表反映最近一次核对，并注明日期与固定基准 commit。开放项正文区分事实、影响和待证方案；
+已解决或过时项可保留在状态表及明确标注日期的历史部分，不继续当作现行待办。
+新判断更新状态表并追加带日期的说明，不覆盖历史命令、计数和当时结论。
 
 ## 6. 契约所有权
 
@@ -112,10 +117,9 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 | 文档 | 当前跟踪范围 |
 | --- | --- |
-| [R010](reviews/R010-pf-engineering-document-audit.md) | §4 工程事项：ty × Python / 真实 host 资格、targeted-runtime-contract floor；§2 已关闭 |
-| [R006](reviews/R006-pf-cli-system-review.md) | 非 TTY 活动、terminal-private result-card；历史已解决项保留证据 |
-| [R008](reviews/R008-pf-search-performance-review.md) | 2026-09-08 重评：hints/single-flight/materialize/xdist 与当前 HEAD 分阶段基线；region/preflight 已撤销 |
-| [研究目录](concepts/README.md) | 开放 C004/C006–C009、暂缓问题、已交付基础与实验入口；Concept 状态和优先级只在该目录导航 |
+| [R006](reviews/R006-pf-cli-system-review.md) | issue 表跟踪通用错误展示、card lifecycle 架构候选及非 TTY 活动；历史修复证据保留 |
+| [R012](reviews/R012-pf-qualification-todo.md) | ty × Python、真实 Host 资格与 E015 完整报告留存缺口 |
+| [研究目录](concepts/README.md) | 开放 C004/C006–C010、暂缓问题、已交付基础与实验入口；Concept 状态和优先级只在该目录导航 |
 | [E016](experiments/E016-pf-linear-search-control.md) | 真实固定 Slice 扫描与整轮线性对照协议；进行中，仅记录协议，尚未执行 |
 
 <a id="uv-resolution-output-completeness"></a>
@@ -146,9 +150,13 @@ Review/Plan/Experiment/Investigation 的命令、计数和当时结论是历史�
 
 已归档 Design/Plan/Review/Investigation 见[归档索引](archived/README.md)。现行 Investigation 现无未归档条目。
 补充归档入口：[R007 历史优先级评审](archived/reviews/R007-pf-current-improvement-priorities.md)
-（开放事项已移交 R006/R008/R010）；
+（后续开放事项现由 R006/R012/C010 跟踪）；
 [R011 架构评审](archived/reviews/R011-pf-architecture-review.md)
-（§3–§6 已吸收，其余仍由 R006/R008/R010 拥有）。
+（§3–§6 已吸收，其余后续交接至 R006/R012/C010）；
+[R008 性能评审](archived/reviews/R008-pf-search-performance-review.md)
+（未证收益与分阶段基线交 C010）；
+[R010 文档审计](archived/reviews/R010-pf-engineering-document-audit.md)
+（整改完成，资格与产物缺口交 R012）。
 
 ## 9. 文档变更验证
 
@@ -166,4 +174,4 @@ uv run python scripts/validate.py docs
 改用 merge-base。CI 获取完整历史，PR 使用目标分支的 base SHA，push 使用事件的 before SHA。
 
 核对现行 owner 与代码/公开 tests 的具体 seam 仍按改动范围进行。只改文档不宣称交付了行为修复。
-剩余实现问题见 R010 §4，不在索引复制测试计数。
+资格与证据留存开放项见 R012，不在索引复制测试计数。

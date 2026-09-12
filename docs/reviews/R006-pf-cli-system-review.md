@@ -9,6 +9,42 @@
 - **契约所有者：** [D001](../designs/D001-pf.md)、[D002](../designs/D002-pf-implementation.md)、[D006](../designs/D006-pf-cli-enhancement.md)、[D008](../designs/D008-pf-verification-run.md)
 - **收归来源与边界：** [E002](../experiments/E002-pf-search-performance.md) §5 的非 TTY 搜索遥测、[R005](../archived/reviews/R005-pf-module-depth-review.md) 轨 D 的 terminal-private result-card 已移交本文；[D022](../archived/designs/D022-pf-evaluation-seam.md) / [P028](../archived/plans/P028-pf-evaluation-seam.md) 的评价 seam 与 SearchCoordinator 测试不属于 CLI 问题
 
+## Issue 状态表
+
+| 状态 | 事项 | 当前证据与去向 |
+| --- | --- | --- |
+| 开放 | 通用错误展示与 terminal-private card lifecycle 架构候选 | `terminal/__init__.py:691–732` 仍输出通用 category/message；explain、diagnose、apply/merge 的 TTY/plain 选择仍分散。§5.1 保留候选，具体缺陷复现与抽象收益待证 |
+| 开放 | 非 TTY 搜索活动反馈 | `terminal/_live.py:308–319,348–357` 不输出 stage/search-progress/context；这是 D006 §4 现行行为上的产品改进候选，由 §5.2 跟踪 |
+| 已解决 | jobs 配置与 CLI 省略语义 | D023/P029 已交付三个独立 limit；现行规则归 D001，§2.1 为历史 |
+| 已解决 | diagnose help、apply force 语法、README 摘要 | §2.2–2.4 与 §9 保存修复记录和当时验证 |
+| 已解决 | reason-aware final 与 host-partial 协议 | §3 保存修复与 D025/P031 交付记录；现行规则归 D001/D006 |
+| 已解决 | command-scoped composition 与 Ctrl+C 终态 | D026/P032 已交付；§4、§6 保存历史，现行规则归 D001/D002/D006/D007 |
+| 已解决 | NO_PASS 文案夸大完整评估范围 | [R010 §2.1](../archived/reviews/R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围) 已于 2026-09-09 关闭；下方 2026-09-06 状态不是当前待办 |
+| 过时 | 将旧 region/runtime promotion 作为当前活动指标 | §5.2 的历史候选术语不适用于现行 D003；指标需按当前搜索与执行复用事实重新选择 |
+| 已移交 | D022/P028 评价 seam 与 SearchCoordinator 测试 | 已由归档 R005 轨 C 完成，稳定规则归 D002/D003/D004，不在 R006 重复跟踪 |
+
+## 2026-09-12 当前核对
+
+固定源码基准为 `05dbf60`。本轮只静态核对 owner、实现和公开测试；未重跑 CLI、测试或性能实验。
+当前开放范围只有上表两项，以及通用错误展示项内待补复现的 Schema 错误输出问题。
+
+§5.1 保留为 Review 中的架构优化候选。通用错误输出和多处 card 装配有当前源码证据，但尚无本轮
+TTY/plain/path/final parity 缺陷复现，也未证明引入 emitter 的维护收益。原 `ResultCardEmitter` interface、
+触发阈值和迁移验收都是历史建议，不是已接受目标；后续应先用实际变更或复现验证其必要性。
+`config.py:240–241` 仍把 `ValidationError` 原文转为 `ConfigurationError`，通用 renderer 输出 `str(error)`；
+这支持继续核查 Schema 内部细节暴露路径，但尚未补具体输入与公开 CLI 输出证据，也不能据此证明 emitter 必要。
+
+§5.2 的非 TTY 活动缺口仍存在，但 D006 §4 明确规定非 TTY 只输出 scope、完成块和 summary，因而不是
+实现偏离契约。`tests/test_terminal.py` 的 `test_non_tty_hides_process_activity_behind_run_logs` 静态显示
+现有测试要求隐藏 ProcessEvent；本轮未运行该测试。E002 的约 37 分钟只证明当时运行，不证明当前耗时。
+现行 D003 已移除 region/promotion；历史“runtime promotion 计数”不能直接作为现行指标。若推进此项，
+应重新确定当前 owner 可提供的搜索/执行事实及当前长运行样本，再形成展示契约。
+
+## 历史记录（2026-09-03 至 2026-09-08）
+
+以下保留原评审、修复建议及当时验证命令和计数。其“当前”“应”“必须”均属于当时语境；
+现行事项与证据资格以上方状态表和 2026-09-12 核对为准，旧章节锚点保留供历史引用。
+
 本文只回答当前 PF CLI 还有哪些值得优化、各事项由谁拥有，以及进入实现前需要什么治理步骤。
 结论按当前时间点成立；现行行为和唯一规范仍由 owner Design 定义。
 
@@ -24,7 +60,7 @@
 
 对照 `30c5d7d`：§5.1 terminal-private result-card 与 §5.2 非 TTY 活动候选仍开放；其余已解决项
 保留原评审证据。原 reason-aware 修复没有消除 `NO_PASS_IN_SEARCH_SPACE` 的“完整评估”过度承诺，
-该具体实现偏移由 [R010 §2.1](R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围)
+该具体实现偏移由 [R010 §2.1](../archived/reviews/R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围)
 独立跟踪，不以本 Review 的既有“已修复”状态关闭。现行展示契约见 D006。
 
 ## 1. 最终结论

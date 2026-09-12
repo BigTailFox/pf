@@ -29,6 +29,7 @@
 | [C008](C008-pf-cross-run-evidence-store.md) | 历史观察何时可在当前执行中准入 | 近期基础设施研究；先证同快照身份闭包与复用收益，不要求跨快照复用 |
 | [C009](C009-pf-contextual-interaction-discovery.md) | context 改变后的重新搜索与小范围联合探索 | 独立研究；先比较顺序/延后重试，再评价 block 与 coarse-to-refine |
 | [C006](C006-pf-test-dependency-association.md) | 测试/源码与依赖的影响面和失效 | 后续研究；不改变 PASS 资格，不作为 C007/C008 的前置 |
+| [C010](C010-pf-search-efficiency.md) | 固定契约下哪些工作主导搜索成本，优化收益是否成立 | 接收 R008 遗留收益假设与阶段基线；先测量再排序，不选择实现架构 |
 
 三条问题轴为生命周期语义、固定 context 的单坐标搜索、跨坐标 interaction。Evidence Store、
 资源调度和测试关联分别影响证据复用、执行安排及工作量；不能以性能理由越过证据准入。
@@ -95,7 +96,7 @@
 现有 Cell 与 ty/test 资源限制保持；未来才研究 resolve/install/完整 oracle、interaction 工作生成、
 背压、公平性与预算的统一安排。重启需要当前阶段耗时、排队及资源瓶颈证据，并说明现有 pools
 为何不足。算法生成候选和资源安排可分开，不以 nested 并发或完整新 Scheduler 作为算法前置。
-现行性能开放项仍由 [R008](../reviews/R008-pf-search-performance-review.md) 跟踪，本项不接管其整改。
+搜索阶段成本与未证收益由 [C010](C010-pf-search-efficiency.md) 接收，本项保留更广泛调度问题。
 
 ## 4. 历史与证据
 

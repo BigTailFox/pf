@@ -1,27 +1,40 @@
 # R008 — PF 搜索流程与性能优化评审
 
-- **状态：** 开放
+- **状态：** 已归档
 - **日期：** 2026-09-08（全文重评；初评 2026-09-04）
 - **性质：** 非规范性性能与架构评审；不定义命令、算法、Schema 或 module interface，不授权实施
-- **对照：** 当前 HEAD；算法 owner 为 [D003](../designs/D003-pf-search-algorithm.md) `direct-first-coordinate-guidance-v1`
+- **对照：** 当前 HEAD；算法 owner 为 [D003](../../designs/D003-pf-search-algorithm.md) `direct-first-coordinate-guidance-v1`
 - **输入：** 现行 D003/D012 与 `SearchCoordinator` / `CoordinateSearch` / prepare / verifier 实现；
-  [E002](../experiments/E002-pf-search-performance.md)（2026-08-28，region/witness 时代）；
-  [E006](../experiments/E006-requests-complete-search.md)（2026-09-05–06，仍含 witness）；
-  [E009](../experiments/E009-mkdocs-static-guidance.md)（2026-09-08，现行 guidance 权限）；
-  [I002](../archived/investigations/I002-pf-self-search-py310-static-collection.md)（2026-09-09，PF 自搜索 3.10 intern / `unclosed-symlink`）
-- **现行契约所有者：** [D001](../designs/D001-pf.md)、
-  [D002](../designs/D002-pf-implementation.md)、
-  [D003](../designs/D003-pf-search-algorithm.md)、
-  [D004](../designs/D004-pf-ty-enhancement.md)、
-  [D005](../designs/D005-pf-failure-and-diagnose.md)、
-  [D008](../designs/D008-pf-verification-run.md)、
-  [D012](../designs/D012-pf-harness-relaxation.md)、
-  [D013](../designs/D013-pf-pytest-observer.md)、
-  [D014](../designs/D014-pf-report-schema.md)
+  [E002](../../experiments/E002-pf-search-performance.md)（2026-08-28，region/witness 时代）；
+  [E006](../../experiments/E006-requests-complete-search.md)（2026-09-05–06，仍含 witness）；
+  [E009](../../experiments/E009-mkdocs-static-guidance.md)（2026-09-08，现行 guidance 权限）；
+  [I002](../investigations/I002-pf-self-search-py310-static-collection.md)（2026-09-09，PF 自搜索 3.10 intern / `unclosed-symlink`）
+- **现行契约所有者：** [D001](../../designs/D001-pf.md)、
+  [D002](../../designs/D002-pf-implementation.md)、
+  [D003](../../designs/D003-pf-search-algorithm.md)、
+  [D004](../../designs/D004-pf-ty-enhancement.md)、
+  [D005](../../designs/D005-pf-failure-and-diagnose.md)、
+  [D008](../../designs/D008-pf-verification-run.md)、
+  [D012](../../designs/D012-pf-harness-relaxation.md)、
+  [D013](../../designs/D013-pf-pytest-observer.md)、
+  [D014](../../designs/D014-pf-report-schema.md)
 - **与既有文档的关系：** 初评正文按当时 region / witness / StaticOnlyEvidence 模型写成。
   D033 predecessor 重验、D035 project-only prepare、D036 正常非零分类、D038 删除 witness 与
   region 权限后，那套流程不再是现行算法。本文重写现行结论与开放项；不回写 E002/E006 的历史计数。
   FailedCaseSet 拒绝预言已落地，稳定规则由 D001/D002/D003/D004/D005/D013 拥有。
+
+
+## 2026-09-12 归档交接
+
+本次对照 `05dbf604812e37bafdf96bd6247a1665bc3e83c7` 静态核对，未重跑性能实验。
+§5 的 hints、跨 key I/O 重叠、materialize、xdist 收益假设及 §9 的分阶段基线，全部由
+[C010](../../concepts/C010-pf-search-efficiency.md) 接收；不沿用 P1/P2 排序或预选实现架构。
+非 TTY 展示仍由 [R006](../../reviews/R006-pf-cli-system-review.md) 跟踪。
+
+§1/§4 的“当前 verifier 主导”缺少当前分阶段对照，不作为现行判断。E012–E015 已有更新运行，
+仍不能跨配置推算收益。I002 的文件树采集与公开静态 intern 已被 D043/P045 替换；
+旧计数只保留历史意义。§6 已解决/撤销项不复活；§10 的 D044/C005 交接沿用其最终状态。
+以下保留归档前正文、日期和当时结论；其中“当前 HEAD”均不是本次或未来 HEAD 的资格说明。
 
 ## 1. 现行结论
 
@@ -29,7 +42,7 @@
 组合空间裁剪继续有效：CoordinateSearch 不会枚举笛卡尔积。这是算法不变量，不依赖 E002 的具体次数。
 
 2026-09-04 初评把「让 static region 更早免掉 pytest」列为 P1。该机制已不存在。
-[D038](../archived/designs/D038-pf-static-guidance-authority.md) 删除了 region、带 disposition 的
+[D038](../designs/D038-pf-static-guidance-authority.md) 删除了 region、带 disposition 的
 static-only evidence、promotion 定界和 witness 拒绝权限。现行静态阶段只产出 hint，不能排除候选、
 不能更新兼容性边界。floor / predecessor / final 仍须当前 context 的直接 runtime 证据。
 因此 E002 的「18/121 个 search-only 向量免 pytest、约 14.9%」只描述已删除路径，不能当作当前收益或目标。
@@ -42,7 +55,7 @@ S_hi 在该隔离树不可用。受控 `measure_d038_guidance.py` 在 scripted a
 guided/mechanical 的 floor 全部相同；有的用例 guided 的 verifier 次数还多于 mechanical。
 静态 guidance 目前不是已证实的 pytest 削减杠杆。
 
-**2026-09-09：** [I002](../archived/investigations/I002-pf-self-search-py310-static-collection.md)
+**2026-09-09：** [I002](../investigations/I002-pf-self-search-py310-static-collection.md)
 在 PF 自搜索、单次 `test-command` <20s 的前提下，把 3.10 与 3.11/3.12 的墙钟差归因于
 `S_hi` 采集成功（散列并 intern 解释器/venv 文件树）对 3.11/3.12 `unclosed-symlink` 导致整格
 `anchor-unavailable`。oracle 次数没有差三倍；`json.dumps` 约 0.2s，`ReportStore.read` 在
@@ -241,30 +254,30 @@ implementation 内的修复。Region 类 D003 变更必须先有新的、与现�
 3. 有数据后再决定是否接受 hints 的 D003/D002 接线 Design。FailedCaseSet 已落地，不与 hints 捆一次改动。
 4. per-key single-flight 可独立实施，但应带锁等待计数，避免用 E009 的 Cell 墙钟差充当证明。
 5. materialize 与 xdist failed-set 分别按实测占比推进。
-6. 非 TTY 搜索活动仍由 [R006 §5.2](R006-pf-cli-system-review.md#52-来源-e002-53非-tty-搜索活动遥测) 拥有。
+6. 非 TTY 搜索活动仍由 [R006 §5.2](../../reviews/R006-pf-cli-system-review.md#52-来源-e002-53非-tty-搜索活动遥测) 拥有。
 
 若候选不能减少 configured verifier 次数或 wall-clock critical path，或需要削弱 runtime authority、
 环境隔离与确定终止，则停止该方向。本文不构成实现授权。
 
 ## 10. 后续状态（2026-09-08）
 
-[C005](../archived/concepts/C005-pf-check-first-lifecycle.md) 另切「统一观察存储 + 准入策略」：命中不等于
+[C005](../concepts/C005-pf-check-first-lifecycle.md) 另切「统一观察存储 + 准入策略」：命中不等于
 当前快照的 PASS 权威，可写环境仍不跨 invocation 借用。§7 否决的仍是跳过当前契约 runtime 权威
 的 cache，以及通用 cache/hint/environment 服务。测试级关联与 testmon 风格影响面见
-[C006](../concepts/C006-pf-test-dependency-association.md)，不在本评审范围。
+[C006](../../concepts/C006-pf-test-dependency-association.md)，不在本评审范围。
 
 **2026-09-10：** 同契约 `C` 上的直接观察准入已起草为临时
-[D044](../archived/designs/D044-pf-check-first-minimal-verification.md)（草案）。D044 接受前 §7
+[D044](../designs/D044-pf-check-first-minimal-verification.md)（草案）。D044 接受前 §7
 仍然适用；D044 把「当前契约」写成身份闭合的快照/Cell/SourcePlan/ExecutionPolicy/解析图，
 并继续禁止共享可写环境与通用 cache 服务。跨运行 hints 仍由本评审 §5.1 跟踪，不并入 D044。
 
 **2026-09-10 范围收敛：** 上段记录 D044 的初稿方向。后续讨论已将跨 Run 观察准入移回 C005
-待证范围；[D044](../archived/designs/D044-pf-check-first-minimal-verification.md) 现仅定义 check 稳态、
+待证范围；[D044](../designs/D044-pf-check-first-minimal-verification.md) 现仅定义 check 稳态、
 smoke/check 最小验证序列及有限 apply 回执/声明与报告事务。每次 check 都实际运行完整 verifier，
 不保存成功 identity，不引入 Git、观察存储或跨 Run 复用；本评审 §7 的非目标保持原约束。
 
 **2026-09-11 接受状态：** D044 在补齐验证命令范围与阶段间中断语义后已接受待实施；
-[P048](../archived/plans/P048-pf-check-first-minimal-verification.md) 已起草，命令与回执/事务分轴验收。
+[P048](../plans/P048-pf-check-first-minimal-verification.md) 已起草，命令与回执/事务分轴验收。
 本轮未授权生产实现，不改变上述跨 Run 缓存的范围结论。
 
 **2026-09-11 后续收缩：** 回执的现有消费者仅为有限历史展示，不是 check/search/apply 准入前提。
@@ -276,6 +289,6 @@ smoke/check 最小验证序列，P048 相应收缩为三切片；仍未授权生
 接管。跨 Run 观察复用仍由 C005 待证，本评审 §7 非目标保持。
 
 **2026-09-12 文档交接：** C005 已归档，其跨 Run 观察存储与准入由
-[C008](../concepts/C008-pf-cross-run-evidence-store.md) 接收；增量 apply、应用记录与历史回滚见
-[研究目录](../concepts/README.md#deferred-incremental-apply)。上文日期段保留当时状态，
+[C008](../../concepts/C008-pf-cross-run-evidence-store.md) 接收；增量 apply、应用记录与历史回滚见
+[研究目录](../../concepts/README.md#deferred-incremental-apply)。上文日期段保留当时状态，
 本次不改变 §7 的现行边界，也不授权跨 Run 复用。

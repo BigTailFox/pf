@@ -6,7 +6,7 @@
 - **目标 owner：** [D004](../../designs/D004-pf-ty-enhancement.md)、[D003](../../designs/D003-pf-search-algorithm.md)、[D014](../../designs/D014-pf-report-schema.md)、[D008](../../designs/D008-pf-verification-run.md)、[D012](../../designs/D012-pf-harness-relaxation.md)、[D001](../../designs/D001-pf.md)、[D002](../../designs/D002-pf-implementation.md)；吸收时同步 [CONTEXT.md](../../../CONTEXT.md) 词汇，并修订 [D039](D039-pf-static-evaluation-module.md) 的离线 admission / AC4 / AC10
 - **验收标准：** [§12](#12-验收标准)
 - **实施计划：** [P045](../plans/P045-pf-static-subject-v2.md)
-- **来源：** [I002](../investigations/I002-pf-self-search-py310-static-collection.md)；对照 [R008 2026-09-09](../../reviews/R008-pf-search-performance-review.md)
+- **来源：** [I002](../investigations/I002-pf-self-search-py310-static-collection.md)；对照 [R008 2026-09-09](../reviews/R008-pf-search-performance-review.md)
 - **关联：** [D007](../../designs/D007-pf-process-output.md) 仍只拥有 Process Log；ty-cache 不是 Process Log。[D006](../../designs/D006-pf-cli-enhancement.md) diagnose 不再展示静态材料。静态仍无 compatibility disposition。D039 与本文**不是**完全正交，见 §11。
 
 本文保存已完成的静态 subject v2 迁移。I002 已证实的墙钟机制当时收成一份目标契约；稳定规则已归并现行 owner。正文保留迁移时的目标与理由，不再承担现行规范。实施与证据见 [P045](../plans/P045-pf-static-subject-v2.md)。

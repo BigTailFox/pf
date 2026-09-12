@@ -7,7 +7,7 @@
 - **实验时目标 Design：** 原 D031；拆分后树设想见 [C001](../archived/concepts/C001-pf-multi-resolution-coordinate-search.md)，
   改名、重验与缓存契约见 [D033](../archived/designs/D033-pf-predecessor-revalidate.md)
 - **现行 owner：** [D003](../designs/D003-pf-search-algorithm.md)
-- **关联 Review：** [R008](../reviews/R008-pf-search-performance-review.md)
+- **关联 Review：** [R008](../archived/reviews/R008-pf-search-performance-review.md)
 - **复现脚本：** [simulate_d031_search.py](../../scripts/simulate_d031_search.py)
 - **证据位置：** [summary.json](data/E005/summary.json)、[逐案 CSV，gzip](data/E005/cases.csv.gz)、
   [代表性完整 trace](data/E005/traces.json)

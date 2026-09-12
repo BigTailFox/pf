@@ -1,12 +1,24 @@
 # R010 — PF 工程文档与实现一致性审计
 
-- **状态：** 开放
+- **状态：** 已归档
 - **日期：** 2026-09-06
 - **性质：** 非规范性 Review；记录核对结果、问题与建议，不授权生产实施
 - **基准：** 审计开始于 `30c5d7d`；期间出现独立 `8a232e9` 提交及 Pydantic 下界工作区变更，均保留
 - **范围：** 11 份现行 owner Design、文档治理/导航、README/CONTEXT、开放 Review/Concept、7 份实验、生成投影与资格入口
 - **排除：** 本轮开始前的 72 个归档文件只检查完整性/链接，不修改历史内容；未修改生产代码或测试
-- **后续契约入口：** [工程文档索引](../README.md)；各行为的唯一 owner 由该索引定位
+- **后续契约入口：** [工程文档索引](../../README.md)；各行为的唯一 owner 由该索引定位
+
+
+## 2026-09-12 归档交接
+
+本次对照 `05dbf604812e37bafdf96bd6247a1665bc3e83c7` 静态核对，未重跑行为或资格测试。
+§2 实现偏移及文档整理已完成。§4 的 ty × Python、真实 Host 资格由
+[R012](../../reviews/R012-pf-qualification-todo.md) Q1/Q2 接收。
+E015 已执行 targeted-runtime-contract check/search，原“未找到实验”事项关闭；完整报告只留摘要的
+限制由 R012 Q4 接收，不宣称可重新离线复核。R008 的未证收益已移交 C010；CLI 项仍由 R006 拥有。
+
+PEP 508 只保留相邻改动时考虑的历史建议，不新建独立整改；假想 Protocol 无新增待办。
+C001–C003 已归档，当前研究状态由研究目录拥有。以下保留原审计、旧状态和命令计数，不回写历史。
 
 ## 2026-09-10 状态核对
 
@@ -14,16 +26,16 @@
 §2.1 已于 2026-09-09 关闭。§2 不再有开放实现偏移。
 PEP 508 机械规范化仍按 §4 原交接：不单独抽模块、不合并 owner；邻近改动才可抽 private helper。
 假想 Protocol 无新增整改（`FailureLogAssociations` 已删除）。
-[R011](../archived/reviews/R011-pf-architecture-review.md) 已归档。
+[R011](R011-pf-architecture-review.md) 已归档。
 现行开放项只剩 §4 的 ty × Python / 真实 host 发布资格，以及 targeted-runtime-contract floor
 （若推进须先固定 argv 与产物）。
 
 ## 2026-09-08 状态核对
 
-文档治理标准已写入 [工程文档索引](../README.md) 与 [AGENTS.md](../../AGENTS.md)。
+文档治理标准已写入 [工程文档索引](../../README.md) 与 [AGENTS.md](../../../AGENTS.md)。
 §1、§3、§7 保留本 Review 的历史整改记录，不再作为现行工作项。
 现行开放项只有 §2 实现偏移与 §4 工程事项。本轮不启动那些实现，也不重写 owner 正文。
-R007 已从现行 `docs/reviews/` 移除；入链改为[归档正文](../archived/reviews/R007-pf-current-improvement-priorities.md)。
+R007 已从现行 `docs/reviews/` 移除；入链改为[归档正文](R007-pf-current-improvement-priorities.md)。
 §3 核对入口里的 `static_transition.py` / `runtime_witness.py` 是 2026-09-06 快照，D038 已删除这些模块。
 
 ## 1. 结论与处理边界
@@ -46,20 +58,20 @@ R007 已从现行 `docs/reviews/` 移除；入链改为[归档正文](../archive
 ### 2.1 P2 NO PASS 文案夸大已验证范围
 
 **触发与影响：** search 或 explain 展示 `NO_PASS_IN_SEARCH_SPACE` 时，
-[terminal](../../src/pf/terminal/__init__.py) 的 `_SEARCH_COMPLETION_REASONS` 写出
+[terminal](../../../src/pf/terminal/__init__.py) 的 `_SEARCH_COMPLETION_REASONS` 写出
 `The configured search space was fully evaluated`。这会使用户误以为所有候选或版本组合均已验证。
 
-**应有契约：** [D001 §1](../designs/D001-pf.md#1-结果承诺) 与
-[D003 §7、§9](../designs/D003-pf-search-algorithm.md#7-一维定界) 只承诺冻结空间中的坐标搜索，
+**应有契约：** [D001 §1](../../designs/D001-pf.md#1-结果承诺) 与
+[D003 §7、§9](../../designs/D003-pf-search-algorithm.md#7-一维定界) 只承诺冻结空间中的坐标搜索，
 不承诺穷举、未观察 hole 或笛卡尔积。空候选也能在 candidate-discovery 产生同一 reason。
 D006 的旧“完整评估”描述是消费方越界，本轮已修正；代码及断言仍待修复。
 
 **当前证据：** 通过 `CoordinateSearch.minimize`，99 个候选、空间外 baseline 100、仅 baseline PASS，
 得到 `NO_PASS_IN_SEARCH_SPACE` 时只探测 8 个空间内候选：1、50、75、87、93、96、98、99。
 这证明“完整评估”不能按逐候选/逐组合验证理解；算法行为本身符合 D003。
-[现有搜索测试](../../tests/test_search.py)覆盖虚拟 sentinel；
-[coordinator 测试](../../tests/test_search_coordinator.py)覆盖空候选只有 highest preparation；
-[terminal 测试](../../tests/test_terminal.py)反而把该过度措辞锁定为期望。
+[现有搜索测试](../../../tests/test_search.py)覆盖虚拟 sentinel；
+[coordinator 测试](../../../tests/test_search_coordinator.py)覆盖空候选只有 highest preparation；
+[terminal 测试](../../../tests/test_terminal.py)反而把该过度措辞锁定为期望。
 
 **代码状态（2026-09-09）：** P044/D041 已把 terminal 文案改为有限结论
 「No applicable floor was found in the configured search space under PF's search rules.」
@@ -72,14 +84,14 @@ reason 与退出码不变。本项关闭；§2 仅剩 §2.2。
 `DiagnoseCommandWorkflow.run` 顺序选择第一个命中项，可能给 probe failure 展示错误的 baseline impact；
 冲突记录的顺序影响结果。影响范围是本机诊断，未发现由此扩大 report/apply authority。
 
-**应有契约：** [D008 §2、§4、§7](../designs/D008-pf-verification-run.md#2-attempt-request-与-role)
+**应有契约：** [D008 §2、§4、§7](../../designs/D008-pf-verification-run.md#2-attempt-request-与-role)
 固定 command/Role/request 关系，并要求同 Failure ID 不同 portable entry fail closed。
 Role 不进入 Failure ID 不意味着 reader 可以忽略 Role 的闭合。
 
-**当前代码：** [VerificationJournalEntry/VerificationJournal](../../src/pf/schemas/evaluation.py)
+**当前代码：** [VerificationJournalEntry/VerificationJournal](../../../src/pf/schemas/evaluation.py)
 验证 Cell/Attempt、package policy 与 snapshot，但不验证 command/Role/request 组合或 entry 冲突；
-[RunLogStore.read_journal](../../src/pf/runlog.py)直接采用该 model；
-[DiagnoseCommandWorkflow](../../src/pf/workflow.py)读取首个匹配 entry。
+[RunLogStore.read_journal](../../../src/pf/runlog.py)直接采用该 model；
+[DiagnoseCommandWorkflow](../../../src/pf/workflow.py)读取首个匹配 entry。
 
 **复现：** 从合法 search Journal 出发，只把 exact-vector entry 的 Role 改为 baseline，reader 返回
 `request=exact-vector role=baseline`；追加原始 probe entry 后，reader 返回 2 entries、1 distinct Failure ID。
@@ -119,7 +131,7 @@ R008 已于 2026-09-08 按现行 D003/D038 全文重评，不再把 09-04 的 re
 
 ## 4. R007 开放项交接
 
-[R007 归档](../archived/reviews/R007-pf-current-improvement-priorities.md)保留历史证据；
+[R007 归档](R007-pf-current-improvement-priorities.md)保留历史证据；
 其 host-partial、CI coverage、composition、中断和报告路径整改均已完成，不再在现行索引复述。
 
 | 原事项 | 接收者与本轮状态 |
@@ -254,11 +266,11 @@ static classification 的公开入口、完整/终态环境关闭分别留在 D0
 
 | 原位置 | 交付位置与唯一归属 |
 | --- | --- |
-| D001 §4 候选规则及 §7 搜索默认表 | [D037](../designs/D037-pf-candidate-search-policy.md) §1–5 独占 registry 准入、DSL、anchor、默认/逐依赖策略、采样与 baseline artifact 选择域；D001 §4 保留导航及验证边界 |
+| D001 §4 候选规则及 §7 搜索默认表 | [D037](../../designs/D037-pf-candidate-search-policy.md) §1–5 独占 registry 准入、DSL、anchor、默认/逐依赖策略、采样与 baseline artifact 选择域；D001 §4 保留导航及验证边界 |
 | 候选章节内的通用规则 | 统一 artifact policy、root/member dep AoT 替换、数值退出码分别保留在 D001 §4、§7、§8；uv prerelease resolution 与 context identity 只在 D012 §6 定义，D037 链接消费 |
-| D006 help、通用视觉细则和卡片示例 | [D006 视觉附录](../designs/appendices/D006-visual-specification.md) A.1–A.7；主文保留通道、状态、信息层级、命令事实来源和各章节入口 |
+| D006 help、通用视觉细则和卡片示例 | [D006 视觉附录](../../designs/appendices/D006-visual-specification.md) A.1–A.7；主文保留通道、状态、信息层级、命令事实来源和各章节入口 |
 | 双语 README 完整默认值与 DSL 说明 | 收缩为同一份可执行配置示例；完整通用配置链接 D001，候选与搜索策略链接 D037 |
-| 索引及消费方引用 | [文档规则与所有权表](../README.md) 补充纯文档拆分和规范性附录规则；D002/D003/D012/D014 及 README 同步指向 D037，wire/reader 仍由 D014 拥有 |
+| 索引及消费方引用 | [文档规则与所有权表](../../README.md) 补充纯文档拆分和规范性附录规则；D002/D003/D012/D014 及 README 同步指向 D037，wire/reader 仍由 D014 拥有 |
 
 已完成 §5 的候选拆分和视觉附录建议；README 通过缩小示例范围消除平行默认表，当前无需新增生成器。
 D005/D008/D014 继续分担各自边界，R006/R008 保留开放项与历史证据；没有进一步应立即执行的归并或归档。

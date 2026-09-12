@@ -5,11 +5,15 @@
 - **性质：** 非规范性 dogfood 实验事实，不定义新契约
 - **前序：** [E001](E001-pf-self-bootstrap-validation-contract.md)、[E002](E002-pf-search-performance.md)
 - **规范：** [D001](../designs/D001-pf.md)、[D003](../designs/D003-pf-search-algorithm.md)、[D007](../designs/D007-pf-process-output.md)、[D008](../designs/D008-pf-verification-run.md)、[D014](../designs/D014-pf-report-schema.md)
-- **开放对照：** [R008](../reviews/R008-pf-search-performance-review.md)、[R010](../reviews/R010-pf-engineering-document-audit.md) 的 Windows host 资格缺口
+- **开放对照：** [R008](../archived/reviews/R008-pf-search-performance-review.md)、[R010](../archived/reviews/R010-pf-engineering-document-audit.md) 的 Windows host 资格缺口
 - **证据位置：** [data/E010/](data/E010/)（测量脚本 JSONL / 宿主事实 / 终端抄本）；可变根 `package-floor.json` 不作历史证据链接
 - **目标：** 在当前 PF 仓库、原生 Windows（非 WSL）上复现 `pf search` 报错，完成一轮自搜索，并测量 Cell 结束时 `PreparedEnvironment` 清理墙钟
 
 本文只记录此次宿主上的命令、结果与局限。它不授权把 Windows 清理耗时写成产品 SLA，也不把本次 dirty worktree 的 floor 当作发布资格。
+
+2026-09-12 跟踪交接：R010 已归档，Windows Host 资格缺口由
+[R012 Q2](../reviews/R012-pf-qualification-todo.md#2-真实-host-资格) 接收；
+R008 的未证实性能收益由 C010 接收。本次交接不增加本实验的运行资格。
 
 ## 1. 结论
 

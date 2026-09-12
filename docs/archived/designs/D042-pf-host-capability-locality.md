@@ -7,7 +7,7 @@
 - **目标 owner：** [D002](../../designs/D002-pf-implementation.md) §1、§5、§8、§11；[D007](../../designs/D007-pf-process-output.md) §4–§5、§8；[tests/README.md](../../../tests/README.md)；[CONTEXT.md](../../../CONTEXT.md)
 - **验收标准：** [§8](#8-验收标准)
 - **实施计划：** [P047](../plans/P047-pf-host-capability-locality.md)
-- **来源：** 三端（Linux / Windows / macOS）支持是否应建通用平台独立层的结构判断；证据见 [E010](../../experiments/E010-windows-native-search-cleanup.md)、[R002 §6](../reviews/R002-pf-v1-architecture-review.md#6-p2runlogstore-的平台-implementation-应进入私有-seam)、[R010 §4](../../reviews/R010-pf-engineering-document-audit.md#4-r007-开放项交接) 的真实 host 资格缺口
+- **来源：** 三端（Linux / Windows / macOS）支持是否应建通用平台独立层的结构判断；证据见 [E010](../../experiments/E010-windows-native-search-cleanup.md)、[R002 §6](../reviews/R002-pf-v1-architecture-review.md#6-p2runlogstore-的平台-implementation-应进入私有-seam)、[R010 §4](../reviews/R010-pf-engineering-document-audit.md#4-r007-开放项交接) 的真实 host 资格缺口
 - **关联：** [D001](../../designs/D001-pf.md) 保留 Cell target → PEP 508 五字段，不读 Host；[D006](../../designs/D006-pf-cli-enhancement.md) 已拥有 CLI UTF-8 入口句；[D008](../../designs/D008-pf-verification-run.md) 保留 host Cell admission。已归档 [D039](D039-pf-static-evaluation-module.md) / [D041](D041-pf-repository-test-conformance.md) 的稳定规则在 D002 / D004 / `tests/README.md`；本文只补 Host / Cell 结构句，不覆盖种类表或静态公开表面
 
 本文保存已完成的宿主能力局部化。稳定规则已归并 [D002](../../designs/D002-pf-implementation.md) §1/§5/§8/§11、[D007](../../designs/D007-pf-process-output.md)、[CONTEXT](../../../CONTEXT.md) 与 `tests/README.md`。正文保留迁移时的目标与理由，不再承担现行规范。
@@ -23,7 +23,7 @@ D002 §5 已写 composition 向 `VerificationRunner` 注入 `host_target()`，�
 - **Cell target** 是产品要推理的兼容性环境。规划、marker、uv、apply、报告必须看见它。
 - **Host** 是本次 invocation 所在的本机。搜索、评价、失败、报告、授权不得靠 `os.name` / `sys.platform` 分支。
 
-本文的结构目标是：在**任一受支持 Host** 上，Host OS 差异留在已有能力 owner（进程、安全目录、快照清理、venv 布局、ty 配置根、CLI UTF-8）内部，而不是再做一个所有上层都依赖的 `pf.platform`。受支持 Host 集合与真实 macOS/Windows 发布资格由 [R010 §4](../../reviews/R010-pf-engineering-document-audit.md#4-r007-开放项交接) 跟踪，不是本文的验收，也不因吸收本文而闭合。
+本文的结构目标是：在**任一受支持 Host** 上，Host OS 差异留在已有能力 owner（进程、安全目录、快照清理、venv 布局、ty 配置根、CLI UTF-8）内部，而不是再做一个所有上层都依赖的 `pf.platform`。受支持 Host 集合与真实 macOS/Windows 发布资格由 [R010 §4](../reviews/R010-pf-engineering-document-audit.md#4-r007-开放项交接) 跟踪，不是本文的验收，也不因吸收本文而闭合。
 
 通用平台独立层通不过删除测试：删掉它之后，调用方仍要学习进程组、临时目录、安全日志各自的语义，复杂度只是换了名字。R002 已经对 RunLog 做过一次正确的窄手术——POSIX / Windows 两个真实 adapter 只服务安全目录——并明确不要扩成通用 filesystem。本文件把同一尺子写进 D002，覆盖其余宿主能力。
 

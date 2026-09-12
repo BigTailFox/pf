@@ -9,7 +9,7 @@
 - **验收标准：** [§6](#6-验收标准)
 - **实施 Plan：** [P048](../plans/P048-pf-check-first-minimal-verification.md)
 - **来源：** [C005](../concepts/C005-pf-check-first-lifecycle.md)；
-  [R008](../../reviews/R008-pf-search-performance-review.md) §10
+  [R008](../reviews/R008-pf-search-performance-review.md) §10
 - **关联：** [D003](../../designs/D003-pf-search-algorithm.md) 搜索算法、
   [D005](../../designs/D005-pf-failure-and-diagnose.md) verifier/prepare 资格、
   [D007](../../designs/D007-pf-process-output.md) 日志与安全读取、[D014](../../designs/D014-pf-report-schema.md) 报告契约继续由原 owner 定义

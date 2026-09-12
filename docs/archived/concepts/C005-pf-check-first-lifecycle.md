@@ -8,7 +8,7 @@
   [D003](../../designs/D003-pf-search-algorithm.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、
   [D007](../../designs/D007-pf-process-output.md)、[D008](../../designs/D008-pf-verification-run.md)、
   [D014](../../designs/D014-pf-report-schema.md)
-- **相关评审：** [R008](../../reviews/R008-pf-search-performance-review.md) §7 否决的是把跨运行
+- **相关评审：** [R008](../reviews/R008-pf-search-performance-review.md) §7 否决的是把跨运行
   cache 当成当前契约的 PASS 权威；本文讨论的是带准入策略的统一观察存储
 - **相关构想：** [C004](../../concepts/C004-pf-evidence-respecting-optimistic-monotone-search.md) 处理一维
   单调性假设；[C006](../../concepts/C006-pf-test-dependency-association.md) 处理源码/测试与依赖的关联分析，

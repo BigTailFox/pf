@@ -10,9 +10,14 @@
 | --- | --- | --- |
 | [designs](designs/) | D009–D011、D015–D030、D032–D036、D038–D044 | 已实施并由现行 Design 接管 |
 | [plans](plans/) | P001–P049 | 实施与验证已完成 |
-| [reviews](reviews/) | R001–R003、R005、R007、R009、R011 | 发现已由后续设计和实现解决，或已移交现行 Review |
+| [reviews](reviews/) | R001–R003、R005、R007–R011 | 发现已解决、前提失效，或已移交现行 Review / Concept |
 | [concepts](concepts/) | C001–C003、C005 | 独立跟踪关闭；开放项移交研究目录及 C008，不表示问题已解决 |
 | [investigations](investigations/) | I001、I002 | 结论已纳入 D013 / 现行静态 owner |
+
+[R008](reviews/R008-pf-search-performance-review.md)：历史性能评审；未证实收益与分阶段基线由
+[C010](../concepts/C010-pf-search-efficiency.md) 接收，CLI 展示仍由 R006 跟踪。
+[R010](reviews/R010-pf-engineering-document-audit.md)：文档与实现偏移已关闭；资格矩阵、真实 Host
+及 E015 完整产物限制由 [R012](../reviews/R012-pf-qualification-todo.md) 接收。
 
 归档文档中的版本、命令、路径、测试计数和结论保持历史原貌；如需理解当前行为，必须回到现行所有者。
 

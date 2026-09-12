@@ -8,7 +8,7 @@
 - **规范对照：** [D003](../../designs/D003-pf-search-algorithm.md)、[D004](../../designs/D004-pf-ty-enhancement.md)、[D008](../../designs/D008-pf-verification-run.md)、[D014](../../designs/D014-pf-report-schema.md)
 - **已归并决策：** [D038](../designs/D038-pf-static-guidance-authority.md)
 - **后续目标：** 结论已由 [D043](../designs/D043-pf-static-subject-v2.md) 吸收进现行 owner；实施证据见 [P045](../plans/P045-pf-static-subject-v2.md)
-- **前序证据：** [E009](../../experiments/E009-mkdocs-static-guidance.md)（MkDocs 上 3.11/3.12 的 `S_hi` 已是 `unclosed-symlink`）、[R008](../../reviews/R008-pf-search-performance-review.md)
+- **前序证据：** [E009](../../experiments/E009-mkdocs-static-guidance.md)（MkDocs 上 3.11/3.12 的 `S_hi` 已是 `unclosed-symlink`）、[R008](../reviews/R008-pf-search-performance-review.md)
 
 本次回答：在已隔离 bootstrap `test-command`（单次 verifier 墙钟小于 20s）的前提下，为什么 `pf search` 在 Python 3.10 Cell 上远慢于 3.11/3.12，以及采集器遇到指向未登记 root 的 symlink 就失败是否过严。
 

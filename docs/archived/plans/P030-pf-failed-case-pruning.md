@@ -4,7 +4,7 @@
 - **开始日期：** 2026-09-04
 - **性质：** 非规范性实施计划、过程与证据记录
 - **设计来源：** [D024](../designs/D024-pf-failed-case-pruning.md)
-- **评审来源：** [R008](../../reviews/R008-pf-search-performance-review.md) §1、§3、§4.6、§5
+- **评审来源：** [R008](../reviews/R008-pf-search-performance-review.md) §1、§3、§4.6、§5
 - **实施基线：** `9903415`（`docs: design failed-case pruning`）；工作树中的 D024 为接受目标
 - **实现提交：** 工作树未提交；本 Plan 与 D024 在同一完成变更中归档
 

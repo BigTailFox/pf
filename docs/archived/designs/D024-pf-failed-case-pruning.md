@@ -5,7 +5,7 @@
 - **最后修订：** 2026-09-04
 - **性质：** 临时迁移 Design；稳定规则已归并到现行 owner，本文不再承担规范性
 - **实施计划：** [P030](../plans/P030-pf-failed-case-pruning.md)
-- **评审来源：** [R008](../../reviews/R008-pf-search-performance-review.md) §1、§3、§4.6、§5
+- **评审来源：** [R008](../reviews/R008-pf-search-performance-review.md) §1、§3、§4.6、§5
 - **产品边界：** [D001](../../designs/D001-pf.md)
 - **模块 interface：** [D002](../../designs/D002-pf-implementation.md)
 - **搜索算法：** [D003](../../designs/D003-pf-search-algorithm.md)

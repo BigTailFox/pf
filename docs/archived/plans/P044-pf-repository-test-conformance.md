@@ -17,7 +17,7 @@
 | S3 | 公开缝：`CliContext.compose` 可选 workflow（§3.1）；`PreparedEnvironment.relocate_to`；收回 argv 识别 ty、`_secure_runlog` 产品进口、手写 ty argv、patch `_read_progress`；同步 D002 §5 composition 与 environment 句 | AC2、AC3、AC8 的 CliContext 部分 | AC2 扫描为空；进度测试走公开 artifact；D002 写明 compose / relocate_to | 源码扫描；CLI/进度测试 |
 | S4 | 先补未标记语义/冻结 journal/Authorizer，再删除真实重复；ty/observer/pruning 按 §2.3 收缩 | AC4、AC1 资格清场 | journal 拒绝未标记且不依赖 `actual_static_journal`；原 Qualification 类与 13 条产品组合消失 | 未标记类；collect |
 | S5 | specifier 语义比较；`parametrize` ids 判定；模块级测试入类；3 处固定睡眠改 Event/barrier；§2.4 负向合并 | AC5、AC11 | 无 `[False-False-False]` 类 nodeid；无模块级 `test_*`；指定 3 处 `sleep(0.05)` 消失 | 测试源码；失败项 id |
-| S6 | `NO_PASS_IN_SEARCH_SPACE` 文案与 D006 测试同一变更；关闭或收窄 [R010 §2.1](../../reviews/R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围) | AC7 | 代码与测试不再锁 fully evaluated；reason/退出码不变 | terminal/explain 测试；R010 |
+| S6 | `NO_PASS_IN_SEARCH_SPACE` 文案与 D006 测试同一变更；关闭或收窄 [R010 §2.1](../reviews/R010-pf-engineering-document-audit.md#21-p2-no-pass-文案夸大已验证范围) | AC7 | 代码与测试不再锁 fully evaluated；reason/退出码不变 | terminal/explain 测试；R010 |
 | S7 | 吸收 D041 进 D002 §11 与 `tests/README.md` 剩余句；日常/process/资格 collect 对照；覆盖率行集合；归档 D041 与本文件 | AC8–AC11 | owner 正文与 D041 §3/§3.3/§4/§5 一致；D001 与自举 `C` 未改；覆盖率行不丢 | owner diff；§4–§5 |
 
 不可颠倒：S1→改测试。S3 的 `compose` 先于 S2 收回 `unknown package`。S4 每簇「先替换、再删除」。S6 可与 S4/S5 并行，不得拖到 S7。S2 本机 PR 墙钟在 S4 清场后写入 §4（不引用 D041 §3.1 的 81.48s）。
