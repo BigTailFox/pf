@@ -1,0 +1,12 @@
+diff --git a/xarray/tests/test_nd_point_index.py b/xarray/tests/test_nd_point_index.py
+index 823d1f21..02160f72 100644
+--- a/xarray/tests/test_nd_point_index.py
++++ b/xarray/tests/test_nd_point_index.py
+@@ -166,6 +166,7 @@ def test_tree_index_equals() -> None:
+     assert not ds1.xindexes["xx"].equals(ds3.xindexes["xx"])
+ 
+ 
++@requires_scipy
+ def test_tree_index_rename() -> None:
+     xx, yy = np.meshgrid([1.0, 2.0], [3.0, 4.0])
+     ds = xr.Dataset(coords={"xx": (("y", "x"), xx), "yy": (("y", "x"), yy)}).set_xindex(

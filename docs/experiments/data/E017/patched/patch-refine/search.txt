@@ -1,0 +1,22 @@
+✓  selected 1 cell, 3 active packages (0 pinned)
+   run-id: 20260912T053402.036285Z-226064-00bc36fb
+   python: 3.11
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ⚠  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:01:45                      │
+│    [baseline]                                                                │
+│    search stopped at [numpy=1.25.2][oracle 1.25.2~1.25.2#1][resolving        │
+│    project dependencies]                                                     │
+│    No applicable floor was found in the configured search space under PF's   │
+│    search rules.                                                             │
+│    -> run `pf diagnose failure-b274f94743f063f7 --package xarray` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⚠  Search incomplete · package-floor.json written · 1 cell has no applicable    
+   floor · the full-matrix floor projection is not representable                

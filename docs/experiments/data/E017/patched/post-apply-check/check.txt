@@ -1,0 +1,15 @@
+✓  selected 1 cell, 3 active packages (0 pinned)
+   run-id: 20260912T053611.051572Z-227568-dd3ed6cb
+   python: 3.11
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:01:33                      │
+│    check passed at [declaration][lowest-direct]                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✓  Check passed · 1 cell

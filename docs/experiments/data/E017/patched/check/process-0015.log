@@ -1,0 +1,37 @@
+format: pf-process-log-v2
+process_id: 15
+argv: ["pytest", "-p", "_pf_pytest_observer_***", "--timeout", "180", "--maxfail=1", "-o", "cache_dir=/tmp/pf-pytest-cache-o7oifgsr"]
+cwd: "/tmp/pf-proposal-nr4ozfeh/source"
+environment_names: ["PATH", "PF_PYTEST_OBSERVER_CASES_DIR", "PF_PYTEST_OBSERVER_CASES_PROJECTION", "PF_PYTEST_OBSERVER_DETAILS_DIR", "PF_PYTEST_OBSERVER_DIR", "PF_PYTEST_OBSERVER_NONCE", "PF_PYTEST_PROGRESS_DIR", "PF_PYTEST_PROGRESS_NONCE", "PYTHONPATH"]
+timeout_seconds: 7200
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 4
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 1.2356377279993467
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 903
+
+--- stdout ---
+
+--- stderr ---
+ImportError while loading conftest '/tmp/pf-proposal-nr4ozfeh/source/xarray/tests/conftest.py'.
+xarray/__init__.py:3: in <module>
+    from xarray import coders, groupers, indexes, testing, tutorial, ufuncs
+xarray/coders.py:6: in <module>
+    from xarray.coding.times import CFDatetimeCoder, CFTimedeltaCoder
+xarray/coding/times.py:12: in <module>
+    import pandas as pd
+../environment/lib/python3.11/site-packages/pandas/__init__.py:221: in <module>
+    warnings.warn(
+E   DeprecationWarning:
+E   Pyarrow will become a required dependency of pandas in the next major release of pandas (pandas 3.0),
+E   (to allow more performant data types, such as the Arrow string type, and better interoperability with other libraries)
+E   but was not found to be installed on your system.
+E   If this would cause problems for you,
+E   please provide us feedback at https://github.com/pandas-dev/pandas/issues/54466

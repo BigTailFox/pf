@@ -1,0 +1,34 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-02f85802177b3710 · rejected candidate                             │
+│                                                                              │
+│    What happened  This resolution attempt did not pass; a dependency         │
+│                   conflict has not been proven.                              │
+│    Impact         The highest-version resolution did not pass the required   │
+│                   checks.                                                    │
+│    -> Inspect the resolution diagnostics and log before changing dependency  │
+│    constraints.                                                              │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    resolve-project                                                  │
+│    source   latest pf smoke                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        RESOLUTION_FAILED                                            │
+│    attempt      9c190dde713d91b28ee8be7ac8ab4d3ae7719803c40c1301dbde99924f11 │
+│                 ecaa                                                         │
+│    resolution   highest                                                      │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    basis        normal nonzero fallback                                      │
+│    output         × Failed to build `xarray @                                │
+│                 file:///tmp/pf-proposal-gkl7gyka/source`                     │
+│                   ╰─▶ Building source distributions for `xarray` is disabled │
+│    log          .pf/logs/20260912T050713.649383Z-204303-8eb7f92e/process-000 │
+│                 5.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-02f85802177b3710

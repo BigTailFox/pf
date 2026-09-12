@@ -1,0 +1,14 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "apply"
+  ],
+  "cwd": "/home/llh/pf/experiments/xarray",
+  "started_at": "2026-09-12T05:33:35.478130+00:00",
+  "finished_at": "2026-09-12T05:33:36.170584+00:00",
+  "elapsed_s": 0.692454,
+  "exit_code": 0,
+  "log": "docs/experiments/data/E017/patched/all-minor/apply.txt",
+  "evidence": "docs/experiments/data/E017/patched/all-minor",
+  "uv_cache_dir": "/tmp/pf-uv-cache"
+}

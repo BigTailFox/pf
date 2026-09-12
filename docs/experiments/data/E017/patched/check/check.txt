@@ -1,0 +1,18 @@
+✓  selected 1 cell, 3 active packages (0 pinned)
+   run-id: 20260912T052024.829863Z-216961-b4e6c707
+   python: 3.11
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:06                      │
+│    check failed at [declaration][lowest-direct][testing]                     │
+│    The configured verifier rejected this version combination.                │
+│    -> run `pf diagnose failure-f1212e93fda8bb78 --package xarray` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Check failed · declared lower bounds are incompatible · 1 cell

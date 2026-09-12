@@ -1,0 +1,35 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-410b4945409e7fc7 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The highest-version resolution did not pass the required   │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    test                                                             │
+│    source   latest pf smoke                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      978583b3c4d4bda4c4000aeecaa4e570dfb0e1af7381e4eb6a949ca7b0d5 │
+│                 e9d7                                                         │
+│    resolution   highest                                                      │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    output       ERROR xarray/tests/test_pandas_to_xarray.py -                │
+│                 zoneinfo._common.ZoneInfoNotFou...                           │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 ==================== 8 skipped, 1 warning, 1 error in 3.28s  │
+│                 ====================                                         │
+│    log          .pf/logs/20260912T050802.214872Z-205432-aa1900a0/process-000 │
+│                 9.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-410b4945409e7fc7

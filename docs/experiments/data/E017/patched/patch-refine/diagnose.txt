@@ -1,0 +1,35 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-b274f94743f063f7 · rejected candidate                             │
+│                                                                              │
+│    What happened  This version combination has conflicting dependency        │
+│                   requirements and cannot be installed.                      │
+│    Impact         This candidate was excluded from the search.               │
+│    -> Review the conflicting requirements, adjust project constraints if     │
+│    needed, then rerun PF.                                                    │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    resolve-project                                                  │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        RESOLUTION_CONFLICT                                          │
+│    attempt      8502ce60bd9c839735dc03a6637ad0488a5fa92be500c4ff49fdf7322cb0 │
+│                 3b38                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       numpy==1.25.2, packaging==26.3, pandas==3.0.5                │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    basis        qualified attribution: transitive-version-contradiction      │
+│    output             that your requirements and pandas==3.0.5 are           │
+│                 incompatible.                                                │
+│                       And because xarray depends on pandas==3.0.5, we can    │
+│                 conclude that your                                           │
+│                       requirements are unsatisfiable.                        │
+│    log          .pf/logs/20260912T053402.036285Z-226064-00bc36fb/process-002 │
+│                 1.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-b274f94743f063f7

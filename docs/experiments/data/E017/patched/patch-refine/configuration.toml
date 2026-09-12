@@ -1,0 +1,22 @@
+# PF dogfood (E017) phase 4: patch refine inside the all×minor declaration.
+[dependency-groups]
+pf-core = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-env",
+  "pytest-mypy-plugins>=4.0.0",
+  "pytest-timeout",
+  "hypothesis",
+  "pytz",
+  "tzdata",
+]
+
+[tool.pf]
+pythons = ["3.11"]
+test-group = "pf-core"
+extra-policy = "none"
+test-command = ["pytest", "--timeout", "180"]
+resolve-artifact = "any"
+test-timeout = "2h"
+search-space = "minors[declaration]"
+search-resolution = "patch"

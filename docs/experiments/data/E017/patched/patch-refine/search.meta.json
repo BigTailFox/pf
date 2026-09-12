@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "search",
+    "--max-duration",
+    "12h"
+  ],
+  "cwd": "/home/llh/pf/experiments/xarray",
+  "started_at": "2026-09-12T05:34:01.708851+00:00",
+  "finished_at": "2026-09-12T05:35:43.154039+00:00",
+  "elapsed_s": 101.445188,
+  "exit_code": 2,
+  "log": "docs/experiments/data/E017/patched/patch-refine/search.txt",
+  "evidence": "docs/experiments/data/E017/patched/patch-refine",
+  "uv_cache_dir": "/tmp/pf-uv-cache"
+}

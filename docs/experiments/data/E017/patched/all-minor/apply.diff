@@ -1,0 +1,5 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ project.dependencies @@
+-dependencies = ["numpy>=1.26", "packaging>=24.2", "pandas>=2.2"]
++dependencies = ["numpy>=1.25.2", "packaging>=14.0", "pandas>=2.2.3"]

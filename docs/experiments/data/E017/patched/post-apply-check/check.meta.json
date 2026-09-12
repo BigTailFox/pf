@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "check",
+    "--test-jobs",
+    "1"
+  ],
+  "cwd": "/home/llh/pf/experiments/xarray",
+  "started_at": "2026-09-12T05:36:10.724278+00:00",
+  "finished_at": "2026-09-12T05:37:30.614222+00:00",
+  "elapsed_s": 79.889944,
+  "exit_code": 0,
+  "log": "docs/experiments/data/E017/patched/post-apply-check/check.txt",
+  "evidence": "docs/experiments/data/E017/patched/post-apply-check",
+  "uv_cache_dir": "/tmp/pf-uv-cache"
+}

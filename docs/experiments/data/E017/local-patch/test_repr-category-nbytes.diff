@@ -1,0 +1,40 @@
+diff --git a/xarray/tests/test_dataset.py b/xarray/tests/test_dataset.py
+index d1934ebb..5389338b 100644
+--- a/xarray/tests/test_dataset.py
++++ b/xarray/tests/test_dataset.py
+@@ -13,7 +13,6 @@ from typing import Any, Literal, cast
+ import numpy as np
+ import pandas as pd
+ import pytest
+-from packaging.version import Version
+ from pandas.core.indexes.datetimes import DatetimeIndex
+ 
+ # remove once numpy 2.0 is the oldest supported version
+@@ -43,6 +42,7 @@ from xarray.coding.cftimeindex import CFTimeIndex
+ from xarray.core import dtypes, indexing, utils
+ from xarray.core.common import duck_array_ops, full_like
+ from xarray.core.coordinates import Coordinates, DatasetCoordinates
++from xarray.core.formatting import render_human_readable_nbytes
+ from xarray.core.indexes import Index, PandasIndex
+ from xarray.core.types import ArrayLike
+ from xarray.core.utils import is_scalar
+@@ -285,6 +285,10 @@ class TestDataset:
+             if has_pyarrow
+             else ""
+         )
++        # E017 local patch: pandas 3.0.0dev reported category nbytes as 36B, but
++        # pandas 3.0.5 reports 32B. Derive the displayed size from the same
++        # formatter as Dataset.repr so older/newer pandas remain comparable.
++        var4_size = render_human_readable_nbytes(data["var4"].nbytes)
+         expected = dedent(
+             f"""\
+             <xarray.Dataset> Size: 2kB
+@@ -299,7 +303,7 @@ class TestDataset:
+                 var1     (dim1, dim2) float64 576B -0.9891 -0.3678 1.288 ... -0.2116 0.364
+                 var2     (dim1, dim2) float64 576B 0.953 1.52 1.704 ... 0.1347 -0.6423
+                 var3     (dim3, dim1) float64 640B 0.4107 0.9941 0.1665 ... 0.716 1.555
+-                var4     (dim1) category 3{6 if Version(pd.__version__) >= Version("3.0.0dev0") else 2}B b c b a c a c a{var5}
++                var4     (dim1) category {var4_size} b c b a c a c a{var5}
+             Attributes:
+                 foo:      bar"""
+         )

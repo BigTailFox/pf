@@ -1,0 +1,33 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-f1212e93fda8bb78 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The declared lower bounds did not pass the required        │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    test                                                             │
+│    source   latest pf check                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      655cc13896ddb4cb33d8a866a2f56e817484b7521ce0f8e947f945b398f0 │
+│                 176a                                                         │
+│    resolution   lowest-direct                                                │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 4                                                     │
+│    output       E   but was not found to be installed on your system.        │
+│                 E   If this would cause problems for you,                    │
+│                 E   please provide us feedback at                            │
+│                 https://github.com/pandas-dev/pandas/issues/54466            │
+│    log          .pf/logs/20260912T052024.829863Z-216961-b4e6c707/process-001 │
+│                 5.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-f1212e93fda8bb78

@@ -1,0 +1,9 @@
+✓  applied floors
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  xarray · applied verified floors                                          │
+│    Evidence  1 observed cells passed                                         │
+│    Scope     all declared platforms                                          │
+│    Metadata  pyproject.toml updated                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Applied floors · project updated

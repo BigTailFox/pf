@@ -1,0 +1,64 @@
+format: pf-process-log-v2
+process_id: 7
+argv: ["/home/llh/pf/.venv/bin/uv", "pip", "sync", "--python", "/tmp/pf-proposal-6x8rnzsb/environment/bin/python", "--no-progress", "--color", "never", "/tmp/pf-proposal-6x8rnzsb/pylock.pf-install.toml"]
+cwd: "/tmp/pf-proposal-6x8rnzsb/source"
+environment_names: ["APPDATA", "XDG_CONFIG_HOME"]
+timeout_seconds: 600
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 0
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.6989602230005403
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 1212
+
+--- stdout ---
+
+--- stderr ---
+warning: The `--pylock` option is experimental and may change without warning. Pass `--preview-features pylock` to disable this warning.
+Using Python 3.11.15 environment at: /tmp/pf-proposal-6x8rnzsb/environment
+   Building xarray @ file:///tmp/pf-proposal-6x8rnzsb/source
+      Built xarray @ file:///tmp/pf-proposal-6x8rnzsb/source
+Prepared 36 packages in 620ms
+Installed 36 packages in 43ms
+ + ast-serialize==0.11.1
+ + attrs==26.1.0
+ + decorator==5.3.1
+ + hypothesis==6.168.0
+ + iniconfig==2.3.0
+ + jinja2==3.1.6
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + librt==0.15.0
+ + markupsafe==3.0.3
+ + mypy==2.3.1
+ + mypy-extensions==1.1.0
+ + numpy==2.4.6
+ + packaging==26.3
+ + pandas==3.0.5
+ + pathspec==1.1.1
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + pytest-asyncio==1.4.0
+ + pytest-env==1.7.1
+ + pytest-mypy-plugins==4.0.3
+ + pytest-timeout==2.4.0
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.3
+ + pytz==2026.3.post1
+ + pyyaml==6.0.3
+ + referencing==0.37.0
+ + regex==2026.9.10
+ + rpds-py==2026.6.3
+ + six==1.17.0
+ + sortedcontainers==2.4.0
+ + tomlkit==0.15.1
+ + typing-extensions==4.16.0
+ + tzdata==2026.3
+ + xarray==9999 (from file:///tmp/pf-proposal-6x8rnzsb/source)

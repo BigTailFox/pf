@@ -1,0 +1,18 @@
+# Captured from `pf diagnose failure-d3fee59917d37a4b --package xarray`
+# immediately after smoke-3, before later Journal rotation.
+
+failure-d3fee59917d37a4b · rejected candidate
+What happened  The configured verifier rejected this version combination.
+Impact         The highest-version resolution did not pass the required checks.
+package        xarray
+cell           [py3.11][x86_64-unknown-linux-gnu][no-extra]
+stage          test
+source         latest pf smoke
+disposition    REJECTED
+cause          VERIFIER_EXITED_NONZERO
+attempt        c613d0ce458de5237283eb6db0e6eb69c87123d8c8d0b2bb23b48bc36aaa3b75
+resolution     highest
+process        exited 1
+output         FAILED xarray/tests/test_dataset.py::TestDataset::test_repr
+               1 failed, 1893 passed, 5214 skipped, 4 xfailed, 3 xpassed, 20 warnings in 16.00s
+log            .pf/logs/20260912T050849.931948Z-206661-2565179b/process-0009.log

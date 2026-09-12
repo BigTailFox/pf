@@ -1,0 +1,593 @@
+{
+  "provenance": {
+    "source": "experiments/xarray/package-floor.json",
+    "run_id": "20260912T052104.062668Z-218220-e6bf3827",
+    "sha256": "194642c33fc20a53476bd64cf3bfd4582ff2a0ddf5f69c073351e184bfe1d98c",
+    "bytes": 253853,
+    "reader_validation": {
+      "status": "complete",
+      "cells": 1
+    },
+    "pf_head": "72912785f381ed41bd84da599b13a26ec2a09343",
+    "pf_version": "0.4.0",
+    "phase": "all-minor"
+  },
+  "identity": {
+    "generator": {
+      "name": "pf",
+      "version": "0.4.0",
+      "algorithm": "v1"
+    },
+    "package": {
+      "name": "xarray",
+      "pyproject_path": "pyproject.toml",
+      "requires_python": ">=3.11"
+    },
+    "policy_identity": "d05db5dc2142a80c8e9ae878397eb43f7e794c1db308ed2823e4300b1d1a0a46",
+    "guidance_policy_identity": "960b833b8050f7ad75dae7b5fed8e52e57a1d5bf9cccbbaed14413b3120893e4",
+    "search_derivation_identity": "32d6b3cf556b77384bd3dcdb3bf5687b2bf019a245124544fc571289fdc552d4",
+    "report_generation_id": "cf52ba4629fbf35e3a2b07383b0139916b7802482057919f0848e0b9aa6ed290",
+    "source_snapshot_digest": "11bcbf1563ff1ba12935c88bb3d0a5e53741ccc737348487391ea159f0895157",
+    "verifier_outcome_policy": "configured-verifier-terminal-v1"
+  },
+  "result": {
+    "status": "complete"
+  },
+  "search_policy": {
+    "profile": "registry-series-slice-v1",
+    "artifact": "any",
+    "bindings": [
+      {
+        "dependencies": [
+          "bottleneck",
+          "cartopy",
+          "cftime",
+          "dask",
+          "flox",
+          "fsspec",
+          "h5netcdf",
+          "matplotlib",
+          "nc-time-axis",
+          "netcdf4",
+          "numba",
+          "numbagg",
+          "numpy",
+          "opt-einsum",
+          "packaging",
+          "pandas",
+          "pandas-stubs",
+          "pooch",
+          "pydap",
+          "scipy",
+          "scipy-stubs",
+          "seaborn",
+          "sparse",
+          "types-colorama",
+          "types-decorator",
+          "types-defusedxml",
+          "types-docutils",
+          "types-networkx",
+          "types-openpyxl",
+          "types-pexpect",
+          "types-psutil",
+          "types-pycurl",
+          "types-pygments",
+          "types-python-dateutil",
+          "types-pytz",
+          "types-pyyaml",
+          "types-requests",
+          "types-setuptools",
+          "types-xlrd",
+          "xarray",
+          "zarr"
+        ],
+        "requested_space": "all",
+        "space_defaults": {
+          "with_lower_bound": "majors[declaration-1:]",
+          "without_lower_bound": "majors[baseline-2:]"
+        },
+        "resolution": "minor",
+        "prereleases": false
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "name": "scipy",
+      "raw": "scipy>=1.15",
+      "specifier": ">=1.15",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "accel"
+    },
+    {
+      "name": "types-colorama",
+      "raw": "types-colorama",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "pydap",
+      "raw": "pydap",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "types-xlrd",
+      "raw": "types-xlrd",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "opt-einsum",
+      "raw": "opt_einsum",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "accel"
+    },
+    {
+      "name": "scipy-stubs",
+      "raw": "scipy-stubs",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "types-docutils",
+      "raw": "types-docutils",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "numpy",
+      "raw": "numpy>=1.26",
+      "specifier": ">=1.26",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "pandas",
+      "raw": "pandas>=2.2",
+      "specifier": ">=2.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "types-pygments",
+      "raw": "types-Pygments",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "flox",
+      "raw": "flox>=0.10",
+      "specifier": ">=0.10",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "accel"
+    },
+    {
+      "name": "fsspec",
+      "raw": "fsspec",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "types-pycurl",
+      "raw": "types-pycurl",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "netcdf4",
+      "raw": "netCDF4>=1.6.0",
+      "specifier": ">=1.6.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging>=24.2",
+      "specifier": ">=24.2",
+      "kind": "searchable",
+      "managed": true,
+      "location": "base",
+      "extra": null
+    },
+    {
+      "name": "h5netcdf",
+      "raw": "h5netcdf[h5py]>=1.5.0",
+      "specifier": ">=1.5.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "types-networkx",
+      "raw": "types-networkx",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "types-pytz",
+      "raw": "types-pytz",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "numbagg",
+      "raw": "numbagg>=0.9",
+      "specifier": ">=0.9",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "accel"
+    },
+    {
+      "name": "sparse",
+      "raw": "sparse>=0.15",
+      "specifier": ">=0.15",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "etc"
+    },
+    {
+      "name": "bottleneck",
+      "raw": "bottleneck",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "accel"
+    },
+    {
+      "name": "types-defusedxml",
+      "raw": "types-defusedxml",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "scipy",
+      "raw": "scipy>=1.15",
+      "specifier": ">=1.15",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "types-requests",
+      "raw": "types-requests",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "zarr",
+      "raw": "zarr>=3.0",
+      "specifier": ">=3.0",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "types-setuptools",
+      "raw": "types-setuptools",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "pandas-stubs",
+      "raw": "pandas-stubs",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "types-python-dateutil",
+      "raw": "types-python-dateutil",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "nc-time-axis",
+      "raw": "nc-time-axis",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "viz"
+    },
+    {
+      "name": "cftime",
+      "raw": "cftime",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    },
+    {
+      "name": "matplotlib",
+      "raw": "matplotlib>=3.10",
+      "specifier": ">=3.10",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "viz"
+    },
+    {
+      "name": "types-decorator",
+      "raw": "types-decorator",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "seaborn",
+      "raw": "seaborn",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "viz"
+    },
+    {
+      "name": "numba",
+      "raw": "numba>=0.62",
+      "specifier": ">=0.62",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "accel"
+    },
+    {
+      "name": "types-pexpect",
+      "raw": "types-pexpect",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "cartopy",
+      "raw": "cartopy>=0.24",
+      "specifier": ">=0.24",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "viz"
+    },
+    {
+      "name": "types-pyyaml",
+      "raw": "types-PyYAML",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "types-psutil",
+      "raw": "types-psutil",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "dask",
+      "raw": "dask[complete]",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "parallel"
+    },
+    {
+      "name": "xarray",
+      "raw": "xarray[accel,etc,io,parallel,viz]",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "complete"
+    },
+    {
+      "name": "types-openpyxl",
+      "raw": "types-openpyxl",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "types"
+    },
+    {
+      "name": "pooch",
+      "raw": "pooch",
+      "specifier": "",
+      "kind": "searchable",
+      "managed": true,
+      "location": "optional",
+      "extra": "io"
+    }
+  ],
+  "projections": [
+    {
+      "name": "numpy",
+      "raw": "numpy>=1.26",
+      "specifier": ">=1.26",
+      "representable": true,
+      "projected_requirements": [
+        "numpy>=1.25.2"
+      ],
+      "floor_versions": [
+        "1.25.2"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "1.25.2"
+        }
+      ]
+    },
+    {
+      "name": "pandas",
+      "raw": "pandas>=2.2",
+      "specifier": ">=2.2",
+      "representable": true,
+      "projected_requirements": [
+        "pandas>=2.2.3"
+      ],
+      "floor_versions": [
+        "2.2.3"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "2.2.3"
+        }
+      ]
+    },
+    {
+      "name": "packaging",
+      "raw": "packaging>=24.2",
+      "specifier": ">=24.2",
+      "representable": true,
+      "projected_requirements": [
+        "packaging>=14.0"
+      ],
+      "floor_versions": [
+        "14.0"
+      ],
+      "floors": [
+        {
+          "python_minor": "3.11",
+          "extra_surface": [],
+          "version": "14.0"
+        }
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "python_minor": "3.11",
+      "extra_surface": [],
+      "sweeps": 3,
+      "baseline": {
+        "numpy": "2.4.6",
+        "packaging": "26.3",
+        "pandas": "3.0.5"
+      },
+      "final_vector": {
+        "numpy": "1.25.2",
+        "packaging": "14.0",
+        "pandas": "2.2.3"
+      },
+      "boundaries": [
+        {
+          "dependency": "numpy",
+          "floor": "1.25.2",
+          "predecessor": "1.24.4",
+          "predecessor_failure_id": "failure-5bb04d6941eb0329"
+        },
+        {
+          "dependency": "packaging",
+          "floor": "14.0",
+          "predecessor": null,
+          "predecessor_failure_id": null
+        },
+        {
+          "dependency": "pandas",
+          "floor": "2.2.3",
+          "predecessor": "2.1.4",
+          "predecessor_failure_id": "failure-9ddf3bdb3ee12c19"
+        }
+      ],
+      "observation_count": 29,
+      "failure_record_count": 16
+    }
+  ],
+  "counts": {
+    "cell_results": 1,
+    "search_observations": 29,
+    "observation_evidence": {
+      "ProbePass": 13,
+      "ProbeRejection": 16
+    },
+    "failure_records_in_cells": 16,
+    "failure_cause_counts": {
+      "RESOLUTION_FAILED": 7,
+      "RESOLUTION_CONFLICT": 4,
+      "VERIFIER_EXITED_NONZERO": 5
+    },
+    "candidate_snapshots": 3,
+    "search_process_logs": 194,
+    "journal_entries": 16,
+    "journal_sha256": "0e69ac4cc9fa1d6c90d49b8b3f6c7fc3cd4bfad36b598cac62bde3e3be2e5770",
+    "source_snapshot_digest": "11bcbf1563ff1ba12935c88bb3d0a5e53741ccc737348487391ea159f0895157",
+    "probe_pass": 13,
+    "probe_rejection": 16
+  }
+}

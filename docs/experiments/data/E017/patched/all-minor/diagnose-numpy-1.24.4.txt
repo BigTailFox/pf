@@ -1,0 +1,36 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-5bb04d6941eb0329 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      c0f97728fd745afafd38de292f54763615631f40b25cf3d76a6e6294d074 │
+│                 2ecc                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       numpy==1.24.4, packaging==14.0, pandas==2.2.3                │
+│    proposal     344c2d32b7719c27b10b6f5aaaf4e78368241d5ecbf235c5b96d4190583a │
+│                 904e                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       ERROR xarray/tests/test_coding_strings.py - AttributeError:  │
+│                 module 'numpy' ha...                                         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 ========================= 4 skipped, 1 error in 1.38s        │
+│                 ==========================                                   │
+│    log          .pf/logs/20260912T052104.062668Z-218220-e6bf3827/process-017 │
+│                 4.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-5bb04d6941eb0329

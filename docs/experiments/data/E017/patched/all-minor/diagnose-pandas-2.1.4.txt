@@ -1,0 +1,36 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-9ddf3bdb3ee12c19 · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         This candidate was excluded from the search. It helped     │
+│                   establish the verified floor.                              │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    test                                                             │
+│    source   package-floor.json                                               │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      a9eb45ee2a118c95014177e51bd9a3df567a8804c009133cc432967222f1 │
+│                 cd90                                                         │
+│    resolution   exact-vector                                                 │
+│    vector       numpy==1.25.2, packaging==14.0, pandas==2.1.4                │
+│    proposal     c7b4d9b7d1002caa1b5e93a0bb6e188a9ab9add984ab853a84eb102fa55f │
+│                 79f7                                                         │
+│    boundary     predecessor                                                  │
+│    process      exited 1                                                     │
+│    output       ERROR xarray/tests/test_groupby.py - ValueError: Invalid     │
+│                 frequency: ME                                                │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 ========================= 8 skipped, 1 error in 3.07s        │
+│                 ==========================                                   │
+│    log          .pf/logs/20260912T052104.062668Z-218220-e6bf3827/process-019 │
+│                 3.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-9ddf3bdb3ee12c19

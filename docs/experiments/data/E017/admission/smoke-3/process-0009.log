@@ -1,0 +1,232 @@
+format: pf-process-log-v2
+process_id: 9
+argv: ["pytest", "-p", "_pf_pytest_observer_***", "--timeout", "180", "--maxfail=1", "-o", "cache_dir=/tmp/pf-pytest-cache-rmo3wlgf"]
+cwd: "/tmp/pf-proposal-6x8rnzsb/source"
+environment_names: ["PATH", "PF_PYTEST_OBSERVER_CASES_DIR", "PF_PYTEST_OBSERVER_CASES_PROJECTION", "PF_PYTEST_OBSERVER_DETAILS_DIR", "PF_PYTEST_OBSERVER_DIR", "PF_PYTEST_OBSERVER_NONCE", "PF_PYTEST_PROGRESS_DIR", "PF_PYTEST_PROGRESS_NONCE", "PYTHONPATH"]
+timeout_seconds: 7200
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 18.600995311999213
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 14736
+stderr_characters: 0
+
+--- stdout ---
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+cachedir: /tmp/pf-pytest-cache-rmo3wlgf
+rootdir: /tmp/pf-proposal-6x8rnzsb/source
+configfile: pyproject.toml
+testpaths: xarray/tests, properties
+plugins: asyncio-1.4.0, mypy-plugins-4.0.3, hypothesis-6.168.0, timeout-2.4.0, env-1.7.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+timeout: 180.0s
+timeout method: signal
+timeout func_only: False
+collected 16731 items / 10 skipped
+
+xarray/tests/test_accessor_dt.py .................................ssss.s [  0%]
+ssssssssssssssssssssssssssssssss............ssssssssssssssssssssssssssss [  0%]
+ssssssssssssssssssssssssssssssssssssssssss.sssssssssssssssssssssssssssss [  1%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  1%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  1%]
+sssssssssssssssssssssssssss.sss                                          [  2%]
+xarray/tests/test_accessor_str.py s..................................... [  2%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+.............................................                            [  3%]
+xarray/tests/test_assertions.py ...........ss.ss.ss.ss.ss.ss............ [  3%]
+.....                                                                    [  3%]
+xarray/tests/test_backends.py .sssssssssssssssssssssssssssssssssssssssss [  4%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  4%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  4%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  5%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  5%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  6%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  6%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  7%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  7%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  7%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  8%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  8%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  9%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  9%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 10%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 10%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 10%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 11%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 11%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 12%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 12%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 13%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 13%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 13%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 14%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 14%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 15%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 15%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 16%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 16%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 16%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 17%]
+sssssssss.sxssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 17%]
+ssssssssssssssssssssssss..sssssssssssssssssssssssssssssssssssssss.       [ 18%]
+xarray/tests/test_backends_api.py ss...sssssssssssssssssssssssss         [ 18%]
+xarray/tests/test_backends_chunks.py .........sssssssss                  [ 18%]
+xarray/tests/test_backends_common.py ...s                                [ 18%]
+xarray/tests/test_backends_datatree.py sssssssssssssssssssssssssssssssss [ 18%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 19%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 19%]
+ssssssssssssssssssssssssssssssssssssssssssss                             [ 19%]
+xarray/tests/test_backends_file_manager.py ............................. [ 19%]
+....                                                                     [ 20%]
+xarray/tests/test_backends_locks.py ......                               [ 20%]
+xarray/tests/test_backends_lru_cache.py ........                         [ 20%]
+xarray/tests/test_cftimeindex.py ....................................... [ 20%]
+.........................................................sssssssssssssss [ 20%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 21%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 21%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 22%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 22%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 22%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 23%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 23%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 24%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 24%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 25%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 25%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 25%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssss                 [ 26%]
+xarray/tests/test_coarsen.py .s....ssss..sss............................ [ 26%]
+..............................ssssssssssssssssssssssssssssssssssssssssss [ 26%]
+ssssssssssssss...s.......s.......s.......s......ssssssssssssssssssssssss [ 27%]
+ssssssss...                                                              [ 27%]
+xarray/tests/test_coding.py .....s.........................              [ 27%]
+xarray/tests/test_coding_strings.py .....s..................s.s          [ 27%]
+xarray/tests/test_coding_times.py ssssssssssssssssssssssssssssssssssssss [ 28%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 28%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 28%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 29%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 29%]
+ssssssssssssss.sssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 30%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 30%]
+ssssssssssssssssssssssssssssssssssssssss..............ssssssssssssssssss [ 31%]
+ssssss...................................................ssssssssssss.ss [ 31%]
+ssssss.ssssssss.ssssssss.....sssssssssssssssssssssssssssssssssssss..ssss [ 31%]
+s..ssssssssssss.ssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 32%]
+sssssssssssssssssssssssssssssssssssssssssssssssss.....ssssssssssssssssss [ 32%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssss.............. [ 33%]
+...............................................................ssssssss. [ 33%]
+.....ss............ss........s.ss........ss............................. [ 34%]
+...................ssssssssssssssssss.sss.sssssssss.s.s................. [ 34%]
+....s..........x............................                             [ 34%]
+xarray/tests/test_combine.py .......................................x... [ 34%]
+........................................................................ [ 35%]
+.....ss.                                                                 [ 35%]
+xarray/tests/test_computation.py ...........s........................... [ 35%]
+......................................ssssssss.sssss.s.sssssssssssssssss [ 36%]
+sssssssssssssssssss.............................................ssssssss [ 36%]
+ssssssssssssssssssss........................s...s.s....s.s.s.s.s.s.s.s.s [ 36%]
+.s.s.s.s.sssss..s.s.s.s.s.s.s.s.s.s.s.s.sXsXs..                          [ 37%]
+xarray/tests/test_concat.py ...s........................................ [ 37%]
+...................................................s..s................. [ 37%]
+.........................                                                [ 38%]
+xarray/tests/test_conventions.py ....sssssssssssssssssssssssssssssssssss [ 38%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 38%]
+ssss...s...                                                              [ 38%]
+xarray/tests/test_coordinate_transform.py ..............                 [ 38%]
+xarray/tests/test_coordinates.py ...........................             [ 39%]
+xarray/tests/test_dataarray.py .................s.s....................s [ 39%]
+..............................................................s......... [ 39%]
+................................s...................s................... [ 40%]
+........................................................................ [ 40%]
+.......................s...ss...s.s.s.s.s.s........................Xx... [ 41%]
+........ss.s.s...................................ssssssssss.ssssss...... [ 41%]
+..................ssssss......ssssss..................................ss [ 41%]
+ss....ssss....................ssss.s....sssssssssssss........s......ssss [ 42%]
+s.....                                                                   [ 42%]
+xarray/tests/test_dataarray_typing.yml sssssssssssss                     [ 42%]
+xarray/tests/test_dataset.py F
+
+=================================== FAILURES ===================================
+____________________________ TestDataset.test_repr _____________________________
+
+self = <xarray.tests.test_dataset.TestDataset object at 0x7217da898a10>
+
+    def test_repr(self) -> None:
+        data = create_test_data(seed=123, use_extension_array=True)
+        data.attrs["foo"] = "bar"
+        # need to insert str dtype at runtime to handle different endianness
+        var5 = (
+            "\n                var5     (dim1) int64[pyarrow] 64B 5 9 7 2 6 2 8 1"
+            if has_pyarrow
+            else ""
+        )
+        expected = dedent(
+            f"""\
+            <xarray.Dataset> Size: 2kB
+            Dimensions:  (dim2: 9, dim3: 10, time: 20, dim1: 8)
+            Coordinates:
+              * dim2     (dim2) float64 72B 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0
+              * dim3     (dim3) {data["dim3"].dtype} 40B 'a' 'b' 'c' 'd' 'e' 'f' 'g' 'h' 'i' 'j'
+                numbers  (dim3) int64 80B 0 1 2 0 0 1 1 2 2 3
+              * time     (time) datetime64[ns] 160B 2000-01-01 2000-01-02 ... 2000-01-20
+            Dimensions without coordinates: dim1
+            Data variables:
+                var1     (dim1, dim2) float64 576B -0.9891 -0.3678 1.288 ... -0.2116 0.364
+                var2     (dim1, dim2) float64 576B 0.953 1.52 1.704 ... 0.1347 -0.6423
+                var3     (dim3, dim1) float64 640B 0.4107 0.9941 0.1665 ... 0.716 1.555
+                var4     (dim1) category 3{6 if Version(pd.__version__) >= Version("3.0.0dev0") else 2}B b c b a c a c a{var5}
+            Attributes:
+                foo:      bar"""
+        )
+        actual = "\n".join(x.rstrip() for x in repr(data).split("\n"))
+    
+>       assert expected == actual
+E       AssertionError: assert '<xarray.Data...foo:      bar' == '<xarray.Data...foo:      bar'
+E         
+E         Skipping 658 identical leading characters in diff, use -v to show
+E         Skipping 38 identical trailing characters in diff, use -v to show
+E         - category 32B b c b a
+E         ?           ^
+E         + category 36B b c b a
+E         ?           ^
+
+/tmp/pf-proposal-6x8rnzsb/source/xarray/tests/test_dataset.py:308: AssertionError
+=============================== warnings summary ===============================
+../environment/lib/python3.11/site-packages/_pytest/python.py:124
+  /tmp/pf-proposal-6x8rnzsb/environment/lib/python3.11/site-packages/_pytest/python.py:124: PytestRemovedIn10Warning: Passing a non-Collection iterable to parametrize is deprecated.
+  Test: xarray/tests/test_dataarray.py::TestDataArray::test_quantile, argvalues type: zip
+  Please convert to a list or tuple.
+  See https://docs.pytest.org/en/stable/deprecations.html#parametrize-iterators
+    metafunc.parametrize(*marker.args, **marker.kwargs, _param_mark=marker)
+
+../environment/lib/python3.11/site-packages/_pytest/python.py:124
+  /tmp/pf-proposal-6x8rnzsb/environment/lib/python3.11/site-packages/_pytest/python.py:124: PytestRemovedIn10Warning: Passing a non-Collection iterable to parametrize is deprecated.
+  Test: xarray/tests/test_variable.py::TestVariable::test_quantile, argvalues type: zip
+  Please convert to a list or tuple.
+  See https://docs.pytest.org/en/stable/deprecations.html#parametrize-iterators
+    metafunc.parametrize(*marker.args, **marker.kwargs, _param_mark=marker)
+
+xarray/tests/test_computation.py: 16 warnings
+  /tmp/pf-proposal-6x8rnzsb/environment/lib/python3.11/site-packages/numpy/lib/_nanfunctions_impl.py:1997: RuntimeWarning: Degrees of freedom <= 0 for slice.
+    var = nanvar(a, axis=axis, dtype=dtype, out=out, ddof=ddof,
+
+xarray/tests/test_dataarray.py::TestDataArray::test_fillna_extension_array[categorical]
+xarray/tests/test_dataarray.py::TestDataArray::test_fillna_extension_array[categorical]
+  /tmp/pf-proposal-6x8rnzsb/environment/lib/python3.11/site-packages/pandas/core/dtypes/common.py:1885: DeprecationWarning: Data type alias 'a' was deprecated in NumPy 2.0. Use the 'S' alias instead.
+    npdtype = np.dtype(dtype)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED xarray/tests/test_dataset.py::TestDataset::test_repr - AssertionError:...
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+= 1 ***, 1893 passed, 5214 skipped, 4 x***, 3 xpassed, 20 warnings in 16.00s =
+
+--- stderr ---

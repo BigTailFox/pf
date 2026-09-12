@@ -1,0 +1,19 @@
+✓  selected 1 cell, 3 active packages (0 pinned)
+   run-id: 20260912T050849.931948Z-206661-2565179b
+   python: 3.11
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:21                      │
+│    smoke failed at [baseline][highest][testing]                              │
+│    The configured verifier rejected this version combination.                │
+│    FAILED xarray/tests/test_dataset.py::TestDataset::test_repr               │
+│    -> run `pf diagnose failure-d3fee59917d37a4b --package xarray` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Smoke failed · highest-version resolution did not pass · 1 cell

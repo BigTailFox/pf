@@ -1,0 +1,27 @@
+# PF dogfood (E017) phase 1: single-cell admission on upstream v2026.07.0 core.
+# extra-policy none keeps numpy/packaging/pandas as the only search coordinates.
+# resolve-artifact any: wheel-only fails because uv --only-binary :all: also
+# blocks building the local xarray source snapshot. Classify old numpy/pandas
+# sdist/ABI failures separately; do not treat them as API floors.
+# --timeout 180 matches upstream CI; do not enable flaky/network/mypy/xdist.
+[dependency-groups]
+pf-core = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-env",
+  "pytest-mypy-plugins>=4.0.0",
+  "pytest-timeout",
+  "hypothesis",
+  "pytz",
+  "tzdata",
+]
+
+[tool.pf]
+pythons = ["3.11"]
+test-group = "pf-core"
+extra-policy = "none"
+test-command = ["pytest", "--timeout", "180"]
+resolve-artifact = "any"
+test-timeout = "2h"
+search-space = "all"
+search-resolution = "minor"

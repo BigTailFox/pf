@@ -1,0 +1,108 @@
+format: pf-process-log-v2
+process_id: 9
+argv: ["pytest", "-p", "_pf_pytest_observer_***", "--timeout", "180", "--maxfail=1", "-o", "cache_dir=/tmp/pf-pytest-cache-pi0l9d86"]
+cwd: "/tmp/pf-proposal-x7ldqil4/source"
+environment_names: ["PATH", "PF_PYTEST_OBSERVER_CASES_DIR", "PF_PYTEST_OBSERVER_CASES_PROJECTION", "PF_PYTEST_OBSERVER_DETAILS_DIR", "PF_PYTEST_OBSERVER_DIR", "PF_PYTEST_OBSERVER_NONCE", "PF_PYTEST_PROGRESS_DIR", "PF_PYTEST_PROGRESS_NONCE", "PYTHONPATH"]
+timeout_seconds: 7200
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 5.520252757998605
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 5011
+stderr_characters: 0
+
+--- stdout ---
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+cachedir: /tmp/pf-pytest-cache-pi0l9d86
+rootdir: /tmp/pf-proposal-x7ldqil4/source
+configfile: pyproject.toml
+testpaths: xarray/tests, properties
+plugins: asyncio-1.4.0, mypy-plugins-4.0.3, hypothesis-6.168.0, timeout-2.4.0, env-1.7.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+timeout: 180.0s
+timeout method: signal
+timeout func_only: False
+collected 11013 items / 1 error / 8 skipped
+
+==================================== ERRORS ====================================
+____________ ERROR collecting xarray/tests/test_pandas_to_xarray.py ____________
+/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/zoneinfo/_common.py:12: in load_tzdata
+    return resources.files(package_name).joinpath(resource_name).open("rb")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/importlib/resources/_common.py:22: in files
+    return from_package(get_package(package))
+                        ^^^^^^^^^^^^^^^^^^^^
+/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/importlib/resources/_common.py:53: in get_package
+    resolved = resolve(package)
+               ^^^^^^^^^^^^^^^^
+/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/importlib/resources/_common.py:44: in resolve
+    return cand if isinstance(cand, types.ModuleType) else importlib.import_module(cand)
+                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1126: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1126: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1140: in _find_and_load_unlocked
+    ???
+E   ModuleNotFoundError: No module named 'tzdata'
+
+During handling of the above exception, another exception occurred:
+xarray/tests/test_pandas_to_xarray.py:59: in <module>
+    "datetime-tz": date_range("2020-01-01", periods=10, tz="US/Pacific"),
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../environment/lib/python3.11/site-packages/pandas/core/indexes/datetimes.py:1491: in date_range
+    dtarr = DatetimeArray._generate_range(
+../environment/lib/python3.11/site-packages/pandas/core/arrays/datetimes.py:461: in _generate_range
+    tz = _infer_tz_from_endpoints(start, end, tz)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../environment/lib/python3.11/site-packages/pandas/core/arrays/datetimes.py:2878: in _infer_tz_from_endpoints
+    tz = timezones.maybe_get_tz(tz)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+pandas/_libs/tslibs/timezones.pyx:134: in pandas._libs.tslibs.timezones.maybe_get_tz
+    ???
+pandas/_libs/tslibs/timezones.pyx:159: in pandas._libs.tslibs.timezones.maybe_get_tz
+    ???
+/home/llh/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/zoneinfo/_common.py:24: in load_tzdata
+    raise ZoneInfoNotFoundError(f"No time zone found with key {key}")
+E   zoneinfo._common.ZoneInfoNotFoundError: 'No time zone found with key US/Pacific'
+=============================== warnings summary ===============================
+../environment/lib/python3.11/site-packages/_pytest/python.py:124
+  /tmp/pf-proposal-x7ldqil4/environment/lib/python3.11/site-packages/_pytest/python.py:124: PytestRemovedIn10Warning: Passing a non-Collection iterable to parametrize is deprecated.
+  Test: xarray/tests/test_dataarray.py::TestDataArray::test_quantile, argvalues type: zip
+  Please convert to a list or tuple.
+  See https://docs.pytest.org/en/stable/deprecations.html#parametrize-iterators
+    metafunc.parametrize(*marker.args, **marker.kwargs, _param_mark=marker)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR xarray/tests/test_pandas_to_xarray.py - zoneinfo._common.ZoneInfoNotFou...
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+==================== 8 skipped, 1 warning, 1 error in 3.28s ====================
+
+--- stderr ---

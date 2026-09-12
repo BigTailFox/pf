@@ -1,0 +1,19 @@
+✓  selected 1 cell, 3 active packages (0 pinned)
+   run-id: 20260912T050802.214872Z-205432-aa1900a0
+   python: 3.11
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:12                      │
+│    smoke failed at [baseline][highest][testing]                              │
+│    The configured verifier rejected this version combination.                │
+│    FAILED xarray/tests/test_pandas_to_xarray.py (collect)                    │
+│    -> run `pf diagnose failure-410b4945409e7fc7 --package xarray` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Smoke failed · highest-version resolution did not pass · 1 cell

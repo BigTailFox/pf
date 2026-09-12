@@ -1,0 +1,24 @@
+format: pf-process-log-v2
+process_id: 5
+argv: ["/home/llh/pf/.venv/bin/uv", "pip", "compile", "pyproject.toml", "/tmp/pf-proposal-gkl7gyka/project-requirements.in", "--format", "pylock.toml", "--output-file", "/tmp/pf-proposal-gkl7gyka/pylock.pf-project.toml", "--python", "/tmp/pf-proposal-gkl7gyka/environment/bin/python", "--python-version", "3.11.15", "--python-platform", "x86_64-unknown-linux-gnu", "--resolution", "highest", "--exclude-newer", "2026-09-12T05:07:13.777947+00:00", "--no-header", "--no-progress", "--color", "never", "--only-binary", ":all:"]
+cwd: "/tmp/pf-proposal-gkl7gyka/source"
+environment_names: ["APPDATA", "XDG_CONFIG_HOME"]
+timeout_seconds: 600
+start_new_session: true
+redaction_policy_identity: "pf-default-v1"
+terminal_kind: process-result
+exit_code: 1
+signal: null
+start_error: null
+timed_out: false
+duration_seconds: 0.06530328699955135
+stdout_complete: true
+stderr_complete: true
+stdout_characters: 0
+stderr_characters: 132
+
+--- stdout ---
+
+--- stderr ---
+  × Failed to build `xarray @ file:///tmp/pf-proposal-gkl7gyka/source`
+  ╰─▶ Building source distributions for `xarray` is disabled

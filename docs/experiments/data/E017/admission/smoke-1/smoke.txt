@@ -1,0 +1,19 @@
+✓  selected 1 cell, 3 active packages (0 pinned)
+   run-id: 20260912T050713.649383Z-204303-8eb7f92e
+   python: 3.11
+   platform: x86_64-unknown-linux-gnu
+   extra surfaces: no-extra
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  [py3.11][x86_64-unknown-linux-gnu][no-extra] 0:00:00                      │
+│    smoke failed at [baseline][highest][resolving project dependencies]       │
+│    This resolution attempt did not pass; a dependency conflict has not been  │
+│    proven.                                                                   │
+│    -> run `pf diagnose failure-02f85802177b3710 --package xarray` for more   │
+│    information.                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓  loaded project                                                            │
+│ ✓  built snapshot                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+✗  Smoke failed · highest-version resolution did not pass · 1 cell

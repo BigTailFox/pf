@@ -1,0 +1,36 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✗  failure-b5d51722f80af24f · rejected candidate                             │
+│                                                                              │
+│    What happened  The configured verifier rejected this version combination. │
+│    Impact         The highest-version resolution did not pass the required   │
+│                   checks.                                                    │
+│    -> Review the verifier diagnostics and log before changing code or        │
+│    dependency constraints.                                                   │
+│                                                                              │
+│    Context                                                                   │
+│    package  xarray                                                           │
+│    cell     [py3.11][x86_64-unknown-linux-gnu][no-extra]                     │
+│    stage    test                                                             │
+│    source   latest pf smoke                                                  │
+│                                                                              │
+│    Technical details                                                         │
+│    disposition  REJECTED                                                     │
+│    cause        VERIFIER_EXITED_NONZERO                                      │
+│    attempt      c39b4e3b1e196289e28b8b855f92422a220b9ebc0f70afc1a9499ec886da │
+│                 4d15                                                         │
+│    resolution   highest                                                      │
+│    vector       not applicable                                               │
+│    proposal     not available                                                │
+│    boundary     none                                                         │
+│    process      exited 1                                                     │
+│    output       FAILED                                                       │
+│                 xarray/tests/test_nd_point_index.py::test_tree_index_rename  │
+│                 - ImportEr...                                                │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures         │
+│                 !!!!!!!!!!!!!!!!!!!!!!!!!!!                                  │
+│                 = 1 ***, 3904 passed, 7078 skipped, 12 x***, 4 xpassed, 22   │
+│                 warnings in 33.01s =                                         │
+│    log          .pf/logs/20260912T051550.717882Z-213331-0a3d8294/process-000 │
+│                 9.log                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓  Diagnosis complete · failure-b5d51722f80af24f

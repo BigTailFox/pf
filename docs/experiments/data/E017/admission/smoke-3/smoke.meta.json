@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/home/llh/pf/.venv/bin/pf",
+    "smoke",
+    "--test-jobs",
+    "1"
+  ],
+  "cwd": "/home/llh/pf/experiments/xarray",
+  "started_at": "2026-09-12T05:08:49.607588+00:00",
+  "finished_at": "2026-09-12T05:09:09.264574+00:00",
+  "elapsed_s": 19.656986,
+  "exit_code": 1,
+  "log": "docs/experiments/data/E017/admission/smoke-3/smoke.txt",
+  "evidence": "docs/experiments/data/E017/admission/smoke-3",
+  "uv_cache_dir": "/tmp/pf-uv-cache"
+}
